@@ -1,7 +1,9 @@
+import { ForbiddenException } from '@nestjs/common';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
 import { ShareLinkService } from '../share-link/share-link.service';
+import { PrismaService } from '../database/prisma.service';
 
 describe('AnalyticsController ingest', () => {
   const link = {
@@ -20,7 +22,12 @@ describe('AnalyticsController ingest', () => {
       findByToken: () => Promise.resolve(link),
     } as unknown as ShareLinkService;
     const warehouse = {} as AnalyticsWarehouseService;
-    const controller = new AnalyticsController(producer, warehouse, shareLink);
+    const controller = new AnalyticsController(
+      producer,
+      warehouse,
+      shareLink,
+      {} as PrismaService,
+    );
     return { controller, produced };
   }
 
@@ -105,5 +112,50 @@ describe('AnalyticsController ingest', () => {
         req,
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe('AnalyticsController dashboard', () => {
+  function setup(opts: { memberRole?: string; authorID: number | null }) {
+    const warehouse = {
+      getDocumentAnalytics: () =>
+        Promise.resolve({ enabled: true, totalViews: 5 }),
+    } as unknown as AnalyticsWarehouseService;
+    const prisma = {
+      document: {
+        findUnique: () =>
+          Promise.resolve({
+            id: 'doc-1',
+            workspaceId: 'ws-1',
+            authorID: opts.authorID,
+          }),
+      },
+      workspaceMember: {
+        findUnique: () =>
+          Promise.resolve(opts.memberRole ? { role: opts.memberRole } : null),
+      },
+    } as unknown as PrismaService;
+    const controller = new AnalyticsController(
+      {} as AnalyticsProducerService,
+      warehouse,
+      {} as ShareLinkService,
+      prisma,
+    );
+    return controller;
+  }
+
+  it('allows a workspace owner and returns analytics', async () => {
+    const c = setup({ memberRole: 'owner', authorID: null });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.dashboard('doc-1', req, undefined, undefined);
+    expect((res as { totalViews: number }).totalViews).toBe(5);
+  });
+
+  it('forbids a non-manager member', async () => {
+    const c = setup({ memberRole: 'member', authorID: 999 });
+    const req = { user: { id: 7 } } as never;
+    await expect(
+      c.dashboard('doc-1', req, undefined, undefined),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

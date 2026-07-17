@@ -48,6 +48,19 @@ YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
                                         # mode: log the access decision but
                                         # never deny. true = enforce per-doc
                                         # access at the Yorkie auth webhook.
+WAFFLEBASE_KAFKA_ADDRESSES=             # Optional, comma-separated Kafka
+                                        # broker addresses for the view-event
+                                        # analytics producer. Unset disables
+                                        # analytics ingestion.
+WAFFLEBASE_KAFKA_TOPIC=                 # Optional, Kafka topic for view
+                                        # events. Unset disables analytics
+                                        # ingestion.
+WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
+                                        # (`user:pass@tcp(host:port)/db`) for
+                                        # the analytics warehouse query path.
+                                        # Unset disables the document
+                                        # analytics dashboard (returns
+                                        # `enabled: false`).
 ```
 
 ### Yorkie auth webhook (per-document access control)
@@ -161,6 +174,21 @@ All document endpoints require JWT authentication.
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
+
+### Analytics
+
+`POST /internal/analytics/view-events` is a beacon endpoint (share-token
+attributed, no JWT required) that batches client view events onto Kafka;
+disabled (no-op) when `WAFFLEBASE_KAFKA_ADDRESSES`/`WAFFLEBASE_KAFKA_TOPIC`
+are unset. `GET /documents/:id/analytics` requires JWT auth and is
+manager-gated (workspace owner or document author); it queries the
+StarRocks warehouse and returns `enabled: false` with empty metrics when
+`WAFFLEBASE_STARROCKS_DSN` is unset.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/internal/analytics/view-events` | Optional JWT (share token) | Ingest a batch of client view events (`{ shareToken, events }`) |
+| `GET` | `/documents/:id/analytics` | JWT (manager) | Get document view analytics (`?from=&to=`, defaults to last 30 days) |
 
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 

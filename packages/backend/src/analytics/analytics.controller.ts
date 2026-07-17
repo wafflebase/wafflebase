@@ -2,17 +2,30 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PrismaService } from '../database/prisma.service';
+import { isDocumentManager } from '../document/document-access';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
 import { coarseUserAgent } from './coarse-user-agent';
-import { ViewEvent, ViewEventInput, VIEW_EVENT_TYPES } from './analytics.types';
+import {
+  DocumentAnalytics,
+  ViewEvent,
+  ViewEventInput,
+  VIEW_EVENT_TYPES,
+} from './analytics.types';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 
 interface IngestBody {
@@ -31,12 +44,8 @@ export class AnalyticsController {
     private readonly producer: AnalyticsProducerService,
     private readonly warehouse: AnalyticsWarehouseService,
     private readonly shareLink: ShareLinkService,
-  ) {
-    // `warehouse` is unused until the GET /documents/:id/analytics handler
-    // lands in a later task; this keeps strict noUnusedLocals happy in the
-    // meantime without changing the constructor signature.
-    void this.warehouse;
-  }
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('internal/analytics/view-events')
   @SkipThrottle()
@@ -88,5 +97,37 @@ export class AnalyticsController {
 
     this.producer.produce(enriched);
     return { ok: true };
+  }
+
+  @Get('documents/:id/analytics')
+  @UseGuards(JwtAuthGuard)
+  async dashboard(
+    @Param('id') documentId: string,
+    @Req() req: Request,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+  ): Promise<DocumentAnalytics> {
+    const userId = Number((req as unknown as { user: { id: number } }).user.id);
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: doc.workspaceId, userId } },
+    });
+    if (!isDocumentManager(membership?.role, doc.authorID, userId)) {
+      throw new ForbiddenException(
+        'Only a document manager can view analytics',
+      );
+    }
+
+    // Default window: last 30 days. Validate range; swap if reversed.
+    const toDate = to ? new Date(to) : new Date();
+    const fromDate = from
+      ? new Date(from)
+      : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const [lo, hi] =
+      fromDate <= toDate ? [fromDate, toDate] : [toDate, fromDate];
+    return this.warehouse.getDocumentAnalytics(documentId, lo, hi);
   }
 }
