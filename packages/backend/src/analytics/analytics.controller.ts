@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../database/prisma.service';
 import { isDocumentManager } from '../document/document-access';
 import { ShareLinkService } from '../share-link/share-link.service';
+import { WorkspaceService } from '../workspace/workspace.service';
 import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
 import { coarseUserAgent } from './coarse-user-agent';
@@ -24,6 +25,7 @@ import {
   ViewEvent,
   ViewEventInput,
   VIEW_EVENT_TYPES,
+  WorkspaceAnalytics,
 } from './analytics.types';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 
@@ -37,6 +39,18 @@ function nowStarRocks(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
+// Default window: last 30 days. Fall back to defaults on unparsable from/to
+// (Invalid Date would otherwise blow up downstream); swap a reversed range.
+function resolveWindow(from?: string, to?: string): [Date, Date] {
+  const toDate =
+    to && !Number.isNaN(Date.parse(to)) ? new Date(to) : new Date();
+  const fromDate =
+    from && !Number.isNaN(Date.parse(from))
+      ? new Date(from)
+      : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+  return fromDate <= toDate ? [fromDate, toDate] : [toDate, fromDate];
+}
+
 @Controller()
 export class AnalyticsController {
   constructor(
@@ -44,6 +58,7 @@ export class AnalyticsController {
     private readonly warehouse: AnalyticsWarehouseService,
     private readonly shareLink: ShareLinkService,
     private readonly prisma: PrismaService,
+    private readonly workspace: WorkspaceService,
   ) {}
 
   @Post('internal/analytics/view-events')
@@ -146,17 +161,41 @@ export class AnalyticsController {
       );
     }
 
-    // Default window: last 30 days. Fall back to defaults on unparsable
-    // from/to (Invalid Date would otherwise blow up downstream). Validate
-    // range; swap if reversed.
-    const toDate =
-      to && !Number.isNaN(Date.parse(to)) ? new Date(to) : new Date();
-    const fromDate =
-      from && !Number.isNaN(Date.parse(from))
-        ? new Date(from)
-        : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const [lo, hi] =
-      fromDate <= toDate ? [fromDate, toDate] : [toDate, fromDate];
+    const [lo, hi] = resolveWindow(from, to);
     return this.warehouse.getDocumentAnalytics(documentId, lo, hi);
+  }
+
+  @Get('workspaces/:workspaceId/analytics')
+  @UseGuards(JwtAuthGuard)
+  async workspaceDashboard(
+    @Param('workspaceId') workspaceIdOrSlug: string,
+    @Req() req: Request,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+  ): Promise<WorkspaceAnalytics> {
+    const userId = Number((req as unknown as { user: { id: number } }).user.id);
+    // Gate on plain workspace membership (any member sees workspace analytics).
+    const workspaceId = await this.workspace.resolveId(workspaceIdOrSlug);
+    await this.workspace.assertMember(workspaceId, userId);
+
+    // Postgres owns the doc set + titles; StarRocks only knows document_id.
+    const docs = await this.prisma.document.findMany({
+      where: { workspaceId },
+      select: { id: true, title: true },
+    });
+    const titles = new Map(docs.map((d) => [d.id, d.title]));
+    const [lo, hi] = resolveWindow(from, to);
+    const result = await this.warehouse.getWorkspaceAnalytics(
+      docs.map((d) => d.id),
+      lo,
+      hi,
+    );
+    return {
+      ...result,
+      byDocument: result.byDocument.map((r) => ({
+        ...r,
+        title: titles.get(r.documentId) ?? r.documentId,
+      })),
+    };
   }
 }

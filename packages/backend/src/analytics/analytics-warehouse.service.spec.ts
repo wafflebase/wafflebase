@@ -63,4 +63,41 @@ describe('AnalyticsWarehouseService', () => {
     );
     expect(q.totalViews).toContain("document_id = 'd''1'");
   });
+
+  it('builds a workspace roll-up with an escaped document_id IN list', () => {
+    const svc = make({
+      WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
+    });
+    const q = svc.buildWorkspaceQueries(
+      ['d1', "d'2"],
+      new Date('2026-07-01T00:00:00Z'),
+      new Date('2026-07-17T00:00:00Z'),
+    );
+    expect(q.totalViews).toContain("document_id IN ('d1', 'd''2')");
+    expect(q.totalViews).toContain("timestamp < '2026-07-18'");
+    expect(q.byDocument).toContain('GROUP BY document_id');
+  });
+
+  it('returns disabled workspace payload when DSN unset or no documents', async () => {
+    const off = make({});
+    const a = await off.getWorkspaceAnalytics(
+      ['d1'],
+      new Date('2026-07-01'),
+      new Date('2026-07-17'),
+    );
+    expect(a.enabled).toBe(false);
+    expect(a.byDocument).toEqual([]);
+
+    const on = make({
+      WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
+    });
+    // No documents in the workspace -> no query, disabled payload.
+    const b = await on.getWorkspaceAnalytics(
+      [],
+      new Date('2026-07-01'),
+      new Date('2026-07-17'),
+    );
+    expect(b.enabled).toBe(false);
+    expect(b.totalViews).toBe(0);
+  });
 });

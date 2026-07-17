@@ -4,6 +4,7 @@ import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { PrismaService } from '../database/prisma.service';
+import { WorkspaceService } from '../workspace/workspace.service';
 
 describe('AnalyticsController ingest', () => {
   const link = {
@@ -27,6 +28,7 @@ describe('AnalyticsController ingest', () => {
       warehouse,
       shareLink,
       {} as PrismaService,
+      {} as WorkspaceService,
     );
     return { controller, produced };
   }
@@ -159,6 +161,7 @@ describe('AnalyticsController ingest', () => {
       {} as AnalyticsWarehouseService,
       shareLink,
       {} as PrismaService,
+      {} as WorkspaceService,
     );
     const req = { headers: {}, user: null } as never;
     const res = await controller.ingest(
@@ -197,6 +200,7 @@ describe('AnalyticsController dashboard', () => {
       warehouse,
       {} as ShareLinkService,
       prisma,
+      {} as WorkspaceService,
     );
     return controller;
   }
@@ -228,5 +232,65 @@ describe('AnalyticsController dashboard', () => {
     const req = { user: { id: 7 } } as never;
     const res = await c.dashboard('doc-1', req, 'garbage', undefined);
     expect((res as { totalViews: number }).totalViews).toBe(5);
+  });
+});
+
+describe('AnalyticsController workspaceDashboard', () => {
+  function setup(opts: { isMember: boolean }) {
+    const warehouse = {
+      getWorkspaceAnalytics: (ids: string[]) =>
+        Promise.resolve({
+          enabled: true,
+          totalViews: 9,
+          uniqueVisitors: 4,
+          viewsByDay: [],
+          byDocument: [
+            { documentId: 'd1', title: '', views: 7, uniqueVisitors: 3 },
+          ],
+          _ids: ids,
+        }),
+    } as unknown as AnalyticsWarehouseService;
+    const prisma = {
+      document: {
+        findMany: () =>
+          Promise.resolve([
+            { id: 'd1', title: 'Budget' },
+            { id: 'd2', title: 'Deck' },
+          ]),
+      },
+    } as unknown as PrismaService;
+    const workspace = {
+      resolveId: (idOrSlug: string) => Promise.resolve(idOrSlug),
+      assertMember: () => {
+        if (!opts.isMember) {
+          throw new ForbiddenException('Not a member of this workspace');
+        }
+        return Promise.resolve({ role: 'member' });
+      },
+    } as unknown as WorkspaceService;
+    const controller = new AnalyticsController(
+      {} as AnalyticsProducerService,
+      warehouse,
+      {} as ShareLinkService,
+      prisma,
+      workspace,
+    );
+    return controller;
+  }
+
+  it('aggregates a workspace and fills document titles from Postgres', async () => {
+    const c = setup({ isMember: true });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.workspaceDashboard('ws-1', req, undefined, undefined);
+    expect(res.totalViews).toBe(9);
+    expect(res.byDocument[0].title).toBe('Budget');
+  });
+
+  it('forbids a non-member', async () => {
+    const c = setup({ isMember: false });
+    const req = { user: { id: 7 } } as never;
+    await expect(
+      c.workspaceDashboard('ws-1', req, undefined, undefined),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

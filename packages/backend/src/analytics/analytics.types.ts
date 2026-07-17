@@ -55,3 +55,20 @@ export interface DocumentAnalytics {
   byShareLink: ShareLinkBreakdown[];
   byTarget: TargetBreakdown[];
 }
+
+/** One document's roll-up within a workspace analytics view. `title` is filled
+ * by the controller from Postgres; the warehouse only knows `documentId`. */
+export interface DocumentBreakdown {
+  documentId: string;
+  title: string;
+  views: number;
+  uniqueVisitors: number;
+}
+
+export interface WorkspaceAnalytics {
+  enabled: boolean;
+  totalViews: number;
+  uniqueVisitors: number;
+  viewsByDay: MetricSeriesPoint[];
+  byDocument: DocumentBreakdown[];
+}

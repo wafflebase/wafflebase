@@ -3,9 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import * as mysql from 'mysql2/promise';
 import {
   DocumentAnalytics,
+  DocumentBreakdown,
   MetricSeriesPoint,
   ShareLinkBreakdown,
   TargetBreakdown,
+  WorkspaceAnalytics,
 } from './analytics.types';
 
 /** Parse Yorkie-style DSN `user:pass@tcp(host:port)/db` into a mysql2 config. */
@@ -44,6 +46,14 @@ const EMPTY: DocumentAnalytics = {
   viewsByDay: [],
   byShareLink: [],
   byTarget: [],
+};
+
+const WS_EMPTY: WorkspaceAnalytics = {
+  enabled: false,
+  totalViews: 0,
+  uniqueVisitors: 0,
+  viewsByDay: [],
+  byDocument: [],
 };
 
 @Injectable()
@@ -130,6 +140,53 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
     }
   }
 
+  /** Pure builder for the workspace roll-up — `documentIds` are escaped and
+   * ORed into an IN (...) list. */
+  buildWorkspaceQueries(documentIds: string[], from: Date, to: Date) {
+    const ids = documentIds.map(sql).join(', ');
+    const lo = sql(day(from));
+    const hi = sql(day(new Date(to.getTime() + 86400000)));
+    const where = `document_id IN (${ids}) AND timestamp >= ${lo} AND timestamp < ${hi}`;
+    return {
+      totalViews: `SELECT COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
+      uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where};`,
+      viewsByDay: `SELECT DATE(timestamp) AS d, COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY d ORDER BY d ASC;`,
+      byDocument: `SELECT document_id AS k, COUNT(*) AS v, COUNT(DISTINCT visitor_id) AS u FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY document_id ORDER BY v DESC LIMIT 200;`,
+    };
+  }
+
+  /** Aggregate views across a workspace's documents. `documentIds` come from
+   * Postgres (the workspace's docs); the caller enriches `byDocument` with
+   * titles. Returns disabled/empty when the warehouse is off or the workspace
+   * has no documents. */
+  async getWorkspaceAnalytics(
+    documentIds: string[],
+    from: Date,
+    to: Date,
+  ): Promise<WorkspaceAnalytics> {
+    if (!this.pool || documentIds.length === 0) return WS_EMPTY;
+    const q = this.buildWorkspaceQueries(documentIds, from, to);
+    try {
+      const [totalViews, uniqueVisitors, viewsByDay, byDocument] =
+        await Promise.all([
+          this.count(q.totalViews),
+          this.count(q.uniqueVisitors),
+          this.series(q.viewsByDay),
+          this.documentRows(q.byDocument),
+        ]);
+      return {
+        enabled: true,
+        totalViews,
+        uniqueVisitors,
+        viewsByDay,
+        byDocument,
+      };
+    } catch (err) {
+      this.logger.error(`workspace warehouse query failed: ${String(err)}`);
+      return { ...WS_EMPTY, enabled: true };
+    }
+  }
+
   private async count(query: string): Promise<number> {
     const [rows] = await this.pool!.query(query);
     const r = (rows as Array<{ c: number | null }>)[0];
@@ -155,6 +212,16 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
     return (rows as Array<{ k: string; v: number }>).map((r) => ({
       target: r.k,
       views: Number(r.v),
+    }));
+  }
+  private async documentRows(query: string): Promise<DocumentBreakdown[]> {
+    const [rows] = await this.pool!.query(query);
+    // `title` is filled by the controller from Postgres.
+    return (rows as Array<{ k: string; v: number; u: number }>).map((r) => ({
+      documentId: r.k,
+      title: '',
+      views: Number(r.v),
+      uniqueVisitors: Number(r.u),
     }));
   }
 

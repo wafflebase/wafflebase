@@ -30,5 +30,84 @@ services:
     volumes:
       - minio-data:/data
 
+  # --- Analytics stack (Kafka + StarRocks) ---------------------------------
+  # Opt-in: `docker compose --profile analytics up -d`. Powers the Share Link
+  # view-analytics pipeline for local smoke testing. Omit the profile and the
+  # default stack (postgres/yorkie/minio) is unchanged; the backend degrades
+  # to no-op analytics when the env vars below are unset.
+  #
+  # Point the backend (`pnpm dev`) at the stack via packages/backend/.env:
+  #   WAFFLEBASE_KAFKA_ADDRESSES=localhost:29092
+  #   WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events
+  #   WAFFLEBASE_STARROCKS_DSN=root:@tcp(localhost:9030)/wafflebase
+  kafka:
+    image: apache/kafka:4.1.1
+    profiles: ["analytics"]
+    container_name: wafflebase-kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.3-latest
+    profiles: ["analytics"]
+    container_name: wafflebase-starrocks
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+      - "8040:8040"
+    healthcheck:
+      test: ['CMD-SHELL', 'mysql -h 127.0.0.1 -P 9030 -u root -e "SHOW BACKENDS\G" | grep "Alive: true"']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    volumes:
+      - starrocks-data:/data/deploy
+
+  # Creates the Kafka topic, then the StarRocks db/table/routine-load, then
+  # exits. Ordered after Kafka + StarRocks are healthy.
+  analytics-init-kafka:
+    image: apache/kafka:4.1.1
+    profiles: ["analytics"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/init-kafka-topic.sh"]
+    volumes:
+      - ./docker/analytics/init-kafka-topic.sh:/init-kafka-topic.sh:ro
+
+  analytics-init-starrocks:
+    image: mysql:8.0
+    profiles: ["analytics"]
+    depends_on:
+      starrocks:
+        condition: service_healthy
+      analytics-init-kafka:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "/init-starrocks.sh"]
+    volumes:
+      - ./docker/analytics/init-starrocks.sh:/init-starrocks.sh:ro
+      - ./docker/analytics/create-table.sql:/sql/create-table.sql:ro
+      - ./docker/analytics/create-routine-load.sql:/sql/create-routine-load.sql:ro
+
 volumes:
   minio-data:
+  kafka-data:
+  starrocks-data:
