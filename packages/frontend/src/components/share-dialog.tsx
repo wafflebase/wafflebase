@@ -28,9 +28,14 @@ import {
   createShareLink,
   getShareLinks,
   deleteShareLink,
-  ShareLink,
+  ShareLinkListItem,
+  ShareLinkPermissions,
 } from "@/api/share-links";
 import { isAuthExpiredError } from "@/api/auth";
+
+const DEFAULT_PERMISSIONS: ShareLinkPermissions = {
+  canCreateEditorLink: false,
+};
 
 const EXPIRATION_OPTIONS = [
   { value: "none", label: "No limit" },
@@ -61,16 +66,50 @@ export function ShareDialog({ documentId }: { documentId: string }) {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState("viewer");
   const [expiration, setExpiration] = useState("none");
-  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [links, setLinks] = useState<ShareLinkListItem[]>([]);
+  const [permissions, setPermissions] =
+    useState<ShareLinkPermissions>(DEFAULT_PERMISSIONS);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Refetch links + capabilities whenever the dialog opens or the document
+  // changes, resetting first so stale permissions from a previous document
+  // never leak into the gating below.
   useEffect(() => {
-    if (open) {
-      getShareLinks(documentId)
-        .then(setLinks)
-        .catch(() => {});
-    }
+    if (!open) return;
+    setLoaded(false);
+    setLinks([]);
+    setPermissions(DEFAULT_PERMISSIONS);
+    let cancelled = false;
+    getShareLinks(documentId)
+      .then((res) => {
+        if (cancelled) return;
+        setLinks(res.links);
+        setPermissions(res.permissions);
+      })
+      .catch((error) => {
+        if (cancelled || isAuthExpiredError(error)) return;
+        // Surface the failure and still unblock the form: permissions stay at
+        // their viewer-only default and the backend remains the real gate, so
+        // the user can retry rather than facing a permanently disabled button.
+        toast.error(
+          error instanceof Error ? error.message : "Failed to load share links",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, documentId]);
+
+  // A member who cannot create editor links must fall back to a viewer link.
+  useEffect(() => {
+    if (loaded && !permissions.canCreateEditorLink && role === "editor") {
+      setRole("viewer");
+    }
+  }, [loaded, permissions.canCreateEditorLink, role]);
 
   const handleCreate = async () => {
     setLoading(true);
@@ -80,13 +119,16 @@ export function ShareDialog({ documentId }: { documentId: string }) {
         role,
         expiration === "none" ? null : expiration,
       );
-      setLinks((prev) => [link, ...prev]);
+      // The creator can always revoke a link they just made.
+      setLinks((prev) => [{ ...link, canDelete: true }, ...prev]);
       const url = `${window.location.origin}/shared/${link.token}`;
       await navigator.clipboard.writeText(url);
       toast.success("Link created and copied to clipboard");
     } catch (error) {
       if (isAuthExpiredError(error)) return;
-      toast.error("Failed to create share link");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create share link",
+      );
     } finally {
       setLoading(false);
     }
@@ -143,9 +185,20 @@ export function ShareDialog({ documentId }: { documentId: string }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem
+                    value="editor"
+                    disabled={!loaded || !permissions.canCreateEditorLink}
+                  >
+                    Editor
+                  </SelectItem>
                 </SelectContent>
               </Select>
+              {loaded && !permissions.canCreateEditorLink && (
+                <p className="text-muted-foreground text-xs">
+                  Only the document owner or a workspace owner can create editor
+                  links.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="share-expiration">Expiration</Label>
@@ -192,15 +245,17 @@ export function ShareDialog({ documentId }: { documentId: string }) {
                         >
                           <IconCopy className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          aria-label="Revoke link"
-                          onClick={() => handleDelete(link.id)}
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                        </Button>
+                        {link.canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            aria-label="Revoke link"
+                            onClick={() => handleDelete(link.id)}
+                          >
+                            <IconTrash className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -210,7 +265,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
           )}
         </div>
         <div className="flex justify-end">
-          <Button onClick={handleCreate} disabled={loading}>
+          <Button onClick={handleCreate} disabled={loading || !loaded}>
             {loading ? "Creating..." : "Create Link"}
           </Button>
         </div>

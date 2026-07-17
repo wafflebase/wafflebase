@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -12,6 +13,8 @@ import {
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
+import { isDocumentManager } from '../../document/document-access';
+import { WorkspaceService } from '../../workspace/workspace.service';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { YorkieAdminService } from '../../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../../yorkie/yorkie-doc-key';
@@ -22,6 +25,7 @@ export class ApiV1DocumentsController {
   constructor(
     private readonly documentService: DocumentService,
     private readonly yorkieAdminService: YorkieAdminService,
+    private readonly workspaceService: WorkspaceService,
   ) {}
 
   @Get()
@@ -86,11 +90,34 @@ export class ApiV1DocumentsController {
   async remove(
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
+    @Req() req: AuthenticatedRequest,
   ) {
-    await this.documentService.getDocumentOrThrow({
+    const doc = await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
+    if (req.user.isApiKey) {
+      // API keys are workspace-scoped credentials minted by an owner; they act
+      // with workspace authority but must carry the `write` scope to mutate.
+      if (!req.user.scopes?.includes('write')) {
+        throw new ForbiddenException(
+          'This API key does not have write access',
+        );
+      }
+    } else {
+      // A human (JWT) caller may only delete a document they manage — as the
+      // workspace owner or the document's author.
+      const userId = Number(req.user.id);
+      const member = await this.workspaceService.assertMember(
+        workspaceId,
+        userId,
+      );
+      if (!isDocumentManager(member.role, doc.authorID, userId)) {
+        throw new ForbiddenException(
+          'Only the workspace owner or document owner can delete this document',
+        );
+      }
+    }
     return this.documentService.deleteDocument({ id: documentId });
   }
 }

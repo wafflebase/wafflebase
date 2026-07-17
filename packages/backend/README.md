@@ -156,10 +156,11 @@ All document endpoints require JWT authentication.
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/documents` | List all documents for authenticated user |
-| `GET` | `/documents/:id` | Get document by ID (owner only) |
+| `GET` | `/documents` | List documents across the user's workspaces (each row carries `canManage`) |
+| `GET` | `/documents/:id` | Get document by ID (workspace member) |
 | `POST` | `/documents` | Create a new document (`{ title }`) |
-| `DELETE` | `/documents/:id` | Delete document (owner only) |
+| `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
+| `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
 
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 

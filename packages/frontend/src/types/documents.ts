@@ -33,4 +33,8 @@ export type Document = {
   workspaceId: string;
   author?: DocumentAuthor | null;
   editors?: DocumentEditor[];
+  // Whether the current user may delete or move this document (workspace owner
+  // or the document's author). Set only by the documents-list endpoints; the
+  // backend stays the real gate. Absent → treat as not manageable.
+  canManage?: boolean;
 };
