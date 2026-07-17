@@ -67,7 +67,8 @@ data validation** (checkboxes, dropdowns, date/number/text criteria).
 - [x] `pnpm --filter @wafflebase/documentation build` — site builds, no dead links
 - [x] `pnpm verify:fast` — green (initial failure was missing `node_modules`;
       `pnpm install` fixed it, then lint + unit all pass)
-- [ ] Self-review diff, open PR
+- [x] High-effort `/code-review` — 2 confirmed doc-accuracy findings, both
+      fixed (see Review); PR #485 opened
 
 ## Review
 
@@ -103,3 +104,13 @@ of v0.6.0.
 **Out of scope:** The notes CLI namespace + backend note content endpoint
 (#483) landed *after* the v0.6.0 tag, so `developers/cli.md` and
 `developers/rest-api.md` are left unchanged per the "based on 0.6.0" scope.
+
+**Code review (high effort):** Two confirmed doc-accuracy findings, both fixed:
+1. `self-hosting.md` claimed embedded images use `FILE_STORAGE_*`, but the
+   backend reads images from a separate `IMAGE_STORAGE_*` config (bucket
+   `wafflebase-images`). Documented both buckets.
+2. `data-validation.md` listed a nonexistent toolbar "Insert" menu as an entry
+   point. Replaced with the real paths (toolbar icon, right-click, mobile
+   overflow menu).
+
+**PR:** #485 — https://github.com/wafflebase/wafflebase/pull/485
