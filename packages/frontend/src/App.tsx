@@ -26,6 +26,9 @@ const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazy(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazy(() => import("@/app/files/file-detail"));
 const NotesDetail = lazy(() => import("@/app/notes/notes-detail"));
+const DocumentAnalyticsPage = lazy(
+  () => import("@/app/analytics/document-analytics"),
+);
 const Layout = lazy(() => import("./app/Layout"));
 
 const WorkspaceDocuments = lazy(
@@ -85,6 +88,10 @@ function App() {
                   <Route path="/s/:id" element={<DocumentDetail />} />
                   <Route path="/f/:id" element={<FileDetail />} />
                   <Route path="/n/:id" element={<NotesDetail />} />
+                  <Route
+                    path="/analytics/:id"
+                    element={<DocumentAnalyticsPage />}
+                  />
                 </Route>
               </Routes>
             </Suspense>
