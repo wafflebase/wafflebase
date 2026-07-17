@@ -47,7 +47,7 @@ Yorkie 0.7.12 contract (verified from source):
 - [x] `attachMeta`: source `updatedAt` from the DB column; keep `editors`
       from the (best-effort) summary. Sort both list endpoints by
       `[{ updatedAt: desc }, { createdAt: desc }]`.
-- [ ] **Ops (post-merge, needs cluster access)**: register webhook on the
+- [x] **Ops (post-merge, needs cluster access)**: register webhook on the
       Yorkie project (internal svc URL) — see design doc. Until this runs,
       `updatedAt` stays at `createdAt` but the list is already stable.
 - [x] Tests: `parseYorkieDocKey` round-trip; guard valid/invalid/missing sig;
@@ -105,3 +105,12 @@ Deferred (documented in design Risks):
   deferred — see Tasks — and covered by the unit tests + monotonic SQL.)
 - Manual: list order stable across polls in `pnpm dev`; editing a doc floats
   it to the top after the next webhook.
+
+## Audit closure (2026-07-17)
+
+Archived by the active-tasks audit. Verified shipped: `yorkie-event.controller.ts`
+`DocumentRootChanged` + `touchUpdatedAt`, HMAC `yorkie-signature.guard.ts`,
+`Document.updatedAt` migration `20260710000000_add_document_updated_at`, both list
+endpoints sort `updatedAt desc`, full spec coverage. Boxes ticked for closure. **Open
+ops follow-up (not code)**: registering the event webhook on the Yorkie project needs
+cluster access — the list is already stable without it; tracked as a release-runbook step.

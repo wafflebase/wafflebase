@@ -6,16 +6,23 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 363
+Total archived tasks: 371
 
-## 2026/07 (33 tasks)
+## 2026/07 (41 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| active tasks audit (2026-07-17) | [20260717-active-tasks-audit-todo.md](./2026/07/20260717-active-tasks-audit-todo.md) | - |
+| documentation 0.6.0 update (2026-07-17) | [20260717-documentation-0.6.0-update-todo.md](./2026/07/20260717-documentation-0.6.0-update-todo.md) | [20260717-documentation-0.6.0-update-lessons.md](./2026/07/20260717-documentation-0.6.0-update-lessons.md) |
+| share link permissions (2026-07-17) | [20260717-share-link-permissions-todo.md](./2026/07/20260717-share-link-permissions-todo.md) | [20260717-share-link-permissions-lessons.md](./2026/07/20260717-share-link-permissions-lessons.md) |
+| notes cli (2026-07-16) | [20260716-notes-cli-todo.md](./2026/07/20260716-notes-cli-todo.md) | [20260716-notes-cli-lessons.md](./2026/07/20260716-notes-cli-lessons.md) |
+| release v0.6.0 (2026-07-16) | [20260716-release-v0.6.0-todo.md](./2026/07/20260716-release-v0.6.0-todo.md) | - |
+| notes markdown type (2026-07-15) | [20260715-notes-markdown-type-todo.md](./2026/07/20260715-notes-markdown-type-todo.md) | [20260715-notes-markdown-type-lessons.md](./2026/07/20260715-notes-markdown-type-lessons.md) |
 | slides mobile bg repaint (2026-07-14) | [20260714-slides-mobile-bg-repaint-todo.md](./2026/07/20260714-slides-mobile-bg-repaint-todo.md) | [20260714-slides-mobile-bg-repaint-lessons.md](./2026/07/20260714-slides-mobile-bg-repaint-lessons.md) |
 | checkbox parity (2026-07-12) | [20260712-checkbox-parity-todo.md](./2026/07/20260712-checkbox-parity-todo.md) | [20260712-checkbox-parity-lessons.md](./2026/07/20260712-checkbox-parity-lessons.md) |
 | checkbox validation bugfix (2026-07-12) | [20260712-checkbox-validation-bugfix-todo.md](./2026/07/20260712-checkbox-validation-bugfix-todo.md) | [20260712-checkbox-validation-bugfix-lessons.md](./2026/07/20260712-checkbox-validation-bugfix-lessons.md) |
 | release v0.5.1 (2026-07-12) | [20260712-release-v0.5.1-todo.md](./2026/07/20260712-release-v0.5.1-todo.md) | - |
+| slides background (2026-07-12) | [20260712-slides-background-todo.md](./2026/07/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./2026/07/20260712-slides-background-lessons.md) |
 | slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./2026/07/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./2026/07/20260712-slides-font-ooxml-parity-lessons.md) |
 | validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./2026/07/20260712-validation-number-text-todo.md) | - |
 | data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./2026/07/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./2026/07/20260711-data-validation-panel-lessons.md) |
@@ -24,6 +31,7 @@ Total archived tasks: 363
 | sheets xlsx style import (2026-07-11) | [20260711-sheets-xlsx-style-import-todo.md](./2026/07/20260711-sheets-xlsx-style-import-todo.md) | - |
 | slides gradient fill (2026-07-11) | [20260711-slides-gradient-fill-todo.md](./2026/07/20260711-slides-gradient-fill-todo.md) | [20260711-slides-gradient-fill-lessons.md](./2026/07/20260711-slides-gradient-fill-lessons.md) |
 | data validation list (2026-07-10) | [20260710-data-validation-list-todo.md](./2026/07/20260710-data-validation-list-todo.md) | [20260710-data-validation-list-lessons.md](./2026/07/20260710-data-validation-list-lessons.md) |
+| docs list updatedat webhook (2026-07-10) | [20260710-docs-list-updatedat-webhook-todo.md](./2026/07/20260710-docs-list-updatedat-webhook-todo.md) | [20260710-docs-list-updatedat-webhook-lessons.md](./2026/07/20260710-docs-list-updatedat-webhook-lessons.md) |
 | pptx layout background (2026-07-10) | [20260710-pptx-layout-background-todo.md](./2026/07/20260710-pptx-layout-background-todo.md) | [20260710-pptx-layout-background-lessons.md](./2026/07/20260710-pptx-layout-background-lessons.md) |
 | sheet data validation checkbox (2026-07-10) | [20260710-sheet-data-validation-checkbox-todo.md](./2026/07/20260710-sheet-data-validation-checkbox-todo.md) | [20260710-sheet-data-validation-checkbox-lessons.md](./2026/07/20260710-sheet-data-validation-checkbox-lessons.md) |
 | slides charts (2026-07-09) | [20260709-slides-charts-todo.md](./2026/07/20260709-slides-charts-todo.md) | [20260709-slides-charts-lessons.md](./2026/07/20260709-slides-charts-lessons.md) |

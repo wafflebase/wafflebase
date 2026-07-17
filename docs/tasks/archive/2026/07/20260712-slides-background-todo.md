@@ -46,7 +46,7 @@
 - Consumes: `Fill = ThemeColor | GradientFill`, `migrateGradientFill(raw): GradientFill` (both already exported — `theme.ts:85`, `migrate.ts:173`).
 - Produces: `resolveBackgroundFill(slide, doc): Fill` (widened return); `Background.fill?: Fill`; `MasterBackground.fill: Fill`. Later tasks rely on these widened types.
 
-- [ ] **Step 1: Write the failing test** — `migrateBackground` preserves a gradient fill
+- [x] **Step 1: Write the failing test** — `migrateBackground` preserves a gradient fill
 
 ```typescript
 // in packages/slides/src/model/migrate.test.ts
@@ -72,12 +72,12 @@ it('migrates a gradient background fill', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- migrate`
 Expected: FAIL — `migrateBackground` currently routes `fill` through `wrapColor`, which collapses the gradient to `{ kind: 'role', role: 'background' }`.
 
-- [ ] **Step 3: Widen types + add the gradient branch**
+- [x] **Step 3: Widen types + add the gradient branch**
 
 ```typescript
 // presentation.ts — import Fill alongside ThemeColor from ./theme
@@ -132,17 +132,17 @@ function migrateBackground(bg: any): { fill?: Fill; image?: any } {
     fill?: import('@wafflebase/slides').Fill;
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- migrate`
 Expected: PASS. Also add/keep a case asserting a plain solid fill and a legacy string fill still migrate through `wrapColor` unchanged.
 
-- [ ] **Step 5: Typecheck the widening didn't break a consumer**
+- [x] **Step 5: Typecheck the widening didn't break a consumer**
 
 Run: `pnpm --filter @wafflebase/slides build && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: no type errors. If `resolveBackgroundFill` callers now see `Fill` where they passed to `resolveColor(...: ThemeColor)`, that's Task 2's renderer swap and the Task 5 picker — leave those; if a NON-target caller breaks, collapse it with `representativeColor(fill)` (already exported).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/model/presentation.ts packages/slides/src/model/master.ts packages/slides/src/model/migrate.ts packages/frontend/src/types/slides-document.ts packages/slides/src/model/migrate.test.ts
@@ -161,7 +161,7 @@ git commit -m "Widen slide Background.fill to Fill (solid|gradient)" -m "..." -m
 - Consumes: `resolveFillStyle(ctx, fill, theme, w, h): string | CanvasGradient` (`render-context.ts:20`), `resolveBackgroundFill(): Fill` (Task 1), `SLIDE_WIDTH`, `slideH` (already in scope in `drawSlide`).
 - Produces: no new exports.
 
-- [ ] **Step 1: Write the failing test** — a gradient background calls `createLinearGradient`, not a solid fill
+- [x] **Step 1: Write the failing test** — a gradient background calls `createLinearGradient`, not a solid fill
 
 ```typescript
 // Use a fake ctx that records createLinearGradient calls and fillStyle.
@@ -178,12 +178,12 @@ it('paints a gradient slide background across the slide box', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- slide-renderer`
 Expected: FAIL — `resolveColor` returns a string and never calls `createLinearGradient`.
 
-- [ ] **Step 3: Swap both paint sites to `resolveFillStyle`**
+- [x] **Step 3: Swap both paint sites to `resolveFillStyle`**
 
 ```typescript
 // import at top of slide-renderer.ts (from ./render-context)
@@ -209,12 +209,12 @@ if (!hasPasteboard) {
 
 Note: the no-pasteboard `fillRect(0,0,bitmapW,bitmapH)` still fills the whole bitmap, but the gradient's coordinate space is the `SLIDE_WIDTH × slideH` box passed to `resolveFillStyle` — the axis spans the slide and extends flat past its edges, which is the desired look (no visible seam because the pasteboard path is the one that matters for large canvases).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- slide-renderer`
 Expected: PASS. Keep a solid-fill case green (asserts `fillStyle` is a string).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/slide-renderer.ts packages/slides/src/view/canvas/slide-renderer.test.ts
@@ -247,7 +247,7 @@ git commit -m "Render gradient slide backgrounds via resolveFillStyle" -m "..." 
 }
 ```
 
-- [ ] **Step 1: Write the failing test** — solid, gradient-draft, image, reset
+- [x] **Step 1: Write the failing test** — solid, gradient-draft, image, reset
 
 ```typescript
 import { renderHook, act } from '@testing-library/react';
@@ -279,12 +279,12 @@ it('onChooseImage writes { image:{src} } and onResetToTheme writes {}', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background`
 Expected: FAIL — the current hook only returns `{ backgroundFill, onChange }`.
 
-- [ ] **Step 3: Rewrite the hook**
+- [x] **Step 3: Rewrite the hook**
 
 ```typescript
 import { useCallback, useEffect, useState } from 'react';
@@ -371,12 +371,12 @@ export function useSlideBackground(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/use-slide-background.ts packages/frontend/tests/app/slides/use-slide-background.test.ts
@@ -397,7 +397,7 @@ git commit -m "Widen useSlideBackground for gradient/image/reset" -m "..." -m "C
 - Consumes: `useSlideBackground` return (Task 3), `FillPicker` (`fill-picker/index.tsx:32`, props `{ fill, theme, recentColors, onChangeSolid, onChangeGradient, onClear }`), the upload fn `(file: File) => Promise<{ url: string; w: number; h: number }>` threaded from `slides-detail.tsx`.
 - Produces: `BackgroundPanel` component (default export or named), consumed by Task 5.
 
-- [ ] **Step 1: Write `BackgroundPanel`**
+- [x] **Step 1: Write `BackgroundPanel`**
 
 ```tsx
 // background-panel.tsx
@@ -464,12 +464,12 @@ export function BackgroundPanel({ store, theme, slideId, upload, onCommit }: Bac
 }
 ```
 
-- [ ] **Step 2: Typecheck the new component (no unit test — repo convention)**
+- [x] **Step 2: Typecheck the new component (no unit test — repo convention)**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: no type errors. `BackgroundPanel`'s reset/color/image wiring is covered by the Task 3 `use-slide-background` hook test; the component itself is verified by build + the Task 6 browser smoke.
 
-- [ ] **Step 3: Swap the desktop control to `BackgroundPanel`**
+- [x] **Step 3: Swap the desktop control to `BackgroundPanel`**
 
 In `global-controls.tsx`: add `upload?` to `RightGlobalsProps`; replace the `useSlideBackground(...) + <ThemedColorPicker>` block (L145-227) — keep the `DropdownMenu` + `ColorSwatchButton` trigger, but render `<BackgroundPanel store={store} theme={theme} slideId={slideId} upload={upload} onCommit={() => { backgroundMenu.markSwatchClicked(); setBackgroundOpen(false); }} />` inside `DropdownMenuContent`, and flush the gradient draft on close. Because the swatch button needs a resolved color, keep a small `useSlideBackground` read JUST for `backgroundFill` → `currentBackground` (or move that read into a tiny selector); render the stripe via `resolveColor(representativeColor(fill), theme)` so a gradient still shows a swatch.
 
@@ -480,16 +480,16 @@ In `global-controls.tsx`: add `upload?` to `RightGlobalsProps`; replace the `use
 
 (Expose the flush by lifting `useSlideBackground` into `RightGlobals` and passing `onChange*` down, OR give `BackgroundPanel` an imperative `onFlush` via a ref. Prefer lifting the hook into `RightGlobals` and passing the whole `bg` object into `BackgroundPanel` as a prop, so the close handler can call `bg.onFlushGradientDraft()` — this keeps one hook instance.)
 
-- [ ] **Step 4: Thread `upload` into `RightGlobals`**
+- [x] **Step 4: Thread `upload` into `RightGlobals`**
 
 In `toolbar/index.tsx` at the `<RightGlobals .../>` render (L130), add `upload={upload}` (the Toolbar already receives `upload` — it passes it to `ObjectSection` at L122). Confirm `upload` is a Toolbar prop; if not, add it to the Toolbar props and pass from `slides-detail.tsx` where `<Toolbar>` is rendered (uploadFn is defined at `slides-detail.tsx:309`).
 
-- [ ] **Step 5: Verify build + tests**
+- [x] **Step 5: Verify build + tests**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend build`
 Expected: no type errors, build succeeds. (No component unit tests — repo convention.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/background-panel.tsx packages/frontend/src/app/slides/background-panel.test.tsx packages/frontend/src/app/slides/toolbar/global-controls.tsx packages/frontend/src/app/slides/toolbar/index.tsx
@@ -506,7 +506,7 @@ git commit -m "Desktop slide Background panel: color/gradient/image/reset" -m ".
 **Interfaces:**
 - Consumes: `BackgroundPanel` (Task 4), the mobile toolbar's `upload` prop (add it if absent, threaded from `slides-detail.tsx`).
 
-- [ ] **Step 1: Replace the sheet body**
+- [x] **Step 1: Replace the sheet body**
 
 ```tsx
 function SlideBackgroundSheet({ open, onOpenChange, store, theme, slideId, upload }: {
@@ -533,12 +533,12 @@ function SlideBackgroundSheet({ open, onOpenChange, store, theme, slideId, uploa
 
 Rename the menu label at L615 `Slide background…` → keep (it opens the sheet); the sheet title reads `Background`. Pass `upload={upload}` where `<SlideBackgroundSheet .../>` is rendered (L631-639).
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/frontend build`
 Expected: no type errors, build succeeds. (Mobile sheet is a view component — no unit test; verified in the Task 6 browser smoke at a mobile viewport.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/mobile-toolbar.tsx
@@ -552,16 +552,16 @@ git commit -m "Mobile slide Background sheet reuses BackgroundPanel" -m "..." -m
 **Files:**
 - Modify: `packages/frontend/src/app/slides/toolbar/global-controls.tsx` (tooltip/label `Slide background` → `Background`, `IconBackground` kept)
 
-- [ ] **Step 1: Rename the control label**
+- [x] **Step 1: Rename the control label**
 
 Change the `ColorSwatchButton label="Slide background"` and `<TooltipContent>Slide background</TooltipContent>` (L207/L212) to `Background`.
 
-- [ ] **Step 2: Manual smoke in `pnpm dev`**
+- [x] **Step 2: Manual smoke in `pnpm dev`**
 
 Run: `docker compose up -d && pnpm dev`
 Verify on a slide: (a) Color solid pick paints; (b) Gradient tab → drag a stop → release persists, one undo reverts it; (c) Choose image → background shows the image; (d) Reset to theme clears back to inherited; (e) desktop + mobile viewport both work.
 
-- [ ] **Step 3: Run the Phase 1 gate + commit**
+- [x] **Step 3: Run the Phase 1 gate + commit**
 
 ```bash
 pnpm verify:fast
@@ -583,7 +583,7 @@ git commit -m "Rename slides Background Color control to Background" -m "..." -m
 **Interfaces:**
 - Consumes: `SlidesStore.updateMaster(masterId, patch: MasterPatch)` where `MasterPatch.background = { fill?: ThemeColor; image?: MasterBackgroundImage | null }` (`store.ts:25-27`, L115). NOTE the master patch fill type is `ThemeColor`, not `Fill` — see Step 3.
 
-- [ ] **Step 1: Failing test** — `onApplyToAll` calls `updateMaster` with the current resolved background
+- [x] **Step 1: Failing test** — `onApplyToAll` calls `updateMaster` with the current resolved background
 
 ```typescript
 it('onApplyToAll writes the current background to the master', () => {
@@ -594,12 +594,12 @@ it('onApplyToAll writes the current background to the master', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background`
 Expected: FAIL — `onApplyToAll` undefined.
 
-- [ ] **Step 3: Implement `onApplyToAll`**
+- [x] **Step 3: Implement `onApplyToAll`**
 
 Decide the master-patch fill type. `MasterPatch.background.fill` is `ThemeColor` today. To let a gradient background apply to all, **widen `MasterPatch.background.fill: ThemeColor → Fill` in `store.ts:27`** and confirm the `MemSlidesStore` + `YorkieSlidesStore` `updateMaster` impls clone the patch (they already `clone`, so no logic change). Then:
 
@@ -622,11 +622,11 @@ const onApplyToAll = useCallback(() => {
 
 Add `onApplyToAll` to the hook's return object.
 
-- [ ] **Step 4: Add the panel button**
+- [x] **Step 4: Add the panel button**
 
 In `background-panel.tsx`, add below Reset: `<button ... onClick={bg.onApplyToAll}>Apply to all slides</button>`.
 
-- [ ] **Step 5: Run tests + commit**
+- [x] **Step 5: Run tests + commit**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background && pnpm --filter @wafflebase/frontend exec tsc --noEmit && pnpm --filter @wafflebase/slides build`
 ```bash
@@ -646,7 +646,7 @@ git commit -m "Slides Background: apply to all slides (master)" -m "..." -m "Co-
 **Interfaces:**
 - Consumes: `BackgroundImage.opacity` (`presentation.ts:15`), already painted by `drawImage`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```typescript
 it('onChangeImageOpacity preserves src and sets opacity', () => {
@@ -657,9 +657,9 @@ it('onChangeImageOpacity preserves src and sets opacity', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail** — `pnpm --filter @wafflebase/frontend test -- use-slide-background`
+- [x] **Step 2: Run to verify fail** — `pnpm --filter @wafflebase/frontend test -- use-slide-background`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 const onChangeImageOpacity = useCallback((opacity: number) => {
@@ -670,7 +670,7 @@ const onChangeImageOpacity = useCallback((opacity: number) => {
 
 Add to the return. In `background-panel.tsx`, render a range input (0..1) beneath the image buttons when `bg.backgroundImage`, wired to `bg.onChangeImageOpacity`. Debounce is unnecessary if the slider commits on change; if it feels chatty, gate the store write to `onPointerUp` and keep a local value during drag.
 
-- [ ] **Step 4: Tests + commit**
+- [x] **Step 4: Tests + commit**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-slide-background && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 ```bash
@@ -691,7 +691,7 @@ git commit -m "Slides Background: image opacity slider" -m "..." -m "Co-Authored
 **Interfaces:**
 - Consumes: `parseGradientFill(grad, clrMap): GradientFill | undefined` (`shape.ts:940`), `fillXml(fill: Fill): string` (`color.ts:67`, already emits `gradFillXml` for ≥2-stop gradients else representative solid).
 
-- [ ] **Step 1: Failing round-trip test** — a gradient `<p:bg>` imports to a gradient fill and re-exports as `<a:gradFill>`
+- [x] **Step 1: Failing round-trip test** — a gradient `<p:bg>` imports to a gradient fill and re-exports as `<a:gradFill>`
 
 ```typescript
 it('round-trips a gradient slide background', async () => {
@@ -706,12 +706,12 @@ it('round-trips a gradient slide background', async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @wafflebase/slides test -- pptx`
 Expected: FAIL — importer ignores `gradFill`; exporter emits `<a:solidFill>` (representative color) via the local `solidFillXml`.
 
-- [ ] **Step 3: Import branch**
+- [x] **Step 3: Import branch**
 
 ```typescript
 // shape.ts L940 — export it
@@ -726,7 +726,7 @@ if (grad) {
 // import parseGradientFill from './shape.js'
 ```
 
-- [ ] **Step 4: Export swap (mind the shadow)**
+- [x] **Step 4: Export swap (mind the shadow)**
 
 ```typescript
 // export/pptx/slide.ts
@@ -741,7 +741,7 @@ function backgroundToXml(bg: Background): string {
 
 Update the stale comment block (L61-77) noting gradients now round-trip.
 
-- [ ] **Step 5: Run tests + commit**
+- [x] **Step 5: Run tests + commit**
 
 Run: `pnpm --filter @wafflebase/slides test -- pptx`
 Expected: PASS. Solid + image background tests stay green (image export is still fill-fallback — unchanged, out of scope).
@@ -754,13 +754,22 @@ git commit -m "PPTX: round-trip gradient slide backgrounds" -m "..." -m "Co-Auth
 
 ## Finalization
 
-- [ ] Run the full gate: `pnpm verify:self` (lint + unit + builds).
-- [ ] Self-review the branch diff via `/code-review` (or `superpowers:requesting-code-review`); apply blocking findings.
-- [ ] Capture lessons in `docs/tasks/active/20260712-slides-background-lessons.md`.
-- [ ] `git fetch && git rebase origin/main`; open PR (title ≤70 chars; body = Summary + Test plan).
+- [x] Run the full gate: `pnpm verify:self` (lint + unit + builds).
+- [x] Self-review the branch diff via `/code-review` (or `superpowers:requesting-code-review`); apply blocking findings.
+- [x] Capture lessons in `docs/tasks/active/20260712-slides-background-lessons.md`.
+- [x] `git fetch && git rebase origin/main`; open PR (title ≤70 chars; body = Summary + Test plan).
 
 ## Self-Review (plan vs spec)
 
 - **Spec coverage:** label rename → Task 6; Color solid+gradient → Tasks 1-4; Image + upload → Tasks 3-4; Reset to theme → Tasks 3-4; model widening → Task 1; renderer swap → Task 2; Yorkie migrate → Task 1; desktop+mobile → Tasks 4-5; Apply to all → Task 7; image opacity → Task 8; PPTX gradient → Task 9. Non-goals (tile/repeat, bg-image crop) intentionally absent.
 - **Type consistency:** `resolveBackgroundFill: Fill` used by renderer (Task 2) and hook (Task 3); `FillPicker` prop names (`onChangeSolid`/`onChangeGradient`/`onClear`) match its definition; `MasterPatch.background.fill` widened in Task 7 where the gradient master-write needs it.
 - **Open confirmations for the implementer (read before coding, not blockers):** exact test-file names/paths per package; whether `upload` is already a Toolbar prop (Task 4 Step 4); the migrate entry export name (`migrateDocument` vs other) in Task 1.
+
+## Audit closure (2026-07-17)
+
+Archived by the active-tasks audit. Verified shipped: merged PR #475 —
+`Background.fill: Fill` + `migrateBackground`, renderer `resolveFillStyle` (both
+paint sites), PPTX `<a:gradFill>` import+export round-trip, full `use-slide-background.ts`
+hook (incl. Phase 2 opacity + Apply-to-all), `background-side-panel.tsx`. Lessons
+captured in the paired `-lessons.md`. Boxes ticked for closure; the manual `pnpm dev`
+smoke steps were not separately re-run in this audit (feature verified via tests + merge).

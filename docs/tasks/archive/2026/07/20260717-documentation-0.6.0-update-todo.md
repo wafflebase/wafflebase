@@ -114,3 +114,10 @@ of v0.6.0.
    overflow menu).
 
 **PR:** #485 — https://github.com/wafflebase/wafflebase/pull/485
+
+## Audit closure (2026-07-17, second pass)
+
+Archived by the active-tasks audit after pulling `main`. Verified shipped: merged
+PR #485 (`d7cf8d5c2`) — 3 new documentation pages (`notes/writing-a-note.md`,
+`pdf/viewing-pdfs.md`, `sheets/data-validation.md`) plus nav/sidebar wiring, bringing
+the docs site from v0.4.9 to v0.6.0 feature parity. All 17 boxes already checked.
