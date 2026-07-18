@@ -1,6 +1,6 @@
 ---
 title: documents-multi-file-upload
-target-version: 0.7.0
+target-version: 0.6.1
 ---
 
 <!-- Make sure to append document link in design README.md after creating the document. -->
