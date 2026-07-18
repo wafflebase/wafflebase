@@ -573,19 +573,22 @@ export function DocumentList({
             const { label, Icon, color } = TYPE_META[type];
             const active = typeFilters.has(type);
             return (
-              <Button
-                key={type}
-                type="button"
-                variant={active ? "secondary" : "outline"}
-                size="icon"
-                aria-pressed={active}
-                aria-label={`Filter by ${label}`}
-                title={label}
-                onClick={() => toggleType(type)}
-                className={active ? undefined : "text-muted-foreground"}
-              >
-                <Icon className={`h-4 w-4 ${color}`} />
-              </Button>
+              <Tooltip key={type}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={active ? "secondary" : "outline"}
+                    size="icon"
+                    aria-pressed={active}
+                    aria-label={`Filter by ${label}`}
+                    onClick={() => toggleType(type)}
+                    className={active ? undefined : "text-muted-foreground"}
+                  >
+                    <Icon className={`h-4 w-4 ${color}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>
