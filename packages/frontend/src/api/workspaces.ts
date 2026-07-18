@@ -236,6 +236,19 @@ export interface WorkspaceAnalytics {
 }
 
 /**
+ * Whether the deployment has analytics configured (a StarRocks warehouse to
+ * read from). Used to hide the Analytics nav entry when it is not.
+ */
+export async function fetchAnalyticsEnabled(): Promise<boolean> {
+  const res = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/analytics/enabled`,
+  );
+  if (!res.ok) return false;
+  const data = (await res.json()) as { enabled?: boolean };
+  return Boolean(data.enabled);
+}
+
+/**
  * Fetches aggregated view analytics for a workspace (member-gated).
  */
 export async function getWorkspaceAnalytics(

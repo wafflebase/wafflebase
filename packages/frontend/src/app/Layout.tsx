@@ -9,7 +9,11 @@ import {
   IconChartBar,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import {
+  fetchWorkspaces,
+  fetchAnalyticsEnabled,
+  type Workspace,
+} from "@/api/workspaces";
 import { useEffect, useMemo } from "react";
 
 /** Declarative route → title mapping. First match wins. */
@@ -37,6 +41,14 @@ export default function Layout() {
     queryFn: fetchWorkspaces,
   });
 
+  // Hide the Analytics nav entry when the deployment has no analytics
+  // warehouse configured (StarRocks unset).
+  const { data: analyticsEnabled = false } = useQuery({
+    queryKey: ["analytics", "enabled"],
+    queryFn: fetchAnalyticsEnabled,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const currentWorkspace = workspaces.find(
     (w) => w.slug === workspaceId || w.id === workspaceId,
   );
@@ -57,11 +69,15 @@ export default function Layout() {
             url: `/w/${workspaceSlug}/datasources`,
             icon: IconDatabase,
           },
-          {
-            title: "Analytics",
-            url: `/w/${workspaceSlug}/analytics`,
-            icon: IconChartBar,
-          },
+          ...(analyticsEnabled
+            ? [
+                {
+                  title: "Analytics",
+                  url: `/w/${workspaceSlug}/analytics`,
+                  icon: IconChartBar,
+                },
+              ]
+            : []),
           {
             title: "Settings",
             url: `/w/${workspaceSlug}/settings`,
@@ -80,7 +96,7 @@ export default function Layout() {
       ],
       secondary: [],
     };
-  }, [workspaceSlug]);
+  }, [workspaceSlug, analyticsEnabled]);
 
   const title =
     ROUTE_TITLES.find((r) => matchPath(r.path, location.pathname))?.title ?? "";

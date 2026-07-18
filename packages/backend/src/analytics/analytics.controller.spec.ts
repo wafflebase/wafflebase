@@ -235,6 +235,26 @@ describe('AnalyticsController dashboard', () => {
   });
 });
 
+describe('AnalyticsController analyticsEnabled', () => {
+  function make(enabled: boolean) {
+    const warehouse = {
+      isEnabled: () => enabled,
+    } as unknown as AnalyticsWarehouseService;
+    return new AnalyticsController(
+      {} as AnalyticsProducerService,
+      warehouse,
+      {} as ShareLinkService,
+      {} as PrismaService,
+      {} as WorkspaceService,
+    );
+  }
+
+  it('reports the warehouse enabled flag', () => {
+    expect(make(true).analyticsEnabled()).toEqual({ enabled: true });
+    expect(make(false).analyticsEnabled()).toEqual({ enabled: false });
+  });
+});
+
 describe('AnalyticsController workspaceDashboard', () => {
   function setup(opts: { isMember: boolean }) {
     const warehouse = {

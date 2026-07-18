@@ -139,6 +139,15 @@ export class AnalyticsController {
     return { ok: true };
   }
 
+  /** Whether the analytics dashboards have a warehouse to read from. The
+   * frontend uses this to hide the Analytics nav entry when the deployment
+   * has no StarRocks configured. */
+  @Get('analytics/enabled')
+  @UseGuards(JwtAuthGuard)
+  analyticsEnabled(): { enabled: boolean } {
+    return { enabled: this.warehouse.isEnabled() };
+  }
+
   @Get('documents/:id/analytics')
   @UseGuards(JwtAuthGuard)
   async dashboard(
