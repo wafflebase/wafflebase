@@ -103,6 +103,7 @@ import {
   type Workspace,
 } from "@/api/workspaces";
 import { UploadPanel } from "./upload-panel";
+import { useWindowFileDrop } from "./use-window-file-drop";
 import { enqueue, startUploads } from "./upload-queue";
 import { pickFiles } from "./pick-files";
 
@@ -449,67 +450,10 @@ export function DocumentList({
     [workspaceId, scheduleListRefresh],
   );
 
-  const [dragging, setDragging] = useState(false);
-
-  // Google-Drive-style: the whole window is the drop target, not just the
-  // list. Window-level listeners both (a) neutralize the browser default so a
-  // file dropped anywhere — nav, header, page margins — never navigates the
-  // tab to the raw file (destroying SPA state + in-flight uploads), and (b)
-  // drive the full-viewport overlay and enqueue the batch on drop. A depth
-  // counter tracks enter/leave across nested children so the overlay doesn't
-  // flicker off when the pointer crosses element boundaries mid-drag.
-  useEffect(() => {
-    const isFileDrag = (e: DragEvent) =>
-      !!e.dataTransfer?.types?.includes("Files");
-    let depth = 0;
-    const onEnter = (e: DragEvent) => {
-      if (!isFileDrag(e)) return;
-      e.preventDefault();
-      depth += 1;
-      setDragging(true);
-    };
-    const onOver = (e: DragEvent) => {
-      if (isFileDrag(e)) e.preventDefault();
-    };
-    const onLeave = (e: DragEvent) => {
-      if (!isFileDrag(e)) return;
-      depth = Math.max(0, depth - 1);
-      if (depth === 0) setDragging(false);
-    };
-    const reset = () => {
-      depth = 0;
-      setDragging(false);
-    };
-    const onDrop = (e: DragEvent) => {
-      if (!isFileDrag(e)) return;
-      e.preventDefault();
-      reset();
-      startBatch(Array.from(e.dataTransfer?.files ?? []));
-    };
-    // Belt-and-suspenders dismissal: some browsers fire no window `dragleave`
-    // when a drag is cancelled with ESC or the pointer leaves the window, so
-    // the depth counter can stay > 0 and the overlay would stick open. Force
-    // a reset on those signals.
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") reset();
-    };
-    window.addEventListener("dragenter", onEnter);
-    window.addEventListener("dragover", onOver);
-    window.addEventListener("dragleave", onLeave);
-    window.addEventListener("drop", onDrop);
-    window.addEventListener("dragend", reset);
-    window.addEventListener("blur", reset);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("dragenter", onEnter);
-      window.removeEventListener("dragover", onOver);
-      window.removeEventListener("dragleave", onLeave);
-      window.removeEventListener("drop", onDrop);
-      window.removeEventListener("dragend", reset);
-      window.removeEventListener("blur", reset);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [startBatch]);
+  // Google-Drive-style whole-window drop: a file dropped anywhere (not just on
+  // the list) enqueues, and a stray drop never navigates the tab. See
+  // useWindowFileDrop for the listener/overlay lifecycle.
+  const dragging = useWindowFileDrop(startBatch);
 
   const handleImportPick = async (accept: string) => {
     startBatch(await pickFiles(accept));

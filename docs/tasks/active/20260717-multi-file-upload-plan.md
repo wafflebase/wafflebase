@@ -1006,4 +1006,3 @@ PR title ≤70 chars, body = Summary + Test plan.
 - **Spec coverage:** drop zone (Task 6) ✓; multi-select (Task 6) ✓; upload panel with per-file progress/retry (Task 5) ✓; unsupported→skipped (Task 2/3) ✓; hand-rolled store, no library (Task 3) ✓; `useState+subscribe` hook, not `useSyncExternalStore` (Task 5) ✓; importer no-regression refactor (Task 1) ✓; workspaceId captured at enqueue (Task 3) ✓; concurrency cap + main-thread-freeze mitigation (Task 4) ✓; duplicate-doc-on-retry guard (Task 4) ✓; size-limit surfaced as per-row error (Task 4 error path) ✓.
 - **Type consistency:** `UploadItem`/`UploadStatus`/`UploadKind` defined once (Tasks 2–3) and reused verbatim in Tasks 4–6; `importPptxFile` (not `importPptx`) used consistently in Tasks 1 and 4 to avoid the package-import shadow; `createDoc` dep signature matches `createDocument`/`createWorkspaceDocument`.
 - **Placeholders:** none — every code step is complete.
-```

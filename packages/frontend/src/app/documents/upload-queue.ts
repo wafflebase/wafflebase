@@ -4,7 +4,7 @@ import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadPdf } from "@/api/files";
-import { createDocument } from "@/api/documents";
+import { createDocument, deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
 import type { Document, DocumentType } from "@/types/documents";
@@ -88,6 +88,23 @@ export function removeItem(id: string): void {
   replace(items.filter((it) => it.id !== id));
 }
 
+/**
+ * Remove a row from the panel, cleaning up any remote resource it orphaned.
+ *
+ * An errored item may have already created its backend document (docId set)
+ * before failing to apply content — an empty orphan. Deleting the document
+ * also releases any blob it referenced. Dropping the row without this would
+ * leak an empty "Imported …" document into the workspace. Best-effort: a
+ * failed delete still removes the local row (the user asked to dismiss it).
+ */
+export function dismissItem(id: string): void {
+  const item = items.find((it) => it.id === id);
+  if (item && item.status === "error" && item.docId) {
+    void activeDeps.deleteDoc(item.docId).catch(() => {});
+  }
+  removeItem(id);
+}
+
 export function clearFinished(): void {
   replace(
     items.filter((it) => it.status !== "done" && it.status !== "skipped"),
@@ -137,6 +154,7 @@ export interface UploadDeps {
   ) => Promise<Document>;
   getDocumentPath: (doc: DocRef) => string;
   applyContent: typeof applyImportedContentDefault;
+  deleteDoc: typeof deleteDocument;
 }
 
 const defaultDeps: UploadDeps = {
@@ -148,6 +166,7 @@ const defaultDeps: UploadDeps = {
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
   applyContent: applyImportedContentDefault,
+  deleteDoc: deleteDocument,
 };
 
 let activeDeps: UploadDeps = defaultDeps;

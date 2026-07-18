@@ -50,7 +50,7 @@ design closes that gap for the documents list only.
 
 ### Architecture & data flow
 
-```
+```text
 [document-list.tsx]
    │  full-page dragenter/over/drop overlay + <input multiple>
    │  collect N files, capture active workspaceId

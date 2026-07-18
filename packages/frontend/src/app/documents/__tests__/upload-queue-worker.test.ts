@@ -256,6 +256,50 @@ describe("upload-queue worker", () => {
     expect(settled).toContainEqual({ name: "bad.docx", status: "error" });
   });
 
+  it("dismissing an errored item that created a doc deletes the orphan", async () => {
+    const deleteDoc = vi.fn(async () => {});
+    const deps = {
+      importXlsx: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadPdf: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "doc-x",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {
+        throw new Error("apply failed");
+      }),
+      deleteDoc,
+    };
+    const [item] = q.enqueue([file("a.xlsx")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const errored = q.getSnapshot().find((i) => i.id === item.id);
+    expect(errored?.status).toBe("error");
+    expect(errored?.docId).toBe("doc-x");
+
+    q.dismissItem(item.id);
+    expect(deleteDoc).toHaveBeenCalledWith("doc-x");
+    expect(q.getSnapshot().find((i) => i.id === item.id)).toBeUndefined();
+  });
+
+  it("dismissing a skipped item removes it without any remote delete", async () => {
+    const deleteDoc = vi.fn(async () => {});
+    q.startUploads(undefined, { deleteDoc } as never);
+    const [item] = q.enqueue([file("x.zip")]); // unsupported -> skipped
+    q.dismissItem(item.id);
+    expect(deleteDoc).not.toHaveBeenCalled();
+    expect(q.getSnapshot()).toHaveLength(0);
+  });
+
   it("surfaces a lossy PPTX import summary as a warning on the done item", async () => {
     const deps = {
       importXlsx: vi.fn(),

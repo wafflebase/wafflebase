@@ -10,7 +10,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUploadQueue } from "./use-upload-queue";
-import { retry, removeItem, clearFinished, type UploadItem } from "./upload-queue";
+import {
+  retry,
+  dismissItem,
+  clearFinished,
+  type UploadItem,
+} from "./upload-queue";
 
 function StatusCell({ item }: { item: UploadItem }) {
   if (item.status === "done")
@@ -88,23 +93,31 @@ export function UploadPanel() {
       {!collapsed && (
         <ul className="max-h-72 overflow-y-auto py-1" aria-live="polite">
           {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-2 px-3 py-1.5">
-              <span className="flex-1 truncate text-sm" title={item.fileName}>
-                {item.fileName}
-              </span>
-              <StatusCell item={item} />
-              {(item.status === "done" ||
-                item.status === "skipped" ||
-                item.status === "error") && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => removeItem(item.id)}
-                  aria-label={`Remove ${item.fileName} from upload list`}
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
+            <li key={item.id} className="px-3 py-1.5">
+              <div className="flex items-center gap-2">
+                <span className="flex-1 truncate text-sm" title={item.fileName}>
+                  {item.fileName}
+                </span>
+                <StatusCell item={item} />
+                {(item.status === "done" ||
+                  item.status === "skipped" ||
+                  item.status === "error") && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => dismissItem(item.id)}
+                    aria-label={`Remove ${item.fileName} from upload list`}
+                  >
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                )}
+              </div>
+              {item.status === "error" && item.reason && (
+                // Render the failure reason as visible text, not just the
+                // retry button's title tooltip, so it's available to keyboard
+                // and screen-reader users.
+                <p className="mt-0.5 text-xs text-destructive">{item.reason}</p>
               )}
             </li>
           ))}
