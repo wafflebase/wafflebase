@@ -222,6 +222,48 @@ export async function fetchWorkspaceDocuments(workspaceId: string) {
   return res.json();
 }
 
+export interface WorkspaceAnalytics {
+  enabled: boolean;
+  totalViews: number;
+  uniqueVisitors: number;
+  viewsByDay: { date: string; value: number }[];
+  byDocument: {
+    documentId: string;
+    title: string;
+    views: number;
+    uniqueVisitors: number;
+  }[];
+}
+
+/**
+ * Whether the deployment has analytics configured (a StarRocks warehouse to
+ * read from). Used to hide the Analytics nav entry when it is not.
+ */
+export async function fetchAnalyticsEnabled(): Promise<boolean> {
+  const res = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/analytics/enabled`,
+  );
+  if (!res.ok) return false;
+  const data = (await res.json()) as { enabled?: boolean };
+  return Boolean(data.enabled);
+}
+
+/**
+ * Fetches aggregated view analytics for a workspace (member-gated).
+ */
+export async function getWorkspaceAnalytics(
+  workspaceId: string,
+  range?: { from?: string; to?: string },
+): Promise<WorkspaceAnalytics> {
+  const qs = new URLSearchParams();
+  if (range?.from) qs.set("from", range.from);
+  if (range?.to) qs.set("to", range.to);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/analytics${suffix}`);
+  await assertOk(res, "Failed to load analytics");
+  return res.json();
+}
+
 /**
  * Creates workspace document.
  */

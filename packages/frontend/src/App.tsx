@@ -26,6 +26,9 @@ const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazy(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazy(() => import("@/app/files/file-detail"));
 const NotesDetail = lazy(() => import("@/app/notes/notes-detail"));
+const DocumentAnalyticsPage = lazy(
+  () => import("@/app/analytics/document-analytics"),
+);
 const Layout = lazy(() => import("./app/Layout"));
 
 const WorkspaceDocuments = lazy(
@@ -33,6 +36,9 @@ const WorkspaceDocuments = lazy(
 );
 const WorkspaceSettings = lazy(
   () => import("@/app/workspaces/workspace-settings"),
+);
+const WorkspaceAnalytics = lazy(
+  () => import("@/app/workspaces/workspace-analytics"),
 );
 const WorkspaceDataSources = lazy(
   () => import("@/app/workspaces/workspace-datasources"),
@@ -72,6 +78,10 @@ function App() {
                       element={<WorkspaceDataSources />}
                     />
                     <Route
+                      path="/w/:workspaceId/analytics"
+                      element={<WorkspaceAnalytics />}
+                    />
+                    <Route
                       path="/w/:workspaceId/settings"
                       element={<WorkspaceSettings />}
                     />
@@ -85,6 +95,10 @@ function App() {
                   <Route path="/s/:id" element={<DocumentDetail />} />
                   <Route path="/f/:id" element={<FileDetail />} />
                   <Route path="/n/:id" element={<NotesDetail />} />
+                  <Route
+                    path="/analytics/:id"
+                    element={<DocumentAnalyticsPage />}
+                  />
                 </Route>
               </Routes>
             </Suspense>

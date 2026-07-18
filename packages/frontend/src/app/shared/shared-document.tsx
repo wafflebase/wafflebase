@@ -22,6 +22,7 @@ import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useViewAnalytics } from "@/hooks/use-view-analytics";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { NotesView } from "@/app/notes/notes-view";
 import {
@@ -662,6 +663,11 @@ function SharedDocumentInner({
   // editor-link guest edit and delete each other's comments. A unique id per
   // session scopes edit/delete to the guest's own comments.
   const anonUserId = useMemo(() => `anon-${crypto.randomUUID()}`, []);
+
+  // Both viewer and editor share-link access count as a view; this mounts
+  // once per SharedDocumentInner render (all document types, including the
+  // early `pdf` return below), so exactly one session is recorded per visit.
+  useViewAnalytics({ shareToken: token ?? "", enabled: Boolean(token) });
 
   // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, so it must
   // render before the shared provider wrapper below rather than nested inside

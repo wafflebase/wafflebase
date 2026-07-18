@@ -48,6 +48,19 @@ YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
                                         # mode: log the access decision but
                                         # never deny. true = enforce per-doc
                                         # access at the Yorkie auth webhook.
+WAFFLEBASE_KAFKA_ADDRESSES=             # Optional, comma-separated Kafka
+                                        # broker addresses for the view-event
+                                        # analytics producer. Unset disables
+                                        # analytics ingestion.
+WAFFLEBASE_KAFKA_TOPIC=                 # Optional, Kafka topic for view
+                                        # events. Unset disables analytics
+                                        # ingestion.
+WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
+                                        # (`user:pass@tcp(host:port)/db`) for
+                                        # the analytics warehouse query path.
+                                        # Unset disables the document
+                                        # analytics dashboard (returns
+                                        # `enabled: false`).
 ```
 
 ### Yorkie auth webhook (per-document access control)
@@ -161,6 +174,48 @@ All document endpoints require JWT authentication.
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
+
+### Analytics
+
+`POST /internal/analytics/view-events` is a beacon endpoint (share-token
+attributed, no JWT required) that batches client view events onto Kafka;
+disabled (no-op) when `WAFFLEBASE_KAFKA_ADDRESSES`/`WAFFLEBASE_KAFKA_TOPIC`
+are unset. `GET /documents/:id/analytics` requires JWT auth and is
+manager-gated (workspace owner or document author); it queries the
+StarRocks warehouse and returns `enabled: false` with empty metrics when
+`WAFFLEBASE_STARROCKS_DSN` is unset.
+
+`GET /workspaces/:workspaceId/analytics` is workspace-member-gated and
+aggregates views across the workspace's documents (totals + per-document
+ranking), reusing the same StarRocks warehouse.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/internal/analytics/view-events` | Optional JWT (share token) | Ingest a batch of client view events (`{ shareToken, events }`) |
+| `GET` | `/documents/:id/analytics` | JWT (manager) | Get document view analytics (`?from=&to=`, defaults to last 30 days) |
+| `GET` | `/workspaces/:wid/analytics` | JWT (member) | Workspace-aggregate analytics: totals + per-document ranking (`?from=&to=`) |
+
+#### Local smoke test
+
+The analytics pipeline runs off Kafka + StarRocks, provided as an **opt-in**
+Docker Compose profile (kept out of the default stack):
+
+```bash
+docker compose --profile analytics up -d   # + the default postgres/yorkie/minio
+```
+
+Then point the backend at it in `packages/backend/.env`:
+
+```env
+WAFFLEBASE_KAFKA_ADDRESSES=localhost:29092
+WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events
+WAFFLEBASE_STARROCKS_DSN=root:@tcp(localhost:9030)/wafflebase
+```
+
+Open a document via a share link to emit events, then visit the workspace
+**Analytics** tab (`/w/:workspaceId/analytics`). With the env vars unset the
+whole pipeline is a no-op and the dashboard shows "not enabled" — the app is
+unaffected.
 
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 
