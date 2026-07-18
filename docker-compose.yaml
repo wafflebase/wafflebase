@@ -43,7 +43,6 @@ services:
   kafka:
     image: apache/kafka:4.1.1
     profiles: ["analytics"]
-    container_name: wafflebase-kafka
     ports:
       - "29092:29092"
     environment:
@@ -67,7 +66,6 @@ services:
   starrocks:
     image: starrocks/allin1-ubuntu:3.3-latest
     profiles: ["analytics"]
-    container_name: wafflebase-starrocks
     ports:
       - "8030:8030"
       - "9030:9030"
