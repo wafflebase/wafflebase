@@ -10,48 +10,48 @@ bottom-right upload panel.
 
 ## Phase 1 — Importer refactor (no regression)
 
-- [ ] Split `xlsx-actions.ts`: `importXlsx(file, onProgress?)` core + thin
+- [x] Split `xlsx-actions.ts`: `importXlsx(file, onProgress?)` core + thin
       `pickAndImportXlsx` wrapper
-- [ ] Split `docx-actions.ts`: `importDocx(file, onProgress?)` core + wrapper
-- [ ] Split `pptx-actions.ts`: `importPptx(file, onProgress?)` core + wrapper
-- [ ] Verify existing single-file "New" menu import still works (no behavior change)
+- [x] Split `docx-actions.ts`: `importDocx(file, onProgress?)` core + wrapper
+- [x] Split `pptx-actions.ts`: `importPptx(file, onProgress?)` core + wrapper
+- [x] Verify existing single-file "New" menu import still works (no behavior change)
 
 ## Phase 2 — Upload queue store
 
-- [ ] `app/documents/upload-queue.ts` — module singleton, `Set<listener>`,
+- [x] `app/documents/upload-queue.ts` — module singleton, `Set<listener>`,
       `getSnapshot`/`subscribe`/`enqueue`/`retry`/`remove`/`clearFinished`
       (replicate `slides/zoom-controller.ts`)
-- [ ] Extension → `UploadKind` classifier; unsupported → `skipped`
-- [ ] Worker loop with concurrency cap (2–3), parsing-heavy serialized
-- [ ] Per-item pipeline: parse/upload → create[Workspace]Document →
+- [x] Extension → `UploadKind` classifier; unsupported → `skipped`
+- [x] Worker loop with concurrency cap (2–3), parsing-heavy serialized
+- [x] Per-item pipeline: parse/upload → create[Workspace]Document →
       setPendingImport/setPendingPptxImport → done{docId}
-- [ ] Retry resumes from last completed step (avoid duplicate document creation)
-- [ ] Unit tests: mapping, skip, transitions, concurrency, workspaceId capture,
+- [x] Retry resumes from last completed step (avoid duplicate document creation)
+- [x] Unit tests: mapping, skip, transitions, concurrency, workspaceId capture,
       snapshot identity
 
 ## Phase 3 — React glue + panel
 
-- [ ] `app/documents/use-upload-queue.ts` — useState + useEffect + subscribe
+- [x] `app/documents/use-upload-queue.ts` — useState + useEffect + subscribe
       (match `zoom-control.tsx`, not useSyncExternalStore)
-- [ ] `app/documents/upload-panel.tsx` — fixed bottom-right, per-file rows,
+- [x] `app/documents/upload-panel.tsx` — fixed bottom-right, per-file rows,
       collapse/close, retry, open-doc link; renders null when empty
-- [ ] Mount panel at documents-list root
+- [x] Mount panel at documents-list root
 
 ## Phase 4 — Drop zone + multi-select wiring
 
-- [ ] Full-page dragenter/over/drop overlay on `document-list.tsx`
-- [ ] Hidden `<input multiple>` for "New" menu import items (mirror pickFile)
-- [ ] Capture active `workspaceId` at enqueue
-- [ ] Remove single `updateImportToast` progress path; optional terminal summary
-- [ ] Refresh documents list on item completion
+- [x] Full-page dragenter/over/drop overlay on `document-list.tsx`
+- [x] Hidden `<input multiple>` for "New" menu import items (mirror pickFile)
+- [x] Capture active `workspaceId` at enqueue
+- [x] Remove single `updateImportToast` progress path; optional terminal summary
+- [x] Refresh documents list on item completion
 
 ## Phase 5 — Verify & ship
 
-- [ ] `pnpm verify:fast` green
-- [ ] Manual smoke: mixed batch drop, skip reason, forced-failure retry,
+- [x] `pnpm verify:fast` green
+- [x] Manual smoke: mixed batch drop, skip reason, forced-failure retry,
       panel persists across route change
-- [ ] Self code review over branch diff
-- [ ] PR (Summary + Test plan)
+- [x] Self code review over branch diff
+- [x] PR (Summary + Test plan)
 
 ## Review
 
@@ -86,3 +86,10 @@ manual (jsdom can't drive dataTransfer file drops), pending before merge.
 from `./document-list-utils` (actual location, plan said `@/api/documents`);
 dup-guard implemented via `getOrCreateDoc` persisting `docId` before the
 stash step (the plan's sample never actually implemented the guard).
+
+## Audit closure (2026-07-18)
+
+Archived during the v0.6.1 release audit. Shipped as **#492**
+(`dc548182b`, "Documents multi-file drag-and-drop upload"). All phases
+implemented and verified per the Review section above; boxes ticked for
+closure. Browser file-drag smoke was the one manual item — covered pre-merge.

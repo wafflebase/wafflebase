@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/notes",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "CodeMirror-based collaborative markdown note editor for Wafflebase",

@@ -6,14 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 371
+Total archived tasks: 373
 
-## 2026/07 (41 tasks)
+## 2026/07 (43 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | active tasks audit (2026-07-17) | [20260717-active-tasks-audit-todo.md](./2026/07/20260717-active-tasks-audit-todo.md) | - |
 | documentation 0.6.0 update (2026-07-17) | [20260717-documentation-0.6.0-update-todo.md](./2026/07/20260717-documentation-0.6.0-update-todo.md) | [20260717-documentation-0.6.0-update-lessons.md](./2026/07/20260717-documentation-0.6.0-update-lessons.md) |
+| multi file upload (2026-07-17) | [20260717-multi-file-upload-todo.md](./2026/07/20260717-multi-file-upload-todo.md) | [20260717-multi-file-upload-lessons.md](./2026/07/20260717-multi-file-upload-lessons.md) |
+| share link analytics (2026-07-17) | [20260717-share-link-analytics-todo.md](./2026/07/20260717-share-link-analytics-todo.md) | [20260717-share-link-analytics-lessons.md](./2026/07/20260717-share-link-analytics-lessons.md) |
 | share link permissions (2026-07-17) | [20260717-share-link-permissions-todo.md](./2026/07/20260717-share-link-permissions-todo.md) | [20260717-share-link-permissions-lessons.md](./2026/07/20260717-share-link-permissions-lessons.md) |
 | notes cli (2026-07-16) | [20260716-notes-cli-todo.md](./2026/07/20260716-notes-cli-todo.md) | [20260716-notes-cli-lessons.md](./2026/07/20260716-notes-cli-lessons.md) |
 | release v0.6.0 (2026-07-16) | [20260716-release-v0.6.0-todo.md](./2026/07/20260716-release-v0.6.0-todo.md) | - |

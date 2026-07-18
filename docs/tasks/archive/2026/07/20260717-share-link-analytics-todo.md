@@ -58,7 +58,7 @@
 **Interfaces:**
 - Produces: `VIEW_EVENT_TYPES` (`readonly ['open','heartbeat','tabchange','close']`), `ViewEventType`, `ViewEventInput`, `ViewEvent`, `DocumentAnalytics`, `AnalyticsModule`.
 
-- [ ] **Step 1: Write the types file**
+- [x] **Step 1: Write the types file**
 
 ```typescript
 // packages/backend/src/analytics/analytics.types.ts
@@ -121,7 +121,7 @@ export interface DocumentAnalytics {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```typescript
 // packages/backend/src/analytics/analytics.types.spec.ts
@@ -134,12 +134,12 @@ describe('analytics.types', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it passes** (types-only, no impl needed)
+- [x] **Step 3: Run test to verify it passes** (types-only, no impl needed)
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics.types`
 Expected: PASS
 
-- [ ] **Step 4: Write the module (no-op providers wired in later tasks)**
+- [x] **Step 4: Write the module (no-op providers wired in later tasks)**
 
 ```typescript
 // packages/backend/src/analytics/analytics.module.ts
@@ -165,7 +165,7 @@ export class AnalyticsModule {}
 
 > NOTE: `ShareLinkModule` already `exports` `ShareLinkService` (see `packages/backend/src/share-link/share-link.module.ts`). The controller/services referenced above are created in Tasks 2–5; the module will not compile until then, so DO NOT register it in `app.module.ts` yet. Steps 5–6 register it after those files exist — reorder if executing strictly. For now, commit only the types.
 
-- [ ] **Step 5: Commit the types**
+- [x] **Step 5: Commit the types**
 
 ```bash
 git add packages/backend/src/analytics/analytics.types.ts packages/backend/src/analytics/analytics.types.spec.ts
@@ -187,12 +187,12 @@ git commit -m "Analytics: view-event and dashboard types"
 - Consumes: `ViewEvent` (Task 1).
 - Produces: `coarseUserAgent(ua?: string): string`; `AnalyticsProducerService` with `isEnabled(): boolean` and `produce(events: ViewEvent[]): void` (fire-and-forget).
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Run: `pnpm --filter @wafflebase/backend add kafkajs`
 Expected: `kafkajs` appears in `packages/backend/package.json` dependencies.
 
-- [ ] **Step 2: Write the failing coarse-UA test**
+- [x] **Step 2: Write the failing coarse-UA test**
 
 ```typescript
 // packages/backend/src/analytics/coarse-user-agent.spec.ts
@@ -220,12 +220,12 @@ describe('coarseUserAgent', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- coarse-user-agent`
 Expected: FAIL ("Cannot find module './coarse-user-agent'")
 
-- [ ] **Step 4: Implement coarse-user-agent**
+- [x] **Step 4: Implement coarse-user-agent**
 
 ```typescript
 // packages/backend/src/analytics/coarse-user-agent.ts
@@ -245,12 +245,12 @@ export function coarseUserAgent(ua?: string): string {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- coarse-user-agent`
 Expected: PASS
 
-- [ ] **Step 6: Write the failing producer test**
+- [x] **Step 6: Write the failing producer test**
 
 ```typescript
 // packages/backend/src/analytics/analytics-producer.service.spec.ts
@@ -278,12 +278,12 @@ describe('AnalyticsProducerService', () => {
 });
 ```
 
-- [ ] **Step 7: Run to verify it fails**
+- [x] **Step 7: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics-producer`
 Expected: FAIL ("Cannot find module './analytics-producer.service'")
 
-- [ ] **Step 8: Implement the producer**
+- [x] **Step 8: Implement the producer**
 
 ```typescript
 // packages/backend/src/analytics/analytics-producer.service.ts
@@ -351,12 +351,12 @@ export class AnalyticsProducerService implements OnModuleDestroy {
 }
 ```
 
-- [ ] **Step 9: Run to verify it passes**
+- [x] **Step 9: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics-producer coarse-user-agent`
 Expected: PASS
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/backend/src/analytics/coarse-user-agent.ts packages/backend/src/analytics/coarse-user-agent.spec.ts packages/backend/src/analytics/analytics-producer.service.ts packages/backend/src/analytics/analytics-producer.service.spec.ts packages/backend/package.json pnpm-lock.yaml
@@ -376,7 +376,7 @@ git commit -m "Analytics: kafkajs view-event producer + coarse UA"
 - Consumes: `ShareLinkService.findByToken` (returns `{ id, role, documentId, document: { type } }`), `AnalyticsProducerService.produce`, `coarseUserAgent`, `ViewEventInput`, `ViewEvent`.
 - Produces: `OptionalJwtAuthGuard`; `AnalyticsController` with `POST /internal/analytics/view-events` and (Task 5) `GET /documents/:id/analytics`.
 
-- [ ] **Step 1: Implement the optional JWT guard**
+- [x] **Step 1: Implement the optional JWT guard**
 
 ```typescript
 // packages/backend/src/analytics/optional-jwt-auth.guard.ts
@@ -400,7 +400,7 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
 }
 ```
 
-- [ ] **Step 2: Write the failing controller test (ingest path)**
+- [x] **Step 2: Write the failing controller test (ingest path)**
 
 ```typescript
 // packages/backend/src/analytics/analytics.controller.spec.ts
@@ -474,12 +474,12 @@ describe('AnalyticsController ingest', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics.controller`
 Expected: FAIL ("Cannot find module './analytics.controller'")
 
-- [ ] **Step 4: Implement the controller (ingest only; GET added in Task 5)**
+- [x] **Step 4: Implement the controller (ingest only; GET added in Task 5)**
 
 ```typescript
 // packages/backend/src/analytics/analytics.controller.ts
@@ -569,12 +569,12 @@ export class AnalyticsController {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics.controller`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/analytics/optional-jwt-auth.guard.ts packages/backend/src/analytics/analytics.controller.ts packages/backend/src/analytics/analytics.controller.spec.ts
@@ -594,12 +594,12 @@ git commit -m "Analytics: view-event ingest endpoint with optional JWT"
 - Consumes: `DocumentAnalytics`, `MetricSeriesPoint`, `ShareLinkBreakdown`, `TargetBreakdown` (Task 1).
 - Produces: `AnalyticsWarehouseService` with `isEnabled(): boolean`, `getDocumentAnalytics(documentId: string, from: Date, to: Date): Promise<DocumentAnalytics>`. Exposes `buildQueries(documentId, from, to)` (pure, testable string builder) so SQL is unit-tested without a live StarRocks.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Run: `pnpm --filter @wafflebase/backend add mysql2`
 Expected: `mysql2` in `packages/backend/package.json` dependencies.
 
-- [ ] **Step 2: Write the failing SQL-builder test**
+- [x] **Step 2: Write the failing SQL-builder test**
 
 ```typescript
 // packages/backend/src/analytics/analytics-warehouse.service.spec.ts
@@ -638,12 +638,12 @@ describe('AnalyticsWarehouseService', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics-warehouse`
 Expected: FAIL ("Cannot find module './analytics-warehouse.service'")
 
-- [ ] **Step 4: Implement the warehouse service**
+- [x] **Step 4: Implement the warehouse service**
 
 ```typescript
 // packages/backend/src/analytics/analytics-warehouse.service.ts
@@ -788,12 +788,12 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics-warehouse`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/analytics/analytics-warehouse.service.ts packages/backend/src/analytics/analytics-warehouse.service.spec.ts packages/backend/package.json pnpm-lock.yaml
@@ -814,7 +814,7 @@ git commit -m "Analytics: StarRocks warehouse reader via mysql2"
 - Consumes: `AnalyticsWarehouseService.getDocumentAnalytics`, `PrismaService`, `isDocumentManager`, `JwtAuthGuard`.
 - Produces: `GET /documents/:id/analytics?from=&to=` returning `DocumentAnalytics`.
 
-- [ ] **Step 1: Write the failing manager-gate test**
+- [x] **Step 1: Write the failing manager-gate test**
 
 Append to `analytics.controller.spec.ts`:
 
@@ -855,12 +855,12 @@ describe('AnalyticsController dashboard', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics.controller`
 Expected: FAIL (constructor arity / `dashboard` undefined)
 
-- [ ] **Step 3: Add the GET handler + PrismaService dep to the controller**
+- [x] **Step 3: Add the GET handler + PrismaService dep to the controller**
 
 Add to imports and constructor of `analytics.controller.ts`:
 
@@ -911,7 +911,7 @@ Extend the constructor with `private readonly prisma: PrismaService,` (append as
 
 Update the ingest test's `setup()` to pass a 4th arg (`{} as PrismaService`) to the constructor so existing tests still compile.
 
-- [ ] **Step 4: Register AnalyticsModule**
+- [x] **Step 4: Register AnalyticsModule**
 
 In `packages/backend/src/app.module.ts`, add the import after line 17 and register in the `imports` array (after `UserDocStylesModule`):
 
@@ -922,16 +922,16 @@ import { AnalyticsModule } from './analytics/analytics.module';
     AnalyticsModule,
 ```
 
-- [ ] **Step 5: Run backend tests + build**
+- [x] **Step 5: Run backend tests + build**
 
 Run: `pnpm --filter @wafflebase/backend test -- analytics && pnpm --filter @wafflebase/backend build`
 Expected: PASS + clean build.
 
-- [ ] **Step 6: Document env + endpoints in backend README**
+- [x] **Step 6: Document env + endpoints in backend README**
 
 Add to `packages/backend/README.md` env table + API section: `WAFFLEBASE_KAFKA_ADDRESSES`, `WAFFLEBASE_KAFKA_TOPIC`, `WAFFLEBASE_STARROCKS_DSN` (all optional; unset = analytics disabled) and the two routes (`POST /internal/analytics/view-events`, `GET /documents/:id/analytics`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/analytics/ packages/backend/src/app.module.ts packages/backend/README.md
@@ -949,7 +949,7 @@ git commit -m "Analytics: manager-gated document dashboard endpoint"
 **Interfaces:**
 - Produces: `getVisitorId(): string`, `newSessionId(): string`, `sendViewEvents(input): void`, `getDocumentAnalytics(documentId, range?): Promise<DocumentAnalytics>`, type `DocumentAnalytics` (mirrors backend).
 
-- [ ] **Step 1: Write the failing id-helper test**
+- [x] **Step 1: Write the failing id-helper test**
 
 ```typescript
 // packages/frontend/src/api/analytics.test.ts
@@ -976,12 +976,12 @@ describe("analytics id helpers", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- analytics`
 Expected: FAIL ("Cannot find module './analytics'")
 
-- [ ] **Step 3: Implement the client**
+- [x] **Step 3: Implement the client**
 
 ```typescript
 // packages/frontend/src/api/analytics.ts
@@ -1077,12 +1077,12 @@ export async function getDocumentAnalytics(
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- analytics`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/api/analytics.ts packages/frontend/src/api/analytics.test.ts
@@ -1102,7 +1102,7 @@ git commit -m "Analytics: frontend API client + visitor/session ids"
 - Consumes: `sendViewEvents`, `getVisitorId`, `newSessionId` (Task 6).
 - Produces: `useViewAnalytics({ shareToken, enabled, target })` — emits `open` on mount, `heartbeat` every 30s while visible, `tabchange` when `target` changes, `close` (beacon) on unmount/pagehide.
 
-- [ ] **Step 1: Write the failing hook test**
+- [x] **Step 1: Write the failing hook test**
 
 ```typescript
 // packages/frontend/src/hooks/use-view-analytics.test.ts
@@ -1144,12 +1144,12 @@ describe("useViewAnalytics", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-view-analytics`
 Expected: FAIL ("Cannot find module './use-view-analytics'")
 
-- [ ] **Step 3: Implement the hook**
+- [x] **Step 3: Implement the hook**
 
 ```typescript
 // packages/frontend/src/hooks/use-view-analytics.ts
@@ -1232,12 +1232,12 @@ export function useViewAnalytics({ shareToken, enabled, target }: Options): void
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- use-view-analytics`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Wire into the shared route**
+- [x] **Step 5: Wire into the shared route**
 
 In `packages/frontend/src/app/shared/shared-document.tsx`, inside `SharedDocumentInner` (which has `resolved` and the route `token`), call the hook once for the session. The `token` comes from `useParams`; pass `resolved.role`-independent `enabled: true` (both viewer and editor share-link access count). Import at top:
 
@@ -1254,12 +1254,12 @@ Then within `SharedDocumentInner`, near the top of the component body:
 
 (For spreadsheet tab-level granularity, a follow-up can thread `activeTabId` from `SharedDocumentLayout` into a second `useViewAnalytics` target; v1 ships session-level for all types and tab-level is additive. Keep v1 to the session-level call above to stay within the single-PR scope unless `activeTabId` is trivially available where the hook is mounted.)
 
-- [ ] **Step 6: Run frontend build + tests**
+- [x] **Step 6: Run frontend build + tests**
 
 Run: `pnpm --filter @wafflebase/frontend test -- analytics use-view-analytics && pnpm --filter @wafflebase/frontend build`
 Expected: PASS + clean build.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/hooks/use-view-analytics.ts packages/frontend/src/hooks/use-view-analytics.test.ts packages/frontend/src/app/shared/shared-document.tsx
@@ -1278,7 +1278,7 @@ git commit -m "Analytics: beacon lifecycle hook wired into shared route"
 - Consumes: `getDocumentAnalytics`, `DocumentAnalytics` (Task 6); TanStack Query `useQuery`.
 - Produces: `DocumentAnalyticsPage` default export mounted at `/analytics/:id`.
 
-- [ ] **Step 1: Implement the dashboard page**
+- [x] **Step 1: Implement the dashboard page**
 
 ```typescript
 // packages/frontend/src/app/analytics/document-analytics.tsx
@@ -1360,16 +1360,16 @@ function Stat({ label, value }: { label: string; value: number }) {
 export default DocumentAnalyticsPage;
 ```
 
-- [ ] **Step 2: Add the route**
+- [x] **Step 2: Add the route**
 
 In `packages/frontend/src/App.tsx`, add a lazy import and a route `/analytics/:id` (JWT-protected area, same as owner routes). Mirror the existing owner-route registration pattern (e.g. the `/d/:id` route block). Add a manager entry point later via the document context menu / share dialog ("View analytics" → `/analytics/:id`); a minimal link is acceptable for v1.
 
-- [ ] **Step 3: Run frontend build**
+- [x] **Step 3: Run frontend build**
 
 Run: `pnpm --filter @wafflebase/frontend build`
 Expected: clean build (route resolves, page compiles).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/analytics/document-analytics.tsx packages/frontend/src/App.tsx
@@ -1380,21 +1380,21 @@ git commit -m "Analytics: per-document dashboard page and route"
 
 ## Task 9: Full verify + self code review
 
-- [ ] **Step 1: Run the pre-commit gate**
+- [x] **Step 1: Run the pre-commit gate**
 
 Run: `pnpm verify:fast`
 Expected: lint + unit tests PASS. Fix any failures (see `docs/tasks` lessons for stale-dist gotchas — rebuild producer packages if cross-package types are stale).
 
-- [ ] **Step 2: Run the self/build lane**
+- [x] **Step 2: Run the self/build lane**
 
 Run: `pnpm verify:self`
 Expected: PASS, including `verify:entropy` doc-ref checks (the design doc already passes; ensure README edits don't add broken backtick refs).
 
-- [ ] **Step 3: Dispatch a code review over the branch diff**
+- [x] **Step 3: Dispatch a code review over the branch diff**
 
 Run the `/code-review` skill (or `superpowers:requesting-code-review`) over the full branch diff. Apply blocking findings; note non-blocking as known limitations in the lessons file.
 
-- [ ] **Step 4: Manual smoke (UI changed)**
+- [x] **Step 4: Manual smoke (UI changed)**
 
 With `docker compose up -d` + `pnpm dev`: open a share link, confirm the app works with analytics **disabled** (no Kafka/StarRocks env) — no console errors, beacon POST returns 2xx or fails silently without breaking the view. Optionally bring up Yorkie's analytics docker-compose and confirm events land and the dashboard renders.
 
@@ -1402,15 +1402,15 @@ With `docker compose up -d` + `pnpm dev`: open a share link, confirm the app wor
 
 ## Task 10: Capture lessons + archive
 
-- [ ] **Step 1:** Fill `docs/tasks/active/20260717-share-link-analytics-lessons.md` with what was non-obvious (StarRocks no-prepared-stmt interpolation, cross-namespace DNS, sendBeacon dwell semantics, degrade-to-no-op).
-- [ ] **Step 2:** `pnpm tasks:archive && pnpm tasks:index`, commit task docs + `tasks/README.md` together.
+- [x] **Step 1:** Fill `docs/tasks/active/20260717-share-link-analytics-lessons.md` with what was non-obvious (StarRocks no-prepared-stmt interpolation, cross-namespace DNS, sendBeacon dwell semantics, degrade-to-no-op).
+- [x] **Step 2:** `pnpm tasks:archive && pnpm tasks:index`, commit task docs + `tasks/README.md` together.
 
 ---
 
 ## Task 11: Open the PR
 
-- [ ] **Step 1:** `git fetch && git rebase origin/main` to surface conflicts.
-- [ ] **Step 2:** Push branch, open PR. Title ≤70 chars: `Share Link view analytics via Kafka + StarRocks`. Body = Summary + Test plan. Note that DevOps (Task 12) is a prerequisite in the separate repo and analytics stays disabled until those env vars are set.
+- [x] **Step 1:** `git fetch && git rebase origin/main` to surface conflicts.
+- [x] **Step 2:** Push branch, open PR. Title ≤70 chars: `Share Link view analytics via Kafka + StarRocks`. Body = Summary + Test plan. Note that DevOps (Task 12) is a prerequisite in the separate repo and analytics stays disabled until those env vars are set.
 
 ---
 
@@ -1418,21 +1418,32 @@ With `docker compose up -d` + `pnpm dev`: open a share link, confirm the app wor
 
 > Not part of the wafflesheets PR. Prerequisite for the feature to produce real data. Landed as a separate devops PR.
 
-- [ ] **Step 1: StarRocks schema** — add the `wafflebase` database + `view_events` table + Routine Load (JSON) as in `docs/design/share-link-analytics.md`. Broker `yorkie-analytics-kafka.analytics.svc.cluster.local:9092`, topic `wafflebase-view-events`, group `wafflebase_view_events_group`. Apply via the analytics init path (mirror the yorkie repo `build/docker/analytics` init SQL, plus the production StarRocks FE).
+- [x] **Step 1: StarRocks schema** — add the `wafflebase` database + `view_events` table + Routine Load (JSON) as in `docs/design/share-link-analytics.md`. Broker `yorkie-analytics-kafka.analytics.svc.cluster.local:9092`, topic `wafflebase-view-events`, group `wafflebase_view_events_group`. Apply via the analytics init path (mirror the yorkie repo `build/docker/analytics` init SQL, plus the production StarRocks FE).
 
-- [ ] **Step 2: Kafka topic** — ensure `wafflebase-view-events` exists (auto-create or explicit) in the `analytics`-namespace Kafka.
+- [x] **Step 2: Kafka topic** — ensure `wafflebase-view-events` exists (auto-create or explicit) in the `analytics`-namespace Kafka.
 
-- [ ] **Step 3: Watcher CronJob** — in `k8s/cluster/starrocks-routine-load-watcher.yaml`, add a `wafflebase` DB block that iterates `for job in view_events` on `SHOW ROUTINE LOAD FOR wafflebase.$job` and RESUMEs when PAUSED (parallel to the existing `yorkie` loop).
+- [x] **Step 3: Watcher CronJob** — in `k8s/cluster/starrocks-routine-load-watcher.yaml`, add a `wafflebase` DB block that iterates `for job in view_events` on `SHOW ROUTINE LOAD FOR wafflebase.$job` and RESUMEs when PAUSED (parallel to the existing `yorkie` loop).
 
-- [ ] **Step 4: Deployment env** — in `k8s/wafflebase/deployment.yaml`, add:
+- [x] **Step 4: Deployment env** — in `k8s/wafflebase/deployment.yaml`, add:
   - `WAFFLEBASE_KAFKA_ADDRESSES=yorkie-analytics-kafka.analytics.svc.cluster.local:9092`
   - `WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events`
   - `WAFFLEBASE_STARROCKS_DSN=root:@tcp(kube-starrocks-fe-search.analytics.svc.cluster.local:9030)/wafflebase`
 
-- [ ] **Step 5: Verify reachability** — confirm the `wafflebase` namespace resolves `*.analytics.svc.cluster.local` (no NetworkPolicy blocks it), then merge → ArgoCD auto-syncs.
+- [x] **Step 5: Verify reachability** — confirm the `wafflebase` namespace resolves `*.analytics.svc.cluster.local` (no NetworkPolicy blocks it), then merge → ArgoCD auto-syncs.
 
 ---
 
 ## Review
 
 _(Fill in after implementation.)_
+
+## Audit closure (2026-07-18)
+
+Archived during the v0.6.1 release audit. The wafflesheets feature (Tasks
+1–11) shipped as **#491** (`320baf536`, "Share Link view analytics via
+Kafka + StarRocks"); the manager/workspace dashboards, beacon hook, and
+degrade-to-no-op path are all live. Boxes ticked for closure. **Task 12
+(DevOps infra)** lives in the separate `yorkie-team/devops` repo (StarRocks
+schema, Kafka topic, watcher CronJob, deployment env) and is owned/tracked
+there, not in this repo; it was not re-verified in this audit. Analytics
+stays a no-op until those env vars are set on the deployment.
