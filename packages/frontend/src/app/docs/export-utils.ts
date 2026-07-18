@@ -71,47 +71,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Open a native file picker (single file). Resolves to the selected file
- * or null if the user cancels. The hidden input is appended to the DOM
- * so it works reliably across browsers.
- */
-export function pickFile(accept: string): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = accept;
-    input.style.display = "none";
-    let settled = false;
-
-    input.onchange = () => {
-      settled = true;
-      const file = input.files?.[0] ?? null;
-      cleanup();
-      resolve(file);
-    };
-
-    // Detect cancel via window focus (no perfect way, but acceptable).
-    const onFocus = () => {
-      window.removeEventListener("focus", onFocus);
-      setTimeout(() => {
-        if (!settled) {
-          cleanup();
-          resolve(null);
-        }
-      }, 300);
-    };
-    window.addEventListener("focus", onFocus);
-
-    const cleanup = () => {
-      if (input.parentNode) input.parentNode.removeChild(input);
-    };
-
-    document.body.appendChild(input);
-    input.click();
-  });
-}
-
-/**
  * Lazily create (first tick) or update the export progress toast, mirroring
  * the import toast. `unit` is the exporter's phase string ("slides" | "pages"
  * | "images"). Returns the toast id so the caller can thread it to

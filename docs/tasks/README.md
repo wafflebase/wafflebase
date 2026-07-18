@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| multi file upload (2026-07-17) | [20260717-multi-file-upload-todo.md](./active/20260717-multi-file-upload-todo.md) | [20260717-multi-file-upload-lessons.md](./active/20260717-multi-file-upload-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
@@ -35,4 +36,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 371
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: shared core extraction (2026-07-14)
+Latest active task: multi file upload (2026-07-17)

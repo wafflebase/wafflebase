@@ -4,7 +4,6 @@ import {
   type SpreadsheetDocument,
   type TabMeta,
 } from "@wafflebase/sheets";
-import { pickFile } from "@/app/docs/export-utils";
 import { getUniqueTabName } from "@/app/documents/tab-name";
 
 export function createSpreadsheetDocumentFromImportedXlsxSheets(
@@ -34,18 +33,14 @@ export function createSpreadsheetDocumentFromImportedXlsxSheets(
   return { tabs, tabOrder, sheets };
 }
 
-export async function pickAndImportXlsx(): Promise<{
+export async function importXlsx(file: File): Promise<{
   document: SpreadsheetDocument;
   fileName: string;
-} | null> {
-  const file = await pickFile(
-    ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  );
-  if (!file) return null;
-
+}> {
   const importedSheets = await importXlsxWorkbook(await file.arrayBuffer());
   return {
     document: createSpreadsheetDocumentFromImportedXlsxSheets(importedSheets),
     fileName: file.name,
   };
 }
+

@@ -3,7 +3,10 @@ import {
   FormEvent,
   MouseEvent,
   ReactNode,
+  useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -99,14 +102,10 @@ import {
   fetchWorkspaces,
   type Workspace,
 } from "@/api/workspaces";
-import { pickAndImportDocx } from "@/app/docs/docx-actions";
-import { pickFile } from "@/app/docs/export-utils";
-import { setPendingImport } from "@/app/docs/pending-imports";
-import { uploadPdf } from "@/api/files";
-import { pickAndImportPptx } from "@/app/slides/pptx-actions";
-import { setPendingImport as setPendingPptxImport } from "@/app/slides/pending-imports";
-import { pickAndImportXlsx } from "@/app/spreadsheet/xlsx-actions";
-import { setPendingImport as setPendingXlsxImport } from "@/app/spreadsheet/pending-imports";
+import { UploadPanel } from "./upload-panel";
+import { useWindowFileDrop } from "./use-window-file-drop";
+import { enqueue, startUploads } from "./upload-queue";
+import { pickFiles } from "./pick-files";
 
 /**
  * Single source of truth for each document type's label, icon, and color.
@@ -193,6 +192,39 @@ function dateColumn(
       </div>
     ),
   };
+}
+
+/**
+ * The four file-import entries shared by both "New" dropdown copies (the
+ * toolbar one and the empty-state one). Each opens a multi-select picker
+ * filtered to its type and routes the result through `onImport`, which
+ * queues the batch for background upload instead of importing inline.
+ */
+function ImportMenuItems({
+  onImport,
+}: {
+  onImport: (accept: string) => void;
+}) {
+  return (
+    <>
+      <DropdownMenuItem onClick={() => onImport(".xlsx")}>
+        <FileDown className="mr-2 h-4 w-4 text-green-600" />
+        Import XLSX
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onImport(".docx")}>
+        <FileDown className="mr-2 h-4 w-4 text-blue-500" />
+        Import DOCX
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onImport(".pptx")}>
+        <FileDown className="mr-2 h-4 w-4 text-orange-500" />
+        Import PPTX
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onImport(".pdf")}>
+        <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
+        Upload PDF
+      </DropdownMenuItem>
+    </>
+  );
 }
 
 /**
@@ -359,155 +391,72 @@ export function DocumentList({
     onSuccess: (doc) => navigate(getDocumentPath(doc)),
   });
 
-  const [importing, setImporting] = useState(false);
+  // Route a picked batch through the upload queue instead of the old
+  // single-file pick -> import -> create -> navigate -> toast path. The
+  // queue owns progress/errors/retry (see upload-queue.ts); we just refresh
+  // the documents list as each item lands so new rows appear without a
+  // manual reload.
+  // Coalesce the documents-list refetch: items in a batch land one by one, so
+  // invalidating per item would fire N (x2) refetches. Collect the affected
+  // workspaces and flush a single invalidation on a short trailing debounce.
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRefreshWorkspaces = useRef<Set<string>>(new Set());
+  const scheduleListRefresh = useCallback(
+    (wid?: string) => {
+      if (wid) pendingRefreshWorkspaces.current.add(wid);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+        for (const id of pendingRefreshWorkspaces.current) {
+          queryClient.invalidateQueries({
+            queryKey: ["workspaces", id, "documents"],
+          });
+        }
+        pendingRefreshWorkspaces.current.clear();
+      }, 400);
+    },
+    [queryClient],
+  );
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
 
-  // Lazily create (first tick) or update the import progress toast.
-  // Returns the toast id so the caller can thread it to success/error.
-  const updateImportToast = (
-    toastId: string | number | undefined,
-    title: string,
-    done: number,
-    total: number,
-  ): string | number => {
-    const description =
-      total > 0
-        ? `Uploading images ${Math.min(done, total)} / ${total}`
-        : undefined;
-    if (toastId === undefined) {
-      return toast.loading(`Importing "${title}"…`, { description });
-    }
-    toast.loading(`Importing "${title}"…`, { id: toastId, description });
-    return toastId;
-  };
-
-  const handleImportDocx = async () => {
-    if (importing) return;
-    setImporting(true);
-    let toastId: string | number | undefined;
-    try {
-      const result = await pickAndImportDocx(({ done, total, fileName }) => {
-        const title =
-          fileName.replace(/\.docx$/i, "") || "Imported Document";
-        toastId = updateImportToast(toastId, title, done, total);
+  const startBatch = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      enqueue(files, workspaceId);
+      // The settled callback keys off each item's OWN captured workspaceId,
+      // not the closed-over one — a batch may finish after the user has
+      // switched the list to another workspace, and startUploads keeps only
+      // the latest callback, so it must not assume the current workspace.
+      startUploads((item) => {
+        if (item.status === "done") {
+          scheduleListRefresh(item.workspaceId);
+          if (item.warning) {
+            toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+          }
+        } else if (item.status === "error") {
+          toast.error(
+            `Upload failed: ${item.fileName}${
+              item.reason ? ` — ${item.reason}` : ""
+            }`,
+          );
+        }
       });
-      if (!result) {
-        if (toastId !== undefined) toast.dismiss(toastId);
-        return;
-      }
+    },
+    [workspaceId, scheduleListRefresh],
+  );
 
-      const title =
-        result.fileName.replace(/\.docx$/i, "") || "Imported Document";
-      const created = workspaceId
-        ? await createWorkspaceDocument(workspaceId, { title, type: "doc" })
-        : await createDocument({ title, type: "doc" });
+  // Google-Drive-style whole-window drop: a file dropped anywhere (not just on
+  // the list) enqueues, and a stray drop never navigates the tab. See
+  // useWindowFileDrop for the listener/overlay lifecycle.
+  const dragging = useWindowFileDrop(startBatch);
 
-      setPendingImport(String(created.id), result.doc);
-      const message = `Imported "${title}"`;
-      if (toastId !== undefined) toast.success(message, { id: toastId });
-      else toast.success(message);
-      navigate(getDocumentPath(created));
-    } catch (err) {
-      console.error("DOCX import failed", err);
-      const message =
-        err instanceof Error ? `Import failed: ${err.message}` : "Import failed";
-      if (toastId !== undefined) toast.error(message, { id: toastId });
-      else toast.error(message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleImportPptx = async () => {
-    if (importing) return;
-    setImporting(true);
-    let toastId: string | number | undefined;
-    try {
-      const result = await pickAndImportPptx(({ done, total, fileName }) => {
-        const title =
-          fileName.replace(/\.pptx$/i, "") || "Imported Presentation";
-        toastId = updateImportToast(toastId, title, done, total);
-      });
-      if (!result) {
-        if (toastId !== undefined) toast.dismiss(toastId);
-        return;
-      }
-
-      const title =
-        result.fileName.replace(/\.pptx$/i, "") || "Imported Presentation";
-      const created = workspaceId
-        ? await createWorkspaceDocument(workspaceId, { title, type: "slides" })
-        : await createDocument({ title, type: "slides" });
-
-      setPendingPptxImport(String(created.id), result.document);
-      const summary = result.report.summary();
-      const message =
-        summary === "Imported with no fallbacks."
-          ? `Imported "${title}"`
-          : `Imported "${title}" — ${summary}`;
-      if (toastId !== undefined) toast.success(message, { id: toastId });
-      else toast.success(message);
-      navigate(getDocumentPath(created));
-    } catch (err) {
-      console.error("PPTX import failed", err);
-      const message =
-        err instanceof Error ? `Import failed: ${err.message}` : "Import failed";
-      if (toastId !== undefined) toast.error(message, { id: toastId });
-      else toast.error(message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleImportXlsx = async () => {
-    if (importing) return;
-    setImporting(true);
-    try {
-      const result = await pickAndImportXlsx();
-      if (!result) return;
-
-      const title = result.fileName.replace(/\.xlsx$/i, "") || "Imported Sheet";
-      const created = workspaceId
-        ? await createWorkspaceDocument(workspaceId, { title, type: "sheet" })
-        : await createDocument({ title, type: "sheet" });
-
-      setPendingXlsxImport(String(created.id), result.document);
-      toast.success(
-        result.document.tabOrder.length === 1
-          ? `Imported "${title}"`
-          : `Imported "${title}" with ${result.document.tabOrder.length} sheets`,
-      );
-      navigate(getDocumentPath(created));
-    } catch (err) {
-      console.error("XLSX import failed", err);
-      toast.error(
-        err instanceof Error ? `Import failed: ${err.message}` : "Import failed",
-      );
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleUploadPdf = async () => {
-    if (importing) return;
-    setImporting(true);
-    try {
-      const file = await pickFile("application/pdf");
-      if (!file) return;
-      const { id: fileId } = await uploadPdf(file);
-      const title = file.name.replace(/\.pdf$/i, "") || "Untitled PDF";
-      const payload = { title, type: "pdf" as const, fileId };
-      const created = workspaceId
-        ? await createWorkspaceDocument(workspaceId, payload)
-        : await createDocument(payload);
-      navigate(getDocumentPath(created));
-    } catch (err) {
-      console.error("PDF upload failed", err);
-      toast.error(
-        err instanceof Error ? `Upload failed: ${err.message}` : "Upload failed",
-      );
-    } finally {
-      setImporting(false);
-    }
+  const handleImportPick = async (accept: string) => {
+    startBatch(await pickFiles(accept));
   };
 
   const deleteDocumentMutation = useMutation({
@@ -607,7 +556,8 @@ export function DocumentList({
   });
 
   return (
-    <div className="w-full">
+    <>
+      <div className="w-full">
       <div className="flex flex-wrap items-center gap-2 py-4">
         <Input
           placeholder="Search by title..."
@@ -688,31 +638,7 @@ export function DocumentList({
               <Presentation className="mr-2 h-4 w-4 text-orange-500" />
               New Presentation
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={importing}
-              onClick={handleImportXlsx}
-            >
-              <FileDown className="mr-2 h-4 w-4 text-green-600" />
-              Import XLSX
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={importing}
-              onClick={handleImportDocx}
-            >
-              <FileDown className="mr-2 h-4 w-4 text-blue-500" />
-              Import DOCX
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={importing}
-              onClick={handleImportPptx}
-            >
-              <FileDown className="mr-2 h-4 w-4 text-orange-500" />
-              Import PPTX
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled={importing} onClick={handleUploadPdf}>
-              <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
-              Upload PDF
-            </DropdownMenuItem>
+            <ImportMenuItems onImport={handleImportPick} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -831,34 +757,7 @@ export function DocumentList({
                           <Presentation className="mr-2 h-4 w-4 text-orange-500" />
                           New Presentation
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={importing}
-                          onClick={handleImportXlsx}
-                        >
-                          <FileDown className="mr-2 h-4 w-4 text-green-600" />
-                          Import XLSX
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={importing}
-                          onClick={handleImportDocx}
-                        >
-                          <FileDown className="mr-2 h-4 w-4 text-blue-500" />
-                          Import DOCX
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={importing}
-                          onClick={handleImportPptx}
-                        >
-                          <FileDown className="mr-2 h-4 w-4 text-orange-500" />
-                          Import PPTX
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={importing}
-                          onClick={handleUploadPdf}
-                        >
-                          <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
-                          Upload PDF
-                        </DropdownMenuItem>
+                        <ImportMenuItems onImport={handleImportPick} />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1051,6 +950,15 @@ export function DocumentList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
+          <span className="text-lg font-medium text-primary">
+            Drop files to upload
+          </span>
+        </div>
+      )}
+      <UploadPanel />
+    </>
   );
 }

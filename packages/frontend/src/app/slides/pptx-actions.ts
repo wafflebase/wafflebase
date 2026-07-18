@@ -9,7 +9,6 @@ import {
   docsImageFetcher,
   docsImageUploader,
   downloadBlob,
-  pickFile,
   safeFilename,
 } from "../docs/export-utils";
 
@@ -40,12 +39,15 @@ const slidesImageUploader: UploadImage = async (
 };
 
 /**
- * Open the file picker for .pptx and parse the chosen archive. Returns
- * `null` if the user cancels. Throws on a malformed archive or a
- * failed image upload — the caller surfaces a toast and aborts the
- * document-creation flow.
+ * Parse an already-selected .pptx `File` into a Slides `SlidesDocument`.
+ * Named `importPptxFile` (not `importPptx`) to avoid shadowing the
+ * package-level `importPptx` imported above from `@wafflebase/slides`.
+ * Used directly by the upload queue.
+ * Throws on a malformed archive or a failed image upload — the caller
+ * surfaces a toast and aborts the document-creation flow.
  */
-export async function pickAndImportPptx(
+export async function importPptxFile(
+  file: File,
   onProgress?: (p: {
     done: number;
     total: number;
@@ -55,9 +57,7 @@ export async function pickAndImportPptx(
   document: SlidesDocument;
   report: ImportReport;
   fileName: string;
-} | null> {
-  const file = await pickFile(".pptx");
-  if (!file) return null;
+}> {
   const buffer = await file.arrayBuffer();
   const { document, report } = await importPptx(buffer, {
     uploadImage: slidesImageUploader,
