@@ -20,12 +20,17 @@ export class AnalyticsProducerService implements OnModuleDestroy {
     this.topic =
       this.config.get<string>('WAFFLEBASE_KAFKA_TOPIC') ??
       'wafflebase-view-events';
-    const addresses = this.config.get<string>('WAFFLEBASE_KAFKA_ADDRESSES');
-    if (addresses) {
-      const kafka = new Kafka({
-        clientId: 'wafflebase-backend',
-        brokers: addresses.split(',').map((s) => s.trim()),
-      });
+    const brokers = (
+      this.config.get<string>('WAFFLEBASE_KAFKA_ADDRESSES') ?? ''
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // Only enable with at least one real broker — a whitespace-only value or
+    // trailing comma must not leave the producer "enabled" with no brokers
+    // (which would silently drop accepted events).
+    if (brokers.length > 0) {
+      const kafka = new Kafka({ clientId: 'wafflebase-backend', brokers });
       this.producer = kafka.producer();
     }
   }

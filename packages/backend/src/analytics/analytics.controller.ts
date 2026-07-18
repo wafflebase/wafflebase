@@ -79,11 +79,14 @@ export class AnalyticsController {
     const body = parsed as IngestBody;
 
     if (
-      !body?.shareToken ||
+      typeof body?.shareToken !== 'string' ||
+      body.shareToken.trim().length === 0 ||
       !Array.isArray(body.events) ||
       body.events.length === 0
     ) {
-      throw new BadRequestException('shareToken and events are required');
+      throw new BadRequestException(
+        'shareToken must be a non-empty string and events are required',
+      );
     }
     if (body.events.length > 50) {
       throw new BadRequestException('too many events in one batch');

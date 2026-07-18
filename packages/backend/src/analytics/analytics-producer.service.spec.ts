@@ -34,6 +34,10 @@ describe('AnalyticsProducerService', () => {
     const svc = make({ WAFFLEBASE_KAFKA_ADDRESSES: 'localhost:9092' });
     expect(svc.isEnabled()).toBe(true);
   });
+  it('stays disabled when addresses are only whitespace/commas', () => {
+    const svc = make({ WAFFLEBASE_KAFKA_ADDRESSES: '  , ,' });
+    expect(svc.isEnabled()).toBe(false);
+  });
   it('produce() is a no-op that does not throw when disabled', () => {
     const svc = make({});
     expect(() => svc.produce([])).not.toThrow();

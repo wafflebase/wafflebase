@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsProducerService } from './analytics-producer.service';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
@@ -76,13 +76,15 @@ describe('AnalyticsController ingest', () => {
     const req = { headers: {}, user: null } as never;
     await expect(
       controller.ingest({ shareToken: 'tok', events: [null] as never }, req),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects an unparsable string body', async () => {
     const { controller } = setup();
     const req = { headers: {}, user: null } as never;
-    await expect(controller.ingest('not json', req)).rejects.toThrow();
+    await expect(controller.ingest('not json', req)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('records anonymous visitor (no user) with empty user_id', async () => {
@@ -111,7 +113,7 @@ describe('AnalyticsController ingest', () => {
         },
         req,
       ),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a batch with more than 50 events', async () => {
@@ -125,7 +127,7 @@ describe('AnalyticsController ingest', () => {
     }));
     await expect(
       controller.ingest({ shareToken: 'tok', events }, req),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects an event missing sessionId', async () => {
@@ -141,7 +143,7 @@ describe('AnalyticsController ingest', () => {
         },
         req,
       ),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('short-circuits without a share-link lookup when the producer is disabled', async () => {
@@ -218,6 +220,14 @@ describe('AnalyticsController dashboard', () => {
     await expect(
       c.dashboard('doc-1', req, undefined, undefined),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows the document author even without workspace ownership', async () => {
+    // authorID matches the caller; no owner membership row.
+    const c = setup({ authorID: 7 });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.dashboard('doc-1', req, undefined, undefined);
+    expect((res as { totalViews: number }).totalViews).toBe(5);
   });
 
   it('falls back to default window on an unparsable `to` param', async () => {

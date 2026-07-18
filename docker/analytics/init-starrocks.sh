@@ -15,14 +15,22 @@ echo "Creating wafflebase database + view_events table"
 mysql -h "$FE" -P "$PORT" -u root < /sql/create-table.sql
 
 echo "Creating routine load"
-mysql -h "$FE" -P "$PORT" -u root < /sql/create-routine-load.sql 2>/dev/null \
-  || echo "routine load may already exist, continuing"
+# Tolerate a pre-existing job, but surface any other failure: verify the job
+# actually exists afterward and fail loudly if it does not (a genuine DDL or
+# connectivity error must not masquerade as "already exists").
+create_out=$(mysql -h "$FE" -P "$PORT" -u root < /sql/create-routine-load.sql 2>&1) \
+  || echo "create returned non-zero (may already exist): $create_out"
 
 sleep 5
 state=$(mysql -h "$FE" -P "$PORT" -u root \
   -e "SHOW ROUTINE LOAD FOR wafflebase.view_events\G" 2>/dev/null \
   | grep "State:" | sed 's/.*State: //')
-echo "routine load state: ${state:-unknown}"
+if [ -z "$state" ]; then
+  echo "ERROR: routine load wafflebase.view_events was not created"
+  echo "create output was: $create_out"
+  exit 1
+fi
+echo "routine load state: $state"
 if [ "$state" = "PAUSED" ]; then
   echo "Resuming routine load"
   mysql -h "$FE" -P "$PORT" -u root \
