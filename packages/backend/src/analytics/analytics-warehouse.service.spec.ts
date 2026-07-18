@@ -75,10 +75,13 @@ describe('AnalyticsWarehouseService', () => {
     );
     expect(q.totalViews).toContain("document_id IN ('d1', 'd''2')");
     expect(q.totalViews).toContain("timestamp < '2026-07-18'");
+    // Unique visitors pair with views, so both are scoped to open events.
+    expect(q.uniqueVisitors).toContain("event_type = 'open'");
     expect(q.byDocument).toContain('GROUP BY document_id');
   });
 
-  it('returns disabled workspace payload when DSN unset or no documents', async () => {
+  it('is disabled only without a warehouse; an empty workspace is enabled', async () => {
+    // No DSN -> genuinely disabled.
     const off = make({});
     const a = await off.getWorkspaceAnalytics(
       ['d1'],
@@ -88,16 +91,18 @@ describe('AnalyticsWarehouseService', () => {
     expect(a.enabled).toBe(false);
     expect(a.byDocument).toEqual([]);
 
+    // Configured warehouse but the workspace has no documents -> enabled with
+    // genuine zero metrics (not "analytics off").
     const on = make({
       WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
     });
-    // No documents in the workspace -> no query, disabled payload.
     const b = await on.getWorkspaceAnalytics(
       [],
       new Date('2026-07-01'),
       new Date('2026-07-17'),
     );
-    expect(b.enabled).toBe(false);
+    expect(b.enabled).toBe(true);
     expect(b.totalViews).toBe(0);
+    expect(b.byDocument).toEqual([]);
   });
 });

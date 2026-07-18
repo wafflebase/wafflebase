@@ -89,7 +89,7 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
     const where = `document_id = ${id} AND timestamp >= ${lo} AND timestamp < ${hi}`;
     return {
       totalViews: `SELECT COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
-      uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where};`,
+      uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
       returningVisitors: `SELECT COUNT(*) AS c FROM (SELECT visitor_id FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY visitor_id HAVING COUNT(DISTINCT session_id) > 1) t;`,
       dwell: `SELECT AVG(dwell) AS c FROM (SELECT session_id, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) AS dwell FROM view_events WHERE ${where} GROUP BY session_id) t;`,
       viewsByDay: `SELECT DATE(timestamp) AS d, COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY d ORDER BY d ASC;`,
@@ -149,7 +149,7 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
     const where = `document_id IN (${ids}) AND timestamp >= ${lo} AND timestamp < ${hi}`;
     return {
       totalViews: `SELECT COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
-      uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where};`,
+      uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
       viewsByDay: `SELECT DATE(timestamp) AS d, COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY d ORDER BY d ASC;`,
       byDocument: `SELECT document_id AS k, COUNT(*) AS v, COUNT(DISTINCT visitor_id) AS u FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY document_id ORDER BY v DESC LIMIT 200;`,
     };
@@ -164,7 +164,10 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
     from: Date,
     to: Date,
   ): Promise<WorkspaceAnalytics> {
-    if (!this.pool || documentIds.length === 0) return WS_EMPTY;
+    // No warehouse → disabled. A configured warehouse with an empty workspace
+    // is *enabled* with genuine zero metrics (not "analytics off").
+    if (!this.pool) return WS_EMPTY;
+    if (documentIds.length === 0) return { ...WS_EMPTY, enabled: true };
     const q = this.buildWorkspaceQueries(documentIds, from, to);
     try {
       const [totalViews, uniqueVisitors, viewsByDay, byDocument] =
