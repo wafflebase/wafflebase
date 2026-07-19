@@ -1,5 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
+import * as request from 'supertest';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
@@ -21,10 +23,35 @@ describeDb('FolderService integration (Prisma-backed)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let folderService: FolderService;
+  let jwtService: JwtService;
   let createUser: ReturnType<typeof createUserFactory>;
 
   let userId: number;
   let workspaceId: string;
+  let user: { id: number; username: string; email: string; photo: string | null };
+
+  function authCookie(u: {
+    id: number;
+    username: string;
+    email: string;
+    photo: string | null;
+  }) {
+    const token = jwtService.sign(
+      {
+        tokenType: 'access',
+        sub: u.id,
+        username: u.username,
+        email: u.email,
+        photo: u.photo,
+      },
+      {
+        secret: process.env.JWT_SECRET!,
+        expiresIn: '1h',
+      },
+    );
+
+    return `wafflebase_session=${token}`;
+  }
 
   beforeAll(async () => {
     setIntegrationEnvDefaults();
@@ -55,6 +82,7 @@ describeDb('FolderService integration (Prisma-backed)', () => {
 
     prisma = moduleRef.get(PrismaService);
     folderService = moduleRef.get(FolderService);
+    jwtService = moduleRef.get(JwtService);
     createUser = createUserFactory(prisma, 'folder');
     await prisma.$connect();
   });
@@ -62,7 +90,7 @@ describeDb('FolderService integration (Prisma-backed)', () => {
   beforeEach(async () => {
     await clearDatabase(prisma);
 
-    const user = await createUser();
+    user = await createUser();
     const workspace = await createWorkspace(prisma, user.id);
     userId = user.id;
     workspaceId = workspace.id;
@@ -120,5 +148,34 @@ describeDb('FolderService integration (Prisma-backed)', () => {
     });
     await folderService.delete(a.id);
     expect(await prisma.folder.findUnique({ where: { id: b.id } })).toBeNull();
+  });
+
+  it('POST creates a folder and GET lists it', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'Reports' })
+      .expect(201);
+    const list = await request(app.getHttpServer())
+      .get(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .expect(200);
+    expect(list.body.map((f: any) => f.id)).toContain(created.body.id);
+  });
+
+  it('PATCH rejects a cycle-forming move with 400', async () => {
+    const a = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'A' });
+    const b = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'B', parentId: a.body.id });
+    await request(app.getHttpServer())
+      .patch(`/folders/${a.body.id}`)
+      .set('Cookie', authCookie(user))
+      .send({ parentId: b.body.id })
+      .expect(400);
   });
 });

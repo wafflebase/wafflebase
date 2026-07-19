@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
+import { FolderController } from './folder.controller';
 import { FolderService } from './folder.service';
-import { PrismaService } from 'src/database/prisma.service';
+import { PrismaService } from '../database/prisma.service';
+import { WorkspaceModule } from '../workspace/workspace.module';
+import { AuthModule } from '../auth/auth.module';
 
-// No controller yet — Task 3 adds the HTTP surface (FolderController) to
-// this same module. Registered here first so FolderService is resolvable
-// via Nest DI (and moduleRef.get(FolderService) in tests) ahead of that.
 @Module({
+  imports: [AuthModule, WorkspaceModule],
+  controllers: [FolderController],
   providers: [FolderService, PrismaService],
   exports: [FolderService],
 })
