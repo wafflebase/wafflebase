@@ -52,6 +52,19 @@ describe('AnalyticsWarehouseService', () => {
     expect(q.dwell).toContain('session_id');
   });
 
+  it('excludes single-event sessions from the dwell average', () => {
+    const svc = make({
+      WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
+    });
+    const q = svc.buildQueries(
+      'doc-1',
+      new Date('2026-07-01T00:00:00Z'),
+      new Date('2026-07-17T00:00:00Z'),
+    );
+    // Open-only sessions span 0s; without this guard they drag the mean down.
+    expect(q.dwell).toContain('HAVING COUNT(*) > 1');
+  });
+
   it('escapes single quotes in the document id to prevent injection', () => {
     const svc = make({
       WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',

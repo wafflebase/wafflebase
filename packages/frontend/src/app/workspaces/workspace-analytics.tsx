@@ -1,18 +1,36 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaceAnalytics } from "@/api/workspaces";
 import { Loader } from "@/components/loader";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { DateRangePicker } from "@/app/analytics/date-range";
+import {
+  DEFAULT_PRESET,
+  rangeForPreset,
+  type RangePreset,
+} from "@/app/analytics/presets";
+import { Stat } from "@/app/analytics/stat";
+import { ViewsTrendChart } from "@/app/analytics/views-trend-chart";
 
 /**
  * Workspace-level view-analytics dashboard: aggregate totals across the
  * workspace's documents plus a per-document ranking. Each row links to that
- * document's detailed analytics (`/analytics/:id`).
+ * document's detailed analytics (`/w/:workspaceId/analytics/:id`).
  */
 export function WorkspaceAnalyticsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const [preset, setPreset] = useState<RangePreset>(DEFAULT_PRESET);
   const { data, isLoading, error } = useQuery({
-    queryKey: ["workspaces", workspaceId, "analytics"],
-    queryFn: () => getWorkspaceAnalytics(workspaceId!),
+    queryKey: ["workspaces", workspaceId, "analytics", preset],
+    queryFn: () => getWorkspaceAnalytics(workspaceId!, rangeForPreset(preset)),
     enabled: Boolean(workspaceId),
     retry: false,
   });
@@ -33,7 +51,12 @@ export function WorkspaceAnalyticsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">Analytics</h1>
+      <div className="flex items-center justify-end">
+        <DateRangePicker value={preset} onChange={setPreset} />
+      </div>
+
+      <ViewsTrendChart data={data.viewsByDay} />
+
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <Stat label="Total views" value={data.totalViews} />
         <Stat label="Unique visitors" value={data.uniqueVisitors} />
@@ -45,44 +68,37 @@ export function WorkspaceAnalyticsPage() {
         {data.byDocument.length === 0 ? (
           <p className="text-sm text-muted-foreground">No views yet.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th>Document</th>
-                <th>Views</th>
-                <th>Unique</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Document</TableHead>
+                <TableHead className="text-right">Views</TableHead>
+                <TableHead className="text-right">Unique</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {data.byDocument.map((r) => (
-                <tr key={r.documentId} className="border-t">
-                  <td className="py-1">{r.title || r.documentId}</td>
-                  <td>{r.views}</td>
-                  <td>{r.uniqueVisitors}</td>
-                  <td>
+                <TableRow key={r.documentId}>
+                  <TableCell>{r.title || r.documentId}</TableCell>
+                  <TableCell className="text-right">{r.views}</TableCell>
+                  <TableCell className="text-right">
+                    {r.uniqueVisitors}
+                  </TableCell>
+                  <TableCell className="text-right">
                     <Link
                       className="text-primary hover:underline"
-                      to={`/analytics/${r.documentId}`}
+                      to={`/w/${workspaceId}/analytics/${r.documentId}`}
                     >
                       Details
                     </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </section>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border p-4">
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="text-sm text-muted-foreground">{label}</div>
     </div>
   );
 }

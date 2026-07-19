@@ -185,7 +185,8 @@ WAFFLEBASE_STARROCKS_DSN=root:@tcp(kube-starrocks-fe-search.analytics.svc.cluste
   - On unload / route change: `close` via `navigator.sendBeacon` (survives
     page teardown).
   - Events are batched and sent to `POST /internal/analytics/view-events`.
-- **Dashboard** — a per-document Analytics page (reachable at `/analytics/:id`,
+- **Dashboard** — a per-document Analytics page (reachable at
+  `/w/:workspaceId/analytics/:id`,
   manager-gated server-side; a manager entry link from the context menu / share
   dialog is a follow-up) rendering: total & unique views, returning visitors,
   average dwell, a per-share-link comparison table, and — **planned for a
@@ -246,6 +247,72 @@ warehouse no-op and the dashboard shows "not enabled" (mirrors Yorkie's
 - Follows the privacy stance of Yorkie's OLAP design (yorkie repo:
   docs/design/olap-stack.md — hash/opaque identifiers, no raw PII in the
   warehouse).
+
+## Dashboard Visualization (v2)
+
+The v1 dashboards render the backend metrics as stat tiles + raw HTML tables.
+Several already-computed values are never shown and the read path exposes no
+date-range control. v2 closes that gap — **presentation only, no new events or
+warehouse columns** — across both the per-document and workspace dashboards.
+
+Scope is deliberately narrowed to visualization; the per-tab/slide `byTarget`
+stream (still empty until `tabchange` is wired) stays a follow-up.
+
+### Shared frontend module
+
+A small `packages/frontend/src/app/analytics/` module holds the pieces both
+dashboards reuse, so document and workspace views stay visually consistent:
+
+- **`ViewsTrendChart`** — a `recharts` (already a dependency, `^2.15.2`)
+  area/line chart over `viewsByDay` (`{ date, value }[]`). Both response
+  payloads already carry `viewsByDay`; v1 never rendered it. This is the
+  headline change. Renders an empty-state when the series is empty.
+- **`DateRangePicker`** — presets (Last 7 / 30 / 90 days, All time) resolving to
+  `{ from, to }`. Both API clients (`getDocumentAnalytics`,
+  `getWorkspaceAnalytics`) already serialize `from`/`to`; v2 wires the control
+  into the react-query key + request so the range actually reaches the server.
+  Default stays 30 days (matching backend `resolveWindow`).
+- **Formatters** — `formatDwell` (`2m 03s` from seconds) and a returning-rate
+  helper (`returningVisitors / uniqueVisitors` as a percentage).
+
+### Per-document dashboard (`/w/:workspaceId/analytics/:id`)
+
+- Trend chart above the stat tiles.
+- Stat polish: `Avg. dwell` formatted `2m 03s`; `Returning` shown as count + %
+  of unique.
+- **Share-link table labels** — `ShareLink` has no `name` column, so v1's opaque
+  8-char id becomes **role · creator · date · #id8** (resolved the same way
+  workspace `byDocument` resolves titles: StarRocks returns `share_link_id`, the
+  controller enriches from Postgres). The short id is kept so two links of the
+  same role/creator/day stay distinguishable. No schema change.
+- **Navigation fix** — v1 mounted the page at `/analytics/:id` *outside*
+  `<Layout>`, so it had no global sidebar and was a dead end. v2 nests it under
+  `/w/:workspaceId/analytics/:id` *inside* `<Layout>`: the sidebar + `SiteHeader`
+  return, and carrying `workspaceId` in the URL lets `Layout` resolve the current
+  workspace (the switcher would otherwise read "Select workspace"). The page's
+  own `<h1>` is dropped since `SiteHeader` already shows the title.
+
+### `avgDwell` correctness fix
+
+`buildQueries.dwell` averages `TIMESTAMPDIFF(SECOND, MIN, MAX)` per session over
+**all** event types, so open-only sessions (no heartbeat/close) contribute a
+0-second dwell and drag the average down. Since v2 surfaces the formatted dwell
+prominently, the per-session subquery gains `HAVING COUNT(*) > 1` to exclude
+single-event sessions — dwell then reflects sessions that actually spent time.
+
+### Workspace dashboard (`/w/:workspaceId/analytics`)
+
+- The same `ViewsTrendChart` over the workspace `viewsByDay`.
+- The same `DateRangePicker`, wired into the workspace query.
+- Per-document ranking table keeps its shape; only shared styling/formatting is
+  applied for consistency.
+
+### Non-Goals (v2)
+
+- Per-tab/slide `byTarget` visualization (blocked on wiring `tabchange`).
+- New warehouse dimensions (browser/OS, anonymous-vs-logged-in, doc-type) —
+  captured but still unqueried; a later pass.
+- CSV export, real-time activity feed, `ShareLink.name` schema column.
 
 ### Risks and Mitigation
 

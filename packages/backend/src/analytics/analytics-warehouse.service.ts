@@ -91,7 +91,10 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
       totalViews: `SELECT COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
       uniqueVisitors: `SELECT COUNT(DISTINCT visitor_id) AS c FROM view_events WHERE ${where} AND event_type = 'open';`,
       returningVisitors: `SELECT COUNT(*) AS c FROM (SELECT visitor_id FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY visitor_id HAVING COUNT(DISTINCT session_id) > 1) t;`,
-      dwell: `SELECT AVG(dwell) AS c FROM (SELECT session_id, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) AS dwell FROM view_events WHERE ${where} GROUP BY session_id) t;`,
+      // Only sessions with >1 event have a measurable dwell. Open-only sessions
+      // (no heartbeat/close) span 0s and would drag the average toward zero, so
+      // exclude them rather than report a misleadingly low mean.
+      dwell: `SELECT AVG(dwell) AS c FROM (SELECT session_id, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) AS dwell FROM view_events WHERE ${where} GROUP BY session_id HAVING COUNT(*) > 1) t;`,
       viewsByDay: `SELECT DATE(timestamp) AS d, COUNT(*) AS c FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY d ORDER BY d ASC;`,
       byShareLink: `SELECT share_link_id AS k, COUNT(*) AS v, COUNT(DISTINCT visitor_id) AS u FROM view_events WHERE ${where} AND event_type = 'open' GROUP BY share_link_id ORDER BY v DESC;`,
       byTarget: `SELECT target AS k, COUNT(*) AS v FROM view_events WHERE ${where} AND event_type = 'tabchange' GROUP BY target ORDER BY v DESC LIMIT 50;`,

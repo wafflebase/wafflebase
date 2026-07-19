@@ -88,6 +88,13 @@ function App() {
                     <Route path="/documents" element={<Documents />} />
                     <Route path="/datasources" element={<DataSourcesPage />} />
                     <Route path="/settings" element={<Settings />} />
+                    {/* Nested under the workspace so Layout resolves the
+                        current workspace for the sidebar, and inside Layout so
+                        it shows the global sidebar + header. */}
+                    <Route
+                      path="/w/:workspaceId/analytics/:id"
+                      element={<DocumentAnalyticsPage />}
+                    />
                   </Route>
                   <Route path="/invite/:token" element={<InviteAccept />} />
                   <Route path="/d/:id" element={<DocsDetail />} />
@@ -95,10 +102,6 @@ function App() {
                   <Route path="/s/:id" element={<DocumentDetail />} />
                   <Route path="/f/:id" element={<FileDetail />} />
                   <Route path="/n/:id" element={<NotesDetail />} />
-                  <Route
-                    path="/analytics/:id"
-                    element={<DocumentAnalyticsPage />}
-                  />
                 </Route>
               </Routes>
             </Suspense>
