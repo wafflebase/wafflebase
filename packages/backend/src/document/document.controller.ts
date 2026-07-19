@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { DocumentService, DocumentWithAuthor } from './document.service';
@@ -30,7 +31,10 @@ import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 import { isDocumentManager } from './document-access';
 import { assertFileIdAllowed } from './document-file-id.util';
+import { FolderService } from '../folder/folder.service';
 
+// `folderId` is part of the row via the `...d` spread below (the `Document`
+// model now carries it — see `document.dto.ts` / Task 1's Prisma migration).
 type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   editors?: PresenceUser[];
   // Last-modified time (ISO). Sourced from the Postgres `Document.updatedAt`
@@ -53,6 +57,7 @@ export class DocumentController {
     private readonly workspaceService: WorkspaceService,
     private readonly yorkieAdminService: YorkieAdminService,
     private readonly fileService: FileService,
+    private readonly folderService: FolderService,
   ) {}
 
   private async attachMeta(
@@ -113,12 +118,16 @@ export class DocumentController {
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    if (body.folderId) {
+      await this.folderService.assertSameWorkspace(body.folderId, workspaceId);
+    }
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
       fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
+      ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),
     });
   }
 
@@ -126,13 +135,14 @@ export class DocumentController {
   async findByWorkspace(
     @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
+    @Query('folderId') folderId?: string,
   ): Promise<DocumentListItem[]> {
     const userId = Number(req.user.id);
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     const member = await this.workspaceService.assertMember(workspaceId, userId);
     const docs = await this.documentService.listDocumentsWithAuthor({
-      where: { workspaceId },
+      where: { workspaceId, folderId: folderId ?? null },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     return this.attachMeta(docs, new Map([[workspaceId, member.role]]), userId);
@@ -181,12 +191,19 @@ export class DocumentController {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    if (body.folderId) {
+      await this.folderService.assertSameWorkspace(
+        body.folderId,
+        body.workspaceId,
+      );
+    }
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
       fileId: body.fileId,
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
+      ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),
     });
   }
 
@@ -204,8 +221,11 @@ export class DocumentController {
     // Renaming is an edit any member may do; moving is a manager-only action.
     const isManager = await this.resolveDocManager(doc, userId);
 
-    const data: { title?: string; workspace?: { connect: { id: string } } } =
-      {};
+    const data: {
+      title?: string;
+      workspace?: { connect: { id: string } };
+      folder?: { connect: { id: string } } | { disconnect: true };
+    } = {};
     if (body.title !== undefined) {
       data.title = body.title;
     }
@@ -217,6 +237,30 @@ export class DocumentController {
       }
       await this.workspaceService.assertMember(body.workspaceId, userId);
       data.workspace = { connect: { id: body.workspaceId } };
+      // Moving to a different workspace: the current folder (if any) belongs to
+      // the old workspace, so drop it — otherwise the document keeps a folderId
+      // pointing across the workspace boundary. A caller that wants it filed in
+      // the target workspace supplies `folderId` explicitly (handled below).
+      if (body.workspaceId !== doc.workspaceId && body.folderId === undefined) {
+        data.folder = { disconnect: true };
+      }
+    }
+    if (body.folderId !== undefined) {
+      if (!isManager) {
+        throw new ForbiddenException(
+          'Only the workspace owner or document owner can move this document',
+        );
+      }
+      if (body.folderId === null) {
+        data.folder = { disconnect: true };
+      } else {
+        const targetWorkspaceId = body.workspaceId ?? doc.workspaceId;
+        await this.folderService.assertSameWorkspace(
+          body.folderId,
+          targetWorkspaceId,
+        );
+        data.folder = { connect: { id: body.folderId } };
+      }
     }
 
     return this.documentService.updateDocument({

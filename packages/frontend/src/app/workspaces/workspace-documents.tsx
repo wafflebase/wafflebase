@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { fetchWorkspaceDocuments } from "@/api/workspaces";
+import { fetchFolders } from "@/api/folders";
 import { isAuthExpiredError } from "@/api/auth";
-import { Document } from "@/types/documents";
+import { Document, Folder } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -11,6 +12,14 @@ import { Skeleton } from "@/components/ui/skeleton";
  */
 export default function WorkspaceDocuments() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const folderId = searchParams.get("folder");
+
+  const { data: folders = [] } = useQuery<Array<Folder>>({
+    queryKey: ["workspaces", workspaceId, "folders"],
+    queryFn: () => fetchFolders(workspaceId!),
+    enabled: !!workspaceId,
+  });
 
   const {
     data: documents = [],
@@ -18,8 +27,8 @@ export default function WorkspaceDocuments() {
     isError,
     error,
   } = useQuery<Array<Document>>({
-    queryKey: ["workspaces", workspaceId, "documents"],
-    queryFn: () => fetchWorkspaceDocuments(workspaceId!),
+    queryKey: ["workspaces", workspaceId, "documents", folderId ?? "root"],
+    queryFn: () => fetchWorkspaceDocuments(workspaceId!, folderId),
     enabled: !!workspaceId,
     // Refresh "currently editing" indicators without forcing a manual reload.
     refetchInterval: 5000,
@@ -59,7 +68,25 @@ export default function WorkspaceDocuments() {
 
   return (
     <div className="p-4 lg:p-6">
-      <DocumentList data={documents} workspaceId={workspaceId} />
+      <DocumentList
+        data={documents}
+        workspaceId={workspaceId}
+        folders={folders}
+        folderId={folderId}
+        onNavigateFolder={(id) =>
+          setSearchParams(
+            (prev) => {
+              // Merge rather than replace so any unrelated future query param
+              // on this route survives folder navigation.
+              const next = new URLSearchParams(prev);
+              if (id) next.set("folder", id);
+              else next.delete("folder");
+              return next;
+            },
+            { replace: false },
+          )
+        }
+      />
     </div>
   );
 }

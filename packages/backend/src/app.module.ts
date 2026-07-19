@@ -16,6 +16,7 @@ import { FileModule } from './file/file.module';
 import { HealthModule } from './health/health.module';
 import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { FolderModule } from './folder/folder.module';
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     HealthModule,
     UserDocStylesModule,
     AnalyticsModule,
+    FolderModule,
   ],
   controllers: [],
   providers: [

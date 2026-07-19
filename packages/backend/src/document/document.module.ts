@@ -11,9 +11,10 @@ import { AuthModule } from '../auth/auth.module';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { FileModule } from '../file/file.module';
 import { ShareLinkModule } from '../share-link/share-link.module';
+import { FolderModule } from '../folder/folder.module';
 
 @Module({
-  imports: [AuthModule, WorkspaceModule, FileModule, ShareLinkModule],
+  imports: [AuthModule, WorkspaceModule, FileModule, ShareLinkModule, FolderModule],
   controllers: [
     DocumentController,
     DocumentFileController,

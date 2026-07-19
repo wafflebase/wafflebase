@@ -24,6 +24,10 @@ export class CreateDocumentDto {
   @IsString()
   @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  folderId?: string;
 }
 
 export class CreateDocumentInWorkspaceDto {
@@ -42,6 +46,10 @@ export class CreateDocumentInWorkspaceDto {
 
   @IsUUID()
   workspaceId: string;
+
+  @IsOptional()
+  @IsUUID()
+  folderId?: string;
 }
 
 export class UpdateDocumentDto {
@@ -53,4 +61,9 @@ export class UpdateDocumentDto {
   @IsOptional()
   @IsUUID()
   workspaceId?: string;
+
+  // `undefined` = leave unchanged; explicit `null` = move to workspace root.
+  @IsOptional()
+  @IsUUID()
+  folderId?: string | null;
 }

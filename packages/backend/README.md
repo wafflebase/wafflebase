@@ -175,6 +175,22 @@ All document endpoints require JWT authentication.
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
 
+### Folders (`/workspaces/:workspaceId/folders`)
+
+All folder endpoints require JWT authentication. Folders are workspace-scoped and
+purely organizational — they do not affect document access.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/workspaces/:wid/folders` | JWT (member) | Create a folder (`{ name, parentId? }`) |
+| `GET` | `/workspaces/:wid/folders` | JWT (member) | List all folders in the workspace (flat; `parentId` builds the tree) |
+| `PATCH` | `/folders/:id` | JWT | Rename (`{ name }`, any member) or move (`{ parentId }`, manager only; cycle-checked) |
+| `DELETE` | `/folders/:id` | JWT (manager) | Delete folder; descendant folders are removed and their documents return to the workspace root (never deleted) |
+
+Documents gain folder support: `GET /workspaces/:wid/documents?folderId=` filters
+to a folder (omitted = workspace root); document create and `PATCH /documents/:id`
+accept `folderId` (`null` = move to root, manager-gated like the workspace move).
+
 ### Analytics
 
 `POST /internal/analytics/view-events` is a beacon endpoint (share-token

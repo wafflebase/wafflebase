@@ -11,6 +11,7 @@ model User {
   workspaceInvites  WorkspaceInvite[]
   apiKeys           ApiKey[]
   userDocStyles     UserDocStyles?
+  folders Folder[]
 }
 
 model UserDocStyles {
@@ -54,6 +55,27 @@ model Document {
   shareLinks ShareLink[]
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  folderId String?
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, folderId])
+}
+
+model Folder {
+  id          String     @id @default(uuid())
+  name        String
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      Folder?    @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[]   @relation("FolderTree")
+  documents   Document[]
+  authorID    Int?
+  author      User?      @relation(fields: [authorID], references: [id])
+  createdAt   DateTime   @default(now())
+
+  @@index([workspaceId, parentId])
 }
 
 model ShareLink {
@@ -79,6 +101,7 @@ model Workspace {
   invites     WorkspaceInvite[]
   datasources DataSource[]
   apiKeys     ApiKey[]
+  folders     Folder[]
 }
 
 model WorkspaceMember {

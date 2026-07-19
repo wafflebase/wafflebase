@@ -16,6 +16,7 @@ describe('DocumentController.createDocument fileId gating', () => {
       workspaceService as never,
       { getSummaries: jest.fn() } as never,
       { getObject: jest.fn() } as never,
+      { assertSameWorkspace: jest.fn() } as never,
     );
   }
 
@@ -111,6 +112,7 @@ describe('DocumentController delete/move/rename permissions', () => {
       workspaceService as never,
       { getEditors: jest.fn().mockResolvedValue(new Map()) } as never,
       { delete: jest.fn().mockResolvedValue(undefined) } as never,
+      { assertSameWorkspace: jest.fn() } as never,
     );
   });
 
@@ -181,9 +183,14 @@ describe('DocumentController delete/move/rename permissions', () => {
       } as never);
       expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
       expect(workspaceService.assertMember).toHaveBeenCalledWith('ws-2', OWNER);
+      // Moving across workspaces with no explicit folderId also drops the
+      // folder, since the old folder belongs to the source workspace.
       expect(documentService.updateDocument).toHaveBeenCalledWith({
         where: { id: 'doc-1' },
-        data: { workspace: { connect: { id: 'ws-2' } } },
+        data: {
+          workspace: { connect: { id: 'ws-2' } },
+          folder: { disconnect: true },
+        },
       });
     });
   });
