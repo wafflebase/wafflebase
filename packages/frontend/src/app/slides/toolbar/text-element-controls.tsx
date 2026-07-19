@@ -9,10 +9,10 @@ import type {
 } from '@wafflebase/slides';
 import { resolveColor } from '@wafflebase/slides';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { IconBucketDroplet } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
@@ -115,21 +115,21 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
   return (
     <>
       {/* Background fill — the text box itself, not text color */}
-      <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
+      <Popover modal open={fillOpen} onOpenChange={setFillOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconBucketDroplet size={14} />}
                 color={currentTextBoxFill}
                 label="Fill color"
                 disabled={!store || !theme}
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent
+        <PopoverContent
           align="start"
           className="w-auto p-2"
           onCloseAutoFocus={fillMenu.onCloseAutoFocus}
@@ -143,8 +143,8 @@ export function TextElementControls({ editor, store, theme, ids }: TextElementCo
               recentColors={store?.read().meta.recentColors}
             />
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
 
       <BorderPicker
         value={firstElement?.data.stroke}

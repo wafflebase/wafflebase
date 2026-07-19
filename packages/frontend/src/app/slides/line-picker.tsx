@@ -146,7 +146,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
       title={label}
       data-active={active || undefined}
       onClick={() => onSelect(kind)}
-      className="flex h-8 items-center gap-2 rounded px-2 text-foreground hover:bg-accent data-[active=true]:bg-accent"
+      className="flex h-8 cursor-pointer items-center gap-2 rounded px-2 text-foreground hover:bg-accent data-[active=true]:bg-accent"
     >
       <canvas ref={ref} className="size-6 shrink-0" />
       <span className="text-sm whitespace-nowrap">{label}</span>

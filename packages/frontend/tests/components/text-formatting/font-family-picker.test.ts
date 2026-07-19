@@ -102,7 +102,7 @@ describe("FontFamilyPicker", () => {
       );
     });
     const item = [
-      ...document.body.querySelectorAll('[role="menuitem"]'),
+      ...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]'),
     ].find((n) => n.textContent === "Georgia") as HTMLElement | undefined;
     expect(item).toBeTruthy();
     act(() => {
@@ -180,7 +180,7 @@ describe("FontFamilyPicker", () => {
     let menuStillMountedDuringOnChange: boolean | null = null;
     const onChange = vi.fn(() => {
       menuStillMountedDuringOnChange =
-        document.body.querySelector('[role="menuitem"]') !== null;
+        document.body.querySelector('[role="menuitem"],[role="menuitemcheckbox"]') !== null;
     });
     const el = render(h(FontFamilyPicker, { value: "Arial", onChange }));
     const trigger = el.querySelector('[aria-label="Font"]') as HTMLElement;
@@ -195,7 +195,7 @@ describe("FontFamilyPicker", () => {
       );
     });
     const item = [
-      ...document.body.querySelectorAll('[role="menuitem"]'),
+      ...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]'),
     ].find((n) => n.textContent === "Georgia") as HTMLElement | undefined;
     expect(item).toBeTruthy();
     act(() => {
@@ -235,7 +235,7 @@ describe("FontFamilyPicker", () => {
       );
     });
     const item = [
-      ...document.body.querySelectorAll('[role="menuitem"]'),
+      ...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]'),
     ].find((n) => n.textContent === "Georgia") as HTMLElement | undefined;
     expect(item).toBeTruthy();
     act(() => {

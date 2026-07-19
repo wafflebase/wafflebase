@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 describe("LineSpacingPicker", () => {
-  test("emits the preset value on click", () => {
+  test("emits the preset value on click", async () => {
     const onChange = vi.fn();
     const el = render(h(LineSpacingPicker, { value: 1.5, onChange }));
     // Radix DropdownMenu opens on pointer events, not synthetic .click(),
@@ -72,7 +72,7 @@ describe("LineSpacingPicker", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')];
+    const items = [...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]')];
     const double = items.find((n) => n.textContent?.includes("2.0")) as
       | HTMLElement
       | undefined;
@@ -95,6 +95,12 @@ describe("LineSpacingPicker", () => {
       double!.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
+    });
+    // onChange now fires from Radix's `onCloseAutoFocus` (deferred so the
+    // caller's editor.focus() sticks). That runs inside FocusScope's
+    // `setTimeout(0)` cleanup — yield to flush it before asserting.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
     });
     expect(onChange).toHaveBeenCalledWith(2.0);
   });
@@ -125,7 +131,7 @@ describe("LineSpacingPicker", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')];
+    const items = [...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]')];
     const has150 = items.some((n) => n.textContent === "1.50");
     const has15 = items.some((n) => n.textContent === "1.5");
     expect(has150).toBe(false);

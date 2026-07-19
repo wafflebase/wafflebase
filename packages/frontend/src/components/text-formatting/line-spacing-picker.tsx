@@ -7,11 +7,12 @@
  * (0.5–10.0).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -20,7 +21,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconLineHeight, IconCheck } from "@tabler/icons-react";
+import { IconLineHeight } from "@tabler/icons-react";
 import {
   LINE_SPACING_PRESETS,
   LINE_SPACING_MIN,
@@ -50,12 +51,16 @@ export function LineSpacingPicker({
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [draft, setDraft] = useState(String(value));
+  // Defer every commit (preset click and custom input) to onCloseAutoFocus so
+  // the caller's `editor.focus()` runs after Radix's FocusScope teardown and
+  // sticks — committing inline races the scope restoring focus to the trigger.
+  const pendingRef = useRef<number | null>(null);
 
   const commitCustom = () => {
     const n = Number(draft);
     if (!Number.isFinite(n)) return;
     const clamped = Math.max(LINE_SPACING_MIN, Math.min(LINE_SPACING_MAX, n));
-    onChange(clamped);
+    pendingRef.current = clamped;
     setOpen(false);
     setCustomMode(false);
   };
@@ -83,7 +88,16 @@ export function LineSpacingPicker({
         </TooltipTrigger>
         <TooltipContent>Line spacing</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent className="w-[140px]">
+      <DropdownMenuContent
+        className="w-[140px]"
+        onCloseAutoFocus={(e) => {
+          const pick = pendingRef.current;
+          if (pick === null) return;
+          e.preventDefault();
+          pendingRef.current = null;
+          onChange(pick);
+        }}
+      >
         {customMode ? (
           <form
             className="flex items-center gap-1 p-1"
@@ -108,17 +122,16 @@ export function LineSpacingPicker({
         ) : (
           <>
             {LINE_SPACING_PRESETS.map((p) => (
-              <DropdownMenuItem
+              <DropdownMenuCheckboxItem
                 key={p}
+                checked={value === p}
                 onClick={() => {
-                  onChange(p);
-                  setOpen(false);
+                  pendingRef.current = p;
                 }}
                 className="flex items-center justify-between"
               >
                 <span>{formatPresetLabel(p)}</span>
-                {value === p && <IconCheck size={14} />}
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem

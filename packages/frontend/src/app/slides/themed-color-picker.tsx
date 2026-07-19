@@ -10,6 +10,7 @@ import {
 } from "./themed-color-picker-helpers";
 import { TEXT_COLORS } from "@/components/formatting-colors";
 import { NoneSwatch } from "@/components/none-swatch";
+import { ColorSwatch } from "@/components/color-swatch";
 import { Slider } from "@/components/ui/slider";
 
 interface ThemedColorPickerProps {
@@ -136,27 +137,17 @@ export function ThemedColorPicker({
         Theme
       </p>
       <div className="mb-2 grid grid-cols-8 gap-1">
-        {PICKER_THEME_ROLES.map((role) => {
-          const selected = isRoleSelected(value, role);
-          return (
-            <button
-              key={role}
-              type="button"
-              aria-label={role}
-              aria-pressed={selected}
-              title={role}
-              onClick={() =>
-                onChange(makeRoleColor(role), { commit: true, record: true })
-              }
-              className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
-                selected
-                  ? "border-foreground ring-2 ring-ring/50"
-                  : "border-border"
-              }`}
-              style={{ backgroundColor: theme.colors[role] }}
-            />
-          );
-        })}
+        {PICKER_THEME_ROLES.map((role) => (
+          <ColorSwatch
+            key={role}
+            color={theme.colors[role]}
+            label={role}
+            selected={isRoleSelected(value, role)}
+            onClick={() =>
+              onChange(makeRoleColor(role), { commit: true, record: true })
+            }
+          />
+        ))}
       </div>
 
       {recentColors && recentColors.length > 0 && (
@@ -165,30 +156,18 @@ export function ThemedColorPicker({
             Recent
           </p>
           <div className="mb-2 grid grid-cols-8 gap-1">
-            {recentColors.map((hex) => {
-              const selected = isSrgbSelected(hex);
-              return (
-                <button
-                  key={hex}
-                  type="button"
-                  aria-label={`Recent color ${hex}`}
-                  aria-pressed={selected}
-                  title={hex}
-                  onClick={() =>
-                    onChange(makeSrgbColor(hex), {
-                      commit: true,
-                      record: true,
-                    })
-                  }
-                  className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
-                    selected
-                      ? "border-foreground ring-2 ring-ring/50"
-                      : "border-border"
-                  }`}
-                  style={{ backgroundColor: hex }}
-                />
-              );
-            })}
+            {recentColors.map((hex) => (
+              <ColorSwatch
+                key={hex}
+                color={hex}
+                label={`Recent color ${hex}`}
+                title={hex}
+                selected={isSrgbSelected(hex)}
+                onClick={() =>
+                  onChange(makeSrgbColor(hex), { commit: true, record: true })
+                }
+              />
+            ))}
           </div>
         </>
       )}
@@ -197,27 +176,18 @@ export function ThemedColorPicker({
         Standard
       </p>
       <div className="mb-2 grid grid-cols-8 gap-1">
-        {TEXT_COLORS.map((hex) => {
-          const selected = isSrgbSelected(hex);
-          return (
-            <button
-              key={hex}
-              type="button"
-              aria-label={`Color ${hex}`}
-              aria-pressed={selected}
-              title={hex}
-              onClick={() =>
-                onChange(makeSrgbColor(hex), { commit: true, record: true })
-              }
-              className={`h-5 w-5 cursor-pointer rounded-sm border transition-transform hover:scale-125 ${
-                selected
-                  ? "border-foreground ring-2 ring-ring/50"
-                  : "border-border"
-              }`}
-              style={{ backgroundColor: hex }}
-            />
-          );
-        })}
+        {TEXT_COLORS.map((hex) => (
+          <ColorSwatch
+            key={hex}
+            color={hex}
+            label={`Color ${hex}`}
+            title={hex}
+            selected={isSrgbSelected(hex)}
+            onClick={() =>
+              onChange(makeSrgbColor(hex), { commit: true, record: true })
+            }
+          />
+        ))}
       </div>
 
       <div className="border-t pt-2">

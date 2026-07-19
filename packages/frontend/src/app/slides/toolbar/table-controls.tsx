@@ -12,14 +12,20 @@ import type {
 import { DEFAULT_CELL_PADDING } from '@wafflebase/slides';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Toggle } from '@/components/ui/toggle';
-import { ToolbarSeparator } from '@/components/ui/toolbar';
+import { ToolbarButton, ToolbarSeparator } from '@/components/ui/toolbar';
 import {
   IconAlignBoxLeftTop,
   IconAlignBoxLeftMiddle,
@@ -27,7 +33,6 @@ import {
   IconBorderAll,
   IconBoxPadding,
   IconBucketDroplet,
-  IconCheck,
 } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
@@ -278,10 +283,10 @@ export function TableControls({
   return (
     <>
       {/* Cell fill — themed color picker shared with shapes */}
-      <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
+      <Popover modal open={fillOpen} onOpenChange={setFillOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconBucketDroplet size={14} />}
                 color={
@@ -291,11 +296,15 @@ export function TableControls({
                 }
                 label="Cell fill"
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell fill</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent onCloseAutoFocus={fillMenu.onCloseAutoFocus}>
+        <PopoverContent
+          align="start"
+          className="w-auto p-2"
+          onCloseAutoFocus={fillMenu.onCloseAutoFocus}
+        >
           {theme && (
             <ThemedColorPicker
               theme={theme}
@@ -316,8 +325,8 @@ export function TableControls({
               recentColors={store?.read().meta.recentColors}
             />
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
 
       <ToolbarSeparator className="mx-1" />
 
@@ -369,13 +378,9 @@ export function TableControls({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Cell borders"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
-              >
+              <ToolbarButton aria-label="Cell borders">
                 <IconBorderAll size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell borders</TooltipContent>
@@ -404,13 +409,9 @@ export function TableControls({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Cell padding"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
-              >
+              <ToolbarButton aria-label="Cell padding">
                 <IconBoxPadding size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell padding</TooltipContent>
@@ -441,17 +442,16 @@ export function TableControls({
           ) : (
             <>
               {PADDING_PRESETS.map((p) => (
-                <DropdownMenuItem
+                <DropdownMenuCheckboxItem
                   key={p}
+                  checked={sampleUniformPadding === p}
                   onSelect={() => {
                     applyPadding(p);
                     setPaddingOpen(false);
                   }}
-                  className="flex items-center justify-between"
                 >
-                  <span>{p} px</span>
-                  {sampleUniformPadding === p && <IconCheck size={14} />}
-                </DropdownMenuItem>
+                  {p} px
+                </DropdownMenuCheckboxItem>
               ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem

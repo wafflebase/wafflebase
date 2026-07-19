@@ -6,7 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -58,7 +58,7 @@ export function ZoomControl({ controller }: ZoomControlProps) {
               type="button"
               aria-label="Zoom"
               disabled={!controller}
-              className="inline-flex h-7 min-w-[64px] items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex cursor-pointer h-7 min-w-[64px] items-center justify-between rounded-md px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
             >
               <span>{label}</span>
               <IconChevronDown size={12} className="ml-1 opacity-50" />
@@ -68,17 +68,21 @@ export function ZoomControl({ controller }: ZoomControlProps) {
         <TooltipContent>Zoom</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start">
-        <DropdownMenuItem onClick={() => controller?.set(FIT_ZOOM)}>
+        <DropdownMenuCheckboxItem
+          checked={value === FIT_ZOOM}
+          onClick={() => controller?.set(FIT_ZOOM)}
+        >
           Fit
-        </DropdownMenuItem>
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         {ZOOM_PRESETS.map((preset) => (
-          <DropdownMenuItem
+          <DropdownMenuCheckboxItem
             key={preset}
+            checked={value === preset}
             onClick={() => controller?.set(preset)}
           >
             {`${Math.round(preset * 100)}%`}
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

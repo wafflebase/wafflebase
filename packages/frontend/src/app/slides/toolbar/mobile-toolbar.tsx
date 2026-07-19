@@ -187,7 +187,7 @@ function ObjectMobileBar({
         type="button"
         onClick={onDelete}
         aria-label="Delete selection"
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-muted"
+        className="inline-flex cursor-pointer h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-muted"
       >
         <IconTrash size={16} />
       </button>
@@ -261,7 +261,7 @@ function TextEditMobileBar({
       <button
         type="button"
         onClick={() => editor?.exitTextEditing()}
-        className="inline-flex h-7 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
+        className="inline-flex cursor-pointer h-7 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground"
       >
         <IconCheck size={14} />
         Done
@@ -302,7 +302,7 @@ function InsertSheet({
           type="button"
           aria-label="Insert"
           disabled={!editor}
-          className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex cursor-pointer h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
         >
           <IconPlus size={14} />
           Insert
@@ -420,7 +420,7 @@ function FormatSheet({
         <button
           type="button"
           aria-label="Format"
-          className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex cursor-pointer h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           disabled={isMixed}
         >
           <IconTypography size={14} />
@@ -506,7 +506,7 @@ function TextFormatSheet({
         <button
           type="button"
           aria-label="Text formatting"
-          className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted"
+          className="inline-flex cursor-pointer h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted"
         >
           <IconTypography size={14} />
           Format
@@ -638,7 +638,7 @@ function OverflowMenu({
 // ---------------------------------------------------------------------------
 
 const SHEET_ACTION_BUTTON_CLASS =
-  "inline-flex h-12 items-center gap-3 rounded-md border bg-background px-4 text-sm hover:bg-muted disabled:opacity-50";
+  "inline-flex cursor-pointer h-12 items-center gap-3 rounded-md border bg-background px-4 text-sm hover:bg-muted disabled:opacity-50";
 
 function SheetActionButton({
   icon,

@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./active/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./active/20260719-analytics-dashboard-viz-lessons.md) |
+| toolbar dropdown unification (2026-07-19) | [20260719-toolbar-dropdown-unification-todo.md](./active/20260719-toolbar-dropdown-unification-todo.md) | [20260719-toolbar-dropdown-unification-lessons.md](./active/20260719-toolbar-dropdown-unification-lessons.md) |
 | release v0.6.1 (2026-07-18) | [20260718-release-v0.6.1-todo.md](./active/20260718-release-v0.6.1-todo.md) | - |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |

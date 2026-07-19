@@ -202,6 +202,125 @@ Extract reusable toolbar primitives that all three editors can build on.
 - Automated visual regression infrastructure.
 - Storybook or a `/showcase` route.
 
+### Toolbar dropdown unification (2026-07 audit)
+
+A follow-up audit compared the toolbar dropdowns across **all four** editors
+(Docs / Slides / Notes / Sheets), including the Notes and Sheets toolbars that
+shipped after the original roadmap was written (the surface inventory above
+predates them). The finding refines the PR #3–#5 plan.
+
+**What is already unified.** Every dropdown *panel* routes through the single
+shared `components/ui/dropdown-menu` Radix wrapper and consumes design tokens
+(`--popover` / `--accent` / `--border` / `--radius`). Panels, menu items, and
+hover/pressed conventions are already consistent. The shared `Toolbar` /
+`ToolbarSeparator` / `ToolbarButton` primitives in
+`packages/frontend/src/components/ui/toolbar.tsx` also already exist.
+
+**What diverged (the real inconsistencies).**
+
+1. **`ToolbarButton` was dead code.** Nothing imported it; every trigger
+   re-inlined the same `h-7 w-7 … hover:bg-muted` string (~26 icon + ~4 menu
+   sites), so the shared button height was a convention, not an enforced
+   primitive — free to drift.
+2. **Container density.** Slides overrode the shared `Toolbar` to `h-10 gap-1`
+   (40 px) while Docs / Sheets / Notes use the compact shared default
+   (≈36 px, `gap-0.5`). Slides separators also used `mx-1` vs the default `mx-2`.
+3. **Notes rolled its own chrome.** A copied container `<div>` plus a custom
+   `Divider` (`bg-border`, thinner, lower-contrast) instead of the shared
+   `Toolbar` / `ToolbarSeparator`.
+4. **Duplicated picker bodies.** Color grids exist three ways
+   (`ColorPickerGrid` `grid-cols-8`, slides `ThemedColorPicker` `grid-cols-8`
+   + theme roles, `conditional-format-panel` hand-rolled `grid-cols-5`); the
+   table picker exists twice (shared `TableGridPicker` with tokens vs slides
+   `TablePicker` with hardcoded Google-blue `rgba(26,115,232,…)`).
+5. **Missing primitive.** There is no `Popover`; color pickers abuse
+   `DropdownMenu` + manual open-state + `useMenuCloseHandlers` focus workarounds.
+
+**Decision — density = compact.** Converge on the shared `Toolbar` default
+rather than promoting the 40 px height. Rationale: 3 of 4 editors and the shared
+default are already compact, so this is the minimal-blast-radius change (only
+Slides shrinks ~4 px). Promoting 40 px would have restyled three shipped
+toolbars for one.
+
+#### Phase 1 (this PR — `unify-toolbar-dropdowns`)
+
+- Make `ToolbarButton` the enforced standard: `forwardRef` (so it slots into
+  `DropdownMenuTrigger` / `TooltipTrigger asChild`) + `variant: "icon" | "menu"`
+  via CVA. The `icon` variant reproduces the existing hand-inlined string
+  exactly. The one intentional visual normalization: the alignment dropdown
+  trigger moves from its bespoke `gap-0 px-1` to the shared `menu` shape
+  (`gap-0.5 px-1.5`) — the ~2px-wider result now matches the Notes / Slides menu
+  triggers that were already on that shape, so the divergence is removed rather
+  than preserved.
+- Adopt it in the **shared** `components/text-formatting/*` group
+  (`text-paragraph-group`, `text-format-group`, `insert-link-button`) — this
+  propagates the primitive to Docs, Slides, and Sheets at once.
+- Fix container divergence #2/#3: drop the Slides `h-10` / `gap-1` / `mx-1`
+  overrides; move Notes onto the shared `Toolbar` / `ToolbarSeparator`.
+
+#### Phase 2 (shipped)
+
+- **Button migration + disabled-state standard.** Migrated the remaining
+  editor-local raw trigger buttons to `ToolbarButton` (Docs
+  `docs-formatting-toolbar`, Sheets `formatting-toolbar`, Slides `toolbar/*`),
+  skipping genuinely-different types (primary/Done, split buttons, bordered
+  pills, the `min-w` zoom trigger, the export header button). Reconciled the
+  disabled convention on `ToolbarButton` to `disabled:pointer-events-none` (the
+  shadcn Button/Toggle convention — no hover highlight or not-allowed cursor on
+  disabled), which is what the Slides buttons already used.
+- **cursor-pointer consistency.** Slides toolbar buttons rendered the default
+  arrow cursor on hover (they omitted `cursor-pointer`). Added `cursor-pointer`
+  to the shared `Toggle` primitive base (fixes every toggle) and to the
+  remaining raw Slides buttons.
+- **Selected-item indicator standard.** Single-select "current value" menus
+  indicated selection three different ways (native left check in Notes;
+  hand-rolled right check in Docs line-spacing / Slides padding; nothing
+  elsewhere). Standardized every value menu on the **native Radix left check**
+  (`DropdownMenuCheckboxItem`, matching Notes and Google-app convention): Docs
+  font family/size, line spacing, text style, alignment (+slim); Sheets number
+  format, H/V align; Slides zoom, border weight/dash, table padding. Pure
+  **action** menus (borders, arrange, insert, overflow) keep no indicator by
+  design; grid-style pickers (`themed-font-picker`, `line-picker`,
+  `shape-picker`) keep their ring/bg highlight since they are not menus.
+- **Color-swatch a11y.** `ColorPickerGrid` gained an optional `colorKind` prop
+  so swatches announce "text color" vs "background/highlight color"; the Slides
+  `TablePicker` now wraps the shared `TableGridPicker` (token highlight, no more
+  hardcoded blue), and `conditional-format-panel` reuses `ColorPickerGrid`.
+
+Two intentional behavior notes from Phase 2 review, accepted by design: the
+menu-trigger `gap-0 px-1 → gap-0.5 px-1.5` normalization, and the shared
+`TableGridPicker`'s clamp-to-max-on-edge-exit legend behavior (now shared by
+Slides, matching Docs + Notes).
+
+#### Phase 3 (shipped)
+
+- **Shared `ColorSwatch`.** The swatch button markup was duplicated ~4 ways
+  (`ColorPickerGrid` + the three grids in the Slides `ThemedColorPicker`).
+  Extracted one `packages/frontend/src/components/color-swatch.tsx` (size / radius / hover-zoom /
+  selected ring) that both consume, so every swatch renders identically.
+  A **full merge** of `ColorPickerGrid` (plain hex, `onSelect(string)`) and
+  `ThemedColorPicker` (the slides `ThemeColor` role/srgb model,
+  `onChange(ThemeColor, opts)`, alpha, recent) was deliberately **not** done —
+  the models are genuinely different and a mode-flagged mega-component would be
+  more complex and risk slides theme regressions, not less.
+- **`Popover` primitive.** Added `packages/frontend/src/components/ui/popover.tsx` (shadcn wrapper over
+  `@radix-ui/react-popover`, chrome matching the `DropdownMenu` popover) and
+  moved the color-swatch panels off their `DropdownMenu` abuse (swatch grids /
+  custom inputs are not menu items) onto it: text-format-group (Docs/Slides text
+  edit), sheets + conditional-format, docs slim header/footer color, and slides
+  shape / border / text-element / table fill. `useMenuCloseHandlers` +
+  `onCloseAutoFocus` carry over unchanged.
+  - **Exception:** `packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx` stays on `DropdownMenu` on
+    purpose — its stop marker relies on the trigger toggling on `pointerdown`
+    (so `startDrag`'s `preventDefault()` can suppress it mid-drag); `Popover`
+    toggles on `click`, which a pointerdown `preventDefault` doesn't cancel.
+
+**Not done (judged not worth it):** adopting `DropdownMenuShortcut` for the
+`text-[11px]` shortcut hints — those are already visually uniform, so swapping to
+the primitive's `text-xs tracking-widest` would change the look for no
+user-visible consistency gain. Panel-width / icon-size "constants" were likewise
+skipped as over-abstraction (widths are intentionally per-picker).
+
 ### Sequencing rationale
 
 - PR #1 is the foundation; every downstream PR depends on a single token
@@ -238,6 +357,7 @@ This table is updated as each PR lands.
 | PR  | Title                                  | State        | Notes                              |
 | --- | -------------------------------------- | ------------ | ---------------------------------- |
 | #1  | `@wafflebase/tokens` package           | Ready to merge | Branch `tokens-package`, 2026-05-24 |
+| —   | Toolbar dropdown unification (Phases 1–3) | In review | PR #498, branch `unify-toolbar-dropdowns`, 2026-07-19; see "Toolbar dropdown unification" above |
 | #2  | Palette tokenization                   | Not started  |                                    |
 | #3  | Shared toolbar components              | Not started  |                    |
 | #4  | Slides toolbar migration               | Not started  |                    |

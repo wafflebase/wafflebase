@@ -16,7 +16,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconPlus, IconMinus } from "@tabler/icons-react";
@@ -195,14 +195,15 @@ export function FontSizePicker({
         }}
       >
         {FONT_SIZE_PRESETS.map((s) => (
-          <DropdownMenuItem
+          <DropdownMenuCheckboxItem
             key={s}
+            checked={s === value}
             onClick={() => {
               pendingPresetRef.current = s;
             }}
           >
             {s}
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

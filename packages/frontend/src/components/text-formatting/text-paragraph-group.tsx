@@ -15,8 +15,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import { ToolbarButton } from "@/components/ui/toolbar";
 import {
   IconAlignLeft,
   IconAlignCenter,
@@ -74,15 +75,15 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              <ToolbarButton
+                variant="menu"
                 aria-label="Text alignment"
                 disabled={isDisabled}
                 data-text-edit-keepalive
               >
                 <AlignIcon size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Text alignment</TooltipContent>
@@ -103,7 +104,8 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             handleAlign(pick);
           }}
         >
-          <DropdownMenuItem
+          <DropdownMenuCheckboxItem
+            checked={alignment === "left"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "left";
@@ -116,8 +118,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧L
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "center"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "center";
@@ -130,8 +133,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧E
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "right"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "right";
@@ -144,8 +148,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧R
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "justify"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "justify";
@@ -158,15 +163,14 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧J
             </span>
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
       {/* Numbered list */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          <ToolbarButton
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.toggleList("ordered");
@@ -176,7 +180,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             disabled={isDisabled}
           >
             <IconListNumbers size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
       </Tooltip>
@@ -184,8 +188,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
       {/* Bulleted list */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          <ToolbarButton
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.toggleList("unordered");
@@ -195,7 +198,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             disabled={isDisabled}
           >
             <IconList size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
       </Tooltip>
@@ -203,8 +206,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
       {/* Decrease indent */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          <ToolbarButton
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.outdent();
@@ -214,7 +216,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             disabled={isDisabled}
           >
             <IconIndentDecrease size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
       </Tooltip>
@@ -222,8 +224,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
       {/* Increase indent */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          <ToolbarButton
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               editor?.indent();
@@ -233,7 +234,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             disabled={isDisabled}
           >
             <IconIndentIncrease size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
       </Tooltip>

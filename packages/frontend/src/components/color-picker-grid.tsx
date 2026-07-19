@@ -1,4 +1,5 @@
 import { NoneSwatch } from "./none-swatch";
+import { ColorSwatch } from "./color-swatch";
 
 interface ColorPickerGridProps {
   colors: string[];
@@ -10,6 +11,13 @@ interface ColorPickerGridProps {
    * pass "None" since clearing there means transparent.
    */
   noneLabel?: string;
+  /**
+   * What kind of color this grid sets, woven into each swatch's
+   * `aria-label` (e.g. "text color" → "Select text color #ff0000") so a
+   * screen reader can tell a text-color grid apart from a background /
+   * highlight grid. Defaults to the generic "color".
+   */
+  colorKind?: string;
 }
 
 export function ColorPickerGrid({
@@ -17,6 +25,7 @@ export function ColorPickerGrid({
   onSelect,
   onReset,
   noneLabel = "Reset",
+  colorKind = "color",
 }: ColorPickerGridProps) {
   return (
     <>
@@ -32,12 +41,10 @@ export function ColorPickerGrid({
       </button>
       <div className="grid grid-cols-8 gap-1">
         {colors.map((color) => (
-          <button
+          <ColorSwatch
             key={color}
-            type="button"
-            className="h-5 w-5 cursor-pointer rounded-sm border border-border hover:scale-125 transition-transform"
-            style={{ backgroundColor: color }}
-            aria-label={`Select color ${color}`}
+            color={color}
+            label={`Select ${colorKind} ${color}`}
             title={color}
             onClick={() => onSelect(color)}
           />

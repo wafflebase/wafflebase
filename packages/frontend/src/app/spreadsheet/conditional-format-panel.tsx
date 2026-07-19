@@ -10,7 +10,6 @@ import {
 import { toast } from "sonner";
 import {
   IconBold,
-  IconDropletOff,
   IconItalic,
   IconDropletHalf2Filled,
   IconPlus,
@@ -24,10 +23,10 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Toggle } from "@/components/ui/toggle";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
+import { ColorPickerGrid } from "@/components/color-picker-grid";
 
 type ConditionalFormatPanelProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -142,6 +142,10 @@ export function ConditionalFormatPanel({
   const [rules, setRules] = useState<ConditionalFormatRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
   const [rangeInput, setRangeInput] = useState("");
+  // Controlled so a swatch pick closes the palette — the swatches are plain
+  // <button>s (not menu items), so Radix can't auto-close them.
+  const [tcOpen, setTcOpen] = useState(false);
+  const [bgOpen, setBgOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !spreadsheet) {
@@ -585,85 +589,54 @@ export function ConditionalFormatPanel({
                   <span className="text-xs font-semibold underline">U</span>
                 </Toggle>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Popover modal open={tcOpen} onOpenChange={setTcOpen}>
+                  <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconTypography size={14} />}
                       color={selectedRule.style.tc || "var(--foreground)"}
                       label="Text color"
                     />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-auto p-2">
-                    <button
-                      type="button"
-                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-                      onClick={() =>
-                        updateRuleStyle(selectedRule.id, {
-                          tc: undefined,
-                        })
-                      }
-                    >
-                      <IconDropletOff size={14} />
-                      Reset
-                    </button>
-                    <div className="grid grid-cols-5 gap-1">
-                      {TEXT_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                          style={{ backgroundColor: color }}
-                          onClick={() =>
-                            updateRuleStyle(selectedRule.id, {
-                              tc: color,
-                            })
-                          }
-                          aria-label={`Set text color ${color}`}
-                        />
-                      ))}
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-2">
+                    <ColorPickerGrid
+                      colors={TEXT_COLORS}
+                      colorKind="text color"
+                      onSelect={(color) => {
+                        updateRuleStyle(selectedRule.id, { tc: color });
+                        setTcOpen(false);
+                      }}
+                      onReset={() => {
+                        updateRuleStyle(selectedRule.id, { tc: undefined });
+                        setTcOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Popover modal open={bgOpen} onOpenChange={setBgOpen}>
+                  <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconDropletHalf2Filled size={14} />}
                       color={selectedRule.style.bg || "var(--background)"}
                       label="Background color"
                     />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-auto p-2">
-                    <button
-                      type="button"
-                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-                      onClick={() =>
-                        updateRuleStyle(selectedRule.id, {
-                          bg: undefined,
-                        })
-                      }
-                    >
-                      <IconDropletOff size={14} />
-                      Reset
-                    </button>
-                    <div className="grid grid-cols-5 gap-1">
-                      {BG_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                          style={{ backgroundColor: color }}
-                          onClick={() =>
-                            updateRuleStyle(selectedRule.id, {
-                              bg: color,
-                            })
-                          }
-                          aria-label={`Set background color ${color}`}
-                        />
-                      ))}
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-2">
+                    <ColorPickerGrid
+                      colors={BG_COLORS}
+                      colorKind="background color"
+                      onSelect={(color) => {
+                        updateRuleStyle(selectedRule.id, { bg: color });
+                        setBgOpen(false);
+                      }}
+                      onReset={() => {
+                        updateRuleStyle(selectedRule.id, { bg: undefined });
+                        setBgOpen(false);
+                      }}
+                      noneLabel="None"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </section>
           </>

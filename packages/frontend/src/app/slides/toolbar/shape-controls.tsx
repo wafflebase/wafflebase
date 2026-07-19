@@ -12,10 +12,10 @@ import type {
 } from '@wafflebase/slides';
 import { resolveColor } from '@wafflebase/slides';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { IconBucketDroplet } from '@tabler/icons-react';
 import { FillPicker } from '../fill-picker';
@@ -216,21 +216,21 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
     <>
       {/* Fill: shapes only — connectors have no fill */}
       {isShape && (
-        <DropdownMenu open={fillOpen} onOpenChange={onFillOpenChange}>
+        <Popover modal open={fillOpen} onOpenChange={onFillOpenChange}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
+              <PopoverTrigger asChild>
                 <ColorSwatchButton
                   icon={<IconBucketDroplet size={14} />}
                   color={currentFill}
                   label="Fill color"
                   disabled={!store || !slideId || !theme}
                 />
-              </DropdownMenuTrigger>
+              </PopoverTrigger>
             </TooltipTrigger>
             <TooltipContent>Fill color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent
+          <PopoverContent
             align="start"
             className="w-auto p-2"
             onCloseAutoFocus={fillMenu.onCloseAutoFocus}
@@ -245,8 +245,8 @@ export function ShapeControls({ editor, store, theme, ids }: ShapeControlsProps)
                 onClear={onFillClear}
               />
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverContent>
+        </Popover>
       )}
       <BorderPicker
         value={firstStroke}

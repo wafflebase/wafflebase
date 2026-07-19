@@ -3,6 +3,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ToolbarButton } from "@/components/ui/toolbar";
 import { IconLink } from "@tabler/icons-react";
 import { modKey } from "./platform";
 
@@ -15,16 +16,14 @@ export function InsertLinkButton({ onClick, disabled }: InsertLinkButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <ToolbarButton
           aria-label="Insert link"
           disabled={disabled}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onClick}
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
         >
           <IconLink size={16} />
-        </button>
+        </ToolbarButton>
       </TooltipTrigger>
       <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
     </Tooltip>

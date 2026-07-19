@@ -93,7 +93,7 @@ function openPaddingMenu(elHost: HTMLElement): HTMLElement[] {
     '[aria-label="Cell padding"]',
   ) as HTMLElement;
   pointerClick(trigger);
-  return [...document.body.querySelectorAll('[role="menuitem"]')] as HTMLElement[];
+  return [...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]')] as HTMLElement[];
 }
 
 describe('TableControls — cell padding', () => {
