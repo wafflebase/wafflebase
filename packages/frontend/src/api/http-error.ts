@@ -1,3 +1,25 @@
+export class HttpError extends Error {
+  readonly status: number;
+  readonly retryAfterMs?: number;
+  constructor(message: string, status: number, retryAfterMs?: number) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Parse a `Retry-After` header (delta-seconds or HTTP-date) to ms. */
+function parseRetryAfterMs(response: Response): number | undefined {
+  const raw = response.headers.get("retry-after");
+  if (!raw) return undefined;
+  const secs = Number(raw);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const when = Date.parse(raw);
+  if (!Number.isNaN(when)) return Math.max(0, when - Date.now());
+  return undefined;
+}
+
 type StatusMessages = Record<number, string>;
 
 type AssertOkOptions = {
@@ -88,11 +110,16 @@ export async function assertOk(
     return;
   }
 
+  const retryAfterMs = parseRetryAfterMs(response);
   const override = options.statusMessages?.[response.status];
   if (override) {
-    throw new Error(override);
+    throw new HttpError(override, response.status, retryAfterMs);
   }
 
   const bodyMessage = await readResponseErrorMessage(response);
-  throw new Error(bodyMessage || fallbackMessage);
+  throw new HttpError(
+    bodyMessage || fallbackMessage,
+    response.status,
+    retryAfterMs,
+  );
 }

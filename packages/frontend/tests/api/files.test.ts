@@ -22,9 +22,15 @@ describe("files api", () => {
   });
 
   it("throws on a non-ok response", async () => {
-    fetchWithAuth.mockResolvedValue({ ok: false, status: 413, statusText: "Too Large" });
+    fetchWithAuth.mockResolvedValue({
+      ok: false,
+      status: 413,
+      statusText: "Too Large",
+      headers: { get: () => null },
+      text: async () => "",
+    });
     const file = new File([new Uint8Array([1])], "a.pdf", { type: "application/pdf" });
-    await expect(uploadFile(file)).rejects.toThrow(/413/);
+    await expect(uploadFile(file)).rejects.toThrow(/File upload failed/);
   });
 
   it("builds a document-scoped file url", () => {

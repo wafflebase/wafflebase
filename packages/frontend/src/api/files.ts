@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "./auth";
+import { assertOk } from "./http-error";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
 
@@ -10,9 +11,7 @@ export async function uploadFile(file: File): Promise<{ id: string }> {
     method: "POST",
     body: formData,
   });
-  if (!res.ok) {
-    throw new Error(`File upload failed: ${res.status} ${res.statusText}`);
-  }
+  await assertOk(res, "File upload failed");
   return (await res.json()) as { id: string };
 }
 
