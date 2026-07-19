@@ -49,6 +49,7 @@ export class FolderService {
     newParentId: string | null,
   ): Promise<void> {
     if (newParentId === null) return;
+    const visited = new Set<string>();
     let cursor: string | null = newParentId;
     while (cursor) {
       if (cursor === folderId) {
@@ -56,6 +57,8 @@ export class FolderService {
           'Cannot move a folder into itself or one of its descendants',
         );
       }
+      if (visited.has(cursor)) break; // defensive: stop on any pre-existing cycle
+      visited.add(cursor);
       const parent: { parentId: string | null } | null =
         await this.prisma.folder.findUnique({
           where: { id: cursor },

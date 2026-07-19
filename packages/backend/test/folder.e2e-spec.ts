@@ -221,4 +221,20 @@ describeDb('FolderService integration (Prisma-backed)', () => {
       .send({ folderId: otherFolder.body.id })
       .expect(400);
   });
+
+  it('rejects folder deletion by a non-manager member with 403', async () => {
+    const member = await createUser();
+    await prisma.workspaceMember.create({
+      data: { workspaceId, userId: member.id, role: 'member' },
+    });
+    const folder = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user)) // created by owner
+      .send({ name: 'Owned' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .delete(`/folders/${folder.body.id}`)
+      .set('Cookie', authCookie(member))
+      .expect(403);
+  });
 });

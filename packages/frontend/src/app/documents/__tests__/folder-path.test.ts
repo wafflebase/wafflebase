@@ -22,4 +22,14 @@ describe("folderPath", () => {
   it("returns an empty chain for an unknown folder id", () => {
     expect(folderPath(folders, "missing")).toEqual([]);
   });
+
+  it("terminates on a cyclic parent chain", () => {
+    // a -> b -> a (corrupt data); folderPath must not infinite-loop
+    const cyclicFolders = [
+      makeFolder("a", "A", "b"),
+      makeFolder("b", "B", "a"),
+    ];
+    const path = folderPath(cyclicFolders, "a");
+    expect(path.length).toBeLessThanOrEqual(2);
+  });
 });
