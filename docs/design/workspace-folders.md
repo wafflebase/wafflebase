@@ -199,7 +199,16 @@ history. The sidebar is unchanged.
 
 - **Move cycles** → a folder made its own ancestor would corrupt the tree.
   Mitigated by a service-side walk-up guard that rejects with `400` before the
-  write; `parentId: null` is always safe.
+  write; `parentId: null` is always safe. The guard also carries a `visited`-set
+  break so a pre-existing corrupt cycle can't spin the walk forever.
+- **Concurrent folder moves (TOCTOU)** → two managers reparenting folders in the
+  same subtree at once could each pass `assertNoCycle` before either commits,
+  producing a cycle the guard would otherwise reject. Not mitigated in v1: a
+  correct fix needs an interactive transaction with pessimistic row locking
+  (`SELECT … FOR UPDATE` over the ancestor chain), which is disproportionate
+  given folder trees are small, moves are manager-only and infrequent, and the
+  blast radius is a rare, recoverable cycle rather than data loss. Tracked as a
+  follow-up.
 - **Cross-workspace folder assignment** → filing a document into a folder from
   another workspace would orphan it. Mitigated by validating
   `folder.workspaceId === document.workspaceId` (target workspace) on every
