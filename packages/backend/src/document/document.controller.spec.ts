@@ -16,6 +16,7 @@ describe('DocumentController.createDocument fileId gating', () => {
       workspaceService as never,
       { getSummaries: jest.fn() } as never,
       { getObject: jest.fn() } as never,
+      { assertSameWorkspace: jest.fn() } as never,
     );
   }
 
@@ -111,6 +112,7 @@ describe('DocumentController delete/move/rename permissions', () => {
       workspaceService as never,
       { getEditors: jest.fn().mockResolvedValue(new Map()) } as never,
       { delete: jest.fn().mockResolvedValue(undefined) } as never,
+      { assertSameWorkspace: jest.fn() } as never,
     );
   });
 

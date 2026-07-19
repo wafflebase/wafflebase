@@ -178,4 +178,47 @@ describeDb('FolderService integration (Prisma-backed)', () => {
       .send({ parentId: b.body.id })
       .expect(400);
   });
+
+  it('moves a document into a folder and lists it under that folder only', async () => {
+    const folder = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'F' });
+    const doc = await prisma.document.create({
+      data: { title: 'D', workspaceId, authorID: user.id },
+    });
+    await request(app.getHttpServer())
+      .patch(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(user))
+      .send({ folderId: folder.body.id })
+      .expect(200);
+
+    const inFolder = await request(app.getHttpServer())
+      .get(`/workspaces/${workspaceId}/documents?folderId=${folder.body.id}`)
+      .set('Cookie', authCookie(user))
+      .expect(200);
+    expect(inFolder.body.map((d: any) => d.id)).toContain(doc.id);
+
+    const atRoot = await request(app.getHttpServer())
+      .get(`/workspaces/${workspaceId}/documents`)
+      .set('Cookie', authCookie(user))
+      .expect(200);
+    expect(atRoot.body.map((d: any) => d.id)).not.toContain(doc.id);
+  });
+
+  it('rejects moving a document into a folder from another workspace with 400', async () => {
+    const otherWs = await createWorkspace(prisma, user.id);
+    const otherFolder = await request(app.getHttpServer())
+      .post(`/workspaces/${otherWs.id}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'X' });
+    const doc = await prisma.document.create({
+      data: { title: 'D2', workspaceId, authorID: user.id },
+    });
+    await request(app.getHttpServer())
+      .patch(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(user))
+      .send({ folderId: otherFolder.body.id })
+      .expect(400);
+  });
 });
