@@ -296,21 +296,21 @@ Slides, matching Docs + Notes).
 
 - **Shared `ColorSwatch`.** The swatch button markup was duplicated ~4 ways
   (`ColorPickerGrid` + the three grids in the Slides `ThemedColorPicker`).
-  Extracted one `components/color-swatch.tsx` (size / radius / hover-zoom /
+  Extracted one `packages/frontend/src/components/color-swatch.tsx` (size / radius / hover-zoom /
   selected ring) that both consume, so every swatch renders identically.
   A **full merge** of `ColorPickerGrid` (plain hex, `onSelect(string)`) and
   `ThemedColorPicker` (the slides `ThemeColor` role/srgb model,
   `onChange(ThemeColor, opts)`, alpha, recent) was deliberately **not** done —
   the models are genuinely different and a mode-flagged mega-component would be
   more complex and risk slides theme regressions, not less.
-- **`Popover` primitive.** Added `components/ui/popover.tsx` (shadcn wrapper over
+- **`Popover` primitive.** Added `packages/frontend/src/components/ui/popover.tsx` (shadcn wrapper over
   `@radix-ui/react-popover`, chrome matching the `DropdownMenu` popover) and
   moved the color-swatch panels off their `DropdownMenu` abuse (swatch grids /
   custom inputs are not menu items) onto it: text-format-group (Docs/Slides text
   edit), sheets + conditional-format, docs slim header/footer color, and slides
   shape / border / text-element / table fill. `useMenuCloseHandlers` +
   `onCloseAutoFocus` carry over unchanged.
-  - **Exception:** `fill-picker/gradient-editor.tsx` stays on `DropdownMenu` on
+  - **Exception:** `packages/frontend/src/app/slides/fill-picker/gradient-editor.tsx` stays on `DropdownMenu` on
     purpose — its stop marker relies on the trigger toggling on `pointerdown`
     (so `startDrag`'s `preventDefault()` can suppress it mid-drag); `Popover`
     toggles on `click`, which a pointerdown `preventDefault` doesn't cancel.
