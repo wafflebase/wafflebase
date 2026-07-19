@@ -86,6 +86,7 @@ import {
 import type { Document, DocumentType, Folder } from "@/types/documents";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import { FolderBreadcrumb } from "./folder-breadcrumb";
+import { folderPath } from "./folder-path";
 import {
   compareDates,
   formatRelativeTime,
@@ -100,6 +101,12 @@ import {
   moveDocument,
   renameDocument,
 } from "@/api/documents";
+import {
+  createFolder,
+  deleteFolder,
+  fetchFolders,
+  renameFolder,
+} from "@/api/folders";
 import {
   createWorkspaceDocument,
   fetchWorkspaces,
@@ -356,6 +363,8 @@ export function DocumentList({
                       title: row.getValue("title"),
                       workspaceId: row.original.workspaceId,
                     });
+                    setTargetWorkspaceId(row.original.workspaceId);
+                    setTargetFolderId(null);
                   }}
                 >
                   <FolderOutput className="mr-2 h-4 w-4" />
@@ -398,11 +407,28 @@ export function DocumentList({
     workspaceId: string;
   } | null>(null);
   const [targetWorkspaceId, setTargetWorkspaceId] = useState<string>("");
+  const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolder, setRenamingFolder] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const { data: workspaces = [] } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
     enabled: movingDoc !== null,
+  });
+
+  const { data: moveTargetFolders = [] } = useQuery<Folder[]>({
+    queryKey: ["workspaces", targetWorkspaceId, "folders"],
+    queryFn: () => fetchFolders(targetWorkspaceId),
+    enabled: movingDoc !== null && !!targetWorkspaceId,
   });
 
   const createDocumentMutation = useMutation({
@@ -511,19 +537,59 @@ export function DocumentList({
     mutationFn: async ({
       id,
       workspaceId: targetId,
+      folderId: targetFid,
     }: {
       id: string;
-      workspaceId: string;
-    }) => await moveDocument(id, { workspaceId: targetId }),
+      workspaceId?: string;
+      folderId?: string | null;
+    }) =>
+      await moveDocument(id, { workspaceId: targetId, folderId: targetFid }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       toast.success("Document moved successfully");
       setMovingDoc(null);
       setTargetWorkspaceId("");
+      setTargetFolderId(null);
     },
     onError: () => {
       toast.error("Failed to move document");
+    },
+  });
+
+  const createFolderMutation = useMutation({
+    mutationFn: (name: string) =>
+      createFolder(workspaceId!, { name, parentId: folderId ?? null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "folders"],
+      });
+      setCreatingFolder(false);
+      setNewFolderName("");
+    },
+  });
+
+  const renameFolderMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      renameFolder(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "folders"],
+      });
+      setRenamingFolder(null);
+    },
+  });
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: (id: string) => deleteFolder(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "folders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "documents"],
+      });
+      setDeletingFolder(null);
     },
   });
 
@@ -679,6 +745,12 @@ export function DocumentList({
               <Presentation className="mr-2 h-4 w-4 text-orange-500" />
               New Presentation
             </DropdownMenuItem>
+            {workspaceId && (
+              <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
+                <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                New folder
+              </DropdownMenuItem>
+            )}
             <ImportMenuItems onImport={handleImportPick} />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -686,15 +758,50 @@ export function DocumentList({
       {workspaceId && onNavigateFolder && childFolders.length > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
           {childFolders.map((f) => (
-            <button
+            <div
               key={f.id}
-              type="button"
-              onClick={() => onNavigateFolder(f.id)}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex items-center gap-2 rounded-md border pl-3 pr-1 py-2 text-sm hover:bg-muted"
             >
-              <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{f.name}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => onNavigateFolder(f.id)}
+                className="flex flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{f.name}</span>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    aria-label={`Actions for ${f.name}`}
+                  >
+                    <span className="sr-only">Open menu</span>
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setRenamingFolder({ id: f.id, name: f.name })
+                    }
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() =>
+                      setDeletingFolder({ id: f.id, name: f.name })
+                    }
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </div>
       )}
@@ -906,6 +1013,7 @@ export function DocumentList({
           if (!open) {
             setMovingDoc(null);
             setTargetWorkspaceId("");
+            setTargetFolderId(null);
           }
         }}
       >
@@ -913,7 +1021,8 @@ export function DocumentList({
           <DialogHeader>
             <DialogTitle>Move Document</DialogTitle>
             <DialogDescription>
-              Select a workspace to move &ldquo;{movingDoc?.title}&rdquo; to.
+              Select a workspace and folder to move &ldquo;{movingDoc?.title}
+              &rdquo; to.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -921,19 +1030,44 @@ export function DocumentList({
               <Label htmlFor="move-workspace">Workspace</Label>
               <Select
                 value={targetWorkspaceId}
-                onValueChange={setTargetWorkspaceId}
+                onValueChange={(v) => {
+                  setTargetWorkspaceId(v);
+                  setTargetFolderId(null);
+                }}
               >
                 <SelectTrigger id="move-workspace">
                   <SelectValue placeholder="Select a workspace" />
                 </SelectTrigger>
                 <SelectContent>
-                  {workspaces
-                    .filter((w) => w.id !== movingDoc?.workspaceId)
-                    .map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.name}
+                  {workspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="move-folder">Folder</Label>
+              <Select
+                value={targetFolderId ?? "__root__"}
+                onValueChange={(v) =>
+                  setTargetFolderId(v === "__root__" ? null : v)
+                }
+              >
+                <SelectTrigger id="move-folder">
+                  <SelectValue placeholder="(workspace root)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__root__">(workspace root)</SelectItem>
+                  {moveTargetFolders.map((f) => {
+                    const depth = folderPath(moveTargetFolders, f.id).length - 1;
+                    return (
+                      <SelectItem key={f.id} value={f.id}>
+                        {"  ".repeat(depth) + f.name}
                       </SelectItem>
-                    ))}
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -945,6 +1079,7 @@ export function DocumentList({
               onClick={() => {
                 setMovingDoc(null);
                 setTargetWorkspaceId("");
+                setTargetFolderId(null);
               }}
             >
               Cancel
@@ -958,6 +1093,7 @@ export function DocumentList({
                   moveDocumentMutation.mutate({
                     id: movingDoc.id,
                     workspaceId: targetWorkspaceId,
+                    folderId: targetFolderId,
                   });
                 }
               }}
@@ -998,6 +1134,143 @@ export function DocumentList({
                   deleteDocumentMutation.mutate(deletingDoc.id, {
                     onSuccess: () => setDeletingDoc(null),
                   });
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={creatingFolder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreatingFolder(false);
+            setNewFolderName("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New folder</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="new-folder-name">Name</Label>
+            <Input
+              id="new-folder-name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newFolderName.trim()) {
+                  createFolderMutation.mutate(newFolderName.trim());
+                }
+              }}
+              placeholder="Untitled folder"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setCreatingFolder(false);
+                setNewFolderName("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!newFolderName.trim() || createFolderMutation.isPending}
+              onClick={() => createFolderMutation.mutate(newFolderName.trim())}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renamingFolder !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenamingFolder(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename folder</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="rename-folder-name">Name</Label>
+            <Input
+              id="rename-folder-name"
+              value={renamingFolder?.name ?? ""}
+              onChange={(e) =>
+                setRenamingFolder((p) =>
+                  p ? { ...p, name: e.target.value } : p,
+                )
+              }
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRenamingFolder(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !renamingFolder?.name.trim() || renameFolderMutation.isPending
+              }
+              onClick={() => {
+                if (renamingFolder?.name.trim()) {
+                  renameFolderMutation.mutate({
+                    id: renamingFolder.id,
+                    name: renamingFolder.name.trim(),
+                  });
+                }
+              }}
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deletingFolder !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingFolder(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete folder</DialogTitle>
+            <DialogDescription>
+              Delete &ldquo;{deletingFolder?.name}&rdquo;? Documents inside it
+              (and any subfolders&apos; documents) move back to the workspace
+              root — they are not deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeletingFolder(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteFolderMutation.isPending}
+              onClick={() => {
+                if (deletingFolder) {
+                  deleteFolderMutation.mutate(deletingFolder.id);
                 }
               }}
             >
