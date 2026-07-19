@@ -107,10 +107,10 @@ already stores arbitrary blobs and streams them back with their stored
 - `packages/backend/src/file/file.constants.ts` — `VALID_FILE_ID_PATTERN`
   widens from `\.pdf$` to `\.(pdf|png|jpe?g|gif|webp)$`; add
   `MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024`.
-- `POST /files` (`file.controller.ts`) — the Multer `fileSize` limit uses the
+- `POST /files` (`packages/backend/src/file/file.controller.ts`) — the Multer `fileSize` limit uses the
   new `maxFileSizeBytes` (50 MB). No other change; it stays JWT-gated
   upload-only.
-- `GET /documents/:id/file` (`document-file.controller.ts`) — **unchanged**.
+- `GET /documents/:id/file` (`packages/backend/src/document/document-file.controller.ts`) — **unchanged**.
   It already validates `fileId` against `VALID_FILE_ID_PATTERN` (now widened),
   streams the stored `ContentType`, and serves both members and valid
   share-token viewers. Deletion cleanup (delete blob when a document with a
@@ -181,6 +181,28 @@ For `type === "image"` rows only, the leading type icon is replaced by a small
   downloads their full bytes; acceptable for a first pass given lazy loading
   and the browser/HTTP `private` cache, and revisited only if it bites.
 
+### Rate limiting (bulk upload)
+
+The global NestJS throttler is `120 req / 60s` per IP
+(`packages/backend/src/app.module.ts`). Each image upload spends **2 requests**
+(`POST /files` blob + `POST /documents` create) plus a lazy thumbnail
+`GET /documents/:id/file` per rendered row, so a large drag-and-drop batch would
+trip `429 Too Many Requests` after only a few dozen files. Two mitigations ship
+with this feature:
+
+- **`POST /files` throttle raised to `600 / 60s`** (`packages/backend/src/file/file.controller.ts`,
+  `@Throttle`), matching the precedent already set for the inline-image routes
+  (`packages/backend/src/image/image.controller.ts`). The document-create route stays at the global
+  default — the client backoff below absorbs its ceiling.
+- **429-aware backoff retry in the upload queue.** `assertOk`/`uploadFile`
+  throw a typed `HttpError` carrying `status` + a parsed `Retry-After`; the
+  queue auto-retries a 429'd item with capped exponential backoff
+  (1→2→4→8→15s, ≤6 attempts, honoring `Retry-After`) instead of failing it.
+  The item holds its concurrency slot during backoff, so the whole queue
+  self-throttles. Retry is idempotent: `fileId`/`docId` are persisted before
+  the failing step and re-read from the live store on each attempt, so a 429 on
+  `createDoc` after a successful upload never re-uploads (orphans) the blob.
+
 ### TODO (follow-ups, not in this PR)
 
 - **Gallery/grid view (D2)** — a list-wide layout toggle showing large image
@@ -225,7 +247,7 @@ For `type === "image"` rows only, the leading type icon is replaced by a small
   `assertFileIdAllowed` accepts `fileId` for `image`+`pdf` and rejects it for
   `sheet`/`doc`/`slides`; `yorkieDocKeyPrefix("image")` returns `image-` and no
   longer throws.
-- **Upload queue** (`upload-queue.ts`, importers mocked): `png/jpg/jpeg/gif/webp`
+- **Upload queue** (`packages/frontend/src/app/documents/upload-queue.ts`, importers mocked): `png/jpg/jpeg/gif/webp`
   classify to `image`; the `image` item runs the upload→create branch (no
   `applyContent`); `fileId` persisted before create so retry doesn't re-upload;
   unsupported extensions still `skipped`.
