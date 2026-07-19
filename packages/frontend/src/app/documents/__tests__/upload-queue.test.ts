@@ -9,7 +9,7 @@ describe("upload-queue store", () => {
   beforeEach(() => q.__resetForTest());
 
   it("enqueues supported files as pending and unsupported as skipped", () => {
-    const items = q.enqueue([file("a.xlsx"), file("b.png")], "ws1");
+    const items = q.enqueue([file("a.xlsx"), file("b.zip")], "ws1");
     expect(items.map((i) => i.status)).toEqual(["pending", "skipped"]);
     expect(items[0].kind).toBe("sheet");
     expect(items[0].workspaceId).toBe("ws1");
@@ -40,7 +40,7 @@ describe("upload-queue store", () => {
   it("clearFinished prunes done and skipped items but retains pending/in-flight/error items", () => {
     const [done, skipped, pending, uploading, errored] = q.enqueue([
       file("a.pptx"),
-      file("b.png"), // unsupported -> auto "skipped"
+      file("b.zip"), // unsupported -> auto "skipped"
       file("c.docx"),
       file("d.xlsx"),
       file("e.pdf"),

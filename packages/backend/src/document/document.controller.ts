@@ -1,7 +1,6 @@
 import {
   Req,
   Body,
-  BadRequestException,
   Controller,
   Delete,
   ForbiddenException,
@@ -30,6 +29,7 @@ import { yorkieDocKey } from '../yorkie/yorkie-doc-key';
 import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 import { isDocumentManager } from './document-access';
+import { assertFileIdAllowed } from './document-file-id.util';
 
 type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
   editors?: PresenceUser[];
@@ -100,17 +100,6 @@ export class DocumentController {
     return isDocumentManager(member.role, doc.authorID, userId);
   }
 
-  /**
-   * Phase-1 contract: only PDF documents carry a `fileId`. Reject a `fileId`
-   * on any other type (including the defaulted `sheet`) so blob references
-   * can't be attached to editor documents.
-   */
-  private assertFileIdAllowed(type: string | undefined, fileId?: string): void {
-    if (fileId && (type ?? 'sheet') !== 'pdf') {
-      throw new BadRequestException('fileId is only allowed for pdf documents');
-    }
-  }
-
   // --- Workspace-scoped endpoints ---
 
   @Post('workspaces/:workspaceId/documents')
@@ -123,7 +112,7 @@ export class DocumentController {
     const workspaceId =
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
-    this.assertFileIdAllowed(body.type, body.fileId);
+    assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
@@ -191,7 +180,7 @@ export class DocumentController {
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
-    this.assertFileIdAllowed(body.type, body.fileId);
+    assertFileIdAllowed(body.type, body.fileId);
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',

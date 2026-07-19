@@ -32,6 +32,7 @@ import {
   FileDown,
   FileText,
   FolderOutput,
+  Image as ImageIcon,
   MoreHorizontal,
   NotebookPen,
   Pencil,
@@ -106,6 +107,7 @@ import { UploadPanel } from "./upload-panel";
 import { useWindowFileDrop } from "./use-window-file-drop";
 import { enqueue, startUploads } from "./upload-queue";
 import { pickFiles } from "./pick-files";
+import { ImageThumb } from "./image-thumb";
 
 /**
  * Single source of truth for each document type's label, icon, and color.
@@ -121,6 +123,7 @@ const TYPE_META: Record<
   note: { label: "Note", Icon: NotebookPen, color: "text-purple-500" },
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
   pdf: { label: "PDF", Icon: IconFileTypePdf, color: "text-red-500" },
+  image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
 };
 
 /** Document types offered as filter chips, in display order. */
@@ -130,6 +133,7 @@ const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "note",
   "slides",
   "pdf",
+  "image",
 ];
 
 /**
@@ -223,6 +227,12 @@ function ImportMenuItems({
         <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
         Upload PDF
       </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => onImport(".png,.jpg,.jpeg,.gif,.webp")}
+      >
+        <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
+        Upload Image
+      </DropdownMenuItem>
     </>
   );
 }
@@ -256,7 +266,11 @@ export function DocumentList({
         const { Icon, color } = TYPE_META[row.original.type];
         return (
           <div className="flex items-center gap-2">
-            <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+            {row.original.type === "image" ? (
+              <ImageThumb documentId={String(row.original.id)} />
+            ) : (
+              <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+            )}
             <span className="capitalize">{row.getValue("title")}</span>
             {/* Live "currently editing" avatars sit next to the title rather
                 than in their own column. Presentational only — Title still

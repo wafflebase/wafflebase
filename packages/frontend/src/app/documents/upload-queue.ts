@@ -3,7 +3,7 @@ import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
-import { uploadPdf } from "@/api/files";
+import { uploadFile } from "@/api/files";
 import { createDocument, deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
@@ -28,7 +28,8 @@ export interface UploadItem {
   total: number;
   docId?: string;
   docPath?: string;
-  /** PDF: the uploaded blob id, persisted so a retry never re-uploads it. */
+  /** Uploaded blob id (pdf/image). Set before createDoc so a retry reuses the
+   *  blob instead of re-uploading/orphaning it. */
   fileId?: string;
   reason?: string;
   /** Non-fatal note surfaced on success (e.g. lossy PPTX import fallbacks). */
@@ -147,7 +148,7 @@ export interface UploadDeps {
   importXlsx: typeof importXlsx;
   importDocx: typeof importDocx;
   importPptxFile: typeof importPptxFile;
-  uploadPdf: typeof uploadPdf;
+  uploadFile: typeof uploadFile;
   createDoc: (
     workspaceId: string | undefined,
     payload: { title: string; type: DocumentType; fileId?: string },
@@ -155,18 +156,20 @@ export interface UploadDeps {
   getDocumentPath: (doc: DocRef) => string;
   applyContent: typeof applyImportedContentDefault;
   deleteDoc: typeof deleteDocument;
+  sleep: (ms: number) => Promise<void>;
 }
 
 const defaultDeps: UploadDeps = {
   importXlsx,
   importDocx,
   importPptxFile,
-  uploadPdf,
+  uploadFile,
   createDoc: (ws, payload) =>
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
   applyContent: applyImportedContentDefault,
   deleteDoc: deleteDocument,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
 let activeDeps: UploadDeps = defaultDeps;
@@ -220,60 +223,98 @@ function settle(id: string): void {
   if (item && onItemSettledCb) onItemSettledCb(item);
 }
 
+const MAX_RATE_RETRIES = 6;
+
+/** Backoff (ms) for a rate-limited (429) request, or null if not a 429. */
+function rateLimitBackoffMs(err: unknown, attempt: number): number | null {
+  const status = (err as { status?: number } | null | undefined)?.status;
+  if (status !== 429) return null;
+  const retryAfter = (err as { retryAfterMs?: number }).retryAfterMs;
+  if (typeof retryAfter === "number" && retryAfter >= 0) return retryAfter;
+  // Exponential backoff capped at 15s: 1s, 2s, 4s, 8s, 15s, 15s.
+  return Math.min(1000 * 2 ** attempt, 15000);
+}
+
 async function runItem(item: UploadItem): Promise<void> {
   const d = activeDeps;
   const file = item.file!;
+  let attempt = 0;
   try {
-    if (item.kind === "sheet") {
-      patchItem(item.id, { status: "parsing" });
-      const { document } = await d.importXlsx(file);
-      const title = stripExt(item.fileName, "xlsx", "Imported Sheet");
-      const created = await getOrCreateDoc(item, { title, type: "sheet" });
-      // Persist the parsed content into the Yorkie doc now (see
-      // apply-imported-content.ts) so "done" means it is actually saved —
-      // not merely stashed in memory awaiting an editor mount.
-      patchItem(item.id, { status: "uploading" });
-      await d.applyContent(created.id, { type: "sheet", document });
-      finish(item.id, created);
-    } else if (item.kind === "doc") {
-      patchItem(item.id, { status: "parsing" });
-      const { doc } = await d.importDocx(file, ({ done, total }) =>
-        patchItem(item.id, { status: "uploading", done, total }),
-      );
-      const title = stripExt(item.fileName, "docx", "Imported Document");
-      const created = await getOrCreateDoc(item, { title, type: "doc" });
-      patchItem(item.id, { status: "uploading" });
-      await d.applyContent(created.id, { type: "doc", document: doc });
-      finish(item.id, created);
-    } else if (item.kind === "slides") {
-      patchItem(item.id, { status: "parsing" });
-      const { document, report } = await d.importPptxFile(
-        file,
-        ({ done, total }) =>
-          patchItem(item.id, { status: "uploading", done, total }),
-      );
-      const title = stripExt(item.fileName, "pptx", "Imported Presentation");
-      const created = await getOrCreateDoc(item, { title, type: "slides" });
-      patchItem(item.id, { status: "uploading" });
-      await d.applyContent(created.id, { type: "slides", document });
-      // Surface lossy-conversion fallbacks the same way the old flow did.
-      const summary = report.summary();
-      const warning =
-        summary && summary !== "Imported with no fallbacks." ? summary : undefined;
-      finish(item.id, created, warning);
-    } else if (item.kind === "pdf") {
-      patchItem(item.id, { status: "uploading" });
-      const title = stripExt(item.fileName, "pdf", "Untitled PDF");
-      // Upload the blob at most once per item: persist the returned fileId
-      // immediately so a retry whose earlier failure was in createDoc reuses
-      // the blob instead of orphaning it with a second upload.
-      let fileId = item.fileId;
-      if (!fileId) {
-        ({ id: fileId } = await d.uploadPdf(file));
-        patchItem(item.id, { fileId });
+    // Retry loop: a 429 (bulk-upload rate limit) backs off and retries the
+    // same item. Re-entry is safe because fileId/docId are persisted before
+    // the failing step, so uploadFile/getOrCreateDoc never duplicate work.
+    for (;;) {
+      // patchItem replaces items immutably, so the captured `item` goes stale
+      // after a persist. Re-read it each attempt so a retry sees the fileId/
+      // docId a prior attempt already persisted (idempotent re-entry).
+      item = items.find((it) => it.id === item.id) ?? item;
+      try {
+        if (item.kind === "sheet") {
+          patchItem(item.id, { status: "parsing" });
+          const { document } = await d.importXlsx(file);
+          const title = stripExt(item.fileName, "xlsx", "Imported Sheet");
+          const created = await getOrCreateDoc(item, { title, type: "sheet" });
+          // Persist the parsed content into the Yorkie doc now (see
+          // apply-imported-content.ts) so "done" means it is actually saved —
+          // not merely stashed in memory awaiting an editor mount.
+          patchItem(item.id, { status: "uploading" });
+          await d.applyContent(created.id, { type: "sheet", document });
+          finish(item.id, created);
+        } else if (item.kind === "doc") {
+          patchItem(item.id, { status: "parsing" });
+          const { doc } = await d.importDocx(file, ({ done, total }) =>
+            patchItem(item.id, { status: "uploading", done, total }),
+          );
+          const title = stripExt(item.fileName, "docx", "Imported Document");
+          const created = await getOrCreateDoc(item, { title, type: "doc" });
+          patchItem(item.id, { status: "uploading" });
+          await d.applyContent(created.id, { type: "doc", document: doc });
+          finish(item.id, created);
+        } else if (item.kind === "slides") {
+          patchItem(item.id, { status: "parsing" });
+          const { document, report } = await d.importPptxFile(
+            file,
+            ({ done, total }) =>
+              patchItem(item.id, { status: "uploading", done, total }),
+          );
+          const title = stripExt(item.fileName, "pptx", "Imported Presentation");
+          const created = await getOrCreateDoc(item, { title, type: "slides" });
+          patchItem(item.id, { status: "uploading" });
+          await d.applyContent(created.id, { type: "slides", document });
+          // Surface lossy-conversion fallbacks the same way the old flow did.
+          const summary = report.summary();
+          const warning =
+            summary && summary !== "Imported with no fallbacks." ? summary : undefined;
+          finish(item.id, created, warning);
+        } else if (item.kind === "pdf" || item.kind === "image") {
+          patchItem(item.id, { status: "uploading" });
+          const dot = item.fileName.lastIndexOf(".");
+          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
+          const fallback = item.kind === "pdf" ? "Untitled PDF" : "Untitled Image";
+          const title = stripExt(item.fileName, ext, fallback);
+          // Upload the blob at most once per item: persist the returned fileId
+          // immediately so a retry whose earlier failure was in createDoc reuses
+          // the blob instead of orphaning it with a second upload.
+          let fileId = item.fileId;
+          if (!fileId) {
+            ({ id: fileId } = await d.uploadFile(file));
+            patchItem(item.id, { fileId });
+          }
+          const created = await getOrCreateDoc(item, {
+            title,
+            type: item.kind,
+            fileId,
+          });
+          finish(item.id, created);
+        }
+        break;
+      } catch (err) {
+        const backoff =
+          attempt < MAX_RATE_RETRIES ? rateLimitBackoffMs(err, attempt) : null;
+        if (backoff === null) throw err;
+        attempt += 1;
+        await d.sleep(backoff);
       }
-      const created = await getOrCreateDoc(item, { title, type: "pdf", fileId });
-      finish(item.id, created);
     }
   } catch (err) {
     patchItem(item.id, {

@@ -31,7 +31,7 @@ import type {
   Thread,
   PdfRegionAnchor,
 } from '@/types/comments.ts';
-import { pdfFileUrl } from '@/api/files.ts';
+import { fileUrl } from '@/api/files.ts';
 
 export type PdfPresenceUser = {
   username: string;
@@ -133,7 +133,7 @@ export function PdfCollabStateProvider({
 
   const value: PdfCollabContextValue = {
     readOnly,
-    fileUrl: pdfFileUrl(documentId, token),
+    fileUrl: fileUrl(documentId, token),
     threads,
     panelOpen,
     setPanelOpen,

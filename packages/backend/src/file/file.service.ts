@@ -9,9 +9,14 @@ import {
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { MAX_IMAGE_UPLOAD_BYTES } from './file.constants';
 
 const MIME_TO_EXT: Record<string, string> = {
   'application/pdf': 'pdf',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
 };
 
 @Injectable()
@@ -57,9 +62,14 @@ export class FileService implements OnModuleInit {
     if (!this.allowedMimeTypes.includes(mimeType)) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
     }
-    if (file.length > this.maxFileSize) {
+    // Images get a tighter cap than the Multer ceiling (which admits the
+    // largest allowed upload, i.e. a 50 MB PDF).
+    const cap = mimeType.startsWith('image/')
+      ? MAX_IMAGE_UPLOAD_BYTES
+      : this.maxFileSize;
+    if (file.length > cap) {
       throw new BadRequestException(
-        `File too large (max ${this.maxFileSize / 1024 / 1024} MB)`,
+        `File too large (max ${cap / 1024 / 1024} MB)`,
       );
     }
     const ext = MIME_TO_EXT[mimeType];

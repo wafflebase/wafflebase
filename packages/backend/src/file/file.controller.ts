@@ -7,11 +7,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FileService } from './file.service';
 import { MAX_PDF_UPLOAD_BYTES } from './file.constants';
 
+// Bulk uploads (dropping many files at once) burst past the global 120/min
+// default; match the inline-image routes' raised bucket.
+const FILE_THROTTLE = { default: { limit: 600, ttl: 60_000 } } as const;
+
 @Controller('files')
+@Throttle(FILE_THROTTLE)
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 

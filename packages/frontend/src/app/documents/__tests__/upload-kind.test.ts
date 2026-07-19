@@ -8,9 +8,16 @@ describe("classifyUploadKind", () => {
     expect(classifyUploadKind("deck.pptx")).toBe("slides");
     expect(classifyUploadKind("report.pdf")).toBe("pdf");
   });
+  it("maps image extensions to image", () => {
+    expect(classifyUploadKind("photo.png")).toBe("image");
+    expect(classifyUploadKind("pic.JPG")).toBe("image");
+    expect(classifyUploadKind("pic.jpeg")).toBe("image");
+    expect(classifyUploadKind("anim.gif")).toBe("image");
+    expect(classifyUploadKind("shot.webp")).toBe("image");
+  });
   it("returns null for unsupported types", () => {
-    expect(classifyUploadKind("photo.png")).toBeNull();
     expect(classifyUploadKind("archive.zip")).toBeNull();
+    expect(classifyUploadKind("vector.svg")).toBeNull();
     expect(classifyUploadKind("noext")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-export type UploadKind = "sheet" | "doc" | "slides" | "pdf";
+export type UploadKind = "sheet" | "doc" | "slides" | "pdf" | "image";
 
 export const SKIP_REASON = "Unsupported file type";
 
@@ -7,6 +7,11 @@ const EXT_TO_KIND: Record<string, UploadKind> = {
   docx: "doc",
   pptx: "slides",
   pdf: "pdf",
+  png: "image",
+  jpg: "image",
+  jpeg: "image",
+  gif: "image",
+  webp: "image",
 };
 
 export function classifyUploadKind(fileName: string): UploadKind | null {

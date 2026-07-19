@@ -88,6 +88,7 @@ export function getDocumentPath(doc: {
     case "slides":
       return `/p/${doc.id}`;
     case "pdf":
+    case "image":
       return `/f/${doc.id}`;
     case "note":
       return `/n/${doc.id}`;

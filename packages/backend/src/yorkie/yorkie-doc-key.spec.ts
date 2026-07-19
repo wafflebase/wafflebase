@@ -58,3 +58,14 @@ describe('yorkie-doc-key notes', () => {
     expect(parseYorkieDocKey('note-abc')).toEqual({ type: 'note', id: 'abc' });
   });
 });
+
+describe('yorkie-doc-key image prefix', () => {
+  it('maps image to the image- prefix', () => {
+    expect(yorkieDocKeyPrefix('image')).toBe('image-');
+    expect(yorkieDocKey('image', 'abc')).toBe('image-abc');
+  });
+
+  it('round-trips an image key', () => {
+    expect(parseYorkieDocKey('image-abc')).toEqual({ type: 'image', id: 'abc' });
+  });
+});

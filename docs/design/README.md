@@ -109,6 +109,7 @@ Static PDF documents — upload, store, and view (no CRDT editing).
 | Document          | Description                                                                                        |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | [pdf.md](pdf.md)  | PDF viewer — fourth document type (`"pdf"`), blob-stored original (no Yorkie CRDT), document-permission-gated serving, pdf.js viewer at `/f/:id`; Phase 2 spec adds share-token file serving + `pdf-<id>` Yorkie comments (page-region pin anchors, shared comments module) + `activePage` presence |
+| [image-viewer.md](image-viewer.md) | Image viewer — `"image"` document type mirroring PDF's static blob spine (reuses `Document.fileId`, `wafflebase-files` bucket, type-agnostic `GET /documents/:id/file`); png/jpeg/gif/webp only, 25 MB cap; joins the multi-file upload queue; `<img>` viewer at `/f/:id` with zoom/download + workspace prev/next; inline lazy list thumbnails (client downscale). Comments/sharing + gallery/grid view deferred |
 
 ## Common
 
