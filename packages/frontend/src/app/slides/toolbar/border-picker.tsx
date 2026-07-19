@@ -7,6 +7,11 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ToolbarButton } from '@/components/ui/toolbar';
 import { ThemedColorPicker } from '../themed-color-picker';
@@ -102,21 +107,21 @@ export function BorderPicker({
   return (
     <>
       {/* Border color */}
-      <DropdownMenu open={colorOpen} onOpenChange={setColorOpen}>
+      <Popover modal open={colorOpen} onOpenChange={setColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconPencil size={14} />}
                 color={currentBorderColor}
                 label="Border color"
                 disabled={disabled}
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Border color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent
+        <PopoverContent
           align="start"
           className="w-auto p-2"
           onCloseAutoFocus={colorMenu.onCloseAutoFocus}
@@ -130,8 +135,8 @@ export function BorderPicker({
               recentColors={recentColors}
             />
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
 
       {/* Border weight */}
       <DropdownMenu>

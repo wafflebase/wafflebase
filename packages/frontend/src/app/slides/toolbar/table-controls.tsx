@@ -18,6 +18,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Toggle } from '@/components/ui/toggle';
 import { ToolbarButton, ToolbarSeparator } from '@/components/ui/toolbar';
@@ -278,10 +283,10 @@ export function TableControls({
   return (
     <>
       {/* Cell fill — themed color picker shared with shapes */}
-      <DropdownMenu open={fillOpen} onOpenChange={setFillOpen}>
+      <Popover modal open={fillOpen} onOpenChange={setFillOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconBucketDroplet size={14} />}
                 color={
@@ -291,11 +296,15 @@ export function TableControls({
                 }
                 label="Cell fill"
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell fill</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent onCloseAutoFocus={fillMenu.onCloseAutoFocus}>
+        <PopoverContent
+          align="start"
+          className="w-auto p-2"
+          onCloseAutoFocus={fillMenu.onCloseAutoFocus}
+        >
           {theme && (
             <ThemedColorPicker
               theme={theme}
@@ -316,8 +325,8 @@ export function TableControls({
               recentColors={store?.read().meta.recentColors}
             />
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
 
       <ToolbarSeparator className="mx-1" />
 

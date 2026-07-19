@@ -89,9 +89,29 @@ Sequenced by consumer-visible value (fix real inconsistencies before pure DRY):
   clamp-to-10-on-edge behavior are accepted-by-design (intended normalization /
   shared `TableGridPicker` parity with Docs+Notes), documented in the design doc.
 
-Still deferred to a later pass: `DropdownMenuShortcut` adoption + icon-size /
-panel-width constants, a `Popover` primitive for the color pickers, and merging
-`ThemedColorPicker` ↔ `ColorPickerGrid`.
+## Phase 3 (this session, continued)
+
+- [x] **Shared `ColorSwatch`** — one `components/color-swatch.tsx` (size/radius/
+      hover-zoom/selected-ring) consumed by `ColorPickerGrid` and the three grids
+      in the Slides `ThemedColorPicker`. Did **not** force a full
+      `ColorPickerGrid` ↔ `ThemedColorPicker` merge (different color models —
+      plain hex vs the `ThemeColor` union + alpha/recent; a merge would be a
+      mode-flagged mega-component, more complex + slides-regression risk).
+- [x] **`Popover` primitive** (`components/ui/popover.tsx`, shadcn over
+      `@radix-ui/react-popover`) + moved the color-swatch panels off their
+      `DropdownMenu` abuse onto it (text-format-group, sheets + conditional
+      format, docs slim color, slides shape/border/text-element/table fill).
+      `useMenuCloseHandlers`/`onCloseAutoFocus` carried over.
+  - **Exception:** `gradient-editor.tsx` intentionally stays on `DropdownMenu` —
+    its stop marker relies on the trigger toggling on `pointerdown` (suppressed
+    mid-drag by `startDrag`'s `preventDefault`); `Popover` toggles on `click`,
+    which that preventDefault doesn't cancel, so migrating regressed open/close.
+    Caught during self-review of the subagent migration and reverted; comment
+    updated.
+- [x] **Skipped as not-worth-it:** `DropdownMenuShortcut` adoption (hints are
+      already uniform; the primitive's `text-xs tracking-widest` only changes the
+      look) and panel-width/icon-size constants (over-abstraction — widths are
+      intentionally per-picker).
 
 ## Decisions
 

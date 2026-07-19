@@ -16,6 +16,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
@@ -450,47 +455,49 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           <TooltipContent>Underline ({modKey}+U)</TooltipContent>
         </Tooltip>
 
-        <DropdownMenu open={slimTextColorOpen} onOpenChange={setSlimTextColorOpen}>
+        <Popover modal open={slimTextColorOpen} onOpenChange={setSlimTextColorOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
+              <PopoverTrigger asChild>
                 <ColorSwatchButton
                   icon={<IconTypography size={14} />}
                   color={slimSelectionStyle?.color || "var(--wb-ink)"}
                   label="Text color"
                 />
-              </DropdownMenuTrigger>
+              </PopoverTrigger>
             </TooltipTrigger>
             <TooltipContent>Text color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent
+          <PopoverContent
+            align="start"
             className="w-auto p-2"
             onCloseAutoFocus={slimTextColorMenu.onCloseAutoFocus}
           >
             <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverContent>
+        </Popover>
 
-        <DropdownMenu open={slimHighlightOpen} onOpenChange={setSlimHighlightOpen}>
+        <Popover modal open={slimHighlightOpen} onOpenChange={setSlimHighlightOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
+              <PopoverTrigger asChild>
                 <ColorSwatchButton
                   icon={<IconHighlight size={14} />}
                   color={slimSelectionStyle?.backgroundColor || "var(--wb-paper)"}
                   label="Highlight color"
                 />
-              </DropdownMenuTrigger>
+              </PopoverTrigger>
             </TooltipTrigger>
             <TooltipContent>Highlight color</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent
+          <PopoverContent
+            align="start"
             className="w-auto p-2"
             onCloseAutoFocus={slimHighlightMenu.onCloseAutoFocus}
           >
             <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} noneLabel="None" />
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverContent>
+        </Popover>
 
         <ToolbarSeparator />
 

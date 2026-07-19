@@ -26,6 +26,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { ColorPickerGrid } from "@/components/color-picker-grid";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
@@ -518,44 +523,55 @@ export function FormattingToolbar({
       )}
 
       {/* Text Color */}
-      <DropdownMenu open={textColorOpen} onOpenChange={setTextColorOpen}>
+      <Popover modal open={textColorOpen} onOpenChange={setTextColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconTypography size={14} />}
                 color={style?.tc || "var(--foreground)"}
                 label="Text color"
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Text color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
-          <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={handleResetTextColor} />
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <PopoverContent align="start" className="w-auto p-2">
+          <ColorPickerGrid
+            colors={TEXT_COLORS}
+            colorKind="text color"
+            onSelect={handleTextColor}
+            onReset={handleResetTextColor}
+          />
+        </PopoverContent>
+      </Popover>
 
       <ToolbarSeparator />
 
       {/* Background Color */}
-      <DropdownMenu open={bgColorOpen} onOpenChange={setBgColorOpen}>
+      <Popover modal open={bgColorOpen} onOpenChange={setBgColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconDropletHalf2Filled size={14} />}
                 color={style?.bg || "var(--background)"}
                 label="Fill color"
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-auto p-2">
-          <ColorPickerGrid colors={BG_COLORS} onSelect={handleBgColor} onReset={handleResetBgColor} noneLabel="None" />
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <PopoverContent align="start" className="w-auto p-2">
+          <ColorPickerGrid
+            colors={BG_COLORS}
+            colorKind="fill color"
+            onSelect={handleBgColor}
+            onReset={handleResetBgColor}
+            noneLabel="None"
+          />
+        </PopoverContent>
+      </Popover>
 
       {/* Borders */}
       {!isMobile && (

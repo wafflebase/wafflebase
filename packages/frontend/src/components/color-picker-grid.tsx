@@ -1,4 +1,5 @@
 import { NoneSwatch } from "./none-swatch";
+import { ColorSwatch } from "./color-swatch";
 
 interface ColorPickerGridProps {
   colors: string[];
@@ -40,12 +41,10 @@ export function ColorPickerGrid({
       </button>
       <div className="grid grid-cols-8 gap-1">
         {colors.map((color) => (
-          <button
+          <ColorSwatch
             key={color}
-            type="button"
-            className="h-5 w-5 cursor-pointer rounded-sm border border-border hover:scale-125 transition-transform"
-            style={{ backgroundColor: color }}
-            aria-label={`Select ${colorKind} ${color}`}
+            color={color}
+            label={`Select ${colorKind} ${color}`}
             title={color}
             onClick={() => onSelect(color)}
           />

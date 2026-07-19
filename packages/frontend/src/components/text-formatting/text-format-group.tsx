@@ -15,10 +15,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ToolbarButton } from "@/components/ui/toolbar";
 import {
   IconBold,
@@ -221,10 +221,10 @@ export function TextFormatGroup({
       )}
 
       {/* Text color */}
-      <DropdownMenu open={textColorOpen} onOpenChange={setTextColorOpen}>
+      <Popover modal open={textColorOpen} onOpenChange={setTextColorOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+            <PopoverTrigger asChild>
               <ColorSwatchButton
                 icon={<IconTypography size={14} />}
                 color={selectionStyle?.color || defaultTextColor}
@@ -232,11 +232,12 @@ export function TextFormatGroup({
                 disabled={isDisabled}
                 data-text-edit-keepalive
               />
-            </DropdownMenuTrigger>
+            </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>Text color</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent
+        <PopoverContent
+          align="start"
           className="w-auto p-2"
           data-text-edit-keepalive
           onCloseAutoFocus={textColorMenu.onCloseAutoFocus}
@@ -247,8 +248,8 @@ export function TextFormatGroup({
             onSelect={handleTextColor}
             onReset={() => handleTextColor("")}
           />
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
 
       {/* Highlight color — sub-component so its state + close-handler
           hook are only allocated when the swatch is actually rendered. */}
@@ -315,10 +316,10 @@ function HighlightSwatch({
     [editor, menu],
   );
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <Popover modal open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
+          <PopoverTrigger asChild>
             <ColorSwatchButton
               icon={<IconHighlight size={14} />}
               color={currentColor || defaultColor}
@@ -326,11 +327,12 @@ function HighlightSwatch({
               disabled={disabled}
               data-text-edit-keepalive
             />
-          </DropdownMenuTrigger>
+          </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>Highlight color</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent
+      <PopoverContent
+        align="start"
         className="w-auto p-2"
         data-text-edit-keepalive
         onCloseAutoFocus={menu.onCloseAutoFocus}
@@ -342,7 +344,7 @@ function HighlightSwatch({
           onReset={() => handleColor("")}
           noneLabel="None"
         />
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverContent>
+    </Popover>
   );
 }

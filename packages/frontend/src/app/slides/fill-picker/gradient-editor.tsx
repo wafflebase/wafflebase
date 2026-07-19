@@ -277,13 +277,14 @@ interface GradientStopMarkerProps {
  * each marker owns its own popover-open state and `useMenuCloseHandlers`
  * instance — hooks can't live inside the `stops.map()` loop directly.
  *
- * There's no `Popover` primitive in this repo's `components/ui` (only
- * `DropdownMenu`/`Dialog`/etc.), so the nested per-stop color picker reuses
- * `DropdownMenu`, mirroring the fill-color palette in
- * `toolbar/shape-controls.tsx`: a controlled `open` state (closed after a
- * discrete swatch pick) plus `useMenuCloseHandlers` to drop focus to the
- * document body on close so arrow keys keep reaching the slide canvas
- * instead of getting stuck on the trigger `<button>`.
+ * Unlike the other color palettes (which moved to the `Popover` primitive),
+ * this marker deliberately stays on `DropdownMenu`: it depends on the trigger
+ * toggling on `pointerdown` so `startDrag`'s `preventDefault()` can suppress
+ * that toggle mid-drag (see below). `Popover` toggles on `click`, which a
+ * pointerdown `preventDefault()` does not cancel, so it would reopen/close on
+ * every stop tap. The controlled `open` state (closed after a discrete swatch
+ * pick) plus `useMenuCloseHandlers` (drops focus to the document body on close
+ * so arrow keys keep reaching the slide canvas) are unchanged.
  *
  * `DropdownMenuTrigger` normally opens on `pointerdown` itself, which would
  * fire on every drag-start too (opening the popover mid-drag). `startDrag`

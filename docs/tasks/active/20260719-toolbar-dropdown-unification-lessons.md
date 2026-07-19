@@ -64,3 +64,35 @@
   text-vs-background swatch `aria-label` distinction — a screen-reader-only
   regression invisible in a visual smoke. Fixed with an optional `colorKind`
   prop that also improved Docs/Sheets.
+
+## Phase 3
+
+- **"Consolidate into one component" is often a trap.** The plan said merge
+  `ColorPickerGrid` and `ThemedColorPicker`. But they model different things
+  (plain hex + `onSelect(string)` vs a `ThemeColor` role/srgb union + alpha +
+  recent). A literal merge would be a mode-flagged mega-component — MORE complex
+  and a slides-regression risk. The elegant realization of the intent was a tiny
+  shared `ColorSwatch` (the one genuinely-duplicated bit), not a merge. Push
+  back on a roadmap item when the code says it's over-engineering.
+
+- **Skip churn that changes a look for zero user gain.** The `DropdownMenuShortcut`
+  adoption would have swapped already-uniform `text-[11px]` hints for the
+  primitive's `text-xs tracking-widest` — a visible change for an invisible DRY
+  win. Skipped it and said why. Not every listed follow-up is worth doing.
+
+- **A trigger's toggle event is part of its contract.** `DropdownMenuTrigger`
+  toggles on `pointerdown`; `PopoverTrigger` toggles on `click`. The gradient
+  stop marker leaned on the pointerdown-toggle (suppressed mid-drag via
+  `preventDefault`), so a blind swap to Popover regressed open/close — a
+  pointerdown `preventDefault` doesn't cancel the later `click`. Caught it by
+  reading the drag code, not the diff. Reverted that one file; the plain-click
+  swatch triggers were fine.
+
+- **`DropdownMenu` is modal by default; `Popover` is not.** Migrating removed
+  the scroll-lock + outside-pointer blocking, so a click behind an open color
+  palette leaked to the canvas (moved the cell selection). The review caught it;
+  the fix was `<Popover modal>` on every color usage — modality is orthogonal to
+  the menu-vs-popover keyboard-nav reason we migrated. Also restore the
+  primitive's `max-h-(--radix-…-available-height) overflow-y-auto`, which
+  `DropdownMenuContent` had and a hand-written `PopoverContent` won't unless you
+  copy it.

@@ -292,14 +292,34 @@ menu-trigger `gap-0 px-1 → gap-0.5 px-1.5` normalization, and the shared
 `TableGridPicker`'s clamp-to-max-on-edge-exit legend behavior (now shared by
 Slides, matching Docs + Notes).
 
-#### Phase 3 (follow-up — deferred)
+#### Phase 3 (shipped)
 
-- Consolidate the color-grid bodies into one component (`ThemedColorPicker`
-  superset with optional theme-roles + `ColorPickerGrid`). Overlaps PR #2's
-  swatch-generator work.
-- Adopt `DropdownMenuShortcut` for the `text-[11px]` shortcut hints and factor
-  icon sizes / panel widths into shared constants.
-- Add a `Popover` primitive and move the color pickers onto it (overlaps PR #6).
+- **Shared `ColorSwatch`.** The swatch button markup was duplicated ~4 ways
+  (`ColorPickerGrid` + the three grids in the Slides `ThemedColorPicker`).
+  Extracted one `components/color-swatch.tsx` (size / radius / hover-zoom /
+  selected ring) that both consume, so every swatch renders identically.
+  A **full merge** of `ColorPickerGrid` (plain hex, `onSelect(string)`) and
+  `ThemedColorPicker` (the slides `ThemeColor` role/srgb model,
+  `onChange(ThemeColor, opts)`, alpha, recent) was deliberately **not** done —
+  the models are genuinely different and a mode-flagged mega-component would be
+  more complex and risk slides theme regressions, not less.
+- **`Popover` primitive.** Added `components/ui/popover.tsx` (shadcn wrapper over
+  `@radix-ui/react-popover`, chrome matching the `DropdownMenu` popover) and
+  moved the color-swatch panels off their `DropdownMenu` abuse (swatch grids /
+  custom inputs are not menu items) onto it: text-format-group (Docs/Slides text
+  edit), sheets + conditional-format, docs slim header/footer color, and slides
+  shape / border / text-element / table fill. `useMenuCloseHandlers` +
+  `onCloseAutoFocus` carry over unchanged.
+  - **Exception:** `fill-picker/gradient-editor.tsx` stays on `DropdownMenu` on
+    purpose — its stop marker relies on the trigger toggling on `pointerdown`
+    (so `startDrag`'s `preventDefault()` can suppress it mid-drag); `Popover`
+    toggles on `click`, which a pointerdown `preventDefault` doesn't cancel.
+
+**Not done (judged not worth it):** adopting `DropdownMenuShortcut` for the
+`text-[11px]` shortcut hints — those are already visually uniform, so swapping to
+the primitive's `text-xs tracking-widest` would change the look for no
+user-visible consistency gain. Panel-width / icon-size "constants" were likewise
+skipped as over-abstraction (widths are intentionally per-picker).
 
 ### Sequencing rationale
 

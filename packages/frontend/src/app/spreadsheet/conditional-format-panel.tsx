@@ -23,10 +23,10 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Toggle } from "@/components/ui/toggle";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -585,15 +585,15 @@ export function ConditionalFormatPanel({
                   <span className="text-xs font-semibold underline">U</span>
                 </Toggle>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Popover modal>
+                  <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconTypography size={14} />}
                       color={selectedRule.style.tc || "var(--foreground)"}
                       label="Text color"
                     />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-auto p-2">
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-2">
                     <ColorPickerGrid
                       colors={TEXT_COLORS}
                       colorKind="text color"
@@ -604,18 +604,18 @@ export function ConditionalFormatPanel({
                         updateRuleStyle(selectedRule.id, { tc: undefined })
                       }
                     />
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </PopoverContent>
+                </Popover>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Popover modal>
+                  <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconDropletHalf2Filled size={14} />}
                       color={selectedRule.style.bg || "var(--background)"}
                       label="Background color"
                     />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-auto p-2">
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-2">
                     <ColorPickerGrid
                       colors={BG_COLORS}
                       colorKind="background color"
@@ -627,8 +627,8 @@ export function ConditionalFormatPanel({
                       }
                       noneLabel="None"
                     />
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </PopoverContent>
+                </Popover>
               </div>
             </section>
           </>
