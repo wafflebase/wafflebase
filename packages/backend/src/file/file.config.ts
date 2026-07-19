@@ -15,5 +15,11 @@ export const fileConfig = registerAs('file', () => ({
   accessKey: process.env.FILE_STORAGE_ACCESS_KEY || (isDev ? 'minioadmin' : ''),
   secretKey: process.env.FILE_STORAGE_SECRET_KEY || (isDev ? 'minioadmin' : ''),
   maxFileSizeBytes: MAX_PDF_UPLOAD_BYTES,
-  allowedMimeTypes: ['application/pdf'],
+  allowedMimeTypes: [
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+  ],
 }));
