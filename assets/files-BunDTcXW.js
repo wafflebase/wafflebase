@@ -1,0 +1,1 @@
+import{a as n,b as s}from"./index-D4SoyTSU.js";const o="https://api.wafflebase.io";async function f(e){const a=new FormData;a.append("file",e,e.name);const t=await n(`${o}/files`,{method:"POST",body:a});return await s(t,"File upload failed"),await t.json()}function r(e,a){const t=`${o}/documents/${e}/file`;return a?`${t}?token=${encodeURIComponent(a)}`:t}export{r as f,f as u};
