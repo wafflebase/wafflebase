@@ -73,18 +73,20 @@ export async function renameDocument(
 }
 
 /**
- * Moves document to another workspace.
+ * Moves a document to another workspace and/or into a folder. Omit a field
+ * to leave it unchanged; pass `folderId: null` to move it to the workspace
+ * root.
  */
 export async function moveDocument(
   id: string,
-  workspaceId: string
+  target: { workspaceId?: string; folderId?: string | null }
 ): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId }),
+      body: JSON.stringify(target),
     }
   );
 

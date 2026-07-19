@@ -506,7 +506,7 @@ export function DocumentList({
     }: {
       id: string;
       workspaceId: string;
-    }) => await moveDocument(id, targetId),
+    }) => await moveDocument(id, { workspaceId: targetId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });

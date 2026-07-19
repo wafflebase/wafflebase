@@ -1,4 +1,4 @@
-import type { DocumentType } from "@/types/documents";
+import type { Document, DocumentType } from "@/types/documents";
 import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
@@ -215,10 +215,15 @@ export async function revokeApiKey(
 }
 
 /**
- * Fetches workspace documents.
+ * Fetches workspace documents. Pass `folderId` to list a folder's contents;
+ * omit it to list the workspace root.
  */
-export async function fetchWorkspaceDocuments(workspaceId: string) {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents`);
+export async function fetchWorkspaceDocuments(
+  workspaceId: string,
+  folderId?: string | null,
+): Promise<Document[]> {
+  const qs = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents${qs}`);
   await assertOk(res, "Failed to fetch documents");
   return res.json();
 }
