@@ -51,16 +51,16 @@ export function LineSpacingPicker({
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [draft, setDraft] = useState(String(value));
-  // Defer the preset commit to onCloseAutoFocus so the caller's
-  // `editor.focus()` runs after Radix's FocusScope teardown and sticks —
-  // calling it inside onClick races the scope restoring focus to the trigger.
+  // Defer every commit (preset click and custom input) to onCloseAutoFocus so
+  // the caller's `editor.focus()` runs after Radix's FocusScope teardown and
+  // sticks — committing inline races the scope restoring focus to the trigger.
   const pendingRef = useRef<number | null>(null);
 
   const commitCustom = () => {
     const n = Number(draft);
     if (!Number.isFinite(n)) return;
     const clamped = Math.max(LINE_SPACING_MIN, Math.min(LINE_SPACING_MAX, n));
-    onChange(clamped);
+    pendingRef.current = clamped;
     setOpen(false);
     setCustomMode(false);
   };
