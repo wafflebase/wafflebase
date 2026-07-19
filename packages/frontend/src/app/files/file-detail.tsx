@@ -1,115 +1,26 @@
-import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { Navigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
-import { fetchDocument, renameDocument } from "@/api/documents";
-import { toast } from "sonner";
+import { fetchDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
-import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
-import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { User } from "@/types/users";
+import { FileShell } from "./file-shell";
+import { ImageViewer } from "./image-viewer";
 import {
   PdfCollabProvider,
   PdfHeaderActions,
   PdfCollabBody,
 } from "./pdf-collab";
 
-function FileLayout({
+function PdfFileLayout({
   documentId,
   currentUser,
 }: {
   documentId: string;
   currentUser: User;
 }) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-
-  const { data: documentData, isError: isDocumentError } = useQuery({
-    queryKey: ["document", documentId],
-    queryFn: () => fetchDocument(documentId),
-    retry: false,
-  });
-
-  useEffect(() => {
-    document.title = documentData?.title
-      ? `${documentData.title} — Wafflebase`
-      : "Wafflebase";
-  }, [documentData?.title]);
-
-  const { data: workspaces = [] } = useQuery<Workspace[]>({
-    queryKey: ["workspaces"],
-    queryFn: fetchWorkspaces,
-  });
-
-  const currentWorkspace = workspaces.find(
-    (w) => w.id === documentData?.workspaceId,
-  );
-  const workspaceSlug = currentWorkspace?.slug;
-  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
-
-  useEffect(() => {
-    if (isDocumentError) {
-      toast.error("Document not found");
-      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
-        replace: true,
-      });
-    }
-  }, [isDocumentError, navigate, fallbackSlug]);
-
-  const items = useMemo(() => {
-    if (workspaceSlug) {
-      return {
-        main: [
-          { title: "Documents", url: `/w/${workspaceSlug}`, icon: IconFolder },
-          {
-            title: "Data Sources",
-            url: `/w/${workspaceSlug}/datasources`,
-            icon: IconDatabase,
-          },
-          {
-            title: "Settings",
-            url: `/w/${workspaceSlug}/settings`,
-            icon: IconSettings,
-          },
-        ],
-        secondary: [],
-      };
-    }
-    return {
-      main: [
-        { title: "Documents", url: "/documents", icon: IconFolder },
-        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-        { title: "Settings", url: "/settings", icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
-
-  const handleWorkspaceChange = useCallback(
-    (slug: string) => {
-      navigate(`/w/${slug}`);
-    },
-    [navigate],
-  );
-
-  const handleRenameDocument = useCallback(
-    async (newTitle: string) => {
-      try {
-        await renameDocument(documentId, newTitle);
-        queryClient.invalidateQueries({ queryKey: ["document", documentId] });
-        queryClient.invalidateQueries({ queryKey: ["documents"] });
-      } catch {
-        toast.error("Failed to rename document");
-      }
-    },
-    [documentId, queryClient],
-  );
-
   return (
     <PdfCollabProvider
       documentId={documentId}
@@ -121,51 +32,46 @@ function FileLayout({
         photo: currentUser.photo,
       }}
     >
-      <SidebarProvider>
-        <AppSidebar
-          variant="inset"
-          items={items}
-          workspaces={workspaces}
-          currentWorkspace={currentWorkspace}
-          onWorkspaceChange={handleWorkspaceChange}
-        />
-        <SidebarInset>
-          <SiteHeader
-            title={documentData?.title ?? "Loading..."}
-            editable
-            onRename={handleRenameDocument}
-          >
-            <div className="flex items-center gap-2">
-              <PdfHeaderActions />
-              <ShareDialog documentId={documentId} />
-              <UserPresence />
-            </div>
-          </SiteHeader>
-          <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-            <PdfCollabBody />
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
+      <FileShell
+        documentId={documentId}
+        headerActions={
+          <>
+            <PdfHeaderActions />
+            <ShareDialog documentId={documentId} />
+            <UserPresence />
+          </>
+        }
+      >
+        <PdfCollabBody />
+      </FileShell>
     </PdfCollabProvider>
   );
 }
 
+function ImageFileLayout({ documentId }: { documentId: string }) {
+  return (
+    <FileShell
+      documentId={documentId}
+      headerActions={<ShareDialog documentId={documentId} />}
+    >
+      <ImageViewer documentId={documentId} />
+    </FileShell>
+  );
+}
+
 /**
- * FileDetail is the collaborative PDF route. Auth-gates on the current
- * user, then mounts the app shell wrapped in `PdfCollabProvider` (comments +
- * presence over the `pdf-<id>` Yorkie document). The ambient `YorkieProvider`
- * comes from `PrivateRoute` — this route does not mount its own, matching the
- * docs/slides/sheets owner routes. The PDF bytes stay static, served
- * (permission-gated) from the blob store; only comments + presence flow
- * through Yorkie.
+ * FileDetail is the `/f/:id` route shared by static blob documents. It
+ * auth-gates on the current user, resolves the document `type`, then mounts
+ * the matching layout: pdf → collaborative PDF (comments + presence over the
+ * `pdf-<id>` Yorkie doc); image → a plain viewer with no Yorkie attachment.
  */
 export function FileDetail() {
   const { id } = useParams();
 
   const {
     data: currentUser,
-    isLoading,
-    isError,
+    isLoading: userLoading,
+    isError: userError,
   } = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
@@ -173,10 +79,20 @@ export function FileDetail() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (isLoading) return <Loader />;
-  if (isError || !currentUser) return <Navigate to="/login" replace />;
+  const { data: documentData, isLoading: docLoading } = useQuery({
+    queryKey: ["document", id],
+    queryFn: () => fetchDocument(id!),
+    retry: false,
+    enabled: !!id,
+  });
 
-  return <FileLayout documentId={id!} currentUser={currentUser} />;
+  if (userLoading || docLoading) return <Loader />;
+  if (userError || !currentUser) return <Navigate to="/login" replace />;
+
+  if (documentData?.type === "image") {
+    return <ImageFileLayout documentId={id!} />;
+  }
+  return <PdfFileLayout documentId={id!} currentUser={currentUser} />;
 }
 
 export default FileDetail;
