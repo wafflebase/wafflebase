@@ -101,18 +101,18 @@ export function SlidesToolbar({
   }
 
   return (
-    <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
+    <Toolbar>
       <UndoRedoGroup store={store} />
-      <ToolbarSeparator className="mx-1" />
+      <ToolbarSeparator />
       <FormatPainterButton editor={editor} />
-      <ToolbarSeparator className="mx-1" />
+      <ToolbarSeparator />
       <ZoomControl controller={zoomController ?? null} />
-      <ToolbarSeparator className="mx-1" />
+      <ToolbarSeparator />
       <SlideGroup store={store} editor={editor} />
-      <ToolbarSeparator className="mx-1" />
+      <ToolbarSeparator />
       <div
         data-testid="toolbar-contextual"
-        className="flex flex-1 items-center gap-1"
+        className="flex flex-1 items-center gap-0.5"
       >
         {state.kind === "idle" && (
           <IdleSection editor={editor} onImagePick={onImagePick} />
@@ -131,7 +131,7 @@ export function SlidesToolbar({
           <TextEditSection state={state} editor={editor} />
         )}
       </div>
-      <ToolbarSeparator className="mx-1" />
+      <ToolbarSeparator />
       <RightGlobals
         editor={editor}
         store={store}

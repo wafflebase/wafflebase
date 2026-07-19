@@ -19,6 +19,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ToolbarButton } from "@/components/ui/toolbar";
 import {
   IconBold,
   IconItalic,
@@ -267,8 +268,7 @@ export function TextFormatGroup({
       {/* Clear formatting */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          <ToolbarButton
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleClearFormatting}
             aria-label="Clear formatting"
@@ -276,7 +276,7 @@ export function TextFormatGroup({
             data-text-edit-keepalive
           >
             <IconClearFormatting size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Clear formatting</TooltipContent>
       </Tooltip>

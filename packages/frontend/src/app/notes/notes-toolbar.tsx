@@ -17,6 +17,11 @@ import {
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  Toolbar,
+  ToolbarSeparator,
+  ToolbarButton,
+} from "@/components/ui/toolbar";
 import { TableGridPicker } from "@/components/table-grid-picker";
 import {
   IconPencil,
@@ -78,10 +83,6 @@ function TooltipToggle({
   );
 }
 
-function Divider() {
-  return <div className="mx-1 h-5 w-px shrink-0 bg-border" />;
-}
-
 /** Table insert as a hover-grid size picker, mirroring the docs toolbar. */
 function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
   const [open, setOpen] = useState(false);
@@ -91,13 +92,9 @@ function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Insert table"
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            >
+            <ToolbarButton aria-label="Insert table">
               <IconTable size={16} />
-            </button>
+            </ToolbarButton>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>Insert table</TooltipContent>
@@ -165,10 +162,7 @@ export function NotesToolbar({
   const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
 
   return (
-    <div
-      aria-label="Note toolbar"
-      className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap"
-    >
+    <Toolbar aria-label="Note toolbar">
       {canFormat && editor && (
         <>
           <TooltipToggle
@@ -192,7 +186,7 @@ export function NotesToolbar({
           >
             <IconStrikethrough size={16} />
           </TooltipToggle>
-          <Divider />
+          <ToolbarSeparator />
           <TooltipToggle
             label="Link"
             pressed={formats.link}
@@ -210,16 +204,15 @@ export function NotesToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
+                  <ToolbarButton
+                    variant="menu"
                     aria-label={`Keyboard: ${
                       KEYMAPS.find((k) => k.key === keymap)?.label ?? "Default"
                     }`}
-                    className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted"
                   >
                     <IconKeyboard size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
+                  </ToolbarButton>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>Keyboard</TooltipContent>
@@ -242,14 +235,13 @@ export function NotesToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
+                <ToolbarButton
+                  variant="menu"
                   aria-label={`View mode: ${current.label}`}
-                  className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted"
                 >
                   <current.Icon size={16} />
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                </button>
+                </ToolbarButton>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>View mode</TooltipContent>
@@ -270,7 +262,7 @@ export function NotesToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-    </div>
+    </Toolbar>
   );
 }
 
