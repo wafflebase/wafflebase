@@ -3,7 +3,7 @@ import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
-import { uploadPdf } from "@/api/files";
+import { uploadFile } from "@/api/files";
 import { createDocument, deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
@@ -147,7 +147,7 @@ export interface UploadDeps {
   importXlsx: typeof importXlsx;
   importDocx: typeof importDocx;
   importPptxFile: typeof importPptxFile;
-  uploadPdf: typeof uploadPdf;
+  uploadFile: typeof uploadFile;
   createDoc: (
     workspaceId: string | undefined,
     payload: { title: string; type: DocumentType; fileId?: string },
@@ -161,7 +161,7 @@ const defaultDeps: UploadDeps = {
   importXlsx,
   importDocx,
   importPptxFile,
-  uploadPdf,
+  uploadFile,
   createDoc: (ws, payload) =>
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
@@ -261,18 +261,25 @@ async function runItem(item: UploadItem): Promise<void> {
       const warning =
         summary && summary !== "Imported with no fallbacks." ? summary : undefined;
       finish(item.id, created, warning);
-    } else if (item.kind === "pdf") {
+    } else if (item.kind === "pdf" || item.kind === "image") {
       patchItem(item.id, { status: "uploading" });
-      const title = stripExt(item.fileName, "pdf", "Untitled PDF");
+      const dot = item.fileName.lastIndexOf(".");
+      const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
+      const fallback = item.kind === "pdf" ? "Untitled PDF" : "Untitled Image";
+      const title = stripExt(item.fileName, ext, fallback);
       // Upload the blob at most once per item: persist the returned fileId
       // immediately so a retry whose earlier failure was in createDoc reuses
       // the blob instead of orphaning it with a second upload.
       let fileId = item.fileId;
       if (!fileId) {
-        ({ id: fileId } = await d.uploadPdf(file));
+        ({ id: fileId } = await d.uploadFile(file));
         patchItem(item.id, { fileId });
       }
-      const created = await getOrCreateDoc(item, { title, type: "pdf", fileId });
+      const created = await getOrCreateDoc(item, {
+        title,
+        type: item.kind,
+        fileId,
+      });
       finish(item.id, created);
     }
   } catch (err) {

@@ -21,7 +21,7 @@ describe("upload-queue worker", () => {
         report: { summary: () => "" },
         fileName: f.name,
       })),
-      uploadPdf: vi.fn(async () => ({ id: "file1" })),
+      uploadFile: vi.fn(async () => ({ id: "file1" })),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
         title: p.title,
@@ -39,16 +39,43 @@ describe("upload-queue worker", () => {
     const snap = q.getSnapshot();
     expect(snap.find((i) => i.fileName === "a.xlsx")?.status).toBe("done");
     expect(snap.find((i) => i.fileName === "c.pdf")?.status).toBe("done");
-    expect(snap.find((i) => i.fileName === "b.png")?.status).toBe("skipped");
-    expect(deps.createDoc).toHaveBeenCalledTimes(2); // xlsx + pdf, not png
-    // Content is applied for the parsed sheet, never for the skipped png or
-    // the PDF (whose bytes are stored server-side at create time).
+    expect(snap.find((i) => i.fileName === "b.png")?.status).toBe("done");
+    // xlsx + png + pdf all create a document now.
+    expect(deps.createDoc).toHaveBeenCalledTimes(3);
+    // Content is applied only for the parsed sheet; the png and pdf store
+    // their bytes server-side at create time.
     expect(deps.applyContent).toHaveBeenCalledTimes(1);
     // docId = "d" + stripExt("a.xlsx") = "d" + "a" = "da"
     expect(deps.applyContent).toHaveBeenCalledWith(
       "da",
       expect.objectContaining({ type: "sheet" }),
     );
+  });
+
+  it("uploads an image blob and creates an image document", async () => {
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({ id: "img-1" })),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    q.enqueue([file("cat.png")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1);
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ type: "image", fileId: "img-1" }),
+    );
+    expect(deps.applyContent).not.toHaveBeenCalled();
   });
 
   it("marks an item error when its importer throws and keeps others going", async () => {
@@ -61,7 +88,7 @@ describe("upload-queue worker", () => {
         fileName: f.name,
       })),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d",
         title: p.title,
@@ -98,7 +125,7 @@ describe("upload-queue worker", () => {
       }),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
         title: p.title,
@@ -147,7 +174,7 @@ describe("upload-queue worker", () => {
       })),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "doc-" + p.title,
         title: p.title,
@@ -190,7 +217,7 @@ describe("upload-queue worker", () => {
       importXlsx: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(async () => ({ id: "blob-1" })),
+      uploadFile: vi.fn(async () => ({ id: "blob-1" })),
       createDoc: vi.fn(async (_ws, p) => {
         createCalls++;
         if (createCalls === 1) throw new Error("create failed");
@@ -207,7 +234,7 @@ describe("upload-queue worker", () => {
     let snap = q.getSnapshot();
     let current = snap.find((i) => i.id === item.id);
     expect(current?.status).toBe("error");
-    expect(deps.uploadPdf).toHaveBeenCalledTimes(1);
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1);
     expect(current?.fileId).toBe("blob-1"); // fileId persisted for resume
 
     q.retry(item.id);
@@ -219,7 +246,7 @@ describe("upload-queue worker", () => {
     expect(current?.status).toBe("done");
     // The blob was uploaded exactly once across the failure + retry; the
     // second attempt reused the persisted fileId instead of orphaning a copy.
-    expect(deps.uploadPdf).toHaveBeenCalledTimes(1);
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1);
     expect(deps.createDoc).toHaveBeenCalledTimes(2);
   });
 
@@ -234,7 +261,7 @@ describe("upload-queue worker", () => {
         throw new Error("boom");
       }),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
         title: p.title,
@@ -265,7 +292,7 @@ describe("upload-queue worker", () => {
       })),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "doc-x",
         title: p.title,
@@ -309,7 +336,7 @@ describe("upload-queue worker", () => {
         report: { summary: () => "2 fallbacks applied." },
         fileName: f.name,
       })),
-      uploadPdf: vi.fn(),
+      uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d",
         title: p.title,
