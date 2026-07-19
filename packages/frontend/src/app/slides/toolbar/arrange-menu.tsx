@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ToolbarButton } from '@/components/ui/toolbar';
 import {
   IconChevronDown,
   IconLayoutAlignBottom,
@@ -47,15 +48,10 @@ export function ArrangeMenu({ editor, selectionSize, canUngroup = false }: Arran
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Arrange"
-              disabled={!editor}
-              className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-            >
+            <ToolbarButton variant="menu" aria-label="Arrange" disabled={!editor}>
               <IconStack2 size={16} />
               <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-            </button>
+            </ToolbarButton>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>Arrange</TooltipContent>

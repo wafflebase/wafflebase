@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ToolbarButton } from '@/components/ui/toolbar';
 import { toast } from 'sonner';
 import {
   IconReplace,
@@ -109,15 +110,13 @@ export function ImageControls({
       {/* Replace */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={onReplace}
             aria-label="Replace image"
             disabled={!store || !slideId || !upload}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconReplace size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Replace image</TooltipContent>
       </Tooltip>
@@ -125,18 +124,15 @@ export function ImageControls({
       {/* Crop — enter / exit the interactive crop session */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={onCrop}
             aria-label="Crop image"
             aria-pressed={cropping}
             disabled={!editor || !firstId || !image}
-            className={`inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50 ${
-              cropping ? 'bg-muted text-foreground' : ''
-            }`}
+            className={cropping ? 'bg-muted text-foreground' : ''}
           >
             <IconCrop size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>{cropping ? 'Done cropping' : 'Crop'}</TooltipContent>
       </Tooltip>
@@ -144,15 +140,13 @@ export function ImageControls({
       {/* Reset crop */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={onResetCrop}
             aria-label="Reset crop"
             disabled={!hasCrop}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconArrowBackUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Reset crop</TooltipContent>
       </Tooltip>

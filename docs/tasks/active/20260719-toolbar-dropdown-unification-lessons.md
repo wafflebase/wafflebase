@@ -29,5 +29,38 @@
   buttons use `disabled:pointer-events-none` (suppresses disabled hover) vs the
   shared `disabled:cursor-not-allowed`. Migrating them in the same PR would have
   silently changed disabled-hover behavior across dozens of buttons — deferred
-  to Phase 2 with the reconciliation called out, keeping this PR a clean,
+  to Phase 2 with the reconciliation called out, keeping Phase 1 a clean,
   zero-behavior-change refactor.
+
+## Phase 2
+
+- **Fix the primitive, not the call sites.** The "no pointer cursor" bug on
+  Slides was really a missing `cursor-pointer` on the shared `Toggle` base plus
+  a handful of raw buttons. One base edit fixed every toggle app-wide; only the
+  raw hold-outs needed touching. Same lesson as `ToolbarButton`: consistency
+  lives in the primitive.
+
+- **Sequence follow-ups by consumer-visible value, not by the doc's order.** The
+  Phase 2 list led with button migration (pure DRY, zero visual change), but the
+  user-visible wins were the table-picker hardcoded-blue and the color-grid
+  `grid-cols-5` outliers. Did those first.
+
+- **Changing a Radix item type changes its ARIA role — and the tests.**
+  `DropdownMenuItem` → `DropdownMenuCheckboxItem` flips the role from
+  `menuitem` to `menuitemcheckbox`. Seven tests querying `[role="menuitem"]`
+  went red. That's expected test maintenance for an intentional change, not a
+  regression — widen the query to match both roles. Always run the full suite
+  after a primitive/role swap, not just lint.
+
+- **Give migration subagents the current-value expression, not just "add a
+  check."** For the left-check conversion, the reliable instruction was "reuse
+  the exact variable the trigger already uses to show the current value, and if
+  you can't determine it, leave it and report." Every subagent found the right
+  `checked={…}` (e.g. `currentFormat === "percent"`, `value?.width === w`)
+  because the hint pointed at existing state rather than asking them to invent it.
+
+- **Adversarial review catches a11y regressions a human skims past.** The
+  high-effort review flagged that the shared `ColorPickerGrid` erased the
+  text-vs-background swatch `aria-label` distinction — a screen-reader-only
+  regression invisible in a visual smoke. Fixed with an optional `colorKind`
+  prop that also improved Docs/Sheets.

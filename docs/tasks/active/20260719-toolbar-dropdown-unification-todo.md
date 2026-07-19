@@ -42,6 +42,57 @@ large single-editor toolbars (docs/sheets) — those already match visually.
       `/harness/visual` route.
 - [x] Self code-review over the branch diff (workflow, high effort).
 
+## Phase 2 (this session, continued)
+
+Sequenced by consumer-visible value (fix real inconsistencies before pure DRY):
+
+- [x] **Table picker unification** — Slides `TablePicker` now wraps the shared
+      `TableGridPicker` (token `bg-primary/20 border-primary` highlight) instead
+      of its own fixed 8×8 grid with hardcoded Google-blue `rgba(26,115,232)`.
+- [x] **Color-grid consolidation (partial)** — `conditional-format-panel`
+      dropped its hand-rolled `grid-cols-5` swatch grid for the shared
+      `ColorPickerGrid` (`grid-cols-8`, `NoneSwatch` reset). Merging
+      `ThemedColorPicker` ↔ `ColorPickerGrid` (theme-role superset) is left as a
+      later step — higher coupling, overlaps PR #2's swatch generator.
+- [x] **Disabled-state standard** — `ToolbarButton` base moved to
+      `disabled:pointer-events-none` (shadcn convention; no hover highlight on
+      disabled), so migrating the Slides buttons is behavior-preserving.
+- [x] **Button migration** — remaining editor-local raw triggers →
+      `ToolbarButton` in Docs (`docs-formatting-toolbar`, 6), Sheets
+      (`formatting-toolbar`, 16), and the Slides `toolbar/*` sections. Skips the
+      genuinely-different button types (primary/Done, split buttons, bordered
+      pills, the `min-w` zoom trigger, the export header button).
+- [x] **cursor-pointer consistency** (user-flagged) — Slides buttons showed the
+      default arrow cursor on hover. Added `cursor-pointer` to the shared
+      `Toggle` primitive base (fixes every toggle app-wide) and to the remaining
+      raw Slides buttons (zoom, slide-group, Done, mobile triggers, shape/line
+      grid cells, table trigger).
+- [x] **Selected-item indicator standard** (user-flagged) — the "current value"
+      check was left in Notes, right (hand-rolled) in Docs line-spacing / Slides
+      padding, and absent elsewhere. Standardized every single-select value menu
+      on the native Radix left check (`DropdownMenuCheckboxItem`, matching
+      Notes): Docs (font family/size, line spacing, text style, alignment, slim
+      align), Sheets (number format, H/V align), Slides (zoom, border
+      weight/dash, table padding). Action menus (borders, arrange, insert,
+      overflow) correctly keep no indicator; grid-style pickers (themed-font,
+      line, shape) keep their highlight. Tests that queried `[role="menuitem"]`
+      were widened to also match `[role="menuitemcheckbox"]`.
+
+### Phase 2 self-review (workflow, high effort) — resolved
+
+- **Color-swatch aria-label regression** (conditional-format lost text-vs-bg
+  distinction under the shared grid) → added an optional `colorKind` prop to
+  `ColorPickerGrid`; wired "text color" / "background color" / "highlight color"
+  in conditional-format + text-format-group.
+- **Slides table-picker default trigger** still raw → migrated to `ToolbarButton`.
+- Menu-trigger `gap-0 px-1 → gap-0.5 px-1.5` and the table-legend
+  clamp-to-10-on-edge behavior are accepted-by-design (intended normalization /
+  shared `TableGridPicker` parity with Docs+Notes), documented in the design doc.
+
+Still deferred to a later pass: `DropdownMenuShortcut` adoption + icon-size /
+panel-width constants, a `Popover` primitive for the color pickers, and merging
+`ThemedColorPicker` ↔ `ColorPickerGrid`.
+
 ## Decisions
 
 - **Toolbar density → compact** (option A). Minimal blast radius: 3 apps already

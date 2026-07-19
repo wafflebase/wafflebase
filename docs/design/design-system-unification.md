@@ -258,19 +258,45 @@ toolbars for one.
 - Fix container divergence #2/#3: drop the Slides `h-10` / `gap-1` / `mx-1`
   overrides; move Notes onto the shared `Toolbar` / `ToolbarSeparator`.
 
-#### Phase 2 (follow-up)
+#### Phase 2 (shipped)
 
-- Migrate the remaining editor-local raw trigger buttons to `ToolbarButton`
-  (Docs `docs-formatting-toolbar`, Sheets `formatting-toolbar`, and the Slides
-  toolbar/* sections). These already match visually, so it is a maintainability
-  pass — but reconcile the disabled-state behavior first (`disabled:cursor-not-allowed`
-  in the shared/rich-text buttons vs `disabled:pointer-events-none` in the
-  Slides buttons, which suppresses disabled hover). Slides icon buttons also
-  lack `cursor-pointer` today.
+- **Button migration + disabled-state standard.** Migrated the remaining
+  editor-local raw trigger buttons to `ToolbarButton` (Docs
+  `docs-formatting-toolbar`, Sheets `formatting-toolbar`, Slides `toolbar/*`),
+  skipping genuinely-different types (primary/Done, split buttons, bordered
+  pills, the `min-w` zoom trigger, the export header button). Reconciled the
+  disabled convention on `ToolbarButton` to `disabled:pointer-events-none` (the
+  shadcn Button/Toggle convention — no hover highlight or not-allowed cursor on
+  disabled), which is what the Slides buttons already used.
+- **cursor-pointer consistency.** Slides toolbar buttons rendered the default
+  arrow cursor on hover (they omitted `cursor-pointer`). Added `cursor-pointer`
+  to the shared `Toggle` primitive base (fixes every toggle) and to the
+  remaining raw Slides buttons.
+- **Selected-item indicator standard.** Single-select "current value" menus
+  indicated selection three different ways (native left check in Notes;
+  hand-rolled right check in Docs line-spacing / Slides padding; nothing
+  elsewhere). Standardized every value menu on the **native Radix left check**
+  (`DropdownMenuCheckboxItem`, matching Notes and Google-app convention): Docs
+  font family/size, line spacing, text style, alignment (+slim); Sheets number
+  format, H/V align; Slides zoom, border weight/dash, table padding. Pure
+  **action** menus (borders, arrange, insert, overflow) keep no indicator by
+  design; grid-style pickers (`themed-font-picker`, `line-picker`,
+  `shape-picker`) keep their ring/bg highlight since they are not menus.
+- **Color-swatch a11y.** `ColorPickerGrid` gained an optional `colorKind` prop
+  so swatches announce "text color" vs "background/highlight color"; the Slides
+  `TablePicker` now wraps the shared `TableGridPicker` (token highlight, no more
+  hardcoded blue), and `conditional-format-panel` reuses `ColorPickerGrid`.
+
+Two intentional behavior notes from Phase 2 review, accepted by design: the
+menu-trigger `gap-0 px-1 → gap-0.5 px-1.5` normalization, and the shared
+`TableGridPicker`'s clamp-to-max-on-edge-exit legend behavior (now shared by
+Slides, matching Docs + Notes).
+
+#### Phase 3 (follow-up — deferred)
+
 - Consolidate the color-grid bodies into one component (`ThemedColorPicker`
-  superset with optional theme-roles) and retire the `conditional-format-panel`
-  `grid-cols-5` hand-roll; unify the table picker (drop the Slides hardcoded
-  blue for tokens). Overlaps with PR #2's swatch-generator work.
+  superset with optional theme-roles + `ColorPickerGrid`). Overlaps PR #2's
+  swatch-generator work.
 - Adopt `DropdownMenuShortcut` for the `text-[11px]` shortcut hints and factor
   icon sizes / panel widths into shared constants.
 - Add a `Popover` primitive and move the color pickers onto it (overlaps PR #6).

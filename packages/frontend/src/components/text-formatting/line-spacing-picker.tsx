@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -20,7 +21,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconLineHeight, IconCheck } from "@tabler/icons-react";
+import { IconLineHeight } from "@tabler/icons-react";
 import {
   LINE_SPACING_PRESETS,
   LINE_SPACING_MIN,
@@ -108,8 +109,9 @@ export function LineSpacingPicker({
         ) : (
           <>
             {LINE_SPACING_PRESETS.map((p) => (
-              <DropdownMenuItem
+              <DropdownMenuCheckboxItem
                 key={p}
+                checked={value === p}
                 onClick={() => {
                   onChange(p);
                   setOpen(false);
@@ -117,8 +119,7 @@ export function LineSpacingPicker({
                 className="flex items-center justify-between"
               >
                 <span>{formatPresetLabel(p)}</span>
-                {value === p && <IconCheck size={14} />}
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -12,6 +12,7 @@ import type {
 import { DEFAULT_CELL_PADDING } from '@wafflebase/slides';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -19,7 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Toggle } from '@/components/ui/toggle';
-import { ToolbarSeparator } from '@/components/ui/toolbar';
+import { ToolbarButton, ToolbarSeparator } from '@/components/ui/toolbar';
 import {
   IconAlignBoxLeftTop,
   IconAlignBoxLeftMiddle,
@@ -27,7 +28,6 @@ import {
   IconBorderAll,
   IconBoxPadding,
   IconBucketDroplet,
-  IconCheck,
 } from '@tabler/icons-react';
 import { ThemedColorPicker } from '../themed-color-picker';
 import { ColorSwatchButton } from '@/components/color-swatch-button';
@@ -369,13 +369,9 @@ export function TableControls({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Cell borders"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
-              >
+              <ToolbarButton aria-label="Cell borders">
                 <IconBorderAll size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell borders</TooltipContent>
@@ -404,13 +400,9 @@ export function TableControls({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Cell padding"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
-              >
+              <ToolbarButton aria-label="Cell padding">
                 <IconBoxPadding size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Cell padding</TooltipContent>
@@ -441,17 +433,16 @@ export function TableControls({
           ) : (
             <>
               {PADDING_PRESETS.map((p) => (
-                <DropdownMenuItem
+                <DropdownMenuCheckboxItem
                   key={p}
+                  checked={sampleUniformPadding === p}
                   onSelect={() => {
                     applyPadding(p);
                     setPaddingOpen(false);
                   }}
-                  className="flex items-center justify-between"
                 >
-                  <span>{p} px</span>
-                  {sampleUniformPadding === p && <IconCheck size={14} />}
-                </DropdownMenuItem>
+                  {p} px
+                </DropdownMenuCheckboxItem>
               ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem

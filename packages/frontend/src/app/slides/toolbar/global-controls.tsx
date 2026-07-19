@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
+import { ToolbarButton } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -50,29 +51,25 @@ export function UndoRedoGroup({ store }: UndoRedoGroupProps) {
     <>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={() => store?.undo()}
             disabled={!store || !undoable}
             aria-label="Undo"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconArrowBackUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Undo</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={() => store?.redo()}
             disabled={!store || !redoable}
             aria-label="Redo"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconArrowForwardUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Redo</TooltipContent>
       </Tooltip>

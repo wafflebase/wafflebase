@@ -10,7 +10,6 @@ import {
 import { toast } from "sonner";
 import {
   IconBold,
-  IconDropletOff,
   IconItalic,
   IconDropletHalf2Filled,
   IconPlus,
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { ColorSwatchButton } from "@/components/color-swatch-button";
+import { ColorPickerGrid } from "@/components/color-picker-grid";
 
 type ConditionalFormatPanelProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -594,34 +594,16 @@ export function ConditionalFormatPanel({
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-auto p-2">
-                    <button
-                      type="button"
-                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-                      onClick={() =>
-                        updateRuleStyle(selectedRule.id, {
-                          tc: undefined,
-                        })
+                    <ColorPickerGrid
+                      colors={TEXT_COLORS}
+                      colorKind="text color"
+                      onSelect={(color) =>
+                        updateRuleStyle(selectedRule.id, { tc: color })
                       }
-                    >
-                      <IconDropletOff size={14} />
-                      Reset
-                    </button>
-                    <div className="grid grid-cols-5 gap-1">
-                      {TEXT_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                          style={{ backgroundColor: color }}
-                          onClick={() =>
-                            updateRuleStyle(selectedRule.id, {
-                              tc: color,
-                            })
-                          }
-                          aria-label={`Set text color ${color}`}
-                        />
-                      ))}
-                    </div>
+                      onReset={() =>
+                        updateRuleStyle(selectedRule.id, { tc: undefined })
+                      }
+                    />
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -634,34 +616,17 @@ export function ConditionalFormatPanel({
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-auto p-2">
-                    <button
-                      type="button"
-                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-                      onClick={() =>
-                        updateRuleStyle(selectedRule.id, {
-                          bg: undefined,
-                        })
+                    <ColorPickerGrid
+                      colors={BG_COLORS}
+                      colorKind="background color"
+                      onSelect={(color) =>
+                        updateRuleStyle(selectedRule.id, { bg: color })
                       }
-                    >
-                      <IconDropletOff size={14} />
-                      Reset
-                    </button>
-                    <div className="grid grid-cols-5 gap-1">
-                      {BG_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                          style={{ backgroundColor: color }}
-                          onClick={() =>
-                            updateRuleStyle(selectedRule.id, {
-                              bg: color,
-                            })
-                          }
-                          aria-label={`Set background color ${color}`}
-                        />
-                      ))}
-                    </div>
+                      onReset={() =>
+                        updateRuleStyle(selectedRule.id, { bg: undefined })
+                      }
+                      noneLabel="None"
+                    />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

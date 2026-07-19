@@ -82,7 +82,7 @@ export function SlideGroup({ store, editor }: SlideGroupProps) {
             onClick={onAddBlankSlide}
             disabled={!store}
             aria-label="Add slide"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex cursor-pointer h-7 w-7 items-center justify-center rounded-l-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconPlus size={16} />
           </button>
@@ -97,7 +97,7 @@ export function SlideGroup({ store, editor }: SlideGroupProps) {
             onClick={onOpenLayoutPicker}
             disabled={!store}
             aria-label="Choose a layout"
-            className="inline-flex h-7 w-6 items-center justify-center rounded-r-md border-l hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex cursor-pointer h-7 w-6 items-center justify-center rounded-r-md border-l hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconChevronDown size={14} />
           </button>

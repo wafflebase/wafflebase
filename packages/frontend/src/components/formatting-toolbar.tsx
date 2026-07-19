@@ -9,7 +9,7 @@ import type {
 } from "@wafflebase/sheets";
 import { buildLocaleFormatPreview } from "@wafflebase/sheets";
 import { Toggle } from "@/components/ui/toggle";
-import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
+import { Toolbar, ToolbarSeparator, ToolbarButton } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -21,6 +21,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -291,26 +292,18 @@ export function FormattingToolbar({
       {/* Undo / Redo */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleUndo}
-            aria-label="Undo"
-          >
+          <ToolbarButton onClick={handleUndo} aria-label="Undo">
             <IconArrowBackUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Undo ({modKey}+Z)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleRedo}
-            aria-label="Redo"
-          >
+          <ToolbarButton onClick={handleRedo} aria-label="Redo">
             <IconArrowForwardUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>
           Redo ({modKey}+{isMac ? "⇧Z" : "Y"})
@@ -319,15 +312,13 @@ export function FormattingToolbar({
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
-              paintFormatActive ? "bg-muted" : ""
-            }`}
+          <ToolbarButton
+            className={paintFormatActive ? "bg-muted" : ""}
             onClick={handleTogglePaintFormat}
             aria-label={paintFormatActive ? "Cancel paint format" : "Paint format"}
           >
             <IconPaint size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>
           {paintFormatActive ? "Cancel paint format" : "Paint format"}
@@ -341,13 +332,12 @@ export function FormattingToolbar({
           {/* Currency shortcut */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              <ToolbarButton
                 onClick={() => handleNumberFormat("currency")}
                 aria-label="Format as currency"
               >
                 <IconCurrencyDollar size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>
               Format as currency ({localePreview.currency})
@@ -357,13 +347,12 @@ export function FormattingToolbar({
           {/* Percent shortcut */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              <ToolbarButton
                 onClick={() => handleNumberFormat("percent")}
                 aria-label="Format as percent"
               >
                 <IconPercentage size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Format as percent</TooltipContent>
           </Tooltip>
@@ -371,8 +360,7 @@ export function FormattingToolbar({
           {/* Decrease decimals */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              <ToolbarButton
                 onClick={handleDecreaseDecimals}
                 aria-label="Decrease decimal places"
               >
@@ -380,7 +368,7 @@ export function FormattingToolbar({
                 <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
                   -
                 </span>
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Decrease decimal places</TooltipContent>
           </Tooltip>
@@ -388,8 +376,7 @@ export function FormattingToolbar({
           {/* Increase decimals */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              <ToolbarButton
                 onClick={handleIncreaseDecimals}
                 aria-label="Increase decimal places"
               >
@@ -397,7 +384,7 @@ export function FormattingToolbar({
                 <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
                   +
                 </span>
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Increase decimal places</TooltipContent>
           </Tooltip>
@@ -407,10 +394,10 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="More formats">
+                  <ToolbarButton variant="menu" aria-label="More formats">
                     <CurrentFormatIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
+                  </ToolbarButton>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>More formats</TooltipContent>
@@ -420,25 +407,37 @@ export function FormattingToolbar({
                 Common formats (US examples)
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "plain"}
+                onClick={() => handleNumberFormat("plain")}
+              >
                 <IconAbc size={16} className="mr-2" />
                 Plain text
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "number"}
+                onClick={() => handleNumberFormat("number")}
+              >
                 <IconHash size={16} className="mr-2" />
                 Number
                 <DropdownMenuShortcut>{usPreview.number}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "currency"}
+                onClick={() => handleNumberFormat("currency")}
+              >
                 <IconCurrencyDollar size={16} className="mr-2" />
                 Currency
                 <DropdownMenuShortcut>{usPreview.currencyValue}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "percent"}
+                onClick={() => handleNumberFormat("percent")}
+              >
                 <IconPercentage size={16} className="mr-2" />
                 Percent
                 <DropdownMenuShortcut>{usPreview.percent}</DropdownMenuShortcut>
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                 US date preview: {usPreview.date}
@@ -447,16 +446,22 @@ export function FormattingToolbar({
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                 Your locale ({localePreview.locale})
               </DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "currency"}
+                onClick={() => handleNumberFormat("currency")}
+              >
                 <IconCurrencyDollar size={16} className="mr-2" />
                 Locale currency
                 <DropdownMenuShortcut>{localePreview.currencyValue}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentFormat === "date"}
+                onClick={() => handleNumberFormat("date")}
+              >
                 <IconCalendar size={16} className="mr-2" />
                 Locale date
                 <DropdownMenuShortcut>{localePreview.date}</DropdownMenuShortcut>
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -558,10 +563,10 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Cell borders">
+                <ToolbarButton variant="menu" aria-label="Cell borders">
                   <IconBorderAll size={14} />
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                </button>
+                </ToolbarButton>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Cell borders</TooltipContent>
@@ -607,16 +612,14 @@ export function FormattingToolbar({
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${
-              selectionMerged ? "bg-muted" : ""
-            }`}
+          <ToolbarButton
+            className={selectionMerged ? "bg-muted" : ""}
             onClick={handleToggleMerge}
             disabled={isPivotTab || (!selectionMerged && !canMerge)}
             aria-label={selectionMerged ? "Unmerge cells" : "Merge cells"}
           >
             <IconTableAlias size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>
           {selectionMerged
@@ -634,27 +637,36 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Horizontal align">
+                  <ToolbarButton variant="menu" aria-label="Horizontal align">
                     <CurrentAlignIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
+                  </ToolbarButton>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>Horizontal align</TooltipContent>
             </Tooltip>
             <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => handleAlign("left")}>
+              <DropdownMenuCheckboxItem
+                checked={currentAlign === "left"}
+                onClick={() => handleAlign("left")}
+              >
                 <IconAlignLeft size={16} className="mr-2" />
                 Left
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("center")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentAlign === "center"}
+                onClick={() => handleAlign("center")}
+              >
                 <IconAlignCenter size={16} className="mr-2" />
                 Center
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAlign("right")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentAlign === "right"}
+                onClick={() => handleAlign("right")}
+              >
                 <IconAlignRight size={16} className="mr-2" />
                 Right
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -663,27 +675,36 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Vertical align">
+                  <ToolbarButton variant="menu" aria-label="Vertical align">
                     <CurrentVAlignIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
+                  </ToolbarButton>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>Vertical align</TooltipContent>
             </Tooltip>
             <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
+              <DropdownMenuCheckboxItem
+                checked={currentVAlign === "top"}
+                onClick={() => handleVerticalAlign("top")}
+              >
                 <IconAlignBoxTopCenter size={16} className="mr-2" />
                 Top
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentVAlign === "middle"}
+                onClick={() => handleVerticalAlign("middle")}
+              >
                 <IconAlignBoxCenterMiddle size={16} className="mr-2" />
                 Middle
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={currentVAlign === "bottom"}
+                onClick={() => handleVerticalAlign("bottom")}
+              >
                 <IconAlignBoxBottomCenter size={16} className="mr-2" />
                 Bottom
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -691,30 +712,28 @@ export function FormattingToolbar({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+              <ToolbarButton
+                className="text-[11px] font-semibold"
                 onClick={handleToggleFunctionBrowser}
                 aria-label="Functions"
               >
                 <IconMathFunction size={16} className="mr-2" />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Functions</TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
-                  hasFilter ? "bg-muted" : ""
-                }`}
+              <ToolbarButton
+                className={hasFilter ? "bg-muted" : ""}
                 onClick={() => {
                   void handleToggleFilter();
                 }}
                 aria-label={hasFilter ? "Clear filter" : "Create filter"}
               >
                 <IconFilter size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>
               {hasFilter ? "Clear filter" : "Create filter from selection"}
@@ -723,34 +742,33 @@ export function FormattingToolbar({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+              <ToolbarButton
+                className="text-[11px] font-semibold"
                 onClick={handleInsertChart}
                 aria-label="Insert chart"
               >
                 <IconChartBar size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Insert chart</TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              <ToolbarButton
                 onClick={() => imageInputRef.current?.click()}
                 aria-label="Insert image"
               >
                 <IconPhoto size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Insert image</TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted ${
+              <ToolbarButton
+                className={`text-[11px] font-semibold ${
                   dataValidationActive ? "bg-muted" : ""
                 }`}
                 onClick={onOpenDataValidation}
@@ -758,7 +776,7 @@ export function FormattingToolbar({
                 aria-label="Data validation"
               >
                 <IconListCheck size={16} />
-              </button>
+              </ToolbarButton>
             </TooltipTrigger>
             <TooltipContent>Data validation</TooltipContent>
           </Tooltip>
@@ -783,9 +801,9 @@ export function FormattingToolbar({
           <ToolbarSeparator />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="More formatting options">
+              <ToolbarButton aria-label="More formatting options">
                 <IconDotsVertical size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Format</DropdownMenuLabel>

@@ -66,7 +66,10 @@ function ToolbarSeparator({
  * not this component — so there is deliberately no `active` variant here.
  */
 const toolbarButtonVariants = cva(
-  "inline-flex h-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
+  // Disabled uses `pointer-events-none` (the shadcn Button/Toggle convention)
+  // so a disabled button neither highlights on hover nor shows the not-allowed
+  // cursor — matching the Slides toolbar buttons that were already on it.
+  "inline-flex h-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {

@@ -52,7 +52,7 @@ function IconButton({ kind, label, active, onSelect }: IconButtonProps) {
       title={label}
       data-active={active || undefined}
       onClick={() => onSelect(kind)}
-      className="flex size-8 items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-accent"
+      className="flex size-8 cursor-pointer items-center justify-center rounded text-foreground hover:bg-accent data-[active=true]:bg-accent"
     >
       <canvas ref={ref} className="size-6" />
     </button>

@@ -243,6 +243,7 @@ export function TextFormatGroup({
         >
           <ColorPickerGrid
             colors={TEXT_COLORS}
+            colorKind="text color"
             onSelect={handleTextColor}
             onReset={() => handleTextColor("")}
           />
@@ -336,6 +337,7 @@ function HighlightSwatch({
       >
         <ColorPickerGrid
           colors={BG_COLORS}
+          colorKind="highlight color"
           onSelect={handleColor}
           onReset={() => handleColor("")}
           noneLabel="None"

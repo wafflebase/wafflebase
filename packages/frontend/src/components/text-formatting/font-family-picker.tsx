@@ -14,6 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -169,8 +170,9 @@ export function FontFamilyPicker({
               {recents.map((family) => {
                 const entry = CATALOG_BY_FAMILY.get(family);
                 return (
-                  <DropdownMenuItem
+                  <DropdownMenuCheckboxItem
                     key={`recent:${family}`}
+                    checked={family === value}
                     onPointerEnter={() => {
                       if (entry?.webFont ?? true) onPrefetch?.(family);
                     }}
@@ -181,7 +183,7 @@ export function FontFamilyPicker({
                     <span style={{ fontFamily: family }}>
                       {entry?.label ?? family}
                     </span>
-                  </DropdownMenuItem>
+                  </DropdownMenuCheckboxItem>
                 );
               })}
             </div>
@@ -196,8 +198,9 @@ export function FontFamilyPicker({
                   {group}
                 </DropdownMenuLabel>
                 {entries.map((entry) => (
-                  <DropdownMenuItem
+                  <DropdownMenuCheckboxItem
                     key={entry.family}
+                    checked={entry.family === value}
                     onPointerEnter={() => {
                       if (entry.webFont) onPrefetch?.(entry.family);
                     }}
@@ -206,7 +209,7 @@ export function FontFamilyPicker({
                     }}
                   >
                     <span style={{ fontFamily: entry.family }}>{entry.label}</span>
-                  </DropdownMenuItem>
+                  </DropdownMenuCheckboxItem>
                 ))}
               </div>
             );

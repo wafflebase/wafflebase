@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorAPI, EditContext } from "@wafflebase/docs";
 import { DEFAULT_INLINE_STYLE } from "@wafflebase/docs";
-import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
+import { Toolbar, ToolbarButton, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -12,6 +12,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -72,12 +73,9 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <button
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-              aria-label="Insert table"
-            >
+            <ToolbarButton aria-label="Insert table">
               <IconTable size={16} />
-            </button>
+            </ToolbarButton>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>Insert table</TooltipContent>
@@ -173,12 +171,9 @@ function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="Insert image"
-              >
+              <ToolbarButton aria-label="Insert image">
                 <IconPhoto size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Insert image</TooltipContent>
@@ -504,31 +499,31 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
+                <ToolbarButton variant="menu" aria-label="Text alignment">
                   <SlimAlignIcon size={16} />
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                </button>
+                </ToolbarButton>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>Text alignment</TooltipContent>
           </Tooltip>
           <DropdownMenuContent className="w-[200px]">
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "left"} className="flex items-center justify-between" onClick={() => handleAlign("left")}>
               <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "center"} className="flex items-center justify-between" onClick={() => handleAlign("center")}>
               <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "right"} className="flex items-center justify-between" onClick={() => handleAlign("right")}>
               <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "justify"} className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
               <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-            </DropdownMenuItem>
+            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -576,26 +571,18 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
       {/* ── Undo / Redo ── */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleUndo}
-            aria-label="Undo"
-          >
+          <ToolbarButton onClick={handleUndo} aria-label="Undo">
             <IconArrowBackUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Undo ({modKey}+Z)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleRedo}
-            aria-label="Redo"
-          >
+          <ToolbarButton onClick={handleRedo} aria-label="Redo">
             <IconArrowForwardUp size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>
           Redo ({modKey}+{isMac ? "⇧Z" : "Y"})
@@ -669,12 +656,9 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           <ToolbarSeparator />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="More formatting options"
-              >
+              <ToolbarButton aria-label="More formatting options">
                 <IconDotsVertical size={16} />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Font</DropdownMenuLabel>

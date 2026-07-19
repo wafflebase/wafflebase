@@ -17,6 +17,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
@@ -122,8 +123,9 @@ export function TextStyleGroup({
         }}
       >
         {visibleOptions.map((opt) => (
-          <DropdownMenuItem
+          <DropdownMenuCheckboxItem
             key={opt.label}
+            checked={opt.styleId === currentStyleId}
             className="flex items-center justify-between py-1"
             onClick={() => {
               pendingActionRef.current = () =>
@@ -141,7 +143,7 @@ export function TextStyleGroup({
                 {modKey}+{opt.shortcut}
               </span>
             )}
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         ))}
 
         {supportsNamedStyles && (

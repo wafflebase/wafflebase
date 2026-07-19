@@ -72,7 +72,7 @@ describe("LineSpacingPicker", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')];
+    const items = [...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]')];
     const double = items.find((n) => n.textContent?.includes("2.0")) as
       | HTMLElement
       | undefined;
@@ -125,7 +125,7 @@ describe("LineSpacingPicker", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
     });
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')];
+    const items = [...document.body.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"]')];
     const has150 = items.some((n) => n.textContent === "1.50");
     const has15 = items.some((n) => n.textContent === "1.5");
     expect(has150).toBe(false);

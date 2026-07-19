@@ -3,11 +3,12 @@ import type { Stroke, Theme, ThemeColor } from '@wafflebase/slides';
 import { resolveColor } from '@wafflebase/slides';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ToolbarButton } from '@/components/ui/toolbar';
 import { ThemedColorPicker } from '../themed-color-picker';
 import {
   releaseFocusToBody,
@@ -94,9 +95,6 @@ export function BorderPicker({
     onChange({ ...(value ?? DEFAULT_STROKE), dash });
   };
 
-  const btnClass =
-    'inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50';
-
   const pickerColor = resolvePickerColor(value?.color);
   const currentBorderColor =
     pickerColor && theme ? resolveColor(pickerColor, theme) : undefined;
@@ -140,19 +138,23 @@ export function BorderPicker({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button type="button" aria-label="Border weight" disabled={disabled} className={btnClass}>
+              <ToolbarButton variant="menu" aria-label="Border weight" disabled={disabled}>
                 <IconLineHeight size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Border weight</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start">
           {BORDER_WEIGHTS.map((w) => (
-            <DropdownMenuItem key={w} onClick={() => onWeightChange(w)}>
+            <DropdownMenuCheckboxItem
+              key={w}
+              checked={value?.width === w}
+              onClick={() => onWeightChange(w)}
+            >
               {w === 0 ? 'No border' : `${w}px`}
-            </DropdownMenuItem>
+            </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -162,19 +164,23 @@ export function BorderPicker({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button type="button" aria-label="Border dash" disabled={disabled} className={btnClass}>
+              <ToolbarButton variant="menu" aria-label="Border dash" disabled={disabled}>
                 <IconBorderStyle2 size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-              </button>
+              </ToolbarButton>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Border dash</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start">
           {DASH_STYLES.map((d) => (
-            <DropdownMenuItem key={d} onClick={() => onDashChange(d)}>
+            <DropdownMenuCheckboxItem
+              key={d}
+              checked={value?.dash === d}
+              onClick={() => onDashChange(d)}
+            >
               {d.charAt(0).toUpperCase() + d.slice(1)}
-            </DropdownMenuItem>
+            </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>

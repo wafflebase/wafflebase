@@ -15,7 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/toolbar";
 import {
@@ -104,7 +104,8 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             handleAlign(pick);
           }}
         >
-          <DropdownMenuItem
+          <DropdownMenuCheckboxItem
+            checked={alignment === "left"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "left";
@@ -117,8 +118,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧L
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "center"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "center";
@@ -131,8 +133,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧E
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "right"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "right";
@@ -145,8 +148,9 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧R
             </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={alignment === "justify"}
             className="flex items-center justify-between"
             onClick={() => {
               pendingAlignRef.current = "justify";
@@ -159,7 +163,7 @@ export function TextParagraphGroup({ editor, disabled = false }: TextParagraphGr
             <span className="text-[11px] text-muted-foreground">
               {modKey}+⇧J
             </span>
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

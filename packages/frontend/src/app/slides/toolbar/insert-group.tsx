@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { InsertKind, SlidesEditor } from '@wafflebase/slides';
 import { Toggle } from '@/components/ui/toggle';
+import { ToolbarButton } from '@/components/ui/toolbar';
 import {
   Tooltip,
   TooltipTrigger,
@@ -77,15 +78,13 @@ export function InsertGroup({ editor, onImagePick, disabled }: InsertGroupProps)
       {/* Insert image — momentary button (not a toggle); no insert-mode state */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <ToolbarButton
             onClick={onImagePick}
             disabled={disabled || !editor}
             aria-label="Insert image"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
           >
             <IconPhoto size={16} />
-          </button>
+          </ToolbarButton>
         </TooltipTrigger>
         <TooltipContent>Insert image</TooltipContent>
       </Tooltip>
