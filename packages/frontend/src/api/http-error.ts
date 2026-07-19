@@ -10,7 +10,7 @@ export class HttpError extends Error {
 }
 
 /** Parse a `Retry-After` header (delta-seconds or HTTP-date) to ms. */
-function parseRetryAfterMs(response: Response): number | undefined {
+export function parseRetryAfterMs(response: Response): number | undefined {
   const raw = response.headers.get("retry-after");
   if (!raw) return undefined;
   const secs = Number(raw);

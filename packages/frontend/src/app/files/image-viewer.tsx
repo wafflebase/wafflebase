@@ -53,6 +53,7 @@ export function ImageViewer({ documentId }: { documentId: string }) {
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+    staleTime: 5 * 60 * 1000,
   });
   useEffect(() => {
     if (!current?.title) return;

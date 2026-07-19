@@ -19,10 +19,13 @@ export function ImageThumb({ documentId }: { documentId: string }) {
     if (!el) return;
     let objectUrl: string | null = null;
     let cancelled = false;
+    const controller = new AbortController();
 
     const load = async () => {
       try {
-        const res = await fetchWithAuth(fileUrl(documentId));
+        const res = await fetchWithAuth(fileUrl(documentId), {
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
         if (cancelled) return;
@@ -43,6 +46,7 @@ export function ImageThumb({ documentId }: { documentId: string }) {
 
     return () => {
       cancelled = true;
+      controller.abort();
       observer.disconnect();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };

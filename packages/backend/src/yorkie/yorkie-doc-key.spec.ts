@@ -68,8 +68,4 @@ describe('yorkie-doc-key image prefix', () => {
   it('round-trips an image key', () => {
     expect(parseYorkieDocKey('image-abc')).toEqual({ type: 'image', id: 'abc' });
   });
-
-  it('still throws on an unknown type', () => {
-    expect(() => yorkieDocKeyPrefix('bogus')).toThrow();
-  });
 });

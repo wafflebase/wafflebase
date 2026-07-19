@@ -1,5 +1,5 @@
 import { Navigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
@@ -88,6 +88,8 @@ export function FileDetail() {
     queryFn: () => fetchDocument(id!),
     retry: false,
     enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   if (userLoading || docLoading) return <Loader />;

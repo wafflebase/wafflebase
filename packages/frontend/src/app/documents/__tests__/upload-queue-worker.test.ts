@@ -112,6 +112,69 @@ describe("upload-queue worker", () => {
     expect(snap.find((i) => i.fileName === "cat.png")?.status).toBe("done");
   });
 
+  it("marks the item error after 429 retries are exhausted", async () => {
+    const rateLimited = Object.assign(new Error("Too Many Requests"), {
+      status: 429,
+    });
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => {
+        throw rateLimited; // always 429
+      }),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+      sleep: vi.fn(async () => {}),
+    };
+    q.enqueue([file("cat.png")], "ws1");
+    q.startUploads(undefined, deps as never);
+    // Flush enough microtask turns for all 6 backoff attempts to settle.
+    for (let i = 0; i < 10; i++) await flush();
+    const snap = q.getSnapshot();
+    expect(deps.sleep).toHaveBeenCalledTimes(6); // MAX_RATE_RETRIES
+    expect(deps.uploadFile).toHaveBeenCalledTimes(7); // initial + 6 retries
+    expect(snap.find((i) => i.fileName === "cat.png")?.status).toBe("error");
+  });
+
+  it("honors Retry-After (retryAfterMs) for the backoff delay", async () => {
+    const rateLimited = Object.assign(new Error("Too Many Requests"), {
+      status: 429,
+      retryAfterMs: 1234,
+    });
+    let calls = 0;
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) throw rateLimited;
+        return { id: "img-1" };
+      }),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+      sleep: vi.fn(async () => {}),
+    };
+    q.enqueue([file("cat.png")], "ws1");
+    q.startUploads(undefined, deps as never);
+    for (let i = 0; i < 6; i++) await flush();
+    expect(deps.sleep).toHaveBeenCalledWith(1234); // header value, not exp fallback
+    expect(q.getSnapshot().find((i) => i.fileName === "cat.png")?.status).toBe(
+      "done",
+    );
+  });
+
   it("retries a 429 on createDoc without re-uploading the blob", async () => {
     const rateLimited = Object.assign(new Error("Too Many Requests"), {
       status: 429,

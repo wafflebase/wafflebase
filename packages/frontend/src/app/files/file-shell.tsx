@@ -1,7 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
+import { isAuthExpiredError } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -31,6 +36,8 @@ export function FileShell({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
@@ -88,7 +95,8 @@ export function FileShell({
         await renameDocument(documentId, newTitle);
         queryClient.invalidateQueries({ queryKey: ["document", documentId] });
         queryClient.invalidateQueries({ queryKey: ["documents"] });
-      } catch {
+      } catch (error) {
+        if (isAuthExpiredError(error)) return;
         toast.error("Failed to rename document");
       }
     },
