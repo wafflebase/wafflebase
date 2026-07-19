@@ -174,7 +174,38 @@ export class AnalyticsController {
     }
 
     const [lo, hi] = resolveWindow(from, to);
-    return this.warehouse.getDocumentAnalytics(documentId, lo, hi);
+    const result = await this.warehouse.getDocumentAnalytics(
+      documentId,
+      lo,
+      hi,
+    );
+
+    // Postgres owns share-link metadata; StarRocks only stores share_link_id.
+    // Label each row by role/creator/created-at (there is no `name` column).
+    if (result.byShareLink.length > 0) {
+      const links = await this.prisma.shareLink.findMany({
+        where: { id: { in: result.byShareLink.map((r) => r.shareLinkId) } },
+        select: {
+          id: true,
+          role: true,
+          createdAt: true,
+          creator: { select: { username: true } },
+        },
+      });
+      const meta = new Map(links.map((l) => [l.id, l]));
+      result.byShareLink = result.byShareLink.map((r) => {
+        const m = meta.get(r.shareLinkId);
+        return m
+          ? {
+              ...r,
+              role: m.role,
+              createdAt: m.createdAt.toISOString(),
+              creator: m.creator?.username,
+            }
+          : r;
+      });
+    }
+    return result;
   }
 
   @Get('workspaces/:workspaceId/analytics')

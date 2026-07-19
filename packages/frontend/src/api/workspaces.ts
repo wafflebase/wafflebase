@@ -1,4 +1,5 @@
 import type { DocumentType } from "@/types/documents";
+import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 
@@ -226,7 +227,7 @@ export interface WorkspaceAnalytics {
   enabled: boolean;
   totalViews: number;
   uniqueVisitors: number;
-  viewsByDay: { date: string; value: number }[];
+  viewsByDay: MetricSeriesPoint[];
   byDocument: {
     documentId: string;
     title: string;

@@ -5,14 +5,28 @@ const VISITOR_KEY = "wb_visitor_id";
 
 export type ViewEventType = "open" | "heartbeat" | "tabchange" | "close";
 
+/** One day's view count in a `viewsByDay` trend series. */
+export interface MetricSeriesPoint {
+  date: string; // 'YYYY-MM-DD'
+  value: number;
+}
+
 export interface DocumentAnalytics {
   enabled: boolean;
   totalViews: number;
   uniqueVisitors: number;
   returningVisitors: number;
   avgDwellSeconds: number;
-  viewsByDay: { date: string; value: number }[];
-  byShareLink: { shareLinkId: string; views: number; uniqueVisitors: number }[];
+  viewsByDay: MetricSeriesPoint[];
+  byShareLink: {
+    shareLinkId: string;
+    views: number;
+    uniqueVisitors: number;
+    // Enriched from Postgres; absent when the share link has been deleted.
+    role?: string;
+    createdAt?: string;
+    creator?: string;
+  }[];
   byTarget: { target: string; views: number }[];
 }
 

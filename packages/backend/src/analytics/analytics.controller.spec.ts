@@ -178,10 +178,24 @@ describe('AnalyticsController ingest', () => {
 });
 
 describe('AnalyticsController dashboard', () => {
-  function setup(opts: { memberRole?: string; authorID: number | null }) {
+  function setup(opts: {
+    memberRole?: string;
+    authorID: number | null;
+    byShareLink?: Array<{ shareLinkId: string; views: number }>;
+    links?: Array<{
+      id: string;
+      role: string;
+      createdAt: Date;
+      creator: { username: string } | null;
+    }>;
+  }) {
     const warehouse = {
       getDocumentAnalytics: () =>
-        Promise.resolve({ enabled: true, totalViews: 5 }),
+        Promise.resolve({
+          enabled: true,
+          totalViews: 5,
+          byShareLink: opts.byShareLink ?? [],
+        }),
     } as unknown as AnalyticsWarehouseService;
     const prisma = {
       document: {
@@ -195,6 +209,9 @@ describe('AnalyticsController dashboard', () => {
       workspaceMember: {
         findUnique: () =>
           Promise.resolve(opts.memberRole ? { role: opts.memberRole } : null),
+      },
+      shareLink: {
+        findMany: () => Promise.resolve(opts.links ?? []),
       },
     } as unknown as PrismaService;
     const controller = new AnalyticsController(
@@ -242,6 +259,36 @@ describe('AnalyticsController dashboard', () => {
     const req = { user: { id: 7 } } as never;
     const res = await c.dashboard('doc-1', req, 'garbage', undefined);
     expect((res as { totalViews: number }).totalViews).toBe(5);
+  });
+
+  it('labels share-link rows with role/creator/date from Postgres', async () => {
+    const created = new Date('2026-07-10T12:00:00Z');
+    const c = setup({
+      memberRole: 'owner',
+      authorID: null,
+      byShareLink: [
+        { shareLinkId: 'link-1', views: 3 },
+        { shareLinkId: 'gone', views: 1 },
+      ],
+      links: [
+        {
+          id: 'link-1',
+          role: 'editor',
+          createdAt: created,
+          creator: { username: 'alice' },
+        },
+      ],
+    });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.dashboard('doc-1', req, undefined, undefined);
+    expect(res.byShareLink[0]).toMatchObject({
+      shareLinkId: 'link-1',
+      role: 'editor',
+      creator: 'alice',
+      createdAt: created.toISOString(),
+    });
+    // A deleted link keeps its raw id and gains no metadata.
+    expect(res.byShareLink[1]).toEqual({ shareLinkId: 'gone', views: 1 });
   });
 });
 

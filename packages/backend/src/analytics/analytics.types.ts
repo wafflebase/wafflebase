@@ -38,6 +38,12 @@ export interface ShareLinkBreakdown {
   shareLinkId: string;
   views: number;
   uniqueVisitors: number;
+  // Enriched by the controller from Postgres (`ShareLink` has no `name`
+  // column, so links are labelled by role/creator/date). Absent when the link
+  // has since been deleted — the dashboard falls back to the raw id.
+  role?: string;
+  createdAt?: string; // ISO 8601
+  creator?: string; // creator username
 }
 
 export interface TargetBreakdown {
