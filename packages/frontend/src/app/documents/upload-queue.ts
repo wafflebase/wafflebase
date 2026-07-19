@@ -244,6 +244,10 @@ async function runItem(item: UploadItem): Promise<void> {
     // same item. Re-entry is safe because fileId/docId are persisted before
     // the failing step, so uploadFile/getOrCreateDoc never duplicate work.
     for (;;) {
+      // patchItem replaces items immutably, so the captured `item` goes stale
+      // after a persist. Re-read it each attempt so a retry sees the fileId/
+      // docId a prior attempt already persisted (idempotent re-entry).
+      item = items.find((it) => it.id === item.id) ?? item;
       try {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });

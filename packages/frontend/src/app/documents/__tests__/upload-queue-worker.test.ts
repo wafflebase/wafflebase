@@ -112,6 +112,37 @@ describe("upload-queue worker", () => {
     expect(snap.find((i) => i.fileName === "cat.png")?.status).toBe("done");
   });
 
+  it("retries a 429 on createDoc without re-uploading the blob", async () => {
+    const rateLimited = Object.assign(new Error("Too Many Requests"), {
+      status: 429,
+    });
+    let createCalls = 0;
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({ id: "img-1" })),
+      createDoc: vi.fn(async (_ws, p) => {
+        createCalls += 1;
+        if (createCalls === 1) throw rateLimited;
+        return { id: "d" + p.title, title: p.title, type: p.type };
+      }),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+      sleep: vi.fn(async () => {}),
+    };
+    q.enqueue([file("cat.png")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+    await flush();
+    await flush();
+    const snap = q.getSnapshot();
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1); // blob NOT re-uploaded
+    expect(deps.createDoc).toHaveBeenCalledTimes(2); // failed once, retried
+    expect(snap.find((i) => i.fileName === "cat.png")?.status).toBe("done");
+  });
+
   it("marks an item error when its importer throws and keeps others going", async () => {
     const deps = {
       importDocx: vi.fn(async () => {
