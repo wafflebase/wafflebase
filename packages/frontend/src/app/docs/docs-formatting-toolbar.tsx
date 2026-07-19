@@ -255,6 +255,12 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   // auto-close them.
   const [slimTextColorOpen, setSlimTextColorOpen] = useState(false);
   const [slimHighlightOpen, setSlimHighlightOpen] = useState(false);
+  // Defer the slim-toolbar alignment commit to onCloseAutoFocus (same pattern
+  // as TextParagraphGroup) so `editor.focus()` runs after Radix's FocusScope
+  // teardown and sticks, instead of the scope stealing focus back to the trigger.
+  const pendingSlimAlignRef = useRef<
+    "left" | "center" | "right" | "justify" | null
+  >(null);
   // Only refocus the editor when the palette was dismissed by a swatch
   // click. Outside-click / Esc fall through to Radix's default so we
   // don't yank focus from the user's actual click target.
@@ -514,20 +520,29 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             </TooltipTrigger>
             <TooltipContent>Text alignment</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent className="w-[200px]">
-            <DropdownMenuCheckboxItem checked={slimAlignment === "left"} className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+          <DropdownMenuContent
+            className="w-[200px]"
+            onCloseAutoFocus={(e) => {
+              const pick = pendingSlimAlignRef.current;
+              if (pick === null) return;
+              e.preventDefault();
+              pendingSlimAlignRef.current = null;
+              handleAlign(pick);
+            }}
+          >
+            <DropdownMenuCheckboxItem checked={slimAlignment === "left"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "left"; }}>
               <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={slimAlignment === "center"} className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "center"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "center"; }}>
               <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={slimAlignment === "right"} className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "right"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "right"; }}>
               <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={slimAlignment === "justify"} className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+            <DropdownMenuCheckboxItem checked={slimAlignment === "justify"} className="flex items-center justify-between" onClick={() => { pendingSlimAlignRef.current = "justify"; }}>
               <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
               <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
             </DropdownMenuCheckboxItem>

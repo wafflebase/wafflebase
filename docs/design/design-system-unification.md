@@ -357,7 +357,7 @@ This table is updated as each PR lands.
 | PR  | Title                                  | State        | Notes                              |
 | --- | -------------------------------------- | ------------ | ---------------------------------- |
 | #1  | `@wafflebase/tokens` package           | Ready to merge | Branch `tokens-package`, 2026-05-24 |
-| —   | Toolbar dropdown unification (Phase 1) | In progress    | Branch `unify-toolbar-dropdowns`, 2026-07-19; see "Toolbar dropdown unification" above |
+| —   | Toolbar dropdown unification (Phases 1–3) | In review | PR #498, branch `unify-toolbar-dropdowns`, 2026-07-19; see "Toolbar dropdown unification" above |
 | #2  | Palette tokenization                   | Not started  |                                    |
 | #3  | Shared toolbar components              | Not started  |                    |
 | #4  | Slides toolbar migration               | Not started  |                    |

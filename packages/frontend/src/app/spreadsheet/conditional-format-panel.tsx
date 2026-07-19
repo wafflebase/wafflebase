@@ -142,6 +142,10 @@ export function ConditionalFormatPanel({
   const [rules, setRules] = useState<ConditionalFormatRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
   const [rangeInput, setRangeInput] = useState("");
+  // Controlled so a swatch pick closes the palette — the swatches are plain
+  // <button>s (not menu items), so Radix can't auto-close them.
+  const [tcOpen, setTcOpen] = useState(false);
+  const [bgOpen, setBgOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !spreadsheet) {
@@ -585,7 +589,7 @@ export function ConditionalFormatPanel({
                   <span className="text-xs font-semibold underline">U</span>
                 </Toggle>
 
-                <Popover modal>
+                <Popover modal open={tcOpen} onOpenChange={setTcOpen}>
                   <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconTypography size={14} />}
@@ -597,17 +601,19 @@ export function ConditionalFormatPanel({
                     <ColorPickerGrid
                       colors={TEXT_COLORS}
                       colorKind="text color"
-                      onSelect={(color) =>
-                        updateRuleStyle(selectedRule.id, { tc: color })
-                      }
-                      onReset={() =>
-                        updateRuleStyle(selectedRule.id, { tc: undefined })
-                      }
+                      onSelect={(color) => {
+                        updateRuleStyle(selectedRule.id, { tc: color });
+                        setTcOpen(false);
+                      }}
+                      onReset={() => {
+                        updateRuleStyle(selectedRule.id, { tc: undefined });
+                        setTcOpen(false);
+                      }}
                     />
                   </PopoverContent>
                 </Popover>
 
-                <Popover modal>
+                <Popover modal open={bgOpen} onOpenChange={setBgOpen}>
                   <PopoverTrigger asChild>
                     <ColorSwatchButton
                       icon={<IconDropletHalf2Filled size={14} />}
@@ -619,12 +625,14 @@ export function ConditionalFormatPanel({
                     <ColorPickerGrid
                       colors={BG_COLORS}
                       colorKind="background color"
-                      onSelect={(color) =>
-                        updateRuleStyle(selectedRule.id, { bg: color })
-                      }
-                      onReset={() =>
-                        updateRuleStyle(selectedRule.id, { bg: undefined })
-                      }
+                      onSelect={(color) => {
+                        updateRuleStyle(selectedRule.id, { bg: color });
+                        setBgOpen(false);
+                      }}
+                      onReset={() => {
+                        updateRuleStyle(selectedRule.id, { bg: undefined });
+                        setBgOpen(false);
+                      }}
                       noneLabel="None"
                     />
                   </PopoverContent>

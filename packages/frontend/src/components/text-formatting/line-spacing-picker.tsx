@@ -7,7 +7,7 @@
  * (0.5–10.0).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +51,10 @@ export function LineSpacingPicker({
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [draft, setDraft] = useState(String(value));
+  // Defer the preset commit to onCloseAutoFocus so the caller's
+  // `editor.focus()` runs after Radix's FocusScope teardown and sticks —
+  // calling it inside onClick races the scope restoring focus to the trigger.
+  const pendingRef = useRef<number | null>(null);
 
   const commitCustom = () => {
     const n = Number(draft);
@@ -84,7 +88,16 @@ export function LineSpacingPicker({
         </TooltipTrigger>
         <TooltipContent>Line spacing</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent className="w-[140px]">
+      <DropdownMenuContent
+        className="w-[140px]"
+        onCloseAutoFocus={(e) => {
+          const pick = pendingRef.current;
+          if (pick === null) return;
+          e.preventDefault();
+          pendingRef.current = null;
+          onChange(pick);
+        }}
+      >
         {customMode ? (
           <form
             className="flex items-center gap-1 p-1"
@@ -113,8 +126,7 @@ export function LineSpacingPicker({
                 key={p}
                 checked={value === p}
                 onClick={() => {
-                  onChange(p);
-                  setOpen(false);
+                  pendingRef.current = p;
                 }}
                 className="flex items-center justify-between"
               >
