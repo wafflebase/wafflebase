@@ -28,7 +28,8 @@ export interface UploadItem {
   total: number;
   docId?: string;
   docPath?: string;
-  /** PDF: the uploaded blob id, persisted so a retry never re-uploads it. */
+  /** Uploaded blob id (pdf/image). Set before createDoc so a retry reuses the
+   *  blob instead of re-uploading/orphaning it. */
   fileId?: string;
   reason?: string;
   /** Non-fatal note surfaced on success (e.g. lossy PPTX import fallbacks). */

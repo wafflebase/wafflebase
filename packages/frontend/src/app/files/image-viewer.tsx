@@ -55,8 +55,13 @@ export function ImageViewer({ documentId }: { documentId: string }) {
     retry: false,
   });
   useEffect(() => {
-    if (current?.title) downloadName.current = current.title;
-  }, [current?.title]);
+    if (!current?.title) return;
+    const ext = current.fileId?.split(".").pop();
+    downloadName.current =
+      ext && !current.title.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+        ? `${current.title}.${ext}`
+        : current.title;
+  }, [current?.title, current?.fileId]);
 
   // Sibling images in the same workspace, stably ordered, for prev/next.
   const { data: allDocs = [] } = useQuery({
