@@ -11,7 +11,8 @@ target-version: 0.7.0
 
 Documents today belong directly to a `Workspace` via a single `workspaceId`
 foreign key; there is no way to group them. As a workspace accumulates
-documents, the flat, modified-date-sorted list in `document-list.tsx` becomes
+documents, the flat, modified-date-sorted list in
+`packages/frontend/src/app/documents/document-list.tsx` becomes
 the only organizing surface, and the sole "move" primitive is relocating a
 document to a *different workspace*. This proposal adds a **Folder** concept
 *inside* a workspace: an arbitrary-depth tree of folders that documents can be
@@ -125,10 +126,11 @@ owner-or-author rule documents already use. No `isFolderManager` needed.
 
 Three small touch-ups, no new endpoints:
 
-- **`document.dto.ts`** — `UpdateDocumentDto` gains optional nullable
-  `folderId`; `CreateDocumentInWorkspaceDto` gains optional `folderId` so a
-  document can be created straight into a folder.
-- **`document.controller.ts`** — the existing manager-gated move branch in
+- **`packages/backend/src/document/document.dto.ts`** — `UpdateDocumentDto`
+  gains optional nullable `folderId`; `CreateDocumentInWorkspaceDto` gains
+  optional `folderId` so a document can be created straight into a folder.
+- **`packages/backend/src/document/document.controller.ts`** — the existing
+  manager-gated move branch in
   `PATCH documents/:id` (which today handles `workspaceId`) also handles
   `folderId`, validating `folder.workspaceId === document.workspaceId` (against
   the *target* workspace when a workspace + folder move happen together). The
@@ -160,7 +162,8 @@ history. The sidebar is unchanged.
 
 - **`packages/frontend/src/api/folders.ts`** (new) —
   `fetchFolders(workspaceId)`, `createFolder`, `renameFolder`, `moveFolder`,
-  `deleteFolder`. In `api/documents.ts`, extend `moveDocument(id, { workspaceId?, folderId? })`
+  `deleteFolder`. In `packages/frontend/src/api/documents.ts`, extend
+  `moveDocument(id, { workspaceId?, folderId? })`
   and `fetchWorkspaceDocuments(workspaceId, folderId?)`.
 - **`packages/frontend/src/types/documents.ts`** — add a `Folder` type; add
   `folderId` to `Document`.
