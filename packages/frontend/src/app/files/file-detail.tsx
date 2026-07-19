@@ -79,7 +79,11 @@ export function FileDetail() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: documentData, isLoading: docLoading } = useQuery({
+  const {
+    data: documentData,
+    isLoading: docLoading,
+    isError: docError,
+  } = useQuery({
     queryKey: ["document", id],
     queryFn: () => fetchDocument(id!),
     retry: false,
@@ -89,7 +93,12 @@ export function FileDetail() {
   if (userLoading || docLoading) return <Loader />;
   if (userError || !currentUser) return <Navigate to="/login" replace />;
 
-  if (documentData?.type === "image") {
+  // A failed document fetch must not fall through to the PDF layout, which
+  // would attach a pdf-<id> Yorkie doc for what may be an image document.
+  // Redirect before any layout (and its Yorkie provider) mounts.
+  if (docError || !documentData) return <Navigate to="/documents" replace />;
+
+  if (documentData.type === "image") {
     return <ImageFileLayout documentId={id!} />;
   }
   return <PdfFileLayout documentId={id!} currentUser={currentUser} />;
