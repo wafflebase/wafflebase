@@ -183,9 +183,14 @@ describe('DocumentController delete/move/rename permissions', () => {
       } as never);
       expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, OWNER);
       expect(workspaceService.assertMember).toHaveBeenCalledWith('ws-2', OWNER);
+      // Moving across workspaces with no explicit folderId also drops the
+      // folder, since the old folder belongs to the source workspace.
       expect(documentService.updateDocument).toHaveBeenCalledWith({
         where: { id: 'doc-1' },
-        data: { workspace: { connect: { id: 'ws-2' } } },
+        data: {
+          workspace: { connect: { id: 'ws-2' } },
+          folder: { disconnect: true },
+        },
       });
     });
   });

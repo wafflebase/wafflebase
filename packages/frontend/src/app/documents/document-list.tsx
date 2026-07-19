@@ -570,6 +570,7 @@ export function DocumentList({
       setCreatingFolder(false);
       setNewFolderName("");
     },
+    onError: () => toast.error("Failed to create folder"),
   });
 
   const renameFolderMutation = useMutation({
@@ -581,6 +582,7 @@ export function DocumentList({
       });
       setRenamingFolder(null);
     },
+    onError: () => toast.error("Failed to rename folder"),
   });
 
   const deleteFolderMutation = useMutation({
@@ -594,6 +596,10 @@ export function DocumentList({
       });
       setDeletingFolder(null);
     },
+    onError: () =>
+      toast.error(
+        "Failed to delete folder. Only the workspace owner or folder owner can delete it.",
+      ),
   });
 
   // Default to most-recently-modified first (Google-Drive-style).
@@ -1215,6 +1221,14 @@ export function DocumentList({
                   p ? { ...p, name: e.target.value } : p,
                 )
               }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && renamingFolder?.name.trim()) {
+                  renameFolderMutation.mutate({
+                    id: renamingFolder.id,
+                    name: renamingFolder.name.trim(),
+                  });
+                }
+              }}
               autoFocus
             />
           </div>

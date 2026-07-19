@@ -237,6 +237,13 @@ export class DocumentController {
       }
       await this.workspaceService.assertMember(body.workspaceId, userId);
       data.workspace = { connect: { id: body.workspaceId } };
+      // Moving to a different workspace: the current folder (if any) belongs to
+      // the old workspace, so drop it — otherwise the document keeps a folderId
+      // pointing across the workspace boundary. A caller that wants it filed in
+      // the target workspace supplies `folderId` explicitly (handled below).
+      if (body.workspaceId !== doc.workspaceId && body.folderId === undefined) {
+        data.folder = { disconnect: true };
+      }
     }
     if (body.folderId !== undefined) {
       if (!isManager) {

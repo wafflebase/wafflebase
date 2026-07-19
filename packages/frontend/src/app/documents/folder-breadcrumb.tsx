@@ -3,7 +3,7 @@ import { folderPath } from "./folder-path";
 
 /**
  * Breadcrumb trail from the workspace root down to the current folder.
- * Each segment (including "All documents") navigates via `onNavigate`.
+ * Each segment (including the "Home" root) navigates via `onNavigate`.
  */
 export function FolderBreadcrumb({
   folders,
@@ -25,7 +25,7 @@ export function FolderBreadcrumb({
         className="hover:text-foreground"
         onClick={() => onNavigate(null)}
       >
-        All documents
+        Home
       </button>
       {path.map((f) => (
         <span key={f.id} className="flex items-center gap-1">

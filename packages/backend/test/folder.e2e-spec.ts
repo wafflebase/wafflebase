@@ -267,4 +267,30 @@ describeDb('FolderService integration (Prisma-backed)', () => {
       .send({ title: 'D2', folderId: otherFolder.body.id })
       .expect(400);
   });
+
+  it('drops the folder when moving a document to another workspace', async () => {
+    const folder = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'F' });
+    const doc = await prisma.document.create({
+      data: {
+        title: 'D',
+        workspaceId,
+        authorID: user.id,
+        folderId: folder.body.id,
+      },
+    });
+    const otherWs = await createWorkspace(prisma, user.id);
+    // Move to another workspace WITHOUT a folderId: the old folder belongs to
+    // the source workspace, so it must be dropped (folderId → null), not kept.
+    await request(app.getHttpServer())
+      .patch(`/documents/${doc.id}`)
+      .set('Cookie', authCookie(user))
+      .send({ workspaceId: otherWs.id })
+      .expect(200);
+    const after = await prisma.document.findUnique({ where: { id: doc.id } });
+    expect(after?.workspaceId).toBe(otherWs.id);
+    expect(after?.folderId).toBeNull();
+  });
 });

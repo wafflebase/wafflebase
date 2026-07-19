@@ -74,7 +74,17 @@ export default function WorkspaceDocuments() {
         folders={folders}
         folderId={folderId}
         onNavigateFolder={(id) =>
-          setSearchParams(id ? { folder: id } : {}, { replace: false })
+          setSearchParams(
+            (prev) => {
+              // Merge rather than replace so any unrelated future query param
+              // on this route survives folder navigation.
+              const next = new URLSearchParams(prev);
+              if (id) next.set("folder", id);
+              else next.delete("folder");
+              return next;
+            },
+            { replace: false },
+          )
         }
       />
     </div>
