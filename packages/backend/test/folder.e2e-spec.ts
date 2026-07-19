@@ -237,4 +237,34 @@ describeDb('FolderService integration (Prisma-backed)', () => {
       .set('Cookie', authCookie(member))
       .expect(403);
   });
+
+  it('creates a document directly into a same-workspace folder', async () => {
+    const folder = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'F' });
+    const created = await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/documents`)
+      .set('Cookie', authCookie(user))
+      .send({ title: 'D', folderId: folder.body.id })
+      .expect(201);
+    const inFolder = await request(app.getHttpServer())
+      .get(`/workspaces/${workspaceId}/documents?folderId=${folder.body.id}`)
+      .set('Cookie', authCookie(user))
+      .expect(200);
+    expect(inFolder.body.map((d: any) => d.id)).toContain(created.body.id);
+  });
+
+  it('rejects creating a document into a folder from another workspace with 400', async () => {
+    const otherWs = await createWorkspace(prisma, user.id);
+    const otherFolder = await request(app.getHttpServer())
+      .post(`/workspaces/${otherWs.id}/folders`)
+      .set('Cookie', authCookie(user))
+      .send({ name: 'X' });
+    await request(app.getHttpServer())
+      .post(`/workspaces/${workspaceId}/documents`)
+      .set('Cookie', authCookie(user))
+      .send({ title: 'D2', folderId: otherFolder.body.id })
+      .expect(400);
+  });
 });

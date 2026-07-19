@@ -118,6 +118,9 @@ export class DocumentController {
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    if (body.folderId) {
+      await this.folderService.assertSameWorkspace(body.folderId, workspaceId);
+    }
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',
@@ -188,6 +191,12 @@ export class DocumentController {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    if (body.folderId) {
+      await this.folderService.assertSameWorkspace(
+        body.folderId,
+        body.workspaceId,
+      );
+    }
     return this.documentService.createDocument({
       title: body.title,
       type: body.type ?? 'sheet',

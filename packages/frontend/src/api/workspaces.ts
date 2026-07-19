@@ -275,7 +275,12 @@ export async function getWorkspaceAnalytics(
  */
 export async function createWorkspaceDocument(
   workspaceId: string,
-  data: { title: string; type?: DocumentType; fileId?: string },
+  data: {
+    title: string;
+    type?: DocumentType;
+    fileId?: string;
+    folderId?: string | null;
+  },
 ) {
   const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents`, {
     method: "POST",

@@ -434,7 +434,10 @@ export function DocumentList({
   const createDocumentMutation = useMutation({
     mutationFn: async (data: { title: string; type?: DocumentType }) =>
       workspaceId
-        ? await createWorkspaceDocument(workspaceId, data)
+        ? await createWorkspaceDocument(workspaceId, {
+            ...data,
+            folderId: folderId ?? undefined,
+          })
         : await createDocument(data),
     onSuccess: (doc) => navigate(getDocumentPath(doc)),
   });
