@@ -31,6 +31,7 @@ import {
   ChevronsUpDown,
   FileDown,
   FileText,
+  Folder as FolderIcon,
   FolderOutput,
   Image as ImageIcon,
   MoreHorizontal,
@@ -82,8 +83,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import type { Document, DocumentType } from "@/types/documents";
+import type { Document, DocumentType, Folder } from "@/types/documents";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
+import { FolderBreadcrumb } from "./folder-breadcrumb";
 import {
   compareDates,
   formatRelativeTime,
@@ -243,9 +245,15 @@ function ImportMenuItems({
 export function DocumentList({
   data,
   workspaceId,
+  folders = [],
+  folderId = null,
+  onNavigateFolder,
 }: {
   data: Document[];
   workspaceId?: string;
+  folders?: Folder[];
+  folderId?: string | null;
+  onNavigateFolder?: (id: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -569,9 +577,25 @@ export function DocumentList({
     },
   });
 
+  // Direct children of the current folder, rendered as a section above the
+  // documents table. Folders never mix into the sortable/filterable table
+  // row model — keeping them separate avoids a union row type over columns.
+  const childFolders = folders.filter(
+    (f) => (f.parentId ?? null) === (folderId ?? null),
+  );
+
   return (
     <>
       <div className="w-full">
+      {workspaceId && onNavigateFolder && (
+        <div className="pt-2">
+          <FolderBreadcrumb
+            folders={folders}
+            folderId={folderId}
+            onNavigate={onNavigateFolder}
+          />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 py-4">
         <Input
           placeholder="Search by title..."
@@ -659,6 +683,21 @@ export function DocumentList({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {workspaceId && onNavigateFolder && childFolders.length > 0 && (
+        <div className="mb-4 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
+          {childFolders.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => onNavigateFolder(f.id)}
+              className="flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{f.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
