@@ -1103,3 +1103,36 @@ Open a PR titled "Add workspace folders" — body = Summary + Test plan (verify:
 **Type consistency:** `moveDocument(id, target)` signature is defined in Task 5 and its sole caller updated in Task 7 (flagged in Task 5 Step 5). `fetchWorkspaceDocuments(workspaceId, folderId?)` defined Task 5, consumed Task 6. `folderPath` defined Task 6 Step 1, consumed by breadcrumb (Step 3) and move dialog indent (Task 7 Step 3). `FolderService.assertSameWorkspace` defined Task 2, consumed Task 3 + Task 4. Consistent.
 
 **Placeholder scan:** frontend Tasks 6–7 describe edits to the 967-line `document-list.tsx` with real code for the additive units (breadcrumb, helper, mutations, dialog picker) and precise anchor line-ranges rather than inlining the whole file — acceptable because the implementer is instructed to read the file first and the net-new code is complete.
+
+---
+
+## Review (implementation complete)
+
+All 8 tasks implemented via subagent-driven development (fresh implementer +
+per-task reviewer), plus a final whole-branch review. Branch
+`design/workspace-folders`, 12 commits from `5daa1bfde`.
+
+| Task | Commit(s) | Outcome |
+|---|---|---|
+| 1 Schema + migration | `df1701a84` | `Folder` model + `Document.folderId`; migration verified `ON DELETE CASCADE`/`SET NULL` |
+| 2 FolderService | `dab91f844` | 7 methods + cycle/same-workspace guards; 3 DB e2e pass |
+| 3 FolderController | `ca5d6bd10` | REST endpoints, member/manager gating (reused `isDocumentManager`); 5 e2e |
+| 4 Document folderId | `ebf5d2f3f` | create/move/`?folderId=` list filter; 7 e2e + 331 unit |
+| 5 Frontend types + API | `25284b425` | `Folder` type, `api/folders.ts`, extended `moveDocument`/`fetchWorkspaceDocuments` |
+| 6 Navigation | `d08e8c68e` | breadcrumb + folder rows + `?folder=` drill-in; folderPath tests |
+| 7 Mutation UI | `9d2feb73c` | New folder, folder rename/delete, extended Move dialog picker |
+| 8 Hardening + docs | `b62a7b93f`,`79eb2a1e4` | non-manager-403 test, cycle guards, backend README |
+| Final-review fix | `0874887` | **Critical:** validate `folderId` on document create (was cross-tenant orphanable); + create-in-current-folder UX |
+
+**Verification:** `verify:self` 10/10 green; `verify:integration` 46/46 (folder
+e2e 10/10). `verify:browser` fails on a pre-existing Docker-vs-local visual
+baseline gap (systemic across chart/slides/shapes, zero folder screenshots) —
+unrelated to this work; CI runs it in Docker.
+
+**Final-review disposition:**
+- Critical (document-create folderId not validated) — **fixed** + regression tests.
+- Rename-by-any-member — intentional per design (mirrors document rename); no change.
+- Accepted Minors: breadcrumb `aria-current`; "New folder" absent from empty-state menu; 404-vs-403 existence oracle on folder PATCH/DELETE (matches existing document-controller pattern).
+
+**Design doc:** `docs/design/workspace-folders.md`. **Lessons:**
+`20260719-workspace-folders-lessons.md`.

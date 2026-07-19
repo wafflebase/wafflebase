@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| workspace folders (2026-07-19) | [20260719-workspace-folders-todo.md](./active/20260719-workspace-folders-todo.md) | [20260719-workspace-folders-lessons.md](./active/20260719-workspace-folders-lessons.md) |
 | analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./active/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./active/20260719-analytics-dashboard-viz-lessons.md) |
 | image viewer (2026-07-19) | [20260719-image-viewer-todo.md](./active/20260719-image-viewer-todo.md) | [20260719-image-viewer-lessons.md](./active/20260719-image-viewer-lessons.md) |
 | toolbar dropdown unification (2026-07-19) | [20260719-toolbar-dropdown-unification-todo.md](./active/20260719-toolbar-dropdown-unification-todo.md) | [20260719-toolbar-dropdown-unification-lessons.md](./active/20260719-toolbar-dropdown-unification-lessons.md) |
@@ -39,4 +40,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 373
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: analytics dashboard viz (2026-07-19)
+Latest active task: workspace folders (2026-07-19)
