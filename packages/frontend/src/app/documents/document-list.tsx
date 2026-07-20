@@ -798,6 +798,58 @@ export function DocumentList({
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2 py-4">
+        {selectedIds.length > 0 ? (
+          // Selection mode: swap the toolbar's contents in place (same row,
+          // same height) so showing/hiding bulk actions never shifts the list.
+          <>
+            <span className="text-sm font-medium">
+              {selectedIds.length} selected
+            </span>
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                variant="outline"
+                disabled={!selectedCanManage}
+                title={
+                  selectedCanManage
+                    ? undefined
+                    : "You can only move documents you own"
+                }
+                onClick={openBulkMove}
+              >
+                <FolderOutput className="mr-1 h-4 w-4" />
+                Move to…
+              </Button>
+              <Button
+                variant="outline"
+                className="text-destructive"
+                disabled={!selectedCanManage}
+                title={
+                  selectedCanManage
+                    ? undefined
+                    : "You can only delete documents you own"
+                }
+                onClick={() =>
+                  setDeleting({
+                    ids: selectedIds,
+                    title: `${selectedIds.length} documents`,
+                  })
+                }
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Clear selection"
+                onClick={() => setRowSelection({})}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
         <Input
           placeholder="Search by title..."
           aria-label="Search documents by title"
@@ -889,6 +941,8 @@ export function DocumentList({
             <ImportMenuItems onImport={handleImportPick} />
           </DropdownMenuContent>
         </DropdownMenu>
+          </>
+        )}
       </div>
       {workspaceId && onNavigateFolder && childFolders.length > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -971,55 +1025,6 @@ export function DocumentList({
               </DropdownMenu>
             </div>
           ))}
-        </div>
-      )}
-      {selectedIds.length > 0 && (
-        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-          <span className="font-medium">{selectedIds.length} selected</span>
-          <div className="ml-auto flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!selectedCanManage}
-              title={
-                selectedCanManage
-                  ? undefined
-                  : "You can only move documents you own"
-              }
-              onClick={openBulkMove}
-            >
-              <FolderOutput className="mr-1 h-4 w-4" />
-              Move to…
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive"
-              disabled={!selectedCanManage}
-              title={
-                selectedCanManage
-                  ? undefined
-                  : "You can only delete documents you own"
-              }
-              onClick={() =>
-                setDeleting({
-                  ids: selectedIds,
-                  title: `${selectedIds.length} documents`,
-                })
-              }
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Delete
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Clear selection"
-              onClick={() => setRowSelection({})}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
         </div>
       )}
       <div className="rounded-md border">
