@@ -40,3 +40,12 @@ _(Capture patterns and corrections as they come up during implementation.)_
   shift-range double-toggle shipped verbatim from the plan and still had a
   Critical bug — the per-task review is what caught it. Don't treat
   plan-provided snippets as pre-reviewed.
+- **Route `workspaceId` may be a slug, not a UUID.** `/w/:workspaceId` accepts
+  either (backend `resolveId()`), but `MoveDocumentsDto.workspaceId` is
+  `@IsUUID`-validated. The DnD drop handlers forwarded the route param into the
+  move body → a slug 400'd (`PATCH /documents/move`). The move *dialog* was fine
+  because it sends `w.id` from the workspaces query. Fix: same-workspace moves
+  omit `workspaceId` entirely and let the server derive it per document. Lesson:
+  never pass a route param that can be a slug into a UUID-validated body field;
+  this only shows up at runtime, so static/unit review won't catch it — surfaced
+  by the user's manual smoke.
