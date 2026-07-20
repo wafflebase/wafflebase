@@ -478,7 +478,9 @@ export function DocumentList({
   const startBatch = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
-      enqueue(files, workspaceId);
+      // Pass the folder the list is currently viewing so dropped/picked files
+      // land here, not the workspace root (matches the manual "New …" path).
+      enqueue(files, workspaceId, folderId ?? undefined);
       // The settled callback keys off each item's OWN captured workspaceId,
       // not the closed-over one — a batch may finish after the user has
       // switched the list to another workspace, and startUploads keeps only
@@ -498,7 +500,7 @@ export function DocumentList({
         }
       });
     },
-    [workspaceId, scheduleListRefresh],
+    [workspaceId, folderId, scheduleListRefresh],
   );
 
   // Google-Drive-style whole-window drop: a file dropped anywhere (not just on
@@ -1065,10 +1067,10 @@ export function DocumentList({
                 }
               >
                 <SelectTrigger id="move-folder">
-                  <SelectValue placeholder="(workspace root)" />
+                  <SelectValue placeholder="Home" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__root__">(workspace root)</SelectItem>
+                  <SelectItem value="__root__">Home</SelectItem>
                   {moveTargetFolders.map((f) => {
                     const depth = folderPath(moveTargetFolders, f.id).length - 1;
                     return (
