@@ -132,6 +132,17 @@ export class DocumentService {
   }
 
   /**
+   * Delete many documents by id. Blob cleanup for file-backed types (pdf /
+   * image) is done best-effort by the controller after this returns.
+   */
+  async deleteDocuments(ids: string[]): Promise<number> {
+    const { count } = await this.prisma.document.deleteMany({
+      where: { id: { in: ids } },
+    });
+    return count;
+  }
+
+  /**
    * Advance a document's `updatedAt` to `at`, but only if it moves the time
    * forward. Used by the Yorkie `DocumentRootChanged` event webhook, whose
    * delivery is at-least-once, unordered, and retried — so this must be

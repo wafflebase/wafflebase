@@ -21,6 +21,7 @@ import { WorkspaceService } from '../workspace/workspace.service';
 import {
   CreateDocumentDto,
   CreateDocumentInWorkspaceDto,
+  DeleteDocumentsDto,
   MoveDocumentsDto,
   UpdateDocumentDto,
 } from './document.dto';
@@ -357,5 +358,45 @@ export class DocumentController {
       });
     }
     return deleted;
+  }
+
+  @Post('documents/delete')
+  async deleteDocuments(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: DeleteDocumentsDto,
+  ): Promise<{ deleted: string[] }> {
+    const userId = Number(req.user.id);
+    if (body.ids.length === 0) {
+      throw new BadRequestException('No documents specified');
+    }
+    const docs = await Promise.all(
+      body.ids.map((id) => this.documentService.document({ id })),
+    );
+    const denied: string[] = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      if (!doc || !(await this.resolveDocManager(doc, userId))) {
+        denied.push(body.ids[i]);
+      }
+    }
+    if (denied.length > 0) {
+      throw new ForbiddenException(
+        `Cannot delete documents you do not manage: ${denied.join(', ')}`,
+      );
+    }
+    await this.documentService.deleteDocuments(body.ids);
+    // Best-effort blob cleanup for file-backed docs (parity with the single
+    // delete); a failed cleanup must not fail the delete.
+    for (const doc of docs) {
+      if (doc?.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+        await this.fileService.delete(doc.fileId).catch((err) => {
+          console.warn(
+            `[DocumentController] Failed to delete blob ${doc.fileId}:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
+      }
+    }
+    return { deleted: body.ids };
   }
 }

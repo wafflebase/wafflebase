@@ -302,3 +302,60 @@ describe('DocumentController.moveDocuments', () => {
     ]);
   });
 });
+
+describe('DocumentController.deleteDocuments', () => {
+  function makeDeleteController(overrides: {
+    docs?: Record<string, any>;
+    memberRole?: string; // role for assertMember
+  }) {
+    const docs = overrides.docs ?? {};
+    const documentService = {
+      document: jest.fn(async ({ id }: { id: string }) => docs[id] ?? null),
+      moveDocuments: jest.fn(),
+      deleteDocuments: jest.fn(async () => Object.keys(docs).length),
+      deleteDocument: jest.fn(),
+    };
+    const workspaceService = {
+      assertMember: jest.fn(async () => ({
+        role: overrides.memberRole ?? 'owner',
+      })),
+    };
+    const fileService = { delete: jest.fn(async () => undefined) };
+    const controller = new DocumentController(
+      documentService as never,
+      workspaceService as never,
+      {} as never,
+      fileService as never,
+      { assertSameWorkspace: jest.fn() } as never,
+    );
+    return { controller, documentService, workspaceService, fileService };
+  }
+
+  it('deletes all when the caller manages every id', async () => {
+    const { controller, documentService } = makeDeleteController({
+      docs: {
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1, fileId: null },
+        b: { id: 'b', workspaceId: 'ws1', authorID: 1, fileId: null },
+      },
+    });
+    const res = await controller.deleteDocuments(reqAs(1), {
+      ids: ['a', 'b'],
+    } as never);
+    expect(res).toEqual({ deleted: ['a', 'b'] });
+    expect(documentService.deleteDocuments).toHaveBeenCalledWith(['a', 'b']);
+  });
+
+  it('rejects atomically when one id is not managed', async () => {
+    const { controller, documentService } = makeDeleteController({
+      docs: {
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1 },
+        b: { id: 'b', workspaceId: 'ws1', authorID: 999 },
+      },
+      memberRole: 'member',
+    });
+    await expect(
+      controller.deleteDocuments(reqAs(1), { ids: ['a', 'b'] } as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(documentService.deleteDocuments).not.toHaveBeenCalled();
+  });
+});
