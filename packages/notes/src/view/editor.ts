@@ -1,6 +1,13 @@
+import {
+  indentWithTab,
+  redo,
+  redoDepth,
+  undo,
+  undoDepth,
+} from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { EditorState, type Extension } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 import { vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
@@ -58,6 +65,14 @@ export interface NoteEditorAPI {
   toggleLink(): void;
   /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
   insertTable(rows: number, cols: number): void;
+  /** Undo the last local edit. */
+  undo(): void;
+  /** Redo the last undone local edit. */
+  redo(): void;
+  /** Whether there is a local edit to undo. */
+  canUndo(): boolean;
+  /** Whether there is an undone local edit to redo. */
+  canRedo(): boolean;
   /** Inline markdown formats active at the current selection. */
   getActiveFormats(): NoteInlineFormats;
   /**
@@ -144,6 +159,13 @@ export function initialize(
 
   const buildExtensions = (mode: ThemeMode): Extension[] => [
     currentKeymap === 'vim' ? vim() : [],
+    // CodeMirror deliberately leaves Tab out of the default keymap (so keyboard
+    // users can tab out of the editor). Bind it explicitly for indent/outdent.
+    // Registered unconditionally: @replit/codemirror-vim binds no Tab key and
+    // lets it fall through (it only preventDefaults keys it actually handles),
+    // so this also drives Tab indent in vim mode. `vim()` sits ahead of this in
+    // the list, so vim still wins for every key it does handle.
+    keymap.of([indentWithTab]),
     basicSetup({ highlightSelectionMatches: false }),
     markdown(),
     themeExt(mode),
@@ -303,6 +325,16 @@ export function initialize(
     toggleStrikethrough: () => toggleStrikethrough(view),
     toggleLink: () => toggleLink(view),
     insertTable: (rows, cols) => insertTable(view, rows, cols),
+    undo: () => {
+      undo(view);
+      view.focus();
+    },
+    redo: () => {
+      redo(view);
+      view.focus();
+    },
+    canUndo: () => undoDepth(view.state) > 0,
+    canRedo: () => redoDepth(view.state) > 0,
     getActiveFormats: () => computeActiveFormats(view.state),
     onSelectionChange: (cb) => {
       selectionCb = cb;
