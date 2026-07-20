@@ -46,6 +46,7 @@ import { IconFileTypePdf } from "@tabler/icons-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -266,6 +267,46 @@ export function DocumentList({
   const navigate = useNavigate();
   const columns: Array<ColumnDef<Document>> = [
     {
+      id: "select",
+      enableSorting: false,
+      enableHiding: false,
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected()
+              ? true
+              : table.getIsSomePageRowsSelected()
+                ? "indeterminate"
+                : false
+          }
+          onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row, table }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => {
+            e.stopPropagation();
+            const rows = table.getSortedRowModel().rows;
+            const idx = rows.findIndex((r) => r.id === row.id);
+            if (e.shiftKey && lastSelectedIndex.current !== null) {
+              const [lo, hi] = [lastSelectedIndex.current, idx].sort(
+                (a, b) => a - b,
+              );
+              const next: Record<string, boolean> = {};
+              for (let i = lo; i <= hi; i++) next[rows[i].id] = true;
+              table.setRowSelection((prev) => ({ ...prev, ...next }));
+            }
+            lastSelectedIndex.current = idx;
+          }}
+          aria-label={`Select ${String(row.getValue("title") ?? "document")}`}
+        />
+      ),
+    },
+    {
       accessorKey: "id",
       header: "ID",
       enableHiding: true,
@@ -452,6 +493,8 @@ export function DocumentList({
   // workspaces and flush a single invalidation on a short trailing debounce.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRefreshWorkspaces = useRef<Set<string>>(new Set());
+  // Anchor row for shift-click range selection (index into the sorted rows).
+  const lastSelectedIndex = useRef<number | null>(null);
   const scheduleListRefresh = useCallback(
     (wid?: string) => {
       if (wid) pendingRefreshWorkspaces.current.add(wid);
