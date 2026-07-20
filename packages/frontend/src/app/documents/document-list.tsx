@@ -293,6 +293,7 @@ export function DocumentList({
             const rows = table.getSortedRowModel().rows;
             const idx = rows.findIndex((r) => r.id === row.id);
             if (e.shiftKey && lastSelectedIndex.current !== null) {
+              e.preventDefault(); // suppress Radix's own toggle; we own the range write
               const [lo, hi] = [lastSelectedIndex.current, idx].sort(
                 (a, b) => a - b,
               );
