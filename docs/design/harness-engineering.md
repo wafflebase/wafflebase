@@ -303,7 +303,7 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Docker-based CI provisioning delivered (Phase 23) |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`summarize-ci.mjs`); autonomous contribution loop (Phase 24) |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`scripts/agent/summarize-ci.mjs`); autonomous contribution loop (Phase 24) |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
 ## Remaining Work
@@ -320,9 +320,9 @@ Deliverables:
 - Per-branch or per-PR observability context (log grouping by change).
 - Agent-queryable failure summaries from lane report artifacts.
   **Delivered** by `scripts/agent/summarize-ci.mjs`, which reads the
-  `.harness-reports/summary.json` + per-lane files that `verify:self` already
-  emits and prints a ranked root-cause digest (failing lane + its
-  `failureSummary`, downstream skips noted). Consumed by the autonomous
+  `.harness-reports/` reports (the summary + per-lane files that `verify:self`
+  already emits) and prints a ranked root-cause digest (failing lane + its
+  failure summary, downstream skips noted). Consumed by the autonomous
   contribution loop below.
 
 Done criteria: An agent can diagnose a CI failure from report artifacts
@@ -351,8 +351,8 @@ Components:
   `agent/<issue#>-<slug>` branch. Structured spec via
   `.github/ISSUE_TEMPLATE/agent-task.yml`.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
-  failure for an `agent/` branch, `summarize-ci.mjs` (Phase 21) feeds the
-  diagnosis back to the agent, which pushes a fix. A bounded attempts counter
+  failure for an `agent/` branch, `scripts/agent/summarize-ci.mjs` (Phase 21)
+  feeds the diagnosis back to the agent, which pushes a fix. A bounded attempts counter
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
   a `@claude` mention in a PR/review thread has the agent address the finding (or
