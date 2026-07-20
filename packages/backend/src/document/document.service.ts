@@ -101,6 +101,28 @@ export class DocumentService {
     return this.prisma.document.update({ data: nextData, where });
   }
 
+  /**
+   * Apply a set of document updates in a single transaction, bumping each
+   * document's `updatedAt` (matching {@link updateDocument}). Used by the bulk
+   * move endpoint so N relocations are atomic. Validation of who may move what
+   * happens in the controller before this runs.
+   */
+  async moveDocuments(
+    updates: Array<{ id: string; data: Prisma.DocumentUpdateInput }>,
+  ): Promise<number> {
+    if (updates.length === 0) return 0;
+    const at = new Date();
+    await this.prisma.$transaction(
+      updates.map((u) =>
+        this.prisma.document.update({
+          where: { id: u.id },
+          data: { ...u.data, updatedAt: at },
+        }),
+      ),
+    );
+    return updates.length;
+  }
+
   async deleteDocument(
     where: Prisma.DocumentWhereUniqueInput,
   ): Promise<Document> {

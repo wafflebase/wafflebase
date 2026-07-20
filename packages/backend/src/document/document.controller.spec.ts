@@ -214,3 +214,91 @@ describe('DocumentController delete/move/rename permissions', () => {
     });
   });
 });
+
+describe('DocumentController.moveDocuments', () => {
+  function makeMoveController(overrides: {
+    docs?: Record<string, any>;
+    memberRole?: string; // role for assertMember
+  }) {
+    const docs = overrides.docs ?? {};
+    const documentService = {
+      document: jest.fn(async ({ id }: { id: string }) => docs[id] ?? null),
+      moveDocuments: jest.fn(async () => Object.keys(docs).length),
+      deleteDocuments: jest.fn(async () => 0),
+      deleteDocument: jest.fn(),
+    };
+    const workspaceService = {
+      assertMember: jest.fn(async () => ({
+        role: overrides.memberRole ?? 'owner',
+      })),
+    };
+    const folderService = { assertSameWorkspace: jest.fn(async () => undefined) };
+    const controller = new DocumentController(
+      documentService as never,
+      workspaceService as never,
+      {} as never,
+      { delete: jest.fn() } as never,
+      folderService as never,
+    );
+    return { controller, documentService, workspaceService, folderService };
+  }
+
+  it('rejects an empty id list', async () => {
+    const { controller } = makeMoveController({});
+    await expect(
+      controller.moveDocuments(reqAs(1), { ids: [] } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('moves all documents into a folder in one call', async () => {
+    const { controller, documentService, folderService } = makeMoveController({
+      docs: {
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1 },
+        b: { id: 'b', workspaceId: 'ws1', authorID: 1 },
+      },
+    });
+    const res = await controller.moveDocuments(reqAs(1), {
+      ids: ['a', 'b'],
+      folderId: 'fld1',
+    } as never);
+    expect(res).toEqual({ moved: ['a', 'b'] });
+    expect(folderService.assertSameWorkspace).toHaveBeenCalledWith(
+      'fld1',
+      'ws1',
+    );
+    expect(documentService.moveDocuments).toHaveBeenCalledWith([
+      { id: 'a', data: { folder: { connect: { id: 'fld1' } } } },
+      { id: 'b', data: { folder: { connect: { id: 'fld1' } } } },
+    ]);
+  });
+
+  it('rejects atomically when one id is not managed by the caller', async () => {
+    const { controller, documentService } = makeMoveController({
+      docs: {
+        a: { id: 'a', workspaceId: 'ws1', authorID: 1 },
+        b: { id: 'b', workspaceId: 'ws1', authorID: 999 }, // not author
+      },
+      memberRole: 'member', // not owner → not manager of b
+    });
+    await expect(
+      controller.moveDocuments(reqAs(1), {
+        ids: ['a', 'b'],
+        folderId: 'fld1',
+      } as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(documentService.moveDocuments).not.toHaveBeenCalled();
+  });
+
+  it('moves folderId:null to workspace root (disconnect)', async () => {
+    const { controller, documentService } = makeMoveController({
+      docs: { a: { id: 'a', workspaceId: 'ws1', authorID: 1 } },
+    });
+    await controller.moveDocuments(reqAs(1), {
+      ids: ['a'],
+      folderId: null,
+    } as never);
+    expect(documentService.moveDocuments).toHaveBeenCalledWith([
+      { id: 'a', data: { folder: { disconnect: true } } },
+    ]);
+  });
+});
