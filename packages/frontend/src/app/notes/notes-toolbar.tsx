@@ -34,6 +34,8 @@ import {
   IconLink,
   IconTable,
   IconKeyboard,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
 
 const KEYMAPS: { key: NoteKeymap; label: string }[] = [
@@ -77,6 +79,34 @@ function TooltipToggle({
         >
           {children}
         </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Plain (non-toggle) toolbar action with a tooltip and disabled state. */
+function TooltipButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <ToolbarButton
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {children}
+        </ToolbarButton>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -147,14 +177,23 @@ export function NotesToolbar({
   readOnly?: boolean;
 }) {
   const [formats, setFormats] = useState<NoteInlineFormats>(EMPTY_FORMATS);
+  const [history, setHistory] = useState({ canUndo: false, canRedo: false });
 
   useEffect(() => {
     if (!editor) {
       setFormats(EMPTY_FORMATS);
+      setHistory({ canUndo: false, canRedo: false });
       return;
     }
-    setFormats(editor.getActiveFormats());
-    editor.onSelectionChange(setFormats);
+    // The selection-change callback fires on every doc/selection change, which
+    // is exactly when both inline formats and undo/redo depth can change — so
+    // we refresh both from the one subscription.
+    const refresh = (f: NoteInlineFormats) => {
+      setFormats(f);
+      setHistory({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
+    };
+    refresh(editor.getActiveFormats());
+    editor.onSelectionChange(refresh);
     return () => editor.onSelectionChange(null);
   }, [editor]);
 
@@ -165,6 +204,21 @@ export function NotesToolbar({
     <Toolbar aria-label="Note toolbar">
       {canFormat && editor && (
         <>
+          <TooltipButton
+            label="Undo"
+            disabled={!history.canUndo}
+            onClick={() => editor.undo()}
+          >
+            <IconArrowBackUp size={16} />
+          </TooltipButton>
+          <TooltipButton
+            label="Redo"
+            disabled={!history.canRedo}
+            onClick={() => editor.redo()}
+          >
+            <IconArrowForwardUp size={16} />
+          </TooltipButton>
+          <ToolbarSeparator />
           <TooltipToggle
             label="Bold"
             pressed={formats.bold}
