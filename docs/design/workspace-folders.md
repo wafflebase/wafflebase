@@ -200,8 +200,8 @@ history. The sidebar is unchanged.
 ## Bulk multi-select move + drag-and-drop
 
 The v1 move primitive is single-document only, both frontend and backend
-(`document.controller.ts` `PATCH documents/:id`, and the single-`movingDoc`
-dialog in `document-list.tsx`). This follow-up adds Google-Drive-style
+(`packages/backend/src/document/document.controller.ts` `PATCH documents/:id`, and the single-`movingDoc`
+dialog in `packages/frontend/src/app/documents/document-list.tsx`). This follow-up adds Google-Drive-style
 **multi-select** with two ways to move a selection into a folder: an extended
 **"Move to…" dialog** and **drag-and-drop** onto folder rows/cards. Selection
 is explicit (checkboxes) so the current row-click-to-open behavior is preserved.
@@ -216,7 +216,7 @@ manager-gated per document via the same `resolveDocManager` predicate.
 | `PATCH` | `documents/move` | `{ ids: string[], workspaceId?, folderId? }` | Move N documents. Single Prisma transaction. **Atomic**: if any id fails the manager gate or same-workspace validation, reject `403` with the offending ids and move nothing. `workspaceId`+`folderId` together behave like the single path (crossing workspace drops the folder unless `folderId` is given). Per-doc `updatedAt` bump kept, matching the single move. |
 | `POST` | `documents/delete` | `{ ids: string[] }` | Delete N documents (manager-gated per id). Symmetric with the bulk move; avoids N fan-out `DELETE` calls. |
 
-New DTOs `MoveDocumentsDto` / `DeleteDocumentsDto` in `document.dto.ts`. The
+New DTOs `MoveDocumentsDto` / `DeleteDocumentsDto` in `packages/backend/src/document/document.dto.ts`. The
 existing single-document `PATCH documents/:id` and `DELETE documents/:id` stay
 for the per-row menu (or are re-expressed as `ids: [id]` — see frontend).
 
@@ -229,7 +229,7 @@ half-applied.
 ### Frontend — selection state
 
 Selection is **view-local**, so it stays in the already-wired but currently
-inert TanStack `rowSelection` state in `document-list.tsx` (no module-singleton
+inert TanStack `rowSelection` state in `packages/frontend/src/app/documents/document-list.tsx` (no module-singleton
 store needed — unlike the upload queue, selection doesn't outlive the list).
 `getRowId` already keys rows by document id.
 
@@ -283,7 +283,7 @@ Bulk delete reuses a confirmation dialog ("Delete N documents?") → `deleteDocu
 
 ### API layer
 
-`api/documents.ts` gains `moveDocuments(ids, { workspaceId?, folderId? })` →
+`packages/frontend/src/api/documents.ts` gains `moveDocuments(ids, { workspaceId?, folderId? })` →
 `PATCH /documents/move` and `deleteDocuments(ids)` → `POST /documents/delete`.
 
 ### Testing (this follow-up)
