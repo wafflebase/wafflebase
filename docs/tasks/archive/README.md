@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 373
+Total archived tasks: 374
 
-## 2026/07 (43 tasks)
+## 2026/07 (44 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| toolbar dropdown unification (2026-07-19) | [20260719-toolbar-dropdown-unification-todo.md](./2026/07/20260719-toolbar-dropdown-unification-todo.md) | [20260719-toolbar-dropdown-unification-lessons.md](./2026/07/20260719-toolbar-dropdown-unification-lessons.md) |
 | active tasks audit (2026-07-17) | [20260717-active-tasks-audit-todo.md](./2026/07/20260717-active-tasks-audit-todo.md) | - |
 | documentation 0.6.0 update (2026-07-17) | [20260717-documentation-0.6.0-update-todo.md](./2026/07/20260717-documentation-0.6.0-update-todo.md) | [20260717-documentation-0.6.0-update-lessons.md](./2026/07/20260717-documentation-0.6.0-update-lessons.md) |
 | multi file upload (2026-07-17) | [20260717-multi-file-upload-todo.md](./2026/07/20260717-multi-file-upload-todo.md) | [20260717-multi-file-upload-lessons.md](./2026/07/20260717-multi-file-upload-lessons.md) |

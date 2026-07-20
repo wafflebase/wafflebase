@@ -68,10 +68,48 @@ drag-and-drop" section.
 
 ## Verify
 
-- [ ] `pnpm verify:fast` green.
+- [x] `pnpm verify:fast` green (frontend 857 / backend 1399 / sheets 2609 / … all pass, exit 0).
 - [ ] Manual smoke in `pnpm dev`: multi-select, dialog move, DnD move, bulk delete,
-      permission-gated disable.
+      permission-gated disable. **Pending** — needs a running authenticated app
+      (docker + OAuth); recommended before merge. Logic verified by unit tests +
+      per-task reviews + a whole-branch opus review instead.
 
 ## Review
 
-_(fill in after implementation)_
+Executed via subagent-driven development: 8 tasks, one implementer + one task
+reviewer each, then a whole-branch final review (opus).
+
+**Commits** (`bb59cce1..dd9098bd`):
+- `46abfcc4` bulk move endpoint (atomic, per-id gated)
+- `abba1d88` bulk delete endpoint (per-id gated)
+- `9212be67` frontend `moveDocuments`/`deleteDocuments` API
+- `21051752` `document-bulk.ts` helpers (drag payload + `allManageable`)
+- `6d0755ee` checkbox select column → `284873ac` fix shift-range double-toggle
+- `119a999b` generalize move/delete dialogs to id-sets
+- `7c2f84e3` bulk action bar
+- `42e4b707` drag-and-drop onto folders + breadcrumb
+- `dd9098bd` clear selection on folder/workspace change (final-review fix)
+
+**Review outcomes:** every task passed spec + quality review. Two findings were
+fixed mid-flight:
+1. **Critical (task 5):** shift-range `onClick` + Radix `onCheckedChange` double-
+   toggled the clicked row; fixed by `e.preventDefault()` in the shift branch to
+   suppress Radix's internal toggle.
+2. **Minor UX (final review):** stale `rowSelection` survived folder navigation,
+   leaving the bulk bar showing disabled actions / rejecting valid DnD; fixed by
+   resetting selection on `folderId`/`workspaceId` change.
+
+**Final verdict:** Ready to merge — no blocking correctness/security issues.
+Manager-gating holds per id on both bulk paths; move is atomic (one transaction,
+validate-then-write); cross-workspace folder injection blocked via
+`assertSameWorkspace`; internal row→folder DnD stays disjoint from the file-upload
+drop by MIME type.
+
+**Accepted non-blocking limitations:**
+- Backend bulk loops use sequential per-id `await` (small N; correctness-neutral).
+- `deleteDocuments` `{ deleted }` returns the requested ids, not `deleteMany`'s
+  actual count (can cosmetically over-report on a concurrent delete; frontend
+  ignores the payload).
+- Minor test-coverage gaps: empty-ids delete case, non-string-array decode branch.
+- `dragOverFolderId` type carries an unused `"root"` arm; breadcrumb `onDragOver`
+  omits the `isDocDrag` gate (harmless — decode returns null for file payloads).

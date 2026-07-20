@@ -21,7 +21,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | documents bulk select move (2026-07-20) | [20260720-documents-bulk-select-move-todo.md](./active/20260720-documents-bulk-select-move-todo.md) | [20260720-documents-bulk-select-move-lessons.md](./active/20260720-documents-bulk-select-move-lessons.md) |
 | analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./active/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./active/20260719-analytics-dashboard-viz-lessons.md) |
 | image viewer (2026-07-19) | [20260719-image-viewer-todo.md](./active/20260719-image-viewer-todo.md) | [20260719-image-viewer-lessons.md](./active/20260719-image-viewer-lessons.md) |
-| toolbar dropdown unification (2026-07-19) | [20260719-toolbar-dropdown-unification-todo.md](./active/20260719-toolbar-dropdown-unification-todo.md) | [20260719-toolbar-dropdown-unification-lessons.md](./active/20260719-toolbar-dropdown-unification-lessons.md) |
 | workspace folders (2026-07-19) | [20260719-workspace-folders-todo.md](./active/20260719-workspace-folders-todo.md) | [20260719-workspace-folders-lessons.md](./active/20260719-workspace-folders-lessons.md) |
 | release v0.6.1 (2026-07-18) | [20260718-release-v0.6.1-todo.md](./active/20260718-release-v0.6.1-todo.md) | - |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
@@ -38,7 +37,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 373
+- Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: documents bulk select move (2026-07-20)
