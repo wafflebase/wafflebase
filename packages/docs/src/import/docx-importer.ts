@@ -128,10 +128,7 @@ export class DocxImporter {
     const blocks: Block[] = [];
     let pageSetup: PageSetup | undefined;
     let sectPrEl: Element | undefined;
-    for (let i = 0; i < body.childNodes.length; i++) {
-      const node = body.childNodes[i];
-      if (node.nodeType !== 1) continue;
-      const el = node as Element;
+    for (const el of DocxImporter.blockChildElements(body)) {
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, imageUrls));
       } else if (el.localName === 'tbl') {
@@ -310,10 +307,8 @@ export class DocxImporter {
       }
     };
 
-    for (let i = 0; i < tblEl.childNodes.length; i++) {
-      const node = tblEl.childNodes[i];
-      if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
-      const trEl = node as Element;
+    for (const trEl of DocxImporter.blockChildElements(tblEl)) {
+      if (trEl.localName !== 'tr') continue;
 
       // <w:trPr> can declare w:gridBefore / w:gridAfter to leave N leading or
       // trailing grid columns empty. These rows ship fewer <w:tc> children
@@ -345,10 +340,8 @@ export class DocxImporter {
       const cells: TableCell[] = [];
       for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());
       let colIdx = gridBefore;
-      for (let j = 0; j < trEl.childNodes.length; j++) {
-        const tcNode = trEl.childNodes[j];
-        if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
-        const tcEl = tcNode as Element;
+      for (const tcEl of DocxImporter.blockChildElements(trEl)) {
+        if (tcEl.localName !== 'tc') continue;
 
         // Parse cell properties. Direct-child only: getElementsByTagNameNS
         // recurses, so an outer cell with no own <w:tcPr> would otherwise
@@ -415,10 +408,7 @@ export class DocxImporter {
 
         // Parse cell content blocks
         const cellBlocks: Block[] = [];
-        for (let k = 0; k < tcEl.childNodes.length; k++) {
-          const childNode = tcEl.childNodes[k];
-          if (childNode.nodeType !== 1) continue;
-          const childEl = childNode as Element;
+        for (const childEl of DocxImporter.blockChildElements(tcEl)) {
           if (childEl.localName === 'p') {
             cellBlocks.push(DocxImporter.convertParagraph(childEl, imageUrls));
           } else if (childEl.localName === 'tbl') {
@@ -563,15 +553,11 @@ export class DocxImporter {
    */
   private static deriveColWidthsFromCells(tblEl: Element, out: number[]): void {
     let best: number[] = [];
-    for (let i = 0; i < tblEl.childNodes.length; i++) {
-      const node = tblEl.childNodes[i];
-      if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
-      const trEl = node as Element;
+    for (const trEl of DocxImporter.blockChildElements(tblEl)) {
+      if (trEl.localName !== 'tr') continue;
       const weights: number[] = [];
-      for (let j = 0; j < trEl.childNodes.length; j++) {
-        const tcNode = trEl.childNodes[j];
-        if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
-        const tcEl = tcNode as Element;
+      for (const tcEl of DocxImporter.blockChildElements(trEl)) {
+        if (tcEl.localName !== 'tc') continue;
         // Direct-child only so a nested table's tcW/gridSpan never leaks into
         // the outer table's derived column widths.
         const tcPr = DocxImporter.findDirectChild(tcEl, 'tcPr');
@@ -621,6 +607,31 @@ export class DocxImporter {
     if (!val) return 0;
     const parsed = parseInt(val, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  /**
+   * Yield the effective children of a container, transparently unwrapping
+   * content controls: a <w:sdt> exposes whatever sits inside its
+   * <w:sdtContent> as if it were a direct child. Word forms and some Google
+   * Docs exports wrap block content (paragraphs/tables in the body, table
+   * cell, or header/footer root) as well as table rows (<w:tr>) and cells
+   * (<w:tc>) this way; without unwrapping, the enclosed content would never be
+   * enumerated and would vanish on import. Callers filter the yielded elements
+   * by local name (p/tbl/sectPr, tr, tc). Nested sdts are unwrapped
+   * recursively.
+   */
+  private static *blockChildElements(parent: Element): Iterable<Element> {
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const node = parent.childNodes[i];
+      if (node.nodeType !== 1) continue;
+      const el = node as Element;
+      if (el.localName === 'sdt') {
+        const content = DocxImporter.findDirectChild(el, 'sdtContent');
+        if (content) yield* DocxImporter.blockChildElements(content);
+        continue;
+      }
+      yield el;
+    }
   }
 
   /**
@@ -722,10 +733,7 @@ export class DocxImporter {
     if (!root) return undefined;
 
     const blocks: Block[] = [];
-    for (let i = 0; i < root.childNodes.length; i++) {
-      const node = root.childNodes[i];
-      if (node.nodeType !== 1) continue;
-      const el = node as Element;
+    for (const el of DocxImporter.blockChildElements(root)) {
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, partImageUrls));
       } else if (el.localName === 'tbl') {

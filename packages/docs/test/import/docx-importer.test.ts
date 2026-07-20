@@ -67,6 +67,74 @@ describe('DocxImporter', () => {
     expect(doc.blocks[1].inlines[0].text).toBe('Second');
   });
 
+  it('should import paragraphs wrapped in a block-level w:sdt', async () => {
+    // Word forms and some Google Docs exports wrap block content in a
+    // block-level content control: <w:sdt><w:sdtContent><w:p>…</w:p>. The body
+    // walk must descend through w:sdt/w:sdtContent to reach the paragraphs.
+    const buffer = await createMinimalDocx(`
+      <w:p><w:r><w:t>Before</w:t></w:r></w:p>
+      <w:sdt><w:sdtContent>
+        <w:p><w:r><w:t>Inside SDT</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Also inside</w:t></w:r></w:p>
+      </w:sdtContent></w:sdt>
+      <w:p><w:r><w:t>After</w:t></w:r></w:p>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.blocks.map((b) => b.inlines.map((i) => i.text).join(''))).toEqual([
+      'Before',
+      'Inside SDT',
+      'Also inside',
+      'After',
+    ]);
+  });
+
+  it('should import a table wrapped in a block-level w:sdt', async () => {
+    const buffer = await createMinimalDocx(`
+      <w:sdt><w:sdtContent>
+        <w:tbl>
+          <w:tblGrid><w:gridCol w:w="100"/></w:tblGrid>
+          <w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr>
+        </w:tbl>
+      </w:sdtContent></w:sdt>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.blocks).toHaveLength(1);
+    expect(doc.blocks[0].type).toBe('table');
+    expect(
+      doc.blocks[0].tableData?.rows[0].cells[0].blocks[0].inlines[0].text,
+    ).toBe('Cell');
+  });
+
+  it('should import table rows and cells wrapped in a w:sdt', async () => {
+    // Repeating-section content controls wrap <w:tr> at table level and <w:tc>
+    // at row level in <w:sdt>. The row and cell walks must unwrap them too, or
+    // the wrapped rows/cells vanish from the imported table.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="100"/><w:gridCol w:w="100"/></w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>
+          <w:sdt><w:sdtContent>
+            <w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc>
+          </w:sdtContent></w:sdt>
+        </w:tr>
+        <w:sdt><w:sdtContent>
+          <w:tr>
+            <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+            <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+          </w:tr>
+        </w:sdtContent></w:sdt>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const rows = doc.blocks[0].tableData?.rows ?? [];
+    const text = (r: number, c: number) =>
+      rows[r].cells[c].blocks[0].inlines[0].text;
+    expect(rows).toHaveLength(2);
+    expect([text(0, 0), text(0, 1)]).toEqual(['A1', 'B1']);
+    expect([text(1, 0), text(1, 1)]).toEqual(['A2', 'B2']);
+  });
+
   it('should import styled text runs', async () => {
     const buffer = await createMinimalDocx(`
       <w:p>
