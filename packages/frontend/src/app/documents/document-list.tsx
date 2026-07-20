@@ -797,15 +797,18 @@ export function DocumentList({
           />
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 py-4">
+      <div className="flex flex-col gap-2 py-4 sm:flex-row sm:flex-wrap sm:items-center">
         {selectedIds.length > 0 ? (
-          // Selection mode: swap the toolbar's contents in place (same row,
-          // same height) so showing/hiding bulk actions never shifts the list.
+          // Selection mode: swap the toolbar's contents in place. Both states
+          // keep the same layout at every width (one row on sm+, two rows on
+          // mobile), so toggling a selection never changes the toolbar height.
           <>
-            <span className="text-sm font-medium">
-              {selectedIds.length} selected
-            </span>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="flex h-9 items-center">
+              <span className="text-sm font-medium">
+                {selectedIds.length} selected
+              </span>
+            </div>
+            <div className="flex w-full items-center gap-1 sm:w-auto sm:flex-1 sm:justify-end">
               <Button
                 variant="outline"
                 disabled={!selectedCanManage}
@@ -857,8 +860,9 @@ export function DocumentList({
           onChange={(e) =>
             table.getColumn("title")?.setFilterValue(e.target.value)
           }
-          className="w-full max-w-xs"
+          className="w-full sm:max-w-xs"
         />
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
         <div className="flex items-center gap-1">
           {TYPE_OPTIONS.map((type) => {
             const { label, Icon, color } = TYPE_META[type];
@@ -941,6 +945,7 @@ export function DocumentList({
             <ImportMenuItems onImport={handleImportPick} />
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
           </>
         )}
       </div>

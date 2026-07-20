@@ -246,7 +246,10 @@ When `≥ 1` row is selected, the **existing always-present toolbar row** (searc
 **"N selected" · Move to… · Delete · ✕ (clear)**. Reusing the same row (rather
 than inserting a new bar above the table) keeps the row height constant, so
 selecting/deselecting never shifts the list up or down — the Google-Drive
-selection-toolbar pattern.
+selection-toolbar pattern. The toolbar is responsive and **both states share the
+same row count at every width** (one row on `sm+`; two rows on mobile — search /
+filters+New, mirrored by label / actions in selection mode), so the height stays
+identical across the toggle on phones too.
 
 - Move / Delete are enabled **only when every selected document is manageable**
   by the user (`canManage`); otherwise disabled with a tooltip. Selection
