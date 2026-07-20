@@ -23,6 +23,10 @@ export interface UploadItem {
   fileName: string;
   kind: UploadKind | null;
   workspaceId?: string;
+  /** Folder the list was viewing when the file was enqueued (null = workspace
+   *  root). Threaded into createDoc so a dropped file lands where the user is,
+   *  matching the manual "New …" path. */
+  folderId?: string | null;
   status: UploadStatus;
   done: number;
   total: number;
@@ -60,7 +64,11 @@ export function subscribe(cb: () => void): () => void {
   };
 }
 
-export function enqueue(files: File[], workspaceId?: string): UploadItem[] {
+export function enqueue(
+  files: File[],
+  workspaceId?: string,
+  folderId?: string | null,
+): UploadItem[] {
   const created: UploadItem[] = files.map((file) => {
     const kind = classifyUploadKind(file.name);
     return {
@@ -71,6 +79,7 @@ export function enqueue(files: File[], workspaceId?: string): UploadItem[] {
       fileName: file.name,
       kind,
       workspaceId,
+      folderId,
       status: kind ? "pending" : "skipped",
       done: 0,
       total: 0,
@@ -151,7 +160,12 @@ export interface UploadDeps {
   uploadFile: typeof uploadFile;
   createDoc: (
     workspaceId: string | undefined,
-    payload: { title: string; type: DocumentType; fileId?: string },
+    payload: {
+      title: string;
+      type: DocumentType;
+      fileId?: string;
+      folderId?: string | null;
+    },
   ) => Promise<Document>;
   getDocumentPath: (doc: DocRef) => string;
   applyContent: typeof applyImportedContentDefault;
@@ -194,7 +208,12 @@ async function getOrCreateDoc(
   if (item.docId) {
     return { id: item.docId, type: payload.type };
   }
-  const created = await activeDeps.createDoc(item.workspaceId, payload);
+  // Route the document into the folder the list was viewing at enqueue time
+  // (null/undefined = workspace root), mirroring the manual "New …" path.
+  const created = await activeDeps.createDoc(item.workspaceId, {
+    ...payload,
+    folderId: item.folderId,
+  });
   const id = String(created.id);
   // Persist the docId as soon as the document exists, *before* the stash
   // step runs. If stash throws, the item lands in "error" with docId

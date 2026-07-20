@@ -52,6 +52,41 @@ describe("upload-queue worker", () => {
     );
   });
 
+  it("creates dropped documents in the folder the list is viewing", async () => {
+    const deps = {
+      importXlsx: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({ id: "blob-1" })),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    // Enqueue while viewing folder "folder-7": the created document must land
+    // in that folder, not the workspace root.
+    q.enqueue([file("a.xlsx"), file("c.pdf")], "ws1", "folder-7");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ type: "sheet", folderId: "folder-7" }),
+    );
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ type: "pdf", folderId: "folder-7" }),
+    );
+  });
+
   it("uploads an image blob and creates an image document", async () => {
     const deps = {
       importXlsx: vi.fn(),
