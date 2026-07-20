@@ -1067,10 +1067,10 @@ export function DocumentList({
                 }
               >
                 <SelectTrigger id="move-folder">
-                  <SelectValue placeholder="(workspace root)" />
+                  <SelectValue placeholder="Home" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__root__">(workspace root)</SelectItem>
+                  <SelectItem value="__root__">Home</SelectItem>
                   {moveTargetFolders.map((f) => {
                     const depth = folderPath(moveTargetFolders, f.id).length - 1;
                     return (
