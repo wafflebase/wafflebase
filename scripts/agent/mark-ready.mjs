@@ -6,8 +6,10 @@
 //
 //   1. CI's `<!-- harness-verification -->` comment shows verify:self ✅ AND
 //      verify:integration ✅ (or an explicit skip reason recorded in the PR body).
-//   2. A self-review comment (`<!-- agent-self-review -->`) reports no unresolved
-//      blocking findings.
+//   2. The `agent-independent-review` check run on the PR head SHA concluded
+//      `success` — an INDEPENDENT reviewer approved it. This is evidence-based:
+//      only the reviewer workflow (which has checks:write) can post that check,
+//      so the author agent cannot forge its own approval.
 //   3. The PR body discloses autonomous authorship.
 //
 // It NEVER merges. After promotion it flips draft → ready, swaps the
@@ -31,9 +33,9 @@ if (!prNumber || !/^\d+$/.test(prNumber)) {
   process.exit(2);
 }
 
-const SELF_REVIEW_MARKER = "<!-- agent-self-review -->";
 const VERIFICATION_MARKER = "<!-- harness-verification -->";
 const HANDOFF_MARKER = "<!-- agent-handoff -->";
+const REVIEW_CHECK_NAME = "agent-independent-review";
 
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });
@@ -52,7 +54,7 @@ try {
     "view",
     prNumber,
     "--json",
-    "number,body,isDraft,labels,headRefName,comments,url",
+    "number,body,isDraft,labels,headRefName,headRefOid,comments,url",
   ]);
 } catch (err) {
   console.error(`Failed to read PR #${prNumber}: ${err.message}`);
@@ -85,12 +87,26 @@ const integrationSkipReason = /Skip reason \(if applicable\):\s*\S/.test(body);
 
 const ciGate = Boolean(verificationComment) && selfPassed && (integrationPassed || integrationSkipReason);
 
-// --- gate 2: self-review clean ---------------------------------------------
+// --- gate 2: independent review approved -----------------------------------
 
-const selfReviewComment = comments.find((c) => (c.body ?? "").includes(SELF_REVIEW_MARKER));
-const selfReviewBody = selfReviewComment?.body ?? "";
-// Anchor the word so "self-review: cleanup needed" does not read as clean.
-const selfReviewClean = /self-review:\s*clean\b(?!\w)/i.test(selfReviewBody);
+// Evidence-based: read the `agent-independent-review` check run on the PR head
+// SHA. Only the reviewer workflow can post it; the author agent cannot.
+function independentReviewApproved(sha) {
+  if (!sha) return false;
+  let data;
+  try {
+    data = ghJson(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs`]);
+  } catch {
+    return false;
+  }
+  const runs = (data.check_runs ?? []).filter((r) => r.name === REVIEW_CHECK_NAME);
+  if (runs.length === 0) return false;
+  // Newest first, so re-reviews on the same SHA use the latest verdict.
+  runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0));
+  return runs[0].conclusion === "success";
+}
+
+const reviewApproved = independentReviewApproved(pr.headRefOid);
 
 // --- gate 3: AI disclosure -------------------------------------------------
 
@@ -102,7 +118,7 @@ const disclosure =
 
 const gates = [
   { name: "CI verification (verify:self ✅ + verify:integration ✅/skip)", ok: ciGate },
-  { name: "Self-review clean (no unresolved blocking findings)", ok: selfReviewClean },
+  { name: `Independent review approved (${REVIEW_CHECK_NAME} check ✅)`, ok: reviewApproved },
   { name: "AI authorship disclosed in PR body", ok: disclosure },
 ];
 
@@ -156,7 +172,7 @@ const handoff = [
   "ready gate:",
   "",
   "- ✅ CI verification (`verify:self` and `verify:integration`) is green.",
-  "- ✅ Self-review over the full diff reported no unresolved blocking findings.",
+  "- ✅ An independent reviewer (`agent-independent-review`) approved with no blocking findings.",
   "- ✅ Autonomous authorship is disclosed in the PR body.",
   "",
   "**No human has verified these changes yet — please review every line.** The",

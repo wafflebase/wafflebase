@@ -28,13 +28,22 @@ section + Phase 21 completion).
       branches via `workflow_run`, fix + push.
 - [x] `.github/workflows/agent-review-reply.yml` — react to `@claude` review
       comments on `agent/` PRs.
-- [x] `scripts/agent/mark-ready.mjs` — ready gate (green + self-review clean +
-      disclosure) → `gh pr ready`.
-- [x] `.github/workflows/agent-mark-ready.yml` — invoke the ready gate on CI
-      success for `agent/` branches (nothing else calls mark-ready.mjs).
+- [x] `scripts/agent/mark-ready.mjs` — ready gate (CI green + independent-review
+      check ✅ + disclosure) → `gh pr ready`.
 - [x] `scripts/hooks/require-ai-disclosure.sh` — enforce AI-disclosure trailer on
       autonomous agent commits; register in `.claude/settings.json`.
 - [x] Document the pipeline in `docs/design/harness-engineering.md`.
+
+### Independent-reviewer MVP (added)
+
+- [x] `scripts/agent/read-review-verdict.mjs` — normalize verdict.json → check-run
+      conclusion (harness computes pass/fail from blocking count; fails closed).
+- [x] `.github/workflows/agent-independent-review.yml` — fresh read-only reviewer
+      on green CI → `agent-independent-review` check run → promote on success, or
+      bounded review-fix loop on changes-requested (replaces `agent-mark-ready.yml`,
+      now removed; promotion is driven by reviewer approval, not CI success alone).
+- [x] `scripts/agent/mark-ready.mjs` gate 2 now reads the check run (evidence-based)
+      instead of the author's self-review comment.
 
 ## Rollout (see design doc)
 
@@ -45,7 +54,9 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 
 - `ANTHROPIC_API_KEY` secret (scoped to a protected `agent` Environment).
 - Branch protection on `main`: human approval + CODEOWNERS + CI green +
-  dismiss-stale-approvals; agent token non-admin.
+  dismiss-stale-approvals; agent token non-admin. Recommended: also require the
+  `agent-independent-review` status check so the independent verdict is enforced
+  at merge time too, not just at the ready gate.
 - **Install the Claude GitHub App** so the agent's commits are pushed with the
   App installation token — commits pushed with the default `GITHUB_TOKEN` do NOT
   re-trigger CI, which would stall the iterate + mark-ready loops.

@@ -357,11 +357,20 @@ Components:
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
   a `@claude` mention in a PR/review thread has the agent address the finding (or
   push back with reasoning) in-thread.
-- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by
-  `.github/workflows/agent-mark-ready.yml` on CI success for `agent/` branches:
-  promotes draft → ready only when the CI evidence comment is green, the
-  self-review is clean, and AI authorship is disclosed. Trust keys off CI-posted
-  evidence, never the agent's self-report.
+- **Independent review** — `.github/workflows/agent-independent-review.yml`: on
+  green CI for an `agent/` branch, a FRESH read-only Claude Code run (no memory of
+  writing the code, adversarial stance, its job has no `contents:write` so it
+  cannot alter the PR) reviews the diff and writes a verdict. The harness computes
+  pass/fail from the blocking count (`scripts/agent/read-review-verdict.mjs`) and
+  records it as the `agent-independent-review` **check run** — which the author
+  agent cannot forge (it lacks `checks:write`). On approval it invokes the ready
+  gate; on changes-requested it feeds findings back to the author in a bounded
+  fix loop (pages a human after `MAX_REVIEW_ROUNDS`).
+- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the independent-
+  review workflow on approval: promotes draft → ready only when the CI evidence
+  comment is green, the `agent-independent-review` check run concluded `success`,
+  and AI authorship is disclosed. Every gate keys off evidence a separate actor
+  posted, never the author agent's self-report.
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.

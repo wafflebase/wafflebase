@@ -1,0 +1,272 @@
+# Independent reviewer (MVP): a FRESH Claude Code run — no memory of writing the
+# code, adversarial stance, read-only toward the PR (its job has no contents:write
+# and no push, so nothing it does can alter the branch) — reviews the agent's diff
+# and records a verdict as the `agent-independent-review` CHECK RUN. The author
+# agent's workflow lacks checks:write, so it cannot forge this verdict; the ready
+# gate reads it as evidence (same trust model as CI).
+#
+# Flow (triggered only on green CI for agent/ branches, so we never review broken
+# code):
+#   review  → write verdict.json → create check run (pass/fail computed by the
+#             harness from the blocking count, not self-declared)
+#   promote → on success: run the ready gate (mark-ready.mjs --promote)
+#   fix     → on failure: bounded loop — feed findings back to the author to fix
+#             and push; the push re-triggers CI → this workflow re-runs. After
+#             MAX_REVIEW_ROUNDS it pages a human.
+#
+# Same CI-retrigger caveat as the other agent workflows: fix commits must be
+# pushed with the Claude GitHub App token (not GITHUB_TOKEN) to re-trigger CI.
+name: Agent Independent Review
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions: {}
+
+env:
+  CHECK_NAME: agent-independent-review
+  MAX_REVIEW_ROUNDS: "3"
+
+jobs:
+  review:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: agent
+    permissions:
+      contents: read # read-only toward the PR: the reviewer cannot push
+      checks: write # record the verdict as a check run
+      pull-requests: read
+    outputs:
+      conclusion: ${{ steps.verdict.outputs.conclusion }}
+      valid: ${{ steps.verdict.outputs.valid }}
+      pr: ${{ steps.pr.outputs.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+
+      - name: Resolve PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', head: `${context.repo.owner}:${branch}`,
+            });
+            core.setOutput('number', prs.data[0] ? String(prs.data[0].number) : '');
+
+      - uses: pnpm/action-setup@v4
+        if: steps.pr.outputs.number != ''
+      - uses: actions/setup-node@v4
+        if: steps.pr.outputs.number != ''
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - name: Install dependencies
+        if: steps.pr.outputs.number != ''
+        run: pnpm install --frozen-lockfile
+
+      - name: Independent review
+        if: steps.pr.outputs.number != ''
+        # Pin to a released tag/SHA before enabling. Read-only tool scope: no
+        # Edit; Bash restricted to read/inspect/test commands (no gh mutations,
+        # no git push). The job also lacks contents:write as defense in depth.
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: >-
+            --max-turns 30
+            --model claude-opus-4-8
+            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status),Bash(cat:*),Bash(ls:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(rg:*),Bash(node:*),Bash(pnpm test:*),Bash(pnpm verify:fast)"
+          prompt: |
+            You are an INDEPENDENT code reviewer for PR #${{ steps.pr.outputs.number }}.
+            You did NOT write this code. Review it adversarially: assume there is a
+            bug until you have convinced yourself otherwise.
+
+            Scope: the full branch diff vs origin/main (`git diff origin/main...HEAD`).
+            Judge against CLAUDE.md / CONTRIBUTING.md and the conventions of the
+            packages the diff touches. Look for correctness, security, data-safety,
+            Store-interface bypasses, ANTLR-generated-file edits, missing tests, and
+            convention drift. Classify each finding as blocking or minor.
+
+            Do NOT edit source, do NOT push, do NOT merge. Your ONLY output is to
+            write your verdict to `.agent-review/verdict.json` (create the dir) with
+            EXACTLY this shape:
+            {
+              "verdict": "approve" | "request_changes",
+              "blocking": [ { "file": "path", "summary": "what & why" } ],
+              "minor":    [ { "file": "path", "summary": "what & why" } ],
+              "summary":  "one-paragraph overall assessment"
+            }
+            Use "approve" only if the blocking array is empty.
+
+      - name: Read verdict → conclusion
+        id: verdict
+        if: steps.pr.outputs.number != ''
+        run: node ./scripts/agent/read-review-verdict.mjs
+
+      - name: Record verdict as a check run
+        if: steps.pr.outputs.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const conclusion = '${{ steps.verdict.outputs.conclusion }}' || 'failure';
+            let summary = '_No summary produced._';
+            try { summary = fs.readFileSync('.agent-review/summary.md', 'utf8'); } catch {}
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: process.env.CHECK_NAME,
+              head_sha: context.payload.workflow_run.head_sha,
+              status: 'completed',
+              conclusion,
+              output: {
+                title: conclusion === 'success'
+                  ? 'Independent review: approved'
+                  : 'Independent review: changes requested',
+                summary,
+              },
+            });
+
+  promote:
+    needs: review
+    if: needs.review.outputs.conclusion == 'success' && needs.review.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4 # default branch — only need the gate script
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Run ready gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review.outputs.pr }}
+        run: |
+          set +e
+          node ./scripts/agent/mark-ready.mjs "$PR" --promote
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then echo "mark-ready tooling error" >&2; exit 2; fi
+          if [ "$code" -eq 1 ]; then echo "Not all ready-gates satisfied; leaving as draft."; fi
+
+  fix:
+    needs: review
+    if: needs.review.outputs.conclusion == 'failure' && needs.review.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: agent
+    permissions:
+      contents: write # push the fix commit
+      checks: read # read the reviewer's findings
+      pull-requests: write
+      issues: write
+    env:
+      WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    steps:
+      - name: Review-round guard
+        id: guard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = Number('${{ needs.review.outputs.pr }}');
+            const max = parseInt(process.env.MAX_REVIEW_ROUNDS, 10);
+            const marker = '<!-- agent-review-attempts -->';
+            const PAGED = '<!-- agent-review-paged -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing && existing.body.includes(PAGED)) {
+              core.info('Already paged a human for review rounds; stopping.');
+              core.setOutput('proceed', 'false'); return;
+            }
+            // If the reviewer produced no valid verdict, don't churn — page now.
+            if ('${{ needs.review.outputs.valid }}' !== 'true') {
+              const body = `${marker}\n${PAGED}\n🛑 The independent reviewer did not produce a valid verdict. **A human should review** PR #${pr}.`;
+              existing
+                ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
+                : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
+              core.setOutput('proceed', 'false'); return;
+            }
+            const count = existing ? parseInt((existing.body.match(/rounds:\s*(\d+)/) || [])[1] || '0', 10) : 0;
+            if (count >= max) {
+              const body = `${marker}\n${PAGED}\n🛑 Independent review requested changes ${count} times (rounds: ${count} / ${max}) without converging. **A human should take over** on PR #${pr}.`;
+              existing
+                ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
+                : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
+              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('proceed', 'false'); return;
+            }
+            const next = count + 1;
+            const body = `${marker}\nAutonomous review-fix rounds: ${next} / ${max}`;
+            existing
+              ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
+              : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
+            core.setOutput('proceed', 'true');
+
+      - name: Fetch reviewer findings
+        id: findings
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.checks.listForRef({
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha,
+              check_name: process.env.CHECK_NAME,
+            });
+            const run = data.check_runs[0];
+            core.setOutput('summary', run?.output?.summary || 'No findings summary available.');
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.proceed == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.proceed == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.proceed == 'true'
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - name: Install dependencies
+        if: steps.guard.outputs.proceed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Address review findings
+        if: steps.guard.outputs.proceed == 'true'
+        # Pin to a released tag/SHA before enabling.
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            The independent reviewer requested changes on your PR. Findings:
+
+            ${{ steps.findings.outputs.summary }}
+
+            Address every BLOCKING finding. For each, either fix it (keeping
+            `pnpm verify:fast` green per commit) or, if you believe it is wrong,
+            reply in the PR thread with your reasoning per CONTRIBUTING.md. Append
+            a follow-up commit (do NOT force-push); the commit message must end
+            with the trailer "Assisted-by: Claude Code (autonomous)". Do not merge.
+            Pushing will re-run CI and a fresh independent review.
+          claude_args: >-
+            --max-turns 40
+            --model claude-opus-4-8
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
