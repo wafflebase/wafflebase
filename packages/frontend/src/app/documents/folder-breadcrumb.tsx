@@ -9,10 +9,12 @@ export function FolderBreadcrumb({
   folders,
   folderId,
   onNavigate,
+  onDropDocs,
 }: {
   folders: Folder[];
   folderId: string | null;
   onNavigate: (id: string | null) => void;
+  onDropDocs?: (targetFolderId: string | null, dataTransfer: DataTransfer) => void;
 }) {
   const path = folderPath(folders, folderId);
   return (
@@ -24,6 +26,8 @@ export function FolderBreadcrumb({
         type="button"
         className="hover:text-foreground"
         onClick={() => onNavigate(null)}
+        onDragOver={(e) => onDropDocs && e.preventDefault()}
+        onDrop={(e) => onDropDocs?.(null, e.dataTransfer)}
       >
         Home
       </button>
@@ -34,6 +38,8 @@ export function FolderBreadcrumb({
             type="button"
             className="hover:text-foreground"
             onClick={() => onNavigate(f.id)}
+            onDragOver={(e) => onDropDocs && e.preventDefault()}
+            onDrop={(e) => onDropDocs?.(f.id, e.dataTransfer)}
           >
             {f.name}
           </button>

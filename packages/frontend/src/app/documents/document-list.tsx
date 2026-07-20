@@ -86,7 +86,12 @@ import {
 } from "@/components/ui/tooltip";
 
 import type { Document, DocumentType, Folder } from "@/types/documents";
-import { allManageable } from "./document-bulk";
+import {
+  allManageable,
+  decodeDocDrag,
+  encodeDocDrag,
+  isDocDrag,
+} from "./document-bulk";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import { FolderBreadcrumb } from "./folder-breadcrumb";
 import { folderPath } from "./folder-path";
@@ -677,6 +682,11 @@ export function DocumentList({
   });
   const [rowSelection, setRowSelection] = useState({});
   const [typeFilters, setTypeFilters] = useState<Set<DocumentType>>(new Set());
+  // Which drop target (folder card id, or "root" for a breadcrumb segment)
+  // is currently under an in-flight document drag, for hover highlighting.
+  const [dragOverFolderId, setDragOverFolderId] = useState<
+    string | null | "root"
+  >(null);
 
   const toggleType = (type: DocumentType) => {
     setTypeFilters((prev) => {
@@ -757,6 +767,27 @@ export function DocumentList({
             folders={folders}
             folderId={folderId}
             onNavigate={onNavigateFolder}
+            onDropDocs={(targetFolderId, dt) => {
+              const ids = decodeDocDrag(dt);
+              if (!ids || ids.length === 0 || !workspaceId) return;
+              if (
+                !allManageable(
+                  ids,
+                  filteredData.map((d) => ({
+                    id: String(d.id),
+                    canManage: d.canManage,
+                  })),
+                )
+              ) {
+                toast.error("You can only move documents you own");
+                return;
+              }
+              moveDocumentsMutation.mutate({
+                ids,
+                workspaceId,
+                folderId: targetFolderId,
+              });
+            }}
           />
         </div>
       )}
@@ -858,7 +889,43 @@ export function DocumentList({
           {childFolders.map((f) => (
             <div
               key={f.id}
-              className="flex items-center gap-2 rounded-md border pl-3 pr-1 py-2 text-sm hover:bg-muted"
+              className={`flex items-center gap-2 rounded-md border pl-3 pr-1 py-2 text-sm hover:bg-muted ${
+                dragOverFolderId === f.id ? "ring-2 ring-primary" : ""
+              }`}
+              onDragOver={(e) => {
+                if (!isDocDrag(e.dataTransfer)) return;
+                e.preventDefault();
+                setDragOverFolderId(f.id);
+              }}
+              onDragLeave={() =>
+                setDragOverFolderId((cur) => (cur === f.id ? null : cur))
+              }
+              onDrop={(e) => {
+                const ids = decodeDocDrag(e.dataTransfer);
+                setDragOverFolderId(null);
+                if (!ids || ids.length === 0) return;
+                e.preventDefault();
+                if (
+                  !allManageable(
+                    ids,
+                    filteredData.map((d) => ({
+                      id: String(d.id),
+                      canManage: d.canManage,
+                    })),
+                  )
+                ) {
+                  toast.error("You can only move documents you own");
+                  return;
+                }
+                // Folder cards only render inside a workspace, so the
+                // component's `workspaceId` prop is the target workspace (the
+                // frontend `Folder` type carries no workspaceId).
+                moveDocumentsMutation.mutate({
+                  ids,
+                  workspaceId,
+                  folderId: f.id,
+                });
+              }}
             >
               <button
                 type="button"
@@ -982,6 +1049,16 @@ export function DocumentList({
                   tabIndex={0}
                   aria-label={`Open ${String(row.getValue("title") ?? "document")}`}
                   className="cursor-pointer hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  draggable={row.original.canManage}
+                  onDragStart={(e) => {
+                    const id = String(row.original.id);
+                    const selected = Object.keys(rowSelection);
+                    const ids =
+                      row.getIsSelected() && selected.length > 0
+                        ? selected
+                        : [id];
+                    encodeDocDrag(e.dataTransfer, ids);
+                  }}
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     if ((e.target as HTMLElement).closest("input, button")) {
                       return;
