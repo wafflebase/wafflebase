@@ -1,0 +1,72 @@
+name: Agent task
+description: A well-scoped task suitable for the autonomous implementation agent.
+title: "[agent] "
+labels: ["agent:candidate"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill this out completely. A maintainer reviews the spec and, when it is
+        sufficient, kicks off the agent by commenting `@claude implement this`
+        on the issue. The agent follows `CLAUDE.md` / `CONTRIBUTING.md` exactly
+        and opens a **draft** PR for a final human review before merge.
+
+        **Do not use this template for security issues** — those follow the
+        private disclosure process in `CONTRIBUTING.md` and never go to the agent.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should be true when this is done? Describe the user-visible behavior, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: A checklist the agent can self-verify and turn into the PR test plan.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary package / area
+      options:
+        - sheets
+        - docs
+        - slides
+        - frontend
+        - backend
+        - cli
+        - documentation
+        - harness / tooling
+        - cross-cutting
+    validations:
+      required: true
+  - type: dropdown
+    id: arch_change
+    attributes:
+      label: Architecture change?
+      description: If yes, the agent must add or update a design doc under docs/design/ (see docs/design/template.md).
+      options:
+        - "No"
+        - "Yes — needs a design doc"
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / out-of-scope
+      description: e.g. Store interface only, do not hand-edit ANTLR generated files, chunk budgets, files not to touch, backend/CRDT paths that require integration tests.
+    validations:
+      required: false
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Relevant files / prior art
+      description: Point the agent at the code, design docs, or similar past changes it should read first.
+    validations:
+      required: false

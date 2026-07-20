@@ -1,1 +1,4 @@
 blank_issues_enabled: false
+# Security issues must NOT be filed with the "Agent task" template — they follow
+# the private disclosure process in CONTRIBUTING.md and are never handed to the
+# autonomous implementation agent.

@@ -303,7 +303,7 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Docker-based CI provisioning delivered (Phase 23) |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); agent observability next (Phase 21) |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`summarize-ci.mjs`); autonomous contribution loop (Phase 24) |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
 ## Remaining Work
@@ -319,9 +319,62 @@ Deliverables:
 - Structured logging format for backend services (JSON, correlation IDs).
 - Per-branch or per-PR observability context (log grouping by change).
 - Agent-queryable failure summaries from lane report artifacts.
+  **Delivered** by `scripts/agent/summarize-ci.mjs`, which reads the
+  `.harness-reports/summary.json` + per-lane files that `verify:self` already
+  emits and prints a ranked root-cause digest (failing lane + its
+  `failureSummary`, downstream skips noted). Consumed by the autonomous
+  contribution loop below.
 
 Done criteria: An agent can diagnose a CI failure from report artifacts
 without human interpretation.
+
+### Phase 24: Autonomous Contribution Loop
+
+**Principle:** Mechanical Enforcement + Capability-First Debugging — drive the
+existing human workflow autonomously while keeping every gate a human already
+relied on.
+
+Goal: When a human posts an issue, an agent plans, implements, self-reviews, and
+iterates on CI/review feedback until the PR is ready for a **final human review**
+before merge. Maintainer review, merge, release, and deploy remain human.
+
+This is a thin orchestration layer over the existing harness — it reuses
+CLAUDE.md/CONTRIBUTING.md as the process source of truth, the `verify:*` lanes,
+the `.claude/settings.json` hooks, and the CI `<!-- harness-verification -->`
+evidence comment. It adds no parallel process; it triggers Claude Code
+(`anthropics/claude-code-action`) and enforces one human review gate.
+
+Components:
+- **Kickoff** — `.github/workflows/agent-implement.yml`: a trusted-author
+  `@claude` mention on an issue (or manual dispatch) runs Claude Code headless,
+  which follows the standard task workflow and opens a **draft** PR from an
+  `agent/<issue#>-<slug>` branch. Structured spec via
+  `.github/ISSUE_TEMPLATE/agent-task.yml`.
+- **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
+  failure for an `agent/` branch, `summarize-ci.mjs` (Phase 21) feeds the
+  diagnosis back to the agent, which pushes a fix. A bounded attempts counter
+  pages a human instead of looping forever.
+- **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
+  a `@claude` mention in a PR/review thread has the agent address the finding (or
+  push back with reasoning) in-thread.
+- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by
+  `.github/workflows/agent-mark-ready.yml` on CI success for `agent/` branches:
+  promotes draft → ready only when the CI evidence comment is green, the
+  self-review is clean, and AI authorship is disclosed. Trust keys off CI-posted
+  evidence, never the agent's self-report.
+- **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
+  gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
+  `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
+
+Human gate (mechanical, not prompt-based): branch protection on `main` requires a
+human approving review + CODEOWNERS + CI green + dismiss-stale-approvals. The
+agent token is non-admin; the pipeline never calls `gh pr merge`. "You sign off
+on every line" moves to the approving human reviewer.
+
+Done criteria: A maintainer's `@claude` on a well-specified issue yields a green,
+self-reviewed, disclosed draft PR marked ready-for-review, with no human keystroke
+between the mention and the review request — and no path for the agent to reach
+`main`.
 
 ## Harness Policy
 

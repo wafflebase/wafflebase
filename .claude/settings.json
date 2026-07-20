@@ -20,6 +20,15 @@
             "command": "scripts/hooks/guard-generated-files.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/require-ai-disclosure.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [

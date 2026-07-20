@@ -1,0 +1,38 @@
+# CODEOWNERS — required reviewers per path.
+#
+# GitHub requests a review from the matching owner(s) on every PR, and (when
+# "Require review from Code Owners" is enabled in branch protection) their
+# approval is required to merge. Later matches win, so more specific paths
+# override the global default.
+#
+# ⚠️ EDIT THE OWNERS BELOW before enabling. Replace @hackerwins with the real
+# maintainer usernames or a team (e.g. @wafflebase/maintainers). Every listed
+# owner must have write access to the repo, or GitHub silently ignores the line.
+# This file is the human gate for the autonomous agent pipeline: the agent can
+# never be a code owner, so a human owner always has to approve.
+
+# Global default owner for everything not matched below.
+*                               @hackerwins
+
+# --- Packages (uncomment / assign as ownership solidifies) -------------------
+# /packages/sheets/             @hackerwins
+# /packages/docs/               @hackerwins
+# /packages/slides/             @hackerwins
+# /packages/frontend/           @hackerwins
+# /packages/backend/            @hackerwins
+# /packages/cli/                @hackerwins
+# /packages/core/               @hackerwins
+
+# --- Harness / CI / release infrastructure ----------------------------------
+/.github/                       @hackerwins
+/scripts/                       @hackerwins
+/harness.config.json            @hackerwins
+/docs/design/harness-engineering.md  @hackerwins
+
+# --- Autonomous agent pipeline (extra scrutiny) ------------------------------
+# These files decide what the agent is allowed to do — keep them tightly owned.
+/.github/workflows/agent-*.yml  @hackerwins
+/.github/ISSUE_TEMPLATE/agent-task.yml  @hackerwins
+/scripts/agent/                 @hackerwins
+/scripts/hooks/                 @hackerwins
+/.claude/                       @hackerwins
