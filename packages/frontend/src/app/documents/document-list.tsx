@@ -98,8 +98,8 @@ import {
 } from "./document-list-utils";
 import {
   createDocument,
-  deleteDocument,
-  moveDocument,
+  deleteDocuments,
+  moveDocuments,
   renameDocument,
 } from "@/api/documents";
 import {
@@ -400,8 +400,8 @@ export function DocumentList({
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setMovingDoc({
-                      id: String(row.getValue("id")),
+                    setMoving({
+                      ids: [String(row.getValue("id"))],
                       title: row.getValue("title"),
                       workspaceId: row.original.workspaceId,
                     });
@@ -418,8 +418,8 @@ export function DocumentList({
                   className="text-destructive focus:text-destructive"
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setDeletingDoc({
-                      id: String(row.getValue("id")),
+                    setDeleting({
+                      ids: [String(row.getValue("id"))],
                       title: row.getValue("title"),
                     });
                   }}
@@ -435,16 +435,16 @@ export function DocumentList({
     },
   ];
 
-  const [deletingDoc, setDeletingDoc] = useState<{
-    id: string;
+  const [deleting, setDeleting] = useState<{
+    ids: string[];
     title: string;
   } | null>(null);
   const [renamingDoc, setRenamingDoc] = useState<{
     id: string;
     title: string;
   } | null>(null);
-  const [movingDoc, setMovingDoc] = useState<{
-    id: string;
+  const [moving, setMoving] = useState<{
+    ids: string[];
     title: string;
     workspaceId: string;
   } | null>(null);
@@ -464,13 +464,13 @@ export function DocumentList({
   const { data: workspaces = [] } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
-    enabled: movingDoc !== null,
+    enabled: moving !== null,
   });
 
   const { data: moveTargetFolders = [] } = useQuery<Folder[]>({
     queryKey: ["workspaces", targetWorkspaceId, "folders"],
     queryFn: () => fetchFolders(targetWorkspaceId),
-    enabled: movingDoc !== null && !!targetWorkspaceId,
+    enabled: moving !== null && !!targetWorkspaceId,
   });
 
   const createDocumentMutation = useMutation({
@@ -556,16 +556,26 @@ export function DocumentList({
     startBatch(await pickFiles(accept));
   };
 
-  const deleteDocumentMutation = useMutation({
-    mutationFn: async (id: string) => await deleteDocument(id),
-    onSuccess: () => {
+  const deleteDocumentsMutation = useMutation({
+    mutationFn: async (ids: string[]) => await deleteDocuments(ids),
+    onSuccess: (_res, ids) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       if (workspaceId) {
         queryClient.invalidateQueries({
           queryKey: ["workspaces", workspaceId, "documents"],
         });
       }
+      setRowSelection((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      setDeleting(null);
+      toast.success(
+        ids.length > 1 ? `${ids.length} documents deleted` : "Document deleted",
+      );
     },
+    onError: () => toast.error("Failed to delete documents"),
   });
 
   const renameDocumentMutation = useMutation({
@@ -582,28 +592,35 @@ export function DocumentList({
     },
   });
 
-  const moveDocumentMutation = useMutation({
+  const moveDocumentsMutation = useMutation({
     mutationFn: async ({
-      id,
+      ids,
       workspaceId: targetId,
       folderId: targetFid,
     }: {
-      id: string;
+      ids: string[];
       workspaceId?: string;
       folderId?: string | null;
     }) =>
-      await moveDocument(id, { workspaceId: targetId, folderId: targetFid }),
-    onSuccess: () => {
+      await moveDocuments(ids, { workspaceId: targetId, folderId: targetFid }),
+    onSuccess: (_res, vars) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      toast.success("Document moved successfully");
-      setMovingDoc(null);
+      toast.success(
+        vars.ids.length > 1
+          ? `${vars.ids.length} documents moved`
+          : "Document moved successfully",
+      );
+      setMoving(null);
       setTargetWorkspaceId("");
       setTargetFolderId(null);
+      setRowSelection((prev) => {
+        const next = { ...prev };
+        for (const id of vars.ids) delete next[id];
+        return next;
+      });
     },
-    onError: () => {
-      toast.error("Failed to move document");
-    },
+    onError: () => toast.error("Failed to move documents"),
   });
 
   const createFolderMutation = useMutation({
@@ -1063,10 +1080,10 @@ export function DocumentList({
       </Dialog>
 
       <Dialog
-        open={movingDoc !== null}
+        open={moving !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setMovingDoc(null);
+            setMoving(null);
             setTargetWorkspaceId("");
             setTargetFolderId(null);
           }
@@ -1076,7 +1093,7 @@ export function DocumentList({
           <DialogHeader>
             <DialogTitle>Move Document</DialogTitle>
             <DialogDescription>
-              Select a workspace and folder to move &ldquo;{movingDoc?.title}
+              Select a workspace and folder to move &ldquo;{moving?.title}
               &rdquo; to.
             </DialogDescription>
           </DialogHeader>
@@ -1132,7 +1149,7 @@ export function DocumentList({
               type="button"
               variant="outline"
               onClick={() => {
-                setMovingDoc(null);
+                setMoving(null);
                 setTargetWorkspaceId("");
                 setTargetFolderId(null);
               }}
@@ -1140,13 +1157,11 @@ export function DocumentList({
               Cancel
             </Button>
             <Button
-              disabled={
-                !targetWorkspaceId || moveDocumentMutation.isPending
-              }
+              disabled={!targetWorkspaceId || moveDocumentsMutation.isPending}
               onClick={() => {
-                if (movingDoc && targetWorkspaceId) {
-                  moveDocumentMutation.mutate({
-                    id: movingDoc.id,
+                if (moving && targetWorkspaceId) {
+                  moveDocumentsMutation.mutate({
+                    ids: moving.ids,
                     workspaceId: targetWorkspaceId,
                     folderId: targetFolderId,
                   });
@@ -1160,36 +1175,35 @@ export function DocumentList({
       </Dialog>
 
       <Dialog
-        open={deletingDoc !== null}
+        open={deleting !== null}
         onOpenChange={(open) => {
-          if (!open) setDeletingDoc(null);
+          if (!open) setDeleting(null);
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Document</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete &ldquo;{deletingDoc?.title}
-              &rdquo;? This action cannot be undone.
+              Are you sure you want to delete{" "}
+              {deleting && deleting.ids.length > 1
+                ? `${deleting.ids.length} documents`
+                : `“${deleting?.title}”`}
+              ? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeletingDoc(null)}
+              onClick={() => setDeleting(null)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={deleteDocumentMutation.isPending}
+              disabled={deleteDocumentsMutation.isPending}
               onClick={() => {
-                if (deletingDoc) {
-                  deleteDocumentMutation.mutate(deletingDoc.id, {
-                    onSuccess: () => setDeletingDoc(null),
-                  });
-                }
+                if (deleting) deleteDocumentsMutation.mutate(deleting.ids);
               }}
             >
               Delete
