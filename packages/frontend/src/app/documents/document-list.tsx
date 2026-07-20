@@ -681,6 +681,13 @@ export function DocumentList({
     id: false,
   });
   const [rowSelection, setRowSelection] = useState({});
+
+  // Reset the multi-selection when navigating to a different folder/workspace
+  // so a stale selection can't leave the bulk bar showing disabled actions.
+  useEffect(() => {
+    setRowSelection({});
+  }, [folderId, workspaceId]);
+
   const [typeFilters, setTypeFilters] = useState<Set<DocumentType>>(new Set());
   // Which drop target (folder card id, or "root" for a breadcrumb segment)
   // is currently under an in-flight document drag, for hover highlighting.
