@@ -789,11 +789,10 @@ export function DocumentList({
                 toast.error("You can only move documents you own");
                 return;
               }
-              moveDocumentsMutation.mutate({
-                ids,
-                workspaceId,
-                folderId: targetFolderId,
-              });
+              // Same-workspace move: omit workspaceId so the server derives the
+              // target workspace per document. The route `workspaceId` here may
+              // be a workspace slug, which the move DTO's @IsUUID would reject.
+              moveDocumentsMutation.mutate({ ids, folderId: targetFolderId });
             }}
           />
         </div>
@@ -924,14 +923,11 @@ export function DocumentList({
                   toast.error("You can only move documents you own");
                   return;
                 }
-                // Folder cards only render inside a workspace, so the
-                // component's `workspaceId` prop is the target workspace (the
-                // frontend `Folder` type carries no workspaceId).
-                moveDocumentsMutation.mutate({
-                  ids,
-                  workspaceId,
-                  folderId: f.id,
-                });
+                // Same-workspace move: omit workspaceId so the server derives
+                // the target workspace per document. The route `workspaceId`
+                // may be a workspace slug, which the move DTO's @IsUUID rejects
+                // (the folder is already in this workspace).
+                moveDocumentsMutation.mutate({ ids, folderId: f.id });
               }}
             >
               <button
