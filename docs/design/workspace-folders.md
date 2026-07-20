@@ -40,14 +40,16 @@ entirely by workspace membership and per-document share links.
 
 - **Permission inheritance** — folders do not carry sharing; a folder never
   grants or revokes access to the documents inside it.
-- **Drag-and-drop** — moving is done through the existing (extended) "Move
-  to…" dialog. DnD is a later enhancement.
 - **Sidebar folder tree** — navigation is in-list drill-in only; the sidebar
   keeps its current workspace switcher.
 - **REST API v1 folder support** — v1 cannot even move a document between
   workspaces today; folder support there is a follow-up.
-- **Multi-parent folders / shortcuts, trash, folder color/star, bulk
-  multi-select move** — all deferred.
+- **Multi-parent folders / shortcuts, trash, folder color/star** — all deferred.
+
+> **Delivered in a follow-up:** the v1 doc deferred *bulk multi-select move*
+> and *drag-and-drop*. Both are now specified in
+> [Bulk multi-select move + drag-and-drop](#bulk-multi-select-move--drag-and-drop)
+> below.
 
 ## Proposal Details
 
@@ -195,6 +197,97 @@ history. The sidebar is unchanged.
   updates the query param and refetches; the extended move dialog posts
   `{ workspaceId, folderId }`.
 
+## Bulk multi-select move + drag-and-drop
+
+The v1 move primitive is single-document only, both frontend and backend
+(`document.controller.ts` `PATCH documents/:id`, and the single-`movingDoc`
+dialog in `document-list.tsx`). This follow-up adds Google-Drive-style
+**multi-select** with two ways to move a selection into a folder: an extended
+**"Move to…" dialog** and **drag-and-drop** onto folder rows/cards. Selection
+is explicit (checkboxes) so the current row-click-to-open behavior is preserved.
+
+### Backend — two bulk endpoints
+
+Both mirror the existing single-document validation per id; both are
+manager-gated per document via the same `resolveDocManager` predicate.
+
+| Method | Route | Body | Notes |
+| ------ | ----- | ---- | ----- |
+| `PATCH` | `documents/move` | `{ ids: string[], workspaceId?, folderId? }` | Move N documents. Single Prisma transaction. **Atomic**: if any id fails the manager gate or same-workspace validation, reject `403` with the offending ids and move nothing. `workspaceId`+`folderId` together behave like the single path (crossing workspace drops the folder unless `folderId` is given). Per-doc `updatedAt` bump kept, matching the single move. |
+| `POST` | `documents/delete` | `{ ids: string[] }` | Delete N documents (manager-gated per id). Symmetric with the bulk move; avoids N fan-out `DELETE` calls. |
+
+New DTOs `MoveDocumentsDto` / `DeleteDocumentsDto` in `document.dto.ts`. The
+existing single-document `PATCH documents/:id` and `DELETE documents/:id` stay
+for the per-row menu (or are re-expressed as `ids: [id]` — see frontend).
+
+Validation reuses the single-path helpers verbatim per id: `assertMember`
+(cross-workspace), `assertSameWorkspace(folderId, targetWorkspaceId)`, and the
+`resolveDocManager` owner-or-author gate. The transaction means a mixed
+selection (some manageable, some not) is rejected as a unit rather than
+half-applied.
+
+### Frontend — selection state
+
+Selection is **view-local**, so it stays in the already-wired but currently
+inert TanStack `rowSelection` state in `document-list.tsx` (no module-singleton
+store needed — unlike the upload queue, selection doesn't outlive the list).
+`getRowId` already keys rows by document id.
+
+- A leading **checkbox column**: header select-all, per-row checkbox (shown on
+  hover / when selected), shift-click range select (TanStack built-in).
+- **Row click still opens the document** (unchanged). Only the checkbox mutates
+  selection. This is the Gmail/Drive-list model and keeps the existing behavior
+  intact.
+
+### Frontend — bulk action bar
+
+When `≥ 1` row is selected, a bar renders above the table: **"N selected" ·
+Move to… · Delete · ✕ (clear)**.
+
+- Move / Delete are enabled **only when every selected document is manageable**
+  by the user (`canManage`); otherwise disabled with a tooltip. Selection
+  itself is unrestricted (you can select any row to see the count), but the
+  destructive/relocating actions require full permission over the set — which
+  matches the atomic backend contract.
+
+### Frontend — move dialog (generalized)
+
+The existing dialog is reused: the single `movingDoc` object generalizes to a
+**set of ids** (title becomes "Move N items" when `> 1`). Workspace + folder
+pickers are unchanged. Submit calls a new `moveDocuments(ids, { workspaceId,
+folderId })`. The **per-row "Move" menu item routes through the same dialog with
+a single id**, collapsing to one code path.
+
+Bulk delete reuses a confirmation dialog ("Delete N documents?") → `deleteDocuments(ids)`.
+
+### Frontend — drag-and-drop
+
+- Rows are **`draggable` only when `canManage`**. On `dragstart`, if the dragged
+  row is part of the current selection the whole selection is dragged; otherwise
+  just that row. The payload rides on `dataTransfer` under a custom type
+  `application/x-wafflebase-docs` carrying the ids.
+- **Drop targets**: folder cards (the existing grid) and breadcrumb segments
+  (drop onto an ancestor / root). `dragover` highlights the target; `drop`
+  calls `moveDocuments(ids, { folderId })`.
+- **Coexistence with `useWindowFileDrop`** (upload DnD) is safe: that listener
+  only reacts to `dataTransfer.types.includes("Files")`, and the internal drag
+  carries a custom MIME type, not OS files — so the two DnD systems don't
+  interfere.
+
+### API layer
+
+`api/documents.ts` gains `moveDocuments(ids, { workspaceId?, folderId? })` →
+`PATCH /documents/move` and `deleteDocuments(ids)` → `POST /documents/delete`.
+
+### Testing (this follow-up)
+
+- **Backend:** bulk move rejects atomically (`403`) when one id isn't
+  manageable; same-workspace folder validation; cross-workspace move drops the
+  folder; bulk delete gate; empty `ids` rejected.
+- **Frontend:** select-all + shift-range selection; action bar enable/disable by
+  whole-selection `canManage`; move dialog posts `{ ids, workspaceId, folderId }`;
+  a folder-card drop calls `moveDocuments` with the selection ids.
+
 ## Risks and Mitigation
 
 - **Move cycles** → a folder made its own ancestor would corrupt the tree.
@@ -230,3 +323,21 @@ history. The sidebar is unchanged.
   list ignores folders and stays flat. This is intentional (folders are a
   per-workspace organizing surface), but documented so the two lists reading
   differently is not mistaken for a bug.
+- **Atomic bulk move rejects a partially-manageable selection** → moving a
+  mixed set (some manageable, some not) fails entirely rather than moving what
+  it can, unlike Google Drive's best-effort move. Mitigated by gating the bulk
+  Move/Delete buttons on *whole-selection* `canManage` in the frontend, so the
+  user cannot trigger a doomed request; the atomic `403` is a defense-in-depth
+  backstop, not the primary UX. Best-effort partial move is a later option if
+  the all-or-nothing rule proves surprising.
+- **Two DnD systems on one page** → internal row→folder drag coexists with the
+  window-level file-upload drop (`useWindowFileDrop`). Kept disjoint by MIME
+  type: uploads key on `dataTransfer.types.includes("Files")`, the internal drag
+  uses `application/x-wafflebase-docs`. Neither handler fires for the other's
+  payload.
+- **Bulk delete atomicity** → unlike bulk move, `POST documents/delete` is not
+  wrapped in a single fail-if-any-denied transaction contract in v1; it is
+  manager-gated per id and the frontend already restricts the action to a
+  fully-manageable selection, so a partial delete is not reachable through the
+  UI. If direct API callers need strict atomicity it can adopt the same
+  all-or-nothing validation pass as move.
