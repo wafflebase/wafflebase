@@ -82,6 +82,63 @@ describe('parseParagraph', () => {
     const result = parseParagraph(el);
     expect(result.inlines.map((i) => i.text)).toEqual(['Link']);
   });
+
+  it('should drop runs inside a tracked-change w:del (deleted content)', () => {
+    // Deleted content must not reappear on import. Deleted text uses
+    // <w:delText> (not read anyway), but deleted <w:tab/>/<w:br/> glyphs would
+    // otherwise leak as spurious whitespace once w:del became transparent.
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r><w:t>Kept</w:t></w:r>
+      <w:del>
+        <w:r><w:tab/><w:br/><w:delText>gone</w:delText></w:r>
+      </w:del>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Kept']);
+  });
+
+  it('should drop the source runs of a tracked move (w:moveFrom)', () => {
+    // The move source (w:moveFrom) duplicates text that lives at the move
+    // destination (w:moveTo); only the destination should import.
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:moveFrom><w:r><w:t>Moved</w:t></w:r></w:moveFrom>
+      <w:moveTo><w:r><w:t>Moved</w:t></w:r></w:moveTo>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Moved']);
+  });
+
+  it('should keep ruby base text but drop the phonetic guide (w:rt)', () => {
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r><w:ruby>
+        <w:rt><w:r><w:t>かん</w:t></w:r></w:rt>
+        <w:rubyBase><w:r><w:t>漢</w:t></w:r></w:rubyBase>
+      </w:ruby></w:r>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['漢']);
+  });
+
+  it('should not adopt a nested textbox paragraph’s pPr', () => {
+    // The outer paragraph has no pPr of its own; a paragraph nested inside a
+    // drawing textbox does. A descendant [0] pPr lookup would wrongly promote
+    // the outer paragraph to the nested heading style — and the nested run
+    // must stay out of the outer paragraph's inlines (blocked by the w:p floor).
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r><w:t>Body</w:t></w:r>
+      <w:r><w:drawing><w:txbxContent>
+        <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Inner</w:t></w:r></w:p>
+      </w:txbxContent></w:drawing></w:r>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Body']);
+    expect(result.blockType).toBe('paragraph');
+    expect(result.headingLevel).toBeUndefined();
+  });
 });
 
 describe('parsePageSetup', () => {

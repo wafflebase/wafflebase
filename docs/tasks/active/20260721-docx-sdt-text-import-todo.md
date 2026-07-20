@@ -23,14 +23,34 @@ text runs (63%) live under `<w:sdt>`, so the visible text vanished.
       asserting inline-sdt runs are included in document order, plus a
       hyperlink-inside-sdt case.
 
+## Review follow-ups (self code review, high effort)
+
+The broadened guard was a regression surface; the review surfaced adjacent
+correctness gaps addressed in the same PR:
+
+- [x] Exclude removed/alternate run wrappers so they no longer leak or
+      duplicate: tracked deletion (`w:del`), tracked-move source
+      (`w:moveFrom`), ruby phonetic guide (`w:rt`). Live counterparts
+      (`w:ins`/`w:moveTo`/`w:rubyBase`) stay visible.
+- [x] Fix the `pPr`/`rPr` property lookups from a descendant `[0]` match to a
+      direct-child scan, so a paragraph/run with no own properties no longer
+      adopts a nested drawing-textbox paragraph's style.
+- [x] Enumerate block-level `<w:sdt>`: a shared `blockChildElements` generator
+      unwraps `w:sdt`/`w:sdtContent` in the body, table-cell, and header/footer
+      walks so block-wrapped paragraphs/tables are no longer skipped.
+- [x] Clarify that the nested-block floor is load-bearing (drawing textboxes
+      legitimately nest paragraphs), not merely defensive.
+
 ## Verification
 
-- [x] `parseParagraph` unit tests green (7/7)
+- [x] `parseParagraph` unit tests green (11/11)
+- [x] Full docs import suite green (88/88)
 - [x] End-to-end import of the real file: 85 non-empty text lines restored
-      (was effectively none); "중간보고서", "개요", 멘티별 활동내역 all present
-- [x] Full docs import suite green (82/82)
-- [ ] `pnpm verify:fast`
-- [ ] Self code review over the branch diff
+      (was effectively none); title, overview, and per-mentee activity
+      sections all present. Count unchanged after the review follow-ups (no
+      legitimate content dropped).
+- [x] `pnpm verify:fast`
+- [x] Self code review over the branch diff (findings addressed above)
 - [ ] PR opened
 
 ## Note

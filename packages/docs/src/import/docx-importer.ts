@@ -128,10 +128,7 @@ export class DocxImporter {
     const blocks: Block[] = [];
     let pageSetup: PageSetup | undefined;
     let sectPrEl: Element | undefined;
-    for (let i = 0; i < body.childNodes.length; i++) {
-      const node = body.childNodes[i];
-      if (node.nodeType !== 1) continue;
-      const el = node as Element;
+    for (const el of DocxImporter.blockChildElements(body)) {
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, imageUrls));
       } else if (el.localName === 'tbl') {
@@ -415,10 +412,7 @@ export class DocxImporter {
 
         // Parse cell content blocks
         const cellBlocks: Block[] = [];
-        for (let k = 0; k < tcEl.childNodes.length; k++) {
-          const childNode = tcEl.childNodes[k];
-          if (childNode.nodeType !== 1) continue;
-          const childEl = childNode as Element;
+        for (const childEl of DocxImporter.blockChildElements(tcEl)) {
           if (childEl.localName === 'p') {
             cellBlocks.push(DocxImporter.convertParagraph(childEl, imageUrls));
           } else if (childEl.localName === 'tbl') {
@@ -624,6 +618,30 @@ export class DocxImporter {
   }
 
   /**
+   * Yield the effective block-level children of a container (body, table
+   * cell, or header/footer root), transparently unwrapping block-level
+   * content controls: a <w:sdt> wrapping block content exposes the
+   * <w:p>/<w:tbl>/<w:sectPr> inside its <w:sdtContent> as if they were direct
+   * children. Word forms and some Google Docs exports wrap whole paragraphs
+   * and tables this way; without unwrapping, the enclosed content would never
+   * be enumerated and the document would import empty. Nested block-level sdts
+   * are unwrapped recursively.
+   */
+  private static *blockChildElements(parent: Element): Iterable<Element> {
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const node = parent.childNodes[i];
+      if (node.nodeType !== 1) continue;
+      const el = node as Element;
+      if (el.localName === 'sdt') {
+        const content = DocxImporter.findDirectChild(el, 'sdtContent');
+        if (content) yield* DocxImporter.blockChildElements(content);
+        continue;
+      }
+      yield el;
+    }
+  }
+
+  /**
    * Return the first direct-child element with the given local name, or
    * null. Unlike getElementsByTagNameNS this does not recurse, which is
    * what we want for table structure lookups where nested tables must
@@ -722,10 +740,7 @@ export class DocxImporter {
     if (!root) return undefined;
 
     const blocks: Block[] = [];
-    for (let i = 0; i < root.childNodes.length; i++) {
-      const node = root.childNodes[i];
-      if (node.nodeType !== 1) continue;
-      const el = node as Element;
+    for (const el of DocxImporter.blockChildElements(root)) {
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, partImageUrls));
       } else if (el.localName === 'tbl') {

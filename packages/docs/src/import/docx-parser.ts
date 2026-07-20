@@ -123,22 +123,55 @@ export function parseRelationships(xml: string): Map<string, RelEntry> {
 }
 
 /**
+ * Return the first direct-child element with the given W-namespace local name,
+ * or null. Unlike getElementsByTagNameNS this does not recurse, so a
+ * paragraph/run that has no property element of its own does not adopt a
+ * nested paragraph's (e.g. a drawing textbox's <w:pPr>/<w:rPr>).
+ */
+function firstDirectChildNS(parent: Element, localName: string): Element | null {
+  for (let i = 0; i < parent.childNodes.length; i++) {
+    const n = parent.childNodes[i];
+    if (n.nodeType === 1) {
+      const el = n as Element;
+      if (el.namespaceURI === W && el.localName === localName) return el;
+    }
+  }
+  return null;
+}
+
+/**
+ * W-namespace wrappers whose runs must NOT be imported even though they sit
+ * inside the paragraph: tracked deletions (w:del) and the source side of a
+ * tracked move (w:moveFrom) are removed content, and the ruby phonetic guide
+ * (w:rt) would otherwise inline the reading next to the base text. Their live
+ * counterparts (w:ins, w:moveTo, w:rubyBase) are intentionally absent so their
+ * runs stay visible.
+ */
+const EXCLUDED_RUN_ANCESTORS = new Set(['del', 'moveFrom', 'rt']);
+
+/**
  * True when a <w:r> run is part of the given paragraph's own inline content.
  *
  * Walking up from the run, the first block ancestor we reach must be the
  * paragraph itself. Intermediate inline wrappers (w:hyperlink, w:sdt,
  * w:sdtContent, w:smartTag, w:fldSimple, w:ins…) are transparent — their runs
- * carry visible text that belongs to the paragraph. A nested block (another
- * w:p or a w:tbl) reached before the paragraph means the run lives in nested
- * structure and must not leak into this paragraph's inline list. In OOXML a
- * <w:p> cannot contain another <w:p>/<w:tbl>, so this is a defensive floor.
+ * carry visible text that belongs to the paragraph. Two categories stop the
+ * walk early and exclude the run:
+ *   - a nested block (w:p/w:tbl), which a paragraph legitimately contains via a
+ *     drawing textbox (<w:drawing><wps:txbx><w:txbxContent><w:p>); this floor
+ *     is load-bearing, not defensive — without it textbox runs would leak into
+ *     the enclosing paragraph's inline list.
+ *   - a removed/alternate wrapper (EXCLUDED_RUN_ANCESTORS: w:del, w:moveFrom,
+ *     w:rt) whose text should not import.
  */
 function runBelongsToParagraph(r: Element, pEl: Element): boolean {
   let node: Element | null = r.parentElement;
   while (node) {
     if (node === pEl) return true;
-    if (node.namespaceURI === W && (node.localName === 'p' || node.localName === 'tbl')) {
-      return false;
+    if (node.namespaceURI === W) {
+      const ln = node.localName;
+      if (ln === 'p' || ln === 'tbl') return false;
+      if (EXCLUDED_RUN_ANCESTORS.has(ln)) return false;
     }
     node = node.parentElement;
   }
@@ -160,7 +193,7 @@ export function parseParagraph(pEl: Element): {
   let headingLevel: number | undefined;
   const imageRefs: ImageRef[] = [];
 
-  const pPr = pEl.getElementsByTagNameNS(W, 'pPr')[0];
+  const pPr = firstDirectChildNS(pEl, 'pPr');
   if (pPr) {
     const mapped = mapParagraphProperties(pPr);
     blockStyle = mapped.blockStyle;
@@ -184,7 +217,7 @@ export function parseParagraph(pEl: Element): {
     }
 
     let style: InlineStyle = {};
-    const rPr = r.getElementsByTagNameNS(W, 'rPr')[0];
+    const rPr = firstDirectChildNS(r, 'rPr');
     if (rPr) {
       style = mapRunProperties(rPr);
     }

@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docx sdt text import (2026-07-21) | [20260721-docx-sdt-text-import-todo.md](./active/20260721-docx-sdt-text-import-todo.md) | [20260721-docx-sdt-text-import-lessons.md](./active/20260721-docx-sdt-text-import-lessons.md) |
 | documents bulk select move (2026-07-20) | [20260720-documents-bulk-select-move-todo.md](./active/20260720-documents-bulk-select-move-todo.md) | [20260720-documents-bulk-select-move-lessons.md](./active/20260720-documents-bulk-select-move-lessons.md) |
 | analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./active/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./active/20260719-analytics-dashboard-viz-lessons.md) |
 | image viewer (2026-07-19) | [20260719-image-viewer-todo.md](./active/20260719-image-viewer-todo.md) | [20260719-image-viewer-lessons.md](./active/20260719-image-viewer-lessons.md) |
@@ -40,4 +41,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: documents bulk select move (2026-07-20)
+Latest active task: docx sdt text import (2026-07-21)
