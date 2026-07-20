@@ -307,10 +307,8 @@ export class DocxImporter {
       }
     };
 
-    for (let i = 0; i < tblEl.childNodes.length; i++) {
-      const node = tblEl.childNodes[i];
-      if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
-      const trEl = node as Element;
+    for (const trEl of DocxImporter.blockChildElements(tblEl)) {
+      if (trEl.localName !== 'tr') continue;
 
       // <w:trPr> can declare w:gridBefore / w:gridAfter to leave N leading or
       // trailing grid columns empty. These rows ship fewer <w:tc> children
@@ -342,10 +340,8 @@ export class DocxImporter {
       const cells: TableCell[] = [];
       for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());
       let colIdx = gridBefore;
-      for (let j = 0; j < trEl.childNodes.length; j++) {
-        const tcNode = trEl.childNodes[j];
-        if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
-        const tcEl = tcNode as Element;
+      for (const tcEl of DocxImporter.blockChildElements(trEl)) {
+        if (tcEl.localName !== 'tc') continue;
 
         // Parse cell properties. Direct-child only: getElementsByTagNameNS
         // recurses, so an outer cell with no own <w:tcPr> would otherwise
@@ -557,15 +553,11 @@ export class DocxImporter {
    */
   private static deriveColWidthsFromCells(tblEl: Element, out: number[]): void {
     let best: number[] = [];
-    for (let i = 0; i < tblEl.childNodes.length; i++) {
-      const node = tblEl.childNodes[i];
-      if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
-      const trEl = node as Element;
+    for (const trEl of DocxImporter.blockChildElements(tblEl)) {
+      if (trEl.localName !== 'tr') continue;
       const weights: number[] = [];
-      for (let j = 0; j < trEl.childNodes.length; j++) {
-        const tcNode = trEl.childNodes[j];
-        if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
-        const tcEl = tcNode as Element;
+      for (const tcEl of DocxImporter.blockChildElements(trEl)) {
+        if (tcEl.localName !== 'tc') continue;
         // Direct-child only so a nested table's tcW/gridSpan never leaks into
         // the outer table's derived column widths.
         const tcPr = DocxImporter.findDirectChild(tcEl, 'tcPr');
@@ -618,14 +610,15 @@ export class DocxImporter {
   }
 
   /**
-   * Yield the effective block-level children of a container (body, table
-   * cell, or header/footer root), transparently unwrapping block-level
-   * content controls: a <w:sdt> wrapping block content exposes the
-   * <w:p>/<w:tbl>/<w:sectPr> inside its <w:sdtContent> as if they were direct
-   * children. Word forms and some Google Docs exports wrap whole paragraphs
-   * and tables this way; without unwrapping, the enclosed content would never
-   * be enumerated and the document would import empty. Nested block-level sdts
-   * are unwrapped recursively.
+   * Yield the effective children of a container, transparently unwrapping
+   * content controls: a <w:sdt> exposes whatever sits inside its
+   * <w:sdtContent> as if it were a direct child. Word forms and some Google
+   * Docs exports wrap block content (paragraphs/tables in the body, table
+   * cell, or header/footer root) as well as table rows (<w:tr>) and cells
+   * (<w:tc>) this way; without unwrapping, the enclosed content would never be
+   * enumerated and would vanish on import. Callers filter the yielded elements
+   * by local name (p/tbl/sectPr, tr, tc). Nested sdts are unwrapped
+   * recursively.
    */
   private static *blockChildElements(parent: Element): Iterable<Element> {
     for (let i = 0; i < parent.childNodes.length; i++) {

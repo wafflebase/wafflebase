@@ -98,6 +98,18 @@ describe('parseParagraph', () => {
     expect(result.inlines.map((i) => i.text)).toEqual(['Kept']);
   });
 
+  it('should keep runs inside a tracked-change w:ins (inserted content)', () => {
+    // w:ins is a live wrapper — inserted text must import. Guards against a
+    // regression that mistakenly excludes it alongside w:del/w:moveFrom.
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r><w:t>Kept</w:t></w:r>
+      <w:ins><w:r><w:t xml:space="preserve"> Added</w:t></w:r></w:ins>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Kept', ' Added']);
+  });
+
   it('should drop the source runs of a tracked move (w:moveFrom)', () => {
     // The move source (w:moveFrom) duplicates text that lives at the move
     // destination (w:moveTo); only the destination should import.

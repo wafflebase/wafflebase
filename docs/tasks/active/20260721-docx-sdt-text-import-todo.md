@@ -51,7 +51,10 @@ correctness gaps addressed in the same PR:
       legitimate content dropped).
 - [x] `pnpm verify:fast`
 - [x] Self code review over the branch diff (findings addressed above)
-- [ ] PR opened
+- [x] PR opened (#504)
+- [x] Address PR review: unwrap `w:sdt`-wrapped table rows/cells in
+      `convertTable`/`deriveColWidthsFromCells`; add a `w:ins`-inclusion
+      regression test
 
 ## Note
 

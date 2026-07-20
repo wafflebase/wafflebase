@@ -105,6 +105,36 @@ describe('DocxImporter', () => {
     ).toBe('Cell');
   });
 
+  it('should import table rows and cells wrapped in a w:sdt', async () => {
+    // Repeating-section content controls wrap <w:tr> at table level and <w:tc>
+    // at row level in <w:sdt>. The row and cell walks must unwrap them too, or
+    // the wrapped rows/cells vanish from the imported table.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="100"/><w:gridCol w:w="100"/></w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>
+          <w:sdt><w:sdtContent>
+            <w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc>
+          </w:sdtContent></w:sdt>
+        </w:tr>
+        <w:sdt><w:sdtContent>
+          <w:tr>
+            <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+            <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+          </w:tr>
+        </w:sdtContent></w:sdt>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const rows = doc.blocks[0].tableData?.rows ?? [];
+    const text = (r: number, c: number) =>
+      rows[r].cells[c].blocks[0].inlines[0].text;
+    expect(rows).toHaveLength(2);
+    expect([text(0, 0), text(0, 1)]).toEqual(['A1', 'B1']);
+    expect([text(1, 0), text(1, 1)]).toEqual(['A2', 'B2']);
+  });
+
   it('should import styled text runs', async () => {
     const buffer = await createMinimalDocx(`
       <w:p>
