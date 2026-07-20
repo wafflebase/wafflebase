@@ -123,6 +123,29 @@ export function parseRelationships(xml: string): Map<string, RelEntry> {
 }
 
 /**
+ * True when a <w:r> run is part of the given paragraph's own inline content.
+ *
+ * Walking up from the run, the first block ancestor we reach must be the
+ * paragraph itself. Intermediate inline wrappers (w:hyperlink, w:sdt,
+ * w:sdtContent, w:smartTag, w:fldSimple, w:ins…) are transparent — their runs
+ * carry visible text that belongs to the paragraph. A nested block (another
+ * w:p or a w:tbl) reached before the paragraph means the run lives in nested
+ * structure and must not leak into this paragraph's inline list. In OOXML a
+ * <w:p> cannot contain another <w:p>/<w:tbl>, so this is a defensive floor.
+ */
+function runBelongsToParagraph(r: Element, pEl: Element): boolean {
+  let node: Element | null = r.parentElement;
+  while (node) {
+    if (node === pEl) return true;
+    if (node.namespaceURI === W && (node.localName === 'p' || node.localName === 'tbl')) {
+      return false;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+/**
  * Parse a <w:p> element into inlines and block metadata.
  */
 export function parseParagraph(pEl: Element): {
@@ -149,10 +172,14 @@ export function parseParagraph(pEl: Element): {
   const runs = pEl.getElementsByTagNameNS(W, 'r');
   for (let i = 0; i < runs.length; i++) {
     const r = runs[i];
-    // Skip runs that are not a direct child of the paragraph or a hyperlink.
-    // Without this guard, runs inside nested structures we don't handle
-    // (e.g. w:sdt) leak into the surrounding paragraph's inline list.
-    if (r.parentElement !== pEl && r.parentElement?.localName !== 'hyperlink') {
+    // Include only runs that belong directly to this paragraph — descending
+    // through inline wrappers (w:hyperlink, w:sdt/w:sdtContent, w:smartTag,
+    // fields) but never through a nested block (w:p/w:tbl). getElementsByTagNameNS
+    // returns descendants in document order, so a run inside an inline content
+    // control keeps its position relative to the paragraph's direct-child runs.
+    // Google Docs wraps most exported body text in <w:sdt>, so the earlier
+    // "direct child or hyperlink only" guard dropped the majority of the text.
+    if (!runBelongsToParagraph(r, pEl)) {
       continue;
     }
 

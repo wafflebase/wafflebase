@@ -52,21 +52,35 @@ describe('parseParagraph', () => {
     expect(result.inlines[0].text).toBe('A\tB\nC');
   });
 
-  it('should skip runs nested inside structures like w:sdt', () => {
-    // A run whose parent is neither the paragraph nor a hyperlink must be
-    // skipped so it does not leak into the inline list of the outer
-    // paragraph. Without the guard, nested w:sdt content bled through.
+  it('should include runs wrapped in an inline w:sdt in document order', () => {
+    // An inline <w:sdt> (content control) inside a paragraph carries real,
+    // visible text that belongs to that paragraph — Google Docs wraps most
+    // exported body content this way. Its runs must be collected in document
+    // order alongside the paragraph's direct-child runs, not dropped.
     const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:r><w:t>Outer</w:t></w:r>
       <w:sdt>
         <w:sdtContent>
-          <w:r><w:t>Nested</w:t></w:r>
+          <w:r><w:t xml:space="preserve"> Nested</w:t></w:r>
         </w:sdtContent>
       </w:sdt>
     </w:p>`;
     const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
     const result = parseParagraph(el);
-    expect(result.inlines.map((i) => i.text)).toEqual(['Outer']);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Outer', ' Nested']);
+  });
+
+  it('should include runs wrapped in a hyperlink nested inside a w:sdt', () => {
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:sdt>
+        <w:sdtContent>
+          <w:hyperlink><w:r><w:t>Link</w:t></w:r></w:hyperlink>
+        </w:sdtContent>
+      </w:sdt>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Link']);
   });
 });
 
