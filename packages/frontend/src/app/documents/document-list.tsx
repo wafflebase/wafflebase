@@ -280,13 +280,13 @@ export function DocumentList({
       header: ({ table }) => (
         <Checkbox
           checked={
-            table.getIsAllPageRowsSelected()
+            table.getIsAllRowsSelected()
               ? true
-              : table.getIsSomePageRowsSelected()
+              : table.getIsSomeRowsSelected()
                 ? "indeterminate"
                 : false
           }
-          onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
           onClick={(e) => e.stopPropagation()}
           aria-label="Select all"
         />
@@ -298,17 +298,20 @@ export function DocumentList({
           onClick={(e) => {
             e.stopPropagation();
             const rows = table.getSortedRowModel().rows;
+            // Resolve the anchor to its CURRENT position, so a sort or filter
+            // change between clicks can't select the wrong range.
+            const anchorIdx = lastSelectedId.current
+              ? rows.findIndex((r) => r.id === lastSelectedId.current)
+              : -1;
             const idx = rows.findIndex((r) => r.id === row.id);
-            if (e.shiftKey && lastSelectedIndex.current !== null) {
+            if (e.shiftKey && anchorIdx !== -1 && idx !== -1) {
               e.preventDefault(); // suppress Radix's own toggle; we own the range write
-              const [lo, hi] = [lastSelectedIndex.current, idx].sort(
-                (a, b) => a - b,
-              );
+              const [lo, hi] = [anchorIdx, idx].sort((a, b) => a - b);
               const next: Record<string, boolean> = {};
               for (let i = lo; i <= hi; i++) next[rows[i].id] = true;
               table.setRowSelection((prev) => ({ ...prev, ...next }));
             }
-            lastSelectedIndex.current = idx;
+            lastSelectedId.current = row.id;
           }}
           aria-label={`Select ${String(row.getValue("title") ?? "document")}`}
         />
@@ -501,8 +504,10 @@ export function DocumentList({
   // workspaces and flush a single invalidation on a short trailing debounce.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRefreshWorkspaces = useRef<Set<string>>(new Set());
-  // Anchor row for shift-click range selection (index into the sorted rows).
-  const lastSelectedIndex = useRef<number | null>(null);
+  // Anchor row id for shift-click range selection. Stored as the document id
+  // (not a row index) so it stays valid across re-sorts and type-filter changes
+  // — it is resolved to the current row order at shift-click time.
+  const lastSelectedId = useRef<string | null>(null);
   const scheduleListRefresh = useCallback(
     (wid?: string) => {
       if (wid) pendingRefreshWorkspaces.current.add(wid);
@@ -572,11 +577,7 @@ export function DocumentList({
           queryKey: ["workspaces", workspaceId, "documents"],
         });
       }
-      setRowSelection((prev) => {
-        const next = { ...prev };
-        for (const id of ids) delete next[id];
-        return next;
-      });
+      deselect(ids);
       setDeleting(null);
       toast.success(
         ids.length > 1 ? `${ids.length} documents deleted` : "Document deleted",
@@ -621,11 +622,7 @@ export function DocumentList({
       setMoving(null);
       setTargetWorkspaceId("");
       setTargetFolderId(null);
-      setRowSelection((prev) => {
-        const next = { ...prev };
-        for (const id of vars.ids) delete next[id];
-        return next;
-      });
+      deselect(vars.ids);
     },
     onError: () => toast.error("Failed to move documents"),
   });
@@ -686,6 +683,7 @@ export function DocumentList({
   // so a stale selection can't leave the bulk bar showing disabled actions.
   useEffect(() => {
     setRowSelection({});
+    lastSelectedId.current = null;
   }, [folderId, workspaceId]);
 
   const [typeFilters, setTypeFilters] = useState<Set<DocumentType>>(new Set());
@@ -742,18 +740,32 @@ export function DocumentList({
   );
 
   const selectedIds = Object.keys(rowSelection);
-  const selectedCanManage = allManageable(
-    selectedIds,
-    filteredData.map((d) => ({ id: String(d.id), canManage: d.canManage })),
-  );
+  // Resolve the selection against the FULL data set, not `filteredData`: a type
+  // filter hides rows but does not deselect them, so gating the bulk actions on
+  // `filteredData` would wrongly read a still-selected but hidden doc as
+  // unmanageable / out-of-scope. `manageableSource` covers every doc that can
+  // be selected on this list.
+  const manageableSource = data.map((d) => ({
+    id: String(d.id),
+    canManage: d.canManage,
+  }));
+  const selectedCanManage = allManageable(selectedIds, manageableSource);
   // Common source workspace of the selection (for the move dialog's initial
   // target); "" when the selection spans workspaces (only possible on the
   // global /documents list).
   const selectedWorkspaceId = (() => {
-    const set = filteredData.filter((d) => selectedIds.includes(String(d.id)));
+    const set = data.filter((d) => selectedIds.includes(String(d.id)));
     const wss = new Set(set.map((d) => d.workspaceId));
     return wss.size === 1 ? [...wss][0] : "";
   })();
+
+  // Drop a set of ids from the current selection (after a move/delete).
+  const deselect = (ids: string[]) =>
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
 
   const openBulkMove = () => {
     setMoving({
@@ -777,22 +789,25 @@ export function DocumentList({
             onDropDocs={(targetFolderId, dt) => {
               const ids = decodeDocDrag(dt);
               if (!ids || ids.length === 0 || !workspaceId) return;
-              if (
-                !allManageable(
-                  ids,
-                  filteredData.map((d) => ({
-                    id: String(d.id),
-                    canManage: d.canManage,
-                  })),
-                )
-              ) {
+              if (!allManageable(ids, manageableSource)) {
                 toast.error("You can only move documents you own");
                 return;
               }
+              // Skip docs already in the destination — a no-op move would still
+              // bump updatedAt and reshuffle the list.
+              const toMove = ids.filter(
+                (id) =>
+                  (data.find((d) => String(d.id) === id)?.folderId ?? null) !==
+                  targetFolderId,
+              );
+              if (toMove.length === 0) return;
               // Same-workspace move: omit workspaceId so the server derives the
               // target workspace per document. The route `workspaceId` here may
               // be a workspace slug, which the move DTO's @IsUUID would reject.
-              moveDocumentsMutation.mutate({ ids, folderId: targetFolderId });
+              moveDocumentsMutation.mutate({
+                ids: toMove,
+                folderId: targetFolderId,
+              });
             }}
           />
         </div>
@@ -845,7 +860,10 @@ export function DocumentList({
                 variant="ghost"
                 size="icon"
                 aria-label="Clear selection"
-                onClick={() => setRowSelection({})}
+                onClick={() => {
+                  setRowSelection({});
+                  lastSelectedId.current = null;
+                }}
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -970,23 +988,23 @@ export function DocumentList({
                 setDragOverFolderId(null);
                 if (!ids || ids.length === 0) return;
                 e.preventDefault();
-                if (
-                  !allManageable(
-                    ids,
-                    filteredData.map((d) => ({
-                      id: String(d.id),
-                      canManage: d.canManage,
-                    })),
-                  )
-                ) {
+                if (!allManageable(ids, manageableSource)) {
                   toast.error("You can only move documents you own");
                   return;
                 }
+                // Skip docs already in this folder — a no-op move would still
+                // bump updatedAt and reshuffle the list.
+                const toMove = ids.filter(
+                  (id) =>
+                    (data.find((d) => String(d.id) === id)?.folderId ?? null) !==
+                    f.id,
+                );
+                if (toMove.length === 0) return;
                 // Same-workspace move: omit workspaceId so the server derives
                 // the target workspace per document. The route `workspaceId`
                 // may be a workspace slug, which the move DTO's @IsUUID rejects
                 // (the folder is already in this workspace).
-                moveDocumentsMutation.mutate({ ids, folderId: f.id });
+                moveDocumentsMutation.mutate({ ids: toMove, folderId: f.id });
               }}
             >
               <button
