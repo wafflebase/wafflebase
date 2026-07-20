@@ -360,9 +360,12 @@ Components:
 - **Independent review** — `.github/workflows/agent-independent-review.yml`: on
   green CI for an `agent/` branch, a FRESH read-only Claude Code run (no memory of
   writing the code, adversarial stance, its job has no `contents:write` so it
-  cannot alter the PR) reviews the diff and writes a verdict. The harness computes
-  pass/fail from the blocking count (`scripts/agent/read-review-verdict.mjs`) and
-  records it as the `agent-independent-review` **check run** — which the author
+  cannot alter the PR) reviews the diff and writes findings, each classified
+  `critical` / `major` / `minor` / `nit`. The harness — not the agent — computes
+  the verdict from severities (`scripts/agent/read-review-verdict.mjs`): the PR is
+  approved when no `critical` or `major` findings remain (`minor`/`nit` are
+  informational; unknown severities are treated as `major`, fail-safe). The result
+  is recorded as the `agent-independent-review` **check run**, which the author
   agent cannot forge (it lacks `checks:write`). On approval it invokes the ready
   gate; on changes-requested it feeds findings back to the author in a bounded
   fix loop (pages a human after `MAX_REVIEW_ROUNDS`).

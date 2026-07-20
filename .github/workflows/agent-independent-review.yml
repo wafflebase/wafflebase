@@ -95,18 +95,28 @@ jobs:
             Judge against CLAUDE.md / CONTRIBUTING.md and the conventions of the
             packages the diff touches. Look for correctness, security, data-safety,
             Store-interface bypasses, ANTLR-generated-file edits, missing tests, and
-            convention drift. Classify each finding as blocking or minor.
+            convention drift.
+
+            Classify each finding's severity:
+              - critical — data loss, security hole, or breaks a core flow. Must fix.
+              - major    — a real bug or a clear convention/architecture violation. Must fix.
+              - minor    — should improve but not blocking (readability, small gaps).
+              - nit      — trivial/stylistic preference.
+            The harness computes the verdict from severities: the PR is APPROVED
+            when there are no critical or major findings (minor/nit are fine). You
+            do NOT set an approve flag — just classify accurately and be honest;
+            do not inflate nits into majors or downgrade real bugs.
 
             Do NOT edit source, do NOT push, do NOT merge. Your ONLY output is to
-            write your verdict to `.agent-review/verdict.json` (create the dir) with
-            EXACTLY this shape:
+            write your findings to `.agent-review/verdict.json` (create the dir)
+            with EXACTLY this shape:
             {
-              "verdict": "approve" | "request_changes",
-              "blocking": [ { "file": "path", "summary": "what & why" } ],
-              "minor":    [ { "file": "path", "summary": "what & why" } ],
-              "summary":  "one-paragraph overall assessment"
+              "findings": [
+                { "severity": "critical|major|minor|nit", "file": "path", "summary": "what & why" }
+              ],
+              "summary": "one-paragraph overall assessment"
             }
-            Use "approve" only if the blocking array is empty.
+            Use an empty findings array if the PR is clean.
 
       - name: Read verdict → conclusion
         id: verdict

@@ -37,7 +37,9 @@ section + Phase 21 completion).
 ### Independent-reviewer MVP (added)
 
 - [x] `scripts/agent/read-review-verdict.mjs` — normalize verdict.json → check-run
-      conclusion (harness computes pass/fail from blocking count; fails closed).
+      conclusion. Severity scale `critical/major/minor/nit`; approves when only
+      `minor`/`nit` remain; unknown severity → `major` (fail-safe); fails closed on
+      missing/invalid verdict.
 - [x] `.github/workflows/agent-independent-review.yml` — fresh read-only reviewer
       on green CI → `agent-independent-review` check run → promote on success, or
       bounded review-fix loop on changes-requested (replaces `agent-mark-ready.yml`,
