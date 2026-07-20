@@ -113,3 +113,42 @@ export async function deleteDocument(id: string): Promise<void> {
     await assertOk(response, "Failed to delete document");
   }
 }
+
+/**
+ * Moves many documents at once. Atomic on the server: if the caller does not
+ * manage every id the whole request is rejected. Omit a field to leave it
+ * unchanged; pass `folderId: null` to move to the workspace root.
+ */
+export async function moveDocuments(
+  ids: string[],
+  target: { workspaceId?: string; folderId?: string | null }
+): Promise<{ moved: string[] }> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/move`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, ...target }),
+    }
+  );
+  await assertOk(response, "Failed to move documents");
+  return response.json();
+}
+
+/**
+ * Deletes many documents at once (manager-gated per id on the server).
+ */
+export async function deleteDocuments(
+  ids: string[]
+): Promise<{ deleted: string[] }> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/delete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }
+  );
+  await assertOk(response, "Failed to delete documents");
+  return response.json();
+}
