@@ -76,10 +76,15 @@ jobs:
 
       - name: Independent review
         if: steps.pr.outputs.number != ''
-        # Pin to a released tag/SHA before enabling. Read-only tool scope: no
-        # Edit; Bash restricted to read/inspect/test commands (no gh mutations,
-        # no git push). The job also lacks contents:write as defense in depth.
-        uses: anthropics/claude-code-action@v1
+        # continue-on-error so a reviewer crash/timeout doesn't fail the job and
+        # skip the needs-gated promote/fix jobs — the verdict step below then
+        # fails closed and the fix job pages a human.
+        continue-on-error: true
+        # Pinned to the v1 release commit (immutable) for supply-chain safety.
+        # Read-only tool scope: no Edit; Bash restricted to read/inspect/test
+        # commands (no gh mutations, no git push). The job also lacks
+        # contents:write as defense in depth.
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: >-
@@ -118,13 +123,16 @@ jobs:
             }
             Use an empty findings array if the PR is clean.
 
+      # always(): if the reviewer step itself errored/timed out, still run these
+      # so read-review-verdict.mjs fails closed (missing verdict → failure,
+      # valid=false) and the fix job pages a human instead of the loop stalling.
       - name: Read verdict → conclusion
         id: verdict
-        if: steps.pr.outputs.number != ''
+        if: always() && steps.pr.outputs.number != ''
         run: node ./scripts/agent/read-review-verdict.mjs
 
       - name: Record verdict as a check run
-        if: steps.pr.outputs.number != ''
+        if: always() && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -240,14 +248,28 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, ref: sha,
               check_name: process.env.CHECK_NAME,
             });
-            const run = data.check_runs[0];
-            core.setOutput('summary', run?.output?.summary || 'No findings summary available.');
+            // Newest first (matches mark-ready.mjs) — re-runs on the same SHA can
+            // return several; use the latest verdict.
+            const runs = (data.check_runs || []).slice().sort(
+              (a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0),
+            );
+            core.setOutput('summary', runs[0]?.output?.summary || 'No findings summary available.');
+
+      # Auth git ops as the Claude GitHub App so the fix push re-triggers CI.
+      - name: Generate GitHub App token
+        id: app-token
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v4
         if: steps.guard.outputs.proceed == 'true'
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       - uses: pnpm/action-setup@v4
         if: steps.guard.outputs.proceed == 'true'
       - uses: actions/setup-node@v4
@@ -261,10 +283,12 @@ jobs:
 
       - name: Address review findings
         if: steps.guard.outputs.proceed == 'true'
-        # Pin to a released tag/SHA before enabling.
-        uses: anthropics/claude-code-action@v1
+        # Pinned to the v1 release commit (immutable) for supply-chain safety.
+        # github_token is the App token so the fix push re-triggers CI.
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             The independent reviewer requested changes on your PR. Findings:
 

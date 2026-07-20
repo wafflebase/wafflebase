@@ -6,10 +6,10 @@
 # interactive-agent sessions (var unset) are unaffected, matching the "same
 # workflow as a human" contract while adding a disclosure gate on top.
 #
-# Only inline `-m` / `--message` commits are checked (the trailer must appear on
-# the command line). `-F`/`--file`, `--amend --no-edit`, interactive rebases,
-# etc. pass through — their message isn't on the command line to inspect, and the
-# PR-body disclosure gate in mark-ready.mjs is the authoritative backstop.
+# Only inline message commits (`-m`, `-am`, `--message`) are checked (the trailer
+# must appear on the command line). `-F`/`--file`, `--amend --no-edit`, interactive
+# rebases, etc. pass through — their message isn't on the command line to inspect,
+# and the PR-body disclosure gate in mark-ready.mjs is the authoritative backstop.
 #
 # Exit 0 = allow, Exit 2 = block (STDERR fed to Claude as context)
 
@@ -17,7 +17,9 @@
 [ "$WAFFLEBASE_AGENT_AUTONOMOUS" = "true" ] || exit 0
 
 INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | node -e "
+# printf, not echo: POSIX `sh`/dash `echo` interprets backslashes, which would
+# corrupt JSON containing them before it reaches node.
+COMMAND=$(printf '%s\n' "$INPUT" | node -e "
   let d='';
   process.stdin.on('data',c=>d+=c);
   process.stdin.on('end',()=>{
@@ -31,8 +33,9 @@ DISCLOSURE="Assisted-by: Claude Code (autonomous)"
 case "$COMMAND" in
   *"git commit"*)
     # Only enforce when the message is supplied inline on the command line.
+    # Matches -m, -am (add-all + message); --message. Not --amend (no " -am ").
     case "$COMMAND" in
-      *" -m "*|*" --message"*)
+      *" -m "*|*" -am "*|*" --message"*)
         case "$COMMAND" in
           *"$DISCLOSURE"*) exit 0 ;;  # trailer already present
         esac

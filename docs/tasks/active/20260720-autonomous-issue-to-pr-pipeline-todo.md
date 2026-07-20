@@ -59,17 +59,39 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   dismiss-stale-approvals; agent token non-admin. Recommended: also require the
   `agent-independent-review` status check so the independent verdict is enforced
   at merge time too, not just at the ready gate.
-- **Install the Claude GitHub App** so the agent's commits are pushed with the
-  App installation token — commits pushed with the default `GITHUB_TOKEN` do NOT
-  re-trigger CI, which would stall the iterate + mark-ready loops.
+- **Provide a GitHub App for git auth.** The pushing workflows mint an
+  installation token via `actions/create-github-app-token` and pass it to
+  `actions/checkout` (`token:`) and to `claude-code-action` (`github_token:`), so
+  the agent's commits re-trigger CI — commits pushed with the default
+  `GITHUB_TOKEN` do NOT, which would stall the iterate/review loops. Add repo
+  secrets `AGENT_APP_ID` and `AGENT_APP_PRIVATE_KEY` (from the Claude GitHub App
+  or a dedicated app installed on the repo with Contents/PRs/Issues read+write).
 - **Create the labels** used by the pipeline so they are queryable and the label
   ops don't no-op: `agent:candidate`, `agent:iterating`, `agent:needs-human-review`.
 - Approve the new workflows (first-run approval for Actions).
 
 ## Known limitations / robustness notes (from self-review)
 
-- The AI-disclosure hook only inspects inline `-m/--message` commits and is a
+- The AI-disclosure hook only inspects inline `-m/-am/--message` commits and is a
   belt-and-suspenders check; the authoritative disclosure gate is the PR-body
   check in `mark-ready.mjs`.
 - The whole loop's progress depends on CI re-running on the agent's fix commits
-  (see Claude GitHub App note above). Validate this in Phase B.
+  (see GitHub App note above). Validate this in Phase B.
+
+## CodeRabbit review — addressed
+
+- **Actor authorization**: `agent-implement.yml` now verifies the commenter has
+  real repo write/maintain/admin (`getCollaboratorPermissionLevel`), not just
+  `author_association`.
+- **Reviewer failure no longer stalls**: independent-review's verdict/check-run
+  steps use `always()` and the reviewer step is `continue-on-error`, so a reviewer
+  crash fails closed → the fix job pages a human.
+- **CI re-trigger**: all pushing workflows auth via a GitHub App token
+  (`create-github-app-token` → checkout `token:` + action `github_token:`).
+- **Pinned** `anthropics/claude-code-action` to the immutable v1 commit
+  `af0559ee…` across all workflows.
+- **Latest check-run** selected by `started_at` in the fix job (matches `mark-ready.mjs`).
+- **Hook**: `printf` (not `echo`) for JSON piping; also matches `-am`.
+- **Skipped — archive the task doc** (`pnpm tasks:archive`): premature. Per
+  CONTRIBUTING, tasks are archived at merge time; this PR is still under review,
+  so the todo/lessons stay in `active/` until merge.

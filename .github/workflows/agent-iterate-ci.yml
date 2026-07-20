@@ -43,10 +43,20 @@ jobs:
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     steps:
+      # Auth git ops as the Claude GitHub App so the fix commit re-triggers CI
+      # (GITHUB_TOKEN pushes do not).
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Attempts guard
         id: guard
@@ -141,10 +151,12 @@ jobs:
 
       - name: Run Claude Code
         if: steps.guard.outputs.proceed == 'true'
-        # Pin to a released tag/SHA before enabling.
-        uses: anthropics/claude-code-action@v1
+        # Pinned to the v1 release commit (immutable) for supply-chain safety.
+        # github_token is the App token so the fix push re-triggers CI.
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             CI failed on your PR branch (${{ github.event.workflow_run.head_branch }}).
             Structured failure diagnosis from the harness reports:

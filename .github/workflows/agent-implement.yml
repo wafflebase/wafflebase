@@ -48,9 +48,36 @@ jobs:
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     steps:
+      # author_association in the `if` is a cheap pre-filter; this step is the
+      # authoritative gate — it fails the run unless the commenter actually has
+      # write/maintain/admin on THIS repo (org membership ≠ repo write). For
+      # workflow_dispatch the actor already needs write to dispatch, so skip.
+      - name: Verify actor has write access
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.payload.comment.user.login;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner, repo: context.repo.repo, username: actor,
+            });
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) {
+              core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
+            }
+
+      # Auth git ops as the Claude GitHub App so the branch push + PR creation
+      # re-trigger CI (GITHUB_TOKEN pushes do not).
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history for rebase + full-diff self-review
+          token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
 
@@ -131,11 +158,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code
-        # Pin to a released tag/SHA and re-check input names against
-        # https://code.claude.com/docs/en/github-actions before enabling.
-        uses: anthropics/claude-code-action@v1
+        # Pinned to the v1 release commit (immutable) for supply-chain safety.
+        # Re-check input names against https://code.claude.com/docs/en/github-actions
+        # when bumping. github_token is the App token so pushes re-trigger CI.
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
             --max-turns 60
