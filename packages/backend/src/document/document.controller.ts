@@ -1,5 +1,6 @@
 import {
   Req,
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,13 +14,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { DocumentService, DocumentWithAuthor } from './document.service';
-import { Document as DocumentModel } from '@prisma/client';
+import { Document as DocumentModel, Prisma } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
 import { WorkspaceService } from '../workspace/workspace.service';
 import {
   CreateDocumentDto,
   CreateDocumentInWorkspaceDto,
+  DeleteDocumentsDto,
+  MoveDocumentsDto,
   UpdateDocumentDto,
 } from './document.dto';
 import {
@@ -207,6 +210,66 @@ export class DocumentController {
     });
   }
 
+  // Bulk move must be declared before `documents/:id` so the literal `move`
+  // segment isn't captured as an `:id`. Atomic: any missing / non-manageable
+  // id rejects the whole request before any write.
+  @Patch('documents/move')
+  async moveDocuments(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: MoveDocumentsDto,
+  ): Promise<{ moved: string[] }> {
+    const userId = Number(req.user.id);
+    if (body.ids.length === 0) {
+      throw new BadRequestException('No documents specified');
+    }
+    const docs = await Promise.all(
+      body.ids.map((id) => this.documentService.document({ id })),
+    );
+    const denied: string[] = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      if (!doc || !(await this.resolveDocManager(doc, userId))) {
+        denied.push(body.ids[i]);
+      }
+    }
+    if (denied.length > 0) {
+      throw new ForbiddenException(
+        `Cannot move documents you do not manage: ${denied.join(', ')}`,
+      );
+    }
+    if (body.workspaceId !== undefined) {
+      await this.workspaceService.assertMember(body.workspaceId, userId);
+    }
+    const updates: Array<{ id: string; data: Prisma.DocumentUpdateInput }> = [];
+    for (const doc of docs) {
+      const data: Prisma.DocumentUpdateInput = {};
+      if (body.workspaceId !== undefined) {
+        data.workspace = { connect: { id: body.workspaceId } };
+        if (
+          body.workspaceId !== doc!.workspaceId &&
+          body.folderId === undefined
+        ) {
+          data.folder = { disconnect: true };
+        }
+      }
+      if (body.folderId !== undefined) {
+        if (body.folderId === null) {
+          data.folder = { disconnect: true };
+        } else {
+          const targetWorkspaceId = body.workspaceId ?? doc!.workspaceId;
+          await this.folderService.assertSameWorkspace(
+            body.folderId,
+            targetWorkspaceId,
+          );
+          data.folder = { connect: { id: body.folderId } };
+        }
+      }
+      updates.push({ id: doc!.id, data });
+    }
+    await this.documentService.moveDocuments(updates);
+    return { moved: updates.map((u) => u.id) };
+  }
+
   @Patch('documents/:id')
   async updateDocument(
     @Req() req: AuthenticatedRequest,
@@ -295,5 +358,45 @@ export class DocumentController {
       });
     }
     return deleted;
+  }
+
+  @Post('documents/delete')
+  async deleteDocuments(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: DeleteDocumentsDto,
+  ): Promise<{ deleted: string[] }> {
+    const userId = Number(req.user.id);
+    if (body.ids.length === 0) {
+      throw new BadRequestException('No documents specified');
+    }
+    const docs = await Promise.all(
+      body.ids.map((id) => this.documentService.document({ id })),
+    );
+    const denied: string[] = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      if (!doc || !(await this.resolveDocManager(doc, userId))) {
+        denied.push(body.ids[i]);
+      }
+    }
+    if (denied.length > 0) {
+      throw new ForbiddenException(
+        `Cannot delete documents you do not manage: ${denied.join(', ')}`,
+      );
+    }
+    await this.documentService.deleteDocuments(body.ids);
+    // Best-effort blob cleanup for file-backed docs (parity with the single
+    // delete); a failed cleanup must not fail the delete.
+    for (const doc of docs) {
+      if (doc?.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+        await this.fileService.delete(doc.fileId).catch((err) => {
+          console.warn(
+            `[DocumentController] Failed to delete blob ${doc.fileId}:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
+      }
+    }
+    return { deleted: body.ids };
   }
 }

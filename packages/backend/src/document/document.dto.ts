@@ -1,4 +1,6 @@
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsIn,
   IsOptional,
   IsString,
@@ -66,4 +68,27 @@ export class UpdateDocumentDto {
   @IsOptional()
   @IsUUID()
   folderId?: string | null;
+}
+
+export class MoveDocumentsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('all', { each: true })
+  ids: string[];
+
+  @IsOptional()
+  @IsUUID()
+  workspaceId?: string;
+
+  // `undefined` = leave folder unchanged; explicit `null` = workspace root.
+  @IsOptional()
+  @IsUUID()
+  folderId?: string | null;
+}
+
+export class DeleteDocumentsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('all', { each: true })
+  ids: string[];
 }

@@ -41,11 +41,13 @@ import {
   Presentation,
   Sheet,
   Trash2,
+  X,
 } from "lucide-react";
 import { IconFileTypePdf } from "@tabler/icons-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -84,6 +86,12 @@ import {
 } from "@/components/ui/tooltip";
 
 import type { Document, DocumentType, Folder } from "@/types/documents";
+import {
+  allManageable,
+  decodeDocDrag,
+  encodeDocDrag,
+  isDocDrag,
+} from "./document-bulk";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import { FolderBreadcrumb } from "./folder-breadcrumb";
 import { folderPath } from "./folder-path";
@@ -97,8 +105,8 @@ import {
 } from "./document-list-utils";
 import {
   createDocument,
-  deleteDocument,
-  moveDocument,
+  deleteDocuments,
+  moveDocuments,
   renameDocument,
 } from "@/api/documents";
 import {
@@ -266,6 +274,50 @@ export function DocumentList({
   const navigate = useNavigate();
   const columns: Array<ColumnDef<Document>> = [
     {
+      id: "select",
+      enableSorting: false,
+      enableHiding: false,
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllRowsSelected()
+              ? true
+              : table.getIsSomeRowsSelected()
+                ? "indeterminate"
+                : false
+          }
+          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row, table }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => {
+            e.stopPropagation();
+            const rows = table.getSortedRowModel().rows;
+            // Resolve the anchor to its CURRENT position, so a sort or filter
+            // change between clicks can't select the wrong range.
+            const anchorIdx = lastSelectedId.current
+              ? rows.findIndex((r) => r.id === lastSelectedId.current)
+              : -1;
+            const idx = rows.findIndex((r) => r.id === row.id);
+            if (e.shiftKey && anchorIdx !== -1 && idx !== -1) {
+              e.preventDefault(); // suppress Radix's own toggle; we own the range write
+              const [lo, hi] = [anchorIdx, idx].sort((a, b) => a - b);
+              const next: Record<string, boolean> = {};
+              for (let i = lo; i <= hi; i++) next[rows[i].id] = true;
+              table.setRowSelection((prev) => ({ ...prev, ...next }));
+            }
+            lastSelectedId.current = row.id;
+          }}
+          aria-label={`Select ${String(row.getValue("title") ?? "document")}`}
+        />
+      ),
+    },
+    {
       accessorKey: "id",
       header: "ID",
       enableHiding: true,
@@ -358,8 +410,8 @@ export function DocumentList({
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setMovingDoc({
-                      id: String(row.getValue("id")),
+                    setMoving({
+                      ids: [String(row.getValue("id"))],
                       title: row.getValue("title"),
                       workspaceId: row.original.workspaceId,
                     });
@@ -376,8 +428,8 @@ export function DocumentList({
                   className="text-destructive focus:text-destructive"
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
-                    setDeletingDoc({
-                      id: String(row.getValue("id")),
+                    setDeleting({
+                      ids: [String(row.getValue("id"))],
                       title: row.getValue("title"),
                     });
                   }}
@@ -393,16 +445,16 @@ export function DocumentList({
     },
   ];
 
-  const [deletingDoc, setDeletingDoc] = useState<{
-    id: string;
+  const [deleting, setDeleting] = useState<{
+    ids: string[];
     title: string;
   } | null>(null);
   const [renamingDoc, setRenamingDoc] = useState<{
     id: string;
     title: string;
   } | null>(null);
-  const [movingDoc, setMovingDoc] = useState<{
-    id: string;
+  const [moving, setMoving] = useState<{
+    ids: string[];
     title: string;
     workspaceId: string;
   } | null>(null);
@@ -422,13 +474,13 @@ export function DocumentList({
   const { data: workspaces = [] } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
-    enabled: movingDoc !== null,
+    enabled: moving !== null,
   });
 
   const { data: moveTargetFolders = [] } = useQuery<Folder[]>({
     queryKey: ["workspaces", targetWorkspaceId, "folders"],
     queryFn: () => fetchFolders(targetWorkspaceId),
-    enabled: movingDoc !== null && !!targetWorkspaceId,
+    enabled: moving !== null && !!targetWorkspaceId,
   });
 
   const createDocumentMutation = useMutation({
@@ -452,6 +504,10 @@ export function DocumentList({
   // workspaces and flush a single invalidation on a short trailing debounce.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRefreshWorkspaces = useRef<Set<string>>(new Set());
+  // Anchor row id for shift-click range selection. Stored as the document id
+  // (not a row index) so it stays valid across re-sorts and type-filter changes
+  // — it is resolved to the current row order at shift-click time.
+  const lastSelectedId = useRef<string | null>(null);
   const scheduleListRefresh = useCallback(
     (wid?: string) => {
       if (wid) pendingRefreshWorkspaces.current.add(wid);
@@ -512,16 +568,22 @@ export function DocumentList({
     startBatch(await pickFiles(accept));
   };
 
-  const deleteDocumentMutation = useMutation({
-    mutationFn: async (id: string) => await deleteDocument(id),
-    onSuccess: () => {
+  const deleteDocumentsMutation = useMutation({
+    mutationFn: async (ids: string[]) => await deleteDocuments(ids),
+    onSuccess: (_res, ids) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       if (workspaceId) {
         queryClient.invalidateQueries({
           queryKey: ["workspaces", workspaceId, "documents"],
         });
       }
+      deselect(ids);
+      setDeleting(null);
+      toast.success(
+        ids.length > 1 ? `${ids.length} documents deleted` : "Document deleted",
+      );
     },
+    onError: () => toast.error("Failed to delete documents"),
   });
 
   const renameDocumentMutation = useMutation({
@@ -538,28 +600,31 @@ export function DocumentList({
     },
   });
 
-  const moveDocumentMutation = useMutation({
+  const moveDocumentsMutation = useMutation({
     mutationFn: async ({
-      id,
+      ids,
       workspaceId: targetId,
       folderId: targetFid,
     }: {
-      id: string;
+      ids: string[];
       workspaceId?: string;
       folderId?: string | null;
     }) =>
-      await moveDocument(id, { workspaceId: targetId, folderId: targetFid }),
-    onSuccess: () => {
+      await moveDocuments(ids, { workspaceId: targetId, folderId: targetFid }),
+    onSuccess: (_res, vars) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      toast.success("Document moved successfully");
-      setMovingDoc(null);
+      toast.success(
+        vars.ids.length > 1
+          ? `${vars.ids.length} documents moved`
+          : "Document moved successfully",
+      );
+      setMoving(null);
       setTargetWorkspaceId("");
       setTargetFolderId(null);
+      deselect(vars.ids);
     },
-    onError: () => {
-      toast.error("Failed to move document");
-    },
+    onError: () => toast.error("Failed to move documents"),
   });
 
   const createFolderMutation = useMutation({
@@ -613,7 +678,20 @@ export function DocumentList({
     id: false,
   });
   const [rowSelection, setRowSelection] = useState({});
+
+  // Reset the multi-selection when navigating to a different folder/workspace
+  // so a stale selection can't leave the bulk bar showing disabled actions.
+  useEffect(() => {
+    setRowSelection({});
+    lastSelectedId.current = null;
+  }, [folderId, workspaceId]);
+
   const [typeFilters, setTypeFilters] = useState<Set<DocumentType>>(new Set());
+  // Which drop target (folder card id, or "root" for a breadcrumb segment)
+  // is currently under an in-flight document drag, for hover highlighting.
+  const [dragOverFolderId, setDragOverFolderId] = useState<
+    string | null | "root"
+  >(null);
 
   const toggleType = (type: DocumentType) => {
     setTypeFilters((prev) => {
@@ -661,6 +739,44 @@ export function DocumentList({
     (f) => (f.parentId ?? null) === (folderId ?? null),
   );
 
+  const selectedIds = Object.keys(rowSelection);
+  // Resolve the selection against the FULL data set, not `filteredData`: a type
+  // filter hides rows but does not deselect them, so gating the bulk actions on
+  // `filteredData` would wrongly read a still-selected but hidden doc as
+  // unmanageable / out-of-scope. `manageableSource` covers every doc that can
+  // be selected on this list.
+  const manageableSource = data.map((d) => ({
+    id: String(d.id),
+    canManage: d.canManage,
+  }));
+  const selectedCanManage = allManageable(selectedIds, manageableSource);
+  // Common source workspace of the selection (for the move dialog's initial
+  // target); "" when the selection spans workspaces (only possible on the
+  // global /documents list).
+  const selectedWorkspaceId = (() => {
+    const set = data.filter((d) => selectedIds.includes(String(d.id)));
+    const wss = new Set(set.map((d) => d.workspaceId));
+    return wss.size === 1 ? [...wss][0] : "";
+  })();
+
+  // Drop a set of ids from the current selection (after a move/delete).
+  const deselect = (ids: string[]) =>
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
+
+  const openBulkMove = () => {
+    setMoving({
+      ids: selectedIds,
+      title: `${selectedIds.length} items`,
+      workspaceId: selectedWorkspaceId,
+    });
+    setTargetWorkspaceId(selectedWorkspaceId);
+    setTargetFolderId(null);
+  };
+
   return (
     <>
       <div className="w-full">
@@ -670,10 +786,91 @@ export function DocumentList({
             folders={folders}
             folderId={folderId}
             onNavigate={onNavigateFolder}
+            onDropDocs={(targetFolderId, dt) => {
+              const ids = decodeDocDrag(dt);
+              if (!ids || ids.length === 0 || !workspaceId) return;
+              if (!allManageable(ids, manageableSource)) {
+                toast.error("You can only move documents you own");
+                return;
+              }
+              // Skip docs already in the destination — a no-op move would still
+              // bump updatedAt and reshuffle the list.
+              const toMove = ids.filter(
+                (id) =>
+                  (data.find((d) => String(d.id) === id)?.folderId ?? null) !==
+                  targetFolderId,
+              );
+              if (toMove.length === 0) return;
+              // Same-workspace move: omit workspaceId so the server derives the
+              // target workspace per document. The route `workspaceId` here may
+              // be a workspace slug, which the move DTO's @IsUUID would reject.
+              moveDocumentsMutation.mutate({
+                ids: toMove,
+                folderId: targetFolderId,
+              });
+            }}
           />
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 py-4">
+      <div className="flex flex-col gap-2 py-4 sm:flex-row sm:flex-nowrap sm:items-center">
+        {selectedIds.length > 0 ? (
+          // Selection mode: swap the toolbar's contents in place. Both states
+          // keep the same layout at every width (one row on sm+, two rows on
+          // mobile), so toggling a selection never changes the toolbar height.
+          <>
+            <div className="flex h-9 items-center">
+              <span className="text-sm font-medium">
+                {selectedIds.length} selected
+              </span>
+            </div>
+            <div className="flex w-full items-center gap-1 sm:w-auto sm:flex-1 sm:justify-end">
+              <Button
+                variant="outline"
+                disabled={!selectedCanManage}
+                title={
+                  selectedCanManage
+                    ? undefined
+                    : "You can only move documents you own"
+                }
+                onClick={openBulkMove}
+              >
+                <FolderOutput className="mr-1 h-4 w-4" />
+                Move to…
+              </Button>
+              <Button
+                variant="outline"
+                className="text-destructive"
+                disabled={!selectedCanManage}
+                title={
+                  selectedCanManage
+                    ? undefined
+                    : "You can only delete documents you own"
+                }
+                onClick={() =>
+                  setDeleting({
+                    ids: selectedIds,
+                    title: `${selectedIds.length} documents`,
+                  })
+                }
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Clear selection"
+                onClick={() => {
+                  setRowSelection({});
+                  lastSelectedId.current = null;
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
         <Input
           placeholder="Search by title..."
           aria-label="Search documents by title"
@@ -681,8 +878,9 @@ export function DocumentList({
           onChange={(e) =>
             table.getColumn("title")?.setFilterValue(e.target.value)
           }
-          className="w-full max-w-xs"
+          className="w-full min-w-0 sm:max-w-xs"
         />
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
         <div className="flex items-center gap-1">
           {TYPE_OPTIONS.map((type) => {
             const { label, Icon, color } = TYPE_META[type];
@@ -765,13 +963,49 @@ export function DocumentList({
             <ImportMenuItems onImport={handleImportPick} />
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
+          </>
+        )}
       </div>
       {workspaceId && onNavigateFolder && childFolders.length > 0 && (
         <div className="mb-4 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
           {childFolders.map((f) => (
             <div
               key={f.id}
-              className="flex items-center gap-2 rounded-md border pl-3 pr-1 py-2 text-sm hover:bg-muted"
+              className={`flex items-center gap-2 rounded-md border pl-3 pr-1 py-2 text-sm hover:bg-muted ${
+                dragOverFolderId === f.id ? "ring-2 ring-primary" : ""
+              }`}
+              onDragOver={(e) => {
+                if (!isDocDrag(e.dataTransfer)) return;
+                e.preventDefault();
+                setDragOverFolderId(f.id);
+              }}
+              onDragLeave={() =>
+                setDragOverFolderId((cur) => (cur === f.id ? null : cur))
+              }
+              onDrop={(e) => {
+                const ids = decodeDocDrag(e.dataTransfer);
+                setDragOverFolderId(null);
+                if (!ids || ids.length === 0) return;
+                e.preventDefault();
+                if (!allManageable(ids, manageableSource)) {
+                  toast.error("You can only move documents you own");
+                  return;
+                }
+                // Skip docs already in this folder — a no-op move would still
+                // bump updatedAt and reshuffle the list.
+                const toMove = ids.filter(
+                  (id) =>
+                    (data.find((d) => String(d.id) === id)?.folderId ?? null) !==
+                    f.id,
+                );
+                if (toMove.length === 0) return;
+                // Same-workspace move: omit workspaceId so the server derives
+                // the target workspace per document. The route `workspaceId`
+                // may be a workspace slug, which the move DTO's @IsUUID rejects
+                // (the folder is already in this workspace).
+                moveDocumentsMutation.mutate({ ids: toMove, folderId: f.id });
+              }}
             >
               <button
                 type="button"
@@ -846,6 +1080,16 @@ export function DocumentList({
                   tabIndex={0}
                   aria-label={`Open ${String(row.getValue("title") ?? "document")}`}
                   className="cursor-pointer hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  draggable={row.original.canManage}
+                  onDragStart={(e) => {
+                    const id = String(row.original.id);
+                    const selected = Object.keys(rowSelection);
+                    const ids =
+                      row.getIsSelected() && selected.length > 0
+                        ? selected
+                        : [id];
+                    encodeDocDrag(e.dataTransfer, ids);
+                  }}
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     if ((e.target as HTMLElement).closest("input, button")) {
                       return;
@@ -1019,10 +1263,10 @@ export function DocumentList({
       </Dialog>
 
       <Dialog
-        open={movingDoc !== null}
+        open={moving !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setMovingDoc(null);
+            setMoving(null);
             setTargetWorkspaceId("");
             setTargetFolderId(null);
           }
@@ -1032,7 +1276,7 @@ export function DocumentList({
           <DialogHeader>
             <DialogTitle>Move Document</DialogTitle>
             <DialogDescription>
-              Select a workspace and folder to move &ldquo;{movingDoc?.title}
+              Select a workspace and folder to move &ldquo;{moving?.title}
               &rdquo; to.
             </DialogDescription>
           </DialogHeader>
@@ -1088,7 +1332,7 @@ export function DocumentList({
               type="button"
               variant="outline"
               onClick={() => {
-                setMovingDoc(null);
+                setMoving(null);
                 setTargetWorkspaceId("");
                 setTargetFolderId(null);
               }}
@@ -1096,13 +1340,11 @@ export function DocumentList({
               Cancel
             </Button>
             <Button
-              disabled={
-                !targetWorkspaceId || moveDocumentMutation.isPending
-              }
+              disabled={!targetWorkspaceId || moveDocumentsMutation.isPending}
               onClick={() => {
-                if (movingDoc && targetWorkspaceId) {
-                  moveDocumentMutation.mutate({
-                    id: movingDoc.id,
+                if (moving && targetWorkspaceId) {
+                  moveDocumentsMutation.mutate({
+                    ids: moving.ids,
                     workspaceId: targetWorkspaceId,
                     folderId: targetFolderId,
                   });
@@ -1116,36 +1358,35 @@ export function DocumentList({
       </Dialog>
 
       <Dialog
-        open={deletingDoc !== null}
+        open={deleting !== null}
         onOpenChange={(open) => {
-          if (!open) setDeletingDoc(null);
+          if (!open) setDeleting(null);
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Document</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete &ldquo;{deletingDoc?.title}
-              &rdquo;? This action cannot be undone.
+              Are you sure you want to delete{" "}
+              {deleting && deleting.ids.length > 1
+                ? `${deleting.ids.length} documents`
+                : `“${deleting?.title}”`}
+              ? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeletingDoc(null)}
+              onClick={() => setDeleting(null)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={deleteDocumentMutation.isPending}
+              disabled={deleteDocumentsMutation.isPending}
               onClick={() => {
-                if (deletingDoc) {
-                  deleteDocumentMutation.mutate(deletingDoc.id, {
-                    onSuccess: () => setDeletingDoc(null),
-                  });
-                }
+                if (deleting) deleteDocumentsMutation.mutate(deleting.ids);
               }}
             >
               Delete
