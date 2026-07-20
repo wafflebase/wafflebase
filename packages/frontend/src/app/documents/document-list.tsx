@@ -41,6 +41,7 @@ import {
   Presentation,
   Sheet,
   Trash2,
+  X,
 } from "lucide-react";
 import { IconFileTypePdf } from "@tabler/icons-react";
 
@@ -85,6 +86,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import type { Document, DocumentType, Folder } from "@/types/documents";
+import { allManageable } from "./document-bulk";
 import { DocumentPresenceAvatars } from "./document-presence-avatars";
 import { FolderBreadcrumb } from "./folder-breadcrumb";
 import { folderPath } from "./folder-path";
@@ -722,6 +724,30 @@ export function DocumentList({
     (f) => (f.parentId ?? null) === (folderId ?? null),
   );
 
+  const selectedIds = Object.keys(rowSelection);
+  const selectedCanManage = allManageable(
+    selectedIds,
+    filteredData.map((d) => ({ id: String(d.id), canManage: d.canManage })),
+  );
+  // Common source workspace of the selection (for the move dialog's initial
+  // target); "" when the selection spans workspaces (only possible on the
+  // global /documents list).
+  const selectedWorkspaceId = (() => {
+    const set = filteredData.filter((d) => selectedIds.includes(String(d.id)));
+    const wss = new Set(set.map((d) => d.workspaceId));
+    return wss.size === 1 ? [...wss][0] : "";
+  })();
+
+  const openBulkMove = () => {
+    setMoving({
+      ids: selectedIds,
+      title: `${selectedIds.length} items`,
+      workspaceId: selectedWorkspaceId,
+    });
+    setTargetWorkspaceId(selectedWorkspaceId);
+    setTargetFolderId(null);
+  };
+
   return (
     <>
       <div className="w-full">
@@ -875,6 +901,55 @@ export function DocumentList({
               </DropdownMenu>
             </div>
           ))}
+        </div>
+      )}
+      {selectedIds.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">{selectedIds.length} selected</span>
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!selectedCanManage}
+              title={
+                selectedCanManage
+                  ? undefined
+                  : "You can only move documents you own"
+              }
+              onClick={openBulkMove}
+            >
+              <FolderOutput className="mr-1 h-4 w-4" />
+              Move to…
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              disabled={!selectedCanManage}
+              title={
+                selectedCanManage
+                  ? undefined
+                  : "You can only delete documents you own"
+              }
+              onClick={() =>
+                setDeleting({
+                  ids: selectedIds,
+                  title: `${selectedIds.length} documents`,
+                })
+              }
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Clear selection"
+              onClick={() => setRowSelection({})}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
       <div className="rounded-md border">
