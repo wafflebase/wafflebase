@@ -6,7 +6,7 @@ import {
   undoDepth,
 } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
-import { EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
@@ -157,18 +157,48 @@ export function initialize(
   // list (before the default keymaps) to take precedence.
   let currentKeymap: NoteKeymap = 'default';
 
-  const buildExtensions = (mode: ThemeMode): Extension[] => [
-    currentKeymap === 'vim' ? vim() : [],
+  // Compartments so theme / keymap switches reconfigure in place instead of
+  // rebuilding the whole EditorState — a full rebuild would drop the undo
+  // history (basicSetup's history()), silently disabling undo after a toggle.
+  const themeCompartment = new Compartment();
+  const keymapCompartment = new Compartment();
+
+  const keymapExt = (): Extension => {
     // CodeMirror deliberately leaves Tab out of the default keymap (so keyboard
     // users can tab out of the editor). Bind it explicitly for indent/outdent.
-    // Registered unconditionally: @replit/codemirror-vim binds no Tab key and
-    // lets it fall through (it only preventDefaults keys it actually handles),
-    // so this also drives Tab indent in vim mode. `vim()` sits ahead of this in
-    // the list, so vim still wins for every key it does handle.
-    keymap.of([indentWithTab]),
+    // @replit/codemirror-vim binds no Tab key and lets it fall through (it only
+    // preventDefaults keys it actually handles), so indentWithTab drives Tab
+    // indent in both modes; `vim()` sits ahead of it so vim still wins for every
+    // key it does handle.
+    if (currentKeymap === 'vim') {
+      return [vim(), keymap.of([indentWithTab])];
+    }
+    return [
+      keymap.of([indentWithTab]),
+      // Escape releases the Tab-indent focus trap (WCAG 2.1.2): with Tab bound
+      // to indent it no longer moves focus out, so give keyboard users an
+      // explicit exit. Low precedence so autocomplete / tooltip Escape handlers
+      // still win first; only blurs when nothing else consumes Escape. (Vim owns
+      // Escape itself, so this is default-mode only.)
+      Prec.low(
+        keymap.of([
+          {
+            key: 'Escape',
+            run: (v) => {
+              v.contentDOM.blur();
+              return true;
+            },
+          },
+        ]),
+      ),
+    ];
+  };
+
+  const buildExtensions = (mode: ThemeMode): Extension[] => [
+    keymapCompartment.of(keymapExt()),
     basicSetup({ highlightSelectionMatches: false }),
     markdown(),
-    themeExt(mode),
+    themeCompartment.of(themeExt(mode)),
     EditorView.lineWrapping,
     EditorView.editable.of(!readOnly),
     // Fill the wrapper's full height (so an empty note starts full-height, not
@@ -287,18 +317,11 @@ export function initialize(
     setTheme: (mode: ThemeMode) => {
       if (mode === currentTheme) return;
       currentTheme = mode;
-      // Rebuild state to swap the (non-compartmentalized) theme extension.
-      // Simplicity over a Compartment: notes have a single theme extension.
-      const doc = view.state.doc.toString();
-      const sel = view.state.selection;
-      view.setState(
-        EditorState.create({
-          doc,
-          selection: sel,
-          extensions: buildExtensions(mode),
-        }),
-      );
-      renderPreview();
+      // Reconfigure the theme compartment in place; a full state rebuild would
+      // discard the undo history (see the compartment comment above).
+      view.dispatch({
+        effects: themeCompartment.reconfigure(themeExt(mode)),
+      });
     },
     setViewMode: (mode: NoteViewMode) => {
       if (mode === currentViewMode) return;
@@ -308,15 +331,11 @@ export function initialize(
     setKeymap: (mode: NoteKeymap) => {
       if (mode === currentKeymap) return;
       currentKeymap = mode;
-      const doc = view.state.doc.toString();
-      const sel = view.state.selection;
-      view.setState(
-        EditorState.create({
-          doc,
-          selection: sel,
-          extensions: buildExtensions(currentTheme),
-        }),
-      );
+      // Reconfigure the keymap compartment in place so the undo history (and
+      // the current selection) survive a Default <-> Vim switch.
+      view.dispatch({
+        effects: keymapCompartment.reconfigure(keymapExt()),
+      });
       view.focus();
     },
     getKeymap: () => currentKeymap,
