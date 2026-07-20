@@ -797,7 +797,7 @@ export function DocumentList({
           />
         </div>
       )}
-      <div className="flex flex-col gap-2 py-4 sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="flex flex-col gap-2 py-4 sm:flex-row sm:flex-nowrap sm:items-center">
         {selectedIds.length > 0 ? (
           // Selection mode: swap the toolbar's contents in place. Both states
           // keep the same layout at every width (one row on sm+, two rows on
@@ -860,7 +860,7 @@ export function DocumentList({
           onChange={(e) =>
             table.getColumn("title")?.setFilterValue(e.target.value)
           }
-          className="w-full sm:max-w-xs"
+          className="w-full min-w-0 sm:max-w-xs"
         />
         <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
         <div className="flex items-center gap-1">
