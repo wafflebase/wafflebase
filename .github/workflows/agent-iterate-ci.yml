@@ -1,0 +1,170 @@
+# Develop-review loop, CI arm: when CI fails on an agent-authored branch, feed
+# the harness failure diagnosis back to Claude Code so it can fix and push a
+# follow-up commit. Completes Phase 21 (Agent Observability) of
+# docs/design/harness-engineering.md by turning the .harness-reports artifacts
+# into an agent-readable diagnosis (scripts/agent/summarize-ci.mjs).
+#
+# The loop self-terminates: it only fires while CI is failing, and a bounded
+# attempts counter pages a human after MAX_ATTEMPTS instead of looping forever.
+#
+# IMPORTANT — CI must re-run on the agent's fix commit for this loop (and the
+# mark-ready promotion) to make progress. Commits pushed with the default
+# GITHUB_TOKEN do NOT trigger further workflow runs (GitHub's recursion guard).
+# claude-code-action must therefore push via the Claude GitHub App installation
+# token (the default when the app is installed) or a PAT — verify this during
+# setup, or the loop will stall with no new `workflow_run` event.
+name: Agent Iterate (CI)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write # comment + label the PR (issues API covers PR comments/labels)
+  actions: read # count prior failed CI runs (unforgeable attempt bound)
+
+env:
+  MAX_ATTEMPTS: "4"
+
+jobs:
+  iterate:
+    # Enablement switch keeps the pipeline inert until a maintainer opts in.
+    # Reject fork-originated workflow_run events: this job holds the `agent`
+    # environment secrets and executes branch code (install/build/test via the
+    # fixer agent), so it must only act on base-repo branches.
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: agent
+    # Job-level concurrency so a skipped run never occupies the group.
+    concurrency:
+      group: agent-iterate-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+    env:
+      WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    steps:
+      # Auth git ops as the Claude GitHub App so the fix commit re-triggers CI
+      # (GITHUB_TOKEN pushes do not).
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Attempts guard
+        id: guard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const branch = context.payload.workflow_run.head_branch;
+            const max = parseInt(process.env.MAX_ATTEMPTS, 10);
+            const prs = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:${branch}`,
+            });
+            const pr = prs.data[0];
+            if (!pr) {
+              core.info('No open PR for this branch yet; nothing to iterate on.');
+              core.setOutput('proceed', 'false');
+              return;
+            }
+            core.setOutput('pr', String(pr.number));
+            // Bound on FAILED CI runs for this branch. Actions run history is
+            // append-only and the agent cannot delete it — unlike a PR-comment
+            // counter it holds issues:write over. Even if it deletes the paging
+            // comment below, this count still trips, so the bound is unforgeable.
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: 'ci.yml', branch, per_page: 100,
+            });
+            const failedCi = runs.filter(r => r.conclusion === 'failure').length;
+            const PAGED = '<!-- agent-paged -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: pr.number,
+            });
+            if (comments.some(c => c.body.includes(PAGED))) {
+              core.setOutput('proceed', 'false');
+              return;
+            }
+            if (failedCi >= max) {
+              core.info(`CI failed ${failedCi} times (limit ${max}); paging a human.`);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: pr.number,
+                body: `${PAGED}\n🛑 CI failed ${failedCi} times on this branch (limit ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve it.`,
+              });
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('proceed', 'false');
+              return;
+            }
+            core.setOutput('proceed', 'true');
+
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.proceed == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.proceed == 'true'
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.proceed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Download harness reports from the failed CI run
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-reports
+          path: .harness-reports/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # report may be absent if verify:self never ran
+
+      - name: Summarize the failure
+        if: steps.guard.outputs.proceed == 'true'
+        id: diag
+        run: |
+          {
+            echo "summary<<HARNESS_EOF"
+            node ./scripts/agent/summarize-ci.mjs
+            echo "HARNESS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        if: steps.guard.outputs.proceed == 'true'
+        # Pinned to the v1 release commit (immutable) for supply-chain safety.
+        # github_token is the App token so the fix push re-triggers CI.
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            CI failed on your PR branch (${{ github.event.workflow_run.head_branch }}).
+            Structured failure diagnosis from the harness reports:
+
+            ${{ steps.diag.outputs.summary }}
+
+            Diagnose the root cause from the failing lane above, fix it, and keep
+            `pnpm verify:fast` green for each commit. Re-run the relevant verify
+            lane locally to confirm before pushing. Append a follow-up commit (do
+            NOT force-push over history); the commit message must end with the
+            trailer "Assisted-by: Claude Code (autonomous)". Then reply in the
+            PR's verification thread noting what you fixed. Do not merge.
+          claude_args: >-
+            --max-turns 40
+            --model claude-opus-4-8
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
