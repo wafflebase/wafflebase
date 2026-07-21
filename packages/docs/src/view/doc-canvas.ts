@@ -549,7 +549,7 @@ export class DocCanvas {
           // shadow, so that the overlay handles and the image stay in
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
-          paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, {
+          paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, {
             theme: Theme,
             skipBackground: true,
             requestRender: this.requestRender ?? undefined,
@@ -692,6 +692,7 @@ export class DocCanvas {
     lineX: number,
     lineY: number,
     lineHeight: number,
+    lineMaxFontSizePx: number | undefined,
     pageNumber: number,
   ): void {
     const target = run.inline.style.pageNumber
@@ -701,7 +702,7 @@ export class DocCanvas {
           inline: { ...run.inline, text: String(pageNumber) },
         }
       : run;
-    paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, {
+    paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, lineMaxFontSizePx, {
       theme: Theme,
       skipBackground: false,
       requestRender: this.requestRender ?? undefined,
@@ -739,7 +740,7 @@ export class DocCanvas {
       for (const line of lb.lines) {
         for (const run of line.runs) {
           this.renderRunWithPageNumber(
-            run, originX, originY + lb.y + line.y, line.height, pageNumber,
+            run, originX, originY + lb.y + line.y, line.height, line.maxFontSizePx, pageNumber,
           );
         }
       }
