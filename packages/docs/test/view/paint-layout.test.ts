@@ -4,6 +4,7 @@ import { renderRun } from '../../src/view/paint-layout';
 import { computeLayout } from '../../src/view/layout';
 import type { LayoutLine } from '../../src/view/layout';
 import { createBlock } from '../../src/model/types';
+import { ptToPx } from '../../src/view/theme';
 import { stubMeasurer } from './_stub-measurer';
 
 /**
@@ -102,5 +103,29 @@ describe('renderRun shared baseline', () => {
     ]);
     const [a, b] = baselinesForLine(line);
     expect(a).toBe(b);
+  });
+
+  it('falls back to the run\'s own size when the line max is undefined', () => {
+    const mixed = singleLine([
+      { text: 'Big', fontSize: 36 },
+      { text: 'small', fontSize: 11 },
+    ]);
+    const smallRun = mixed.runs[1];
+
+    // Line max supplied → shared (lower) baseline.
+    const withMax = makeBaselineCtx();
+    renderRun(withMax.ctx, smallRun, 0, 0, mixed.height, mixed.maxFontSizePx, {});
+    const shared = withMax.baselines[0];
+
+    // undefined → fallback uses the run's OWN font size, reproducing the
+    // pre-fix per-run baseline (floats up above the shared one).
+    const withoutMax = makeBaselineCtx();
+    renderRun(withoutMax.ctx, smallRun, 0, 0, mixed.height, undefined, {});
+    const fallback = withoutMax.baselines[0];
+
+    // lineY = 0, no super/subscript → baseline = round((height + ownAscent) / 2).
+    const expectedOwn = Math.round((mixed.height + ptToPx(11) * 0.8) / 2);
+    expect(fallback).toBe(expectedOwn);
+    expect(fallback).toBeLessThan(shared);
   });
 });
