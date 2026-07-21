@@ -292,6 +292,174 @@ function patchesFromIntervals(
 }
 
 /**
+ * Builds a stable, order-independent key for a style so equal styles collapse
+ * to the same rectangle regardless of key insertion order.
+ */
+function styleKey(style: CellStyle): string {
+  const keys = Object.keys(style).sort();
+  return keys
+    .map((k) => `${k}:${JSON.stringify(style[k as keyof CellStyle])}`)
+    .join('|');
+}
+
+// Above this bounding-box cell count the tiler (which materializes the grid)
+// falls back to the cheap adjacent merge. This runs client-side during import,
+// so the cap is sized to bound peak memory (~one Map entry per cell); a
+// degenerate sheet with a lone styled cell far from the data, or a genuinely
+// huge densely-styled range, degrades to the prior behavior rather than
+// OOM-ing the tab. Real imports stay orders of magnitude below this.
+const MAXIMAL_TILING_CELL_CAP = 1_000_000;
+
+/**
+ * Recompacts range-style patches into a minimal-ish set of non-overlapping
+ * rectangles via greedy maximal-rectangle tiling.
+ *
+ * The importer emits one 1×1 patch per styled cell; a two-pass adjacent merge
+ * (`coalesceAdjacentRangeStylePatches`) only fuses perfectly-aligned neighbors,
+ * so a table with a header row *and* a label column (no whole row/column is a
+ * single style) stays fragmented into thousands of rectangles — each an
+ * expensive CRDT subtree once stored in Yorkie. This resolves every cell to the
+ * exact style `resolveRangeStyleAt` would (folding overlapping patches key by
+ * key, in order), then tiles same-style regions into maximal rectangles,
+ * cutting the patch count — and the resulting document size — dramatically.
+ *
+ * The output is non-overlapping, so apply order no longer matters; cells with
+ * no style stay unstyled (gaps are never covered).
+ */
+export function coalesceRangeStylePatchesMaximal(
+  patches: RangeStylePatch[],
+): RangeStylePatch[] {
+  // Normalize once up front (drops empty-style patches and normalizes ranges)
+  // and take the bounding box, so the area cap is checked *before* the grid is
+  // materialized rather than after.
+  const normalized: RangeStylePatch[] = [];
+  let minR = Infinity;
+  let minC = Infinity;
+  let maxR = 0;
+  let maxC = 0;
+  for (const patch of patches) {
+    const n = normalizeRangeStylePatch(patch);
+    if (!n) {
+      continue;
+    }
+    normalized.push(n);
+    minR = Math.min(minR, n.range[0].r);
+    minC = Math.min(minC, n.range[0].c);
+    maxR = Math.max(maxR, n.range[1].r);
+    maxC = Math.max(maxC, n.range[1].c);
+  }
+
+  if (normalized.length === 0) {
+    return [];
+  }
+  // A single normalized patch is already one rectangle — no tiling needed.
+  if (normalized.length === 1) {
+    return normalized;
+  }
+
+  const area = (maxR - minR + 1) * (maxC - minC + 1);
+  if (area > MAXIMAL_TILING_CELL_CAP) {
+    return coalesceAdjacentRangeStylePatches(
+      coalesceAdjacentRangeStylePatches(normalized, 'column'),
+      'row',
+    );
+  }
+
+  // Resolve each styled cell to its final style key, folding overlapping
+  // patches key by key in apply order — identical to `resolveRangeStyleAt`.
+  // For the importer's disjoint 1×1 patches each cell is touched once, so the
+  // merge branch never runs and this stays a plain last-write assignment.
+  const cellKey = new Map<string, string>();
+  const styleByKey = new Map<string, CellStyle>();
+  for (const patch of normalized) {
+    const patchKey = styleKey(patch.style);
+    if (!styleByKey.has(patchKey)) {
+      styleByKey.set(patchKey, patch.style);
+    }
+    const [start, end] = patch.range;
+    for (let r = start.r; r <= end.r; r += 1) {
+      for (let c = start.c; c <= end.c; c += 1) {
+        const id = `${r},${c}`;
+        const existing = cellKey.get(id);
+        if (existing === undefined) {
+          cellKey.set(id, patchKey);
+          continue;
+        }
+        // Overlap: merge the earlier style under the later one, key by key.
+        const merged = mergeStylePatch(styleByKey.get(existing), patch.style);
+        if (!merged) {
+          cellKey.delete(id);
+          continue;
+        }
+        const mergedKey = styleKey(merged);
+        if (!styleByKey.has(mergedKey)) {
+          styleByKey.set(mergedKey, merged);
+        }
+        cellKey.set(id, mergedKey);
+      }
+    }
+  }
+
+  if (cellKey.size === 0) {
+    return [];
+  }
+
+  const used = new Set<string>();
+  const result: RangeStylePatch[] = [];
+  for (let r = minR; r <= maxR; r += 1) {
+    for (let c = minC; c <= maxC; c += 1) {
+      const id = `${r},${c}`;
+      if (used.has(id)) {
+        continue;
+      }
+      const key = cellKey.get(id);
+      if (key === undefined) {
+        continue;
+      }
+
+      // Extend right along the same style.
+      let endC = c;
+      while (
+        endC + 1 <= maxC &&
+        !used.has(`${r},${endC + 1}`) &&
+        cellKey.get(`${r},${endC + 1}`) === key
+      ) {
+        endC += 1;
+      }
+
+      // Extend down while the full [c..endC] band matches the style.
+      let endR = r;
+      for (let nextR = r + 1; nextR <= maxR; nextR += 1) {
+        let bandMatches = true;
+        for (let cc = c; cc <= endC; cc += 1) {
+          const nid = `${nextR},${cc}`;
+          if (used.has(nid) || cellKey.get(nid) !== key) {
+            bandMatches = false;
+            break;
+          }
+        }
+        if (!bandMatches) {
+          break;
+        }
+        endR = nextR;
+      }
+
+      for (let rr = r; rr <= endR; rr += 1) {
+        for (let cc = c; cc <= endC; cc += 1) {
+          used.add(`${rr},${cc}`);
+        }
+      }
+      result.push({
+        range: [{ r, c }, { r: endR, c: endC }],
+        style: { ...(styleByKey.get(key) as CellStyle) },
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Merges consecutive patches with the same style along a row or column axis.
  */
 export function coalesceAdjacentRangeStylePatches(
