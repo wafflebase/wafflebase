@@ -3737,6 +3737,73 @@ const textCatalog: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'ignore_empty', optional: true },
     ],
   },
+  {
+    name: 'LENB',
+    description: 'Returns the number of bytes (UTF-8) in a text string',
+    args: [
+      { name: 'text' },
+    ],
+  },
+  {
+    name: 'LEFTB',
+    description: 'Returns the leftmost characters from a text string by byte count',
+    args: [
+      { name: 'text' },
+      { name: 'num_bytes', optional: true },
+    ],
+  },
+  {
+    name: 'RIGHTB',
+    description: 'Returns the rightmost characters from a text string by byte count',
+    args: [
+      { name: 'text' },
+      { name: 'num_bytes', optional: true },
+    ],
+  },
+  {
+    name: 'MIDB',
+    description: 'Returns characters from the middle of a text string by byte position',
+    args: [
+      { name: 'text' },
+      { name: 'start_num' },
+      { name: 'num_bytes' },
+    ],
+  },
+  {
+    name: 'FINDB',
+    description: 'Finds one text value inside another by byte position (case-sensitive)',
+    args: [
+      { name: 'search_for' },
+      { name: 'text_to_search' },
+      { name: 'starting_at', optional: true },
+    ],
+  },
+  {
+    name: 'SEARCHB',
+    description: 'Finds one text value inside another by byte position (case-insensitive)',
+    args: [
+      { name: 'search_for' },
+      { name: 'text_to_search' },
+      { name: 'starting_at', optional: true },
+    ],
+  },
+  {
+    name: 'REPLACEB',
+    description: 'Replaces part of a text string by byte position',
+    args: [
+      { name: 'old_text' },
+      { name: 'start_num' },
+      { name: 'num_bytes' },
+      { name: 'new_text' },
+    ],
+  },
+  {
+    name: 'ASC',
+    description: 'Converts full-width (double-byte) characters to half-width',
+    args: [
+      { name: 'text' },
+    ],
+  },
 ];
 
 const databaseCatalog: Array<Omit<FunctionInfo, 'category'>> = [
