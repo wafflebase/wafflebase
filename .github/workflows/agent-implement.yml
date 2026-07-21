@@ -83,18 +83,37 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            let prot;
+            const owner = context.repo.owner, repo = context.repo.repo;
+            let ok = false;
+            // 1) Classic branch protection.
             try {
-              ({ data: prot } = await github.rest.repos.getBranchProtection({
-                owner: context.repo.owner, repo: context.repo.repo, branch: 'main',
-              }));
+              const { data } = await github.rest.repos.getBranchProtection({ owner, repo, branch: 'main' });
+              const r = data.required_pull_request_reviews;
+              if (r && (r.required_approving_review_count || 0) >= 1) ok = true;
             } catch (e) {
-              core.setFailed(`Cannot confirm branch protection on main (HTTP ${e.status}). Refusing to run: the App token needs Administration:read and main must be protected.`);
-              return;
+              // 404 just means "no classic protection" — a ruleset may still
+              // protect main (getBranchProtection 404s in that case). Only a
+              // permissions error (e.g. 403) is fatal here.
+              if (e.status && e.status !== 404) {
+                core.setFailed(`Cannot read branch protection (HTTP ${e.status}); the App token needs Administration:read. Refusing to run.`);
+                return;
+              }
             }
-            const r = prot.required_pull_request_reviews;
-            if (!r || (r.required_approving_review_count || 0) < 1) {
-              core.setFailed('main does not require >=1 approving human review; refusing to run.');
+            // 2) Rulesets — the modern mechanism getBranchProtection can't see.
+            if (!ok) {
+              try {
+                const { data: rules } = await github.request(
+                  'GET /repos/{owner}/{repo}/rules/branches/{branch}',
+                  { owner, repo, branch: 'main' },
+                );
+                ok = rules.some((r) => r.type === 'pull_request' &&
+                  ((r.parameters && r.parameters.required_approving_review_count) || 0) >= 1);
+              } catch (e) {
+                // leave ok=false → fail closed below
+              }
+            }
+            if (!ok) {
+              core.setFailed('main is not protected by a required human review (neither classic protection nor a ruleset requires >=1 approval). Refusing to run.');
             }
 
       - uses: actions/checkout@v4

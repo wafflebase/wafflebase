@@ -26,7 +26,7 @@
 // Usage: node ./scripts/agent/read-review-verdict.mjs [verdict.json path]
 //   defaults to .agent-review/verdict.json
 
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 const verdictPath = path.resolve(
@@ -39,6 +39,10 @@ const KNOWN = ["critical", "major", "minor", "nit"];
 const BLOCKING = new Set(["critical", "major"]);
 
 function emit({ conclusion, blockingCount, valid, summaryMd }) {
+  // The workflow rm -rf's `.agent-review` before the reviewer runs, and the
+  // reviewer may crash without recreating it — so ensure the dir exists, or the
+  // fail-closed path itself would throw ENOENT (defeating the safety mechanism).
+  mkdirSync(path.dirname(summaryPath), { recursive: true });
   writeFileSync(summaryPath, summaryMd + "\n");
   const line = `conclusion=${conclusion}\nblocking_count=${blockingCount}\nvalid=${valid}\n`;
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, line);
