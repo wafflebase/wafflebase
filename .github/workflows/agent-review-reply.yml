@@ -24,6 +24,7 @@ jobs:
     # checkout + the agent only acting on its own PR context.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       (
         (github.event_name == 'issue_comment' &&

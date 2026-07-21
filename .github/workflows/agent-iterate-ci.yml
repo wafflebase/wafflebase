@@ -24,6 +24,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write # comment + label the PR (issues API covers PR comments/labels)
+  actions: read # count prior failed CI runs (unforgeable attempt bound)
 
 env:
   MAX_ATTEMPTS: "4"
@@ -69,13 +70,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
             const branch = context.payload.workflow_run.head_branch;
             const max = parseInt(process.env.MAX_ATTEMPTS, 10);
             const prs = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              head: `${context.repo.owner}:${branch}`,
+              owner, repo, state: 'open', head: `${owner}:${branch}`,
             });
             const pr = prs.data[0];
             if (!pr) {
@@ -84,41 +83,31 @@ jobs:
               return;
             }
             core.setOutput('pr', String(pr.number));
-            const marker = '<!-- agent-attempts -->';
+            // Bound on FAILED CI runs for this branch. Actions run history is
+            // append-only and the agent cannot delete it — unlike a PR-comment
+            // counter it holds issues:write over. Even if it deletes the paging
+            // comment below, this count still trips, so the bound is unforgeable.
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: 'ci.yml', branch, per_page: 100,
+            });
+            const failedCi = runs.filter(r => r.conclusion === 'failure').length;
             const PAGED = '<!-- agent-paged -->';
             const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
+              owner, repo, issue_number: pr.number,
             });
-            const existing = comments.find(c => c.body.includes(marker));
-            // Once paged, stop for good — do not re-run Claude or re-page. This
-            // is the loop's hard terminator; without it the counter comment gets
-            // overwritten and the loop could restart from zero.
-            if (existing && existing.body.includes(PAGED)) {
-              core.info('Already paged a human for this PR; not iterating further.');
+            if (comments.some(c => c.body.includes(PAGED))) {
               core.setOutput('proceed', 'false');
               return;
             }
-            const count = existing ? parseInt((existing.body.match(/attempts:\s*(\d+)/) || [])[1] || '0', 10) : 0;
-            if (count >= max) {
-              core.info(`Reached ${max} automated attempts; paging a human.`);
-              // Keep the machine-readable "attempts: N" line AND the PAGED marker
-              // so the terminator above stays true on every subsequent failure.
-              const body = `${marker}\n${PAGED}\n🛑 The agent made ${count} automated CI-fix attempts (attempts: ${count} / ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve this failure.`;
-              if (existing) {
-                await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
-              } else {
-                await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, body });
-              }
-              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, labels: ['agent:needs-human-review'] }).catch(() => {});
+            if (failedCi >= max) {
+              core.info(`CI failed ${failedCi} times (limit ${max}); paging a human.`);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: pr.number,
+                body: `${PAGED}\n🛑 CI failed ${failedCi} times on this branch (limit ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve it.`,
+              });
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['agent:needs-human-review'] }).catch(() => {});
               core.setOutput('proceed', 'false');
               return;
-            }
-            const next = count + 1;
-            const body = `${marker}\nAutonomous CI-fix attempts: ${next} / ${max}`;
-            if (existing) {
-              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, body });
             }
             core.setOutput('proceed', 'true');
 

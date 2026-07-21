@@ -67,7 +67,8 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   the agent's commits re-trigger CI — commits pushed with the default
   `GITHUB_TOKEN` do NOT, which would stall the iterate/review loops. Add repo
   secrets `AGENT_APP_ID` and `AGENT_APP_PRIVATE_KEY` (from the Claude GitHub App
-  or a dedicated app installed on the repo with Contents/PRs/Issues read+write).
+  or a dedicated app installed on the repo with Contents/PRs/Issues read+write,
+  **plus Administration: read** so the kickoff branch-protection preflight can run).
 - **Create the labels** used by the pipeline so they are queryable and the label
   ops don't no-op: `agent:candidate`, `agent:iterating`, `agent:needs-human-review`.
 - Approve the new workflows (first-run approval for Actions).
@@ -137,3 +138,31 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   contributor, accepting the disclosed injection residual, and the
   Copilot-vs-Claude coexistence question are maintainer calls — not code defects.
   The pipeline stays dormant (`AGENT_PIPELINE_ENABLED` unset) until they decide.
+
+## Security review (fourth pass) — addressed
+
+- **Forgeable attempt counters**: both loop bounds moved off deletable PR-comment
+  counters (the agent holds issues:write) to append-only signals it cannot edit —
+  iterate-ci counts failed CI runs (Actions history, +`actions: read`); the review
+  loop counts failed `agent-independent-review` check runs across the PR commits
+  (check runs need checks:write, which the author lacks).
+- **Silent-stall crash**: `read-review-verdict.mjs` guarded against
+  null/array/primitive verdicts (`JSON.parse("null")` used to throw before the
+  fail-closed path); added a `stalled` job that pages a human if the review job
+  dies for any other reason.
+- **Branch-protection now verified**: `agent-implement` fails closed at kickoff
+  unless `main` requires a human review (needs App `Administration: read`).
+- **CODEOWNERS de-scoped**: removed the repo-wide `* @owner` rule (it would
+  re-route all PR reviews on merge); it now owns only the pipeline's own files.
+  The agent-PR human gate rests on branch protection's required approval.
+- **Bot self-trigger guard**: `agent-review-reply` ignores comments from Bot
+  accounts (the agent's own `@claude`-bearing replies can't re-trigger it).
+- **Branch creation** in the kickoff prompt made explicit (`git checkout -b` from
+  `main`), not left to "already checked out" ambiguity.
+- **Honest framing corrected** (docs + PR): gate 3 (disclosure) is a required
+  self-attestation, not separate-actor evidence; the real asset is the
+  secrets in the code-executing jobs (inherent risk, documented with mitigations),
+  not the draft flag; "no human keystroke" clarified as no *authoring* keystroke.
+- **Non-issue — HARNESS_EOF heredoc**: the kickoff prompt content is no longer
+  agent-influenced (quoted heredoc + numeric-only substitution; the agent reads
+  the issue itself), so the fixed delimiter can't collide with injected text.

@@ -8,31 +8,24 @@
 # ⚠️ EDIT THE OWNERS BELOW before enabling. Replace @hackerwins with the real
 # maintainer usernames or a team (e.g. @wafflebase/maintainers). Every listed
 # owner must have write access to the repo, or GitHub silently ignores the line.
-# This file is the human gate for the autonomous agent pipeline: the agent can
-# never be a code owner, so a human owner always has to approve.
+#
+# SCOPE: this file intentionally does NOT set a global `* @owner` rule. Doing so
+# would re-route review on EVERY PR in the repo the moment this merges (and, with
+# "Require review from Code Owners" on, could block other contributors) — that is
+# a repo-wide governance change, not something this PR should impose. It only
+# claims ownership of the agent pipeline's own sensitive files below.
+#
+# The human merge gate for *agent PRs* comes from branch protection's
+# "require >=1 approving review" + dismiss-stale-approvals, NOT from a repo-wide
+# CODEOWNERS. If maintainers later want Code-Owner review to gate agent PRs'
+# arbitrary changes too, broadening this file is a deliberate step taken when
+# arming the pipeline.
 
-# Global default owner for everything not matched below.
-*                               @hackerwins
-
-# --- Packages (uncomment / assign as ownership solidifies) -------------------
-# /packages/sheets/             @hackerwins
-# /packages/docs/               @hackerwins
-# /packages/slides/             @hackerwins
-# /packages/frontend/           @hackerwins
-# /packages/backend/            @hackerwins
-# /packages/cli/                @hackerwins
-# /packages/core/               @hackerwins
-
-# --- Harness / CI / release infrastructure ----------------------------------
-/.github/                       @hackerwins
-/scripts/                       @hackerwins
-/harness.config.json            @hackerwins
-/docs/design/harness-engineering.md  @hackerwins
-
-# --- Autonomous agent pipeline (extra scrutiny) ------------------------------
-# These files decide what the agent is allowed to do — keep them tightly owned.
-/.github/workflows/agent-*.yml  @hackerwins
+# --- Autonomous agent pipeline + its governance surface (tightly owned) ------
+# Changes to what the agent is allowed to do require an owner's review.
+/.github/workflows/agent-*.yml          @hackerwins
 /.github/ISSUE_TEMPLATE/agent-task.yml  @hackerwins
-/scripts/agent/                 @hackerwins
-/scripts/hooks/                 @hackerwins
-/.claude/                       @hackerwins
+/scripts/agent/                         @hackerwins
+/scripts/hooks/                         @hackerwins
+/.claude/                               @hackerwins
+/docs/design/harness-engineering.md     @hackerwins

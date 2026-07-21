@@ -229,40 +229,38 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
             const pr = Number('${{ needs.review.outputs.pr }}');
             const max = parseInt(process.env.MAX_REVIEW_ROUNDS, 10);
-            const marker = '<!-- agent-review-attempts -->';
             const PAGED = '<!-- agent-review-paged -->';
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr,
-            });
-            const existing = comments.find(c => c.body.includes(marker));
-            if (existing && existing.body.includes(PAGED)) {
-              core.info('Already paged a human for review rounds; stopping.');
-              core.setOutput('proceed', 'false'); return;
-            }
-            // If the reviewer produced no valid verdict, don't churn — page now.
+            const page = async (msg) => {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('proceed', 'false');
+            };
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: pr });
+            if (comments.some(c => c.body.includes(PAGED))) { core.setOutput('proceed', 'false'); return; }
+            // No valid verdict → don't churn, page now.
             if ('${{ needs.review.outputs.valid }}' !== 'true') {
-              const body = `${marker}\n${PAGED}\n🛑 The independent reviewer did not produce a valid verdict. **A human should review** PR #${pr}.`;
-              existing
-                ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
-                : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
-              core.setOutput('proceed', 'false'); return;
+              return page(`The independent reviewer did not produce a valid verdict. A human should review PR #${pr}.`);
             }
-            const count = existing ? parseInt((existing.body.match(/rounds:\s*(\d+)/) || [])[1] || '0', 10) : 0;
-            if (count >= max) {
-              const body = `${marker}\n${PAGED}\n🛑 Independent review requested changes ${count} times (rounds: ${count} / ${max}) without converging. **A human should take over** on PR #${pr}.`;
-              existing
-                ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
-                : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
-              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
-              core.setOutput('proceed', 'false'); return;
+            // Bound on FAILED review verdicts across the PR's commits. Each verdict
+            // is a check run, which requires checks:write to create — the author
+            // agent lacks it, so this counter is append-only and unforgeable
+            // (unlike a PR-comment counter it holds issues:write over).
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner, repo, pull_number: pr, per_page: 100,
+            });
+            let failedRounds = 0;
+            for (const c of commits) {
+              const { data } = await github.rest.checks.listForRef({
+                owner, repo, ref: c.sha, check_name: process.env.CHECK_NAME,
+              });
+              if (data.check_runs.some(r => r.conclusion === 'failure')) failedRounds++;
             }
-            const next = count + 1;
-            const body = `${marker}\nAutonomous review-fix rounds: ${next} / ${max}`;
-            existing
-              ? await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body })
-              : await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, body });
+            if (failedRounds >= max) {
+              return page(`Independent review requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
+            }
             core.setOutput('proceed', 'true');
 
       - name: Fetch reviewer findings
@@ -332,3 +330,34 @@ jobs:
             --max-turns 40
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+  # Safety net: if the review job dies unexpectedly (checkout/runner failure, a
+  # bug outside the fail-closed verdict reader), neither promote nor fix runs.
+  # This pages a human so the loop never silently stalls.
+  stalled:
+    needs: review
+    if: always() && needs.review.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', head: `${context.repo.owner}:${branch}`,
+            });
+            const pr = prs.data[0];
+            if (!pr) return;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
+              body: '<!-- agent-review-paged -->\n🛑 The independent-review job failed to complete. **A human should review** this PR — the automated review did not produce a verdict.',
+            });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
+              labels: ['agent:needs-human-review'],
+            }).catch(() => {});

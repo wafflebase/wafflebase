@@ -1,8 +1,8 @@
 // Ready gate for the autonomous contribution loop.
 //
 // Promotes an agent-authored draft PR to "ready for human review" ONLY when the
-// hand-off preconditions all hold. Every gate keys off evidence a SEPARATE actor
-// produced, never the author agent's own claims:
+// hand-off preconditions all hold. Gates 1 and 2 are UNFORGEABLE — they read
+// evidence a separate actor produced that the author agent cannot fabricate:
 //
 //   1. The "CI" workflow run for the PR head SHA concluded `success` (read via
 //      the Actions API — the author agent cannot create or forge a CI run; this
@@ -12,6 +12,11 @@
 //      `success` — an INDEPENDENT reviewer approved it. Only the reviewer
 //      workflow (which has checks:write) can post that check, so the author
 //      agent cannot forge its own approval.
+//
+// Gate 3 is a REQUIRED SELF-DISCLOSURE, not separate-actor evidence — the author
+// agent writes the PR body. It is not adversary-proof (a truthful agent has no
+// incentive to hide its own authorship; a dishonest one simply stays a draft).
+// It is belt-and-suspenders with the commit-trailer hook:
 //   3. The PR body discloses autonomous authorship.
 //
 // It NEVER merges. After promotion it flips draft → ready, swaps the

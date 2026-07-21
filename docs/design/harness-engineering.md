@@ -379,8 +379,11 @@ Components:
   review workflow on approval: promotes draft → ready only when the **"CI"
   workflow run** for the head SHA concluded `success` (read via the Actions API,
   not the author-writable verification comment), the `agent-independent-review`
-  check run concluded `success`, and AI authorship is disclosed. Every gate keys
-  off evidence a separate actor produced, never the author agent's self-report.
+  check run concluded `success`, and AI authorship is disclosed. Gates 1 and 2
+  are unforgeable — they read evidence a separate actor (GitHub Actions / the
+  reviewer workflow) produced that the author agent cannot fabricate. Gate 3
+  (disclosure) is a required self-attestation by the author, not separate-actor
+  evidence (belt-and-suspenders with the commit-trailer hook).
   The gate only flips draft → ready; it has no merge authority. The
   `agent-independent-review` check must **never** be configured as
   sufficient-for-merge on its own — a human CODEOWNER approval stays a required,
@@ -390,14 +393,47 @@ Components:
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
 
 Human gate (mechanical, not prompt-based): branch protection on `main` requires a
-human approving review + CODEOWNERS + CI green + dismiss-stale-approvals. The
-agent token is non-admin; the pipeline never calls `gh pr merge`. "You sign off
-on every line" moves to the approving human reviewer.
+human approving review + CI green + dismiss-stale-approvals; the `agent-implement`
+kickoff also fails closed unless that protection is present. The agent token is
+non-admin; the pipeline never calls `gh pr merge`. "You sign off on every line"
+moves to the approving human reviewer.
+
+### Threat model & residual risks (read before arming)
+
+- **Not fully "dormant" on merge.** The workflows are inert until
+  `vars.AGENT_PIPELINE_ENABLED=true`, but three things take effect on merge:
+  `.github/CODEOWNERS` (scoped to the pipeline's own files, not repo-wide), the
+  `.github/ISSUE_TEMPLATE/agent-task.yml` issue template (appears in the chooser),
+  and the `scripts/hooks/require-ai-disclosure.sh` hook registration (a no-op
+  unless `WAFFLEBASE_AGENT_AUTONOMOUS=true`). So this PR is a governance change,
+  not a zero-effect one.
+- **The high-value asset is the secrets, not the draft flag.** The verdict/ready
+  architecture makes the *draft→ready* decision unforgeable, but that flag has no
+  merge power (a human CODEOWNER must still approve). The real asset is
+  `ANTHROPIC_API_KEY` + the write-capable App token, held by the code-executing
+  agent jobs (`agent-implement`, `agent-iterate-ci`, the review `fix` job) which
+  run `pnpm install` (branch `postinstall`) and an unrestricted-`Bash` agent on
+  the branch. An adversarially prompt-injected author agent could exfiltrate
+  them there. This is inherent to running an autonomous coding agent with an API
+  key; it is NOT defended by the review gate. Mitigations: the protected `agent`
+  environment (optional per-run human approval), the enablement switch, fork-
+  origin rejection, and treating `ANTHROPIC_API_KEY` as least-privilege and
+  rotatable. Adopters must accept this risk consciously.
+- **LLM-reviewer prompt injection.** The independent reviewer reads an untrusted
+  diff, so injected text can sway its severity classification. The human merge
+  gate is the backstop; the `agent-independent-review` check must never be sole
+  merge authority.
+- **"No human keystroke" is aspirational, phased.** The done-criterion below
+  describes no human *authoring* keystroke. In early phases the `agent`
+  environment SHOULD keep required reviewers (a human approves each secret-bearing
+  run) — that deliberately inserts a keystroke and is worth it. Fully
+  approval-free autonomy is a later phase, only once the (now unforgeable) loop
+  bounds are trusted in practice.
 
 Done criteria: A maintainer's `@claude` on a well-specified issue yields a green,
-self-reviewed, disclosed draft PR marked ready-for-review, with no human keystroke
-between the mention and the review request — and no path for the agent to reach
-`main`.
+independently-reviewed, disclosed draft PR marked ready-for-review with no human
+*authoring* keystroke between the mention and the review request — and no path for
+the agent to reach `main`.
 
 ## Harness Policy
 

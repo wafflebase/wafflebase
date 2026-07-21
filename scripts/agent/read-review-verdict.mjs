@@ -82,9 +82,17 @@ try {
   );
 }
 
-if (!Array.isArray(verdict.findings)) {
+// Guard null/array/primitive BEFORE touching `.findings` — `JSON.parse("null")`
+// returns null, and `null.findings` would throw a TypeError outside the try,
+// crashing the step and stalling the loop (the exact failure this fails-closed).
+if (
+  verdict === null ||
+  typeof verdict !== "object" ||
+  Array.isArray(verdict) ||
+  !Array.isArray(verdict.findings)
+) {
   failClosed(
-    "The reviewer's verdict had no `findings` array. Treating as **not approved**.",
+    "The reviewer's verdict was not an object with a `findings` array. Treating as **not approved**.",
   );
 }
 
