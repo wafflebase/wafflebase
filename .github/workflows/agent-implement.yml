@@ -4,8 +4,9 @@
 # trusted authors), or via manual dispatch for supervised dry-runs. Claude Code
 # runs headless in the runner, reads CLAUDE.md/CONTRIBUTING.md (the SessionStart
 # hook also injects the workflow checklist), and follows the existing wafflebase
-# task workflow: plan -> optional design doc -> branch -> verify:self ->
-# self-review -> open a DRAFT PR. It never pushes to main and never merges.
+# task workflow: plan -> optional design doc -> branch -> verify:fast ->
+# self-review -> open a DRAFT PR (full verify:self runs in the PR's CI, not in
+# the runner's turn budget). It never pushes to main and never merges.
 #
 # See docs/design/harness-engineering.md ("Autonomous contribution loop").
 name: Agent Implement
@@ -36,7 +37,7 @@ jobs:
         contains(github.event.comment.body, '@claude') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # hard cost/time ceiling
+    timeout-minutes: 90 # hard cost/time ceiling (implementation is turn-heavy)
     # Job-level concurrency (one run per issue). Placed on the job — not the
     # workflow — so an unrelated issue comment that fails the `if` is skipped
     # without entering the group and cancelling an in-progress implementation.
@@ -170,9 +171,11 @@ jobs:
              `pnpm verify:fast`-green. Commit subject <=70 chars; body explains why.
              Every commit message MUST end with the trailer:
              "Assisted-by: Claude Code (autonomous)".
-          3. VERIFY: run `pnpm verify:self` before pushing. If the change touches
-             backend / datasource / share-link / CRDT paths, also run
-             `pnpm verify:integration:docker`.
+          3. VERIFY: keep each commit `pnpm verify:fast`-green (the quick lane).
+             Do NOT run the slow `pnpm verify:self` or `pnpm verify:integration:docker`
+             locally — they burn your turn budget on full builds. The PR's CI runs
+             the full lanes, and the agent-iterate-ci loop feeds any CI failure back
+             to you to fix. Spend your turns on the implementation, not local builds.
           4. SELF-REVIEW: run the /code-review skill over the FULL branch diff.
              Apply blocking findings. Then post a PR comment beginning with the
              literal marker "<!-- agent-self-review -->" that lists findings and
@@ -210,6 +213,6 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
-            --max-turns 60
+            --max-turns 150
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
