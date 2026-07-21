@@ -410,14 +410,15 @@ moves to the approving human reviewer.
 - **The high-value asset is the secrets, not the draft flag.** The verdict/ready
   architecture makes the *draft→ready* decision unforgeable, but that flag has no
   merge power (a human CODEOWNER must still approve). The real asset is
-  `ANTHROPIC_API_KEY` + the write-capable App token, held by the code-executing
+  the Claude auth secret (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` for
+  a `claude setup-token` subscription token) + the write-capable App token, held by the code-executing
   agent jobs (`agent-implement`, `agent-iterate-ci`, the review `fix` job) which
   run `pnpm install` (branch `postinstall`) and an unrestricted-`Bash` agent on
   the branch. An adversarially prompt-injected author agent could exfiltrate
   them there. This is inherent to running an autonomous coding agent with an API
   key; it is NOT defended by the review gate. Mitigations: the protected `agent`
   environment (optional per-run human approval), the enablement switch, fork-
-  origin rejection, and treating `ANTHROPIC_API_KEY` as least-privilege and
+  origin rejection, and treating the Claude auth secret as least-privilege and
   rotatable. Adopters must accept this risk consciously.
 - **LLM-reviewer prompt injection.** The independent reviewer reads an untrusted
   diff, so injected text can sway its severity classification. The human merge
