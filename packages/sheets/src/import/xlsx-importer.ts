@@ -7,7 +7,7 @@ import {
 } from '../model/workbook/worksheet-document';
 import { writeWorksheetCell } from '../model/workbook/worksheet-grid';
 import {
-  coalesceAdjacentRangeStylePatches,
+  coalesceRangeStylePatchesMaximal,
   type RangeStylePatch,
 } from '../model/worksheet/range-styles';
 import { parseStyleTable, type StyleTable } from './xlsx-styles';
@@ -379,11 +379,12 @@ function parseWorksheet(
     worksheet.hiddenRows = hiddenRows;
   }
   if (stylePatches.length > 0) {
-    // Coalesce horizontally then vertically to keep the patch list small.
-    worksheet.rangeStyles = coalesceAdjacentRangeStylePatches(
-      coalesceAdjacentRangeStylePatches(stylePatches, 'column'),
-      'row',
-    );
+    // Tile same-style regions into maximal rectangles. Excel stamps a style on
+    // every cell of a formatted table's used range, so a naive per-cell patch
+    // list explodes the Yorkie document size (each patch is an expensive CRDT
+    // subtree). Maximal-rectangle tiling collapses the count far more than an
+    // adjacent merge when no whole row/column is a single style.
+    worksheet.rangeStyles = coalesceRangeStylePatchesMaximal(stylePatches);
   }
 
   return {
