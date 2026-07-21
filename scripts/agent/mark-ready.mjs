@@ -24,9 +24,11 @@
 // comment. The final review + merge stay human, enforced by branch protection.
 //
 // Usage:
-//   node ./scripts/agent/mark-ready.mjs <pr-number> [--promote]
+//   node ./scripts/agent/mark-ready.mjs <pr-number> [--promote] [--require-checks a,b,c]
 //     (default is a dry run that only reports gate status and exits non-zero if
 //      the PR is not ready; pass --promote to actually flip the PR to ready)
+//     --require-checks: comma-separated check-run names that must ALL be success
+//      (defaults to the review-panel lens checks below).
 //
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
@@ -36,12 +38,22 @@ const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
 
 if (!prNumber || !/^\d+$/.test(prNumber)) {
-  console.error("Usage: node ./scripts/agent/mark-ready.mjs <pr-number> [--promote]");
+  console.error("Usage: node ./scripts/agent/mark-ready.mjs <pr-number> [--promote] [--require-checks a,b,c]");
   process.exit(2);
 }
 
 const HANDOFF_MARKER = "<!-- agent-handoff -->";
-const REVIEW_CHECK_NAME = "agent-independent-review";
+const DEFAULT_REVIEW_CHECKS = [
+  "agent-review-correctness",
+  "agent-review-security",
+  "agent-review-design-fit",
+  "agent-review-test-adequacy",
+];
+const rcIdx = process.argv.indexOf("--require-checks");
+const REQUIRED_CHECKS =
+  rcIdx !== -1 && process.argv[rcIdx + 1]
+    ? process.argv[rcIdx + 1].split(",").map((s) => s.trim()).filter(Boolean)
+    : DEFAULT_REVIEW_CHECKS;
 
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });
@@ -94,26 +106,33 @@ function ciPassed(sha) {
 
 const ciGate = ciPassed(pr.headRefOid);
 
-// --- gate 2: independent review approved -----------------------------------
+// --- gate 2: every required review-panel lens check passed -----------------
 
-// Evidence-based: read the `agent-independent-review` check run on the PR head
-// SHA. Only the reviewer workflow can post it; the author agent cannot.
-function independentReviewApproved(sha) {
-  if (!sha) return false;
-  let data;
-  try {
-    data = ghJson(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs`]);
-  } catch {
-    return false;
-  }
-  const runs = (data.check_runs ?? []).filter((r) => r.name === REVIEW_CHECK_NAME);
-  if (runs.length === 0) return false;
+// Evidence-based: read the per-lens `agent-review-<lens>` check runs on the PR
+// head SHA. Only the review-panel workflow (checks:write) can post them; the
+// author agent cannot forge them.
+function checkPassed(checkRuns, name) {
+  const runs = checkRuns.filter((r) => r.name === name);
+  if (runs.length === 0) return false; // a required lens that never ran → not passed
   // Newest first, so re-reviews on the same SHA use the latest verdict.
   runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0));
   return runs[0].conclusion === "success";
 }
 
-const reviewApproved = independentReviewApproved(pr.headRefOid);
+function reviewChecks(sha) {
+  if (!sha) return { allPassed: false, perCheck: {} };
+  let data;
+  try {
+    data = ghJson(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`]);
+  } catch {
+    return { allPassed: false, perCheck: Object.fromEntries(REQUIRED_CHECKS.map((c) => [c, false])) };
+  }
+  const runs = data.check_runs ?? [];
+  const perCheck = Object.fromEntries(REQUIRED_CHECKS.map((c) => [c, checkPassed(runs, c)]));
+  return { allPassed: REQUIRED_CHECKS.every((c) => perCheck[c]), perCheck };
+}
+
+const { allPassed: reviewApproved, perCheck } = reviewChecks(pr.headRefOid);
 
 // --- gate 3: AI disclosure -------------------------------------------------
 
@@ -125,13 +144,16 @@ const disclosure =
 
 const gates = [
   { name: "CI verification (verify:self ✅ + verify:integration ✅/skip)", ok: ciGate },
-  { name: `Independent review approved (${REVIEW_CHECK_NAME} check ✅)`, ok: reviewApproved },
+  { name: `Review panel approved (all lens checks ✅: ${REQUIRED_CHECKS.join(", ")})`, ok: reviewApproved },
   { name: "AI authorship disclosed in PR body", ok: disclosure },
 ];
 
 console.log(`Ready-gate report for PR #${prNumber} (${pr.url})`);
 for (const g of gates) {
   console.log(`  ${g.ok ? "✅" : "❌"} ${g.name}`);
+}
+if (!reviewApproved) {
+  for (const c of REQUIRED_CHECKS) console.log(`      ${perCheck[c] ? "✅" : "❌"} ${c}`);
 }
 
 const allOk = gates.every((g) => g.ok);
@@ -179,7 +201,7 @@ const handoff = [
   "ready gate:",
   "",
   "- ✅ CI verification (`verify:self` and `verify:integration`) is green.",
-  "- ✅ An independent reviewer (`agent-independent-review`) approved with no blocking findings.",
+  `- ✅ The review panel approved with no blocking findings (${REQUIRED_CHECKS.join(", ")}).`,
   "- ✅ Autonomous authorship is disclosed in the PR body.",
   "",
   "**No human has verified these changes yet — please review every line.** The",

@@ -1,0 +1,337 @@
+# Review PANEL: ONE orchestrator process (review-panel.mjs, Claude Agent SDK)
+# spawns a fresh, read-only subagent per lens (correctness / security / design-fit
+# / test-adequacy), runs a per-finding verifier refute pass, and records one
+# unforgeable `agent-review-<lens>` CHECK RUN per lens. The trusted script (run
+# from a `main` checkout) computes each verdict — the subagents only classify.
+#
+# Flow (only on green CI for base-repo agent/ branches):
+#   review-panel → per-lens check runs (fail-closed if a lens produces no verdict)
+#   promote      → all lens checks success → ready gate (mark-ready --promote)
+#   fix          → any lens failed → feed combined findings to the author (bounded)
+#   stalled      → the panel job died → page a human
+#
+# Trust: reviewers never execute branch code (SDK tools = Read/Grep/Glob only);
+# orchestrator + lenses come from the TRUSTED main checkout; check runs are
+# author-unforgeable (author workflows lack checks:write); everything fails closed.
+name: Agent Review Panel
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions: {}
+
+env:
+  MAX_REVIEW_ROUNDS: "3"
+
+jobs:
+  review-panel:
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: agent
+    permissions:
+      contents: read # read-only toward the PR
+      checks: write # record per-lens verdicts
+      issues: read # design-fit lens reads the originating issue spec
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.pr.outputs.number }}
+      blocked: ${{ steps.panel.outputs.blocked }}
+      all_valid: ${{ steps.panel.outputs.all_valid }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+
+      - name: Resolve PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', head: `${context.repo.owner}:${branch}`,
+            });
+            core.setOutput('number', prs.data[0] ? String(prs.data[0].number) : '');
+
+      - uses: actions/setup-node@v4
+        if: steps.pr.outputs.number != ''
+        with:
+          node-version: 22.x
+
+      - name: Compute diff + changed files (data for the reviewers)
+        if: steps.pr.outputs.number != ''
+        run: |
+          git fetch --no-tags origin main
+          git diff origin/main...HEAD > /tmp/pr.diff
+          git diff --name-only origin/main...HEAD > /tmp/changed.txt
+
+      - name: Fetch originating issue spec (for design-fit)
+        if: steps.pr.outputs.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const num = Number('${{ steps.pr.outputs.number }}');
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner, repo: context.repo.repo, pull_number: num,
+            });
+            const m = (pr.body || '').match(/(?:fixes|closes|resolves)\s+#(\d+)/i);
+            let text = '';
+            if (m) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner, repo: context.repo.repo, issue_number: Number(m[1]),
+                });
+                text = `# ${issue.title}\n\n${issue.body || ''}`;
+              } catch {}
+            }
+            fs.writeFileSync('/tmp/issue.txt', text);
+
+      - name: Clear stale verdicts
+        if: steps.pr.outputs.number != ''
+        run: rm -rf .agent-review
+
+      # Trusted orchestrator + lenses from main (NOT the branch's copy).
+      - name: Fetch trusted panel code from main
+        if: steps.pr.outputs.number != ''
+        run: rm -rf .trusted
+      - uses: actions/checkout@v4
+        if: steps.pr.outputs.number != ''
+        with:
+          ref: main
+          path: .trusted
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+
+      - name: Install Agent SDK (trusted)
+        if: steps.pr.outputs.number != ''
+        run: cd .trusted/scripts/agent && npm install --no-audit --no-fund
+
+      - name: Run review panel
+        if: steps.pr.outputs.number != ''
+        # continue-on-error: a crash must not skip the needs-gated promote/fix
+        # jobs — the post step below then fails closed (per-lens failure checks).
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >-
+          node .trusted/scripts/agent/review-panel.mjs
+          --diff-file /tmp/pr.diff
+          --issue-file /tmp/issue.txt
+          --changed-files /tmp/changed.txt
+          --repo "$GITHUB_WORKSPACE"
+          --lenses-dir .trusted/scripts/agent/lenses
+          --out .agent-review
+
+      - name: Post per-lens check runs
+        id: panel
+        if: always() && steps.pr.outputs.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sha = context.payload.workflow_run.head_sha;
+            const LENSES = ['correctness', 'security', 'design-fit', 'test-adequacy'];
+            let panel = [];
+            try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
+            const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
+            let blocked = false, allValid = true;
+            for (const id of LENSES) {
+              const p = byId[id];
+              // Fail closed: a missing lens result is treated as a failure.
+              const conclusion = p && p.conclusion === 'success' ? 'success' : 'failure';
+              const valid = !!(p && p.valid);
+              if (conclusion !== 'success') blocked = true;
+              if (!valid) allValid = false;
+              let summary = '_No summary produced (failing closed)._';
+              try { summary = fs.readFileSync(`.agent-review/${id}/summary.md`, 'utf8'); } catch {}
+              await github.rest.checks.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: `agent-review-${id}`, head_sha: sha, status: 'completed', conclusion,
+                output: { title: `${id}: ${conclusion}`, summary: summary.slice(0, 60000) },
+              });
+            }
+            core.setOutput('blocked', String(blocked));
+            core.setOutput('all_valid', String(allValid));
+
+  promote:
+    needs: review-panel
+    if: needs.review-panel.outputs.blocked == 'false' && needs.review-panel.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      actions: read # mark-ready reads the CI workflow-run conclusion
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4 # default branch — only need the gate script
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Run ready gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: |
+          set +e
+          node ./scripts/agent/mark-ready.mjs "$PR" --promote
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then echo "mark-ready tooling error" >&2; exit 2; fi
+          if [ "$code" -eq 1 ]; then echo "Not all ready-gates satisfied; leaving as draft."; fi
+
+  fix:
+    needs: review-panel
+    if: needs.review-panel.outputs.blocked == 'true' && needs.review-panel.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: agent
+    permissions:
+      contents: write # push the fix commit
+      checks: read # read the lens findings
+      pull-requests: write
+      issues: write
+    env:
+      WAFFLEBASE_AGENT_AUTONOMOUS: "true"
+    steps:
+      - name: Review-round guard
+        id: guard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = Number('${{ needs.review-panel.outputs.pr }}');
+            const max = parseInt(process.env.MAX_REVIEW_ROUNDS, 10);
+            const PAGED = '<!-- agent-review-paged -->';
+            const page = async (msg) => {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('proceed', 'false');
+            };
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: pr });
+            if (comments.some((c) => c.body.includes(PAGED))) { core.setOutput('proceed', 'false'); return; }
+            // A lens that failed CLOSED (no valid verdict) → structural problem, page now.
+            if ('${{ needs.review-panel.outputs.all_valid }}' !== 'true') {
+              return page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`);
+            }
+            // Unforgeable round bound: count commits where ANY agent-review-* check
+            // failed (check runs need checks:write, which the author lacks).
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
+            let failedRounds = 0;
+            for (const c of commits) {
+              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
+              if (runs.some((r) => r.name.startsWith('agent-review-') && r.conclusion === 'failure')) failedRounds++;
+            }
+            if (failedRounds >= max) {
+              return page(`The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
+            }
+            core.setOutput('proceed', 'true');
+
+      - name: Gather failing lens findings
+        id: findings
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const sha = context.payload.workflow_run.head_sha;
+            const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: sha, per_page: 100 });
+            const failing = runs.filter((r) => r.name.startsWith('agent-review-') && r.conclusion === 'failure');
+            const latest = {};
+            for (const r of failing) {
+              if (!latest[r.name] || new Date(r.started_at) > new Date(latest[r.name].started_at)) latest[r.name] = r;
+            }
+            const summary = Object.values(latest)
+              .map((r) => `## ${r.name}\n${(r.output && r.output.summary) || ''}`)
+              .join('\n\n') || 'No findings summary available.';
+            core.setOutput('summary', summary);
+
+      - name: Generate GitHub App token
+        id: app-token
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.proceed == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.proceed == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.proceed == 'true'
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - name: Install dependencies
+        if: steps.guard.outputs.proceed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Address panel findings
+        if: steps.guard.outputs.proceed == 'true'
+        # Pinned to the v1 release commit (immutable). github_token is the App
+        # token so the fix push re-triggers CI (and a fresh review panel).
+        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            The review panel requested changes on your PR. Findings by lens:
+
+            ${{ steps.findings.outputs.summary }}
+
+            Address every BLOCKING (critical/major) finding. For each, either fix it
+            (keeping `pnpm verify:fast` green per commit) or, if you believe it is
+            wrong, reply in the PR thread with your reasoning per CONTRIBUTING.md.
+            Append a follow-up commit (do NOT force-push); the commit message must
+            end with the trailer "Assisted-by: Claude Code (autonomous)". Do not
+            merge. Pushing re-runs CI and a fresh review panel.
+          claude_args: >-
+            --max-turns 40
+            --model claude-opus-4-8
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+  # Safety net: the panel job died before producing verdicts → page a human so
+  # the loop never silently stalls.
+  stalled:
+    needs: review-panel
+    if: always() && needs.review-panel.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', head: `${context.repo.owner}:${branch}`,
+            });
+            const pr = prs.data[0];
+            if (!pr) return;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
+              body: '<!-- agent-review-paged -->\n🛑 The review-panel job failed to complete. **A human should review** this PR — the automated panel did not produce verdicts.',
+            });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
+              labels: ['agent:needs-human-review'],
+            }).catch(() => {});

@@ -57,10 +57,11 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - `ANTHROPIC_API_KEY` secret (scoped to a protected `agent` Environment).
 - Branch protection on `main`: human approval + CODEOWNERS + CI green +
   dismiss-stale-approvals; agent token non-admin. You may also require the
-  `agent-independent-review` status check (necessary), but it must **never** be
-  sufficient-for-merge on its own: human CODEOWNER approval stays required and
-  non-bypassable, because the LLM reviewer can be swayed by prompt-injected diff
-  text. The review check is a pre-human triage signal, not merge authority.
+  per-lens `agent-review-correctness` / `-security` / `-design-fit` /
+  `-test-adequacy` status checks (necessary), but they must **never** be
+  sufficient-for-merge on their own: human CODEOWNER approval stays required and
+  non-bypassable, because an LLM reviewer can be swayed by prompt-injected diff
+  text. The review checks are a pre-human triage signal, not merge authority.
 - **Provide a GitHub App for git auth.** The pushing workflows mint an
   installation token via `actions/create-github-app-token` and pass it to
   `actions/checkout` (`token:`) and to `claude-code-action` (`github_token:`), so
@@ -166,3 +167,34 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Non-issue — HARNESS_EOF heredoc**: the kickoff prompt content is no longer
   agent-influenced (quoted heredoc + numeric-only substitution; the agent reads
   the issue itself), so the fixed delimiter can't collide with injected text.
+
+## Review panel — one orchestrator, four subagents (replaces the single reviewer)
+
+- [x] `scripts/agent/severity.mjs` — shared block-iff-critical/major rule, imported
+      by both `read-review-verdict.mjs` and the orchestrator (one source of truth).
+- [x] `scripts/agent/lenses/lenses.json` + `{correctness,security,design-fit,
+      test-adequacy}.md` rubrics (block-on-concrete, stay-in-lane, treat-as-data).
+- [x] `scripts/agent/review-panel.mjs` — Agent SDK orchestrator: parallel per-lens
+      subagents (read-only), per-finding verifier refute pass (drops only on explicit
+      refuted; keeps on uncertainty), synthesize+dedup, trusted per-lens verdicts.
+      + `scripts/agent/package.json` (SDK dep — pin/verify version + add a lockfile).
+- [x] `.github/workflows/agent-independent-review.yml` → `agent-review-panel.yml`:
+      single `review-panel` job (trusted-main orchestrator, per-lens
+      `agent-review-<lens>` check runs, fail-closed) + generalized promote/fix/stalled.
+- [x] `scripts/agent/mark-ready.mjs` — `--require-checks` (all named lens checks must
+      pass); default = the 4 lens checks.
+
+### Panel-specific maintainer notes
+- The reviewer check name changed from `agent-independent-review` to per-lens
+  `agent-review-<lens>` — update any branch-protection required-check list.
+- The `review-panel` job needs `issues: read` (design-fit reads the issue) and
+  installs the Agent SDK (`scripts/agent/package.json`); pin the SDK version and
+  commit a lockfile for reproducibility.
+- **Verify at build:** the Agent SDK option names (`outputFormat`/`structured_output`/
+  `permissionMode: dontAsk`) against the installed version.
+
+### To validate before trusting (same discipline as the single-reviewer backtest)
+- Re-run the panel over the 12-PR FP corpus + 8-mutant TP corpus; confirm per-lens
+  routing (authz/hmac/secret→security; offbyone/await/null→correctness;
+  store-bypass→design-fit; vacuous-test→test-adequacy) AND that the verifier pass
+  does not refute any of the 8 real bugs.

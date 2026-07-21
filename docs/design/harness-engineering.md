@@ -357,37 +357,38 @@ Components:
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
   a `@claude` mention in a PR/review thread has the agent address the finding (or
   push back with reasoning) in-thread.
-- **Independent review** — `.github/workflows/agent-independent-review.yml`: on
-  green CI for a base-repo `agent/` branch (fork-originated `workflow_run` events
-  are rejected), a FRESH Claude Code run (no memory of writing the code,
-  adversarial stance, `contents: read` only) reviews the diff **statically** and
-  writes findings classified `critical` / `major` / `minor` / `nit`. To keep the
-  privileged job (secrets + `checks:write`) safe from the untrusted branch it
-  reviews, it runs **no** `pnpm install` (no branch `postinstall`) and the
-  reviewer cannot execute branch code (no `node`/`pnpm`/`Edit`). The verdict is
-  then computed by `scripts/agent/read-review-verdict.mjs` **checked out fresh
-  from `main`** (not the branch's copy) against the reviewer's findings: the PR is
-  approved when no `critical`/`major` finding remains (`minor`/`nit` informational;
-  unknown severity → `major`, fail-safe). The result is recorded as the
-  `agent-independent-review` **check run**, which the author agent cannot forge
-  (its workflow lacks `checks:write`, and the decision logic is trusted). On
-  approval it invokes the ready gate; on changes-requested it feeds findings back
-  to the author in a bounded fix loop (pages a human after `MAX_REVIEW_ROUNDS`).
-  Residual risk: an LLM reviewer can still be swayed by prompt-injected text in
-  the diff — the human merge gate remains the backstop.
-- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the independent-
-  review workflow on approval: promotes draft → ready only when the **"CI"
-  workflow run** for the head SHA concluded `success` (read via the Actions API,
-  not the author-writable verification comment), the `agent-independent-review`
-  check run concluded `success`, and AI authorship is disclosed. Gates 1 and 2
-  are unforgeable — they read evidence a separate actor (GitHub Actions / the
-  reviewer workflow) produced that the author agent cannot fabricate. Gate 3
-  (disclosure) is a required self-attestation by the author, not separate-actor
-  evidence (belt-and-suspenders with the commit-trailer hook).
-  The gate only flips draft → ready; it has no merge authority. The
-  `agent-independent-review` check must **never** be configured as
-  sufficient-for-merge on its own — a human CODEOWNER approval stays a required,
-  non-bypassable merge gate (it is the backstop for LLM-reviewer prompt injection).
+- **Review panel** — `.github/workflows/agent-review-panel.yml`: on green CI for a
+  base-repo `agent/` branch (fork-originated `workflow_run` events are rejected),
+  ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
+  spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
+  `design-fit`, `test-adequacy` (declared data-drivenly in
+  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). Each subagent has
+  read-only tools only (Read/Grep/Glob; no branch-code execution) and returns
+  schema-validated findings classified `critical`/`major`/`minor`/`nit`. A
+  per-finding **verifier** subagent then tries to refute each blocking finding,
+  dropping only those it confidently refutes (the false-positive lever). The
+  **trusted orchestrator** (run from a `main` checkout, via the shared
+  `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
+  subagents only classify — and the job records one unforgeable
+  **`agent-review-<lens>` check run** per lens (the author agent lacks
+  `checks:write`). On all-pass it invokes the ready gate; on any failure it feeds
+  the combined findings to the author in a bounded fix loop (pages after
+  `MAX_REVIEW_ROUNDS`). The `design-fit` lens additionally reads the originating
+  issue spec (via `Fixes #N`) for spec-conformance; issue/diff text is untrusted
+  data, and an LLM reviewer can still be swayed by prompt injection — the human
+  merge gate is the backstop. Same model across lenses for now; a per-lens `model`
+  field makes diversity a one-field change.
+- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
+  workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
+  for the head SHA concluded `success` (read via the Actions API, not the
+  author-writable verification comment), **every** required `agent-review-<lens>`
+  check concluded `success` (`--require-checks`), and AI authorship is disclosed.
+  Gates 1 and 2 are unforgeable — evidence a separate actor produced. Gate 3
+  (disclosure) is a required self-attestation (belt-and-suspenders with the
+  commit-trailer hook). The gate only flips draft → ready; it has no merge
+  authority. The `agent-review-<lens>` checks must **never** be configured as
+  sufficient-for-merge on their own — a human CODEOWNER approval stays a required,
+  non-bypassable merge gate (the backstop for LLM-reviewer prompt injection).
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
@@ -420,10 +421,11 @@ moves to the approving human reviewer.
   environment (optional per-run human approval), the enablement switch, fork-
   origin rejection, and treating the Claude auth secret as least-privilege and
   rotatable. Adopters must accept this risk consciously.
-- **LLM-reviewer prompt injection.** The independent reviewer reads an untrusted
-  diff, so injected text can sway its severity classification. The human merge
-  gate is the backstop; the `agent-independent-review` check must never be sole
-  merge authority.
+- **LLM-reviewer prompt injection.** The panel's lens subagents read an untrusted
+  diff (and, for design-fit, the issue), so injected text can sway their severity
+  classification; the per-finding verifier reduces but doesn't eliminate this. The
+  human merge gate is the backstop; the `agent-review-<lens>` checks must never be
+  sole merge authority.
 - **"No human keystroke" is aspirational, phased.** The done-criterion below
   describes no human *authoring* keystroke. In early phases the `agent`
   environment SHOULD keep required reviewers (a human approves each secret-bearing

@@ -1,0 +1,10 @@
+{
+  "name": "@wafflebase/agent-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous-pipeline agent scripts (review panel orchestrator). Not part of the workspace build.",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.0"
+  }
+}
