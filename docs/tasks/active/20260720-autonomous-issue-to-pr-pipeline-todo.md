@@ -56,9 +56,11 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 
 - `ANTHROPIC_API_KEY` secret (scoped to a protected `agent` Environment).
 - Branch protection on `main`: human approval + CODEOWNERS + CI green +
-  dismiss-stale-approvals; agent token non-admin. Recommended: also require the
-  `agent-independent-review` status check so the independent verdict is enforced
-  at merge time too, not just at the ready gate.
+  dismiss-stale-approvals; agent token non-admin. You may also require the
+  `agent-independent-review` status check (necessary), but it must **never** be
+  sufficient-for-merge on its own: human CODEOWNER approval stays required and
+  non-bypassable, because the LLM reviewer can be swayed by prompt-injected diff
+  text. The review check is a pre-human triage signal, not merge authority.
 - **Provide a GitHub App for git auth.** The pushing workflows mint an
   installation token via `actions/create-github-app-token` and pass it to
   `actions/checkout` (`token:`) and to `claude-code-action` (`github_token:`), so
@@ -118,3 +120,20 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Minor — policy/dormancy**: every job is gated on `vars.AGENT_PIPELINE_ENABLED`,
   so the pipeline is inert until a maintainer explicitly arms it; the
   Copilot-vs-Claude coexistence question is flagged in the PR for the team.
+
+## Security review (third pass) — addressed
+
+- **Minor — self-attestable CI gate**: `mark-ready.mjs` gate #1 parsed the
+  `<!-- harness-verification -->` PR comment, which the author agent could post
+  itself (issues:write). Fixed: it now reads the authoritative "CI" workflow-run
+  conclusion for the head SHA via the Actions API (the author cannot forge a CI
+  run); added `actions: read` to the promote job. Now all three gates are
+  evidence a separate actor produced.
+- **Minor — LLM-reviewer injection residual**: documented that the
+  `agent-independent-review` check must never be configured sufficient-for-merge;
+  human CODEOWNER approval stays required and non-bypassable (design doc + the
+  branch-protection prerequisite above).
+- **Escalation (owner decision)**: adopting a standing write-capable autonomous
+  contributor, accepting the disclosed injection residual, and the
+  Copilot-vs-Claude coexistence question are maintainer calls — not code defects.
+  The pipeline stays dormant (`AGENT_PIPELINE_ENABLED` unset) until they decide.

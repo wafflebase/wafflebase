@@ -190,6 +190,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read # mark-ready reads the CI workflow-run conclusion
       pull-requests: write
       issues: write
     steps:

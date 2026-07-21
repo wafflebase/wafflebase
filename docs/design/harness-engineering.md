@@ -376,10 +376,15 @@ Components:
   Residual risk: an LLM reviewer can still be swayed by prompt-injected text in
   the diff — the human merge gate remains the backstop.
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the independent-
-  review workflow on approval: promotes draft → ready only when the CI evidence
-  comment is green, the `agent-independent-review` check run concluded `success`,
-  and AI authorship is disclosed. Every gate keys off evidence a separate actor
-  posted, never the author agent's self-report.
+  review workflow on approval: promotes draft → ready only when the **"CI"
+  workflow run** for the head SHA concluded `success` (read via the Actions API,
+  not the author-writable verification comment), the `agent-independent-review`
+  check run concluded `success`, and AI authorship is disclosed. Every gate keys
+  off evidence a separate actor produced, never the author agent's self-report.
+  The gate only flips draft → ready; it has no merge authority. The
+  `agent-independent-review` check must **never** be configured as
+  sufficient-for-merge on its own — a human CODEOWNER approval stays a required,
+  non-bypassable merge gate (it is the backstop for LLM-reviewer prompt injection).
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.

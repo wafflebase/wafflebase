@@ -1,15 +1,17 @@
 // Ready gate for the autonomous contribution loop.
 //
 // Promotes an agent-authored draft PR to "ready for human review" ONLY when the
-// hand-off preconditions all hold. Trust keys off CI-posted evidence, never the
-// agent's own claims:
+// hand-off preconditions all hold. Every gate keys off evidence a SEPARATE actor
+// produced, never the author agent's own claims:
 //
-//   1. CI's `<!-- harness-verification -->` comment shows verify:self ✅ AND
-//      verify:integration ✅ (or an explicit skip reason recorded in the PR body).
+//   1. The "CI" workflow run for the PR head SHA concluded `success` (read via
+//      the Actions API — the author agent cannot create or forge a CI run; this
+//      replaces parsing the <!-- harness-verification --> comment, which the
+//      author's issues:write could post).
 //   2. The `agent-independent-review` check run on the PR head SHA concluded
-//      `success` — an INDEPENDENT reviewer approved it. This is evidence-based:
-//      only the reviewer workflow (which has checks:write) can post that check,
-//      so the author agent cannot forge its own approval.
+//      `success` — an INDEPENDENT reviewer approved it. Only the reviewer
+//      workflow (which has checks:write) can post that check, so the author
+//      agent cannot forge its own approval.
 //   3. The PR body discloses autonomous authorship.
 //
 // It NEVER merges. After promotion it flips draft → ready, swaps the
@@ -33,7 +35,6 @@ if (!prNumber || !/^\d+$/.test(prNumber)) {
   process.exit(2);
 }
 
-const VERIFICATION_MARKER = "<!-- harness-verification -->";
 const HANDOFF_MARKER = "<!-- agent-handoff -->";
 const REVIEW_CHECK_NAME = "agent-independent-review";
 
@@ -54,38 +55,39 @@ try {
     "view",
     prNumber,
     "--json",
-    "number,body,isDraft,labels,headRefName,headRefOid,comments,url",
+    "number,body,isDraft,labels,headRefName,headRefOid,url",
   ]);
 } catch (err) {
   console.error(`Failed to read PR #${prNumber}: ${err.message}`);
   process.exit(2);
 }
 
-const comments = pr.comments ?? [];
 const body = pr.body ?? "";
 
-// --- gate 1: CI verification evidence --------------------------------------
+// --- gate 1: CI passed (authoritative, not the author-writable PR comment) --
 
-const verificationComment = comments.find((c) => (c.body ?? "").includes(VERIFICATION_MARKER));
-const verificationBody = verificationComment?.body ?? "";
-
-// The comment renders each lane as "## Verification: verify:self" followed by
-// "**Result:** ✅ PASS" / "❌ FAIL". Capture the FIRST result icon after the
-// section header — a non-greedy match anchored to the first "Result:**" so a
-// failing verify:self can't fall through to verify:integration's ✅.
-function laneResultIcon(section) {
-  const re = new RegExp(`Verification: ${section}[\\s\\S]*?Result:\\*\\*\\s*(✅|❌|⏭️)`);
-  const m = verificationBody.match(re);
-  return m ? m[1] : null;
+// Read the "CI" workflow-run conclusion for the PR head SHA via the Actions API.
+// The author agent's workflows cannot create a CI workflow run or forge its
+// conclusion, so this is evidence a separate actor (GitHub Actions) produced —
+// unlike the <!-- harness-verification --> PR comment, which the author agent
+// could post itself with issues:write. A workflow run concludes "success" only
+// when every CI job (verify-self / verify-browser / verify-integration) passed.
+function ciPassed(sha) {
+  if (!sha) return false;
+  let data;
+  try {
+    data = ghJson(["api", `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&per_page=100`]);
+  } catch {
+    return false;
+  }
+  const runs = (data.workflow_runs ?? []).filter((r) => r.name === "CI");
+  if (runs.length === 0) return false;
+  // Latest CI run for this SHA wins (handles re-runs).
+  runs.sort((a, b) => new Date(b.created_at ?? 0) - new Date(a.created_at ?? 0));
+  return runs[0].conclusion === "success";
 }
 
-const selfPassed = laneResultIcon("verify:self") === "✅";
-const integrationPassed = laneResultIcon("verify:integration") === "✅";
-// An explicit skip reason in the PR body lets a PR that legitimately doesn't
-// touch integration paths still qualify (mirrors the PR template checkbox).
-const integrationSkipReason = /Skip reason \(if applicable\):\s*\S/.test(body);
-
-const ciGate = Boolean(verificationComment) && selfPassed && (integrationPassed || integrationSkipReason);
+const ciGate = ciPassed(pr.headRefOid);
 
 // --- gate 2: independent review approved -----------------------------------
 
