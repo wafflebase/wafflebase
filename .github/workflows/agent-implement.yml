@@ -4,9 +4,9 @@
 # trusted authors), or via manual dispatch for supervised dry-runs. Claude Code
 # runs headless in the runner, reads CLAUDE.md/CONTRIBUTING.md (the SessionStart
 # hook also injects the workflow checklist), and follows the existing wafflebase
-# task workflow: plan -> optional design doc -> branch -> verify:fast ->
-# self-review -> open a DRAFT PR (full verify:self runs in the PR's CI, not in
-# the runner's turn budget). It never pushes to main and never merges.
+# task workflow: plan -> optional design doc -> branch -> implement -> land a
+# DRAFT PR early (CI runs the full verify lanes, not the runner's turn budget)
+# -> optional self-review. It never pushes to main and never merges.
 #
 # See docs/design/harness-engineering.md ("Autonomous contribution loop").
 name: Agent Implement
@@ -167,32 +167,45 @@ jobs:
              docs/design/template.md and link it in docs/design/README.md.
           2. BRANCH: the checkout is on `main`. Create a NEW branch
              `git checkout -b agent/__ISSUE_NUMBER__-<slug>` (it does not exist
-             yet) and do all work there — never commit on `main`. Keep every commit
-             `pnpm verify:fast`-green. Commit subject <=70 chars; body explains why.
-             Every commit message MUST end with the trailer:
-             "Assisted-by: Claude Code (autonomous)".
-          3. VERIFY: keep each commit `pnpm verify:fast`-green (the quick lane).
-             Do NOT run the slow `pnpm verify:self` or `pnpm verify:integration:docker`
-             locally — they burn your turn budget on full builds. The PR's CI runs
-             the full lanes, and the agent-iterate-ci loop feeds any CI failure back
-             to you to fix. Spend your turns on the implementation, not local builds.
-          4. SELF-REVIEW: run the /code-review skill over the FULL branch diff.
-             Apply blocking findings. Then post a PR comment beginning with the
-             literal marker "<!-- agent-self-review -->" that lists findings and
-             ends with "self-review: clean" only if no blocking findings remain.
-          5. OPEN A DRAFT PR to main with `gh pr create --draft` using
-             .github/PULL_REQUEST_TEMPLATE.md. Title <=70 chars. Body: why + test
-             plan (from the acceptance criteria) + screenshots for UI. Add
-             "Fixes #__ISSUE_NUMBER__". In "Notes for Reviewers", DISCLOSE that this
-             PR was authored autonomously by Claude Code and state what you could
-             NOT verify. Add the label "agent:iterating".
-          6. Comment on issue #__ISSUE_NUMBER__ linking the PR.
+             yet) and do all work there — never commit on `main`.
+          3. IMPLEMENT: make the change. Commit subject <=70 chars; body explains
+             why. Every commit message MUST end with the trailer
+             "Assisted-by: Claude Code (autonomous)" — a hook BLOCKS any commit
+             without it, so include it every time (e.g. a final `-m` with the
+             trailer).
+          4. FINALIZE EARLY — as soon as the code compiles, LAND A DRAFT PR before
+             any optional step, so the deliverable survives even if you run out of
+             turns: `git add -A`, `git commit` (with the trailer above),
+             `git push -u origin` the branch, then open a DRAFT PR to main with
+             `gh pr create --draft` using .github/PULL_REQUEST_TEMPLATE.md (title
+             <=70 chars; body = why + test plan from the acceptance criteria +
+             screenshots for UI; add "Fixes #__ISSUE_NUMBER__"; in "Notes for
+             Reviewers" DISCLOSE autonomous Claude Code authorship and what you could
+             NOT verify). Add the label "agent:iterating" and comment on issue
+             #__ISSUE_NUMBER__ linking the PR.
+          5. LET CI VERIFY — do NOT run `pnpm verify:self`, `pnpm verify:fast`,
+             `pnpm verify:integration:docker`, or full builds locally: they are slow
+             and this is a one-shot headless run. The PR's CI runs the full lanes and
+             the agent-iterate-ci loop feeds any failure back to you to fix on the
+             branch. Running a single targeted unit-test file in the FOREGROUND is
+             fine, but never wait on slow builds.
+          6. SELF-REVIEW (only if turns remain, and only after the PR exists): run
+             the /code-review skill over the branch diff, apply blocking findings as
+             follow-up commits (same trailer), then post a PR comment beginning with
+             "<!-- agent-self-review -->" that ends with "self-review: clean" only if
+             no blocking findings remain.
+
+          Execution rules: run EVERY command in the FOREGROUND and wait for it
+          synchronously. This is a one-shot headless run with NO resume — do NOT run
+          commands in the background, and do NOT use sleep, Monitor, ScheduleWakeup,
+          or any wait-for-later mechanism; they will strand the run before it opens
+          the PR. If a command is slow, just let it finish (or skip it per step 5).
 
           Hard rules: never push to main; never merge; never edit ANTLR generated
           files (regenerate via `pnpm sheets build:formula`); all sheet
           persistence goes through the Store interface. Leave the PR as a DRAFT —
-          a separate gate promotes it to ready once CI is green and the
-          self-review is clean.
+          a separate gate promotes it to ready once CI is green and an independent
+          review has approved.
           PROMPT
           )
           TEMPLATE=${TEMPLATE//__ISSUE_NUMBER__/$ISSUE_NUMBER}
