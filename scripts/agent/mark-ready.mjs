@@ -33,6 +33,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
+import { allRequiredPassed } from "./checks.mjs";
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -110,15 +111,7 @@ const ciGate = ciPassed(pr.headRefOid);
 
 // Evidence-based: read the per-lens `agent-review-<lens>` check runs on the PR
 // head SHA. Only the review-panel workflow (checks:write) can post them; the
-// author agent cannot forge them.
-function checkPassed(checkRuns, name) {
-  const runs = checkRuns.filter((r) => r.name === name);
-  if (runs.length === 0) return false; // a required lens that never ran → not passed
-  // Newest first, so re-reviews on the same SHA use the latest verdict.
-  runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0));
-  return runs[0].conclusion === "success";
-}
-
+// author agent cannot forge them. The pass logic lives in checks.mjs (tested).
 function reviewChecks(sha) {
   if (!sha) return { allPassed: false, perCheck: {} };
   let data;
@@ -127,9 +120,7 @@ function reviewChecks(sha) {
   } catch {
     return { allPassed: false, perCheck: Object.fromEntries(REQUIRED_CHECKS.map((c) => [c, false])) };
   }
-  const runs = data.check_runs ?? [];
-  const perCheck = Object.fromEntries(REQUIRED_CHECKS.map((c) => [c, checkPassed(runs, c)]));
-  return { allPassed: REQUIRED_CHECKS.every((c) => perCheck[c]), perCheck };
+  return allRequiredPassed(data.check_runs ?? [], REQUIRED_CHECKS);
 }
 
 const { allPassed: reviewApproved, perCheck } = reviewChecks(pr.headRefOid);

@@ -51,9 +51,10 @@ const VERIFIER_SCHEMA = {
   type: "object",
   properties: {
     verdict: { type: "string", enum: ["confirmed", "refuted"] },
+    confidence: { type: "string", enum: ["high", "low"] },
     reason: { type: "string" },
   },
-  required: ["verdict", "reason"],
+  required: ["verdict", "confidence", "reason"],
 };
 
 // --- pure helpers (exported for tests; no SDK dependency) -------------------
@@ -93,15 +94,20 @@ export function dedupeFindings(findings) {
 }
 
 /**
- * Apply verifier verdicts to a lens's findings. A finding is dropped ONLY when a
- * verifier explicitly refutes it; on any error/uncertainty the finding is KEPT
- * (fail toward blocking, so the refute pass can't silently swallow a real bug).
+ * Apply verifier verdicts to a lens's findings. A blocking finding is dropped
+ * ONLY on a HIGH-CONFIDENCE explicit `refuted`; anything else — `confirmed`,
+ * low-confidence `refuted`, a null (error/uncertainty), or a malformed verdict —
+ * KEEPS the finding. This is what makes the refute pass fail toward blocking, so
+ * it cannot silently swallow a real bug the verifier was merely unsure about.
+ * (The verifier prompt is written to match: refute only with a concrete reason,
+ * confirm on any doubt.)
  */
 export function applyVerifications(findings, verdictsByIndex) {
   return findings.filter((f, i) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return true; // only verify blockers
     const v = verdictsByIndex[i];
-    return !(v && v.verdict === "refuted");
+    const drop = v && v.verdict === "refuted" && v.confidence === "high";
+    return !drop;
   });
 }
 
@@ -117,6 +123,12 @@ async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
       cwd: repo,
       allowedTools: ["Read", "Grep", "Glob"], // read-only; NO Bash/Write/network
       permissionMode: "dontAsk", // deny anything not allow-listed, no prompts
+      // SECURITY: do NOT load project settings/hooks/agents from cwd — cwd is the
+      // untrusted branch checkout, and a branch-supplied .claude hook would be a
+      // shell command the SDK could execute. `settingSources: []` disables that
+      // (the workflow also strips the branch's `.claude/` as belt-and-suspenders).
+      // Verify this option name/behavior against the pinned SDK version.
+      settingSources: [],
       outputFormat: { type: "json_schema", schema },
     },
   })) {
@@ -158,11 +170,20 @@ async function runLens(lens, { rubric, diff, issue, repo }) {
   });
 }
 
-async function verifyFinding(finding, { diff, repo, model }) {
+async function verifyFinding(finding, { rubric, diff, repo, model }) {
+  // Contract: refuting DROPS the finding, so bias toward keeping. Return
+  // `refuted` + `high` ONLY when you can name a concrete reason the finding is
+  // not actually present/blocking in THIS diff. If you are unsure — for ANY
+  // reason — return `confirmed`. Judge "blocking" by the lens's own rubric.
   const prompt = [
-    "A reviewer raised this finding on the diff below. Try hard to REFUTE it:",
-    "is it actually a real, blocking defect present in THIS diff? If it is not",
-    "clearly real and blocking, return refuted.",
+    "You are checking whether a finding another reviewer raised is genuinely a",
+    "blocking defect present in the diff below. Dropping it is dangerous, so:",
+    "- Return {verdict:\"refuted\", confidence:\"high\"} ONLY if you can state a",
+    "  concrete, specific reason the finding is NOT present or NOT blocking here.",
+    "- If you are unsure for ANY reason, return {verdict:\"confirmed\"}.",
+    "Judge 'blocking' strictly by this lens's rubric:",
+    "",
+    rubric,
     "",
     `Finding [${finding.severity}] ${finding.file ?? ""}: ${finding.summary}`,
     finding.evidence ? `Evidence claimed: ${finding.evidence}` : "",
@@ -172,7 +193,8 @@ async function verifyFinding(finding, { diff, repo, model }) {
     "```",
   ].join("\n");
   return askStructured({
-    systemPrompt: "You are an adversarial verifier. Confirm a finding only if it is clearly real and blocking.",
+    systemPrompt:
+      "You are a careful verifier. Refuting a finding removes it from the gate, so only refute (high confidence) with a concrete reason; when in doubt, confirm.",
     prompt,
     model,
     repo,
@@ -206,55 +228,70 @@ async function main() {
     ? readFileSync(args["changed-files"], "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
     : [];
 
-  const lenses = loadLenses(lensesDir).filter((l) => lensApplies(l, changedFiles));
+  const allLenses = loadLenses(lensesDir);
+  // panel[] is the AUTHORITATIVE lens list the workflow + mark-ready consume —
+  // one entry per manifest lens (applicable or skipped), so the three-way drift
+  // between lenses.json / the workflow / mark-ready is removed.
   const panel = [];
 
-  await Promise.all(lenses.map(async (lens) => {
+  await Promise.all(allLenses.map(async (lens) => {
     const lensOut = path.join(outDir, lens.id);
-    mkdirSync(lensOut, { recursive: true });
-    let findings, summary;
-    try {
-      const res = await runLens(lens, { rubric: lens.rubric, diff, issue, repo });
-      findings = Array.isArray(res.findings) ? res.findings : [];
-      summary = res.summary ?? "";
-    } catch (err) {
-      // Fail closed: this lens blocks and pages, rather than silently passing.
-      const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
-      writeVerdict(lensOut, lens, failFindings, "(no valid verdict — failing closed)", { valid: false });
-      panel.push({ id: lens.id, title: lens.title, gating: lens.gating, conclusion: "failure", valid: false });
+    const blocking = String(lens.gating ?? "blocking") === "blocking";
+
+    // Not applicable to this diff → skipped (neutral), never blocks. Distinct
+    // from a crashed lens so the fail-closed loop can't turn it into a failure.
+    if (!lensApplies(lens, changedFiles)) {
+      writeVerdict(lensOut, lens, [], "Not applicable to the changed files.", { valid: true, conclusion: "skipped" });
+      panel.push({ id: lens.id, title: lens.title, blocking, applicable: false, conclusion: "skipped", valid: true });
       return;
     }
 
-    // Verifier refute pass over blocking findings.
+    let findings, summary;
+    try {
+      const res = await runLens(lens, { rubric: lens.rubric, diff, issue, repo });
+      // Local validation: keep only well-formed finding objects (the SDK schema
+      // is requested of the model, but the harness must not trust it blindly).
+      findings = (Array.isArray(res.findings) ? res.findings : []).filter(
+        (f) => f && typeof f === "object" && typeof f.summary === "string",
+      );
+      summary = typeof res.summary === "string" ? res.summary : "";
+    } catch (err) {
+      const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
+      writeVerdict(lensOut, lens, failFindings, "(no valid verdict — failing closed)", { valid: false });
+      panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false });
+      return;
+    }
+
+    // Verifier refute pass over blocking findings (rubric passed so it judges by
+    // the lens's own definitions; keeps the finding on any uncertainty).
     const verdicts = await Promise.all(findings.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { diff, repo, model: lens.model }); }
+      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model }); }
       catch { return null; } // error → keep the finding (fail toward blocking)
     }));
     const kept = applyVerifications(findings, verdicts);
 
-    const { conclusion } = writeVerdict(lensOut, lens, kept, summary, { valid: true });
-    panel.push({ id: lens.id, title: lens.title, gating: lens.gating, conclusion, valid: true });
+    // Advisory lenses report findings but never block.
+    const { conclusion } = writeVerdict(lensOut, lens, kept, summary, {
+      valid: true,
+      conclusion: blocking ? undefined : "success",
+    });
+    panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion, valid: true });
   }));
 
-  // Combined synthesis (deduped across lenses).
-  const all = dedupeFindings(panel.flatMap((p) => {
-    try { return JSON.parse(readFileSync(path.join(outDir, p.id, "verdict.json"), "utf8")).findings; }
-    catch { return []; }
-  }));
   mkdirSync(outDir, { recursive: true });
   writeFileSync(path.join(outDir, "panel.json"), JSON.stringify(panel, null, 2) + "\n");
-  writeFileSync(path.join(outDir, "panel-summary.md"), renderSummaryMd("Review panel (all lenses)", all, "") + "\n");
   process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}`).join("\n") + "\n");
 }
 
-function writeVerdict(lensOut, lens, findings, summary, { valid }) {
+function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion } = {}) {
   mkdirSync(lensOut, { recursive: true });
-  writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid }, null, 2) + "\n");
-  const { conclusion } = classify(findings);
+  // Explicit conclusion (skipped / advisory-success) wins; else compute from severities.
+  const finalConclusion = conclusion ?? classify(findings).conclusion;
+  writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion }, null, 2) + "\n");
   writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, findings, summary) + "\n");
-  writeFileSync(path.join(lensOut, "conclusion"), conclusion + "\n");
-  return { conclusion };
+  writeFileSync(path.join(lensOut, "conclusion"), finalConclusion + "\n");
+  return { conclusion: finalConclusion };
 }
 
 // Only run main() when executed directly (not when imported for tests).

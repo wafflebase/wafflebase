@@ -198,3 +198,36 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   routing (authz/hmac/secret→security; offbyone/await/null→correctness;
   store-bypass→design-fit; vacuous-test→test-adequacy) AND that the verifier pass
   does not refute any of the 8 real bugs.
+
+## Panel security review (PR #508) — addressed
+
+- **Verifier inverted (blocker)**: the refute pass dropped findings on model
+  uncertainty (it was told to "return refuted if unsure"). Now it refutes only
+  with a concrete reason + `confidence:"high"`; any doubt → confirmed, and
+  `applyVerifications` drops ONLY on refuted+high (null/low/malformed → keep).
+  Covered by `review-panel.test.mjs`.
+- **npm install in the secret-bearing job (blocker)**: moved to a separate
+  UNPRIVILEGED `deps` job (no secrets/checks:write) that hands `node_modules` to
+  the review job as an artifact. (Still pin an exact SDK version + commit a
+  lockfile before arming.)
+- **SDK cwd = untrusted branch (blocker)**: `settingSources: []` in the
+  orchestrator so branch `.claude` hooks/settings are never loaded/executed; the
+  workflow also strips `.claude/` before running. Verify option name vs installed SDK.
+- **No tests (blocker)**: added committed `node:test` files —
+  `severity.test.mjs`, `checks.test.mjs`, `review-panel.test.mjs` (7 tests;
+  `cd scripts/agent && npm test`). The pure helpers + the verifier-drop matrix +
+  `--require-checks` all-pass/missing logic are covered.
+- **Prefix check-run match → injection (major)**: round-bound + findings-gather now
+  match the EXACT lens check names AND `app.slug === 'github-actions'`; the fix
+  prompt fences the findings as untrusted `<panel-findings>` data.
+- **Author-chosen spec (major)**: design-fit ingests the `Fixes #N` issue only if it
+  is labelled `agent:candidate` and authored by a non-Bot; else it runs without a
+  spec. The ingested issue is logged.
+- **Lens list triplicated / gating unused / appliesWhen unusable (major)**: the
+  orchestrator writes the authoritative per-lens `panel.json` (incl. `skipped`
+  + `applicable` + `blocking`); the workflow reads the trusted manifest + panel.json
+  (single source), emits `required_checks`, honours `gating`, and posts non-applicable
+  lenses as `neutral` (not a fail-closed failure).
+- **Breaking change / migration (major)**: check name is now per-lens
+  `agent-review-<lens>` (not `agent-independent-review`). Before merge, update the
+  branch-protection required-check list in the same window (documented in the PR).

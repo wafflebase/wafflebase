@@ -363,10 +363,15 @@ Components:
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
   `scripts/agent/lenses/lenses.json` + one rubric `.md` each). Each subagent has
-  read-only tools only (Read/Grep/Glob; no branch-code execution) and returns
-  schema-validated findings classified `critical`/`major`/`minor`/`nit`. A
-  per-finding **verifier** subagent then tries to refute each blocking finding,
-  dropping only those it confidently refutes (the false-positive lever). The
+  read-only tools only (Read/Grep/Glob; no branch-code execution), runs with
+  `settingSources: []` (so the untrusted branch's `.claude` hooks/settings are
+  never loaded — the workflow also strips `.claude/` and installs the SDK in a
+  separate UNPRIVILEGED `deps` job so no install runs with the secrets), and
+  returns findings (schema-requested, then locally shape-validated + fail-safe
+  severity-normalized) classified `critical`/`major`/`minor`/`nit`. A per-finding
+  **verifier** subagent then tries to refute each blocking finding and drops it
+  ONLY on a high-confidence explicit refute — any uncertainty keeps the finding
+  (fails toward blocking, so the false-positive lever can't swallow a real bug). The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
