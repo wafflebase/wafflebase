@@ -185,6 +185,19 @@ export interface LayoutLine {
   y: number;
   height: number;
   width: number;
+  /**
+   * The tallest run font size on this line, in px (see
+   * `getLineMaxFontSizePx`). Painters derive a line-common baseline from
+   * this so runs of different font sizes on one line share a baseline
+   * rather than each centering on its own size. Unlike `height`, this is
+   * NOT expanded by image runs — it stays the text max.
+   *
+   * Set by `assignLineHeights` for every laid-out text line. Optional
+   * because a few non-text lines (table / horizontal-rule / empty
+   * placeholders) are constructed inline without it; painters fall back
+   * to the run's own size when it is absent.
+   */
+  maxFontSizePx?: number;
   nestedTable?: LayoutTable;
 }
 
@@ -708,6 +721,7 @@ export function assignLineHeights(lines: LayoutLine[], block: Block, docStyles?:
     }
     line.y = blockY;
     line.height = lineHeight;
+    line.maxFontSizePx = maxFontSize;
     blockY += lineHeight;
   }
 }

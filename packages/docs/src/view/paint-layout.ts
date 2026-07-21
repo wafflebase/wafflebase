@@ -179,7 +179,7 @@ function paintBlock(
     const lineX = blockX;
     const lineY = blockY + line.y;
     for (const run of line.runs) {
-      renderRun(ctx, run, lineX, lineY, line.height, {
+      renderRun(ctx, run, lineX, lineY, line.height, line.maxFontSizePx, {
         theme,
         skipBackground: skipRunBackgrounds,
         requestRender,
@@ -339,6 +339,7 @@ export function renderRun(
   lineX: number,
   lineY: number,
   lineHeight: number,
+  lineMaxFontSizePx: number | undefined,
   opts: RenderRunOpts = {},
 ): void {
   // Soft line break (`\n`) runs are emitted by `layoutBlock` to keep
@@ -398,7 +399,14 @@ export function renderRun(
   ctx.fillStyle = textColor;
   ctx.textBaseline = 'alphabetic';
 
-  let baselineY = Math.round(lineY + (lineHeight + originalFontSizePx * 0.8) / 2);
+  // Base baseline is derived from the line's tallest run so every run on
+  // the line shares one baseline (matching Google Docs). Falling back to
+  // the run's own size preserves prior behaviour for non-text lines that
+  // never passed through `assignLineHeights`. The super/subscript shifts
+  // below intentionally stay keyed to the run's OWN size — they move a run
+  // relative to itself.
+  const lineAscentPx = (lineMaxFontSizePx ?? originalFontSizePx) * 0.8;
+  let baselineY = Math.round(lineY + (lineHeight + lineAscentPx) / 2);
   if (isSuperscript) {
     baselineY -= Math.round(originalFontSizePx * 0.4);
   } else if (isSubscript) {

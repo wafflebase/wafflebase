@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeLayout, computeListCounters } from '../../src/view/layout.js';
 import { createBlock } from '../../src/model/types.js';
+import { ptToPx } from '../../src/view/theme.js';
 import { StubMeasurer, stubMeasurer } from './_stub-measurer.js';
 
 describe('heading layout', () => {
@@ -173,6 +174,39 @@ describe('superscript/subscript layout', () => {
     const normalWidthPerChar = normalRun.width / normalRun.text.length;
     const subWidthPerChar = subRun.width / subRun.text.length;
     expect(subWidthPerChar / normalWidthPerChar).toBeCloseTo(0.6, 1);
+  });
+});
+
+describe('line baseline metrics', () => {
+  it('should record the tallest run size as maxFontSizePx for a mixed-size line', () => {
+    const block = createBlock('paragraph');
+    block.inlines = [
+      { text: 'Big', style: { fontSize: 36 } },
+      { text: 'small', style: { fontSize: 11 } },
+    ];
+    const { layout } = computeLayout([block], stubMeasurer(), 600);
+    const line = layout.blocks[0].lines[0];
+    // Both runs share one line; the line-common baseline derives from the
+    // tallest run, so maxFontSizePx must equal the 36pt run in px.
+    expect(line.runs.length).toBe(2);
+    expect(line.maxFontSizePx).toBe(ptToPx(36));
+  });
+
+  it('should pick the max independent of run order', () => {
+    const block = createBlock('paragraph');
+    block.inlines = [
+      { text: 'small', style: { fontSize: 11 } },
+      { text: 'Big', style: { fontSize: 36 } },
+    ];
+    const { layout } = computeLayout([block], stubMeasurer(), 600);
+    expect(layout.blocks[0].lines[0].maxFontSizePx).toBe(ptToPx(36));
+  });
+
+  it('should equal the run size on a uniform-size line', () => {
+    const block = createBlock('paragraph');
+    block.inlines = [{ text: 'Hello', style: { fontSize: 11 } }];
+    const { layout } = computeLayout([block], stubMeasurer(), 600);
+    expect(layout.blocks[0].lines[0].maxFontSizePx).toBe(ptToPx(11));
   });
 });
 
