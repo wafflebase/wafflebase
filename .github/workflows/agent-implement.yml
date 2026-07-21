@@ -216,3 +216,14 @@ jobs:
             --max-turns 150
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+      # Capture the full agent transcript (every turn + tool call + any
+      # permission denial) so a run that finishes without pushing a branch/PR
+      # is diagnosable. always(): upload even when Claude Code failed.
+      - name: Upload agent execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-output
+          path: ${{ runner.temp }}/claude-execution-output.json
+          if-no-files-found: warn
