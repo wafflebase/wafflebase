@@ -29,11 +29,12 @@ jobs:
     # Manual dispatch, OR an "@claude" comment on an ISSUE (not a PR) from a
     # trusted author. PR-comment mentions are handled by agent-review-reply.yml.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' &&
-       !github.event.issue.pull_request &&
-       contains(github.event.comment.body, '@claude') &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
     timeout-minutes: 45 # hard cost/time ceiling
     # Job-level concurrency (one run per issue). Placed on the job — not the

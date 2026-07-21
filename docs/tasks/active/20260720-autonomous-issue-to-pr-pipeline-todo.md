@@ -69,6 +69,9 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Create the labels** used by the pipeline so they are queryable and the label
   ops don't no-op: `agent:candidate`, `agent:iterating`, `agent:needs-human-review`.
 - Approve the new workflows (first-run approval for Actions).
+- **Set repo variable `AGENT_PIPELINE_ENABLED=true`** to arm the pipeline. Every
+  agent workflow job is gated on it, so the whole feature stays inert until a
+  maintainer flips it — even if the secrets/App are already configured.
 
 ## Known limitations / robustness notes (from self-review)
 
@@ -95,3 +98,23 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Skipped — archive the task doc** (`pnpm tasks:archive`): premature. Per
   CONTRIBUTING, tasks are archived at merge time; this PR is still under review,
   so the todo/lessons stay in `active/` until merge.
+
+## Security review (second pass) — addressed
+
+- **Blocker — forgeable verdict**: the review job computed the verdict from the
+  UNTRUSTED branch checkout, so the author agent could edit
+  `read-review-verdict.mjs` / pre-bake `verdict.json` / add a `postinstall` to
+  force `success`. Fixed: the review job runs NO `pnpm install`, the reviewer has
+  no branch-code-exec tools and reviews statically, a stale `.agent-review` is
+  cleared first, and the verdict is computed by `read-review-verdict.mjs` checked
+  out fresh from `main` (`.trusted/`) after the reviewer runs. Residual: LLM
+  prompt-injection can still sway the reviewer's findings — human merge is the
+  backstop.
+- **Major — workflow_run privilege escalation**: both `workflow_run` jobs now
+  reject fork-originated events (`head_repository.full_name == github.repository`);
+  the review job additionally executes no branch code while holding secrets.
+- **Major — inconsistent auth on review-reply**: added the same
+  `getCollaboratorPermissionLevel` write-access check as `agent-implement`.
+- **Minor — policy/dormancy**: every job is gated on `vars.AGENT_PIPELINE_ENABLED`,
+  so the pipeline is inert until a maintainer explicitly arms it; the
+  Copilot-vs-Claude coexistence question is flagged in the PR for the team.

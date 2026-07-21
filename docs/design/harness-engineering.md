@@ -358,17 +358,23 @@ Components:
   a `@claude` mention in a PR/review thread has the agent address the finding (or
   push back with reasoning) in-thread.
 - **Independent review** — `.github/workflows/agent-independent-review.yml`: on
-  green CI for an `agent/` branch, a FRESH read-only Claude Code run (no memory of
-  writing the code, adversarial stance, its job has no `contents:write` so it
-  cannot alter the PR) reviews the diff and writes findings, each classified
-  `critical` / `major` / `minor` / `nit`. The harness — not the agent — computes
-  the verdict from severities (`scripts/agent/read-review-verdict.mjs`): the PR is
-  approved when no `critical` or `major` findings remain (`minor`/`nit` are
-  informational; unknown severities are treated as `major`, fail-safe). The result
-  is recorded as the `agent-independent-review` **check run**, which the author
-  agent cannot forge (it lacks `checks:write`). On approval it invokes the ready
-  gate; on changes-requested it feeds findings back to the author in a bounded
-  fix loop (pages a human after `MAX_REVIEW_ROUNDS`).
+  green CI for a base-repo `agent/` branch (fork-originated `workflow_run` events
+  are rejected), a FRESH Claude Code run (no memory of writing the code,
+  adversarial stance, `contents: read` only) reviews the diff **statically** and
+  writes findings classified `critical` / `major` / `minor` / `nit`. To keep the
+  privileged job (secrets + `checks:write`) safe from the untrusted branch it
+  reviews, it runs **no** `pnpm install` (no branch `postinstall`) and the
+  reviewer cannot execute branch code (no `node`/`pnpm`/`Edit`). The verdict is
+  then computed by `scripts/agent/read-review-verdict.mjs` **checked out fresh
+  from `main`** (not the branch's copy) against the reviewer's findings: the PR is
+  approved when no `critical`/`major` finding remains (`minor`/`nit` informational;
+  unknown severity → `major`, fail-safe). The result is recorded as the
+  `agent-independent-review` **check run**, which the author agent cannot forge
+  (its workflow lacks `checks:write`, and the decision logic is trusted). On
+  approval it invokes the ready gate; on changes-requested it feeds findings back
+  to the author in a bounded fix loop (pages a human after `MAX_REVIEW_ROUNDS`).
+  Residual risk: an LLM reviewer can still be swayed by prompt-injected text in
+  the diff — the human merge gate remains the backstop.
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the independent-
   review workflow on approval: promotes draft → ready only when the CI evidence
   comment is green, the `agent-independent-review` check run concluded `success`,

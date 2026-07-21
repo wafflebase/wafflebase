@@ -30,9 +30,15 @@ env:
 
 jobs:
   iterate:
+    # Enablement switch keeps the pipeline inert until a maintainer opts in.
+    # Reject fork-originated workflow_run events: this job holds the `agent`
+    # environment secrets and executes branch code (install/build/test via the
+    # fixer agent), so it must only act on base-repo branches.
     if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
       github.event.workflow_run.conclusion == 'failure' &&
-      startsWith(github.event.workflow_run.head_branch, 'agent/')
+      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: agent
