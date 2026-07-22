@@ -51,10 +51,13 @@ const DEFAULT_REVIEW_CHECKS = [
   "agent-review-test-adequacy",
 ];
 const rcIdx = process.argv.indexOf("--require-checks");
+// Absent flag → defaults. Explicit `--require-checks ""` → empty set (gate 2
+// vacuously satisfied — e.g. when no blocking lens applied). Only the missing
+// flag falls back to DEFAULT; an explicitly empty value must NOT.
 const REQUIRED_CHECKS =
-  rcIdx !== -1 && process.argv[rcIdx + 1]
-    ? process.argv[rcIdx + 1].split(",").map((s) => s.trim()).filter(Boolean)
-    : DEFAULT_REVIEW_CHECKS;
+  rcIdx === -1
+    ? DEFAULT_REVIEW_CHECKS
+    : (process.argv[rcIdx + 1] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });

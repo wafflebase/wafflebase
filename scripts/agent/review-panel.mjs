@@ -77,7 +77,7 @@ export function globToRegExp(glob) {
 /** Does a lens apply to this changed-file set? `["**"]` (or empty) = always. */
 export function lensApplies(lens, changedFiles) {
   const globs = lens.appliesWhen ?? ["**"];
-  if (globs.includes("**")) return true;
+  if (globs.length === 0 || globs.includes("**")) return true; // empty = wildcard default
   const res = globs.map(globToRegExp);
   return changedFiles.some((f) => res.some((r) => r.test(f)));
 }
@@ -252,10 +252,12 @@ async function main() {
     try {
       const res = await runLens(lens, { rubric: lens.rubric, diff, issue, repo });
       // Local validation: keep only well-formed finding objects (the SDK schema
-      // is requested of the model, but the harness must not trust it blindly).
-      findings = (Array.isArray(res.findings) ? res.findings : []).filter(
+      // is requested of the model, but the harness must not trust it blindly),
+      // then dedupe so duplicates don't get double-verified / double-counted.
+      const valid = (Array.isArray(res.findings) ? res.findings : []).filter(
         (f) => f && typeof f === "object" && typeof f.summary === "string",
       );
+      findings = dedupeFindings(valid);
       summary = typeof res.summary === "string" ? res.summary : "";
     } catch (err) {
       const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];

@@ -42,7 +42,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with: { ref: main } # trusted source for package.json (pin + lockfile before enabling)
+        with: { ref: main } # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -79,6 +79,11 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
+          # SECURITY: don't persist the GITHUB_TOKEN into .git/config — the
+          # read-only reviewer's cwd is this untrusted checkout, and a
+          # prompt-injected read of .git/config could exfiltrate it via a finding.
+          # The repo is public, so unauthenticated fetch still works.
+          persist-credentials: false
 
       - name: Resolve PR number
         id: pr
@@ -113,7 +118,7 @@ jobs:
             const owner = context.repo.owner, repo = context.repo.repo;
             const num = Number('${{ steps.pr.outputs.number }}');
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: num });
-            const m = (pr.body || '').match(/(?:fixes|closes|resolves)\s+#(\d+)/i);
+            const m = (pr.body || '').match(/(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/i);
             let text = '';
             if (m) {
               try {
@@ -150,6 +155,7 @@ jobs:
           path: .trusted
           sparse-checkout: scripts/agent
           sparse-checkout-cone-mode: false
+          persist-credentials: false # no token in .trusted/.git/config (reviewer cwd)
 
       - name: Download Agent SDK (built by the unprivileged deps job)
         if: steps.pr.outputs.number != ''

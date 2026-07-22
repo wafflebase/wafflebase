@@ -379,9 +379,12 @@ Components:
   `checks:write`). On all-pass it invokes the ready gate; on any failure it feeds
   the combined findings to the author in a bounded fix loop (pages after
   `MAX_REVIEW_ROUNDS`). The `design-fit` lens additionally reads the originating
-  issue spec (via `Fixes #N`) for spec-conformance; issue/diff text is untrusted
-  data, and an LLM reviewer can still be swayed by prompt injection — the human
-  merge gate is the backstop. Same model across lenses for now; a per-lens `model`
+  issue (via `Fixes #N`) for spec-conformance — but ONLY when that issue is
+  labelled `agent:candidate` AND authored by a non-Bot account (otherwise the
+  author agent, which holds `issues:write`, could hand itself an arbitrary spec);
+  any other referenced issue is not ingested. Issue/diff text is untrusted data,
+  and an LLM reviewer can still be swayed by prompt injection — the human merge
+  gate is the backstop. Same model across lenses for now; a per-lens `model`
   field makes diversity a one-field change.
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
   workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
@@ -392,8 +395,12 @@ Components:
   (disclosure) is a required self-attestation (belt-and-suspenders with the
   commit-trailer hook). The gate only flips draft → ready; it has no merge
   authority. The `agent-review-<lens>` checks must **never** be configured as
-  sufficient-for-merge on their own — a human CODEOWNER approval stays a required,
-  non-bypassable merge gate (the backstop for LLM-reviewer prompt injection).
+  sufficient-for-merge on their own — a **required human approving review**
+  (branch protection: ≥1 approval + dismiss-stale) stays the non-bypassable merge
+  gate (the backstop for LLM-reviewer prompt injection). CODEOWNERS is scoped to
+  the pipeline's *own* files, so it additionally requires an owner's review for
+  changes to the harness itself, but the repo-wide agent-PR gate is the
+  branch-protection approval, not CODEOWNERS.
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.

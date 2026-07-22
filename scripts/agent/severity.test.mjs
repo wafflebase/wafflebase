@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSeverity, classify } from "./severity.mjs";
+import { normalizeSeverity, classify, renderSummaryMd } from "./severity.mjs";
 
 test("normalizeSeverity: known values pass through, unknown → major (fail-safe)", () => {
   for (const s of ["critical", "major", "minor", "nit"]) assert.equal(normalizeSeverity(s), s);
@@ -20,4 +20,12 @@ test("classify: blocks iff a critical/major survives", () => {
   assert.equal(r.approved, true);
   // unknown severity is treated as major → blocks
   assert.equal(classify([{ severity: "weird" }]).conclusion, "failure");
+});
+
+test("renderSummaryMd: unknown severity is normalized to major and shown (not omitted)", () => {
+  const md = renderSummaryMd("Test", [{ severity: "weird", file: "a.ts", summary: "sneaky bug" }], "");
+  assert.match(md, /changes requested/); // blocks
+  assert.match(md, /1 major/); // counted as major, not zero
+  assert.match(md, /### Major \(1\)/); // rendered under Major, not dropped
+  assert.match(md, /sneaky bug/); // the finding text appears
 });

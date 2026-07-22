@@ -55,11 +55,13 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 ## Maintainer prerequisites (cannot self-provision)
 
 - `ANTHROPIC_API_KEY` secret (scoped to a protected `agent` Environment).
-- Branch protection on `main`: human approval + CODEOWNERS + CI green +
-  dismiss-stale-approvals; agent token non-admin. You may also require the
-  per-lens `agent-review-correctness` / `-security` / `-design-fit` /
+- Branch protection on `main`: **require ≥1 human approving review** + CI green +
+  dismiss-stale-approvals; agent token non-admin. (CODEOWNERS is scoped to the
+  pipeline's own files, so it gates changes to the harness itself; the repo-wide
+  agent-PR gate is the required approving review, not CODEOWNERS.) You may also
+  require the per-lens `agent-review-correctness` / `-security` / `-design-fit` /
   `-test-adequacy` status checks (necessary), but they must **never** be
-  sufficient-for-merge on their own: human CODEOWNER approval stays required and
+  sufficient-for-merge on their own: a human approving review stays required and
   non-bypassable, because an LLM reviewer can be swayed by prompt-injected diff
   text. The review checks are a pre-human triage signal, not merge authority.
 - **Provide a GitHub App for git auth.** The pushing workflows mint an
@@ -132,8 +134,8 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   run); added `actions: read` to the promote job. Now all three gates are
   evidence a separate actor produced.
 - **Minor — LLM-reviewer injection residual**: documented that the
-  `agent-independent-review` check must never be configured sufficient-for-merge;
-  human CODEOWNER approval stays required and non-bypassable (design doc + the
+  `agent-review-<lens>` checks must never be configured sufficient-for-merge;
+  a human approving review (branch protection) stays required and non-bypassable (design doc + the
   branch-protection prerequisite above).
 - **Escalation (owner decision)**: adopting a standing write-capable autonomous
   contributor, accepting the disclosed injection residual, and the
@@ -145,7 +147,7 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Forgeable attempt counters**: both loop bounds moved off deletable PR-comment
   counters (the agent holds issues:write) to append-only signals it cannot edit —
   iterate-ci counts failed CI runs (Actions history, +`actions: read`); the review
-  loop counts failed `agent-independent-review` check runs across the PR commits
+  loop counts failed `agent-review-<lens>` check runs across the PR commits
   (check runs need checks:write, which the author lacks).
 - **Silent-stall crash**: `read-review-verdict.mjs` guarded against
   null/array/primitive verdicts (`JSON.parse("null")` used to throw before the

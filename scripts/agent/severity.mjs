@@ -55,8 +55,10 @@ function section(findings, severity, heading) {
 }
 
 /** Render the Markdown check-run body for a set of findings. */
-export function renderSummaryMd(label, findings, summaryText) {
-  const { approved, blockingCount } = classify(findings);
+export function renderSummaryMd(label, rawFindings, summaryText) {
+  // Render from the NORMALIZED findings so an unknown severity (→ major) is
+  // counted and shown as a blocking finding, not omitted or counted as zero.
+  const { approved, blockingCount, findings } = classify(rawFindings);
   const header = approved
     ? `✅ ${label}: **approved** — no critical or major findings (${countsStr(findings)}).`
     : `❌ ${label}: **changes requested** — ${blockingCount} blocking (critical/major) finding(s) (${countsStr(findings)}).`;
