@@ -51,12 +51,17 @@ jobs:
         with:
           node-version: 22.x
       - run: cd scripts/agent && npm ci --no-audit --no-fund # reproducible: exact tree from the committed lockfile
+      # Tar before uploading. actions/upload-artifact does NOT preserve Unix file
+      # permissions (or symlinks), so a raw node_modules upload strips the +x bit
+      # from the SDK's bundled native binaries (the `claude` CLI, ripgrep). The
+      # review job then finds the binary present but non-executable → "binary
+      # exists but failed to launch". A tarball round-trips perms + symlinks intact.
+      - run: cd scripts/agent && tar -czf /tmp/agent-sdk-node-modules.tgz node_modules
       - uses: actions/upload-artifact@v4
         with:
           name: agent-sdk-node-modules
-          path: scripts/agent/node_modules
+          path: /tmp/agent-sdk-node-modules.tgz
           retention-days: 1
-          include-hidden-files: true
 
   review-panel:
     needs: deps
@@ -171,7 +176,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: agent-sdk-node-modules
-          path: .trusted/scripts/agent/node_modules
+          path: /tmp/agent-sdk
+      # Untar restores the exec bits the artifact upload drops, so the SDK's
+      # native `claude` binary is launchable in the review job.
+      - name: Unpack the Agent SDK into the trusted tree
+        if: steps.pr.outputs.number != ''
+        run: |
+          mkdir -p .trusted/scripts/agent
+          tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C .trusted/scripts/agent
 
       # SECURITY: the SDK cwd is the untrusted branch checkout. Strip its
       # executable agent config — `.claude/` (settings + hooks the SDK could load
