@@ -196,6 +196,45 @@ jobs:
         if: steps.pr.outputs.number != ''
         run: rm -rf "$GITHUB_WORKSPACE/.claude" "$GITHUB_WORKSPACE/.mcp.json"
 
+      # Part 2: carry the PREVIOUS round's blocking findings into this run so the
+      # panel can re-check they were actually resolved (not just missed). Each
+      # lens's findings were persisted in its check run's output.text; take the
+      # latest agent-review-<lens> check per lens across the PR's commits (ours
+      # only). This runs BEFORE the panel posts its checks, so all existing ones
+      # are prior rounds. Never fails the job (best-effort; empty on round 1).
+      - name: Read prior findings
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = Number('${{ steps.pr.outputs.number }}');
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            const wantNames = new Set(manifest.map((l) => `agent-review-${l.id}`));
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
+            const latest = {}; // check name -> { id, t }
+            for (const c of commits) {
+              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
+              for (const r of runs) {
+                if (!wantNames.has(r.name) || !r.app || r.app.slug !== 'github-actions') continue;
+                const t = new Date(r.started_at || 0).getTime();
+                if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { id: r.id, t };
+              }
+            }
+            const prior = [];
+            for (const [name, { id }] of Object.entries(latest)) {
+              const lens = name.replace(/^agent-review-/, '');
+              let text = '';
+              try { const { data } = await github.rest.checks.get({ owner, repo, check_run_id: id }); text = (data.output && data.output.text) || ''; } catch {}
+              let findings = [];
+              try { findings = JSON.parse(text); } catch {}
+              if (Array.isArray(findings)) for (const f of findings) if (f && typeof f === 'object') prior.push({ ...f, lens });
+            }
+            fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
+            core.info(`prior findings carried into re-check: ${prior.length}`);
+
       - name: Run review panel
         if: steps.pr.outputs.number != ''
         # continue-on-error: a crash must not skip the needs-gated promote/fix
@@ -214,6 +253,7 @@ jobs:
           --diff-file /tmp/pr.diff
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
+          --prior-findings /tmp/prior-findings.json
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
@@ -250,10 +290,22 @@ jobs:
               }
               let summary = '_No summary produced (failing closed)._';
               try { summary = fs.readFileSync(`.agent-review/${lens.id}/summary.md`, 'utf8'); } catch {}
+              // Persist this lens's BLOCKING findings as machine-readable JSON in
+              // output.text so the NEXT round's "Read prior findings" step can
+              // re-check them (Part 2). output.summary stays the human-readable body.
+              let findingsText = '[]';
+              try {
+                const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
+                const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
+                const blockers = (Array.isArray(v.findings) ? v.findings : [])
+                  .filter((f) => norm(f.severity) === 'critical' || norm(f.severity) === 'major')
+                  .map((f) => ({ severity: norm(f.severity), file: f.file, summary: f.summary, evidence: f.evidence }));
+                findingsText = JSON.stringify(blockers);
+              } catch {}
               await github.rest.checks.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
-                output: { title: `${lens.id}: ${conclusion}`, summary: summary.slice(0, 60000) },
+                output: { title: `${lens.id}: ${conclusion}`, summary: summary.slice(0, 60000), text: findingsText.slice(0, 60000) },
               });
             }
             core.setOutput('blocked', String(blocked));
