@@ -336,10 +336,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+      # The default GITHUB_TOKEN cannot mark a PR ready for review
+      # (markPullRequestReadyForReview → "Resource not accessible by
+      # integration"), so mark-ready flips the PR with this App token instead.
+      # Scoped to just the promotion mutations (ready / labels / hand-off comment).
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-issues: write
       - name: Run ready gate
         id: gate
         env:
+          # GITHUB_TOKEN does the READS (CI runs via actions:read, check runs via
+          # checks:read); the App token does the WRITES that GITHUB_TOKEN can't.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_MUTATION_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ needs.review-panel.outputs.pr }}
           REQUIRED: ${{ needs.review-panel.outputs.required_checks }}
         run: |
@@ -348,6 +363,9 @@ jobs:
           code=$?
           set -e
           if [ "$code" -eq 2 ]; then echo "mark-ready tooling error" >&2; exit 2; fi
+          # exit 3 = gates passed but the flip-to-ready FAILED (permission/tooling).
+          # Fail the job loudly so the stalled net pages a human — never silent.
+          if [ "$code" -eq 3 ]; then echo "Promotion failed after gates passed (see log)." >&2; exit 3; fi
           if [ "$code" -eq 1 ]; then echo "Not all ready-gates satisfied; leaving as draft."; fi
           if [ "$code" -eq 0 ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; fi
 
