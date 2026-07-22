@@ -174,6 +174,11 @@ synthetic run that carried the underline no longer exists.
   serialize / clipboard / DOCX-PDF export with no `composing` field anywhere
   (the field type-only exists on `LayoutRun`, so this is guaranteed by
   construction; a serialization test documents the guarantee).
+- Serialize / clipboard-copy / export the document *while a composition is
+  still active* (`ComposingContext` non-empty): the persisted, clipboard, and
+  export inputs are byte-identical to the pre-composition model and carry no
+  composing marker. This proves the live preview never mutates model or export
+  data mid-composition, not just after it commits.
 
 ### Reuse
 
