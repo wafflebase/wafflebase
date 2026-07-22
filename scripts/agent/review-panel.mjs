@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { classify, renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
+import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -105,17 +105,28 @@ export function coerceFindings(raw) {
   });
 }
 
-/** Dedupe findings by (file + lowercased summary). */
+/**
+ * Dedupe findings by (file + lowercased summary). On a key COLLISION keep the
+ * HIGHEST severity, not the first seen — a severity-blind, order-dependent dedup
+ * would let a lower-severity duplicate mask a real blocker (e.g. a `nit` and a
+ * `critical` that share a file+summary, or two findings coerceFindings rewrote to
+ * the same placeholder). Dedup must never drop a blocker; it fails toward
+ * blocking, and the result is order-independent.
+ */
 export function dedupeFindings(findings) {
-  const seen = new Set();
-  const out = [];
+  const rank = (f) => KNOWN.indexOf(normalizeSeverity(f.severity)); // 0=critical … 3=nit
+  const byKey = new Map();
+  const order = [];
   for (const f of findings) {
     const key = `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(f);
+    if (!byKey.has(key)) {
+      byKey.set(key, f);
+      order.push(key);
+    } else if (rank(f) < rank(byKey.get(key))) {
+      byKey.set(key, f); // more severe (lower rank index) wins the slot
+    }
   }
-  return out;
+  return order.map((k) => byKey.get(k));
 }
 
 /**

@@ -44,6 +44,32 @@ test("dedupeFindings: by file + case-insensitive summary", () => {
   assert.equal(out.length, 2);
 });
 
+test("dedupeFindings: a collision keeps the HIGHEST severity, order-independent", () => {
+  const nit = { severity: "nit", file: "a.ts", summary: "same text" };
+  const crit = { severity: "critical", file: "a.ts", summary: "same text" };
+  // whichever order they arrive in, the critical must survive the collision
+  assert.equal(dedupeFindings([nit, crit])[0].severity, "critical");
+  assert.equal(dedupeFindings([crit, nit])[0].severity, "critical");
+  assert.equal(dedupeFindings([nit, crit]).length, 1);
+});
+
+// Regression: the fail-open the reviewer found — main() is the ONLY place
+// coerceFindings and dedupeFindings compose, so test the composition, not the
+// helpers in isolation. A colliding critical must not be masked by a nit.
+test("coerceFindings + dedupeFindings (main pipeline): a critical is never masked", () => {
+  const pipeline = (raw) => classify(dedupeFindings(coerceFindings(raw)));
+  // malformed path: coercion rewrites both summaries to the same placeholder
+  assert.equal(pipeline([{ severity: "nit", summary: {} }, { severity: "critical", summary: {} }]).conclusion, "failure");
+  // well-formed path: same file+summary at two severities (ordinary model output)
+  assert.equal(
+    pipeline([
+      { severity: "nit", file: "a.ts", summary: "Unvalidated input on the auth path" },
+      { severity: "critical", file: "a.ts", summary: "Unvalidated input on the auth path" },
+    ]).conclusion,
+    "failure",
+  );
+});
+
 test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any doubt", () => {
   const F = [{ severity: "critical", summary: "c" }, { severity: "major", summary: "m" }, { severity: "minor", summary: "n" }];
   const keptSummaries = (verdicts) => applyVerifications(F, verdicts).map((f) => f.summary);
