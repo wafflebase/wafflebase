@@ -8,18 +8,16 @@ target-version: 0.2.0
 ## Summary
 
 Google Sheets provides approximately 500 functions across 16 categories.
-Wafflebase currently implements **439 function entries (426 unique
+Wafflebase currently implements **447 function entries (434 unique
 functions + 13 aliases)** covering core, power-user, and specialist
 spreadsheet needs. This document maps every Google Sheets function against
 our current support status.
 
-**Current coverage**: ~426 / ~500 unique functions (85%)
+**Current coverage**: ~434 / ~500 unique functions (87%)
 
 Coverage is effectively complete for daily use. The remaining gaps are:
 - **Legacy aliases** (BETADIST, CHIDIST, etc.) — older names for modern
   `.DIST`/`.INV` variants we already support.
-- **Byte-variant text functions** (LEFTB, RIGHTB, MIDB, etc.) — CJK
-  double-byte string handling.
 - **Higher-order array functions** (MAP, REDUCE, SCAN, BYROW, BYCOL,
   MAKEARRAY) — need function implementations using the existing LAMBDA
   infrastructure (grammar already supports lambda parameter binding).
@@ -32,7 +30,7 @@ Coverage is effectively complete for daily use. The remaining gaps are:
 | ----------- | -----: | ---: | -------: |
 | Math        |     84 |   83 |      99% |
 | Statistical |   ~130 |  103 |      79% |
-| Text        |     41 |   38 |      93% |
+| Text        |     49 |   46 |      94% |
 | Date        |     26 |   25 |      96% |
 | Logical     |     13 |   13 |     100% |
 | Lookup      |     17 |   16 |      94% |
@@ -100,10 +98,11 @@ CRITBINOM, EXPONDIST, FDIST, FINV, FTEST, GAMMADIST, GAMMAINV,
 HYPGEOMDIST, LOGINV, LOGNORMDIST, NEGBINOMDIST, NORMSDIST, NORMSINV,
 POISSON, TDIST, TINV, TTEST, WEIBULL, ZTEST
 
-### Not implemented — byte-variant text
+### Byte-variant text (implemented)
 
-CJK double-byte character handling. Standard (non-byte) versions are
-implemented.
+CJK double-byte character handling. Byte counts are UTF-8 based, so `é`
+counts as 2 bytes and a CJK ideograph as 3; positions split at character
+boundaries. For pure ASCII each B-function equals its non-B sibling.
 
 ASC, FINDB, LEFTB, LENB, MIDB, REPLACEB, RIGHTB, SEARCHB
 
