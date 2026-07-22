@@ -12,7 +12,7 @@ import {
   computeMergedCellLineLayouts,
   getBlockIndexForLine,
 } from '../view/table-geometry.js';
-import { Theme, ptToPx } from '../view/theme.js';
+import { Theme, ptToPx, lineBaselineY } from '../view/theme.js';
 import { PdfFonts, customFontKey, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
 import {
   resolveFontKey,
@@ -379,9 +379,12 @@ export class PdfPainter {
     const firstRun = pl.line.runs[0];
     const sizePt = firstRun?.inline.style.fontSize ?? Theme.defaultFontSize;
     const fontSizePx = ptToPx(sizePt);
-    // Same baseline formula as `paintRun` so the marker sits on the
-    // body's baseline.
-    const baselineYpx = pl.y + (pl.line.height + fontSizePx * 0.8) / 2;
+    // Same baseline as `paintRun` so the marker sits on the body's baseline.
+    const baselineYpx = lineBaselineY(
+      pl.y,
+      pl.line.height,
+      pl.line.maxFontSizePx ?? fontSizePx,
+    );
 
     const c = styleColor(firstRun?.inline.style.color);
     // Unordered markers (●, ○, ■) are in the U+25xx range and aren't
@@ -431,6 +434,7 @@ export class PdfPainter {
         lineXpx,
         lineYpx,
         lineHeightPx,
+        line.maxFontSizePx,
         pageHeightPt,
         fonts,
         ctx,
@@ -623,7 +627,11 @@ export class PdfPainter {
 
         const sizePt = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
         const fontSizePx = ptToPx(sizePt);
-        const baselineYpx = markerLineY + (firstLine.height + fontSizePx * 0.8) / 2;
+        const baselineYpx = lineBaselineY(
+          markerLineY,
+          firstLine.height,
+          firstLine.maxFontSizePx ?? fontSizePx,
+        );
         const c = styleColor(cellBlock.inlines[0]?.style.color);
         // Mirror the body painter at line ~330: unordered markers (●○■) live
         // in U+25xx and aren't in Helvetica's WinAnsi coverage, so route them
@@ -653,6 +661,7 @@ export class PdfPainter {
     lineXpx: number,
     lineYpx: number,
     lineHeightPx: number,
+    lineMaxFontSizePx: number | undefined,
     pageHeightPt: number,
     fonts: EmbeddedFonts,
     ctx: PaintContext,
@@ -685,12 +694,14 @@ export class PdfPainter {
     const sizePt = style.fontSize ?? Theme.defaultFontSize;
     const fontSizePx = ptToPx(sizePt);
 
-    // Match the canvas renderer's alphabetic baseline placement:
-    //   baselineY = lineY + (lineHeight + fontSizePx * 0.8) / 2
-    // (See doc-canvas.ts > renderRun.) We deliberately omit the
-    // Math.round() the canvas does — PDF coordinates are continuous
+    // Shared line-common baseline (see `lineBaselineY`). We deliberately
+    // omit the Math.round() the canvas does — PDF coordinates are continuous
     // and rounding causes vertical drift between pages.
-    const baselineYpx = lineYpx + (lineHeightPx + fontSizePx * 0.8) / 2;
+    const baselineYpx = lineBaselineY(
+      lineYpx,
+      lineHeightPx,
+      lineMaxFontSizePx ?? fontSizePx,
+    );
 
     const c = styleColor(style.color);
 

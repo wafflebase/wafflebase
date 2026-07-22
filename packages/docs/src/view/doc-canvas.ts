@@ -585,7 +585,7 @@ export class DocCanvas {
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
               : (listCounters.get(block.id) ?? '1.');
-            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, markerX, marker, Theme);
+            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, pl.line.maxFontSizePx, markerX, marker, Theme);
           }
         }
       }

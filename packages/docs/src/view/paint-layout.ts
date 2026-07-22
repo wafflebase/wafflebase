@@ -5,7 +5,7 @@ import { defaultColorResolver } from '../model/color.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import type { LayoutPage } from './pagination.js';
-import { Theme as DefaultTheme, type DocTheme, buildFont, ptToPx } from './theme.js';
+import { Theme as DefaultTheme, type DocTheme, buildFont, ptToPx, lineBaselineY } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 
 /**
@@ -196,7 +196,7 @@ function paintBlock(
         block.listKind === 'unordered'
           ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
           : (listCounters.get(block.id) ?? '1.');
-      renderListMarker(ctx, block, lineY, line.height, markerX, marker, theme, resolveColor);
+      renderListMarker(ctx, block, lineY, line.height, line.maxFontSizePx, markerX, marker, theme, resolveColor);
     }
   }
 }
@@ -405,8 +405,9 @@ export function renderRun(
   // never passed through `assignLineHeights`. The super/subscript shifts
   // below intentionally stay keyed to the run's OWN size — they move a run
   // relative to itself.
-  const lineAscentPx = (lineMaxFontSizePx ?? originalFontSizePx) * 0.8;
-  let baselineY = Math.round(lineY + (lineHeight + lineAscentPx) / 2);
+  let baselineY = Math.round(
+    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? originalFontSizePx),
+  );
   if (isSuperscript) {
     baselineY -= Math.round(originalFontSizePx * 0.4);
   } else if (isSubscript) {
@@ -506,6 +507,7 @@ export function renderListMarker(
   block: Block,
   lineY: number,
   lineHeight: number,
+  lineMaxFontSizePx: number | undefined,
   markerX: number,
   markerText: string,
   theme: DocTheme = DefaultTheme,
@@ -525,7 +527,11 @@ export function renderListMarker(
   // axes above.
   const colorSource = m?.color ?? firstInline?.color;
   const fontSizePx = ptToPx(fontSize);
-  const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
+  // Marker font stays the marker's own size, but the baseline uses the
+  // line-common max so the marker aligns with a taller first line.
+  const baselineY = Math.round(
+    lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? fontSizePx),
+  );
   ctx.font = buildFont(fontSize, fontFamily, false, false);
   ctx.fillStyle = resolveColor(colorSource) ?? theme.defaultColor;
   ctx.fillText(markerText, markerX, baselineY);
