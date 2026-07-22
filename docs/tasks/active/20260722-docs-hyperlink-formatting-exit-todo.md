@@ -80,9 +80,20 @@ gets the override via `consumeForInsert` instead of inheriting the link.
     (regression coverage for the `insertPlainText` fix above)
 - [x] `@wafflebase/docs` typecheck clean; full test suite green (81
   files, 1107 passed, 1 skipped — up from 80/1100 baseline).
-- [x] `@wafflebase/slides` typecheck + tests green — `text-box-editor.ts`
-  wraps the same `TextEditor` class for slide text boxes, so this fix
-  (and its test coverage) applies there too.
+- [x] `@wafflebase/slides` typecheck + tests green — but this fix does
+  **not** apply to Slides text boxes. `text-box-editor.ts` wraps the same
+  `TextEditor` class, but never calls `setPendingStyle`, so `pending`
+  stays `null` there (`text-editor.ts`'s own field doc already says so:
+  "null in standalone contexts (slides text boxes) where pending
+  behavior is not wired"). `exitLinkIfAtTrailingEdge`'s
+  `this.pending?.set(...)` is therefore a silent no-op in Slides —
+  Enter/Space/paste can still inherit `href` there. Caught by CodeRabbit
+  on PR #520; corrected here rather than claiming coverage that doesn't
+  exist. Slides parity is a reasonable follow-up but out of scope for
+  this fix (see below) — bolting it on here would mean either quietly
+  turning on the *whole* pending-style toolbar-toggle feature for Slides
+  text boxes with no dedicated test of that surface, or a parallel
+  non-pending reimplementation, both larger than this bug fix warrants.
 
 ## Self-review
 
@@ -112,3 +123,11 @@ session). Findings:
   changed — only Enter and Space (and, after review, paste) were fixed,
   matching Google Docs' narrower "space/paragraph break/paste exits the
   link" behavior.
+- Slides text boxes don't get this fix (see the corrected bullet above)
+  since `text-box-editor.ts` never wires a `pending` controller into its
+  `TextEditor` instances. Giving Slides the same link-exit behavior
+  needs its own deliberate design pass (construct + wire a
+  `PendingStyle`, decide whether to also enable the toolbar
+  collapsed-caret pending-toggle feature that would come along with it,
+  and test both surfaces in Slides) rather than a side effect of this
+  Docs-scoped fix.

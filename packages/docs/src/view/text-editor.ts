@@ -5001,6 +5001,9 @@ export class TextEditor {
    * (first char of a new paragraph on Enter, or a typed space) exits
    * the link instead of inheriting it from the adjacent run. Other
    * styles active at the caret (bold, italic, ...) are preserved.
+   *
+   * No-op when `pending` isn't wired (see the field doc above) — e.g.
+   * standalone Slides text boxes, which don't call `setPendingStyle`.
    */
   private exitLinkIfAtTrailingEdge(pos: DocPosition): void {
     if (!this.isAtLinkTrailingEdge(pos)) return;
