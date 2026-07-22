@@ -1861,8 +1861,15 @@ export function initialize(
   ruler.onIndentChange((style) => {
     docStore.snapshot();
     if ('setCursorForHistory' in docStore) {
-      (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
-        .setCursorForHistory(cursor.position);
+      (docStore as {
+        setCursorForHistory(
+          pos: { blockId: string; offset: number },
+          selection?: DocRange | null,
+        ): void;
+      }).setCursorForHistory(
+        cursor.position,
+        selection.hasSelection() && selection.range ? selection.range : null,
+      );
     }
     doc.applyBlockStyle(cursor.position.blockId, style);
     markDirty(cursor.position.blockId);
@@ -1873,6 +1880,35 @@ export function initialize(
     dragGuideline = pos;
     renderPaintOnly();
   });
+
+  // Restore the selection range that undo/redo put back into Yorkie presence
+  // (mirrors the caret restore below). Guards against blocks that no longer
+  // exist and clamps offsets, matching the caret restore; a collapsed /
+  // missing / stale-block range clears the highlight.
+  const restoreSelectionFromPresence = () => {
+    const restoredSel = 'getPresenceSelection' in docStore
+      ? (docStore as { getPresenceSelection(): DocRange | undefined }).getPresenceSelection()
+      : undefined;
+    const clampPos = (pos: DocPosition): DocPosition => {
+      const b = doc.getBlock(pos.blockId);
+      const maxOffset = b.inlines.reduce((sum, i) => sum + i.text.length, 0);
+      return { blockId: pos.blockId, offset: Math.min(pos.offset, maxOffset) };
+    };
+    const blocksExist = restoredSel
+      ? restoredSel.tableCellRange
+        ? !!doc.findBlock(restoredSel.tableCellRange.blockId)
+        : !!doc.findBlock(restoredSel.anchor.blockId) &&
+          !!doc.findBlock(restoredSel.focus.blockId)
+      : false;
+    if (restoredSel && blocksExist) {
+      const range: DocRange = restoredSel.tableCellRange
+        ? restoredSel
+        : { anchor: clampPos(restoredSel.anchor), focus: clampPos(restoredSel.focus) };
+      selection.setRange(range);
+    } else {
+      selection.setRange(null);
+    }
+  };
 
   // Wire up text editor
   const undoFn = () => {
@@ -1895,6 +1931,7 @@ export function initialize(
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      restoreSelectionFromPresence();
 
       needsScrollIntoView = true;
       render();
@@ -1920,6 +1957,7 @@ export function initialize(
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      restoreSelectionFromPresence();
 
       needsScrollIntoView = true;
       render();
@@ -2003,8 +2041,15 @@ export function initialize(
     () => {
       docStore.snapshot();
       if ('setCursorForHistory' in docStore) {
-        (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
-          .setCursorForHistory(cursor.position);
+        (docStore as {
+          setCursorForHistory(
+            pos: { blockId: string; offset: number },
+            selection?: DocRange | null,
+          ): void;
+        }).setCursorForHistory(
+          cursor.position,
+          selection.hasSelection() && selection.range ? selection.range : null,
+        );
       }
     },
     undoFn,
