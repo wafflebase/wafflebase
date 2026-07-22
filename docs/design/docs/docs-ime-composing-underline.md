@@ -59,7 +59,7 @@ only thing missing is the underline decoration.
 ## Non-Goals
 
 - Underline color / style customization for composing text. The underline is a
-  fixed thin solid line in the text color.
+  fixed 2px solid line in the text color.
 - A background highlight or any other composing decoration beyond the
   underline.
 - Changing how composing text is measured, wrapped, or committed.
@@ -111,7 +111,8 @@ through `injectComposingInline`, so both are covered.
 In `renderRun`, after the existing `style.underline` block, draw a composing
 underline when `run.composing` is set:
 
-- A thin solid line (1px), in the run's resolved text color.
+- A solid line (2px, matching the caret's `cursorWidth`), in the run's
+  resolved text color.
 - Positioned at the same `baselineY + 2` the normal underline uses.
 - Reuses the run's already-computed `x` and `width`, so a composing string that
   wraps across lines paints one underline segment per sub-run and the underline
@@ -159,7 +160,7 @@ synthetic run that carried the underline no longer exists.
 - `composingStyleFrom` still inherits visual style and drops `image` /
   `pageNumber`, and does not introduce a `composing` field.
 - `renderRun` with a `composing` run strokes a single underline at
-  `baselineY + 2` with `lineWidth === 1` and `strokeStyle` equal to the run's
+  `baselineY + 2` with `lineWidth === 2` and `strokeStyle` equal to the run's
   resolved text color (asserted via a mock canvas context recording
   `moveTo` / `lineTo` / `stroke` and the set properties); a run without the
   flag and without `style.underline` strokes none.

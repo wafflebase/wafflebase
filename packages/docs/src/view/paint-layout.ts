@@ -471,6 +471,23 @@ export function renderRun(
     ctx.restore();
   }
 
+  // IME composing underline: a thin solid line under uncommitted (composing)
+  // text, signalling it is not yet committed (matching native fields and
+  // Google Docs). `run.composing` is a view-local marker set by the layout
+  // pass; it disappears — along with this underline — when the composition
+  // commits or aborts and the synthetic run is no longer laid out.
+  if (run.composing) {
+    const underlineY = baselineY + 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = textColor;
+    ctx.lineWidth = 2;
+    ctx.moveTo(x, underlineY);
+    ctx.lineTo(x + run.width, underlineY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (style.strikethrough) {
     const renderFontSizePx = ptToPx(
       (isSuperscript || isSubscript)
