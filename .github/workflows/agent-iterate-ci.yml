@@ -168,3 +168,13 @@ jobs:
             --max-turns 40
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+      # Record this session's effort into the PR metrics ledger (fail-safe:
+      # continue-on-error + the script exits 0 on any error, so metrics never
+      # break the iterate loop).
+      - name: Record agent effort metrics
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "${{ steps.guard.outputs.pr }}"
