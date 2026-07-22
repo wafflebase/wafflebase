@@ -352,7 +352,9 @@ export function expandUnboundedRanges(
   formula: string,
   bounds: Range | undefined,
 ): string {
-  if (!formula.startsWith('=')) {
+  // Fast path: an unbounded range always contains ':', so a colon-free formula
+  // (the common case) never needs rewriting and skips tokenization entirely.
+  if (!formula.startsWith('=') || !formula.includes(':')) {
     return formula;
   }
 

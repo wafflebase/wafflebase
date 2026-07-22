@@ -4257,6 +4257,18 @@ describe('Unbounded ranges', () => {
     expect(expandUnboundedRanges('hello', bounds)).toBe('hello');
   });
 
+  it('rewrites only the unbounded refs in a mixed formula', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)+B1*2', bounds)).toBe(
+      '=SUM(A1:A3)+B1*2',
+    );
+    expect(expandUnboundedRanges('=SUM(A:A)+SUM(C1:C2)', bounds)).toBe(
+      '=SUM(A1:A3)+SUM(C1:C2)',
+    );
+    expect(expandUnboundedRanges('=COUNT(1:1)&" rows"', bounds)).toBe(
+      '=COUNT(A1:B1)&" rows"',
+    );
+  });
+
   it('collapses unbounded refs to A1 on an empty sheet', () => {
     expect(expandUnboundedRanges('=SUM(A:A)', undefined)).toBe('=SUM(A1:A1)');
   });
