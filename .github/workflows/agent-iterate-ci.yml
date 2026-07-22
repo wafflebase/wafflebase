@@ -150,7 +150,7 @@ jobs:
         # github_token is the App token so the fix push re-triggers CI.
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             CI failed on your PR branch (${{ github.event.workflow_run.head_branch }}).
