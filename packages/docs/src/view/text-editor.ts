@@ -637,6 +637,12 @@ export class TextEditor {
     this.deleteSelection();
     const blockId = this.cursor.position.blockId;
 
+    // A space typed right at the end of a hyperlink should exit link
+    // formatting rather than silently extending it into the space and
+    // whatever is typed after.
+    if (data === ' ') {
+      this.exitLinkIfAtTrailingEdge(this.cursor.position);
+    }
     this.docInsertText(this.cursor.position, data);
     const newPos = {
       blockId: this.cursor.position.blockId,
@@ -1932,6 +1938,7 @@ export class TextEditor {
       this.saveSnapshot();
       this.deleteSelection();
       const pos = this.cursor.position;
+      this.exitLinkIfAtTrailingEdge(pos);
       const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
       this.cursor.moveTo({
         blockId: newBlockId,
@@ -1964,6 +1971,7 @@ export class TextEditor {
     // URL auto-detection before splitting the block on Enter
     const pos = this.cursor.position;
     this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
+    this.exitLinkIfAtTrailingEdge(pos);
     const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
 
     if (newBlockId === pos.blockId) {
@@ -3359,6 +3367,10 @@ export class TextEditor {
   private insertPlainText(text: string): void {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
+    // Pasting right after a hyperlink should not extend it into the
+    // pasted text, same as typing Enter/Space there (see handleEnter /
+    // handleInput's space branch).
+    this.exitLinkIfAtTrailingEdge(this.cursor.position);
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) {
@@ -4958,6 +4970,46 @@ export class TextEditor {
       href: linkInline.href,
       rect: { x: rectX, y: rectY, width: Math.max(rectWidth, 1), height: rectHeight },
     };
+  }
+
+  /**
+   * True if `pos` sits exactly at the trailing edge of a hyperlink run —
+   * not merely inside one. Guards against a link split across adjacent
+   * runs (e.g. a bold portion of the same URL) by checking the next run
+   * doesn't continue the same href.
+   */
+  private isAtLinkTrailingEdge(pos: DocPosition): boolean {
+    let block: Block;
+    try { block = this.doc.getBlock(pos.blockId); } catch { return false; }
+
+    let start = 0;
+    for (let i = 0; i < block.inlines.length; i++) {
+      const inline = block.inlines[i];
+      const end = start + inline.text.length;
+      if (pos.offset === end && pos.offset > start && inline.style.href) {
+        const next = block.inlines[i + 1];
+        return !(next && next.style.href === inline.style.href);
+      }
+      start = end;
+    }
+    return false;
+  }
+
+  /**
+   * If the caret sits at the trailing edge of a hyperlink, arm the
+   * pending style with `href: undefined` so the next typed character
+   * (first char of a new paragraph on Enter, or a typed space) exits
+   * the link instead of inheriting it from the adjacent run. Other
+   * styles active at the caret (bold, italic, ...) are preserved.
+   *
+   * No-op when `pending` isn't wired (see the field doc above) — e.g.
+   * standalone Slides text boxes, which don't call `setPendingStyle`.
+   */
+  private exitLinkIfAtTrailingEdge(pos: DocPosition): void {
+    if (!this.isAtLinkTrailingEdge(pos)) return;
+    const base = this.getStyleAtCursor();
+    const visual = this.pending?.has() ? { ...base, ...this.pending.get()! } : base;
+    this.pending?.set({ ...visual, href: undefined }, pos);
   }
 
   dispose(): void {
