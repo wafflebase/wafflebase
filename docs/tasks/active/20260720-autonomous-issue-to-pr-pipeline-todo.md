@@ -54,13 +54,19 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 
 ## Maintainer prerequisites (cannot self-provision)
 
-- `ANTHROPIC_API_KEY` secret (scoped to a protected `agent` Environment).
-- Branch protection on `main`: human approval + CODEOWNERS + CI green +
-  dismiss-stale-approvals; agent token non-admin. You may also require the
-  `agent-independent-review` status check (necessary), but it must **never** be
-  sufficient-for-merge on its own: human CODEOWNER approval stays required and
-  non-bypassable, because the LLM reviewer can be swayed by prompt-injected diff
-  text. The review check is a pre-human triage signal, not merge authority.
+- `CLAUDE_CODE_OAUTH_TOKEN` secret (scoped to a protected `agent` Environment) —
+  the auth the SDK panel and every `claude-code-action` step consume. Confirm it
+  authenticates with the one-press **Agent SDK Auth Smoke Test** workflow
+  (`workflow_dispatch`) before arming; see the pre-arm runbook below.
+- Branch protection on `main`: **require ≥1 human approving review** + CI green +
+  dismiss-stale-approvals; agent token non-admin. (CODEOWNERS is scoped to the
+  pipeline's own files, so it gates changes to the harness itself; the repo-wide
+  agent-PR gate is the required approving review, not CODEOWNERS.) You may also
+  require the per-lens `agent-review-correctness` / `-security` / `-design-fit` /
+  `-test-adequacy` status checks (necessary), but they must **never** be
+  sufficient-for-merge on their own: a human approving review stays required and
+  non-bypassable, because an LLM reviewer can be swayed by prompt-injected diff
+  text. The review checks are a pre-human triage signal, not merge authority.
 - **Provide a GitHub App for git auth.** The pushing workflows mint an
   installation token via `actions/create-github-app-token` and pass it to
   `actions/checkout` (`token:`) and to `claude-code-action` (`github_token:`), so
@@ -131,8 +137,8 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   run); added `actions: read` to the promote job. Now all three gates are
   evidence a separate actor produced.
 - **Minor — LLM-reviewer injection residual**: documented that the
-  `agent-independent-review` check must never be configured sufficient-for-merge;
-  human CODEOWNER approval stays required and non-bypassable (design doc + the
+  `agent-review-<lens>` checks must never be configured sufficient-for-merge;
+  a human approving review (branch protection) stays required and non-bypassable (design doc + the
   branch-protection prerequisite above).
 - **Escalation (owner decision)**: adopting a standing write-capable autonomous
   contributor, accepting the disclosed injection residual, and the
@@ -144,7 +150,7 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Forgeable attempt counters**: both loop bounds moved off deletable PR-comment
   counters (the agent holds issues:write) to append-only signals it cannot edit —
   iterate-ci counts failed CI runs (Actions history, +`actions: read`); the review
-  loop counts failed `agent-independent-review` check runs across the PR commits
+  loop counts failed `agent-review-<lens>` check runs across the PR commits
   (check runs need checks:write, which the author lacks).
 - **Silent-stall crash**: `read-review-verdict.mjs` guarded against
   null/array/primitive verdicts (`JSON.parse("null")` used to throw before the
@@ -166,3 +172,97 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - **Non-issue — HARNESS_EOF heredoc**: the kickoff prompt content is no longer
   agent-influenced (quoted heredoc + numeric-only substitution; the agent reads
   the issue itself), so the fixed delimiter can't collide with injected text.
+
+## Review panel — one orchestrator, four subagents (replaces the single reviewer)
+
+- [x] `scripts/agent/severity.mjs` — shared block-iff-critical/major rule, imported
+      by both `read-review-verdict.mjs` and the orchestrator (one source of truth).
+- [x] `scripts/agent/lenses/lenses.json` + `{correctness,security,design-fit,
+      test-adequacy}.md` rubrics (block-on-concrete, stay-in-lane, treat-as-data).
+- [x] `scripts/agent/review-panel.mjs` — Agent SDK orchestrator: parallel per-lens
+      subagents (read-only), per-finding verifier refute pass (drops only on explicit
+      refuted; keeps on uncertainty), synthesize+dedup, trusted per-lens verdicts.
+      + `scripts/agent/package.json` (SDK dep — pin/verify version + add a lockfile).
+- [x] `.github/workflows/agent-independent-review.yml` → `agent-review-panel.yml`:
+      single `review-panel` job (trusted-main orchestrator, per-lens
+      `agent-review-<lens>` check runs, fail-closed) + generalized promote/fix/stalled.
+- [x] `scripts/agent/mark-ready.mjs` — `--require-checks` (all named lens checks must
+      pass); default = the 4 lens checks.
+
+### Panel-specific maintainer notes
+- The `review-panel` job needs `issues: read` (design-fit reads the issue) and
+  installs the Agent SDK (`scripts/agent/package.json`); pin the SDK version and
+  commit a lockfile for reproducibility.
+- **SDK verified + pinned:** the Agent SDK options (`outputFormat: json_schema`,
+  result `structured_output`, `permissionMode: dontAsk`, `settingSources: []`) and the
+  `CLAUDE_CODE_OAUTH_TOKEN` auth path were confirmed against `@anthropic-ai/claude-agent-sdk`
+  **0.3.217**, which is now pinned exactly + lockfiled (deps job uses `npm ci`).
+
+### Pre-arm notes (neither is a hard blocker for the panel)
+Neither item below is required for the panel to *function* — the panel fails
+closed on any problem (no verdict → no promotion → human paged). They're
+de-risking, not gates.
+
+**1. Live credential check — OPTIONAL pre-flight.** A secret can't be validated
+statically, so the dedicated smoke-test workflow lets you confirm
+`CLAUDE_CODE_OAUTH_TOKEN` authenticates in one click *before* arming, instead of
+discovering it from a failed-closed first panel run:
+
+```
+Actions ▸ "Agent SDK Auth Smoke Test" ▸ Run workflow      # workflow_dispatch
+```
+
+It installs the SDK without the token in scope, then runs `auth-smoke.mjs` with
+the token (same `agent` secret + SDK auth path as the panel), so green ⇒ the
+panel authenticates. Skipping it is safe: a bad token in a real run just fails
+closed (the lens posts a failure check; the PR is not promoted).
+
+**2. Branch-protection required-check — CONFIRMED no-op.** This PR deletes the
+only producer of the `agent-independent-review` check. That would matter only if
+that name were a **required** status check on `main` (a dangling required check
+freezes all PRs to main). **Confirmed by the maintainer (2026-07-22): it is NOT
+a required check** — #501 landed only the day before and the pipeline is dormant,
+so nothing was ever wired as required. Nothing to remove on merge. Making the new
+`agent-review-<lens>` checks required later is OPTIONAL (they're triage; the
+human approving review stays the real gate) — if you do, add them via
+Settings ▸ Branches ▸ main ▸ Require status checks and keep "require ≥1
+approving review" non-bypassable.
+
+### To validate before trusting (same discipline as the single-reviewer backtest)
+- Re-run the panel over the 12-PR FP corpus + 8-mutant TP corpus; confirm per-lens
+  routing (authz/hmac/secret→security; offbyone/await/null→correctness;
+  store-bypass→design-fit; vacuous-test→test-adequacy) AND that the verifier pass
+  does not refute any of the 8 real bugs.
+
+## Panel security review (PR #508) — addressed
+
+- **Verifier inverted (blocker)**: the refute pass dropped findings on model
+  uncertainty (it was told to "return refuted if unsure"). Now it refutes only
+  with a concrete reason + `confidence:"high"`; any doubt → confirmed, and
+  `applyVerifications` drops ONLY on refuted+high (null/low/malformed → keep).
+  Covered by `review-panel.test.mjs`.
+- **npm install in the secret-bearing job (blocker)**: moved to a separate
+  UNPRIVILEGED `deps` job (no secrets/checks:write) that hands `node_modules` to
+  the review job as an artifact. (Still pin an exact SDK version + commit a
+  lockfile before arming.)
+- **SDK cwd = untrusted branch (blocker)**: `settingSources: []` in the
+  orchestrator so branch `.claude` hooks/settings are never loaded/executed; the
+  workflow also strips `.claude/` before running. (`settingSources` confirmed in SDK 0.3.217.)
+- **No tests (blocker)**: added committed `node:test` files —
+  `severity.test.mjs`, `checks.test.mjs`, `review-panel.test.mjs` (7 tests;
+  `cd scripts/agent && npm test`). The pure helpers + the verifier-drop matrix +
+  `--require-checks` all-pass/missing logic are covered.
+- **Prefix check-run match → injection (major)**: round-bound + findings-gather now
+  match the EXACT lens check names AND `app.slug === 'github-actions'`; the fix
+  prompt fences the findings as untrusted `<panel-findings>` data.
+- **Author-chosen spec (major)**: design-fit ingests the `Fixes #N` issue only if it
+  is labelled `agent:candidate` and authored by a non-Bot; else it runs without a
+  spec. The ingested issue is logged.
+- **Lens list triplicated / gating unused / appliesWhen unusable (major)**: the
+  orchestrator writes the authoritative per-lens `panel.json` (incl. `skipped`
+  + `applicable` + `blocking`); the workflow reads the trusted manifest + panel.json
+  (single source), emits `required_checks`, honours `gating`, and posts non-applicable
+  lenses as `neutral` (not a fail-closed failure).
+- **Breaking change / migration (major)**: check name is now per-lens
+  `agent-review-<lens>` (not `agent-independent-review`). Before merge, update the
+  branch-protection required-check list in the same window (documented in the PR).

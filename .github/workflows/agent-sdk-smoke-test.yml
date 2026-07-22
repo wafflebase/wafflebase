@@ -1,0 +1,45 @@
+# One-press LIVE credential check for the review panel's Agent SDK.
+#
+# The one pre-arm item that can't be verified statically: does the configured
+# CLAUDE_CODE_OAUTH_TOKEN actually authenticate the SDK on a runner? A maintainer
+# runs this manually — Actions ▸ "Agent SDK Auth Smoke Test" ▸ Run workflow —
+# BEFORE arming the pipeline (setting AGENT_PIPELINE_ENABLED=true). It uses the
+# same `agent` environment secret and the same SDK auth path as
+# agent-review-panel.yml, so a green run here means the panel will authenticate
+# too. It reviews nothing (allowedTools: []) and needs no repo write.
+#
+# Deliberately NOT gated on AGENT_PIPELINE_ENABLED — the whole point is to test
+# BEFORE arming — and it can only ever run via manual dispatch.
+name: Agent SDK Auth Smoke Test
+
+on:
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: agent # where CLAUDE_CODE_OAUTH_TOKEN lives
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_dispatch can target ANY ref; force the REVIEWED main copy of
+          # auth-smoke.mjs + the lockfile so a pushed branch can't swap in a script
+          # that exfiltrates CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent`
+          # environment's deployment branches to `main` in repo settings.)
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      # Install WITHOUT the auth secret in scope (same rule as the panel's
+      # unprivileged deps job: never run `npm ci` lifecycle scripts with the
+      # token present). Only the next step gets the token.
+      - name: Install the Agent SDK
+        run: cd scripts/agent && npm ci --no-audit --no-fund
+      - name: Live auth check
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node scripts/agent/auth-smoke.mjs
