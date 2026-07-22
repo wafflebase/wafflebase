@@ -51,13 +51,30 @@ const DEFAULT_REVIEW_CHECKS = [
   "agent-review-test-adequacy",
 ];
 const rcIdx = process.argv.indexOf("--require-checks");
-// Absent flag → defaults. Explicit `--require-checks ""` → empty set (gate 2
-// vacuously satisfied — e.g. when no blocking lens applied). Only the missing
-// flag falls back to DEFAULT; an explicitly empty value must NOT.
+// Absent flag → defaults. Explicit `--require-checks ""` → empty set. Only the
+// missing flag falls back to DEFAULT; an explicitly empty value must NOT (else
+// an all-advisory / no-blocking-lens panel would be pinned against four
+// never-posted default checks and could never promote).
 const REQUIRED_CHECKS =
   rcIdx === -1
     ? DEFAULT_REVIEW_CHECKS
     : (process.argv[rcIdx + 1] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+// FAIL CLOSED on an empty required-check set. `allRequiredPassed(runs, [])` is
+// vacuously true (`[].every` → true), so an empty set would satisfy gate 2 with
+// ZERO review evidence — a fail-open in a component whose whole job is to fail
+// closed. It's unreachable with today's manifest (four lenses, all blocking,
+// all appliesWhen "**", so the panel always emits ≥1 required check), but a
+// future narrow-glob lens or an empty changed-file set could produce it. Treat
+// it as a tooling error unless the caller OPTS IN explicitly.
+if (REQUIRED_CHECKS.length === 0 && !process.argv.includes("--allow-no-checks")) {
+  console.error(
+    "Refusing to promote with an empty required-check set: gate 2 (review-panel " +
+      "approval) would pass with no evidence. Pass --allow-no-checks only if a " +
+      "no-blocking-lens panel is genuinely intended.",
+  );
+  process.exit(2);
+}
 
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });

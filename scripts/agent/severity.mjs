@@ -54,14 +54,21 @@ function section(findings, severity, heading) {
   return `\n### ${heading} (${rows.length})\n${body}\n`;
 }
 
-/** Render the Markdown check-run body for a set of findings. */
-export function renderSummaryMd(label, rawFindings, summaryText) {
+/**
+ * Render the Markdown check-run body for a set of findings.
+ * `advisory: true` marks a NON-GATING lens: its check always reports success, so
+ * the body must not claim "changes requested" even when it raised a blocking
+ * finding — otherwise a green check would open with a ❌ that contradicts it.
+ */
+export function renderSummaryMd(label, rawFindings, summaryText, { advisory = false } = {}) {
   // Render from the NORMALIZED findings so an unknown severity (→ major) is
   // counted and shown as a blocking finding, not omitted or counted as zero.
   const { approved, blockingCount, findings } = classify(rawFindings);
-  const header = approved
-    ? `✅ ${label}: **approved** — no critical or major findings (${countsStr(findings)}).`
-    : `❌ ${label}: **changes requested** — ${blockingCount} blocking (critical/major) finding(s) (${countsStr(findings)}).`;
+  const header = advisory
+    ? `ℹ️ ${label}: **advisory — not gating** — ${blockingCount} critical/major, informational only (${countsStr(findings)}).`
+    : approved
+      ? `✅ ${label}: **approved** — no critical or major findings (${countsStr(findings)}).`
+      : `❌ ${label}: **changes requested** — ${blockingCount} blocking (critical/major) finding(s) (${countsStr(findings)}).`;
   return (
     `${header}\n\n${summaryText ?? ""}` +
     section(findings, "critical", "Critical") +

@@ -24,3 +24,11 @@ test("allRequiredPassed: all present+success â†’ pass; any failing or MISSING â†
   assert.equal(partial.allPassed, false);
   assert.equal(partial.perCheck.z, false);
 });
+
+test("allRequiredPassed: an EMPTY required set is vacuously true", () => {
+  // `[].every` is true, so a required set of [] "passes" with ZERO evidence.
+  // This is the fail-open mark-ready.mjs guards against: it refuses to promote
+  // on an empty required-check set unless --allow-no-checks is passed.
+  assert.equal(allRequiredPassed([], []).allPassed, true);
+  assert.equal(allRequiredPassed([fail("x")], []).allPassed, true);
+});

@@ -29,3 +29,16 @@ test("renderSummaryMd: unknown severity is normalized to major and shown (not om
   assert.match(md, /### Major \(1\)/); // rendered under Major, not dropped
   assert.match(md, /sneaky bug/); // the finding text appears
 });
+
+test("renderSummaryMd: advisory lens with a critical finding does NOT say 'changes requested'", () => {
+  const findings = [{ severity: "critical", file: "a.ts", summary: "big issue" }];
+  // Non-advisory: a critical finding blocks.
+  const gating = renderSummaryMd("Design fit review", findings, "");
+  assert.match(gating, /changes requested/);
+  // Advisory: check reports success, so the body must not contradict it with ❌.
+  const advisory = renderSummaryMd("Design fit review", findings, "", { advisory: true });
+  assert.doesNotMatch(advisory, /changes requested/);
+  assert.match(advisory, /advisory — not gating/);
+  assert.match(advisory, /### Critical \(1\)/); // still lists the finding
+  assert.match(advisory, /big issue/);
+});

@@ -42,7 +42,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with: { ref: main } # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
+        with:
+          ref: main # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
+          # `npm ci` below runs dependency lifecycle scripts — this is the only job
+          # that executes third-party code, so don't leave the token in .git/config.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -165,13 +169,15 @@ jobs:
           path: .trusted/scripts/agent/node_modules
 
       # SECURITY: the SDK cwd is the untrusted branch checkout. Strip its
-      # `.claude/` (settings + hooks the SDK could load and execute) — the
-      # orchestrator's `settingSources: []` is the primary guard, this is
-      # belt-and-suspenders. CLAUDE.md is left in place (a readable convention
-      # file, not executable config).
+      # executable agent config — `.claude/` (settings + hooks the SDK could load
+      # and run) and `.mcp.json` (project-scoped MCP servers declared as shell
+      # commands, the same class of branch-supplied executable config). The
+      # orchestrator's `settingSources: []` is the primary guard; this is
+      # belt-and-suspenders for the case where that guard misbehaves. CLAUDE.md is
+      # left in place (a readable convention file, not executable config).
       - name: Strip untrusted agent config from the branch
         if: steps.pr.outputs.number != ''
-        run: rm -rf "$GITHUB_WORKSPACE/.claude"
+        run: rm -rf "$GITHUB_WORKSPACE/.claude" "$GITHUB_WORKSPACE/.mcp.json"
 
       - name: Run review panel
         if: steps.pr.outputs.number != ''
@@ -179,12 +185,13 @@ jobs:
         # jobs — the post step below then fails closed (per-lens failure checks).
         continue-on-error: true
         env:
-          # Auth for the Agent SDK — the maintainer configured CLAUDE_CODE_OAUTH_TOKEN
-          # (same secret the pipeline's claude-code-action steps use). Both are set so
-          # the SDK/CLI picks up whichever it honors; VERIFY which one the installed
-          # SDK version actually consumes during the first real run.
+          # Auth for the Agent SDK. The pinned SDK (0.3.217) consumes
+          # CLAUDE_CODE_OAUTH_TOKEN (verified against its source; see the header
+          # comment in review-panel.mjs), which is exactly the secret the
+          # maintainer configured and the same one the pipeline's
+          # claude-code-action steps use. Export ONLY that one — no second
+          # credential in a process whose cwd is the untrusted branch checkout.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
@@ -391,11 +398,26 @@ jobs:
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
-  # Safety net: the panel job died before producing verdicts → page a human so
-  # the loop never silently stalls.
+  # Safety net: the panel never produced verdicts → page a human so the loop
+  # never silently stalls. This must catch BOTH shapes of "no verdicts":
+  #   - review-panel ran and FAILED, and
+  #   - review-panel was SKIPPED because its `needs: deps` upstream failed (a
+  #     `deps` failure marks review-panel 'skipped', not 'failure', and skips
+  #     promote/fix too — a silent stall this net exists to prevent).
+  # The enable/fork gate is repeated so we do NOT page when the panel was
+  # skipped by the AGENT_PIPELINE_ENABLED / non-agent-branch / fork gate rather
+  # than by an upstream failure (in those cases deps is 'skipped', not 'failure').
   stalled:
-    needs: review-panel
-    if: always() && needs.review-panel.result == 'failure'
+    needs: [deps, review-panel]
+    if: >-
+      always() &&
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (needs.deps.result == 'failure' ||
+       needs.review-panel.result == 'failure' ||
+       needs.review-panel.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

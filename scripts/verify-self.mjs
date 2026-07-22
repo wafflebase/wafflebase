@@ -8,6 +8,12 @@ const repoRoot = path.resolve(scriptDir, "..");
 const reportDir = path.resolve(repoRoot, ".harness-reports");
 
 const LANES = [
+  // Agent-harness unit tests. `scripts/agent` is a standalone npm package
+  // OUTSIDE the pnpm workspace, so `pnpm verify:fast` never reaches it — without
+  // this lane the panel's safety-critical suites (severity/checks/verifier) would
+  // never run in CI. No build or SDK install needed (the SDK is lazy-imported),
+  // so it runs first and fails fast on a regression in the gate itself.
+  { name: "agent:tests", cmd: "cd scripts/agent && node --test *.test.mjs" },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build" },

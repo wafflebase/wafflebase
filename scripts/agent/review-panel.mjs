@@ -17,12 +17,12 @@
 //   <out>/<lens>/verdict.json + summary.md   and   <out>/panel.json + panel-summary.md
 //
 // SDK: @anthropic-ai/claude-agent-sdk (imported lazily so the pure helpers below
-// are unit-testable without the dependency installed). Verify the option names
-// Verified against @anthropic-ai/claude-agent-sdk 0.3.217 (pinned + lockfiled):
-// outputFormat:{type:'json_schema'}, result.structured_output, permissionMode
-// 'dontAsk', settingSources:[] all exist; the SDK reads CLAUDE_CODE_OAUTH_TOKEN.
+// are unit-testable without the dependency installed). Verified against
+// @anthropic-ai/claude-agent-sdk 0.3.217 (pinned + lockfiled): outputFormat:
+// {type:'json_schema'}, result.structured_output, permissionMode 'dontAsk',
+// settingSources:[] all exist; the SDK reads CLAUDE_CODE_OAUTH_TOKEN.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
@@ -279,6 +279,7 @@ async function main() {
     const { conclusion } = writeVerdict(lensOut, lens, kept, summary, {
       valid: true,
       conclusion: blocking ? undefined : "success",
+      advisory: !blocking,
     });
     panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion, valid: true });
   }));
@@ -288,12 +289,14 @@ async function main() {
   process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}`).join("\n") + "\n");
 }
 
-function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion } = {}) {
+function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false } = {}) {
   mkdirSync(lensOut, { recursive: true });
   // Explicit conclusion (skipped / advisory-success) wins; else compute from severities.
   const finalConclusion = conclusion ?? classify(findings).conclusion;
   writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion }, null, 2) + "\n");
-  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, findings, summary) + "\n");
+  // advisory lenses always report success → render the body as advisory so it
+  // doesn't contradict the green check with a "changes requested" header.
+  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, findings, summary, { advisory }) + "\n");
   writeFileSync(path.join(lensOut, "conclusion"), finalConclusion + "\n");
   return { conclusion: finalConclusion };
 }
