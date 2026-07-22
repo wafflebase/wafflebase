@@ -23,7 +23,7 @@ on:
 permissions: {}
 
 env:
-  MAX_REVIEW_ROUNDS: "3"
+  MAX_REVIEW_ROUNDS: "5"
 
 jobs:
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment, no
