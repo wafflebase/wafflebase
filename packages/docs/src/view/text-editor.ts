@@ -3367,6 +3367,10 @@ export class TextEditor {
   private insertPlainText(text: string): void {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
+    // Pasting right after a hyperlink should not extend it into the
+    // pasted text, same as typing Enter/Space there (see handleEnter /
+    // handleInput's space branch).
+    this.exitLinkIfAtTrailingEdge(this.cursor.position);
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) {

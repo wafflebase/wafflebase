@@ -47,6 +47,14 @@ gets the override via `consumeForInsert` instead of inheriting the link.
   press is also exited).
 - [x] Wire into `handleInput`'s space branch, before `docInsertText`, so
   the typed space itself does not join the link.
+- [x] Wire into `insertPlainText` (the plain-text paste path), before the
+  first line's insert — same root cause: pasting text right after a
+  link's trailing edge (e.g. right after `insertLink`) went through the
+  same style-inheriting `docInsertText` and silently extended the link.
+  Found by an independent review pass (see below); the rich-paste path
+  (`insertBlocks`, HTML/`WAFFLEDOCS_MIME`/markdown-table paste) is
+  unaffected since it splices the clipboard payload's own explicit
+  per-inline styles rather than inheriting the destination caret's run.
 - [x] Checked non-regressions: bold/italic pending at the same caret is
   preserved (merge, not overwrite); `insertLink`'s direct-write path
   (doesn't use `pending`, no conflict); auto-link-before-cursor via space
@@ -54,22 +62,53 @@ gets the override via `consumeForInsert` instead of inheriting the link.
   adjacency) — unaffected; mid-link Enter/Space (splitting or spacing
   inside link text) untouched since the caret isn't at a trailing edge;
   Hangul/IME composition doesn't route space/Enter through this path.
-- [x] Tests: new `test/view/link-trailing-edge.test.ts`, driving the real
+- [x] Tests: `test/view/link-trailing-edge.test.ts`, driving the real
   `editor.js` `initialize()` + jsdom textarea (same harness as
   `pending-style-editor.test.ts` / `ime-composition-editor.test.ts`):
-  space right after `insertLink` doesn't extend the link; text typed
-  after that space stays plain; Enter right after `insertLink` starts a
-  plain new paragraph; space in the *middle* of link text still stays
-  part of the link (non-regression for the trailing-edge-only guard).
+  - space right after `insertLink` doesn't extend the link
+  - text typed after that space stays plain
+  - Enter right after `insertLink` starts a plain new paragraph
+  - space in the *middle* of link text still stays part of the link
+    (non-regression for the trailing-edge-only guard)
+  - space at the internal boundary between two runs of the *same* link
+    (e.g. a bold prefix) still stays part of the link — exercises the
+    `next.style.href === inline.style.href` guard in
+    `isAtLinkTrailingEdge`
+  - a pending style armed at the same caret (toolbar bold toggle) is
+    preserved through the link-exit merge, not clobbered by it
+  - pasting plain text right after `insertLink` doesn't extend the link
+    (regression coverage for the `insertPlainText` fix above)
 - [x] `@wafflebase/docs` typecheck clean; full test suite green (81
-  files, 1104 passed, 1 skipped — up from 80/1100 with the 4 new tests).
+  files, 1107 passed, 1 skipped — up from 80/1100 baseline).
 - [x] `@wafflebase/slides` typecheck + tests green — `text-box-editor.ts`
   wraps the same `TextEditor` class for slide text boxes, so this fix
   (and its test coverage) applies there too.
+
+## Self-review
+
+Dispatched an independent review agent over the branch diff (the
+`/code-review` skill isn't directly invocable by the assistant in this
+session). Findings:
+- **Fixed**: paste right after a link's trailing edge bypassed the fix
+  (see `insertPlainText` bullet above).
+- **Non-blocking, pre-existing, orthogonal**: `insertLink`'s
+  collapsed-caret branch (`editor.ts`) moves the cursor directly without
+  going through the `pending`-aware `docInsertText`/arrow-key clear
+  paths; a stale `pending` anchor from immediately before a keyboard-
+  triggered Ctrl+K could persist until the next Enter/Space, at which
+  point this fix's own `pending.set(..., pos)` rebinds it correctly
+  anyway. Not touched — out of scope for this bug.
+- **Nit, not applied**: `exitLinkIfAtTrailingEdge` reads
+  `this.cursor.position` via `getStyleAtCursor()` rather than the `pos`
+  parameter it's given; harmless at all 3 call sites today (nothing
+  mutates the cursor in between) but is a latent trap for a future call
+  site. Left as-is since fixing it means changing `getStyleAtCursor`'s
+  shared signature for no current bug.
 
 ## Follow-up (out of scope for this branch)
 
 - Typing a normal (non-space) character immediately after a link with no
   separator has the same underlying inheritance behavior and was not
-  changed — only Enter and Space were reported and fixed, matching
-  Google Docs' narrower "space/paragraph break exits the link" behavior.
+  changed — only Enter and Space (and, after review, paste) were fixed,
+  matching Google Docs' narrower "space/paragraph break/paste exits the
+  link" behavior.

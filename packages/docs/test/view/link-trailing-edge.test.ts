@@ -121,6 +121,17 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     );
   }
 
+  function pastePlainText(text: string): void {
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', {
+      value: {
+        items: [] as DataTransferItem[],
+        getData: (type: string) => (type === 'text/plain' ? text : ''),
+      },
+    });
+    textarea().dispatchEvent(ev);
+  }
+
   function firstBlockInlines() {
     return editor.getDoc().document.blocks[0].inlines;
   }
@@ -171,5 +182,49 @@ describe('docs editor — exit hyperlink formatting on Enter / Space', () => {
     const inlines = firstBlockInlines();
     expect(inlines.map((i) => i.text).join('')).toBe('https ://example.com');
     expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('space at the boundary between two same-link runs stays part of the link', () => {
+    editor.insertLink('https://example.com');
+    const block = editor.getDoc().document.blocks[0];
+
+    // Bold just the first 5 characters of the link text ("https"), which
+    // splits the link into two runs that share the same href.
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 5 },
+    });
+    editor.applyStyle({ bold: true });
+    editor._setSelectionForTest(null);
+
+    // Caret sits exactly on the boundary between the two same-href runs —
+    // this is not the link's trailing edge, so the link must not be exited.
+    editor.restoreLocalCursor({ blockId: block.id, offset: 5 }, null);
+    type(' ');
+
+    const inlines = firstBlockInlines();
+    expect(inlines.map((i) => i.text).join('')).toBe('https ://example.com');
+    expect(inlines.every((i) => i.style.href === 'https://example.com')).toBe(true);
+  });
+
+  it('exiting a link on Space preserves a pending style armed at the same caret', () => {
+    editor.insertLink('https://example.com');
+    // Collapsed-caret toolbar toggle at the link's trailing edge arms
+    // pending bold; the space must still exit the link while keeping it.
+    editor.applyStyle({ bold: true });
+    type(' ');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(last(inlines).style.bold).toBe(true);
+  });
+
+  it('pasting plain text right after an inserted link does not extend the link', () => {
+    editor.insertLink('https://example.com');
+    pastePlainText('hello');
+
+    const inlines = firstBlockInlines();
+    expect(last(inlines).style.href).toBeFalsy();
+    expect(inlines.map((i) => i.text).join('')).toBe('https://example.comhello');
   });
 });
