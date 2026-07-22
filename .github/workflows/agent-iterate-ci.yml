@@ -152,6 +152,12 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
+          # This loop is triggered by workflow_run from the agent's own (bot)
+          # push, so the initiating actor is the App bot. claude-code-action
+          # blocks bot-initiated runs unless the bot is allow-listed. Allow ONLY
+          # our own App (not '*', which the action warns is unsafe on public
+          # repos); fork rejection + AGENT_PIPELINE_ENABLED still gate the job.
+          allowed_bots: "yorkie-agent[bot],yorkie-agent"
           prompt: |
             CI failed on your PR branch (${{ github.event.workflow_run.head_branch }}).
             Structured failure diagnosis from the harness reports:
