@@ -18,7 +18,9 @@
 //
 // SDK: @anthropic-ai/claude-agent-sdk (imported lazily so the pure helpers below
 // are unit-testable without the dependency installed). Verify the option names
-// (outputFormat/structured_output/permissionMode) against the installed version.
+// Verified against @anthropic-ai/claude-agent-sdk 0.3.217 (pinned + lockfiled):
+// outputFormat:{type:'json_schema'}, result.structured_output, permissionMode
+// 'dontAsk', settingSources:[] all exist; the SDK reads CLAUDE_CODE_OAUTH_TOKEN.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -127,7 +129,7 @@ async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
       // untrusted branch checkout, and a branch-supplied .claude hook would be a
       // shell command the SDK could execute. `settingSources: []` disables that
       // (the workflow also strips the branch's `.claude/` as belt-and-suspenders).
-      // Verify this option name/behavior against the pinned SDK version.
+      // settingSources exists in the pinned SDK (0.3.217); [] loads no project config.
       settingSources: [],
       outputFormat: { type: "json_schema", schema },
     },

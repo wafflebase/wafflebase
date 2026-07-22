@@ -190,8 +190,11 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
 - The `review-panel` job needs `issues: read` (design-fit reads the issue) and
   installs the Agent SDK (`scripts/agent/package.json`); pin the SDK version and
   commit a lockfile for reproducibility.
-- **Verify at build:** the Agent SDK option names (`outputFormat`/`structured_output`/
-  `permissionMode: dontAsk`) against the installed version.
+- **SDK verified + pinned:** the Agent SDK options (`outputFormat: json_schema`,
+  result `structured_output`, `permissionMode: dontAsk`, `settingSources: []`) and the
+  `CLAUDE_CODE_OAUTH_TOKEN` auth path were confirmed against `@anthropic-ai/claude-agent-sdk`
+  **0.3.217**, which is now pinned exactly + lockfiled (deps job uses `npm ci`). The only
+  thing still needing a live run is confirming the OAuth token itself authenticates.
 
 ### To validate before trusting (same discipline as the single-reviewer backtest)
 - Re-run the panel over the 12-PR FP corpus + 8-mutant TP corpus; confirm per-lens
@@ -212,7 +215,7 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   lockfile before arming.)
 - **SDK cwd = untrusted branch (blocker)**: `settingSources: []` in the
   orchestrator so branch `.claude` hooks/settings are never loaded/executed; the
-  workflow also strips `.claude/` before running. Verify option name vs installed SDK.
+  workflow also strips `.claude/` before running. (`settingSources` confirmed in SDK 0.3.217.)
 - **No tests (blocker)**: added committed `node:test` files —
   `severity.test.mjs`, `checks.test.mjs`, `review-panel.test.mjs` (7 tests;
   `cd scripts/agent && npm test`). The pure helpers + the verifier-drop matrix +

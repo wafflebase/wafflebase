@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
-      - run: cd scripts/agent && npm install --no-audit --no-fund
+      - run: cd scripts/agent && npm ci --no-audit --no-fund # reproducible: exact tree from the committed lockfile
       - uses: actions/upload-artifact@v4
         with:
           name: agent-sdk-node-modules
