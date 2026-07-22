@@ -1258,6 +1258,344 @@ export function textsplitFunc(
     : ErrNode.NA;
 }
 
+// ---------------------------------------------------------------------------
+// Byte-oriented (DBCS) text functions.
+//
+// Excel / Google Sheets ship "B" variants of the text functions for
+// double-byte (CJK) workbooks. Byte counting here is UTF-8 based, so `é`
+// counts as 2 bytes and a CJK ideograph as 3. For pure ASCII every B-function
+// equals its non-B sibling. Positions are split at character boundaries: a
+// character is only ever included whole.
+// ---------------------------------------------------------------------------
+
+const utf8Encoder = new TextEncoder();
+
+/** UTF-8 byte length of a string. */
+function byteLen(s: string): number {
+  return utf8Encoder.encode(s).length;
+}
+
+/** Splits a string into an array of code-point characters. */
+function toChars(s: string): string[] {
+  return Array.from(s);
+}
+
+/** Cumulative UTF-8 byte offsets: `offsets[i]` is the byte offset of char `i`,
+ * and `offsets[chars.length]` is the total byte length. */
+function byteOffsets(chars: string[]): number[] {
+  const offsets: number[] = [];
+  let acc = 0;
+  for (const ch of chars) {
+    offsets.push(acc);
+    acc += byteLen(ch);
+  }
+  offsets.push(acc);
+  return offsets;
+}
+
+/**
+ * `lenbFunc` — LENB(text): UTF-8 byte length of a string.
+ */
+export function lenbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+
+  return numNode(byteLen(str.v));
+}
+
+/**
+ * `leftbFunc` — LEFTB(text, [num_bytes]): longest prefix whose UTF-8 byte
+ * length is ≤ num_bytes, split at character boundaries.
+ */
+export function leftbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+
+  let n = 1;
+  if (exprs.length === 2) {
+    const nArg = NumberArgs.map(visit(exprs[1]), grid);
+    if (nArg.t === 'err') return nArg;
+    n = Math.trunc(nArg.v);
+  }
+  if (n < 0) return ErrNode.VALUE;
+
+  let used = 0;
+  let result = '';
+  for (const ch of toChars(str.v)) {
+    const b = byteLen(ch);
+    if (used + b > n) break;
+    used += b;
+    result += ch;
+  }
+  return { t: 'str', v: result };
+}
+
+/**
+ * `rightbFunc` — RIGHTB(text, [num_bytes]): longest suffix whose UTF-8 byte
+ * length is ≤ num_bytes, split at character boundaries.
+ */
+export function rightbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+
+  let n = 1;
+  if (exprs.length === 2) {
+    const nArg = NumberArgs.map(visit(exprs[1]), grid);
+    if (nArg.t === 'err') return nArg;
+    n = Math.trunc(nArg.v);
+  }
+  if (n < 0) return ErrNode.VALUE;
+
+  const chars = toChars(str.v);
+  let used = 0;
+  let result = '';
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const b = byteLen(chars[i]);
+    if (used + b > n) break;
+    used += b;
+    result = chars[i] + result;
+  }
+  return { t: 'str', v: result };
+}
+
+/**
+ * `midbFunc` — MIDB(text, start_num, num_bytes): characters whose full byte
+ * span lies within the `[start_num, start_num + num_bytes)` byte window
+ * (start_num is a 1-indexed byte position).
+ */
+export function midbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+
+  const startNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (startNode.t === 'err') return startNode;
+  const lenNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (lenNode.t === 'err') return lenNode;
+
+  const start = Math.trunc(startNode.v);
+  const len = Math.trunc(lenNode.v);
+  if (start < 1 || len < 0) return ErrNode.VALUE;
+
+  const startByte = start - 1;
+  const endByte = startByte + len;
+  let offset = 0;
+  let result = '';
+  for (const ch of toChars(str.v)) {
+    const b = byteLen(ch);
+    if (offset >= startByte && offset + b <= endByte) {
+      result += ch;
+    }
+    offset += b;
+  }
+  return { t: 'str', v: result };
+}
+
+/**
+ * `byteFind` locates `finder`'s match within `text` starting at byte position
+ * `startByte` (1-indexed) and returns its 1-indexed byte offset, or #VALUE!.
+ */
+function byteFind(
+  text: string,
+  startByte: number,
+  finder: (haystack: string) => number,
+): EvalNode {
+  const chars = toChars(text);
+  const offsets = byteOffsets(chars);
+  const totalBytes = offsets[chars.length];
+  if (startByte < 1 || startByte > totalBytes + 1) return ErrNode.VALUE;
+
+  let startCharIdx = 0;
+  while (startCharIdx < chars.length && offsets[startCharIdx] < startByte - 1) {
+    startCharIdx++;
+  }
+
+  const haystack = chars.slice(startCharIdx).join('');
+  const idx = finder(haystack);
+  if (idx < 0) return ErrNode.VALUE;
+
+  const matchCharIdx = startCharIdx + toChars(haystack.slice(0, idx)).length;
+  return numNode(offsets[matchCharIdx] + 1);
+}
+
+/**
+ * `findbFunc` — FINDB(search_for, text_to_search, [starting_at]): like FIND
+ * but `starting_at` and the returned position are byte offsets (1-indexed,
+ * case-sensitive).
+ */
+export function findbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+
+  const searchFor = toStr(visit(exprs[0]), grid);
+  if (searchFor.t === 'err') return searchFor;
+  const text = toStr(visit(exprs[1]), grid);
+  if (text.t === 'err') return text;
+
+  let startByte = 1;
+  if (exprs[2]) {
+    const startNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (startNode.t === 'err') return startNode;
+    startByte = Math.trunc(startNode.v);
+  }
+  if (startByte < 1 || startByte > byteLen(text.v) + 1) return ErrNode.VALUE;
+
+  if (searchFor.v === '') return numNode(startByte);
+  return byteFind(text.v, startByte, (h) => h.indexOf(searchFor.v));
+}
+
+/**
+ * `searchbFunc` — SEARCHB(search_for, text_to_search, [starting_at]): like
+ * SEARCH (case-insensitive, wildcards) but with byte offsets.
+ */
+export function searchbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+
+  const searchFor = toStr(visit(exprs[0]), grid);
+  if (searchFor.t === 'err') return searchFor;
+  const text = toStr(visit(exprs[1]), grid);
+  if (text.t === 'err') return text;
+
+  let startByte = 1;
+  if (exprs[2]) {
+    const startNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (startNode.t === 'err') return startNode;
+    startByte = Math.trunc(startNode.v);
+  }
+  if (startByte < 1 || startByte > byteLen(text.v) + 1) return ErrNode.VALUE;
+
+  if (searchFor.v === '') return numNode(startByte);
+  const regex = new RegExp(wildcardToRegex(searchFor.v), 'i');
+  return byteFind(text.v, startByte, (h) => {
+    const match = regex.exec(h);
+    return match ? match.index : -1;
+  });
+}
+
+/**
+ * `replacebFunc` — REPLACEB(old_text, start_num, num_bytes, new_text):
+ * replaces the `num_bytes`-byte window starting at byte `start_num` with
+ * `new_text`. Characters overlapping the window are removed whole.
+ */
+export function replacebFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+
+  const oldText = toStr(visit(exprs[0]), grid);
+  if (oldText.t === 'err') return oldText;
+  const startNum = NumberArgs.map(visit(exprs[1]), grid);
+  if (startNum.t === 'err') return startNum;
+  const numBytes = NumberArgs.map(visit(exprs[2]), grid);
+  if (numBytes.t === 'err') return numBytes;
+  const newText = toStr(visit(exprs[3]), grid);
+  if (newText.t === 'err') return newText;
+
+  const start = Math.trunc(startNum.v);
+  const count = Math.trunc(numBytes.v);
+  if (start < 1 || count < 0) return ErrNode.VALUE;
+
+  const startByte = start - 1;
+  const endByte = startByte + count;
+  let offset = 0;
+  let before = '';
+  let after = '';
+  for (const ch of toChars(oldText.v)) {
+    const b = byteLen(ch);
+    if (offset + b <= startByte) {
+      before += ch;
+    } else if (offset >= endByte) {
+      after += ch;
+    }
+    // Characters overlapping the window are dropped.
+    offset += b;
+  }
+  return { t: 'str', v: before + newText.v + after };
+}
+
+// Full-width katakana → half-width katakana. Voiced/semi-voiced forms expand
+// to a base kana plus the half-width (semi-)voiced sound mark.
+const FULLWIDTH_KATAKANA_MAP: Record<string, string> = {
+  '。': '｡', '「': '｢', '」': '｣', '、': '､', '・': '･',
+  'ヲ': 'ｦ', 'ァ': 'ｧ', 'ィ': 'ｨ', 'ゥ': 'ｩ', 'ェ': 'ｪ', 'ォ': 'ｫ',
+  'ャ': 'ｬ', 'ュ': 'ｭ', 'ョ': 'ｮ', 'ッ': 'ｯ', 'ー': 'ｰ',
+  'ア': 'ｱ', 'イ': 'ｲ', 'ウ': 'ｳ', 'エ': 'ｴ', 'オ': 'ｵ',
+  'カ': 'ｶ', 'キ': 'ｷ', 'ク': 'ｸ', 'ケ': 'ｹ', 'コ': 'ｺ',
+  'サ': 'ｻ', 'シ': 'ｼ', 'ス': 'ｽ', 'セ': 'ｾ', 'ソ': 'ｿ',
+  'タ': 'ﾀ', 'チ': 'ﾁ', 'ツ': 'ﾂ', 'テ': 'ﾃ', 'ト': 'ﾄ',
+  'ナ': 'ﾅ', 'ニ': 'ﾆ', 'ヌ': 'ﾇ', 'ネ': 'ﾈ', 'ノ': 'ﾉ',
+  'ハ': 'ﾊ', 'ヒ': 'ﾋ', 'フ': 'ﾌ', 'ヘ': 'ﾍ', 'ホ': 'ﾎ',
+  'マ': 'ﾏ', 'ミ': 'ﾐ', 'ム': 'ﾑ', 'メ': 'ﾒ', 'モ': 'ﾓ',
+  'ヤ': 'ﾔ', 'ユ': 'ﾕ', 'ヨ': 'ﾖ',
+  'ラ': 'ﾗ', 'リ': 'ﾘ', 'ル': 'ﾙ', 'レ': 'ﾚ', 'ロ': 'ﾛ',
+  'ワ': 'ﾜ', 'ン': 'ﾝ', '゛': 'ﾞ', '゜': 'ﾟ',
+  'ガ': 'ｶﾞ', 'ギ': 'ｷﾞ', 'グ': 'ｸﾞ', 'ゲ': 'ｹﾞ', 'ゴ': 'ｺﾞ',
+  'ザ': 'ｻﾞ', 'ジ': 'ｼﾞ', 'ズ': 'ｽﾞ', 'ゼ': 'ｾﾞ', 'ゾ': 'ｿﾞ',
+  'ダ': 'ﾀﾞ', 'ヂ': 'ﾁﾞ', 'ヅ': 'ﾂﾞ', 'デ': 'ﾃﾞ', 'ド': 'ﾄﾞ',
+  'バ': 'ﾊﾞ', 'ビ': 'ﾋﾞ', 'ブ': 'ﾌﾞ', 'ベ': 'ﾍﾞ', 'ボ': 'ﾎﾞ',
+  'パ': 'ﾊﾟ', 'ピ': 'ﾋﾟ', 'プ': 'ﾌﾟ', 'ペ': 'ﾍﾟ', 'ポ': 'ﾎﾟ',
+  'ヴ': 'ｳﾞ', 'ヷ': 'ﾜﾞ', 'ヺ': 'ｦﾞ',
+};
+
+/**
+ * `ascFunc` — ASC(text): converts full-width (double-byte) characters to their
+ * half-width equivalents. Full-width Latin/punctuation `U+FF01–U+FF5E` map by
+ * the fixed `-0xFEE0` offset, the ideographic space `U+3000` maps to a normal
+ * space, and full-width katakana map via a lookup table.
+ */
+export function ascFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const exprs = ctx.args()?.expr() ?? [];
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+
+  let result = '';
+  for (const ch of toChars(str.v)) {
+    const code = ch.codePointAt(0)!;
+    if (code >= 0xff01 && code <= 0xff5e) {
+      result += String.fromCodePoint(code - 0xfee0);
+    } else if (code === 0x3000) {
+      result += ' ';
+    } else if (FULLWIDTH_KATAKANA_MAP[ch]) {
+      result += FULLWIDTH_KATAKANA_MAP[ch];
+    } else {
+      result += ch;
+    }
+  }
+  return { t: 'str', v: result };
+}
+
 function parseStartPosition(
   expr: ParseTree | undefined,
   text: string,
@@ -1319,4 +1657,12 @@ export const textEntries: [string, (...args: any[]) => EvalNode][] = [
   ['TEXTAFTER', textafterFunc],
   ['VALUETOTEXT', valuetotextFunc],
   ['TEXTSPLIT', textsplitFunc],
+  ['LENB', lenbFunc],
+  ['LEFTB', leftbFunc],
+  ['RIGHTB', rightbFunc],
+  ['MIDB', midbFunc],
+  ['FINDB', findbFunc],
+  ['SEARCHB', searchbFunc],
+  ['REPLACEB', replacebFunc],
+  ['ASC', ascFunc],
 ];
