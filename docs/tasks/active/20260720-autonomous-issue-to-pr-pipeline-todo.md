@@ -198,51 +198,35 @@ Phase A manual dispatch → B CI iterate loop → C `@claude` kickoff → D revi
   `CLAUDE_CODE_OAUTH_TOKEN` auth path were confirmed against `@anthropic-ai/claude-agent-sdk`
   **0.3.217**, which is now pinned exactly + lockfiled (deps job uses `npm ci`).
 
-### Pre-arm runbook (the two items an admin/maintainer must run)
-These cannot be done from a fork PR — they need the repo secret and repo-admin
-write. The engineering is done; each is now a single mechanical step.
+### Pre-arm notes (neither is a hard blocker for the panel)
+Neither item below is required for the panel to *function* — the panel fails
+closed on any problem (no verdict → no promotion → human paged). They're
+de-risking, not gates.
 
-**1. Live credential check (one press).** Confirm `CLAUDE_CODE_OAUTH_TOKEN`
-actually authenticates (a secret can't be validated statically). Run the
-dedicated smoke-test workflow — it uses the same `agent` secret + SDK auth path
-as the panel, so green here ⇒ the panel authenticates:
+**1. Live credential check — OPTIONAL pre-flight.** A secret can't be validated
+statically, so the dedicated smoke-test workflow lets you confirm
+`CLAUDE_CODE_OAUTH_TOKEN` authenticates in one click *before* arming, instead of
+discovering it from a failed-closed first panel run:
 
 ```
 Actions ▸ "Agent SDK Auth Smoke Test" ▸ Run workflow      # workflow_dispatch
 ```
 
 It installs the SDK without the token in scope, then runs `auth-smoke.mjs` with
-the token; a green run prints "✅ … CLAUDE_CODE_OAUTH_TOKEN works". A red run
-means the secret is missing/invalid — fix it before arming. (Fails closed: if
-the token were bad in a real run, the panel produces no verdict → no promotion.)
+the token (same `agent` secret + SDK auth path as the panel), so green ⇒ the
+panel authenticates. Skipping it is safe: a bad token in a real run just fails
+closed (the lens posts a failure check; the PR is not promoted).
 
-**2. Branch-protection required-check swap (admin).** This PR deletes the only
-producer of the `agent-independent-review` check and replaces it with four
-`agent-review-<lens>` checks. If `agent-independent-review` is currently a
-**required** status check on `main`, merging blocks *every* PR to `main` until
-this is fixed. Do it in the SAME window as the merge:
-
-```bash
-# INSPECT — legacy branch protection (needs admin; 404 = not set there):
-gh api repos/wafflebase/wafflebase/branches/main/protection/required_status_checks \
-  --jq '.checks[].context'
-# …or Rulesets (newer path):
-gh api repos/wafflebase/wafflebase/rulesets --jq '.[] | {id, name}'
-
-# SWAP — easiest via the UI: Settings ▸ Branches ▸ main ▸ Require status checks.
-#   remove: agent-independent-review
-#   add:    agent-review-correctness
-#           agent-review-security
-#           agent-review-design-fit
-#           agent-review-test-adequacy
-```
-
-Keep "require ≥1 approving review" non-bypassable — the lens checks are triage,
-never sufficient-for-merge on their own.
-
-_Status: probed with a pull-only token — `rulesets` returns `[]` and the legacy
-protection endpoint 404s (not readable without admin), so a legacy required-check
-list can't be confirmed from here. An admin must run the INSPECT step above._
+**2. Branch-protection required-check — CONFIRMED no-op.** This PR deletes the
+only producer of the `agent-independent-review` check. That would matter only if
+that name were a **required** status check on `main` (a dangling required check
+freezes all PRs to main). **Confirmed by the maintainer (2026-07-22): it is NOT
+a required check** — #501 landed only the day before and the pipeline is dormant,
+so nothing was ever wired as required. Nothing to remove on merge. Making the new
+`agent-review-<lens>` checks required later is OPTIONAL (they're triage; the
+human approving review stays the real gate) — if you do, add them via
+Settings ▸ Branches ▸ main ▸ Require status checks and keep "require ≥1
+approving review" non-bypassable.
 
 ### To validate before trusting (same discipline as the single-reviewer backtest)
 - Re-run the panel over the 12-PR FP corpus + 8-mutant TP corpus; confirm per-lens
