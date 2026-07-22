@@ -1,0 +1,34 @@
+[
+  {
+    "id": "correctness",
+    "title": "Correctness",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": ["**"],
+    "model": "claude-opus-4-8"
+  },
+  {
+    "id": "security",
+    "title": "Security",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": ["**"],
+    "model": "claude-opus-4-8"
+  },
+  {
+    "id": "design-fit",
+    "title": "Design-fit",
+    "gating": "blocking",
+    "needsIssueSpec": true,
+    "appliesWhen": ["**"],
+    "model": "claude-opus-4-8"
+  },
+  {
+    "id": "test-adequacy",
+    "title": "Test-adequacy",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": ["**"],
+    "model": "claude-opus-4-8"
+  }
+]
