@@ -2,13 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
   evaluateWithSpill,
+  expandUnboundedRanges,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
   normalizeFormulaOnCommit,
 } from '../../src/formula/formula';
-import { Grid, Cell } from '../../src/model/core/types';
+import { Grid, Cell, Range } from '../../src/model/core/types';
 
 describe('Formula', () => {
   it('should correctly evaluate addition', () => {
@@ -4223,5 +4224,56 @@ describe('Formula.extractTokens', () => {
       expect(evaluate('=ISBETWEEN(10,1,10,FALSE,FALSE)')).toBe('FALSE');
       expect(evaluate('=ISBETWEEN(5,1,10,FALSE,FALSE)')).toBe('TRUE');
     });
+  });
+});
+
+describe('Unbounded ranges', () => {
+  const bounds: Range = [
+    { r: 1, c: 1 },
+    { r: 3, c: 2 },
+  ]; // maxR=3, maxC=2
+
+  it('lexes whole-column / whole-row / open-ended references', () => {
+    expect(extractReferences('=SUM(A:A)')).toEqual(new Set(['A:A']));
+    expect(extractReferences('=SUM(1:1)')).toEqual(new Set(['1:1']));
+    expect(extractReferences('=AVERAGE(B2:B)')).toEqual(new Set(['B2:B']));
+    expect(extractReferences('=COUNT(A:B)')).toEqual(new Set(['A:B']));
+    expect(extractReferences('=SUM(1:3)')).toEqual(new Set(['1:3']));
+  });
+
+  it('rewrites unbounded refs to concrete ranges clamped to bounds', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)', bounds)).toBe('=SUM(A1:A3)');
+    expect(expandUnboundedRanges('=SUM(1:1)', bounds)).toBe('=SUM(A1:B1)');
+    expect(expandUnboundedRanges('=AVERAGE(B2:B)', bounds)).toBe(
+      '=AVERAGE(B2:B3)',
+    );
+    expect(expandUnboundedRanges('=COUNT(A:B)', bounds)).toBe('=COUNT(A1:B3)');
+    expect(expandUnboundedRanges('=SUM(1:3)', bounds)).toBe('=SUM(A1:B3)');
+  });
+
+  it('leaves bounded formulas untouched', () => {
+    expect(expandUnboundedRanges('=SUM(A1:B2)', bounds)).toBe('=SUM(A1:B2)');
+    expect(expandUnboundedRanges('=A1+B2', bounds)).toBe('=A1+B2');
+    expect(expandUnboundedRanges('hello', bounds)).toBe('hello');
+  });
+
+  it('collapses unbounded refs to A1 on an empty sheet', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)', undefined)).toBe('=SUM(A1:A1)');
+  });
+
+  it('does not touch cross-sheet unbounded refs', () => {
+    expect(expandUnboundedRanges('=SUM(Sheet2!A:A)', bounds)).toBe(
+      '=SUM(Sheet2!A:A)',
+    );
+  });
+
+  it('evaluates against a supplied grid after expansion', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    expect(evaluate(expandUnboundedRanges('=SUM(A:A)', bounds), grid)).toBe(
+      '60',
+    );
   });
 });

@@ -121,6 +121,34 @@ export class CellIndex {
   }
 
   /**
+   * `bounds` returns the bounding `Range` of all populated cells (the min/max
+   * row and column across the index), or `undefined` when the index is empty.
+   * Used to clamp unbounded range references (`A:A`, `1:1`, `A1:B`).
+   */
+  bounds(): Range | undefined {
+    if (this.rowIndex.size === 0) return undefined;
+
+    let minR = Infinity;
+    let maxR = -Infinity;
+    for (const row of this.rowIndex.keys()) {
+      if (row < minR) minR = row;
+      if (row > maxR) maxR = row;
+    }
+
+    let minC = Infinity;
+    let maxC = -Infinity;
+    for (const col of this.colIndex.keys()) {
+      if (col < minC) minC = col;
+      if (col > maxC) maxC = col;
+    }
+
+    return [
+      { r: minR, c: minC },
+      { r: maxR, c: maxC },
+    ];
+  }
+
+  /**
    * `size` returns the total number of indexed cells.
    */
   get size(): number {

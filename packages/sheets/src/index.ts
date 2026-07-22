@@ -1,4 +1,4 @@
-import { extractReferences } from './formula/formula';
+import { expandUnboundedRanges, extractReferences } from './formula/formula';
 import {
   type Grid,
   type Cell,
@@ -245,6 +245,7 @@ export {
   isCrossSheetRef,
   parseCrossSheetRef,
   extractReferences,
+  expandUnboundedRanges,
   shiftSref,
   shiftFormula,
   shiftDimensionMap,
