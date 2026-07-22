@@ -3,7 +3,7 @@ import type { LayoutRun } from './layout.js';
 import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { defaultColorResolver } from '../model/color.js';
-import { Theme, buildFont, ptToPx } from './theme.js';
+import { Theme, buildFont, ptToPx, lineBaselineY } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 import {
   computeMergedCellLineLayouts,
@@ -464,7 +464,9 @@ export function renderTableContent(
           // tight line heights (lineHeight ≈ 1.0), so a line clipped
           // exactly at its top — the case at a paginated row split —
           // bled a sliver onto the previous page.
-          const baselineY = Math.round(runLineY + (line.height + fontSizePx * 0.8) / 2);
+          const baselineY = Math.round(
+            lineBaselineY(runLineY, line.height, line.maxFontSizePx ?? fontSizePx),
+          );
 
           // Inline run backgrounds (style.backgroundColor) were drawn
           // in `renderTableBackgrounds` before the selection layer, so
@@ -555,7 +557,9 @@ export function renderTableContent(
 
           const fontSize = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
           const fontSizePx = ptToPx(fontSize);
-          const baselineY = Math.round(markerLineY + (firstLine.height + fontSizePx * 0.8) / 2);
+          const baselineY = Math.round(
+            lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx),
+          );
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
           ctx.fillStyle = defaultColorResolver(cellBlock.inlines[0]?.style.color) ?? Theme.defaultColor;
           ctx.fillText(marker, markerX, baselineY);
