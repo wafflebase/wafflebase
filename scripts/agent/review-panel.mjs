@@ -258,7 +258,18 @@ async function main() {
   const repo = path.resolve(args.repo ?? process.cwd());
   const lensesDir = path.resolve(args["lenses-dir"] ?? path.join(HERE, "lenses"));
   const outDir = path.resolve(args.out ?? ".agent-review");
-  const diff = args["diff-file"] ? readFileSync(args["diff-file"], "utf8") : "";
+  // Fail closed on a missing/empty diff. Defaulting to "" would hand every lens
+  // an empty change to review → no findings → all-pass → an UNREVIEWED PR
+  // promoted. A thrown error here exits non-zero, panel.json is never written,
+  // and the workflow's post step fails every lens closed (same as a crash).
+  const diffFile = args["diff-file"];
+  if (!diffFile || !existsSync(diffFile)) {
+    throw new Error(`--diff-file is required and must exist (got: ${diffFile ?? "none"}) — failing closed.`);
+  }
+  const diff = readFileSync(diffFile, "utf8");
+  if (diff.trim() === "") {
+    throw new Error("--diff-file is empty — refusing to review an empty diff (failing closed).");
+  }
   const issue = args["issue-file"] && existsSync(args["issue-file"]) ? readFileSync(args["issue-file"], "utf8") : "";
   const changedFiles = args["changed-files"] && existsSync(args["changed-files"])
     ? readFileSync(args["changed-files"], "utf8").split("\n").map((s) => s.trim()).filter(Boolean)

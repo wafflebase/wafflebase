@@ -14,6 +14,7 @@ test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
   assert.ok(globToRegExp("packages/frontend/**").test("packages/frontend/src/a.ts"));
   assert.ok(!globToRegExp("packages/frontend/**").test("packages/backend/a.ts"));
   assert.equal(lensApplies({ appliesWhen: ["**"] }, []), true);
+  assert.equal(lensApplies({ appliesWhen: [] }, []), true); // empty array = wildcard default
   assert.equal(lensApplies({ appliesWhen: ["packages/frontend/**"] }, ["packages/frontend/a.ts"]), true);
   // a lens that does NOT apply
   assert.equal(lensApplies({ appliesWhen: ["packages/frontend/**"] }, ["packages/backend/a.ts"]), false);

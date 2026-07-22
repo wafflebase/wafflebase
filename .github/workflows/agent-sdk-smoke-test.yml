@@ -25,6 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # workflow_dispatch can target ANY ref; force the REVIEWED main copy of
+          # auth-smoke.mjs + the lockfile so a pushed branch can't swap in a script
+          # that exfiltrates CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent`
+          # environment's deployment branches to `main` in repo settings.)
+          ref: main
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
