@@ -111,8 +111,10 @@ through `injectComposingInline`, so both are covered.
 In `renderRun`, after the existing `style.underline` block, draw a composing
 underline when `run.composing` is set:
 
-- A solid line (2px, matching the caret's `cursorWidth`), in the run's
-  resolved text color.
+- A solid line (2px), in the run's resolved text color. A 1px line was tried
+  first but read as too faint against text; 2px matches the caret's
+  `cursorWidth`, so the composing cue sits at the same visual weight as the
+  caret already in view.
 - Positioned at the same `baselineY + 2` the normal underline uses.
 - Reuses the run's already-computed `x` and `width`, so a composing string that
   wraps across lines paints one underline segment per sub-run and the underline
