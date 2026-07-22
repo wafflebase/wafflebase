@@ -5,7 +5,9 @@ import {
   lensApplies,
   dedupeFindings,
   applyVerifications,
+  coerceFindings,
 } from "./review-panel.mjs";
+import { classify } from "./severity.mjs";
 
 test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
   assert.ok(globToRegExp("**").test("packages/frontend/src/x.ts"));
@@ -15,6 +17,22 @@ test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
   assert.equal(lensApplies({ appliesWhen: ["packages/frontend/**"] }, ["packages/frontend/a.ts"]), true);
   // a lens that does NOT apply
   assert.equal(lensApplies({ appliesWhen: ["packages/frontend/**"] }, ["packages/backend/a.ts"]), false);
+});
+
+test("coerceFindings: malformed findings are KEPT and block (never silently dropped)", () => {
+  // a critical finding with a non-string summary must still block, not vanish
+  assert.equal(classify(coerceFindings([{ severity: "critical", summary: {} }])).conclusion, "failure");
+  assert.equal(classify(coerceFindings([{ severity: "critical", summary: null }])).conclusion, "failure");
+  // non-object entries → synthetic blocking findings
+  assert.equal(classify(coerceFindings([null, 42, "x"])).conclusion, "failure");
+  // a non-array lens output → one synthetic blocking finding (not an empty pass)
+  const na = coerceFindings("not an array");
+  assert.equal(na.length, 1);
+  assert.equal(classify(na).conclusion, "failure");
+  // well-formed non-blocking findings pass through untouched
+  const clean = coerceFindings([{ severity: "nit", file: "a.ts", summary: "style" }]);
+  assert.deepEqual(clean, [{ severity: "nit", file: "a.ts", summary: "style" }]);
+  assert.equal(classify(clean).conclusion, "success");
 });
 
 test("dedupeFindings: by file + case-insensitive summary", () => {

@@ -82,6 +82,29 @@ export function lensApplies(lens, changedFiles) {
   return changedFiles.some((f) => res.some((r) => r.test(f)));
 }
 
+/**
+ * Coerce a raw lens findings array into well-formed records WITHOUT dropping any.
+ * A malformed finding must fail toward blocking, never disappear off the gate
+ * path — the same fail-safe direction as normalizeSeverity (unknown → major).
+ *   - not an array            → one synthetic blocking (`major`) finding
+ *   - a non-object entry      → a synthetic blocking (`major`) finding
+ *   - a non-string `summary`  → kept, summary replaced with a placeholder
+ *                               (its severity still flows through classify, so a
+ *                               `critical`/`major` finding keeps blocking)
+ * (A well-formed finding passes through untouched.)
+ */
+export function coerceFindings(raw) {
+  const MALFORMED = "(malformed finding — treated as blocking)";
+  if (!Array.isArray(raw)) {
+    return [{ severity: "major", summary: "(malformed lens output — treated as blocking)" }];
+  }
+  return raw.map((f) => {
+    if (!f || typeof f !== "object") return { severity: "major", summary: MALFORMED };
+    if (typeof f.summary !== "string") return { ...f, summary: MALFORMED };
+    return f;
+  });
+}
+
 /** Dedupe findings by (file + lowercased summary). */
 export function dedupeFindings(findings) {
   const seen = new Set();
@@ -251,13 +274,11 @@ async function main() {
     let findings, summary;
     try {
       const res = await runLens(lens, { rubric: lens.rubric, diff, issue, repo });
-      // Local validation: keep only well-formed finding objects (the SDK schema
-      // is requested of the model, but the harness must not trust it blindly),
-      // then dedupe so duplicates don't get double-verified / double-counted.
-      const valid = (Array.isArray(res.findings) ? res.findings : []).filter(
-        (f) => f && typeof f === "object" && typeof f.summary === "string",
-      );
-      findings = dedupeFindings(valid);
+      // The SDK schema is REQUESTED of the model but the harness must not trust
+      // it blindly. COERCE (never drop) so a malformed finding fails toward
+      // blocking instead of vanishing off the gate path, then dedupe so
+      // duplicates don't get double-verified / double-counted.
+      findings = dedupeFindings(coerceFindings(res.findings));
       summary = typeof res.summary === "string" ? res.summary : "";
     } catch (err) {
       const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
