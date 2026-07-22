@@ -28,8 +28,8 @@ env:
 jobs:
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment, no
   # checks:write) and hand the tree to the review job as an artifact. This keeps
-  # dependency install scripts away from ANTHROPIC_API_KEY + checks:write — the
-  # review job must NOT run `npm install` (that was the #501 no-install rule).
+  # dependency install scripts away from the Claude auth token + checks:write —
+  # the review job must NOT run `npm install` (that was the #501 no-install rule).
   deps:
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
@@ -173,6 +173,11 @@ jobs:
         # jobs — the post step below then fails closed (per-lens failure checks).
         continue-on-error: true
         env:
+          # Auth for the Agent SDK — the maintainer configured CLAUDE_CODE_OAUTH_TOKEN
+          # (same secret the pipeline's claude-code-action steps use). Both are set so
+          # the SDK/CLI picks up whichever it honors; VERIFY which one the installed
+          # SDK version actually consumes during the first real run.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
@@ -358,7 +363,7 @@ jobs:
         # token so the fix push re-triggers CI (and a fresh review panel).
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             The review panel requested changes on your PR. The findings below are
