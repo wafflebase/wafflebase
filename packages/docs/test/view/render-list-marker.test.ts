@@ -8,6 +8,7 @@ interface FontCall {
   font?: string;
   fillStyle?: string;
   text?: string;
+  y?: number;
 }
 
 /**
@@ -30,8 +31,8 @@ function makeRecordingCtx(): {
     set fillStyle(v: string) { pendingFill = v; },
     get fillStyle() { return pendingFill ?? ''; },
     textBaseline: 'alphabetic' as CanvasTextBaseline,
-    fillText(text: string) {
-      calls.push({ font: pendingFont, fillStyle: pendingFill, text });
+    fillText(text: string, _x: number, y: number) {
+      calls.push({ font: pendingFont, fillStyle: pendingFill, text, y });
     },
   } as unknown as CanvasRenderingContext2D;
   return { ctx, calls };
@@ -59,7 +60,7 @@ describe('renderListMarker', () => {
       marker: { fontSize: 18, fontFamily: 'Arial', color: '#FF9900' },
       inline: { fontSize: 11, fontFamily: 'Noto Sans KR', color: '#000000' },
     });
-    renderListMarker(ctx, block, 0, 24, 10, '●');
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●');
     expect(calls).toHaveLength(1);
     // buildFont now routes the family through resolveFontFamily, which
     // splices a Korean-capable fallback before the trailing generic so
@@ -74,7 +75,7 @@ describe('renderListMarker', () => {
     const block = listItem({
       inline: { fontSize: 18, fontFamily: 'Noto Sans KR', color: '#1155cc' },
     });
-    renderListMarker(ctx, block, 0, 24, 10, '●');
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●');
     // Noto Sans KR is itself Korean-capable; resolveFontFamily must NOT
     // double-append it. The chain ends in the generic sans-serif token.
     expect(calls[0].font).toBe("24px 'Noto Sans KR', sans-serif");
@@ -87,11 +88,26 @@ describe('renderListMarker', () => {
       marker: { color: '#FF9900' },
       inline: { fontSize: 20, fontFamily: 'Arial' },
     });
-    renderListMarker(ctx, block, 0, 24, 10, '●');
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●');
     // pt → px: 20 * 96 / 72 = 26.6666… → "26.666…px '<family chain>'"
     expect(calls[0].font).toMatch(
       /^\d+(?:\.\d+)?px 'Arial', 'Noto Sans KR', sans-serif$/,
     );
     expect(calls[0].fillStyle).toBe('#FF9900');
+  });
+
+  it('derives the baseline from the line max font size, not the marker size', () => {
+    const block = listItem({ inline: { fontSize: 11 } });
+
+    // Line whose tallest run is 48px → marker drops to the shared line
+    // baseline, below where its own 11pt would place it.
+    const big = makeRecordingCtx();
+    renderListMarker(big.ctx, block, 0, 72, 48, 10, '●');
+
+    // undefined → falls back to the marker's own size (pre-fix behaviour).
+    const own = makeRecordingCtx();
+    renderListMarker(own.ctx, block, 0, 72, undefined, 10, '●');
+
+    expect(big.calls[0].y).toBeGreaterThan(own.calls[0].y!);
   });
 });

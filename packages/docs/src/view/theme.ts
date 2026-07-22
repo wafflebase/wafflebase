@@ -142,6 +142,28 @@ export function ptToPx(pt: number): number {
 }
 
 /**
+ * Y of the shared alphabetic baseline for a line, in the same units as
+ * `lineY` / `lineHeight`. Derived from the line's tallest run
+ * (`maxFontSizePx`, with ~0.8 taken as the ascent) so every run on the line
+ * — and the list marker — shares one baseline instead of each centring on
+ * its own font size (Google Docs behaviour).
+ *
+ * Returns an UNROUNDED value on purpose: canvas painters `Math.round` it to
+ * land on the pixel grid, while the PDF painter must NOT round (PDF uses
+ * continuous coordinates and rounding drifts the baseline between pages).
+ *
+ * Single source of truth for the formula that used to be copy-pasted across
+ * `paint-layout`, `table-renderer`, and `pdf-painter`.
+ */
+export function lineBaselineY(
+  lineY: number,
+  lineHeight: number,
+  maxFontSizePx: number,
+): number {
+  return lineY + (lineHeight + maxFontSizePx * 0.8) / 2;
+}
+
+/**
  * Build a CSS font string from inline style properties.
  * Font sizes are stored in pt; the CSS string uses px for Canvas compatibility.
  *
