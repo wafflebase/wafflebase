@@ -69,37 +69,47 @@ only thing missing is the underline decoration.
 
 ### View-Local `composing` Marker
 
-Add an optional, view-local `composing` flag to `InlineStyle`:
+The marker must NOT live on `InlineStyle` (nor on `Inline`). Both are the
+persisted model types (`packages/docs/src/model/types.ts`); adding a field there
+— even one documented as view-local — makes it type-reachable from every
+document, clipboard, clone, and DOCX/PDF export path, inviting accidental
+persistence. Instead the marker lives on `LayoutRun`, the view-only run type in
+`packages/docs/src/view/layout.ts` that already carries all other paint-time
+state (`x`, `width`, `charOffsets`, `imageHeight`) and is never persisted:
 
 ```ts
-interface InlineStyle {
+interface LayoutRun {
   // ...existing fields...
 
   /**
-   * View-local marker set only by `composingStyleFrom` while an IME
-   * composition is in progress. Runs carrying it are painted with an IME
-   * composing underline. Never persisted to the document model.
+   * True for runs produced by the IME composing-text injection
+   * (`injectComposingInline`). Painted with a composing underline. View-only —
+   * lives on the layout run, never on the persisted Inline / InlineStyle.
    */
   composing?: boolean;
 }
 ```
 
-`InlineStyle` is the persisted model style type, but this flag is only ever set
-on the synthetic inline that `injectComposingInline` builds for the composing
-preview — which lives entirely inside the layout pass and is never written back
-to Yorkie. The flag is documented as view-local so no persistence or
-import/export path picks it up.
+`composingStyleFrom` stays exactly as is (it inherits only visual style and
+drops structural metadata like `image` / `pageNumber`); it does **not** gain a
+`composing` field. The tagging happens one level up, in the layout pass:
 
-`composingStyleFrom` (which already strips structural metadata like `image` and
-`pageNumber` from the inherited style) sets `composing: true` on the style it
-returns. Both the browser IME path and the software-Hangul assembler path build
-their preview through `injectComposingInline`, so both are covered by this one
-change.
+- `injectComposingInline` returns the index of the synthetic inline it spliced
+  in (alongside the new inlines array), so callers know which inline is the
+  composing preview.
+- `layoutBlock` already builds each `LayoutRun` from `inlines[seg.inlineIndex]`.
+  When `seg.inlineIndex` is the composing inline's index, it sets
+  `composing: true` on the run.
+
+Because `LayoutRun` is discarded and rebuilt on every layout pass and never
+crosses into the model, the marker is leak-proof by construction rather than by
+convention. Both the browser IME path and the software-Hangul assembler path go
+through `injectComposingInline`, so both are covered.
 
 ### Painting The Underline
 
 In `renderRun`, after the existing `style.underline` block, draw a composing
-underline when `style.composing` is set:
+underline when `run.composing` is set:
 
 - A thin solid line (1px), in the run's resolved text color.
 - Positioned at the same `baselineY + 2` the normal underline uses.
@@ -121,35 +131,49 @@ existing path already manages:
 compositionstart / first jamo
   -> TextEditor publishes composing text via onComposingContextChange
   -> editor sets composingContext, recomputes layout
-  -> injectComposingInline splices a run with style.composing = true
+  -> layoutBlock tags the injected run with composing = true
   -> renderRun paints the composing underline
 
 compositionupdate
   -> new composing text republished; run (and underline) re-laid out
 
 compositionend / commit / abort / blur
-  -> composing text committed to the model (no `composing` flag) or dropped
+  -> composing text committed to the model as a normal inline, or dropped
   -> composingContext cleared -> the synthetic run disappears
   -> the underline is gone on the next paint
 ```
 
 No explicit teardown is needed: when the composition ends, the committed text
-is a normal model inline with no `composing` flag, and the synthetic run that
-carried the underline no longer exists.
+is a normal model inline, laid out into runs with no `composing` flag, and the
+synthetic run that carried the underline no longer exists.
 
 ## Testing Strategy
 
 ### Unit Tests
 
-- `injectComposingInline` output: the spliced composing run's style has
-  `composing: true`, and the surrounding (non-composing) runs do not.
-- `composingStyleFrom` sets `composing: true` while still dropping `image` and
-  `pageNumber`.
-- `renderRun` with a `composing` run strokes an underline (asserted via a mock
-  canvas context recording `moveTo` / `lineTo` / `stroke` at `baselineY + 2`);
-  a run without the flag and without `style.underline` strokes none.
-- A committed inline (no `composing` flag) is painted without a composing
-  underline.
+- `injectComposingInline` returns the index of the spliced composing inline
+  (left-biased at an inline boundary, offset-at-end, and empty-block cases).
+- `layoutBlock` with a `ComposingContext` tags exactly the composing run(s)
+  with `composing: true` and leaves the surrounding runs untagged; when the
+  composing text wraps, every sub-run of the composing string is tagged.
+- `composingStyleFrom` still inherits visual style and drops `image` /
+  `pageNumber`, and does not introduce a `composing` field.
+- `renderRun` with a `composing` run strokes a single underline at
+  `baselineY + 2` with `lineWidth === 1` and `strokeStyle` equal to the run's
+  resolved text color (asserted via a mock canvas context recording
+  `moveTo` / `lineTo` / `stroke` and the set properties); a run without the
+  flag and without `style.underline` strokes none.
+
+### Lifecycle / Teardown
+
+- After `compositionend` (commit), `compositionabort`, and `blur`, the
+  recomputed layout has no run with `composing: true`, so `renderRun` issues no
+  composing-underline stroke — assert no further underline draw calls once the
+  composing context is cleared.
+- A committed inline is a normal model inline: it round-trips through
+  serialize / clipboard / DOCX-PDF export with no `composing` field anywhere
+  (the field type-only exists on `LayoutRun`, so this is guaranteed by
+  construction; a serialization test documents the guarantee).
 
 ### Reuse
 
@@ -161,7 +185,7 @@ composing-context injection path.
 
 | Risk | Mitigation |
 |------|------------|
-| The `composing` flag leaks into persisted content, DOCX/PDF export, or clipboard | The flag is only set by `composingStyleFrom` on the view-local injected run, which is never written to the model; documented as view-local. Add a test asserting committed text has no `composing` flag |
+| The `composing` marker leaks into persisted content, DOCX/PDF export, or clipboard | The marker lives on `LayoutRun` (view-only), not on `Inline` / `InlineStyle`, so it is not type-reachable from any model, clone, serialize, or export path. Leak-proof by construction; a serialization test documents the guarantee |
 | Composing over already-underlined text draws a double line | Both lines land at the same `y` and coincide; visually harmless, so no special-casing |
-| Underline is left behind if composition ends without clearing the context | The underline is a pure function of the run's presence; when `composingContext` clears, the run and its underline disappear on the next paint. No separate teardown to get wrong |
-| Software-Hangul assembler path renders without an underline | Both IME and assembler previews go through `injectComposingInline` / `composingStyleFrom`, so the single marker covers both |
+| Underline is left behind if composition ends without clearing the context | The underline is a pure function of the run's presence; when `composingContext` clears, the recomputed layout has no `composing` run and the underline disappears on the next paint. Covered by the lifecycle/teardown tests |
+| Software-Hangul assembler path renders without an underline | Both IME and assembler previews go through `injectComposingInline`, so tagging in `layoutBlock` covers both |
