@@ -327,6 +327,7 @@ jobs:
             const page = async (msg) => {
               await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
               await github.rest.issues.addLabels({ owner, repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('paged', 'true');
               core.setOutput('proceed', 'false');
             };
             // Paginate: the PAGED latch must see ALL comments, not just the first
@@ -354,6 +355,22 @@ jobs:
               return page(`The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
             }
             core.setOutput('proceed', 'true');
+
+      # Loop gave up (round cap, or a lens failed closed) and paged a human →
+      # post the effort summary too. The fix job's normal checkout is gated on
+      # `proceed`, so check out the TRUSTED main copy here to run summarize.
+      - name: Check out gate script (paged summary)
+        if: steps.guard.outputs.paged == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Post agent-effort summary (paged → needs human review)
+        if: steps.guard.outputs.paged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
 
       - name: Gather failing lens findings
         id: findings
@@ -475,7 +492,9 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/github-script@v7
+      - name: Page a human
+        id: page
+        uses: actions/github-script@v7
         with:
           script: |
             const branch = context.payload.workflow_run.head_branch;
@@ -485,6 +504,7 @@ jobs:
             });
             const pr = prs.data[0];
             if (!pr) return;
+            core.setOutput('pr', String(pr.number));
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
               body: '<!-- agent-review-paged -->\n🛑 The review-panel job failed to complete. **A human should review** this PR — the automated panel did not produce verdicts.',
@@ -493,3 +513,19 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
               labels: ['agent:needs-human-review'],
             }).catch(() => {});
+
+      # The panel died before producing verdicts, but earlier sessions
+      # (kickoff / ci-fix) recorded effort — post the summary so the hand-off
+      # carries the cost/effort context too. Trusted main checkout for the script.
+      - name: Check out gate script (paged summary)
+        if: steps.page.outputs.pr != ''
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Post agent-effort summary
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.page.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
