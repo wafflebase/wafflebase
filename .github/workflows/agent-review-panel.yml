@@ -486,13 +486,17 @@ jobs:
         if: steps.guard.outputs.proceed == 'true'
         run: pnpm install --frozen-lockfile
 
-      # Record the branch tip before the fixer runs, so the step after it can
-      # detect a fix round that produced NO commit (see "Page if the fix
-      # produced no commit").
+      # Record the REMOTE branch tip before the fixer runs, so the step after it
+      # can detect a fix round that pushed NO new commit. We read the remote
+      # (ls-remote), not local HEAD: the loop only re-triggers on a PUSH, so a
+      # fixer that commits locally but never pushes (turn budget exhausted after
+      # commit, or a push denial) must still count as no progress.
       - name: Record branch head before fix
         id: before-fix
         if: steps.guard.outputs.proceed == 'true'
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Address panel findings
         if: steps.guard.outputs.proceed == 'true'
@@ -555,13 +559,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ needs.review-panel.outputs.pr }}
           BEFORE: ${{ steps.before-fix.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          AFTER="$(git rev-parse HEAD)"
+          AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           if [ "$AFTER" = "$BEFORE" ]; then
-            echo "Fixer ran but pushed no commit (HEAD still $BEFORE) — paging a human." >&2
+            echo "Fixer pushed no new commit to the remote branch — paging a human." >&2
             printf '%s\n' \
               '<!-- agent-review-paged -->' \
-              '🛑 The fix agent ran but produced **no commit**, so the requested changes were not applied — and the loop cannot re-trigger itself (no new commit → no new CI). It likely did not converge within its turn budget or hit tool-permission denials (see the `claude-fix-execution-output` artifact). **A human should take over** on this PR.' \
+              '🛑 The fix agent produced **no new commit** on the branch, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it did not converge within its turn budget, hit tool-permission denials, or could not push — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
             gh pr edit "$PR" --add-label "agent:needs-human-review" || true
           else

@@ -156,13 +156,15 @@ jobs:
             echo "HARNESS_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # Record the branch tip before the fixer runs, so the step after it can
-      # detect a fix round that produced NO commit (see "Page if the fix
-      # produced no commit").
+      # Record the REMOTE branch tip before the fixer runs (ls-remote, not local
+      # HEAD): the loop only re-triggers on a PUSH, so a fixer that commits
+      # locally but never pushes must still count as no progress.
       - name: Record branch head before fix
         id: before-fix
         if: steps.guard.outputs.proceed == 'true'
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code
         if: steps.guard.outputs.proceed == 'true'
@@ -219,17 +221,21 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.guard.outputs.pr }}
           BEFORE: ${{ steps.before-fix.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          AFTER="$(git rev-parse HEAD)"
+          AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           if [ "$AFTER" = "$BEFORE" ]; then
-            echo "CI-fix ran but pushed no commit (HEAD still $BEFORE) — paging a human." >&2
+            echo "No new commit reached the branch — paging a human." >&2
+            # This step runs under always(), so it also covers a hard fixer error
+            # or an earlier failed step — keep the cause generic, don't assert
+            # turn-budget/denials (which would mislabel those cases).
             printf '%s\n' \
               '<!-- agent-paged -->' \
-              '🛑 The CI-fix agent ran but produced **no commit**, so CI stays red and the loop cannot re-trigger itself (no new commit → no new CI). It likely did not converge within its turn budget or hit tool-permission denials (see the `claude-ci-fix-execution-output` artifact). **A human should take over** on this PR.' \
+              '🛑 The CI-fix round produced **no new commit** on the branch, so CI stays red and the loop cannot re-trigger itself (no push → no new CI). This can mean the fixer did not converge within its turn budget, hit tool-permission denials, could not push, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
             gh pr edit "$PR" --add-label "agent:needs-human-review" || true
           else
-            echo "CI-fix pushed a new commit ($AFTER) — CI will re-run."
+            echo "A new commit reached the branch ($AFTER) — CI will re-run."
           fi
 
       # Record this session's effort into the PR metrics ledger (fail-safe:
