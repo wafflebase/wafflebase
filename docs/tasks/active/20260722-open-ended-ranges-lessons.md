@@ -21,6 +21,15 @@ support to the formula engine.
   counted them. Whole-column ranges make this unavoidable — `AVERAGE(A:A)` must
   ignore blanks. Fixed by skipping blank cells during *range* iteration (single
   refs unchanged), which also aligns `MIN`/`MAX`/`PRODUCT` with Google Sheets.
+- **Skipping blanks unmasked the ±Infinity accumulator in `MIN`/`MAX`.** Once
+  blank cells are skipped, a range with no numeric cells (very reachable now via
+  `=MAX(A:A)` over an empty/all-text column) yields nothing, so `minFunc` leaked
+  its `Infinity` seed and `maxFunc` its `-Infinity` seed (rendered as `#NUM!`).
+  Google Sheets returns `0` for `MIN`/`MAX` over an empty range — guard the seed
+  on empty iteration (`result === ±Infinity ? 0 : result`). Caught by the
+  `agent-review-correctness` panel, which the acceptance tests missed because the
+  empty-sheet case only covered `SUM`. Lesson: when a change makes a range
+  possibly-empty, audit every aggregator that seeds a sentinel accumulator.
 - **ANTLR regeneration was lexer-only.** `REFRANGE` is a lexer token, so only
   `FormulaLexer.ts`/`.interp` changed; parser/visitor/listener were untouched.
   Java 17 + `antlr4ts-cli` are present, so `pnpm sheets build:formula` works.

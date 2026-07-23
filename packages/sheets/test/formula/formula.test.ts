@@ -4357,3 +4357,31 @@ describe('Unbounded ranges', () => {
     );
   });
 });
+
+describe('Aggregations over ranges with no numeric cells', () => {
+  // With blank cells skipped inside ranges (essential for whole-column refs
+  // like =MAX(A:A) that span many empty cells), MIN/MAX must not leak their
+  // ±Infinity accumulator when the range yields no numbers — Google Sheets
+  // returns 0 for MIN/MAX over an empty or all-text range.
+  it('returns 0 for MIN/MAX over an all-blank range', () => {
+    const grid: Grid = new Map<string, Cell>();
+    expect(evaluate('=MAX(A1:A3)', grid)).toBe('0');
+    expect(evaluate('=MIN(A1:A3)', grid)).toBe('0');
+  });
+
+  it('returns 0 for MIN/MAX over a range with only text cells', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'foo' });
+    grid.set('A2', { v: 'bar' });
+    expect(evaluate('=MAX(A1:A2)', grid)).toBe('0');
+    expect(evaluate('=MIN(A1:A2)', grid)).toBe('0');
+  });
+
+  it('still ignores blanks but honors numeric cells for MIN/MAX', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '5' });
+    grid.set('A3', { v: '10' });
+    expect(evaluate('=MAX(A1:A3)', grid)).toBe('10');
+    expect(evaluate('=MIN(A1:A3)', grid)).toBe('5');
+  });
+});
