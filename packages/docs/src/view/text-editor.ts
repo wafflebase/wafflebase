@@ -1,6 +1,7 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
+import { cloneBlockWithFreshIds } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
@@ -3405,11 +3406,21 @@ export class TextEditor {
     this.ensureEditableBlock();
     const pos = this.cursor.position;
     if (blocks.length === 1 && blocks[0].type === 'table') {
-      // Single table block: insert as a new block (cannot merge into current)
+      // Single table block: insert as a new block (cannot merge into current).
       this.invalidateLayout();
-      const blockIdx = this.doc.getBlockIndex(pos.blockId);
-      const newBlock: Block = { ...blocks[0], id: generateBlockId() };
-      this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      // Fresh ids for the whole (possibly nested) table so the paste is
+      // independent of its source — no shared cell ids.
+      const newBlock = cloneBlockWithFreshIds(blocks[0]);
+      if (this.isInCell(pos.blockId)) {
+        // Caret is inside a table cell: nest the pasted table into that cell.
+        // `getBlockIndex`/`insertBlockAt` are body-index based and can't reach
+        // a cell, so use the cell-aware `insertBlockAfter` (same primitive the
+        // Insert Table command uses via `insertTableInCell`).
+        this.doc.insertBlockAfter(pos.blockId, newBlock);
+      } else {
+        const blockIdx = this.doc.getBlockIndex(pos.blockId);
+        this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      }
       const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
       if (firstCellBlock) {
         this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
