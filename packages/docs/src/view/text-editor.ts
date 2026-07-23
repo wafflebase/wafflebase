@@ -1938,6 +1938,11 @@ export class TextEditor {
       this.saveSnapshot();
       this.deleteSelection();
       const pos = this.cursor.position;
+      // URL auto-detection before splitting the block on Enter — mirrors
+      // the top-level branch below; this cell branch previously skipped
+      // straight to exitLinkIfAtTrailingEdge, so a URL typed into a table
+      // cell never got auto-linked.
+      this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
       this.exitLinkIfAtTrailingEdge(pos);
       const newBlockId = this.docSplitBlock(pos.blockId, pos.offset);
       this.cursor.moveTo({

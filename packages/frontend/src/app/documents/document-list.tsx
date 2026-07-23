@@ -29,6 +29,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronsUpDown,
+  Download,
   FileDown,
   FileText,
   Folder as FolderIcon,
@@ -120,6 +121,7 @@ import {
   fetchWorkspaces,
   type Workspace,
 } from "@/api/workspaces";
+import { downloadDocumentFile } from "@/api/download-file";
 import { UploadPanel } from "./upload-panel";
 import { useWindowFileDrop } from "./use-window-file-drop";
 import { enqueue, startUploads } from "./upload-queue";
@@ -394,6 +396,18 @@ export function DocumentList({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {(row.original.type === "image" ||
+                row.original.type === "pdf") && (
+                <DropdownMenuItem
+                  onClick={(e: MouseEvent<HTMLElement>) => {
+                    e.stopPropagation();
+                    handleDownload(row.original);
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
@@ -777,6 +791,30 @@ export function DocumentList({
     setTargetFolderId(null);
   };
 
+  // Download a single blob-backed document (pdf/image) through the authed file
+  // endpoint. Other document types have nothing to download.
+  const handleDownload = async (doc: Document) => {
+    try {
+      await downloadDocumentFile({ id: String(doc.id), title: doc.title });
+    } catch {
+      toast.error(`Failed to download "${doc.title}"`);
+    }
+  };
+
+  // The pdf/image documents in the current selection — what a bulk "Download"
+  // acts on.
+  const downloadableSelected = data.filter(
+    (d) =>
+      selectedIds.includes(String(d.id)) &&
+      (d.type === "image" || d.type === "pdf"),
+  );
+
+  const handleBulkDownload = async () => {
+    for (const doc of downloadableSelected) {
+      await handleDownload(doc);
+    }
+  };
+
   return (
     <>
       <div className="w-full">
@@ -824,6 +862,12 @@ export function DocumentList({
               </span>
             </div>
             <div className="flex w-full items-center gap-1 sm:w-auto sm:flex-1 sm:justify-end">
+              {downloadableSelected.length > 0 && (
+                <Button variant="outline" onClick={handleBulkDownload}>
+                  <Download className="mr-1 h-4 w-4" />
+                  Download
+                </Button>
+              )}
               <Button
                 variant="outline"
                 disabled={!selectedCanManage}

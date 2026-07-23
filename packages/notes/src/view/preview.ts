@@ -41,6 +41,12 @@ md.use(katexPlugin);
  * above) but renders the block ourselves so we can guarantee the `hljs`
  * class (for the syntax palette in notes-preview.css) and inject a copy
  * button, matching CodePair's code-block affordances.
+ *
+ * The copy button is a child of a non-scrolling outer wrapper, NOT of the
+ * `<pre>`: the `<pre>` is the horizontally-scrolling element, so anchoring
+ * the button to it would make the button drift out of view when a long line
+ * scrolls the block sideways. The wrapper is the positioning context; the
+ * `<pre>` only owns overflow.
  */
 md.renderer.rules.fence = (tokens, idx, options) => {
   const token = tokens[idx];
@@ -53,10 +59,12 @@ md.renderer.rules.fence = (tokens, idx, options) => {
   const langClass = lang ? ` language-${md.utils.escapeHtml(lang)}` : '';
 
   return (
-    `<pre class="hljs note-code">` +
+    `<div class="note-code-wrapper">` +
     `<button class="note-copy-btn" type="button" aria-label="Copy code">Copy</button>` +
+    `<pre class="hljs note-code">` +
     `<code class="hljs${langClass}">${highlighted}</code>` +
-    `</pre>\n`
+    `</pre>` +
+    `</div>\n`
   );
 };
 

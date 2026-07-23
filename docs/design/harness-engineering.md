@@ -386,6 +386,28 @@ Components:
   and an LLM reviewer can still be swayed by prompt injection — the human merge
   gate is the backstop. Same model across lenses for now; a per-lens `model`
   field makes diversity a one-field change.
+  - **False-negative hardening (the verifier only fights false *positives* — it
+    drops findings, it can't add a missed one).** Two measures raise recall so a
+    real issue isn't silently missed, motivated by a live case where the
+    correctness lens flagged a regression, then reviewed the *same unchanged code*
+    clean on a re-run:
+    1. **Sampling + union.** Each lens runs `samples` times (per-lens field in
+       `scripts/agent/lenses/lenses.json`, default 2) and the findings are UNIONed — any sample's
+       finding enters the gate. The union goes through the same conservative
+       `coerceFindings`/`dedupeFindings` (identical file+summary collapse to the
+       highest severity; distinct bugs never merge), and the verifier refute pass
+       is the precision counterweight. No LLM/semantic merge — that could
+       over-merge two distinct bugs into one, reintroducing the miss.
+    2. **Cross-round re-check.** Each round persists its blocking findings in the
+       per-lens check run's `output.text`; the next round reads the latest prior
+       `agent-review-<lens>` findings (`--prior-findings`) and re-verifies each
+       against the *current* diff with the same biased-to-keep refute pass. A
+       prior finding survives unless it is confidently *resolved* — so it can't
+       vanish just because a later fresh pass missed it (only because it was
+       actually fixed). Unresolved priors merge (deduped) into the round's findings.
+
+    Both lower false-negative odds; neither makes the panel safe to self-promote —
+    the human review gate stays the backstop.
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
   workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the

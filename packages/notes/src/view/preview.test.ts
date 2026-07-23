@@ -17,6 +17,23 @@ describe('NotePreview', () => {
     expect(preview.el.querySelector('.note-copy-btn')).toBeTruthy();
   });
 
+  it('places the copy button in the wrapper, outside the scrolling <pre>', () => {
+    const preview = new NotePreview();
+    preview.render('```\ncode\n```');
+
+    const wrapper = preview.el.querySelector('.note-code-wrapper');
+    const button = preview.el.querySelector('.note-copy-btn');
+    const pre = preview.el.querySelector('pre.note-code');
+
+    // The button anchors to the non-scrolling wrapper so it stays pinned when
+    // a long line scrolls the <pre> horizontally, rather than drifting inside
+    // the scrolled content.
+    expect(wrapper).toBeTruthy();
+    expect(button?.parentElement).toBe(wrapper);
+    expect(pre?.parentElement).toBe(wrapper);
+    expect(pre?.contains(button)).toBe(false);
+  });
+
   it('renders a disabled checkbox for task-list items', () => {
     const preview = new NotePreview();
     preview.render('- [x] done\n- [ ] todo');
