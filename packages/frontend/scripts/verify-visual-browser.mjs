@@ -35,6 +35,8 @@ const captureProfiles = [
 ];
 
 const scenarioIds = [
+  "docs-mixed-font-size-line",
+  "docs-mixed-font-size-list-marker",
   "sheet-freeze-selection",
   "sheet-overflow-clip",
   "sheet-merge-layout",
@@ -286,6 +288,11 @@ async function captureScreenshots(playwright) {
           "[data-testid='visual-harness-format-section'][data-visual-format-ready='true']",
         );
         await formatSection.waitFor({ state: "visible", timeout: 20000 });
+
+        const docsSection = page.locator(
+          "[data-testid='visual-harness-docs-section'][data-visual-docs-ready='true']",
+        );
+        await docsSection.waitFor({ state: "visible", timeout: 20000 });
 
         const chartSection = page.locator(
           "[data-testid='visual-harness-chart-section'][data-visual-chart-ready='true']",
