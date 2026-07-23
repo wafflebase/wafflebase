@@ -27,9 +27,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LEDGER_MARKER = "<!-- agent-metrics-ledger -->";
+// Each session posts its OWN hidden metric comment (append-only) — no shared
+// ledger to read-modify-write, so concurrent sessions can't overwrite each
+// other's records. SUMMARY is the single aggregated comment, upserted by the
+// promote job (one writer, no race).
+const METRIC_PREFIX = "<!-- agent-metric ";
 export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
-const REC_PREFIX = "<!--m-->";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -109,24 +112,22 @@ export function renderSummary({ agg, scope }) {
   ].join("\n");
 }
 
+/** One session's record as a self-contained HIDDEN comment (renders invisibly).
+ * The record fields are machine-generated (no free text), so the JSON never
+ * contains the ` -->` terminator the parser splits on. */
 export function serializeRecord(rec) {
-  return `${REC_PREFIX}${JSON.stringify(rec)}`;
+  return `${METRIC_PREFIX}${JSON.stringify(rec)} -->`;
 }
 
-/** Parse the machine-readable records out of a ledger comment body. */
-export function parseLedger(body) {
-  if (!body) return [];
-  return body
-    .split("\n")
-    .filter((l) => l.startsWith(REC_PREFIX))
-    .map((l) => {
-      try {
-        return JSON.parse(l.slice(REC_PREFIX.length));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+/** Recover the record from a single metric comment body; null if not one. */
+export function parseMetricComment(body) {
+  const m = /<!-- agent-metric ([\s\S]*?) -->/.exec(body || "");
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
 }
 
 // --- gh-backed CLI ---------------------------------------------------------
@@ -140,15 +141,24 @@ function ghJson(args) {
 
 function resolvePrByIssue(issue) {
   // The kickoff creates a branch `agent/<issue>-<slug>`; find the open PR for it.
-  const prs = ghJson(["pr", "list", "--state", "open", "--json", "number,headRefName"]);
+  // --limit well above the default 30 so a busy repo's PR list isn't truncated
+  // before ours is seen.
+  const prs = ghJson(["pr", "list", "--state", "open", "--limit", "500", "--json", "number,headRefName"]);
   const prefix = `agent/${issue}-`;
   const hit = prs.find((p) => (p.headRefName || "").startsWith(prefix));
   return hit ? String(hit.number) : "";
 }
 
+// ALL comment pages, not just the first 100 — a chatty PR exceeds one page, and
+// missing pages would drop metric records or the summary marker. `--slurp` wraps
+// the paginated responses in a JSON array of pages, which we flatten.
+function listAllComments(pr) {
+  const pages = ghJson(["api", "--paginate", "--slurp", `repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`]);
+  return Array.isArray(pages) ? pages.flat() : [];
+}
+
 function findComment(pr, marker) {
-  const comments = ghJson(["api", `repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`]);
-  return comments.find((c) => (c.body || "").includes(marker));
+  return listAllComments(pr).find((c) => (c.body || "").includes(marker));
 }
 
 function upsertComment(pr, marker, body) {
@@ -188,13 +198,12 @@ function cmdRecord(args) {
   }
   const rec = parseExecution(messages, args.kind || "implement");
   if (!rec) return bail("no result message in the execution log");
-  let ledger;
   try {
-    ledger = findComment(pr, LEDGER_MARKER);
-    const prevBody = ledger ? ledger.body : LEDGER_MARKER;
-    upsertComment(pr, LEDGER_MARKER, `${prevBody}\n${serializeRecord(rec)}`);
+    // Append-only: POST this session's own metric comment. No read-modify-write,
+    // so concurrent sessions can't clobber each other's records.
+    gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${pr}/comments`, "-f", `body=${serializeRecord(rec)}`]);
   } catch (e) {
-    return bail(`could not update ledger for PR #${pr}: ${e.message}`);
+    return bail(`could not record metrics for PR #${pr}: ${e.message}`);
   }
   console.log(`recorded ${rec.kind} for PR #${pr}: turns=${rec.turns} tokens=${rec.tokens} ${formatMinutes(rec.durationMs)}`);
 }
@@ -204,8 +213,7 @@ function cmdSummarize(args) {
   if (!pr) return bail("summarize needs --pr");
   let records, prInfo;
   try {
-    const ledger = findComment(pr, LEDGER_MARKER);
-    records = parseLedger(ledger ? ledger.body : "");
+    records = listAllComments(pr).map((c) => parseMetricComment(c.body || "")).filter(Boolean);
     if (records.length === 0) return bail(`no metrics recorded for PR #${pr}; skipping summary`);
     prInfo = ghJson(["pr", "view", pr, "--json", "additions,deletions"]);
   } catch (e) {

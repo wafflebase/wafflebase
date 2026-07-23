@@ -189,4 +189,5 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "${{ steps.guard.outputs.pr }}"
+          PR: ${{ steps.guard.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"

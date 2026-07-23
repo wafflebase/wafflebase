@@ -8,7 +8,7 @@ import {
   formatMinutes,
   renderSummary,
   serializeRecord,
-  parseLedger,
+  parseMetricComment,
 } from "./metrics.mjs";
 
 const resultMsg = (over = {}) => ({
@@ -88,12 +88,13 @@ test("renderSummary: matches the requested bullet format", () => {
   assert.match(md, /- Tokens: ~1\.0M/);
 });
 
-test("ledger round-trip: serialize then parse recovers records; ignores prose", () => {
-  const recs = [
-    { kind: "implement", models: ["claude-opus-4-8"], turns: 10, tokens: 5, durationMs: 1 },
-    { kind: "review-fix", models: ["claude-opus-4-8"], turns: 3, tokens: 2, durationMs: 1 },
-  ];
-  const body = ["<!-- agent-metrics-ledger -->", ...recs.map(serializeRecord), "some human note"].join("\n");
-  assert.deepEqual(parseLedger(body), recs);
-  assert.deepEqual(parseLedger(""), []);
+test("metric comment round-trip: hidden, self-contained, parses back; junk → null", () => {
+  const rec = { kind: "review-fix", models: ["claude-opus-4-8"], turns: 3, tokens: 2, durationMs: 1 };
+  const body = serializeRecord(rec);
+  assert.match(body, /^<!-- agent-metric /); // a hidden HTML comment (renders invisibly)
+  assert.match(body, / -->$/);
+  assert.deepEqual(parseMetricComment(body), rec); // round-trips
+  // not a metric comment / unparseable → null (so summarize just skips it)
+  assert.equal(parseMetricComment("a normal human comment"), null);
+  assert.equal(parseMetricComment(""), null);
 });

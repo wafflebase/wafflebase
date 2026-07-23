@@ -461,7 +461,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind review-fix --pr "${{ needs.review-panel.outputs.pr }}"
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind review-fix --pr "$PR"
 
   # Safety net: the pipeline stopped without promoting → page a human so the loop
   # never silently stalls. This must catch every terminal "no hand-off" shape:
