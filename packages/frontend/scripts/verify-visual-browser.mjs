@@ -98,7 +98,7 @@ const SECTION_SCENARIOS = {
   ],
 };
 
-const SECTION_IDS = ["sheet", "format", "docs", "chart", "slides"];
+const SECTION_IDS = Object.keys(SECTION_SCENARIOS);
 
 const SECTION_READY_SELECTOR = {
   sheet: "[data-testid='visual-harness-sheet-section'][data-visual-sheet-ready='true']",
