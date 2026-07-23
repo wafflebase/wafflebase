@@ -1,0 +1,247 @@
+---
+title: board
+target-version: 0.7.0
+---
+
+<!-- Make sure to append document link in design README.md after creating the document. -->
+
+# Board — Infinite Canvas
+
+## Summary
+
+A new document type `"board"` and package `@wafflebase/board` that provide a
+Miro/FigJam-style **infinite canvas**: a boundless pan/zoom plane holding
+free-position shapes, text boxes, and connectors, edited collaboratively in
+real time.
+
+The central insight from the codebase audit is that the `@wafflebase/slides`
+**scene engine already works in a transform-agnostic "world" coordinate space**
+(a 1920px-wide logical plane). The element model, the `drawElement` render loop,
+hit-testing, snap, smart-guides, and group-transform math make **no screen
+assumptions**. The only place a fixed slide frame is baked in is a single
+uniform *fit-scale* used by exactly three chokepoints:
+
+1. `drawSlide()` — `ctx.scale(fitScale)` render transform
+   (`packages/slides/src/view/canvas/slide-renderer.ts`)
+2. `editor.ts` — `scale()` + `clientToLogical()` pointer screen→world conversion
+3. `overlay.ts` — `frame * scale` selection-handle placement
+
+Swap that uniform fit-scale for a `{ panX, panY, zoom }` viewport matrix and the
+entire scene engine reuses without a rewrite. This collapses the board's only
+genuinely new risk to a single concern — the infinite viewport.
+
+> **Framing:** *a board is one unbounded slide, viewed through a pan/zoom
+> viewport.* The MVP does not fork or rewrite the scene engine; it makes the
+> slides editor believe it is editing one "slide" whose `elements: Element[]`
+> array is the infinite scene, while injecting a viewport transform in place of
+> the fixed fit-scale.
+
+This document specifies **SP1 (the canvas skeleton)**. Two follow-on
+sub-projects (whiteboard elements, Miro import) are scoped at the end and get
+their own spec → plan → implementation cycles.
+
+### Goals
+
+- New document type `"board"` end-to-end: create from the documents list, route
+  to `/b/:id`, share, and collaborate — wired exactly like the recent `"note"`
+  and `"slides"` types.
+- New package `@wafflebase/board` as the home for board-specific logic
+  (viewport, infinite-canvas view, board document model + Yorkie store).
+- Infinite **pan/zoom viewport** with off-screen element culling.
+- Reuse the slides scene engine (shapes / text boxes / connectors: create,
+  move, resize, rotate, snap, smart-guides, select) **without forking
+  `editor.ts`**, by injecting a viewport transform.
+- Real-time collaboration via Yorkie (single plane, `board-<id>` docKey) plus
+  presence cursors.
+- **Regression gate:** slides behavior is byte-for-byte preserved — the existing
+  slides import/export/round-trip/painter/interaction suites stay green
+  (slides wraps its fit-scale as the *default viewport*).
+
+Success = a `"board"` document can be created, opened, collaboratively edited
+(add/move/resize/rotate a shape, text box, and connector) on an infinite
+pan/zoom canvas with peer cursors, and `pnpm verify:self` stays green with no
+change to slides behavior.
+
+### Non-Goals (SP1)
+
+- **Sticky notes, freehand drawing, image paste** — SP2.
+- **Miro import** — SP3 (structured import via the Miro REST API).
+- **Minimap, zoom-to-fit-all, presence viewport-follow** — nice-to-have follow-ups.
+- **PPTX / PDF export, presentation mode** — slide-deck concepts, not board.
+- **Layouts / masters / placeholders / speaker notes** — dropped from the board
+  document model entirely.
+- **Promoting the scene engine into `@wafflebase/core`** — the incremental
+  strategy keeps board importing from slides in SP1; only the confirmed shared
+  surface (the `Viewport` transform seam) is a candidate for later promotion.
+
+## Proposal Details
+
+### Architecture
+
+```
+@wafflebase/board          NEW package — board-specific logic
+  ├─ model/                board document model (single plane; drops layout/master/notes)
+  ├─ view/viewport.ts      Viewport { panX, panY, zoom } + world↔screen + culling
+  └─ view/board-editor     thin wrapper mounting the slides editor with a viewport
+        │  imports
+        ▼
+@wafflebase/slides         scene engine (element model, renderer, editor,
+                           hit-test, snap, overlay, interactions) — REUSED
+        │  imports
+        ▼
+@wafflebase/core           tokens / geometry / canvas / ooxml (existing plan)
+```
+
+Frontend hosts the Yorkie adapter (`YorkieBoardStore`) exactly as it hosts
+`YorkieSlidesStore` today (the Yorkie impls live in `packages/frontend`, not in
+the engine packages).
+
+Per the chosen **incremental-extraction** strategy, board imports the scene
+engine from `@wafflebase/slides` in SP1. The one shared surface this creates —
+the `Viewport` transform seam — is the first candidate for promotion into
+`@wafflebase/core/scene` once it has proven stable across both consumers. No
+up-front engine extraction is attempted.
+
+### The viewport seam (the only invasive change to slides)
+
+Introduce a small shared surface, initially in slides, that all three
+chokepoints route through:
+
+```ts
+interface Viewport {
+  panX: number;   // screen px
+  panY: number;   // screen px
+  zoom: number;   // world px → screen px scale
+}
+
+// world→screen: sx = wx * zoom + panX ;  sy = wy * zoom + panY
+function worldToScreen(v: Viewport, p: Point): Point;
+function screenToWorld(v: Viewport, p: Point): Point;
+```
+
+Retrofit, behavior-preserving:
+
+- **`drawSlide`** — replace the `ctx.scale(fitScale)` + pasteboard-translate
+  block with `ctx.setTransform(zoom, 0, 0, zoom, panX, panY)`. Slides constructs
+  its viewport from the existing fit-scale (`zoom = fitScale`, `pan =`
+  pasteboard offset) so output is identical. Board passes its live viewport.
+  The slide **background rect / bg-image** painting is skipped on a board
+  (unbounded plane, no slide rectangle).
+- **`editor.ts`** — `scale()` and `clientToLogical()` are replaced by a
+  viewport provider. Slides supplies a fit-scale viewport; board supplies
+  `{ panX, panY, zoom }`. Every pointer handler already funnels through
+  `clientToLogical` and then works in world coordinates, so nothing downstream
+  changes.
+- **`overlay.ts`** — already takes `scale` as a parameter; pass `zoom`.
+
+**Viewport culling:** before the `drawElement` loop, intersect each
+`element.frame` (its rotated AABB — reuse slides' existing rotated-AABB helper
+from `snap-candidates.ts`) against the screen's world-rect and skip
+off-screen elements. Slides keeps culling disabled (fixed frame) to preserve
+current paint behavior; board enables it.
+
+**Board-only viewport interactions:** pan (space+drag / two-finger / wheel),
+zoom (⌘/ctrl+wheel, pinch) about the cursor, and a zoom clamp. Zoom-to-fit-all
+and minimap are deferred.
+
+### Data model & Yorkie store
+
+Board reuses slides' `Element` union and `YorkieElement` verbatim. It drops the
+slide-frame concepts (layout / master / placeholder / notes / transition /
+animations) and the multi-slide dimension.
+
+```ts
+// packages/frontend/src/types/board-document.ts
+interface YorkieBoardRoot {
+  meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] };
+  elements: YorkieElement[];   // the infinite-plane scene (slides' YorkieElement)
+}
+// docKey: `board-<id>`   (yorkie-doc-key.ts prefix map)
+```
+
+- **`YorkieBoardStore implements SlidesStore`** (in
+  `packages/frontend/src/app/board/`) — the reused editor talks to a
+  `SlidesStore`, whose every method is keyed by `slideId`. Board satisfies this
+  interface with a **single synthetic slide** (`slideId === "board"`): the store
+  ignores the `slideId` argument and operates on the one `elements` array.
+  This is what lets the editor be reused unmodified.
+- Reuse the slides store's proven patterns **verbatim**: `batch(fn)` →
+  one `doc.update` = one undo unit; the `withUpdate` ambient-root mechanism;
+  element-array CRDT moves (`moveAfter`/`moveFront`) to preserve identity on
+  reorder; remote changes via `doc.subscribe`.
+- **Text bodies** are stored as `data.blocks: Block[]` JSON exactly as slides
+  does today (the docs rich-text engine is reused for text-box editing); the
+  known "`yorkie.Tree` doesn't nest in array elements" limitation is inherited,
+  not solved here.
+- **Viewport and cursors are presence, not root** — pan/zoom is view-local and
+  never touches the CRDT document; peer presence cursors ride the same channel
+  slides already uses.
+
+### Document-type wiring (traced from `"note"` / `"slides"`)
+
+Backend is largely type-agnostic (a free-form `String` column) — no Prisma
+migration, no `document.service.ts` change.
+
+**Frontend**
+- `types/documents.ts` — add `"board"` to the `DocumentType` union.
+- `types/board-document.ts` — **new**: `YorkieBoardRoot`, `initialBoardRoot()`,
+  presence type.
+- `App.tsx` — lazy `BoardDetail` + `<Route path="/b/:id" …>`.
+- `app/documents/document-list-utils.ts` — `getDocumentPath()` → `/b/:id`.
+- `app/documents/document-list.tsx` — `TYPE_META` entry (label/icon/color) +
+  "New Board" in both New dropdowns (main toolbar + empty-state).
+- `app/shared/shared-document.tsx` — two switch sites (docKey builder + render
+  switch), plus a `SharedBoardLayout` and lazy view import.
+- `api/share-links.ts` — add `"board"` to the inlined `ResolvedShareLink.type`
+  union.
+- **new** `app/board/board-detail.tsx` (mirror `notes/notes-detail.tsx`) +
+  `app/board/yorkie-board-store.ts`.
+
+**Backend**
+- `document/document.dto.ts` — add `"board"` to `DOCUMENT_TYPES` (else create
+  400s).
+- `yorkie/yorkie-doc-key.ts` — add `board: 'board-'` to the prefix map + switch
+  (drives auth-webhook + event-webhook docKey parsing automatically).
+- `api/v1/documents.controller.ts:54` — add `'board'` to the create allow-list
+  (else v1 create silently falls back to `sheet`).
+
+### SP1 commit staging (regression risk isolation)
+
+1. **Viewport parameterization in slides** — introduce `Viewport` +
+   `world↔screen`; route the three chokepoints through it; slides constructs a
+   fit-scale viewport so behavior is unchanged. Gate: the full slides suite
+   stays green.
+2. **`@wafflebase/board` scaffold** — package, `board-document` types,
+   `YorkieBoardStore` (single-slide `SlidesStore` adapter), `Viewport` view
+   module + culling.
+3. **Board view + editor wiring** — `board-detail.tsx` mounts the slides editor
+   with the board viewport; pan/zoom interactions; presence cursors.
+4. **Document-type wiring** — the frontend/backend checklist above; create,
+   route, share.
+
+### Sub-project decomposition
+
+| # | Sub-project | Scope |
+| --- | --- | --- |
+| **SP1** (this doc) | Canvas skeleton | viewport seam + board package/type/store + collaborative canvas |
+| SP2 | Whiteboard elements | sticky-note element type, image paste, minimap |
+| SP3 | Miro import | Miro REST API client → structured import of shapes/connectors/stickies/text |
+
+### Risks and Mitigation
+
+- **Slides is the highest-blast-radius consumer of the retrofitted transform.**
+  *Mitigation:* the viewport change is behavior-preserving (slides = fit-scale
+  viewport); the existing slides import/export/round-trip/painter/interaction
+  suites are the merge gate on commit-stage 1, before any board code exists.
+- **`editor.ts` is a ~6.7k-line controller.** Forking it would be unmaintainable.
+  *Mitigation:* the single-synthetic-slide `SlidesStore` adapter + viewport
+  injection reuse it unmodified; SP1 adds no editor fork.
+- **Unbounded element counts hurt paint/hit-test.** *Mitigation:* viewport
+  culling in SP1; spatial-index (quadtree) deferred until a real perf ceiling is
+  hit (log, don't silently cap).
+- **Text-in-array CRDT limitation** is inherited from slides. *Mitigation:*
+  accept parity with slides for SP1; the contemplated `root.textTrees` map is a
+  cross-cutting follow-up for both engines, not board-specific.
+- **Over-extraction into core.** *Mitigation:* SP1 promotes nothing to
+  `@wafflebase/core`; board imports from slides. Promote the `Viewport` seam only
+  after it is proven across both consumers.

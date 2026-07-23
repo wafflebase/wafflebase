@@ -94,6 +94,14 @@ Presentation engine — slides, free-position elements, presentation mode, colla
 | [slides-font-ooxml-parity.md](slides/slides-font-ooxml-parity.md)                      | Slides font OOXML parity — staged roadmap growing per-run `InlineStyle` toward `<a:rPr>` parity; Phase A (shipped) fixes the super-subscript `@baseline` + text-run `<a:hlinkClick>` export round-trip losses (no toolbar change; toolbar exposure deferred); B adds shared caps/underline-style/letter-spacing, C Slides-only text gradient/outline/effects, D `<a:ea>`/`<a:cs>` CJK typeface fidelity |
 | [slides-background.md](slides/slides-background.md)                                    | Slide background (Color / Image / Gradient) — rename the solid-only "Background Color" control to "Background" with Color / Image sections; widen `Background.fill: ThemeColor → Fill` to reuse the shipped `FillPicker`/`resolveFillStyle`/`migrateGradientFill`/`fillXml` gradient infra (model+renderer+CRDT already paint image backgrounds), image upload via the existing URL pipeline, Reset to theme, Apply to all slides (master), best-effort PPTX `<p:bg>` gradient round-trip; tile/repeat + bg-image crop deferred |
 
+## Board
+
+Infinite canvas engine — boundless pan/zoom plane, reuses the Slides scene engine.
+
+| Document                        | Description                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [board.md](board/board.md)      | Board — Miro/FigJam-style infinite canvas as a new `"board"` document type + `@wafflebase/board` package; reuses the Slides scene engine (element model/renderer/hit-test/editor) whose world coords are already transform-agnostic, injecting a `Viewport {panX,panY,zoom}` at the 3 fit-scale chokepoints instead of forking; board = "one unbounded slide" via a single-synthetic-slide `SlidesStore` adapter, `board-<id>` docKey, presence cursors; SP1 canvas skeleton (shapes/text/connectors + collab), SP2 sticky/image, SP3 Miro REST import |
+
 ## Notes
 
 Markdown note engine — CodeMirror source editor, single Yorkie `Text` CRDT.
