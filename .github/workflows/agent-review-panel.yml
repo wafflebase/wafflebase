@@ -297,15 +297,23 @@ jobs:
               try {
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
                 const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
-                const blockers = (Array.isArray(v.findings) ? v.findings : [])
+                const trim = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
+                let blockers = (Array.isArray(v.findings) ? v.findings : [])
                   .filter((f) => norm(f.severity) === 'critical' || norm(f.severity) === 'major')
-                  .map((f) => ({ severity: norm(f.severity), file: f.file, summary: f.summary, evidence: f.evidence }));
+                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
+                // Keep output.text VALID JSON within the 60k limit: NEVER slice the
+                // serialized string (that yields JSON the next round can't parse).
+                // Fields are trimmed above; drop trailing findings until it fits.
                 findingsText = JSON.stringify(blockers);
+                while (findingsText.length > 60000 && blockers.length > 0) {
+                  blockers = blockers.slice(0, -1);
+                  findingsText = JSON.stringify(blockers);
+                }
               } catch {}
               await github.rest.checks.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
-                output: { title: `${lens.id}: ${conclusion}`, summary: summary.slice(0, 60000), text: findingsText.slice(0, 60000) },
+                output: { title: `${lens.id}: ${conclusion}`, summary: summary.slice(0, 60000), text: findingsText },
               });
             }
             core.setOutput('blocked', String(blocked));

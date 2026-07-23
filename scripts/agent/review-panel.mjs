@@ -157,10 +157,15 @@ export function applyVerifications(findings, verdictsByIndex) {
  * from failed samples).
  */
 export function unionSamples(results) {
-  const all = (Array.isArray(results) ? results : [])
-    .filter((r) => r && Array.isArray(r.findings))
-    .flatMap((r) => r.findings);
-  return dedupeFindings(coerceFindings(all));
+  // Coerce EACH successful sample's findings individually — do NOT pre-filter to
+  // array payloads. coerceFindings turns a malformed/non-array payload into a
+  // synthetic blocking finding, so a malformed successful sample fails toward
+  // blocking instead of silently contributing nothing (which could yield a clean
+  // verdict). Nullish/error sentinels are dropped (main only passes successful
+  // samples, and throws before calling this if ALL failed).
+  const list = (Array.isArray(results) ? results : []).filter((r) => r && !r.__error);
+  const all = list.flatMap((r) => coerceFindings(r.findings));
+  return dedupeFindings(all);
 }
 
 /**

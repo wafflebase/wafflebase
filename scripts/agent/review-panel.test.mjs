@@ -89,6 +89,12 @@ test("unionSamples: union across N samples; recall gained, dups collapse fail-to
   // failed samples (null / {__error}) contribute nothing; a well-formed one still counts
   assert.equal(unionSamples([null, { __error: "boom" }, a]).length, 1);
   assert.equal(unionSamples([]).length, 0);
+  // a MALFORMED successful sample (findings not an array, or missing) must fail
+  // toward blocking via coerceFindings — never be dropped into a clean verdict
+  assert.equal(classify(unionSamples([{ summary: "x", findings: "oops" }])).conclusion, "failure");
+  assert.equal(classify(unionSamples([{ summary: "x" }])).conclusion, "failure");
+  // a legitimately empty sample (findings: []) contributes nothing (not blocking)
+  assert.equal(unionSamples([{ findings: [] }]).length, 0);
 });
 
 test("parsePriorFindings: tolerant — valid array round-trips, junk → []", () => {
