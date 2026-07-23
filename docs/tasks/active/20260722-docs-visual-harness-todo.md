@@ -37,11 +37,15 @@ line's max font size, not the marker's own size).
   `docs-multi-page` baseline PNGs — removed. No code ever produced them
   (confirmed via `git log`/`git show` on PR #59); they never gated
   anything and don't match the new scenario content.
-- [ ] Capture initial baselines (`pnpm frontend test:visual:browser:update`,
-  Docker path per `docs/design/harness-engineering.md` for CI-consistent
-  fonts) and commit them. Manually verified locally (non-Docker Chromium)
-  that both scenarios render correctly — see Notes — but did not commit
-  those captures since font rendering may differ from CI's Docker image.
+- [x] Capture initial baselines via `bash scripts/run-browser-tests-docker.sh
+  visual:update` (CI-consistent Docker/Chromium) and commit them. Note: a
+  full `visual:update` run regenerates every scenario's baseline (220
+  targets logged), not just the new ones — this run also produced real
+  pixel drift across nearly all of the pre-existing baselines (different
+  Docker image/font versions than whatever produced the currently-
+  committed ones). That drift is out of scope for this PR, so only the 8
+  new `docs-mixed-font-size-*` PNGs were committed; every other
+  regenerated baseline was reverted via `git checkout --` before staging.
 - [x] `pnpm verify:fast` green.
 
 ## Notes
