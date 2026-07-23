@@ -106,10 +106,22 @@ jobs:
                 body: `${PAGED}\n🛑 CI failed ${failedCi} times on this branch (limit ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve it.`,
               });
               await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['agent:needs-human-review'] }).catch(() => {});
+              core.setOutput('paged', 'true');
               core.setOutput('proceed', 'false');
               return;
             }
             core.setOutput('proceed', 'true');
+
+      # Loop gave up and paged a human → still post the effort summary so the
+      # "needs human review" hand-off carries the cost/effort context. The repo
+      # is already checked out above; runs on the runner's system node.
+      - name: Post agent-effort summary (paged → needs human review)
+        if: steps.guard.outputs.paged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.guard.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
 
       - uses: pnpm/action-setup@v4
         if: steps.guard.outputs.proceed == 'true'
@@ -174,3 +186,14 @@ jobs:
             --max-turns 40
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+      # Record this session's effort into the PR metrics ledger (fail-safe:
+      # continue-on-error + the script exits 0 on any error, so metrics never
+      # break the iterate loop).
+      - name: Record agent effort metrics
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ steps.guard.outputs.pr }}
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"
