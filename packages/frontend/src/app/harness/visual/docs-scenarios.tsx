@@ -161,11 +161,6 @@ function DocsScenarioCard({
             ref={containerRef}
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {state === "ready" && "Scenario ready"}
-          {state === "loading" && "Rendering scenario..."}
-          {state === "error" && "Failed to render scenario"}
-        </p>
       </CardContent>
     </Card>
   );
