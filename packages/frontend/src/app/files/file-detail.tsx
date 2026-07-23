@@ -1,7 +1,11 @@
 import { Navigate, useParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Download } from "lucide-react";
+import { toast } from "sonner";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument } from "@/api/documents";
+import { downloadDocumentFile } from "@/api/download-file";
+import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/loader";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
@@ -14,11 +18,46 @@ import {
   PdfCollabBody,
 } from "./pdf-collab";
 
+/** Header icon button that saves a blob-backed document to disk. */
+function DownloadFileButton({
+  documentId,
+  title,
+  fileId,
+  label,
+}: {
+  documentId: string;
+  title: string;
+  fileId?: string;
+  label: string;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      title={label}
+      onClick={async () => {
+        try {
+          await downloadDocumentFile({ id: documentId, title, fileId });
+        } catch {
+          toast.error("Failed to download");
+        }
+      }}
+    >
+      <Download className="h-4 w-4" />
+    </Button>
+  );
+}
+
 function PdfFileLayout({
   documentId,
+  title,
+  fileId,
   currentUser,
 }: {
   documentId: string;
+  title: string;
+  fileId?: string;
   currentUser: User;
 }) {
   return (
@@ -37,6 +76,12 @@ function PdfFileLayout({
         headerActions={
           <>
             <PdfHeaderActions />
+            <DownloadFileButton
+              documentId={documentId}
+              title={title}
+              fileId={fileId}
+              label="Download PDF"
+            />
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </>
@@ -48,11 +93,29 @@ function PdfFileLayout({
   );
 }
 
-function ImageFileLayout({ documentId }: { documentId: string }) {
+function ImageFileLayout({
+  documentId,
+  title,
+  fileId,
+}: {
+  documentId: string;
+  title: string;
+  fileId?: string;
+}) {
   return (
     <FileShell
       documentId={documentId}
-      headerActions={<ShareDialog documentId={documentId} />}
+      headerActions={
+        <>
+          <DownloadFileButton
+            documentId={documentId}
+            title={title}
+            fileId={fileId}
+            label="Download image"
+          />
+          <ShareDialog documentId={documentId} />
+        </>
+      }
     >
       <ImageViewer documentId={documentId} />
     </FileShell>
@@ -101,9 +164,22 @@ export function FileDetail() {
   if (docError || !documentData) return <Navigate to="/documents" replace />;
 
   if (documentData.type === "image") {
-    return <ImageFileLayout documentId={id!} />;
+    return (
+      <ImageFileLayout
+        documentId={id!}
+        title={documentData.title}
+        fileId={documentData.fileId}
+      />
+    );
   }
-  return <PdfFileLayout documentId={id!} currentUser={currentUser} />;
+  return (
+    <PdfFileLayout
+      documentId={id!}
+      title={documentData.title}
+      fileId={documentData.fileId}
+      currentUser={currentUser}
+    />
+  );
 }
 
 export default FileDetail;
