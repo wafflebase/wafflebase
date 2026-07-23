@@ -8,9 +8,14 @@
  * match the existing `prose` / `prose-invert` split in index.css.
  */
 
+/*
+ * `.hljs` is on both the inline highlight target and the fenced <code>. Only
+ * the token *color* palette should apply broadly; the block's own background
+ * lives on `pre.note-code` below, and inline code gets its own pill styling,
+ * so this rule must not force a background onto either.
+ */
 .note-preview .hljs {
   color: #24292e;
-  background: transparent;
 }
 
 .note-preview .hljs-comment,
@@ -71,6 +76,69 @@
   color: #c9d1d9;
 }
 
+/*
+ * Inline code (`code`): a subtle neutral pill so the span's boundaries read
+ * clearly against body text, mirroring GitHub's markdown-body. Scoped to
+ * `code` NOT inside a `pre` so fenced blocks (styled below) are untouched.
+ *
+ * `code::before/::after { content: none }` cancels the backtick pseudo-
+ * elements that @tailwindcss/typography's `prose` injects — markdown-it has
+ * already consumed the real backticks into the <code> tag, so the plugin's
+ * decorative ones are duplicate, visible-in-output cruft.
+ */
+.note-preview :not(pre) > code {
+  padding: 0.2em 0.4em;
+  font-size: 85%;
+  background-color: #eff1f3;
+  border-radius: 6px;
+}
+
+.note-preview code::before,
+.note-preview code::after {
+  content: none;
+}
+
+.dark .note-preview :not(pre) > code {
+  background-color: #2d333b;
+}
+
+/* Fenced code block background + horizontal scroll live on the <pre>. The
+ * dark background is a touch lighter than the editor surface for contrast. */
+.note-preview pre.note-code {
+  background-color: #f6f8fa;
+  scrollbar-width: thin;
+  scrollbar-color: #d0d7de #f6f8fa;
+}
+
+.note-preview pre.note-code::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.note-preview pre.note-code::-webkit-scrollbar-track {
+  background: #f6f8fa;
+}
+
+.note-preview pre.note-code::-webkit-scrollbar-thumb {
+  background-color: #d0d7de;
+  border-radius: 6px;
+  border: 2px solid #f6f8fa;
+}
+
+.dark .note-preview pre.note-code {
+  background-color: #161b22;
+  scrollbar-color: #30363d #161b22;
+}
+
+.dark .note-preview pre.note-code::-webkit-scrollbar-track {
+  background: #161b22;
+}
+
+.dark .note-preview pre.note-code::-webkit-scrollbar-thumb {
+  background-color: #30363d;
+  border: 2px solid #161b22;
+}
+
 .dark .note-preview .hljs-comment,
 .dark .note-preview .hljs-quote {
   color: #8b949e;
@@ -116,9 +184,11 @@
   color: #8b949e;
 }
 
-/* Code-block chrome: relative anchor for the copy button + a subtle,
+/* Code-block chrome: the wrapper (not the scrolling <pre>) is the copy
+ * button's positioning context, so the button stays pinned to the block's
+ * top-right even while a long line scrolls the <pre> horizontally. A subtle,
  * hover-revealed affordance so it doesn't compete with the code itself. */
-.note-preview .note-code {
+.note-preview .note-code-wrapper {
   position: relative;
 }
 
@@ -140,7 +210,7 @@
     background-color 0.12s ease;
 }
 
-.note-preview .note-code:hover .note-copy-btn,
+.note-preview .note-code-wrapper:hover .note-copy-btn,
 .note-preview .note-copy-btn:focus-visible {
   opacity: 1;
 }
