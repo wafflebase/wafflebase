@@ -1010,6 +1010,18 @@ export function initialize(
       return;
     }
     docStore.snapshot();
+    // Record the caret + selection so undo restores them. This direct
+    // toolbar/⌘B style path bypasses the text-editor's saveSnapshot hook, so
+    // it must set history state itself — otherwise the style op records no
+    // reversible presence and undo collapses the selection.
+    if ('setCursorForHistory' in docStore) {
+      (docStore as {
+        setCursorForHistory(
+          pos: { blockId: string; offset: number },
+          selection?: DocRange | null,
+        ): void;
+      }).setCursorForHistory(cursor.position, selection.range ?? null);
+    }
     const range = selection.range;
 
     // Cell-range mode: apply to all cells in range
@@ -1895,15 +1907,21 @@ export function initialize(
       return { blockId: pos.blockId, offset: Math.min(pos.offset, maxOffset) };
     };
     const blocksExist = restoredSel
-      ? restoredSel.tableCellRange
-        ? !!doc.findBlock(restoredSel.tableCellRange.blockId)
-        : !!doc.findBlock(restoredSel.anchor.blockId) &&
-          !!doc.findBlock(restoredSel.focus.blockId)
+      ? !!doc.findBlock(restoredSel.anchor.blockId) &&
+        !!doc.findBlock(restoredSel.focus.blockId) &&
+        (!restoredSel.tableCellRange || !!doc.findBlock(restoredSel.tableCellRange.blockId))
       : false;
     if (restoredSel && blocksExist) {
-      const range: DocRange = restoredSel.tableCellRange
-        ? restoredSel
-        : { anchor: clampPos(restoredSel.anchor), focus: clampPos(restoredSel.focus) };
+      // Clamp anchor + focus for every selection (table or not); carry the
+      // tableCellRange verbatim (its row/col indices are structural, and its
+      // blockId existence was validated above).
+      const range: DocRange = {
+        anchor: clampPos(restoredSel.anchor),
+        focus: clampPos(restoredSel.focus),
+        ...(restoredSel.tableCellRange
+          ? { tableCellRange: restoredSel.tableCellRange }
+          : {}),
+      };
       selection.setRange(range);
     } else {
       selection.setRange(null);
