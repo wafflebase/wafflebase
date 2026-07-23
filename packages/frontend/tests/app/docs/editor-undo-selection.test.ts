@@ -21,7 +21,7 @@ import {
  * docs-package editor tests). The undo/selection logic runs independent of
  * paint.
  */
-function installCanvasShim(): void {
+function installCanvasShim(): () => void {
   const ctxHandler: ProxyHandler<object> = {
     get(_t, prop) {
       if (prop === 'measureText') {
@@ -54,9 +54,16 @@ function installCanvasShim(): void {
     },
   };
   const fakeCtx = new Proxy({}, ctxHandler) as unknown as CanvasRenderingContext2D;
-  (HTMLCanvasElement.prototype as unknown as {
+  const proto = HTMLCanvasElement.prototype as unknown as {
     getContext: (kind: string) => unknown;
-  }).getContext = (kind: string) => (kind === '2d' ? fakeCtx : null);
+  };
+  // Save the exact method before overriding so the shim can't leak into
+  // subsequent tests; the returned closure restores it in afterEach.
+  const original = proto.getContext;
+  proto.getContext = (kind: string) => (kind === '2d' ? fakeCtx : null);
+  return () => {
+    proto.getContext = original;
+  };
 }
 
 function makeBlock(text: string): Block {
@@ -74,9 +81,10 @@ describe('editor undo restores the selection (issue #340, toolbar style path)', 
   let store: YorkieDocStore;
   let editor: EditorAPI;
   let container: HTMLDivElement;
+  let restoreCanvas: () => void;
 
   beforeEach(() => {
-    installCanvasShim();
+    restoreCanvas = installCanvasShim();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,6 +100,7 @@ describe('editor undo restores the selection (issue #340, toolbar style path)', 
 
   afterEach(() => {
     container.remove();
+    restoreCanvas();
   });
 
   it('applyStyle(bold) via the editor API, then undo, restores the selected range', () => {
