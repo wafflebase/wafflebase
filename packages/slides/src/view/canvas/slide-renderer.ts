@@ -1,4 +1,4 @@
-import type { Element } from '../../model/element';
+import type { Element, Frame } from '../../model/element';
 import type { BackgroundImage, Slide, SlidesDocument } from '../../model/presentation';
 import {
   SLIDE_WIDTH,
@@ -7,10 +7,12 @@ import {
   resolveBackgroundImage,
 } from '../../model/presentation';
 import { buildElementWorldLookup } from '../../model/group';
+import { boundingBox } from '../../model/frame';
 import type { AnimState } from '../../anim/state';
 import { drawElement } from './element-renderer';
 import { drawImage, drawCropPreview, type CropPreview } from './image-renderer';
 import { getActiveTheme, resolveFillStyle } from './render-context';
+import { screenToWorld, type Viewport } from './viewport';
 
 /** Global alpha applied to the hover-ghost element so the user can see
  * exactly what (kind + size + position) is about to be inserted while
@@ -38,6 +40,19 @@ export interface SlideRendererOptions {
    */
   slideOffsetLogicalX?: number;
   slideOffsetLogicalY?: number;
+  /**
+   * When set, overrides the fixed fit-scale with an explicit pan/zoom
+   * transform (board mode: an unbounded infinite canvas rather than a
+   * single fitted slide rect). No slide-rect background is painted —
+   * the board itself supplies the surrounding plane.
+   */
+  viewport?: Viewport;
+  /**
+   * When `viewport` is also set, skip elements whose rotated AABB
+   * doesn't intersect the visible screen rect. No-op without
+   * `viewport`.
+   */
+  cull?: boolean;
   /**
    * Called after an async asset (e.g. a background or element image)
    * finishes loading, in addition to the internal dirty flag. Consumers
@@ -173,25 +188,7 @@ export function drawSlide(
   const slideOffsetLogicalX = options.slideOffsetLogicalX ?? 0;
   const slideOffsetLogicalY = options.slideOffsetLogicalY ?? 0;
   const hasPasteboard = slideOffsetLogicalX !== 0 || slideOffsetLogicalY !== 0;
-  // Uniform fit-scale: pick whichever axis is the binding constraint
-  // so the slide fits inside the host canvas without distortion. The
-  // SlidesView host is currently a fixed 16:9 (960×540), so both
-  // axes give the same scale — but a host whose aspect ratio differs
-  // from SLIDE_WIDTH:SLIDE_HEIGHT would have the slide stretched
-  // horizontally if we derived the scale from `hostWidth` alone.
-  const scaleX = (hostWidth / SLIDE_WIDTH) * dpr;
-  const scaleY = (hostHeight / slideH) * dpr;
-  const scale = Math.min(scaleX, scaleY);
 
-  // Reset to identity and clear the full bitmap. With pasteboard the
-  // off-slide band stays transparent so `canvasWrap`'s CSS background
-  // can supply the pasteboard color. Without pasteboard (default) we
-  // still fill the full bitmap with the slide background fill — this
-  // hides the 1–2 px aspect-ratio rounding gap that would otherwise
-  // reveal the canvas's CSS `background` underneath. With pasteboard
-  // the slide-bg fill below pads its own slide rect by ±1 logical
-  // px for the same reason.
-  //
   // Bitmap dims come from `ctx.canvas` when available (the real
   // browser canvas, which the caller has sized to cover slide +
   // pasteboard). The test 2D-context stub doesn't expose `canvas`,
@@ -200,41 +197,68 @@ export function drawSlide(
   const bitmapW = ctx.canvas?.width ?? hostWidth * dpr;
   const bitmapH = ctx.canvas?.height ?? hostHeight * dpr;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (!hasPasteboard) {
-    // This branch runs under the IDENTITY ctm (the `ctx.scale(scale,
-    // scale)` below hasn't been applied yet) and fills the DEVICE-pixel
-    // rect `fillRect(0, 0, bitmapW, bitmapH)`. A gradient's axis must
-    // therefore be laid out across `bitmapW × bitmapH`, not the logical
-    // `SLIDE_WIDTH × slideH` — otherwise the axis only matches the
-    // filled rect when `bitmapW === SLIDE_WIDTH` (e.g. it silently
-    // breaks thumbnails, PDF export, and no-pasteboard presentation /
-    // mobile, whose bitmaps are smaller than the logical slide).
-    ctx.fillStyle = resolveFillStyle(
-      ctx, resolveBackgroundFill(slide, doc), theme, bitmapW, bitmapH,
-    );
-    ctx.fillRect(0, 0, bitmapW, bitmapH);
-  } else {
+
+  if (options.viewport) {
+    // Board mode: an explicit pan/zoom transform overrides the fixed
+    // fit-scale, and no slide-rect background is painted — the board
+    // is an unbounded plane, not a single fitted slide.
     ctx.clearRect(0, 0, bitmapW, bitmapH);
-  }
-  ctx.scale(scale, scale);
-  if (hasPasteboard) {
-    // Move slide-logical (0,0) to the slide rect inside the bigger
-    // canvas so every drawElement call paints relative to
-    // slide-left/top without per-element offset bookkeeping.
-    // Coordinates outside the slide rect (negative x/y, or beyond
-    // SLIDE_WIDTH / SLIDE_HEIGHT) now land in the pasteboard band
-    // rather than off the bitmap.
-    ctx.translate(slideOffsetLogicalX, slideOffsetLogicalY);
-    // Slide background fill, restricted to the slide rect. The ±1 px
-    // pad absorbs the same aspect-ratio rounding gap the
-    // no-pasteboard path solves with a full-canvas fill. Drop shadow
-    // and hairline are owned by `slideElevation` in slides-view.tsx
-    // — keeping them in CSS means they survive every paint mode
-    // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
-    ctx.fillStyle = resolveFillStyle(
-      ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
-    );
-    ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
+    const { panX, panY, zoom } = options.viewport;
+    ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, panX * dpr, panY * dpr);
+  } else {
+    // Uniform fit-scale: pick whichever axis is the binding constraint
+    // so the slide fits inside the host canvas without distortion. The
+    // SlidesView host is currently a fixed 16:9 (960×540), so both
+    // axes give the same scale — but a host whose aspect ratio differs
+    // from SLIDE_WIDTH:SLIDE_HEIGHT would have the slide stretched
+    // horizontally if we derived the scale from `hostWidth` alone.
+    const scaleX = (hostWidth / SLIDE_WIDTH) * dpr;
+    const scaleY = (hostHeight / slideH) * dpr;
+    const scale = Math.min(scaleX, scaleY);
+
+    // With pasteboard the off-slide band stays transparent so
+    // `canvasWrap`'s CSS background can supply the pasteboard color.
+    // Without pasteboard (default) we still fill the full bitmap with
+    // the slide background fill — this hides the 1–2 px aspect-ratio
+    // rounding gap that would otherwise reveal the canvas's CSS
+    // `background` underneath. With pasteboard the slide-bg fill below
+    // pads its own slide rect by ±1 logical px for the same reason.
+    if (!hasPasteboard) {
+      // This branch runs under the IDENTITY ctm (the `ctx.scale(scale,
+      // scale)` below hasn't been applied yet) and fills the DEVICE-pixel
+      // rect `fillRect(0, 0, bitmapW, bitmapH)`. A gradient's axis must
+      // therefore be laid out across `bitmapW × bitmapH`, not the logical
+      // `SLIDE_WIDTH × slideH` — otherwise the axis only matches the
+      // filled rect when `bitmapW === SLIDE_WIDTH` (e.g. it silently
+      // breaks thumbnails, PDF export, and no-pasteboard presentation /
+      // mobile, whose bitmaps are smaller than the logical slide).
+      ctx.fillStyle = resolveFillStyle(
+        ctx, resolveBackgroundFill(slide, doc), theme, bitmapW, bitmapH,
+      );
+      ctx.fillRect(0, 0, bitmapW, bitmapH);
+    } else {
+      ctx.clearRect(0, 0, bitmapW, bitmapH);
+    }
+    ctx.scale(scale, scale);
+    if (hasPasteboard) {
+      // Move slide-logical (0,0) to the slide rect inside the bigger
+      // canvas so every drawElement call paints relative to
+      // slide-left/top without per-element offset bookkeeping.
+      // Coordinates outside the slide rect (negative x/y, or beyond
+      // SLIDE_WIDTH / SLIDE_HEIGHT) now land in the pasteboard band
+      // rather than off the bitmap.
+      ctx.translate(slideOffsetLogicalX, slideOffsetLogicalY);
+      // Slide background fill, restricted to the slide rect. The ±1 px
+      // pad absorbs the same aspect-ratio rounding gap the
+      // no-pasteboard path solves with a full-canvas fill. Drop shadow
+      // and hairline are owned by `slideElevation` in slides-view.tsx
+      // — keeping them in CSS means they survive every paint mode
+      // (no-pasteboard, mobile, presenter, …) and stay theme-reactive.
+      ctx.fillStyle = resolveFillStyle(
+        ctx, resolveBackgroundFill(slide, doc), theme, SLIDE_WIDTH, slideH,
+      );
+      ctx.fillRect(-1, -1, SLIDE_WIDTH + 2, slideH + 2);
+    }
   }
 
   // Image-fill background (PPTX `<p:bg><p:bgPr><a:blipFill>`). Painted
@@ -248,6 +272,21 @@ export function drawSlide(
     drawImage(ctx, { w: SLIDE_WIDTH, h: slideH }, bgImage, onAssetLoad);
   }
 
+  // Board mode + culling: the visible world-rect, computed once from the
+  // viewport and host size. Elements whose rotated AABB doesn't
+  // intersect it are skipped entirely (not even given to `drawElement`)
+  // — this is what keeps an unbounded board's paint cost bounded by the
+  // viewport rather than the full element count.
+  const visible =
+    options.viewport && options.cull
+      ? {
+          x0: screenToWorld(options.viewport, { x: 0, y: 0 }).x,
+          y0: screenToWorld(options.viewport, { x: 0, y: 0 }).y,
+          x1: screenToWorld(options.viewport, { x: hostWidth, y: hostHeight }).x,
+          y1: screenToWorld(options.viewport, { x: hostWidth, y: hostHeight }).y,
+        }
+      : null;
+
   // Iterate elements in array order = z-order, last is front. Built
   // once per slide-render so each connector doesn't rebuild it.
   const elementsLookup = buildElementWorldLookup(slide.elements);
@@ -256,6 +295,7 @@ export function drawSlide(
     // preview below (dimmed full bitmap + bright window), not as a
     // normal cropped element, so mask it here.
     if (cropPreview && element.id === cropPreview.elementId) continue;
+    if (visible && !frameIntersectsRect(element.frame, visible)) continue;
     drawElement(
       ctx, element, doc, theme, onAssetLoad, elementsLookup,
       undefined, undefined, animStates?.get(element.id),
@@ -281,6 +321,25 @@ export function drawSlide(
   if (cropPreview) {
     drawCropPreview(ctx, cropPreview, onAssetLoad);
   }
+}
+
+/**
+ * True iff `frame`'s rotated AABB (via `boundingBox`, the canonical
+ * rotated-AABB computation shared with the snap-candidates engine)
+ * overlaps the world-space rect `r`. Used to cull off-screen elements
+ * in board mode.
+ */
+function frameIntersectsRect(
+  frame: Frame,
+  r: { x0: number; y0: number; x1: number; y1: number },
+): boolean {
+  const box = boundingBox(frame);
+  return (
+    box.x < r.x1 &&
+    box.x + box.w > r.x0 &&
+    box.y < r.y1 &&
+    box.y + box.h > r.y0
+  );
 }
 
 /**
