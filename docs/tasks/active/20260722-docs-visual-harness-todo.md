@@ -47,6 +47,8 @@ line's max font size, not the marker's own size).
   new `docs-mixed-font-size-*` PNGs were committed; every other
   regenerated baseline was reverted via `git checkout --` before staging.
 - [x] `pnpm verify:fast` green.
+- [ ] Add before/after screenshots of the two new docs scenarios to PR
+  #527's description once CI is green.
 
 ## Notes
 
@@ -79,7 +81,7 @@ line's max font size, not the marker's own size).
   `c3ba681c`) after a branch mix-up; verified the 12-file diff is
   byte-identical whether based on `c3ba681c` or `f0db0785` before
   finalizing, so no undo/selection changes leaked into this branch.
-- **CI `verify-browser` failure — root cause found, not yet fixed:**
+- **CI `verify-browser` failure — root cause found and fixed:**
   adding `DocsVisualScenarios` to the harness page deterministically
   perturbs sub-pixel rendering of ~19 *unrelated* chart/slides baselines
   captured later on the same page load (byte-diff only; visually
@@ -110,9 +112,19 @@ line's max font size, not the marker's own size).
     anti-aliasing for sibling chart/slides canvases rendered in the same
     capture pass — a side effect of composing more canvas-heavy
     components on one shared page, not a bug in any single scenario.
-  - Paused further investigation here to report to the mentor/team
-    rather than keep guessing. Remaining options: (a) isolate the docs
-    canvases from the shared capture pass (e.g. gate their paint so they
-    don't compete with chart/slides during capture), or (b) accept the
-    imperceptible diff and re-baseline the 19 affected files as a side
-    effect of adding new page content.
+  - **Fix landed:** each section (sheet/format/docs/chart/slides) now
+    gets its own isolated page load via a `section` query param on
+    `/harness/visual` (`page.tsx`'s `useSectionFromSearchParams`); the
+    default/absent value still renders the full assembled page for
+    manual browsing and for the one `harness-root` full-page baseline,
+    which intentionally keeps the shared-page composition since it's
+    meant to catch whole-page layout regressions. `verify-visual-browser.mjs`
+    groups `scenarioIds` by section (`SECTION_SCENARIOS`) and captures
+    each section from its own `context.newPage()` navigation
+    (`capturePass`), waiting only on that section's own ready-flag
+    instead of every section's. All 220 baselines were regenerated under
+    the new architecture (structural change, not drift) and verified
+    stable across three consecutive Docker capture runs. A trade-off to
+    watch: page-load count went from 4 to ~24 (4 profiles × (1 root + 5
+    sections)); each load is lighter, and total runtime didn't regress
+    in local testing, but worth another look if CI time grows.
