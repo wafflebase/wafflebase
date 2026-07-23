@@ -1010,6 +1010,18 @@ export function initialize(
       return;
     }
     docStore.snapshot();
+    // Record the caret + selection so undo restores them. This direct
+    // toolbar/⌘B style path bypasses the text-editor's saveSnapshot hook, so
+    // it must set history state itself — otherwise the style op records no
+    // reversible presence and undo collapses the selection.
+    if ('setCursorForHistory' in docStore) {
+      (docStore as {
+        setCursorForHistory(
+          pos: { blockId: string; offset: number },
+          selection?: DocRange | null,
+        ): void;
+      }).setCursorForHistory(cursor.position, selection.range ?? null);
+    }
     const range = selection.range;
 
     // Cell-range mode: apply to all cells in range
@@ -1861,8 +1873,15 @@ export function initialize(
   ruler.onIndentChange((style) => {
     docStore.snapshot();
     if ('setCursorForHistory' in docStore) {
-      (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
-        .setCursorForHistory(cursor.position);
+      (docStore as {
+        setCursorForHistory(
+          pos: { blockId: string; offset: number },
+          selection?: DocRange | null,
+        ): void;
+      }).setCursorForHistory(
+        cursor.position,
+        selection.hasSelection() && selection.range ? selection.range : null,
+      );
     }
     doc.applyBlockStyle(cursor.position.blockId, style);
     markDirty(cursor.position.blockId);
@@ -1873,6 +1892,41 @@ export function initialize(
     dragGuideline = pos;
     renderPaintOnly();
   });
+
+  // Restore the selection range that undo/redo put back into Yorkie presence
+  // (mirrors the caret restore below). Guards against blocks that no longer
+  // exist and clamps offsets, matching the caret restore; a collapsed /
+  // missing / stale-block range clears the highlight.
+  const restoreSelectionFromPresence = () => {
+    const restoredSel = 'getPresenceSelection' in docStore
+      ? (docStore as { getPresenceSelection(): DocRange | undefined }).getPresenceSelection()
+      : undefined;
+    const clampPos = (pos: DocPosition): DocPosition => {
+      const b = doc.getBlock(pos.blockId);
+      const maxOffset = b.inlines.reduce((sum, i) => sum + i.text.length, 0);
+      return { blockId: pos.blockId, offset: Math.min(pos.offset, maxOffset) };
+    };
+    const blocksExist = restoredSel
+      ? !!doc.findBlock(restoredSel.anchor.blockId) &&
+        !!doc.findBlock(restoredSel.focus.blockId) &&
+        (!restoredSel.tableCellRange || !!doc.findBlock(restoredSel.tableCellRange.blockId))
+      : false;
+    if (restoredSel && blocksExist) {
+      // Clamp anchor + focus for every selection (table or not); carry the
+      // tableCellRange verbatim (its row/col indices are structural, and its
+      // blockId existence was validated above).
+      const range: DocRange = {
+        anchor: clampPos(restoredSel.anchor),
+        focus: clampPos(restoredSel.focus),
+        ...(restoredSel.tableCellRange
+          ? { tableCellRange: restoredSel.tableCellRange }
+          : {}),
+      };
+      selection.setRange(range);
+    } else {
+      selection.setRange(null);
+    }
+  };
 
   // Wire up text editor
   const undoFn = () => {
@@ -1895,6 +1949,7 @@ export function initialize(
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      restoreSelectionFromPresence();
 
       needsScrollIntoView = true;
       render();
@@ -1920,6 +1975,7 @@ export function initialize(
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      restoreSelectionFromPresence();
 
       needsScrollIntoView = true;
       render();
@@ -2003,8 +2059,15 @@ export function initialize(
     () => {
       docStore.snapshot();
       if ('setCursorForHistory' in docStore) {
-        (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
-          .setCursorForHistory(cursor.position);
+        (docStore as {
+          setCursorForHistory(
+            pos: { blockId: string; offset: number },
+            selection?: DocRange | null,
+          ): void;
+        }).setCursorForHistory(
+          cursor.position,
+          selection.hasSelection() && selection.range ? selection.range : null,
+        );
       }
     },
     undoFn,
