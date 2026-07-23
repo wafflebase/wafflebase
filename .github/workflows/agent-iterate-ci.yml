@@ -156,6 +156,16 @@ jobs:
             echo "HARNESS_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # Record the REMOTE branch tip before the fixer runs (ls-remote, not local
+      # HEAD): the loop only re-triggers on a PUSH, so a fixer that commits
+      # locally but never pushes must still count as no progress.
+      - name: Record branch head before fix
+        id: before-fix
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code
         if: steps.guard.outputs.proceed == 'true'
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
@@ -183,9 +193,56 @@ jobs:
             trailer "Assisted-by: Claude Code (autonomous)". Then reply in the
             PR's verification thread noting what you fixed. Do not merge.
           claude_args: >-
-            --max-turns 40
+            --max-turns 80
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+      # Diagnostics: keep the fixer's transcript (turns, tool calls, permission
+      # denials, token/cost) so a round that didn't converge is debuggable.
+      # always() so it's captured even when the fixer errored.
+      - name: Upload fix execution log
+        if: always() && steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-ci-fix-execution-output
+          path: ${{ runner.temp }}/claude-execution-output.json
+          if-no-files-found: warn
+
+      # GAP FIX: a CI-fix round that pushes NO commit dead-ends the loop silently
+      # — no new commit → no new CI → no next round, and the attempts guard's
+      # failed-CI counter never advances, so it never trips. Detect "fixer ran
+      # but the branch head didn't advance" and page a human via the same
+      # agent-paged latch. always(): this loop has no stalled net, so a hard
+      # fixer error must page here too. We do NOT blind-retry — the fixer just
+      # failed to converge, so re-running the same config would burn budget.
+      - name: Page if the fix produced no commit
+        if: always() && steps.guard.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ steps.guard.outputs.pr }}
+          BEFORE: ${{ steps.before-fix.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
+          # Only trust a "CI will re-run" conclusion when BOTH remote heads
+          # resolved AND they differ. `git ls-remote | cut` masks a failed
+          # lookup (network error, missing branch) as an empty string and the
+          # before-fix step may have been skipped, so an empty BEFORE or AFTER
+          # means we could NOT establish that a new commit landed — fail safe
+          # and page rather than assume progress and let the loop dead-end.
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            echo "A new commit reached the branch ($AFTER) — CI will re-run."
+          else
+            echo "Branch head did not advance (before='$BEFORE' after='$AFTER') — paging a human." >&2
+            # This step runs under always(), so it also covers a hard fixer error
+            # or an earlier failed step — keep the cause generic, don't assert
+            # turn-budget/denials (which would mislabel those cases).
+            printf '%s\n' \
+              '<!-- agent-paged -->' \
+              '🛑 The CI-fix round did not advance the branch head, so CI stays red and the loop cannot re-trigger itself (no new push → no new CI). This can mean the fixer produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, the branch head could not be determined, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
+              | gh pr comment "$PR" --body-file -
+            gh pr edit "$PR" --add-label "agent:needs-human-review" || true
+          fi
 
       # Record this session's effort into the PR metrics ledger (fail-safe:
       # continue-on-error + the script exits 0 on any error, so metrics never
