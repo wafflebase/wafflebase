@@ -240,3 +240,14 @@ jobs:
           name: claude-execution-output
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
+
+      # Record this session's effort into the PR metrics ledger. The kickoff
+      # created the PR mid-run, so resolve it by the `agent/<issue>-…` branch.
+      # Fail-safe: continue-on-error + the script exits 0 on any error.
+      - name: Record agent effort metrics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
