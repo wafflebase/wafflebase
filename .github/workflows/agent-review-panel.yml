@@ -486,6 +486,14 @@ jobs:
         if: steps.guard.outputs.proceed == 'true'
         run: pnpm install --frozen-lockfile
 
+      # Record the branch tip before the fixer runs, so the step after it can
+      # detect a fix round that produced NO commit (see "Page if the fix
+      # produced no commit").
+      - name: Record branch head before fix
+        id: before-fix
+        if: steps.guard.outputs.proceed == 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Address panel findings
         if: steps.guard.outputs.proceed == 'true'
         # Pinned to the v1 release commit (immutable). github_token is the App
@@ -516,9 +524,49 @@ jobs:
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not
             merge. Pushing re-runs CI and a fresh review panel.
           claude_args: >-
-            --max-turns 40
+            --max-turns 80
             --model claude-opus-4-8
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+
+      # Diagnostics: keep the fixer's transcript (turns, tool calls, permission
+      # denials, token/cost) so a round that didn't converge is debuggable —
+      # e.g. why it hit the turn budget or what a denial blocked. always() so
+      # it's captured even when the fixer errored.
+      - name: Upload fix execution log
+        if: always() && steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-fix-execution-output
+          path: ${{ runner.temp }}/claude-execution-output.json
+          if-no-files-found: warn
+
+      # GAP FIX: a fix round that pushes NO commit dead-ends the loop silently —
+      # no new commit → no new CI → no new panel → no next round — yet the fix
+      # job still reports success, so nothing pages. Detect "fixer ran but the
+      # branch head didn't advance" and page a human via the same latch the guard
+      # uses. No `always()`: this runs only when the fixer step SUCCEEDED but
+      # committed nothing; if the fixer hard-errored, the job fails and the
+      # stalled net pages instead (no double-page). We deliberately do NOT
+      # blind-retry — the fixer just failed to converge (turn budget / denials),
+      # so re-running the same config would burn budget and likely fail again.
+      - name: Page if the fix produced no commit
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          BEFORE: ${{ steps.before-fix.outputs.sha }}
+        run: |
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$AFTER" = "$BEFORE" ]; then
+            echo "Fixer ran but pushed no commit (HEAD still $BEFORE) — paging a human." >&2
+            printf '%s\n' \
+              '<!-- agent-review-paged -->' \
+              '🛑 The fix agent ran but produced **no commit**, so the requested changes were not applied — and the loop cannot re-trigger itself (no new commit → no new CI). It likely did not converge within its turn budget or hit tool-permission denials (see the `claude-fix-execution-output` artifact). **A human should take over** on this PR.' \
+              | gh pr comment "$PR" --body-file -
+            gh pr edit "$PR" --add-label "agent:needs-human-review" || true
+          else
+            echo "Fixer pushed a new commit ($AFTER) — CI + a fresh panel will re-trigger."
+          fi
 
       # Record this review-fix session's effort into the PR metrics ledger
       # (fail-safe: continue-on-error + the script exits 0 on any error).
