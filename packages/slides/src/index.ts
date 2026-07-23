@@ -189,6 +189,9 @@ export { renderShapeIcon } from './view/canvas/shape-icon';
 export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
 
+// View — Viewport (pan/zoom transform for infinite canvas)
+export { worldToScreen, screenToWorld, type Viewport } from './view/canvas/viewport';
+
 // View — Element hit-test (groups + nested)
 export type { HitResult } from './view/editor/hit-test-elements';
 export { hitTestSlide } from './view/editor/hit-test-elements';
