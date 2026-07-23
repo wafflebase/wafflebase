@@ -748,6 +748,74 @@ describe('Formula', () => {
     expect(evaluate('=SEARCH("z","Hello")')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate LENB function', () => {
+    expect(evaluate('=LENB("Hello")')).toBe('5');
+    expect(evaluate('=LENB("café")')).toBe('5');
+    expect(evaluate('=LENB("")')).toBe('0');
+    expect(evaluate('=LENB("日本")')).toBe('6');
+  });
+
+  it('should correctly evaluate LEFTB function', () => {
+    expect(evaluate('=LEFTB("Hello",3)')).toBe('Hel');
+    expect(evaluate('=LEFTB("Hello")')).toBe('H');
+    expect(evaluate('=LEFTB("Hello",10)')).toBe('Hello');
+    // "café": c,a,f are 1 byte each; é is 2 bytes.
+    expect(evaluate('=LEFTB("café",4)')).toBe('caf');
+    expect(evaluate('=LEFTB("café",5)')).toBe('café');
+    // A 3-byte ideograph does not fit in 2 bytes.
+    expect(evaluate('=LEFTB("日本",2)')).toBe('');
+    expect(evaluate('=LEFTB("日本",3)')).toBe('日');
+    expect(evaluate('=LEFTB("Hello",-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate RIGHTB function', () => {
+    expect(evaluate('=RIGHTB("Hello",3)')).toBe('llo');
+    expect(evaluate('=RIGHTB("Hello")')).toBe('o');
+    expect(evaluate('=RIGHTB("Hello",10)')).toBe('Hello');
+    expect(evaluate('=RIGHTB("café",2)')).toBe('é');
+    expect(evaluate('=RIGHTB("café",3)')).toBe('fé');
+    expect(evaluate('=RIGHTB("日本",3)')).toBe('本');
+  });
+
+  it('should correctly evaluate MIDB function', () => {
+    expect(evaluate('=MIDB("Hello",2,3)')).toBe('ell');
+    expect(evaluate('=MIDB("Hello",1,5)')).toBe('Hello');
+    expect(evaluate('=MIDB("café",4,2)')).toBe('é');
+    expect(evaluate('=MIDB("café",1,4)')).toBe('caf');
+    expect(evaluate('=MIDB("Hello",0,3)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate FINDB function', () => {
+    expect(evaluate('=FINDB("l","Hello")')).toBe('3');
+    expect(evaluate('=FINDB("l","Hello",4)')).toBe('4');
+    expect(evaluate('=FINDB("z","Hello")')).toBe('#VALUE!');
+    // "本" begins at byte 4 (each ideograph is 3 bytes).
+    expect(evaluate('=FINDB("本","日本")')).toBe('4');
+  });
+
+  it('should correctly evaluate SEARCHB function', () => {
+    expect(evaluate('=SEARCHB("L","Hello")')).toBe('3');
+    expect(evaluate('=SEARCHB("h","Hello")')).toBe('1');
+    expect(evaluate('=SEARCHB("?e*o","Hello")')).toBe('1');
+    expect(evaluate('=SEARCHB("z","Hello")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate REPLACEB function', () => {
+    expect(evaluate('=REPLACEB("Hello",2,3,"XY")')).toBe('HXYo');
+    expect(evaluate('=REPLACEB("Hello",1,5,"World")')).toBe('World');
+    // Replace the 3 bytes of "日" with "X".
+    expect(evaluate('=REPLACEB("日本",1,3,"X")')).toBe('X本');
+  });
+
+  it('should correctly evaluate ASC function', () => {
+    expect(evaluate('=ASC("ＨＥＬＬＯ")')).toBe('HELLO');
+    expect(evaluate('=ASC("１２３")')).toBe('123');
+    expect(evaluate('=ASC("Hello")')).toBe('Hello');
+    expect(evaluate('=ASC("ｱｲｳ")')).toBe('ｱｲｳ');
+    expect(evaluate('=ASC("アイウ")')).toBe('ｱｲｳ');
+    expect(evaluate('=ASC("ガ")')).toBe('ｶﾞ');
+  });
+
   it('should correctly evaluate TEXTJOIN function', () => {
     expect(evaluate('=TEXTJOIN("-",TRUE,"a","","b")')).toBe('a-b');
     expect(evaluate('=TEXTJOIN("-",FALSE,"a","","b")')).toBe('a--b');
