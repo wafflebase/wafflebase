@@ -84,6 +84,18 @@ function ghJson(args) {
   return JSON.parse(gh(args));
 }
 
+// The promotion mutations (mark ready / labels / hand-off comment) need a token
+// that can perform markPullRequestReadyForReview. The default GITHUB_TOKEN
+// CANNOT — it returns "Resource not accessible by integration", which silently
+// left gate-passing PRs stuck as drafts. Use GH_MUTATION_TOKEN (a GitHub App
+// token) for these calls when provided; otherwise fall back to the default `gh`
+// token (e.g. local dry runs).
+function ghMutate(args) {
+  const token = process.env.GH_MUTATION_TOKEN;
+  const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
+  return execFileSync("gh", args, { encoding: "utf8", env });
+}
+
 // --- gather PR state -------------------------------------------------------
 
 let pr;
@@ -186,17 +198,32 @@ if (!pr.isDraft) {
 
 // --- promote ---------------------------------------------------------------
 
-gh(["pr", "ready", prNumber]);
+// Flip draft → ready. This is the one mutation the default GITHUB_TOKEN can't
+// do; a failure here is a permission/tooling problem, NOT a gate failure — exit
+// 3 (distinct from the exit-1 "gates not satisfied") with a clear message so the
+// workflow surfaces it loudly (and the stalled net pages a human) instead of
+// silently leaving the PR a draft.
+try {
+  ghMutate(["pr", "ready", prNumber]);
+} catch (err) {
+  console.error(
+    `\nAll ready-gates passed, but flipping PR #${prNumber} to ready FAILED: ${err.message}\n` +
+      "This is a permission/tooling problem, not a gate failure. The promote job " +
+      "must pass a GitHub App token via GH_MUTATION_TOKEN that can mark a PR ready — " +
+      "the default GITHUB_TOKEN cannot (markPullRequestReadyForReview).",
+  );
+  process.exit(3);
+}
 
 // Swap labels (best-effort; a missing label must not abort the promotion or
 // block the hand-off comment below). `gh` will not create an absent label.
 try {
-  gh(["pr", "edit", prNumber, "--remove-label", "agent:iterating"]);
+  ghMutate(["pr", "edit", prNumber, "--remove-label", "agent:iterating"]);
 } catch {
   /* label may not be present */
 }
 try {
-  gh(["pr", "edit", prNumber, "--add-label", "agent:needs-human-review"]);
+  ghMutate(["pr", "edit", prNumber, "--add-label", "agent:needs-human-review"]);
 } catch {
   console.warn(
     "Could not add 'agent:needs-human-review' label — create it in the repo's " +
@@ -220,6 +247,12 @@ const handoff = [
   "requires. Merge, release, and deploy remain manual.",
 ].join("\n");
 
-gh(["pr", "comment", prNumber, "--body", handoff]);
+// Best-effort: the PR is already flipped to ready; don't fail the promotion if
+// the hand-off comment can't be posted.
+try {
+  ghMutate(["pr", "comment", prNumber, "--body", handoff]);
+} catch (err) {
+  console.warn(`PR flipped to ready, but posting the hand-off comment failed: ${err.message}`);
+}
 
 console.log(`\nPromoted PR #${prNumber} to ready and requested human review.`);
