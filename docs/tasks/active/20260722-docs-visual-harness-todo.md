@@ -18,7 +18,7 @@ line's max font size, not the marker's own size).
 
 ## Work
 
-- [ ] Add `packages/frontend/src/app/harness/visual/docs-scenarios.tsx`,
+- [x] Add `packages/frontend/src/app/harness/visual/docs-scenarios.tsx`,
   mirroring `format-scenarios.tsx`'s shape (`Scenario`, `ScenarioSetup`,
   `ScenarioCard`-equivalent, ready-state tracking), but backed by
   `@wafflebase/docs`'s `MemDocStore` + `initialize()` instead of
@@ -28,18 +28,21 @@ line's max font size, not the marker's own size).
     floating at its own.
   - Scenario 2: an unordered list item with a marker + mixed-size inline
     text — verifies the marker Y position follows the line max font size.
-- [ ] Mount `<DocsVisualScenarios theme={theme} />` in
+- [x] Mount `<DocsVisualScenarios theme={theme} />` in
   `harness/visual/page.tsx` alongside the sheet/format/chart/slides
   sections.
-- [ ] Register the new scenario ids in `verify-visual-browser.mjs`'s
+- [x] Register the new scenario ids in `verify-visual-browser.mjs`'s
   `scenarioIds` list so they're actually captured/compared.
-- [ ] Decide the fate of the orphaned `docs-styled-text` /
-  `docs-multi-page` baseline PNGs (either wire them up too with a
-  matching scenario, or remove as genuinely dead).
+- [x] Decide the fate of the orphaned `docs-styled-text` /
+  `docs-multi-page` baseline PNGs — removed. No code ever produced them
+  (confirmed via `git log`/`git show` on PR #59); they never gated
+  anything and don't match the new scenario content.
 - [ ] Capture initial baselines (`pnpm frontend test:visual:browser:update`,
   Docker path per `docs/design/harness-engineering.md` for CI-consistent
-  fonts) and commit them.
-- [ ] `pnpm verify:fast` green.
+  fonts) and commit them. Manually verified locally (non-Docker Chromium)
+  that both scenarios render correctly — see Notes — but did not commit
+  those captures since font rendering may differ from CI's Docker image.
+- [x] `pnpm verify:fast` green.
 
 ## Notes
 
@@ -51,3 +54,24 @@ line's max font size, not the marker's own size).
 - Playwright/Chromium or Docker may not be available in every dev
   environment; if baseline capture can't run here, leave it as a clearly
   flagged follow-up rather than committing unverified PNGs.
+- **Bug found and fixed along the way:** at the mobile capture profile
+  (430px viewport, below the `xl:grid-cols-2` breakpoint), the scenario
+  grid had no explicit column template, so the track sized to
+  max-content. The docs canvas has no CSS width of its own — only an
+  intrinsic pixel-width attribute set by `editor.ts`'s `paint()`, which
+  measures `container.parentElement`'s width — so an unconstrained
+  max-content column and the canvas's own reported width fed back into
+  each other every `ResizeObserver` tick, growing without bound (a card
+  literally grew from ~1000px to ~14500px wide across 3 seconds) and
+  hanging Playwright's scroll-into-view stability check. Fixed by adding
+  an explicit `grid-cols-1` so the column is always `minmax(0, 1fr)`
+  regardless of breakpoint. Verified via a throwaway debug harness
+  polling `getBoundingClientRect()` before/after the fix — confirmed
+  stable afterward, and confirmed both scenarios screenshot correctly
+  (checked visually, not just structurally) via a local Playwright run.
+- This PR's commit (`d8b9b264`) sits on `feat/docs-visual-harness`,
+  branched from `main`/`upstream/main`. It was originally drafted on top
+  of `fix/docs-undo-selection` (a concurrent, unrelated session's commit
+  `c3ba681c`) after a branch mix-up; verified the 12-file diff is
+  byte-identical whether based on `c3ba681c` or `f0db0785` before
+  finalizing, so no undo/selection changes leaked into this branch.
