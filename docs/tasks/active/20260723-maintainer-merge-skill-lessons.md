@@ -9,12 +9,13 @@ merge stays half-applied: `.git/MERGE_HEAD` present, the resolution only
 *staged*, HEAD unchanged. A follow-up `git push HEAD:branch` then pushes the old
 head (a no-op), and the PR stays `CONFLICTING` while everything *looks* done.
 
-**Rule:** always merge with an explicit ≤70-char subject
-(`git merge origin/main -m "Merge main into <branch> (resolve conflict)"`), and
+**Rule:** always merge with an explicit ≤70-char subject that references the PR
+number rather than the branch name, so length can't drift past the hook
+(`git merge origin/main -m "Merge main into PR #<N> (resolve conflict)"`), and
 after pushing, `git ls-remote` to confirm the remote advanced to the *new merge
 commit*, not the old head.
 
-## Effort/cost lives in PR comments, not commits
+## Effort lives in PR comments, not commits
 
 The agent pipeline's effort summary is aggregated from hidden per-session
 `<!-- agent-metric -->` ledger comments into one `<!-- agent-metrics-summary -->`
@@ -22,6 +23,11 @@ comment. Squash merge concatenates *commit messages* and dedupes
 `Co-Authored-By` — it never pulls comment data. To carry combined effort into
 the squash message you copy the summary comment. When the PR has none (the
 feature wasn't live), omit it — do not invent numbers.
+
+`renderSummary()` in `scripts/agent/metrics.mjs` emits effort only (Agents,
+Scope-size, Attempt, Sessions, Total-time, Turns, Tokens). `aggregate()` sums
+`costUsd` internally but the renderer never prints it, so the copied summary
+carries no dollar cost — describe the block as *effort*, not *effort/cost*.
 
 ## "CI green" ≠ mergeable
 

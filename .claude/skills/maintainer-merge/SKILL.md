@@ -1,6 +1,6 @@
 ---
 name: maintainer-merge
-description: Use when a maintainer needs to squash-merge a wafflebase PR (often a fork / agent-pipeline PR) that has merge conflicts, requires folding the pipeline's combined effort/cost into the squash commit message, is BLOCKED by branch protection, or fails to merge with "refusing to allow an OAuth App to create or update workflow ... without workflow scope".
+description: Use when a maintainer needs to squash-merge a wafflebase PR (often a fork / agent-pipeline PR) that has merge conflicts, requires folding the pipeline's combined effort (time/turns/tokens/sessions) into the squash commit message, is BLOCKED by branch protection, or fails to merge with "refusing to allow an OAuth App to create or update workflow ... without workflow scope".
 ---
 
 # Maintainer Merge
@@ -10,10 +10,10 @@ description: Use when a maintainer needs to squash-merge a wafflebase PR (often 
 Squash-merge a PR the way a wafflebase maintainer does: resolve conflicts on
 the (possibly fork) branch, wait for the *real* required checks, fold every
 commit into one honest squash message — with the pipeline's **combined
-effort/cost** appended when the PR carries it — and merge, bypassing branch
+effort** appended when the PR carries it — and merge, bypassing branch
 protection only as the repo owner.
 
-**Core principle: never fabricate. Effort/cost is aggregated data that already
+**Core principle: never fabricate. Effort is aggregated data that already
 exists in the PR's comments — you copy it, you don't invent it. If it isn't
 there, omit it.**
 
@@ -21,7 +21,7 @@ there, omit it.**
 
 - Merging an agent-pipeline PR (`agent/*` branch), especially from a **fork**.
 - PR is `CONFLICTING` / `DIRTY` and needs conflict resolution before merge.
-- You want the squash commit to carry the **combined effort/cost** of all the
+- You want the squash commit to carry the **combined effort** of all the
   agent sessions (turns / tokens / time), not just the diff.
 - Merge is `BLOCKED` (branch protection) or fails with the `workflow` scope error.
 
@@ -60,9 +60,10 @@ non-interactive tool call. Have the human run it, then continue.
 2. **Resolve conflicts** on the PR branch. `gh pr checkout <N>`, then merge with
    an **explicit short subject** — the auto-generated merge subject is ~71 chars
    and the repo's commit-msg hook rejects >70, silently leaving the merge
-   *uncommitted* (see pitfalls):
+   *uncommitted* (see pitfalls). Keep the subject **length-bounded** (reference
+   the PR number, not the branch name, so it can't grow past 70):
    ```bash
-   git merge origin/main -m "Merge main into <branch> (resolve conflict)"
+   git merge origin/main -m "Merge main into PR #<N> (resolve conflict)"
    ```
    A merge commit is fine — squash flattens it, and it preserves the
    contributor's original commits (unlike a rebase force-push). Then **verify
@@ -101,7 +102,7 @@ non-interactive tool call. Have the human run it, then continue.
 
 5. **Assemble the squash message.** Subject ≤70 chars, ends with `(#N)`; body
    explains WHY, folding all commits into one coherent narrative (see the repo's
-   commit-message rules in `CLAUDE.md`). Append the effort/cost block — below.
+   commit-message rules in `CLAUDE.md`). Append the effort block — below.
 
 6. **Merge.** Owner bypass is only allowed when `enforce_admins == false`:
    ```bash
@@ -113,15 +114,18 @@ non-interactive tool call. Have the human run it, then continue.
    `Co-Authored-By` trailers, so keep them in the body. The local merge commit
    from step 2 disappears — squash collapses the branch-vs-main diff into one.
 
-## Combining effort/cost into the squash message
+## Combining effort into the squash message
 
 The per-session effort is **not** in the git commits. Each agent session
 (`implement` / `ci-fix` / `review-fix`) posts a hidden append-only ledger
 comment `<!-- agent-metric {json} -->`, and the pipeline renders one aggregated
 summary comment marked `<!-- agent-metrics-summary -->` (heading `## 🤖 Agent
 effort`) via `scripts/agent/metrics.mjs summarize`. **That summary already IS
-the combined effort of every commit** (turns/tokens/time summed, sessions
-counted). To fold it into the squash body, copy it — don't recompute:
+the combined effort of every commit** — `renderSummary()` emits Agents,
+Scope-size, Attempt, Sessions, Total-time, Turns, and Tokens (summed across
+sessions). Note it does **not** render a dollar cost: `aggregate()` sums
+`costUsd` internally but `renderSummary()` never prints it, so the summary you
+copy is effort-only. To fold it into the squash body, copy it — don't recompute:
 
 ```bash
 # Pull the rendered summary (aggregate of all sessions) and strip the marker.
@@ -136,14 +140,16 @@ predates the metrics feature, or the pipeline never promoted it — **omit the
 block entirely. Never write plausible-looking numbers.** If you want the raw
 ledger instead of the rendered summary, aggregate the `<!-- agent-metric -->`
 records the same way `aggregate()` in `scripts/agent/metrics.mjs` does (sum
-turns/tokens/durationMs; sessions = count; attempt = review-fix rounds + 1).
+turns/tokens/durationMs; sessions = count; attempt = review-fix rounds + 1) —
+`costUsd` is summed there too, but keep it out of the message unless the
+renderer starts emitting it.
 
 ## Pitfalls
 
 | Symptom | Cause / Fix |
 |---|---|
 | `refusing to allow an OAuth App ... without workflow scope` | `gh` token lacks `workflow`. `gh auth refresh -h github.com -s workflow` (interactive — have the human run it). |
-| Conflict "resolved" but PR still `CONFLICTING`; `.git/MERGE_HEAD` present, resolution only *staged* | The commit-msg hook rejected the >70-char auto-merge subject, so the merge never committed. Re-run the merge with `-m "Merge main into <branch> (resolve conflict)"` (≤70 chars). |
+| Conflict "resolved" but PR still `CONFLICTING`; `.git/MERGE_HEAD` present, resolution only *staged* | The commit-msg hook rejected the >70-char auto-merge subject, so the merge never committed. Re-run the merge with a length-bounded `-m "Merge main into PR #<N> (resolve conflict)"` (≤70 chars). |
 | `mergeable=MERGEABLE` but `state=BLOCKED` | Branch protection: usually a required **review** (`REVIEW_REQUIRED`), sometimes a pending required check. Approve, wait, or `--admin` (only if `enforce_admins=false`). |
 | Green "CI" but still can't merge | "CI" ≠ the required contexts. Verify `verify-self/browser/integration` specifically. |
 | Can't push to a fork PR branch | Needs `maintainer_can_modify == true`; push by fork URL, not `origin`. |
@@ -157,7 +163,7 @@ turns/tokens/durationMs; sessions = count; attempt = review-fix rounds + 1).
 ```bash
 gh pr view <N> --json mergeable,mergeStateStatus,isCrossRepository,files
 gh pr checkout <N>
-git merge origin/main -m "Merge main into <branch> (resolve conflict)"  # ≤70 chars
+git merge origin/main -m "Merge main into PR #<N> (resolve conflict)"  # ≤70 chars
 git push git@github.com:<fork>/<repo>.git HEAD:<ref> && git ls-remote <fork-url> refs/heads/<ref>
 gh api .../branches/<base>/protection -q .required_status_checks.contexts
 gh pr merge <N> --squash --admin --subject "... (#N)" --body-file msg.txt
