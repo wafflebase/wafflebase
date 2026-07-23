@@ -79,3 +79,40 @@ line's max font size, not the marker's own size).
   `c3ba681c`) after a branch mix-up; verified the 12-file diff is
   byte-identical whether based on `c3ba681c` or `f0db0785` before
   finalizing, so no undo/selection changes leaked into this branch.
+- **CI `verify-browser` failure — root cause found, not yet fixed:**
+  adding `DocsVisualScenarios` to the harness page deterministically
+  perturbs sub-pixel rendering of ~19 *unrelated* chart/slides baselines
+  captured later on the same page load (byte-diff only; visually
+  indistinguishable side-by-side). Ruled out, with direct evidence:
+  - Not baseline drift or a floating Docker image tag: a clean
+    `upstream/main` checkout (no docs changes) passes all 212 targets in
+    the same Docker image, matching the exact baseline hashes that fail
+    on this branch.
+  - Not CI-vs-local environment mismatch: reproduced the identical 19
+    mismatches, with byte-identical "actual" hashes, running
+    `bash scripts/run-browser-tests-docker.sh visual` locally.
+  - Not flaky/non-deterministic: two separate CI runs on this branch
+    disagreed on which subset mismatched only because the first run
+    predated the Docker-captured docs baselines being committed; after
+    accounting for that, the remaining 19 reproduce identically every
+    time.
+  - Not the documented Google-Fonts mount-race (the leading suspect,
+    since that race is explicitly called out in
+    `verify-visual-browser.mjs`'s comments): added a second
+    `document.fonts.check()` pass after every section-ready wait,
+    including a missing `slidesSection` wait (a real, independent gap —
+    the script never confirmed slides had finished mounting before
+    capturing slides screenshots) — same 19 mismatches, byte-identical
+    actual hashes before and after. Reverted this change; not worth
+    carrying speculative code that doesn't demonstrably fix anything.
+  - Leading remaining hypothesis: the two new docs-editor canvas mounts
+    add real main-thread layout/paint work that shifts timing or
+    anti-aliasing for sibling chart/slides canvases rendered in the same
+    capture pass — a side effect of composing more canvas-heavy
+    components on one shared page, not a bug in any single scenario.
+  - Paused further investigation here to report to the mentor/team
+    rather than keep guessing. Remaining options: (a) isolate the docs
+    canvases from the shared capture pass (e.g. gate their paint so they
+    don't compete with chart/slides during capture), or (b) accept the
+    imperceptible diff and re-baseline the 19 affected files as a side
+    effect of adding new page content.
