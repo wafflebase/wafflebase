@@ -147,6 +147,44 @@ export function applyVerifications(findings, verdictsByIndex) {
   });
 }
 
+/**
+ * Union the findings from N independent samples of one lens (Part 1: fight
+ * false negatives from single-sample non-determinism). We take the UNION, not a
+ * vote — a finding raised by any sample enters the gate (the verifier refute
+ * pass is the precision counterweight). coerceFindings keeps malformed entries;
+ * dedupeFindings collapses identical file+summary and keeps the highest severity,
+ * so it never merges two distinct bugs. `results` are raw lens outputs (or nulls
+ * from failed samples).
+ */
+export function unionSamples(results) {
+  // Coerce EACH successful sample's findings individually — do NOT pre-filter to
+  // array payloads. coerceFindings turns a malformed/non-array payload into a
+  // synthetic blocking finding, so a malformed successful sample fails toward
+  // blocking instead of silently contributing nothing (which could yield a clean
+  // verdict). Nullish/error sentinels are dropped (main only passes successful
+  // samples, and throws before calling this if ALL failed).
+  const list = (Array.isArray(results) ? results : []).filter((r) => r && !r.__error);
+  const all = list.flatMap((r) => coerceFindings(r.findings));
+  return dedupeFindings(all);
+}
+
+/**
+ * Parse the prior-round findings file (Part 2: cross-round re-check). Tolerant —
+ * bad/empty/missing input yields [] (no prior findings to re-check, safe). Keeps
+ * only object entries; each is expected to carry {lens, severity, file, summary,
+ * evidence} (the workflow tags `lens` when reading prior check runs).
+ */
+export function parsePriorFindings(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  return data.filter((f) => f && typeof f === "object");
+}
+
 // --- SDK wrapper (lazy import) ----------------------------------------------
 
 async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
@@ -274,6 +312,12 @@ async function main() {
   const changedFiles = args["changed-files"] && existsSync(args["changed-files"])
     ? readFileSync(args["changed-files"], "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
     : [];
+  // Part 2: blocking findings from the PREVIOUS review round (tagged with their
+  // lens id by the workflow). Absent/empty on the first round. Re-checked per
+  // lens below so a still-present issue can't vanish if this round's pass misses it.
+  const priorFindings = args["prior-findings"] && existsSync(args["prior-findings"])
+    ? parsePriorFindings(readFileSync(args["prior-findings"], "utf8"))
+    : [];
 
   const allLenses = loadLenses(lensesDir);
   // panel[] is the AUTHORITATIVE lens list the workflow + mark-ready consume —
@@ -295,13 +339,24 @@ async function main() {
 
     let findings, summary;
     try {
-      const res = await runLens(lens, { rubric: lens.rubric, diff, issue, repo });
-      // The SDK schema is REQUESTED of the model but the harness must not trust
-      // it blindly. COERCE (never drop) so a malformed finding fails toward
-      // blocking instead of vanishing off the gate path, then dedupe so
-      // duplicates don't get double-verified / double-counted.
-      findings = dedupeFindings(coerceFindings(res.findings));
-      summary = typeof res.summary === "string" ? res.summary : "";
+      // Part 1: sample the lens N times (default 2) and UNION the findings, to
+      // fight single-sample non-determinism (the #521 false negative). Each
+      // sample is independent and individually caught: a sample that throws
+      // contributes nothing, but if ALL samples fail we fall through to the
+      // catch below (fail-closed, same as the old single-run crash path).
+      const samples = Math.max(1, Number(lens.samples) || 2);
+      const results = await Promise.all(
+        Array.from({ length: samples }, async () => {
+          try { return await runLens(lens, { rubric: lens.rubric, diff, issue, repo }); }
+          catch (e) { return { __error: e.message }; }
+        }),
+      );
+      const ok = results.filter((r) => r && !r.__error);
+      if (ok.length === 0) throw new Error((results[0] && results[0].__error) || "all lens samples failed");
+      // unionSamples coerces (never drops) + dedupes (collapses identical
+      // file+summary, keeps highest severity, never merges distinct bugs).
+      findings = unionSamples(ok);
+      summary = ok.map((r) => (typeof r.summary === "string" ? r.summary : "")).filter(Boolean).join("\n\n");
     } catch (err) {
       const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
       writeVerdict(lensOut, lens, failFindings, "(no valid verdict — failing closed)", { valid: false });
@@ -318,8 +373,25 @@ async function main() {
     }));
     const kept = applyVerifications(findings, verdicts);
 
+    // Part 2: re-check this lens's blocking findings from the PREVIOUS round
+    // against the CURRENT diff, biased-to-keep. verifyFinding asks "is this
+    // genuinely present in the diff?" — so a fixed finding is refuted (dropped)
+    // and a still-present one is confirmed (kept). Because applyVerifications
+    // drops only on high-confidence `refuted`, a prior finding survives unless
+    // it's confidently resolved — even if this round's fresh pass missed it.
+    const priorForLens = priorFindings.filter((p) => p.lens === lens.id);
+    const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
+      if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
+      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model }); }
+      catch { return null; } // error → keep (fail toward blocking)
+    }));
+    const priorKept = applyVerifications(priorForLens, priorVerdicts);
+    // Merge fresh + still-open prior findings; dedupe collapses a prior finding
+    // the fresh pass also re-found (and never merges two distinct bugs).
+    const merged = dedupeFindings([...kept, ...priorKept]);
+
     // Advisory lenses report findings but never block.
-    const { conclusion } = writeVerdict(lensOut, lens, kept, summary, {
+    const { conclusion } = writeVerdict(lensOut, lens, merged, summary, {
       valid: true,
       conclusion: blocking ? undefined : "success",
       advisory: !blocking,
