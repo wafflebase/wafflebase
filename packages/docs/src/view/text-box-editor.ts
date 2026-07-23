@@ -32,6 +32,7 @@ import { createEmptyBlock, CLEAR_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
+import { createPendingStyle } from './pending-style.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -419,6 +420,13 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   docStore.setDocument({ blocks: seedBlocks });
 
   const doc = new Doc(docStore);
+  // Wired into the TextEditor below so collapsed-caret style toggling
+  // and the link-trailing-edge exit (TextEditor.exitLinkIfAtTrailingEdge)
+  // work here exactly as they do in the full Docs editor — this factory
+  // powers both Slides text boxes and Slides table cells (the caller
+  // supplies whichever `blocks` it needs edited), so wiring it once here
+  // fixes both surfaces.
+  const pending = createPendingStyle(doc);
   const measurer = new CanvasTextMeasurer();
   let layoutCache: LayoutCache | undefined;
   let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
@@ -681,6 +689,7 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
   );
   textEditor.setCursorTarget(canvas);
+  textEditor.setPendingStyle(pending);
   if (opts.onLinkRequest) {
     textEditor.onLinkRequest = opts.onLinkRequest;
   }
