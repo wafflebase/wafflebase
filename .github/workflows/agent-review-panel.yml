@@ -562,15 +562,21 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
-          if [ "$AFTER" = "$BEFORE" ]; then
-            echo "Fixer pushed no new commit to the remote branch — paging a human." >&2
+          # Only trust a "re-triggered" conclusion when BOTH remote heads
+          # resolved AND they differ. `git ls-remote | cut` masks a failed
+          # lookup (network error, missing branch) as an empty string and the
+          # before-fix step may have been skipped, so an empty BEFORE or AFTER
+          # means we could NOT establish that a new commit landed — fail safe
+          # and page rather than assume the fix pushed.
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            echo "Fixer pushed a new commit ($AFTER) — CI + a fresh panel will re-trigger."
+          else
+            echo "Branch head did not advance (before='$BEFORE' after='$AFTER') — paging a human." >&2
             printf '%s\n' \
               '<!-- agent-review-paged -->' \
-              '🛑 The fix agent produced **no new commit** on the branch, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it did not converge within its turn budget, hit tool-permission denials, or could not push — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
+              '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
             gh pr edit "$PR" --add-label "agent:needs-human-review" || true
-          else
-            echo "Fixer pushed a new commit ($AFTER) — CI + a fresh panel will re-trigger."
           fi
 
       # Record this review-fix session's effort into the PR metrics ledger

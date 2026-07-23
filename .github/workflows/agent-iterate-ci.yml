@@ -224,18 +224,24 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
-          if [ "$AFTER" = "$BEFORE" ]; then
-            echo "No new commit reached the branch — paging a human." >&2
+          # Only trust a "CI will re-run" conclusion when BOTH remote heads
+          # resolved AND they differ. `git ls-remote | cut` masks a failed
+          # lookup (network error, missing branch) as an empty string and the
+          # before-fix step may have been skipped, so an empty BEFORE or AFTER
+          # means we could NOT establish that a new commit landed — fail safe
+          # and page rather than assume progress and let the loop dead-end.
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            echo "A new commit reached the branch ($AFTER) — CI will re-run."
+          else
+            echo "Branch head did not advance (before='$BEFORE' after='$AFTER') — paging a human." >&2
             # This step runs under always(), so it also covers a hard fixer error
             # or an earlier failed step — keep the cause generic, don't assert
             # turn-budget/denials (which would mislabel those cases).
             printf '%s\n' \
               '<!-- agent-paged -->' \
-              '🛑 The CI-fix round produced **no new commit** on the branch, so CI stays red and the loop cannot re-trigger itself (no push → no new CI). This can mean the fixer did not converge within its turn budget, hit tool-permission denials, could not push, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
+              '🛑 The CI-fix round did not advance the branch head, so CI stays red and the loop cannot re-trigger itself (no new push → no new CI). This can mean the fixer produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, the branch head could not be determined, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
             gh pr edit "$PR" --add-label "agent:needs-human-review" || true
-          else
-            echo "A new commit reached the branch ($AFTER) — CI will re-run."
           fi
 
       # Record this session's effort into the PR metrics ledger (fail-safe:
