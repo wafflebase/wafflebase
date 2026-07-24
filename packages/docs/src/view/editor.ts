@@ -2037,7 +2037,11 @@ export function initialize(
     afterCursorRender();
   };
 
-  const textEditor = readOnly ? null : new TextEditor(
+  // The TextEditor is constructed in read-only mode too: it owns the
+  // pointer/clipboard/link machinery (drag selection, copy serialization,
+  // hyperlink opening) that viewers need. Its `readOnly` flag gates every
+  // mutating path so no edit can reach the store. See issue #482.
+  const textEditor = new TextEditor(
     container,
     doc,
     cursor,
@@ -2076,6 +2080,7 @@ export function initialize(
     invalidateLayout,
     () => headerLayout,
     () => footerLayout,
+    readOnly,
   );
   textEditorRef = textEditor;
 
@@ -2579,7 +2584,10 @@ export function initialize(
   };
   if (textEditor) {
     textEditor.onFocusChange(handleFocus, handleBlur);
-    textEditor.focus();
+    // In read-only mode don't steal focus on mount — a viewer opening the
+    // document shouldn't get a blinking caret at the start. Focus is
+    // acquired on first click (so Ctrl/Cmd+C works) via handleMouseDown.
+    if (!readOnly) textEditor.focus();
   }
 
   return {
