@@ -73,6 +73,13 @@ export interface Store {
   getFormulaGrid(): Promise<Grid>;
 
   /**
+   * `getUsedBounds` returns the bounding `Range` of all populated cells, or
+   * `undefined` when the store has no data. Used to clamp unbounded range
+   * references (`A:A`, `1:1`, `A1:B`) to the sheet's data extent.
+   */
+  getUsedBounds(): Promise<Range | undefined>;
+
+  /**
    * `buildDependantsMap` method builds a map of dependants.
    */
   buildDependantsMap(srefs: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>>;

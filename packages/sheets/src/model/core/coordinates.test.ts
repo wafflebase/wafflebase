@@ -9,6 +9,8 @@ import {
   parseRanges,
   mergeOverlapping,
   removeRange,
+  isUnboundedRange,
+  resolveRange,
 } from './coordinates';
 
 describe('Ranges utilities', () => {
@@ -222,6 +224,50 @@ describe('Ranges utilities', () => {
 
     it('should return empty array when removing from empty', () => {
       expect(removeRange([], r(1, 1, 2, 2))).toEqual([]);
+    });
+  });
+
+  describe('isUnboundedRange', () => {
+    it('detects whole-column, whole-row, and open-ended ranges', () => {
+      expect(isUnboundedRange('A:A')).toBe(true);
+      expect(isUnboundedRange('A:C')).toBe(true);
+      expect(isUnboundedRange('1:1')).toBe(true);
+      expect(isUnboundedRange('2:5')).toBe(true);
+      expect(isUnboundedRange('A1:B')).toBe(true);
+      expect(isUnboundedRange('B2:B')).toBe(true);
+      expect(isUnboundedRange('A:B2')).toBe(true);
+      expect(isUnboundedRange('$A:$A')).toBe(true);
+    });
+
+    it('returns false for bounded ranges and single cells', () => {
+      expect(isUnboundedRange('A1:B2')).toBe(false);
+      expect(isUnboundedRange('$A$1:$B$2')).toBe(false);
+      expect(isUnboundedRange('A1')).toBe(false);
+      expect(isUnboundedRange('A')).toBe(false);
+    });
+  });
+
+  describe('resolveRange', () => {
+    const bounds = r(1, 1, 3, 2); // maxR=3, maxC=2
+
+    it('clamps a whole column to the data extent', () => {
+      expect(resolveRange('A:A', bounds)).toEqual(r(1, 1, 3, 1));
+      expect(resolveRange('A:C', bounds)).toEqual(r(1, 1, 3, 3));
+    });
+
+    it('clamps a whole row to the data extent', () => {
+      expect(resolveRange('1:1', bounds)).toEqual(r(1, 1, 1, 2));
+      expect(resolveRange('2:5', bounds)).toEqual(r(2, 1, 5, 2));
+    });
+
+    it('clamps open-ended ranges', () => {
+      expect(resolveRange('A1:B', bounds)).toEqual(r(1, 1, 3, 2));
+      expect(resolveRange('B2:B', bounds)).toEqual(r(2, 2, 3, 2));
+      expect(resolveRange('A:B2', bounds)).toEqual(r(1, 1, 2, 2));
+    });
+
+    it('passes bounded ranges through (normalized)', () => {
+      expect(resolveRange('A1:B2', bounds)).toEqual(r(1, 1, 2, 2));
     });
   });
 });

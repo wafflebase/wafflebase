@@ -1,4 +1,4 @@
-import { extractReferences } from '../formula/formula';
+import { expandUnboundedRanges, extractReferences } from '../formula/formula';
 import {
   isCrossSheetRef,
   parseRef,
@@ -310,11 +310,19 @@ export class MemStore implements Store {
   }
 
   /**
+   * `getUsedBounds` returns the bounding range of all populated cells.
+   */
+  async getUsedBounds(): Promise<Range | undefined> {
+    return this.cellIndex.bounds();
+  }
+
+  /**
    * `buildDependantsMap` method builds a map of dependants. Unlike the
    * `IDBStore` implementation, this builds the map from the entire grid.
    */
   async buildDependantsMap(_: Array<Sref>): Promise<Map<Sref, Set<Sref>>> {
     const entries = Array.from(this.grid.entries());
+    const bounds = this.cellIndex.bounds();
 
     const dependantsMap = new Map<Sref, Set<Sref>>();
     for (const [ref, cell] of entries) {
@@ -322,7 +330,7 @@ export class MemStore implements Store {
         continue;
       }
 
-      for (const r of toSrefs(extractReferences(cell.f))) {
+      for (const r of toSrefs(extractReferences(expandUnboundedRanges(cell.f, bounds)))) {
         if (isCrossSheetRef(r)) continue; // skip cross-sheet deps
         if (!dependantsMap.has(r)) {
           dependantsMap.set(r, new Set());
