@@ -8,6 +8,9 @@ import {
   coerceFindings,
   unionSamples,
   parsePriorFindings,
+  compareSampleAgreement,
+  severityCounts,
+  verifierTally,
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
@@ -121,6 +124,51 @@ test("cross-round merge: an unresolved prior finding the fresh pass missed still
   // but if the re-check confidently refutes it (genuinely resolved) → dropped
   const resolved = applyVerifications(priorForLens, [{ verdict: "refuted", confidence: "high" }]);
   assert.equal(classify(dedupeFindings([...freshKept, ...resolved])).conclusion, "success");
+});
+
+test("compareSampleAgreement: identical/partial/disjoint/single classification", () => {
+  const x = [{ file: "a.ts", summary: "X" }];
+  const y = [{ file: "b.ts", summary: "Y" }];
+  // fewer than 2 samples → nothing to compare (covers the all-failed case too)
+  assert.equal(compareSampleAgreement([]), "single");
+  assert.equal(compareSampleAgreement([x]), "single");
+  // same finding set (including both empty) → identical
+  assert.equal(compareSampleAgreement([x, x]), "identical");
+  assert.equal(compareSampleAgreement([[], []]), "identical");
+  // zero overlap between every pair → disjoint
+  assert.equal(compareSampleAgreement([x, y]), "disjoint");
+  // some but not total overlap → partial
+  assert.equal(compareSampleAgreement([x, [...x, ...y]]), "partial");
+  assert.equal(compareSampleAgreement([x, y, [...x, ...y]]), "partial");
+  // case/whitespace-insensitive key, same as dedupeFindings
+  assert.equal(compareSampleAgreement([[{ file: "a.ts", summary: "X" }], [{ file: "a.ts", summary: " x " }]]), "identical");
+  // a malformed sample still keys consistently via coerceFindings
+  assert.equal(compareSampleAgreement(["not an array", "not an array"]), "identical");
+});
+
+test("severityCounts: tallies by normalized severity, unknown → major", () => {
+  assert.deepEqual(severityCounts([]), { critical: 0, major: 0, minor: 0, nit: 0 });
+  assert.deepEqual(
+    severityCounts([{ severity: "critical" }, { severity: "critical" }, { severity: "minor" }, { severity: "weird" }]),
+    { critical: 2, major: 1, minor: 1, nit: 0 },
+  );
+  assert.deepEqual(severityCounts("not an array"), { critical: 0, major: 0, minor: 0, nit: 0 });
+});
+
+test("verifierTally: only blocking findings are sent; refuted vs high-confidence-refuted", () => {
+  const findings = [
+    { severity: "critical", summary: "c" },
+    { severity: "major", summary: "m" },
+    { severity: "minor", summary: "n" }, // never sent to the verifier
+  ];
+  const verdicts = [{ verdict: "refuted", confidence: "high" }, { verdict: "refuted", confidence: "low" }, null];
+  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1 });
+  // confirmed / null verdicts: sent but not refuted
+  assert.deepEqual(
+    verifierTally(findings, [{ verdict: "confirmed", confidence: "high" }, null, null]),
+    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0 },
+  );
+  assert.deepEqual(verifierTally([], []), { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0 });
 });
 
 test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any doubt", () => {
