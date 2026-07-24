@@ -47,9 +47,9 @@ changes still fail.
 - [x] Unit-validate `compareImages` on the real CI flake (0 diff px → pass),
       a 48px synthetic block (fail), a large rect (fail), a dimension change
       (fail). eslint clean.
-- [ ] Verify: Docker visual lane green (all baselines pass end-to-end).
-- [ ] `pnpm verify:fast`.
-- [ ] Self code-review, open PR to `main`.
+- [x] Verify: Docker visual lane green (all baselines pass end-to-end).
+- [x] `pnpm verify:fast`.
+- [x] Self code-review, open PR to `main` (#545).
 
 ## Review
 

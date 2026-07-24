@@ -140,20 +140,43 @@ const visualTargets = [
 // (moved layout, changed glyphs/colors) still exceed it and fail. This mirrors
 // how Playwright's own test runner compares screenshots.
 // Parse a numeric tolerance override. Falls back to `fallback` unless the env
-// var holds a finite number — an unset (`undefined`), empty (`""`), or
-// non-numeric value must not silently collapse the tolerance (e.g. `Number("")`
-// is 0, which would revert to byte-exact; `Number("high")` is NaN, which would
-// fail every comparison).
-function numberEnv(name, fallback) {
+// var holds a finite number that also passes `isValid`. This rejects two kinds
+// of footgun: values that fail to parse (unset/`""`/`"high"` — `Number("")` is
+// 0, which would revert to byte-exact; `Number("high")` is NaN, which would fail
+// every comparison) and values that parse but lie outside a setting's sensible
+// domain (e.g. `VISUAL_MAX_DIFF_RATIO=1` → `allowed = total` → every comparison
+// silently passes). An ignored override is warned so a typo isn't invisible.
+function numberEnv(name, fallback, isValid) {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (!Number.isFinite(parsed) || (isValid && !isValid(parsed))) {
+    console.warn(
+      `[verify:visual:browser] Ignoring out-of-range ${name}="${raw}"; using ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
 }
 
-const PIXELMATCH_THRESHOLD = numberEnv("VISUAL_PIXELMATCH_THRESHOLD", 0.1);
-const MAX_DIFF_RATIO = numberEnv("VISUAL_MAX_DIFF_RATIO", 0.0001);
-const MAX_DIFF_PIXELS_FLOOR = numberEnv("VISUAL_MAX_DIFF_PIXELS_FLOOR", 20);
+// threshold is a YIQ distance in [0, 1]; ratio is a fraction of total pixels in
+// [0, 1) (1 would allow the whole image to differ); floor is a non-negative
+// pixel count.
+const PIXELMATCH_THRESHOLD = numberEnv(
+  "VISUAL_PIXELMATCH_THRESHOLD",
+  0.1,
+  (v) => v >= 0 && v <= 1,
+);
+const MAX_DIFF_RATIO = numberEnv(
+  "VISUAL_MAX_DIFF_RATIO",
+  0.0001,
+  (v) => v >= 0 && v < 1,
+);
+const MAX_DIFF_PIXELS_FLOOR = numberEnv(
+  "VISUAL_MAX_DIFF_PIXELS_FLOOR",
+  20,
+  (v) => Number.isInteger(v) && v >= 0,
+);
 
 function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
