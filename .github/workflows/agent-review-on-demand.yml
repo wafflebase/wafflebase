@@ -1,0 +1,275 @@
+# On-demand review panel: when someone comments "@claude review" on a PR, run the
+# SAME read-only lens panel the autonomous pipeline uses (scripts/agent/review-panel.mjs)
+# and post its findings as ONE PR comment. Unlike agent-review-panel.yml this is
+# comment-triggered, works on ANY PR (including forks and human-authored branches),
+# and is purely advisory: it records NO check runs and drives NO promote/fix loop,
+# so it never touches the human-approval merge gate. "@claude loop" is the verb
+# that opts a PR into the auto-fix machinery — this one only reports.
+#
+# Trust: the PR author OR a trusted maintainer may trigger it (read-only, low
+# risk). Throttled to one review per head SHA.
+#
+# Security (identical to agent-review-panel.yml): the reviewer is read-only
+# (Read/Grep/Glob), the orchestrator + lenses come from a TRUSTED `main` checkout,
+# the SDK is installed in a separate UNPRIVILEGED job (never in the job holding the
+# auth token), the branch checkout drops credentials + executable agent config,
+# and the reviewed SHA is pinned.
+name: Agent Review On-Demand
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  route:
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.comment.user.type != 'Bot' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      command: ${{ steps.route.outputs.command }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/agent/command.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Route command
+        id: route
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node scripts/agent/command.mjs "$BODY" pr
+
+  # Authoritative trust + throttle, BEFORE any expensive work (SDK install, panel).
+  # Authorized = PR author OR a maintainer with write access. Throttle = skip if
+  # this head SHA was already reviewed. Unauthorized/throttled → proceed=false and
+  # everything downstream is skipped silently.
+  authorize:
+    needs: [route]
+    if: needs.route.outputs.command == 'review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+      issues: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      pr: ${{ steps.gate.outputs.pr }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+    steps:
+      - name: Authorize and throttle
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr_number = context.payload.issue.number;
+            const actor = context.payload.comment.user.login;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+            core.setOutput('pr', String(pr_number));
+            core.setOutput('head_sha', pr.head.sha);
+
+            let trusted = false;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: actor });
+              trusted = ['admin', 'maintain', 'write'].includes(data.permission);
+            } catch { /* not a collaborator */ }
+            const isAuthor = pr.user && pr.user.login === actor;
+            if (!trusted && !isAuthor) {
+              core.info(`@${actor} is neither the PR author nor a maintainer; ignoring.`);
+              return core.setOutput('proceed', 'false');
+            }
+
+            const marker = `<!-- agent-review:${pr.head.sha} -->`;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr_number, per_page: 100 });
+            if (comments.some((c) => (c.body || '').includes(marker))) {
+              core.info(`This commit (${pr.head.sha}) was already reviewed; skipping.`);
+              return core.setOutput('proceed', 'false');
+            }
+            core.setOutput('proceed', 'true');
+
+  # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment) and
+  # hand it to the review job as a tarball. Same #501 no-install rule as the
+  # autonomous panel: the token-holding review job must never run `npm install`.
+  deps:
+    needs: [route, authorize]
+    if: needs.authorize.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main # trusted source for package.json + lockfile
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - run: cd scripts/agent && npm ci --no-audit --no-fund
+      # Tar to preserve +x bits + symlinks that upload-artifact would strip.
+      - run: cd scripts/agent && tar -czf /tmp/agent-sdk-node-modules.tgz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-sdk-node-modules-ondemand
+          path: /tmp/agent-sdk-node-modules.tgz
+          retention-days: 1
+
+  review:
+    needs: [route, authorize, deps]
+    if: needs.authorize.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The CLAUDE_CODE_OAUTH_TOKEN lives in the protected `agent` environment. A
+    # maintainer can relax that environment's protection if they want review to be
+    # self-service rather than approval-gated.
+    environment: agent
+    permissions:
+      contents: read # read-only toward the PR
+      pull-requests: read
+      issues: write # post the single findings comment (NO checks:write — advisory only)
+    concurrency:
+      group: agent-review-ondemand-${{ needs.authorize.outputs.pr }}
+      cancel-in-progress: false
+    steps:
+      # Pin the reviewed commit. refs/pull/<n>/head resolves fork PR heads too
+      # (GitHub mirrors them into the base repo). persist-credentials:false — the
+      # reviewer's cwd is untrusted branch code; keep no token in .git/config.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ needs.authorize.outputs.pr }}/head
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Compute diff + changed files (data for the reviewers)
+        run: |
+          git fetch --no-tags origin main
+          git diff origin/main...HEAD > /tmp/pr.diff
+          git diff --name-only origin/main...HEAD > /tmp/changed.txt
+
+      # Best-effort issue spec for the design-fit lens — same provenance rule as
+      # the autonomous panel (only trust an `agent:candidate`, human-authored issue
+      # referenced by "Fixes #N"); otherwise design-fit reviews without a spec.
+      - name: Fetch originating issue spec (for design-fit)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const num = Number('${{ needs.authorize.outputs.pr }}');
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: num });
+            const m = (pr.body || '').match(/(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/i);
+            let text = '';
+            if (m) {
+              try {
+                const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: Number(m[1]) });
+                const labelled = (issue.labels || []).some((l) => (l.name || l) === 'agent:candidate');
+                const human = issue.user && issue.user.type !== 'Bot';
+                if (labelled && human) text = `# ${issue.title}\n\n${issue.body || ''}`;
+              } catch {}
+            }
+            fs.writeFileSync('/tmp/issue.txt', text);
+
+      - name: Clear stale verdicts
+        run: rm -rf .agent-review .trusted
+
+      # Trusted orchestrator + lenses from main (NOT the branch's copy).
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .trusted
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download Agent SDK (built by the unprivileged deps job)
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-sdk-node-modules-ondemand
+          path: /tmp/agent-sdk
+      - name: Unpack the Agent SDK into the trusted tree
+        run: |
+          mkdir -p .trusted/scripts/agent
+          tar -xzf /tmp/agent-sdk/agent-sdk-node-modules.tgz -C .trusted/scripts/agent
+
+      # SECURITY: strip branch-supplied executable agent config (.claude hooks +
+      # .mcp.json) from the reviewer's cwd. settingSources:[] is the primary guard;
+      # this is belt-and-suspenders.
+      - name: Strip untrusted agent config from the branch
+        run: rm -rf "$GITHUB_WORKSPACE/.claude" "$GITHUB_WORKSPACE/.mcp.json"
+
+      - name: Run review panel
+        id: panel
+        # A crash must not fail the job — the aggregate step below then posts a
+        # fail-closed note instead of results.
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: >-
+          node .trusted/scripts/agent/review-panel.mjs
+          --diff-file /tmp/pr.diff
+          --issue-file /tmp/issue.txt
+          --changed-files /tmp/changed.txt
+          --repo "$GITHUB_WORKSPACE"
+          --lenses-dir .trusted/scripts/agent/lenses
+          --out .agent-review
+
+      # Aggregate panel.json + each lens's pre-rendered summary.md into ONE comment.
+      # No check runs — this is advisory. Fails closed to a note if the panel crashed.
+      - name: Post aggregated review comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = Number('${{ needs.authorize.outputs.pr }}');
+            const marker = `<!-- agent-review:${process.env.HEAD_SHA} -->`;
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            let panel = null;
+            try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
+
+            if (!panel) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body:
+                `${marker}\n🛑 **On-demand review could not complete** — the panel produced no verdict (failing closed). A human should review this PR.` });
+              return;
+            }
+            const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
+            // Overall verdict from the BLOCKING+applicable lenses (same rule as the
+            // gating panel), but rendered as advice, not a gate.
+            let blocked = false;
+            for (const lens of manifest) {
+              const p = byId[lens.id];
+              const blocking = String(lens.gating ?? 'blocking') === 'blocking';
+              const applicable = p ? p.applicable !== false : true;
+              const conclusion = p ? p.conclusion : 'failure';
+              if (blocking && applicable && conclusion !== 'success') blocked = true;
+            }
+            const header = blocked
+              ? '### 🔴 Review panel: changes suggested'
+              : '### 🟢 Review panel: looks good';
+            const bodies = manifest.map((lens) => {
+              let md = '_No summary produced._';
+              try { md = fs.readFileSync(`.agent-review/${lens.id}/summary.md`, 'utf8'); } catch {}
+              return md.trim();
+            });
+            const note = '\n\n_Advisory only — this on-demand review records no status checks and does not gate merge; a human approval is still required._';
+            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${note}`;
+            // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
+            if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + note;
+            await github.rest.issues.createComment({ owner, repo, issue_number: pr, body });

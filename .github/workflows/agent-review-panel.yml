@@ -4,7 +4,8 @@
 # unforgeable `agent-review-<lens>` CHECK RUN per lens. The trusted script (run
 # from a `main` checkout) computes each verdict — the subagents only classify.
 #
-# Flow (only on green CI for base-repo agent/ branches):
+# Flow (only on green CI for base-repo agent-managed PRs — an autonomous `agent/`
+# branch, OR a human PR opted in via the `agent:managed` label / "@claude loop"):
 #   review-panel → per-lens check runs (fail-closed if a lens produces no verdict)
 #   promote      → all lens checks success → ready gate (mark-ready --promote)
 #   fix          → any lens failed → feed combined findings to the author (bounded)
@@ -26,16 +27,46 @@ env:
   MAX_REVIEW_ROUNDS: "5"
 
 jobs:
+  # Is this PR agent-managed? Either an autonomous `agent/` branch, OR a human PR
+  # opted in via the `agent:managed` label ("@claude loop"). workflow_run payloads
+  # carry no PR labels, so we resolve the PR and read them here rather than in a
+  # job-level `if:`. Cheap (one API call) — it keeps the expensive deps/panel jobs
+  # skipped for unmanaged PRs while still letting labelled human branches in.
+  # Fork PRs are excluded here (the auto-fix loop cannot push to a fork).
+  gate:
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      managed: ${{ steps.gate.outputs.managed }}
+      pr: ${{ steps.gate.outputs.pr }}
+    steps:
+      - name: Resolve managed state
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
+            const pr = prs.data[0];
+            const managed = branch.startsWith('agent/') ||
+              (pr && (pr.labels || []).some((l) => (l.name || l) === 'agent:managed'));
+            core.setOutput('pr', pr ? String(pr.number) : '');
+            core.setOutput('managed', String(Boolean(managed)));
+
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment, no
   # checks:write) and hand the tree to the review job as an artifact. This keeps
   # dependency install scripts away from the Claude auth token + checks:write —
   # the review job must NOT run `npm install` (that was the #501 no-install rule).
   deps:
-    if: >-
-      vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    needs: [gate]
+    if: needs.gate.outputs.managed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -64,12 +95,8 @@ jobs:
           retention-days: 1
 
   review-panel:
-    needs: deps
-    if: >-
-      vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    needs: [gate, deps]
+    if: needs.gate.outputs.managed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: agent
@@ -624,17 +651,14 @@ jobs:
   #   - fix ran and FAILED (the fixer agent errored — e.g. claude-code-action
   #     refusing a bot-initiated run — so no fix was pushed and no fresh cycle
   #     starts). Without this, a failed fix silently stalls a blocked PR.
-  # The enable/fork gate is repeated so we do NOT page when the panel was
-  # skipped by the AGENT_PIPELINE_ENABLED / non-agent-branch / fork gate rather
-  # than by an upstream failure (in those cases deps is 'skipped', not 'failure').
+  # Gating on the `gate` job's managed flag (instead of repeating the enable/fork/
+  # branch checks) means we do NOT page when the panel was skipped for being an
+  # unmanaged/fork/disabled PR — only when a managed PR's pipeline actually broke.
   stalled:
-    needs: [deps, review-panel, promote, fix]
+    needs: [gate, deps, review-panel, promote, fix]
     if: >-
       always() &&
-      vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
+      needs.gate.outputs.managed == 'true' &&
       (needs.deps.result == 'failure' ||
        needs.review-panel.result == 'failure' ||
        needs.review-panel.result == 'skipped' ||

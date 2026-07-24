@@ -1,6 +1,7 @@
-# Develop-review loop, CI arm: when CI fails on an agent-authored branch, feed
-# the harness failure diagnosis back to Claude Code so it can fix and push a
-# follow-up commit. Completes Phase 21 (Agent Observability) of
+# Develop-review loop, CI arm: when CI fails on an agent-managed branch (an
+# autonomous `agent/` branch, or a human PR opted in via the `agent:managed`
+# label / "@claude loop"), feed the harness failure diagnosis back to Claude Code
+# so it can fix and push a follow-up commit. Completes Phase 21 (Agent Observability) of
 # docs/design/harness-engineering.md by turning the .harness-reports artifacts
 # into an agent-readable diagnosis (scripts/agent/summarize-ci.mjs).
 #
@@ -30,16 +31,42 @@ env:
   MAX_ATTEMPTS: "4"
 
 jobs:
-  iterate:
-    # Enablement switch keeps the pipeline inert until a maintainer opts in.
-    # Reject fork-originated workflow_run events: this job holds the `agent`
-    # environment secrets and executes branch code (install/build/test via the
-    # fixer agent), so it must only act on base-repo branches.
+  # Is this PR agent-managed? Either an autonomous `agent/` branch, OR a human PR
+  # opted in via the `agent:managed` label ("@claude loop"). workflow_run payloads
+  # carry no PR labels, so resolve the PR and read them in this cheap job rather
+  # than the job-level `if:` — it keeps the turn-heavy iterate job skipped for
+  # unmanaged PRs. Fork PRs are excluded (the fixer cannot push to a fork).
+  gate:
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
       github.event.workflow_run.conclusion == 'failure' &&
-      startsWith(github.event.workflow_run.head_branch, 'agent/') &&
       github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      managed: ${{ steps.gate.outputs.managed }}
+    steps:
+      - name: Resolve managed state
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const branch = context.payload.workflow_run.head_branch;
+            const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
+            const pr = prs.data[0];
+            const managed = branch.startsWith('agent/') ||
+              (pr && (pr.labels || []).some((l) => (l.name || l) === 'agent:managed'));
+            core.setOutput('managed', String(Boolean(managed)));
+
+  iterate:
+    needs: [gate]
+    # The gate job holds the managed decision; this job holds the `agent`
+    # environment secrets and executes branch code (install/build/test via the
+    # fixer agent), so it runs only for managed base-repo branches.
+    if: needs.gate.outputs.managed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: agent
