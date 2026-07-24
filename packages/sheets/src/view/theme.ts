@@ -7,6 +7,7 @@ export const LightTheme = {
   customBorderColor: '#000000',
   cellBGColor: '#FFFFFF',
   cellTextColor: '#000000',
+  cellLinkColor: '#1A73E8',
   // Butter & Maple — active cell ring uses syrup, selection fill uses
   // butter, header chip uses solid butter. Matches the homepage MiniSpreadsheet.
   activeCellColor: palette.syrup,
@@ -47,6 +48,7 @@ export const DarkTheme = {
   customBorderColor: '#FFFFFF',
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
+  cellLinkColor: '#8AB4F8',
   // Butter & Maple — dark variant. Syrup brightens to maple-amber, butter
   // stays gold so the header chip reads against the dark grid.
   activeCellColor: palette.syrupBright,

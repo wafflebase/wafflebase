@@ -1,17 +1,6 @@
-const SAFE_PROTOCOLS = ['http:', 'https:', 'mailto:', 'tel:'];
+import { isSafeUrl } from '@wafflebase/core/url';
 
-/**
- * Check if a URL has a safe protocol (not javascript:, data:, etc.).
- * Returns false for invalid URLs.
- */
-export function isSafeUrl(href: string): boolean {
-  try {
-    const url = new URL(href, 'https://placeholder.invalid');
-    return SAFE_PROTOCOLS.includes(url.protocol);
-  } catch {
-    return false;
-  }
-}
+export { isSafeUrl };
 
 /**
  * Normalize a user-entered URL: add https:// if no protocol is present,
