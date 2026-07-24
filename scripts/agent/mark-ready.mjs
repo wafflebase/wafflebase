@@ -19,9 +19,10 @@
 // It is belt-and-suspenders with the commit-trailer hook:
 //   3. The PR body discloses autonomous authorship.
 //
-// It NEVER merges. After promotion it flips draft → ready, swaps the
-// `agent:iterating` label for `agent:needs-human-review`, and posts a hand-off
-// comment. The final review + merge stay human, enforced by branch protection.
+// It NEVER merges. After promotion it flips draft → ready, sets the single
+// `agent:ready` lifecycle label (via set-state's computeLabelSet), and posts a
+// hand-off comment. The final review + merge stay human, enforced by branch
+// protection.
 //
 // Usage:
 //   node ./scripts/agent/mark-ready.mjs <pr-number> [--promote] [--require-checks a,b,c]
@@ -34,6 +35,7 @@
 
 import { execFileSync } from "node:child_process";
 import { allRequiredPassed } from "./checks.mjs";
+import { computeLabelSet } from "./set-state.mjs";
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -215,19 +217,19 @@ try {
   process.exit(3);
 }
 
-// Swap labels (best-effort; a missing label must not abort the promotion or
-// block the hand-off comment below). `gh` will not create an absent label.
+// Single-value state → `agent:ready` (best-effort; a label hiccup must not abort
+// the promotion or block the hand-off comment). REPLACE the whole label set so
+// exactly one lifecycle label survives and non-agent labels (and the issue-side
+// agent:candidate, if present) are preserved.
 try {
-  ghMutate(["pr", "edit", prNumber, "--remove-label", "agent:iterating"]);
-} catch {
-  /* label may not be present */
-}
-try {
-  ghMutate(["pr", "edit", prNumber, "--add-label", "agent:needs-human-review"]);
-} catch {
+  const labels = computeLabelSet(pr.labels || [], "ready");
+  const args = ["api", "-X", "PUT", `repos/{owner}/{repo}/issues/${prNumber}/labels`];
+  for (const l of labels) args.push("-f", `labels[]=${l}`);
+  ghMutate(args);
+} catch (err) {
   console.warn(
-    "Could not add 'agent:needs-human-review' label — create it in the repo's " +
-      "label settings so provenance stays queryable.",
+    `Could not set the 'agent:ready' label: ${err.message} — ensure the agent:* ` +
+      "state labels exist in the repo's label settings.",
   );
 }
 
