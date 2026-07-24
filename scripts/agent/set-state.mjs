@@ -79,6 +79,19 @@ export function computeLabelSet(currentLabels, newState) {
   return [...new Set([...kept, label])];
 }
 
+/** True iff two label collections hold the same SET of names (order-independent;
+ * accepts string- or {name}-shaped labels). Used to decide whether a PR's labels
+ * already match the desired normalized set — a first-label-equality check would
+ * miss leftover duplicate lifecycle labels (drift) that still need collapsing. */
+export function sameLabelSet(a, b) {
+  const norm = (xs) => new Set((Array.isArray(xs) ? xs : []).map(labelName).filter(Boolean));
+  const sa = norm(a);
+  const sb = norm(b);
+  if (sa.size !== sb.size) return false;
+  for (const x of sa) if (!sb.has(x)) return false;
+  return true;
+}
+
 // Best-effort legality (NOT a gate): guards against downgrading a PR through a
 // stale/racy inline call. reconcile always --forces past this.
 const TRANSITIONS = {
@@ -184,25 +197,31 @@ function cmdSet(pr, state, force, dryRun) {
   console.log(`set PR #${pr} → ${state}${from ? ` (was ${from})` : ""}`);
 }
 
-/** Gather the unforgeable signals reconcile projects from. Every sub-fetch is
- * defensive: a partial failure just yields a partial (still-sane) projection. */
+/** Gather the unforgeable signals reconcile projects from, and report whether the
+ * evidence is COMPLETE. A failed fetch must NOT masquerade as "absent"/"pending":
+ * that could make deriveState downgrade a correct blocked/fixing/reviewing to
+ * awaiting-ci on a transient API error. On any fetch failure, `complete` is false
+ * and the caller leaves the label untouched. Returns `{ complete, signals }`. */
 function gatherSignals(pr) {
   const sig = {};
+  let complete = true;
   let sha;
   try {
     const view = ghJson(["pr", "view", pr, "--json", "isDraft,headRefOid"]);
     sig.isDraft = view.isDraft;
     sha = view.headRefOid;
   } catch {
-    /* leave isDraft undefined */
+    complete = false;
   }
-  if (sha) {
+  if (!sha) {
+    complete = false; // without the head SHA we can't read CI / lens checks
+  } else {
     try {
       const runs = ghJson(["api", `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&per_page=100`]).workflow_runs || [];
       const ci = runs.filter((r) => r.name === "CI").sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-      sig.ciConclusion = ci ? ci.conclusion : null; // null while in progress
+      sig.ciConclusion = ci ? ci.conclusion : null; // genuinely null while in progress
     } catch {
-      sig.ciConclusion = null;
+      complete = false; // do NOT coerce a failed fetch to null (would read as "pending")
     }
     try {
       const checks = ghJson(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`]).check_runs || [];
@@ -210,7 +229,7 @@ function gatherSignals(pr) {
       sig.reviewChecksPresent = lens.length > 0;
       sig.lensBlocked = lens.some((c) => c.conclusion === "failure");
     } catch {
-      /* leave review signals undefined */
+      complete = false;
     }
   }
   try {
@@ -219,27 +238,37 @@ function gatherSignals(pr) {
     sig.ciPagedLatch = comments.some((c) => (c.body || "").includes("<!-- agent-paged -->"));
     sig.reviewPagedLatch = comments.some((c) => (c.body || "").includes("<!-- agent-review-paged -->"));
   } catch {
-    /* leave latches undefined */
+    complete = false; // the paged latch dominates deriveState — never guess it
   }
-  return sig;
+  return { complete, signals: sig };
 }
 
 function cmdReconcile(pr, dryRun) {
   if (!pr) return bailUsage();
-  let current, state;
+  let current, complete, signals;
   try {
     current = readLabels(pr);
-    state = deriveState(gatherSignals(pr));
+    ({ complete, signals } = gatherSignals(pr));
   } catch (e) {
     return bail(`could not reconcile PR #${pr}: ${e.message}`);
   }
-  const from = current.map(stateFor).find((s) => s != null) ?? null;
-  if (from === state) {
-    console.log(`reconcile: PR #${pr} already ${state}; nothing to do.`);
+  // Incomplete evidence → do NOT risk overwriting a correct label with a guess.
+  // reconcile is best-effort and re-runs, so skipping just defers the self-heal.
+  if (!complete) {
+    console.log(`reconcile: incomplete signals for PR #${pr}; leaving the state label unchanged.`);
     return;
   }
+  const state = deriveState(signals);
+  const desired = computeLabelSet(current, state);
+  // Compare the FULL set, not just the first lifecycle label — otherwise leftover
+  // duplicate lifecycle labels (drift) would be skipped instead of collapsed.
+  if (sameLabelSet(current, desired)) {
+    console.log(`reconcile: PR #${pr} already normalized to ${state}; nothing to do.`);
+    return;
+  }
+  const from = current.map(stateFor).find((s) => s != null) ?? null;
   try {
-    applyLabels(pr, computeLabelSet(current, state), dryRun); // reconcile always forces
+    applyLabels(pr, desired, dryRun); // reconcile always forces
   } catch (e) {
     return bail(`could not reconcile PR #${pr} to '${state}': ${e.message}`);
   }

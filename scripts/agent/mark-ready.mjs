@@ -222,7 +222,17 @@ try {
 // exactly one lifecycle label survives and non-agent labels (and the issue-side
 // agent:candidate, if present) are preserved.
 try {
-  const labels = computeLabelSet(pr.labels || [], "ready");
+  // Re-read labels immediately before the full-set PUT: the `pr.labels` fetched
+  // at the top of this run is stale by now, and a REPLACE built from it could
+  // drop a label added since. This shrinks (doesn't eliminate) that window; the
+  // advisory label + set-state reconcile remain the backstop for a lost race.
+  let current;
+  try {
+    current = ghJson(["pr", "view", prNumber, "--json", "labels"]).labels;
+  } catch {
+    current = pr.labels; // fall back to the initial snapshot
+  }
+  const labels = computeLabelSet(current || [], "ready");
   const args = ["api", "-X", "PUT", `repos/{owner}/{repo}/issues/${prNumber}/labels`];
   for (const l of labels) args.push("-f", `labels[]=${l}`);
   ghMutate(args);

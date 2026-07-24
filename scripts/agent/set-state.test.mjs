@@ -6,6 +6,7 @@ import {
   labelFor,
   stateFor,
   computeLabelSet,
+  sameLabelSet,
   isValidTransition,
   deriveState,
 } from "./set-state.mjs";
@@ -97,4 +98,23 @@ test("deriveState: draft + CI pending/failed → awaiting-ci; empty → implemen
   assert.equal(deriveState({ isDraft: true, ciConclusion: null }), "awaiting-ci");
   assert.equal(deriveState({ isDraft: true, ciConclusion: "failure" }), "awaiting-ci");
   assert.equal(deriveState({}), "implementing"); // no signals at all
+});
+
+test("sameLabelSet: order-independent set equality; shape-agnostic", () => {
+  assert.ok(sameLabelSet(["agent:fixing", "bug"], ["bug", "agent:fixing"]));
+  assert.ok(sameLabelSet([{ name: "bug" }, "agent:ready"], ["agent:ready", "bug"]));
+  assert.ok(!sameLabelSet(["agent:fixing"], ["agent:fixing", "bug"])); // size differs
+  assert.ok(!sameLabelSet(["agent:reviewing"], ["agent:fixing"]));
+  assert.ok(sameLabelSet([], []));
+});
+
+// Reconcile drift-collapse: when a PR carries the derived state AND a stray
+// second lifecycle label, the desired (normalized) set differs from current, so
+// reconcile must act — a first-label-equality check would wrongly skip it.
+test("reconcile guard: desired set differs from a drifted current → not skipped", () => {
+  const current = ["agent:fixing", "agent:reviewing", "bug"]; // drift: two lifecycle labels
+  const desired = computeLabelSet(current, "fixing"); // → ["bug", "agent:fixing"]
+  assert.ok(!sameLabelSet(current, desired)); // reconcile applies (collapses the stray)
+  // once normalized, reconcile is a no-op
+  assert.ok(sameLabelSet(desired, computeLabelSet(desired, "fixing")));
 });
