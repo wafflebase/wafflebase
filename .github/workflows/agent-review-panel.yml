@@ -320,6 +320,24 @@ jobs:
             core.setOutput('all_valid', String(allValid));
             core.setOutput('required_checks', required.join(','));
 
+      # Hand the panel's own cost + reliability signals to whichever of
+      # promote/fix runs next — THIS job deliberately has no issues:write /
+      # pull-requests:write (its SDK cwd is the untrusted branch checkout), so
+      # it cannot post the metrics ledger comment itself; an artifact is the
+      # hand-off. Tolerant of the files being absent (e.g. the orchestrator
+      # crashed before writing them) via if-no-files-found: ignore.
+      - name: Upload review-panel execution log
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-panel-execution
+          path: |
+            .agent-review/review-execution.json
+            .agent-review/review-lens-stats.json
+          if-no-files-found: ignore
+          retention-days: 1
+
   promote:
     needs: review-panel
     if: needs.review-panel.outputs.blocked == 'false' && needs.review-panel.outputs.pr != ''
@@ -371,6 +389,35 @@ jobs:
           if [ "$code" -eq 3 ]; then echo "Promotion failed after gates passed (see log)." >&2; exit 3; fi
           if [ "$code" -eq 1 ]; then echo "Not all ready-gates satisfied; leaving as draft."; fi
           if [ "$code" -eq 0 ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; fi
+
+      # This round's panel cost/reliability data (uploaded by the review-panel
+      # job, which lacks write scope to record it itself) — record it into the
+      # ledger regardless of whether the gate above actually promoted, since
+      # the panel ran (and cost something) either way. Tolerant of the
+      # artifact being absent (e.g. the orchestrator crashed before writing
+      # it, or nothing was uploaded).
+      - name: Download review-panel execution log
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: review-panel-execution
+          path: /tmp/review-panel-execution
+      - name: Record review-panel metrics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: |
+          if [ -f /tmp/review-panel-execution/review-execution.json ]; then
+            node ./scripts/agent/metrics.mjs record \
+              --execution /tmp/review-panel-execution/review-execution.json \
+              --lens-stats /tmp/review-panel-execution/review-lens-stats.json \
+              --kind review --pr "$PR"
+          else
+            echo "no review-panel execution log artifact; skipping"
+          fi
 
       # PR is (or already was) ready → post the aggregated agent-effort summary
       # from the metrics ledger. Fail-safe: never blocks promotion.
@@ -436,6 +483,41 @@ jobs:
               return page(`The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
             }
             core.setOutput('proceed', 'true');
+
+      # This round's panel cost/reliability data (uploaded by the review-panel
+      # job, which lacks write scope to record it itself) — record it
+      # unconditionally (not gated on proceed/paged): the panel ran this round
+      # regardless of what the guard above decided next. Own checkout since
+      # every other step in this job gates its checkout on proceed/paged, and
+      # the "already paged" early-return path (see the guard script above)
+      # takes neither branch.
+      - name: Check out gate script (review-panel metrics)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Download review-panel execution log
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: review-panel-execution
+          path: /tmp/review-panel-execution
+      - name: Record review-panel metrics
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: |
+          if [ -f /tmp/review-panel-execution/review-execution.json ]; then
+            node ./scripts/agent/metrics.mjs record \
+              --execution /tmp/review-panel-execution/review-execution.json \
+              --lens-stats /tmp/review-panel-execution/review-lens-stats.json \
+              --kind review --pr "$PR"
+          else
+            echo "no review-panel execution log artifact; skipping"
+          fi
 
       # Loop gave up (round cap, or a lens failed closed) and paged a human →
       # post the effort summary too. The fix job's normal checkout is gated on
