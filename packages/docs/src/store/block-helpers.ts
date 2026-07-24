@@ -1,6 +1,6 @@
 // packages/docs/src/store/block-helpers.ts
 import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
-import { inlineStylesEqual } from '../model/types.js';
+import { inlineStylesEqual, generateBlockId } from '../model/types.js';
 
 export interface InlinePosition {
   inlineIndex: number;
@@ -142,6 +142,30 @@ export function applyDeleteText(block: Block, offset: number, length: number): B
 
 export function cloneBlock(block: Block): Block {
   return JSON.parse(JSON.stringify(block));
+}
+
+/**
+ * Deep-clone a block and regenerate every block id it contains — the block
+ * itself, plus (for tables) every block inside every cell, recursively for
+ * nested tables. Used when pasting a block so the paste is independent of its
+ * source: the two share no ids, so editing / clicking one can't leak into the
+ * other. The source block is not mutated.
+ */
+export function cloneBlockWithFreshIds(block: Block): Block {
+  const clone = cloneBlock(block);
+  refreshBlockIds(clone);
+  return clone;
+}
+
+function refreshBlockIds(block: Block): void {
+  block.id = generateBlockId();
+  if (block.tableData) {
+    for (const row of block.tableData.rows) {
+      for (const cell of row.cells) {
+        for (const b of cell.blocks) refreshBlockIds(b);
+      }
+    }
+  }
 }
 
 /**
