@@ -209,7 +209,7 @@ PR. Matching is flexible — a comment triggers a command when it contains
 | `@claude summarize` | PR | PR author or maintainer | Posts a short read-only "what this PR does / is it good to go?" comment. |
 | `@claude review` | PR | PR author or maintainer | Runs the read-only review panel and posts its findings as one comment (advisory — no status checks, does not gate merge). |
 | `@claude loop` | PR | maintainer | Opts the PR into the autonomous review→fix→promote loop (same-repo branches only; forks fall back to `@claude review`). |
-| `@claude …` (anything else) | PR | maintainer | Treats your comment as review feedback to address in-thread. |
+| `@claude …` (anything else) | PR | maintainer | Treats your comment as review feedback to address in-thread. **Only on `agent/`-authored PRs** — ordinary and `agent:managed` PRs are left to humans. |
 
 `review`/`summarize` are throttled to once per commit; push a new commit to
 re-run. None of these can merge — a human approval is always required.

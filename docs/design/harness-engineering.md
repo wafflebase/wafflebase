@@ -365,7 +365,9 @@ Components:
     labels the PR `agent:managed` and re-runs CI to opt it into the full
     review→fix→promote machinery. Same-repo branches only (the fixer can't push to
     a fork → fork PRs get a note pointing at `@claude review`).
-  - `@claude` + anything else (PR) → the review-reply arm (below).
+  - `@claude` + anything else (PR) → the review-reply arm (below). Note this arm
+    acts ONLY on `agent/`-authored PRs; ordinary and `agent:managed` PRs are left
+    to humans (it never pushes to a branch it did not author).
 - **Kickoff** — `.github/workflows/agent-implement.yml`: a trusted-author
   `@claude fix` mention on an issue (or manual dispatch) runs Claude Code headless,
   which follows the standard task workflow and opens a **draft** PR from an
@@ -378,7 +380,9 @@ Components:
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
   a generic `@claude` mention (no command verb) in a PR/review thread has the
-  agent address the finding (or push back with reasoning) in-thread.
+  agent address the finding (or push back with reasoning) in-thread. Restricted to
+  `agent/`-authored PRs (the `is_agent` gate) — ordinary and `agent:managed` PRs
+  are left to humans, since the arm only acts on branches it authored.
 - **Review panel** — `.github/workflows/agent-review-panel.yml`: on green CI for a
   base-repo agent-managed PR (an `agent/` branch or an `agent:managed`-labelled PR;
   fork-originated `workflow_run` events are rejected),

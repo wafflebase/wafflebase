@@ -53,12 +53,25 @@ jobs:
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
             const branch = context.payload.workflow_run.head_branch;
-            const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
-            const pr = prs.data[0];
-            const managed = branch.startsWith('agent/') ||
-              (pr && (pr.labels || []).some((l) => (l.name || l) === 'agent:managed'));
-            core.setOutput('pr', pr ? String(pr.number) : '');
-            core.setOutput('managed', String(Boolean(managed)));
+            // The agent/ prefix needs no API call — compute it first so a label
+            // lookup error can NEVER drop a genuine agent/ branch. Wrap the label
+            // lookup so the output stays deterministic ('true'/'false'), never a
+            // thrown step that leaves `managed` empty (which would silently skip
+            // the whole pipeline). A hard job failure is caught by `stalled`.
+            let managed = branch.startsWith('agent/');
+            let prNumber = '';
+            try {
+              const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
+              const pr = prs.data[0];
+              if (pr) {
+                prNumber = String(pr.number);
+                if ((pr.labels || []).some((l) => (l.name || l) === 'agent:managed')) managed = true;
+              }
+            } catch (e) {
+              core.warning(`Could not resolve PR labels (${e.message}); using branch-prefix only.`);
+            }
+            core.setOutput('pr', prNumber);
+            core.setOutput('managed', String(managed));
 
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment, no
   # checks:write) and hand the tree to the review job as an artifact. This keeps
@@ -654,16 +667,19 @@ jobs:
   # Gating on the `gate` job's managed flag (instead of repeating the enable/fork/
   # branch checks) means we do NOT page when the panel was skipped for being an
   # unmanaged/fork/disabled PR — only when a managed PR's pipeline actually broke.
+  # A hard `gate` failure (managed unknown) also pages: better a spurious page than
+  # a silently-skipped review on a PR that might have been managed.
   stalled:
     needs: [gate, deps, review-panel, promote, fix]
     if: >-
       always() &&
-      needs.gate.outputs.managed == 'true' &&
-      (needs.deps.result == 'failure' ||
-       needs.review-panel.result == 'failure' ||
-       needs.review-panel.result == 'skipped' ||
-       needs.promote.result == 'failure' ||
-       needs.fix.result == 'failure')
+      (needs.gate.result == 'failure' ||
+       (needs.gate.outputs.managed == 'true' &&
+        (needs.deps.result == 'failure' ||
+         needs.review-panel.result == 'failure' ||
+         needs.review-panel.result == 'skipped' ||
+         needs.promote.result == 'failure' ||
+         needs.fix.result == 'failure')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

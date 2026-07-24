@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseCommand } from "./command.mjs";
+
+const CLI = fileURLToPath(new URL("./command.mjs", import.meta.url));
 
 const cmd = (body, surface) => parseCommand(body, { surface }).command;
 
@@ -49,6 +56,13 @@ test("mention without a recognized verb falls back by surface", () => {
   assert.equal(cmd("@claude", "issue"), "help");
 });
 
+test("a different account (@claude-bot / @claudefoo) is NOT our mention", () => {
+  assert.equal(cmd("cc @claude-bot please look", "pr"), "none");
+  assert.equal(cmd("@claudefoo review this", "pr"), "none");
+  // but the exact mention still works right up against punctuation
+  assert.equal(cmd("thanks @claude!", "pr"), "reply");
+});
+
 test("no mention at all → none", () => {
   assert.equal(cmd("just a normal comment about the fix", "pr"), "none");
   assert.equal(cmd("", "pr"), "none");
@@ -62,4 +76,20 @@ test("surface defaults to pr when omitted", () => {
 test("rest carries the text after the command, trimmed", () => {
   assert.equal(parseCommand("@claude fix   focus on the parser bug").rest, "focus on the parser bug");
   assert.equal(parseCommand("@claude loop").rest, "");
+});
+
+test("CLI: prints command= to stdout and appends to $GITHUB_OUTPUT", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmd-cli-"));
+  const outFile = path.join(dir, "out.txt");
+  // A body with leading text + emoji, to exercise real argv passing.
+  const stdout = execFileSync("node", [CLI, "please @claude review 🙏", "pr"], {
+    env: { ...process.env, GITHUB_OUTPUT: outFile },
+    encoding: "utf8",
+  });
+  assert.equal(stdout, "command=review\n");
+  assert.equal(readFileSync(outFile, "utf8"), "command=review\n");
+
+  // Surface + fallback: bare mention on an issue → help.
+  const stdout2 = execFileSync("node", [CLI, "@claude", "issue"], { encoding: "utf8" });
+  assert.equal(stdout2, "command=help\n");
 });

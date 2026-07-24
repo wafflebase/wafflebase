@@ -55,11 +55,19 @@ jobs:
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
             const branch = context.payload.workflow_run.head_branch;
-            const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
-            const pr = prs.data[0];
-            const managed = branch.startsWith('agent/') ||
-              (pr && (pr.labels || []).some((l) => (l.name || l) === 'agent:managed'));
-            core.setOutput('managed', String(Boolean(managed)));
+            // The agent/ prefix needs no API call — compute it first so a label
+            // lookup error can NEVER drop a genuine agent/ branch. Wrap the label
+            // lookup so the output stays deterministic ('true'/'false'), never a
+            // thrown step that leaves `managed` empty.
+            let managed = branch.startsWith('agent/');
+            try {
+              const prs = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${branch}` });
+              const pr = prs.data[0];
+              if (pr && (pr.labels || []).some((l) => (l.name || l) === 'agent:managed')) managed = true;
+            } catch (e) {
+              core.warning(`Could not resolve PR labels (${e.message}); using branch-prefix only.`);
+            }
+            core.setOutput('managed', String(managed));
 
   iterate:
     needs: [gate]

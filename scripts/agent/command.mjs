@@ -38,7 +38,9 @@ const COMMAND_RE = new RegExp(
   String.raw`@claude\s+(${Object.keys(VERB_TO_COMMAND).join("|")})\b`,
   "i",
 );
-const MENTION_RE = /@claude\b/i;
+// Bare "@claude" mention — but NOT "@claude-bot" / "@claudefoo" (a different
+// account). Negative lookahead forbids a trailing word char OR hyphen.
+const MENTION_RE = /@claude(?![\w-])/i;
 
 /**
  * Parse a comment body into a pipeline command.
