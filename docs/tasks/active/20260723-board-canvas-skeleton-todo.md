@@ -1307,3 +1307,36 @@ Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full 
 - **Type consistency:** `Viewport{panX,panY,zoom}` and `worldToScreen/screenToWorld` are defined once (Task 1) and reused (Tasks 2,3,5,9); `SYNTHETIC_SLIDE_ID='board'` defined in Task 6, used in Tasks 8,9; `YorkieBoardRoot` defined Task 7, used Task 8; `boardToSlidesDocument` defined Task 6, used Task 8.
 - **Known investigation seams (not placeholders — concrete grep/read steps):** exact default-theme/layout/master constructors (Task 6 Step 3), the live `SlidesStore` subset (Task 8 Step 1), the slides-view mount structure (Task 9 Step 1), and exact undo/redo history calls (Task 8 Step 4). Each is a bounded, verifiable step against a named source file, guarded by a test.
 - **Scope:** single implementation plan; SP2 (sticky/image) and SP3 (Miro import) are out of scope by the spec's decomposition.
+
+---
+
+## Results / Review (completed 2026-07-25)
+
+All 13 tasks implemented via subagent-driven development (fresh implementer +
+spec/quality review per task), plus a whole-branch review and fix wave.
+
+**Outcome:** `"board"` document type + `@wafflebase/board` package shipped. A
+board is an infinite pan/zoom canvas reusing the slides scene engine via an
+injected `Viewport`; created from the documents list, routed to `/b/:id`,
+collaboratively editable (shapes / text boxes / connectors: add/move/resize/
+rotate/snap), and shareable. `verify:self` green across all 11 lanes.
+
+**Test counts:** slides 2626 (incl. new viewport/overlay/suppressSlideChrome/
+keymap tests), frontend 874, backend 345, sheets 1414, docs 1120, notes 27,
+cli 231; board own: viewport 3 / deck 2 / wheel 5 / store 4.
+
+**Whole-branch review caught a Critical the per-task reviews missed:** the reused
+editor's context menu + keymap invoke slide-scoped store methods (`applyLayout`,
+`duplicateSlide`, `addSlide`) that throw `notSupported` on a board → crash on
+right-click / Cmd+D / Cmd+Shift+D / Cmd+M. Fixed with a `suppressSlideChrome`
+editor option (omits slide-scoped menu items + gates the keymap shortcuts) and a
+paste filter that strips `'table'` elements. Also closed the shared-viewer
+authorization gap by forwarding `readOnly` to the editor. Re-review confirmed
+findings closed with no regressions.
+
+**Deferred to SP2** (tracked, non-blocking for the skeleton): guides round-trip;
+group/ungroup direct tests; peer-cursor dot rendering; `read()` O(n) → spatial
+index; paste-group-containing-table drop precision; Cmd+C table-filter symmetry.
+
+**Chunk gate:** `maxChunkCount` bumped 135 → 140 in `harness.config.json` for the
+board lazy chunks (documented reason appended per repo convention).
