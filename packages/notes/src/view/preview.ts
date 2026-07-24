@@ -8,6 +8,7 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js/lib/common';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
+import { detailsPlugin } from './details-plugin.js';
 
 const md: MarkdownIt = new MarkdownIt({
   html: false,
@@ -35,6 +36,11 @@ md.use(taskLists, { label: true, enabled: false });
 
 // KaTeX math (`$inline$` and `$$block$$`).
 md.use(katexPlugin);
+
+// Collapsible sections (`<details>` / `<summary>`). A narrow allowlist for
+// just these two disclosure tags — keeps the preview's `html: false` posture
+// (no arbitrary raw HTML) while supporting GitHub/MDN-style foldouts.
+md.use(detailsPlugin);
 
 /**
  * Code fences: reuses markdown-it's own `highlight` option (configured
@@ -128,8 +134,7 @@ export class NotePreview {
       const target = e.target;
       if (!(target instanceof Element)) return;
       const button = target.closest(COPY_BUTTON_SELECTOR);
-      if (!(button instanceof HTMLElement) || !this.el.contains(button))
-        return;
+      if (!(button instanceof HTMLElement) || !this.el.contains(button)) return;
 
       const code = button.parentElement?.querySelector('code');
       const text = code?.textContent ?? '';
