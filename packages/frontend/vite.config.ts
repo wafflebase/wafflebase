@@ -228,6 +228,7 @@ export default defineConfig({
       "@wafflebase/docs": path.resolve(__dirname, "../docs/src/index.ts"),
       "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
       "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
+      "@wafflebase/board": path.resolve(__dirname, "../board/src/index.ts"),
       util: utilShimPath,
       assert: assertShimPath,
     },
