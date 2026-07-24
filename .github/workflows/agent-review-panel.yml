@@ -87,6 +87,9 @@ jobs:
       blocked: ${{ steps.panel.outputs.blocked }}
       all_valid: ${{ steps.panel.outputs.all_valid }}
       required_checks: ${{ steps.panel.outputs.required_checks }}
+      # Non-empty when EVERY blocking lens failed on an API/quota error (the panel
+      # never ran) — the fix job pages honestly and skips the fixer.
+      infra: ${{ steps.panel.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -290,6 +293,7 @@ jobs:
             const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
             let blocked = false, allValid = true;
             const required = [];
+            const infraDetails = []; // lens infraError messages (API/quota — reviewer never ran)
             for (const lens of manifest) {
               const p = byId[lens.id];
               const blocking = String(lens.gating ?? 'blocking') === 'blocking';
@@ -302,6 +306,7 @@ jobs:
                 required.push(`agent-review-${lens.id}`);
                 if (conclusion !== 'success') blocked = true;
                 if (!(p && p.valid)) allValid = false;
+                if (p && p.infraError) infraDetails.push(p.infraError);
               }
               let summary = '_No summary produced (failing closed)._';
               try { summary = fs.readFileSync(`.agent-review/${lens.id}/summary.md`, 'utf8'); } catch {}
@@ -334,6 +339,11 @@ jobs:
             core.setOutput('blocked', String(blocked));
             core.setOutput('all_valid', String(allValid));
             core.setOutput('required_checks', required.join(','));
+            // Panel didn't actually run iff EVERY blocking lens failed on an
+            // API/quota error. Surface the reason so the fix job pages honestly
+            // and skips the fixer (there's nothing to fix). Empty otherwise.
+            const infra = required.length > 0 && infraDetails.length === required.length ? infraDetails[0] : '';
+            core.setOutput('infra', infra);
 
       # Hand the panel's own cost + reliability signals to whichever of
       # promote/fix runs next — THIS job deliberately has no issues:write /
@@ -477,10 +487,12 @@ jobs:
           PR: ${{ needs.review-panel.outputs.pr }}
           ALL_VALID: ${{ needs.review-panel.outputs.all_valid }}
           REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
+          INFRA: ${{ needs.review-panel.outputs.infra }}
         # Unforgeable round bound: count commits where one of OUR panel's lens
         # checks failed, EXCLUDING merge commits (see rounds.mjs for the why —
         # PR #521 demonstrated human branch-sync merges inflating this count).
-        run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS"
+        # INFRA (API/quota outage) pages honestly and skips the fixer + round count.
+        run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS" "$INFRA"
 
       # This round's panel cost/reliability data (uploaded by the review-panel
       # job, which lacks write scope to record it itself) — record it

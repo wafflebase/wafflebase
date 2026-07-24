@@ -11,6 +11,8 @@ import {
   compareSampleAgreement,
   severityCounts,
   verifierTally,
+  classifyResult,
+  withRetry,
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
@@ -186,4 +188,57 @@ test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any do
   assert.ok(keptSummaries([{ verdict: "refuted" }, null, null]).includes("c"));
   // non-blocking (minor) is never verified/dropped
   assert.ok(keptSummaries([null, null, { verdict: "refuted", confidence: "high" }]).includes("n"));
+});
+
+test("classifyResult: success with structured output → ok", () => {
+  const c = classifyResult({ type: "result", subtype: "success", structured_output: { findings: [], summary: "ok" } });
+  assert.equal(c.ok, true);
+  assert.deepEqual(c.output, { findings: [], summary: "ok" });
+});
+
+test("classifyResult: the exact #548 session-limit 429 → api-error, NOT retryable", () => {
+  // Captured verbatim from the review-panel execution artifact.
+  const msg = {
+    type: "result", subtype: "success", is_error: true, api_error_status: 429,
+    result: "You've hit your session limit · resets 3:30pm (UTC)",
+    terminal_reason: "api_error", usage: { input_tokens: 0, output_tokens: 0 },
+  };
+  const c = classifyResult(msg);
+  assert.equal(c.ok, false);
+  assert.equal(c.kind, "api-error");
+  assert.equal(c.status, 429);
+  assert.equal(c.retryable, false); // session-limit resets hours out — no in-run retry
+  assert.match(c.detail, /session limit/);
+});
+
+test("classifyResult: transient API errors → api-error, retryable", () => {
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
+  assert.equal(classifyResult({ subtype: "error", is_error: true, api_error_status: 500, result: "internal error" }).retryable, true);
+  assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+});
+
+test("classifyResult: success but no structured output → no-output, not retryable", () => {
+  const c = classifyResult({ type: "result", subtype: "success" });
+  assert.equal(c.kind, "no-output");
+  assert.equal(c.retryable, false);
+});
+
+test("withRetry: retries retryable errors, gives up after cap, never retries non-retryable", async () => {
+  const noSleep = { sleep: async () => {}, baseMs: 1 };
+  // succeeds after 2 transient failures
+  let n = 0;
+  const okAfter2 = await withRetry(async () => {
+    if (n++ < 2) { const e = new Error("transient"); e.retryable = true; throw e; }
+    return "done";
+  }, noSleep);
+  assert.equal(okAfter2, "done");
+  assert.equal(n, 3);
+  // gives up after retries+1 attempts on a persistently-retryable error
+  let calls = 0;
+  await assert.rejects(withRetry(async () => { calls++; const e = new Error("x"); e.retryable = true; throw e; }, { ...noSleep, retries: 2 }));
+  assert.equal(calls, 3); // 1 + 2 retries
+  // a non-retryable error throws immediately (no retry)
+  let once = 0;
+  await assert.rejects(withRetry(async () => { once++; const e = new Error("quota"); e.retryable = false; throw e; }, noSleep));
+  assert.equal(once, 1);
 });

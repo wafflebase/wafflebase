@@ -244,6 +244,52 @@ export function verifierTally(findings, verdicts) {
   return { sentToVerifier, refuted, refutedHighConfidence };
 }
 
+/**
+ * Classify an SDK `result` message. The SDK reports API/quota failures as
+ * subtype "success" with `is_error: true` (+ `api_error_status`, and a human
+ * `result` string like "You've hit your session limit · resets 3:30pm (UTC)"),
+ * so "subtype === success" alone is NOT proof the model ran. Returns one of:
+ *   { ok:true, output }                                  — real structured verdict
+ *   { ok:false, kind:'api-error', status, detail, retryable } — API/quota failure
+ *   { ok:false, kind:'no-output', detail, retryable:false }   — ran but no verdict
+ * A session/usage-limit resets on a fixed schedule (often hours out), so it is
+ * NOT retryable in-run; any other API error (plain 429/529/overload/network) is.
+ */
+export function classifyResult(message) {
+  const m = message || {};
+  if (m.subtype === "success" && m.structured_output) {
+    return { ok: true, output: m.structured_output };
+  }
+  if (m.is_error || m.api_error_status || m.terminal_reason === "api_error") {
+    const detail = typeof m.result === "string" && m.result ? m.result : "";
+    const isQuota = /session limit|usage limit|quota|rate limit|resets?\b/i.test(detail);
+    return { ok: false, kind: "api-error", status: m.api_error_status ?? null, detail, retryable: !isQuota };
+  }
+  return { ok: false, kind: "no-output", status: null, detail: `subtype=${m.subtype}`, retryable: false };
+}
+
+const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run `fn`, retrying ONLY on errors flagged `err.retryable === true` (see
+ * classifyResult), with exponential backoff + jitter. A non-retryable error
+ * (quota/session-limit, or a genuine no-output) throws immediately — no wasted
+ * retries on a limit that can't clear in-run. `sleep` is injectable for tests.
+ */
+export async function withRetry(fn, { retries = 2, baseMs = 2000, sleep = defaultSleep, jitter = () => 0 } = {}) {
+  let last;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (!err || err.retryable !== true || attempt === retries) throw err;
+      await sleep(baseMs * 2 ** attempt + jitter());
+    }
+  }
+  throw last;
+}
+
 // --- SDK wrapper (lazy import) ----------------------------------------------
 
 async function askStructured({ systemPrompt, prompt, model, repo, schema, sessionLog }) {
@@ -271,10 +317,18 @@ async function askStructured({ systemPrompt, prompt, model, repo, schema, sessio
       // the ONLY place a review-panel SDK call's result is observable at all;
       // everything else here discards it, so record before the throw below.
       if (sessionLog) sessionLog.push(message);
-      if (message.subtype === "success" && message.structured_output) {
-        return message.structured_output;
-      }
-      throw new Error(`structured output not produced (subtype=${message.subtype})`);
+      const c = classifyResult(message);
+      if (c.ok) return c.output;
+      const err = new Error(
+        c.kind === "api-error"
+          ? `review query API error${c.status ? ` (${c.status})` : ""}: ${c.detail || "unknown"}`
+          : `structured output not produced (${c.detail})`,
+      );
+      err.kind = c.kind;
+      err.status = c.status;
+      err.detail = c.detail;
+      err.retryable = c.retryable;
+      throw err;
     }
   }
   throw new Error("query ended without a result message");
@@ -422,24 +476,45 @@ async function main() {
       // catch below (fail-closed, same as the old single-run crash path).
       const results = await Promise.all(
         Array.from({ length: samples }, async () => {
-          try { return await runLens(lens, { rubric: lens.rubric, diff, issue, repo, sessionLog }); }
-          catch (e) { return { __error: e.message }; }
+          // Retry only genuinely-transient API errors (classifyResult); a
+          // quota/session-limit fails through immediately (can't clear in-run).
+          try { return await withRetry(() => runLens(lens, { rubric: lens.rubric, diff, issue, repo, sessionLog })); }
+          catch (e) { return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail }; }
         }),
       );
       ok = results.filter((r) => r && !r.__error);
-      if (ok.length === 0) throw new Error((results[0] && results[0].__error) || "all lens samples failed");
+      if (ok.length === 0) {
+        // All samples failed. If ANY failed on an API/quota error, this is an
+        // INFRASTRUCTURE failure (the reviewer never ran), NOT a review finding —
+        // tag it so the panel pages honestly instead of inventing "changes requested".
+        const apiErr = results.find((r) => r && r.kind === "api-error");
+        const err = new Error((results[0] && results[0].__error) || "all lens samples failed");
+        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; }
+        throw err;
+      }
       // unionSamples coerces (never drops) + dedupes (collapses identical
       // file+summary, keeps highest severity, never merges distinct bugs).
       findings = unionSamples(ok);
       summary = ok.map((r) => (typeof r.summary === "string" ? r.summary : "")).filter(Boolean).join("\n\n");
     } catch (err) {
-      const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
-      writeVerdict(lensOut, lens, failFindings, "(no valid verdict — failing closed)", { valid: false });
-      panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false });
+      // Infra/quota error → the reviewer never ran. Fail closed (never promote),
+      // but say so honestly and tag the entry so the workflow pages with the real
+      // reason (and skips the fixer — there's nothing to fix). A genuine no-verdict
+      // (model ran but produced nothing) stays the ordinary fail-closed blocker.
+      const infra = err.infra ? (err.detail || `API error${err.status ? ` (${err.status})` : ""}`) : null;
+      const summaryText = infra
+        ? `Review could not run — Claude API/quota error${err.status ? ` (${err.status})` : ""}: ${infra}`
+        : `Reviewer did not produce a valid verdict: ${err.message}`;
+      const failFindings = [{ severity: "major", summary: summaryText }];
+      writeVerdict(lensOut, lens, failFindings, infra ? "(review did not run — infrastructure/quota error)" : "(no valid verdict — failing closed)", { valid: false });
+      const entry = { id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false };
+      if (infra) entry.infraError = infra;
+      panel.push(entry);
       lensStats.push({
         id: lens.id,
         samplesRun: samples,
         samplesOk: 0,
+        ...(infra ? { infraError: infra } : {}),
         agreement: compareSampleAgreement([]),
         raised: severityCounts(failFindings),
         verifier: { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0 },
@@ -508,7 +583,14 @@ async function main() {
   // consumed by metrics.mjs which is itself fail-safe on missing/malformed input).
   writeFileSync(path.join(outDir, "review-execution.json"), JSON.stringify(sessionLog));
   writeFileSync(path.join(outDir, "review-lens-stats.json"), JSON.stringify(lensStats));
-  process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}`).join("\n") + "\n");
+  process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}${p.infraError ? " (infra)" : ""}`).join("\n") + "\n");
+  // If EVERY applicable blocking lens failed on an API/quota error, the panel
+  // never actually ran — surface it loudly so the workflow pages honestly (and
+  // skips the fixer) rather than treating it as a real review failure.
+  const blockers = panel.filter((p) => p.blocking && p.applicable);
+  if (blockers.length > 0 && blockers.every((p) => p.infraError)) {
+    process.stderr.write(`PANEL_INFRA_ERROR: ${blockers[0].infraError}\n`);
+  }
 }
 
 function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false } = {}) {
