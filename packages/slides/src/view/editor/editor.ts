@@ -1391,6 +1391,11 @@ class SlidesEditorImpl implements SlidesEditor {
         this.setCellSelection(null);
         this.repaintOverlay();
       },
+      // See `SlidesEditorOptions.suppressSlideChrome` — a board mount
+      // passes `true` so the keyboard rules that call slide/table-scoped
+      // `SlidesStore` methods (which `YorkieBoardStore` implements as
+      // `notSupported()` throws) no-op instead of crashing.
+      suppressSlideChrome: this.options.suppressSlideChrome,
     });
   }
 

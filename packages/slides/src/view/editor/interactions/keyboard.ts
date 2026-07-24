@@ -18,6 +18,23 @@ function findElementInTree(
   const path = findElementPath(elements as Element[], id);
   return path === null ? undefined : path[path.length - 1];
 }
+
+/**
+ * True when `el`, or any descendant nested inside a group, is of the
+ * given element `type`. Used by the Cmd+C/Cmd+V/Cmd+D paste paths to
+ * keep a `'table'` element from ever landing on a board: the shared
+ * clipboard MIME type (`MIME_TYPE`) lets a table copied from a Slides
+ * deck be pasted into a board tab, and `YorkieBoardStore`'s table
+ * methods all throw `notSupported()` the moment the board's editor
+ * tries to edit that table's cells/rows/columns.
+ */
+function containsElementType(el: Element, type: Element['type']): boolean {
+  if (el.type === type) return true;
+  if (el.type === 'group') {
+    return el.data.children.some((c) => containsElementType(c, type));
+  }
+  return false;
+}
 import { toWorldFrame, fromWorldFrame } from '../frame-space';
 import {
   MIME_TYPE,
@@ -77,6 +94,18 @@ export interface KeyboardContext {
   } | null;
   /** Clear the cell-range selection. No-op when no range is set. */
   clearCellSelection(): void;
+  /**
+   * Mirrors `SlidesEditorOptions.suppressSlideChrome` (see `editor.ts`).
+   * When true, the underlying `SlidesStore` is a board (`YorkieBoardStore`)
+   * whose slide/theme/layout/animation/table methods all throw
+   * `notSupported()` — a board has no slides to add/duplicate/remove and
+   * no table concept. Every rule below that would otherwise call one of
+   * those methods directly (bypassing the context-menu-level suppression
+   * in `editor.ts`'s `canvasContextItems()`) checks this flag first and
+   * no-ops instead. Default false/undefined keeps the slides editor's
+   * keyboard behavior unchanged.
+   */
+  suppressSlideChrome?: boolean;
 }
 
 const NUDGE = 1;
@@ -317,9 +346,16 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const sources = await readClipboard();
         if (sources === null) return;
         e.preventDefault();
+        // On a board, drop any pasted table (top-level or nested inside a
+        // pasted group) — a board's `SlidesStore` has no table support and
+        // would throw the moment the user tried to edit the pasted table's
+        // cells/rows/columns. Everything else in the clipboard still pastes.
+        const pasteSources = ctx.suppressSlideChrome
+          ? sources.filter((el) => !containsElementType(el, 'table'))
+          : sources;
         let newIds: string[] = [];
         ctx.store.batch(() => {
-          newIds = pasteElements(ctx.store, slide.id, sources, 10, 10);
+          newIds = pasteElements(ctx.store, slide.id, pasteSources, 10, 10);
         });
         ctx.selection.set(newIds);
         ctx.requestRender();
@@ -340,12 +376,23 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         if (!slide) return;
         const ids = ctx.selection.get();
         if (ids.length === 0) {
+          // No selection: the slides parity behavior duplicates the
+          // current slide. A board has no slides — `duplicateSlide()`
+          // throws `notSupported()` on `YorkieBoardStore` — so this is a
+          // no-op on a board instead of falling back to that throw.
+          if (ctx.suppressSlideChrome) return;
           ctx.store.batch(() => ctx.store.duplicateSlide(slide.id));
         } else {
           const selected = slide.elements.filter((el) => ids.includes(el.id));
+          // See the Cmd+V rule above: a table can only be selected on a
+          // board if one slipped in via a cross-doc paste before that
+          // guard existed, but filter here too for defense in depth.
+          const pasteSources = ctx.suppressSlideChrome
+            ? selected.filter((el) => !containsElementType(el, 'table'))
+            : selected;
           let newIds: string[] = [];
           ctx.store.batch(() => {
-            newIds = pasteElements(ctx.store, slide.id, selected, 10, 10);
+            newIds = pasteElements(ctx.store, slide.id, pasteSources, 10, 10);
           });
           ctx.selection.set(newIds);
         }
@@ -477,6 +524,9 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const slide = currentSlide(ctx);
         if (!slide) return;
         e.preventDefault();
+        // A board has no slides to add — `addSlide()` throws
+        // `notSupported()` on `YorkieBoardStore`.
+        if (ctx.suppressSlideChrome) return;
         const slides = ctx.store.read().slides;
         const currentIdx = slides.findIndex((s) => s.id === slide.id);
         let newId = '';
@@ -501,6 +551,9 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
         const slide = currentSlide(ctx);
         if (!slide) return;
         e.preventDefault();
+        // A board has no slide to duplicate — `duplicateSlide()` throws
+        // `notSupported()` on `YorkieBoardStore`.
+        if (ctx.suppressSlideChrome) return;
         ctx.store.batch(() => ctx.store.duplicateSlide(slide.id));
         ctx.requestRender();
       },
