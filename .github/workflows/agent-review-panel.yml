@@ -442,7 +442,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
-        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+        # --final: terminal promotion → repost the summary at the bottom AND sweep
+        # the hidden per-session agent-metric records. The paged/stalled summaries
+        # omit it (a paged PR may re-run, so its records must survive to re-aggregate).
+        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR" --final
 
   fix:
     needs: review-panel

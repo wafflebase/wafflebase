@@ -11,6 +11,8 @@ import {
   renderSummary,
   serializeRecord,
   parseMetricComment,
+  METRIC_PREFIX,
+  SUMMARY_MARKER,
 } from "./metrics.mjs";
 
 const resultMsg = (over = {}) => ({
@@ -174,4 +176,21 @@ test("metric comment round-trip: hidden, self-contained, parses back; junk → n
   // not a metric comment / unparseable → null (so summarize just skips it)
   assert.equal(parseMetricComment("a normal human comment"), null);
   assert.equal(parseMetricComment(""), null);
+});
+
+// Guard the --final sweep: it deletes per-session records by matching
+// METRIC_PREFIX. That filter must NEVER match the SUMMARY comment we just
+// posted, or promotion would delete its own summary. ("agent-metric " has a
+// trailing space; "agent-metrics-summary" has an 's' — no substring overlap.)
+test("sweep filter: METRIC_PREFIX matches a record but NOT the summary marker", () => {
+  const record = serializeRecord({ kind: "review-fix", turns: 3, tokens: 2, durationMs: 1 });
+  assert.ok(record.includes(METRIC_PREFIX)); // a per-session record IS swept
+  assert.ok(!SUMMARY_MARKER.includes(METRIC_PREFIX)); // the summary is NOT
+  // renderSummary output (which carries SUMMARY_MARKER) must not look like a record
+  const summary = renderSummary({
+    agg: { agents: ["claude-opus-4-8"], sessions: 1, attempt: 1, turns: 1, tokens: 1, durationMs: 1 },
+    panelAgg: null, panelStats: null, scope: "S",
+  });
+  assert.ok(summary.includes(SUMMARY_MARKER));
+  assert.ok(!summary.includes(METRIC_PREFIX));
 });
