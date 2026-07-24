@@ -33,6 +33,7 @@ import {
   FileText,
   Folder as FolderIcon,
   FolderOutput,
+  Frame,
   Image as ImageIcon,
   MoreHorizontal,
   NotebookPen,
@@ -141,6 +142,7 @@ const TYPE_META: Record<
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
   pdf: { label: "PDF", Icon: IconFileTypePdf, color: "text-red-500" },
   image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
+  board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
 };
 
 /** Document types offered as filter chips, in display order. */
@@ -151,6 +153,7 @@ const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "slides",
   "pdf",
   "image",
+  "board",
 ];
 
 /**
@@ -954,6 +957,17 @@ export function DocumentList({
               <Presentation className="mr-2 h-4 w-4 text-orange-500" />
               New Presentation
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                createDocumentMutation.mutate({
+                  title: "Untitled board",
+                  type: "board",
+                })
+              }
+            >
+              <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+              New Board
+            </DropdownMenuItem>
             {workspaceId && (
               <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
                 <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -1174,6 +1188,17 @@ export function DocumentList({
                         >
                           <Presentation className="mr-2 h-4 w-4 text-orange-500" />
                           New Presentation
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            createDocumentMutation.mutate({
+                              title: "Untitled board",
+                              type: "board",
+                            })
+                          }
+                        >
+                          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+                          New Board
                         </DropdownMenuItem>
                         <ImportMenuItems onImport={handleImportPick} />
                       </DropdownMenuContent>

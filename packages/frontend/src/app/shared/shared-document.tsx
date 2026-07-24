@@ -19,6 +19,7 @@ import {
   type YorkieNotesRoot,
 } from "@/types/notes-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
+import { initialBoardRoot, type YorkieBoardRoot } from "@/types/board-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -78,6 +79,15 @@ const SlidesToolbar = lazy(() =>
 const MobileSlidesView = lazy(() =>
   import("@/app/slides/mobile-slides-view").then((module) => ({
     default: module.MobileSlidesView,
+  })),
+);
+
+// Board reuses the same heavy @wafflebase/slides editor bundle as an
+// infinite canvas (see board-view.tsx). Lazy-load it for the same reason
+// as SlidesView — non-board share links shouldn't pay the cost.
+const BoardView = lazy(() =>
+  import("@/app/board/board-view").then((module) => ({
+    default: module.BoardView,
   })),
 );
 
@@ -298,6 +308,38 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shared board layout — simplest of the shared layouts: no per-type
+ * toolbar/panel machinery, mirroring `SharedNotesLayout`'s header + content
+ * shape. `BoardView` has no `readOnly` prop yet (see board-view.tsx), so a
+ * viewer-role share link still mounts the same interactive canvas as an
+ * editor link; the "View only" badge is informational only for now (SP1).
+ */
+function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
+  const readOnly = resolved.role === "viewer";
+
+  return (
+    <div className="flex h-screen w-full flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence />
+      </header>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <Suspense fallback={<Loader />}>
+          <BoardView documentId={resolved.documentId} />
+        </Suspense>
       </div>
     </div>
   );
@@ -704,6 +746,8 @@ function SharedDocumentInner({
       ? `slides-${resolved.documentId}`
       : resolved.type === "note"
       ? `note-${resolved.documentId}`
+      : resolved.type === "board"
+      ? `board-${resolved.documentId}`
       : `sheet-${resolved.documentId}`;
 
   return (
@@ -745,6 +789,19 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedNotesLayout resolved={resolved} />
+        </DocumentProvider>
+      ) : resolved.type === "board" ? (
+        <DocumentProvider<Partial<YorkieBoardRoot>>
+          docKey={docKey}
+          initialRoot={initialBoardRoot()}
+          initialPresence={{
+            ...presence,
+            selectedElementIds: [],
+            cursor: null,
+          }}
+          enableDevtools={import.meta.env.DEV}
+        >
+          <SharedBoardLayout resolved={resolved} />
         </DocumentProvider>
       ) : (
         <DocumentProvider
