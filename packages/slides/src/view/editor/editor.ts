@@ -294,6 +294,19 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * (headless tests, mounts without a thumbnail strip).
    */
   onFontsLoaded?: () => void;
+  /**
+   * When true, omit every slide-scoped item from the empty-canvas
+   * context menu (`canvasContextItems()`) — today just "Change
+   * layout…", whose `onPick` calls `store.applyLayout()`. The board
+   * package (`@wafflebase/board`) reuses this editor unmodified via
+   * `initializeEditor`, backed by a `SlidesStore` implementation
+   * (`YorkieBoardStore`) whose slide/theme/layout/animation/table
+   * methods are all `notSupported()` throws — a board has no slides to
+   * change the layout of. Without this flag, right-clicking the empty
+   * board canvas and picking "Change layout…" throws uncaught. Default
+   * false keeps the slides editor's menu unchanged.
+   */
+  suppressSlideChrome?: boolean;
 }
 
 export interface SlidesEditor {
@@ -3222,33 +3235,44 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private canvasContextItems(x: number, y: number): ContextMenuItem[] {
-    return [
+    const items: ContextMenuItem[] = [
       { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
-      { label: '---',   run: () => undefined },
-      {
-        label: 'Change layout…',
-        run: () => {
-          const slide = this.currentSlide();
-          if (!slide) return;
-          showLayoutPicker(document.body, {
-            store: this.options.store,
-            anchor: { x: this.lastContextX, y: this.lastContextY },
-            selectedLayoutId: slide.layoutId,
-            onPick: (layoutId) => {
-              this.options.store.batch(() =>
-                this.options.store.applyLayout(slide.id, layoutId),
-              );
-              this.requestRender();
-            },
-            onClose: () => {},
-          });
+    ];
+    // "Change layout…" is slide-scoped (its onPick calls
+    // `store.applyLayout()`), which a board-backed `SlidesStore` throws
+    // on (`notSupported`). Board mounts pass `suppressSlideChrome:
+    // true` to drop it; the slides editor keeps it by default.
+    if (!this.options.suppressSlideChrome) {
+      items.push(
+        { label: '---',   run: () => undefined },
+        {
+          label: 'Change layout…',
+          run: () => {
+            const slide = this.currentSlide();
+            if (!slide) return;
+            showLayoutPicker(document.body, {
+              store: this.options.store,
+              anchor: { x: this.lastContextX, y: this.lastContextY },
+              selectedLayoutId: slide.layoutId,
+              onPick: (layoutId) => {
+                this.options.store.batch(() =>
+                  this.options.store.applyLayout(slide.id, layoutId),
+                );
+                this.requestRender();
+              },
+              onClose: () => {},
+            });
+          },
         },
-      },
+      );
+    }
+    items.push(
       { label: '---',   run: () => undefined },
       { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
       { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
       { label: 'Insert text',      run: () => this.insertAt('text', x, y) },
-    ];
+    );
+    return items;
   }
 
   private insertAt(kind: ShapeOrTextInsertKind, x: number, y: number): void {

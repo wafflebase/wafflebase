@@ -267,7 +267,11 @@ export function drawSlide(
   // the color underneath. Stretch to the logical 1920×1080 region
   // because that's what OOXML `<a:stretch><a:fillRect/></a:stretch>`
   // means; tile mode is a v3 problem.
-  const bgImage = pickBackgroundImage(slide, doc);
+  //
+  // Skipped in `viewport` (board) mode, mirroring the slide-rect
+  // background fill above: a board is an unbounded plane, not a single
+  // fitted slide, so it has no slide-sized background to paint.
+  const bgImage = options.viewport ? undefined : pickBackgroundImage(slide, doc);
   if (bgImage) {
     drawImage(ctx, { w: SLIDE_WIDTH, h: slideH }, bgImage, onAssetLoad);
   }
