@@ -411,56 +411,30 @@ jobs:
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     steps:
-      - name: Review-round guard
-        id: guard
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const pr = Number('${{ needs.review-panel.outputs.pr }}');
-            const max = parseInt(process.env.MAX_REVIEW_ROUNDS, 10);
-            const PAGED = '<!-- agent-review-paged -->';
-            const page = async (msg) => {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
-              // The agent:blocked label is set by the "Set state → blocked" step
-              // below (single-value state via set-state), gated on this `paged`.
-              core.setOutput('paged', 'true');
-              core.setOutput('proceed', 'false');
-            };
-            // Paginate: the PAGED latch must see ALL comments, not just the first
-            // page — an iterating PR easily exceeds 30 comments, and missing the
-            // sentinel would re-fire the fix loop after a human was already paged.
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr, per_page: 100 });
-            if (comments.some((c) => c.body.includes(PAGED))) { core.setOutput('proceed', 'false'); return; }
-            // A lens that failed CLOSED (no valid verdict) → structural problem, page now.
-            if ('${{ needs.review-panel.outputs.all_valid }}' !== 'true') {
-              return page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`);
-            }
-            // Unforgeable round bound: count commits where one of OUR panel's
-            // lens checks failed. Match the exact required-check names AND the
-            // producing app (github-actions), so a stray same-prefixed check from
-            // some other installed app can't inflate the counter.
-            const NAMES = new Set('${{ needs.review-panel.outputs.required_checks }}'.split(',').filter(Boolean));
-            const mine = (r) => NAMES.has(r.name) && r.app && r.app.slug === 'github-actions';
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
-            let failedRounds = 0;
-            for (const c of commits) {
-              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
-              if (runs.some((r) => mine(r) && r.conclusion === 'failure')) failedRounds++;
-            }
-            if (failedRounds >= max) {
-              return page(`The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
-            }
-            core.setOutput('proceed', 'true');
-
-      # Loop gave up (round cap, or a lens failed closed) and paged a human →
-      # post the effort summary too. The fix job's normal checkout is gated on
-      # `proceed`, so check out the TRUSTED main copy here to run summarize.
-      - name: Check out gate script (paged summary)
-        if: steps.guard.outputs.paged == 'true'
+      # Everything below runs against UNTRUSTED PR data (commit list,
+      # check-run results, PR comments), so the code deciding what to do with
+      # it must come from the TRUSTED `main` copy, never the PR branch's own
+      # version — also what makes scripts/agent/rounds.mjs importable by
+      # review-round-guard.mjs. Runs unconditionally (not gated on `paged`
+      # like before) since the guard step itself now needs it too.
+      - name: Check out trusted main (for the review-round guard)
         uses: actions/checkout@v4
         with:
           ref: main
+          persist-credentials: false # only reads scripts here; the fix push later uses its own App token
+
+      - name: Review-round guard
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          ALL_VALID: ${{ needs.review-panel.outputs.all_valid }}
+          REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
+        # Unforgeable round bound: count commits where one of OUR panel's lens
+        # checks failed, EXCLUDING merge commits (see rounds.mjs for the why —
+        # PR #521 demonstrated human branch-sync merges inflating this count).
+        run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS"
+
       - name: Post agent-effort summary (paged → needs human review)
         if: steps.guard.outputs.paged == 'true'
         continue-on-error: true
