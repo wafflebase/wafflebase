@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createServer } from "vite";
+import pixelmatch from "pixelmatch";
+import { PNG } from "pngjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -127,8 +129,109 @@ const visualTargets = [
   ),
 ];
 
+// Baselines are compared with a perceptual per-pixel threshold and a small
+// mismatched-pixel budget rather than byte-exact equality. Chromium's
+// antialiasing along text/vector edges is not bit-reproducible across CI
+// runs, so a byte-exact check flags a handful of sub-pixel-jitter pixels as a
+// failure and blocks unrelated PRs (see
+// docs/tasks/.../visual-harness-pixel-tolerance-*). pixelmatch's YIQ threshold
+// absorbs that noise; the pixel budget catches the rare case where jitter
+// pushes an edge pixel over the threshold — while genuine visual changes
+// (moved layout, changed glyphs/colors) still exceed it and fail. This mirrors
+// how Playwright's own test runner compares screenshots.
+// Parse a numeric tolerance override. Falls back to `fallback` unless the env
+// var holds a finite number that also passes `isValid`. This rejects two kinds
+// of footgun: values that fail to parse (unset/`""`/`"high"` — `Number("")` is
+// 0, which would revert to byte-exact; `Number("high")` is NaN, which would fail
+// every comparison) and values that parse but lie outside a setting's sensible
+// domain (e.g. `VISUAL_MAX_DIFF_RATIO=1` → `allowed = total` → every comparison
+// silently passes). An ignored override is warned so a typo isn't invisible.
+function numberEnv(name, fallback, isValid) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || (isValid && !isValid(parsed))) {
+    console.warn(
+      `[verify:visual:browser] Ignoring out-of-range ${name}="${raw}"; using ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+// threshold is a YIQ distance in [0, 1]; ratio is a fraction of total pixels in
+// [0, 1) (1 would allow the whole image to differ); floor is a non-negative
+// pixel count.
+const PIXELMATCH_THRESHOLD = numberEnv(
+  "VISUAL_PIXELMATCH_THRESHOLD",
+  0.1,
+  (v) => v >= 0 && v <= 1,
+);
+const MAX_DIFF_RATIO = numberEnv(
+  "VISUAL_MAX_DIFF_RATIO",
+  0.0001,
+  (v) => v >= 0 && v < 1,
+);
+const MAX_DIFF_PIXELS_FLOOR = numberEnv(
+  "VISUAL_MAX_DIFF_PIXELS_FLOOR",
+  20,
+  (v) => Number.isInteger(v) && v >= 0,
+);
+
 function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+// Compare two PNG buffers. Returns `{ match, detail }`, plus a `diff` PNG (for
+// the caller to serialize on mismatch only). A dimension change or an
+// undecodable buffer is always a mismatch — reported per-target rather than
+// thrown, so one bad screenshot never aborts the whole run. Otherwise the count
+// of perceptually-different pixels must stay within
+// `max(floor, ceil(total * ratio))`. Callers should short-circuit on
+// byte-identical buffers before calling this — decoding is only worth it once
+// the bytes already differ.
+function compareImages(baselineBuf, capturedBuf) {
+  let baseline;
+  let captured;
+  try {
+    baseline = PNG.sync.read(baselineBuf);
+    captured = PNG.sync.read(capturedBuf);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { match: false, detail: `undecodable PNG: ${message}` };
+  }
+
+  if (
+    baseline.width !== captured.width ||
+    baseline.height !== captured.height
+  ) {
+    return {
+      match: false,
+      detail: `dimensions ${baseline.width}x${baseline.height} -> ${captured.width}x${captured.height}`,
+    };
+  }
+
+  const { width, height } = baseline;
+  const total = width * height;
+  const diff = new PNG({ width, height });
+  const diffPixels = pixelmatch(
+    baseline.data,
+    captured.data,
+    diff.data,
+    width,
+    height,
+    { threshold: PIXELMATCH_THRESHOLD },
+  );
+  const allowed = Math.max(
+    MAX_DIFF_PIXELS_FLOOR,
+    Math.ceil(total * MAX_DIFF_RATIO),
+  );
+
+  return {
+    match: diffPixels <= allowed,
+    detail: `${diffPixels} diff px (allowed ${allowed} of ${total})`,
+    diff,
+  };
 }
 
 function captureKey(profileId, targetId) {
@@ -162,6 +265,11 @@ function baselinePathFor(target, profile) {
 function actualPathFor(target, profile) {
   const parsed = path.parse(baselineFilenameFor(target, profile));
   return path.resolve(baselineDir, `${parsed.name}.actual${parsed.ext}`);
+}
+
+function diffPathFor(target, profile) {
+  const parsed = path.parse(baselineFilenameFor(target, profile));
+  return path.resolve(baselineDir, `${parsed.name}.diff${parsed.ext}`);
 }
 
 function printPlaywrightInstallHelp() {
@@ -424,6 +532,8 @@ for (const profile of captureProfiles) {
       throw new Error(`Missing captured screenshot for ${captureKey(profile.id, target.id)}.`);
     }
 
+    // Fast path: byte-identical buffers are trivially a match and skip the
+    // (comparatively expensive) PNG decode + pixel diff.
     if (baseline.equals(captured)) {
       console.log(
         `[verify:visual:browser] Baseline matched ${baselineFile} (${shortHash(captured)}).`,
@@ -431,13 +541,28 @@ for (const profile of captureProfiles) {
       continue;
     }
 
+    const comparison = compareImages(baseline, captured);
+    if (comparison.match) {
+      console.log(
+        `[verify:visual:browser] Baseline matched ${baselineFile} within tolerance (${comparison.detail}).`,
+      );
+      continue;
+    }
+
     const actualPath = actualPathFor(target, profile);
     await writeFile(actualPath, captured);
+    let diffPath = null;
+    if (comparison.diff) {
+      diffPath = diffPathFor(target, profile);
+      await writeFile(diffPath, PNG.sync.write(comparison.diff));
+    }
     mismatchedTargets.push({
       baselineFile,
+      detail: comparison.detail,
       baselineHash: shortHash(baseline),
       actualHash: shortHash(captured),
       actualPath,
+      diffPath,
     });
   }
 }
@@ -453,9 +578,13 @@ if (mismatchedTargets.length > 0) {
   console.error("[verify:visual:browser] Visual baseline mismatches detected:");
   for (const mismatch of mismatchedTargets) {
     console.error(`- ${mismatch.baselineFile}`);
+    console.error(`  detail:        ${mismatch.detail}`);
     console.error(`  baseline hash: ${mismatch.baselineHash}`);
     console.error(`  actual hash:   ${mismatch.actualHash}`);
     console.error(`  actual output: ${mismatch.actualPath}`);
+    if (mismatch.diffPath) {
+      console.error(`  diff output:   ${mismatch.diffPath}`);
+    }
   }
 }
 
