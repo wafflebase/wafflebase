@@ -69,3 +69,10 @@ describe('yorkie-doc-key image prefix', () => {
     expect(parseYorkieDocKey('image-abc')).toEqual({ type: 'image', id: 'abc' });
   });
 });
+
+describe('yorkie-doc-key board prefix', () => {
+  it('maps board → board- and round-trips', () => {
+    expect(yorkieDocKeyPrefix('board')).toBe('board-');
+    expect(parseYorkieDocKey('board-abc')).toEqual({ type: 'board', id: 'abc' });
+  });
+});
