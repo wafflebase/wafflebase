@@ -76,7 +76,11 @@ jobs:
     permissions:
       contents: read # read-only toward the PR
       checks: write # record per-lens verdicts
-      issues: read # design-fit lens reads the originating issue spec
+      # issues:write is used ONLY by the trusted "Set state → reviewing" run-step
+      # to set the advisory agent:reviewing label (labels use the issues API). The
+      # SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
+      # only), so this does not widen what prompt-injected branch code can reach.
+      issues: write # design-fit reads the issue spec + set advisory agent:reviewing
       pull-requests: read
     outputs:
       pr: ${{ steps.pr.outputs.number }}
@@ -234,6 +238,17 @@ jobs:
             }
             fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
             core.info(`prior findings carried into re-check: ${prior.length}`);
+
+      # Advisory single-value state: mark the PR "under automated review" while the
+      # panel runs. Best-effort; the label is a projection, never a gate. Runs the
+      # TRUSTED copy from .trusted (checked out above), not the branch's copy.
+      - name: Set state → reviewing
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: node .trusted/scripts/agent/set-state.mjs "$PR" reviewing
 
       - name: Run review panel
         if: steps.pr.outputs.number != ''
@@ -407,7 +422,8 @@ jobs:
             const PAGED = '<!-- agent-review-paged -->';
             const page = async (msg) => {
               await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
-              await github.rest.issues.addLabels({ owner, repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
+              // The agent:blocked label is set by the "Set state → blocked" step
+              // below (single-value state via set-state), gated on this `paged`.
               core.setOutput('paged', 'true');
               core.setOutput('proceed', 'false');
             };
@@ -452,6 +468,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+
+      # Single-value state: the loop paged a human → agent:blocked. Uses the
+      # trusted main checkout above.
+      - name: Set state → blocked (paged)
+        if: steps.guard.outputs.paged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/set-state.mjs "$PR" blocked
 
       - name: Gather failing lens findings
         id: findings
@@ -509,6 +535,17 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.proceed == 'true'
         run: pnpm install --frozen-lockfile
+
+      # Single-value state: a fix round is in flight → agent:fixing. Uses the
+      # branch's own checkout (this job is author-side and already runs branch
+      # code). Best-effort; advisory only.
+      - name: Set state → fixing
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/set-state.mjs "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
       # can detect a fix round that pushed NO new commit. We read the remote
@@ -600,7 +637,7 @@ jobs:
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
-            gh pr edit "$PR" --add-label "agent:needs-human-review" || true
+            node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
 
       # Record this review-fix session's effort into the PR metrics ledger
@@ -645,6 +682,8 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+      actions: read # set-state reconcile reads the CI workflow-run conclusion
+      checks: read # set-state reconcile reads the lens check-run conclusions
     steps:
       - name: Page a human
         id: page
@@ -681,10 +720,9 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
               body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.`,
             });
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
-              labels: ['agent:needs-human-review'],
-            }).catch(() => {});
+            // The single-value label is set by the "Reconcile agent state" step
+            // below — it re-derives state from the unforgeable signals (the paged
+            // comment just posted → agent:blocked) and self-heals any drift.
 
       # The panel died before producing verdicts, but earlier sessions
       # (kickoff / ci-fix) recorded effort — post the summary so the hand-off
@@ -701,3 +739,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.page.outputs.pr }}
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+
+      # Self-heal the single-value state from the unforgeable signals (CI
+      # conclusion, lens checks, draft flag, paged latch). On the stalled path
+      # this normally resolves to agent:blocked, but deriving it (rather than
+      # hardcoding) also corrects any drift left by a mid-transition crash.
+      - name: Reconcile agent state
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node ./scripts/agent/set-state.mjs reconcile "${{ steps.page.outputs.pr }}"
