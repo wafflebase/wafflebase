@@ -1,19 +1,10 @@
 import {
   type Viewport,
   worldToScreen,
+  screenToWorld,
 } from '@wafflebase/slides';
 
-export { type Viewport, worldToScreen };
-
-/** screen → world: w = (s - pan) / zoom */
-function screenToWorld(
-  v: Viewport,
-  p: { x: number; y: number },
-): { x: number; y: number } {
-  return { x: (p.x - v.panX) / v.zoom, y: (p.y - v.panY) / v.zoom };
-}
-
-export { screenToWorld };
+export { type Viewport, worldToScreen, screenToWorld };
 
 export const DEFAULT_VIEWPORT: Viewport = { panX: 0, panY: 0, zoom: 1 };
 
