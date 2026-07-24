@@ -414,6 +414,19 @@ Components:
 
     Both lower false-negative odds; neither makes the panel safe to self-promote —
     the human review gate stays the backstop.
+
+    **API/quota error classification.** The Agent SDK reports API failures as a
+    `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,
+    e.g. a 429 "You've hit your session limit"), so "success" alone is not proof the
+    model ran. `classifyResult` distinguishes a real verdict from an *API error* (and
+    a transient API error from a *session/usage-limit*, which resets on a fixed
+    schedule) from a genuine *no-output*. Transient API errors get a bounded
+    `withRetry` (exp backoff); a session-limit fails fast (retry can't clear it). When
+    EVERY blocking lens fails on an API error the panel marks an `infraError`: it still
+    fails closed (never promotes), but the fix job pages with the *real* reason
+    ("Claude API/quota error — re-run after reset"), **skips the fixer** (nothing to
+    fix) and does **not** count it toward `MAX_REVIEW_ROUNDS`. This keeps a credential
+    outage from masquerading as a code review finding (the #547/#548 test failures).
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
   workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the
