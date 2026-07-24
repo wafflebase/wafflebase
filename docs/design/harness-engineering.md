@@ -72,6 +72,12 @@ humans) see what changed.
 
 **How we apply this:**
 - Browser screenshot baselines via Playwright (desktop + mobile profiles).
+- Screenshots are compared with a perceptual per-pixel threshold plus a small
+  mismatched-pixel budget (`pixelmatch`), not byte-exact PNG equality — Chromium
+  antialiasing is not bit-reproducible across CI runs, so an exact check flakes
+  on a handful of sub-pixel-jitter pixels. Tunable via
+  `VISUAL_PIXELMATCH_THRESHOLD` / `VISUAL_MAX_DIFF_RATIO` /
+  `VISUAL_MAX_DIFF_PIXELS_FLOOR`; a `*.diff.png` is emitted on real mismatches.
 - Interaction regression tests replay cell input, formula evaluation, and
   scroll behavior in a real browser.
 - Canvas-based rendering makes visual regression testing essential — DOM
