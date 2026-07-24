@@ -42,20 +42,20 @@ confirm/refute counts are computed and thrown away in the same file.
 
 ## Plan
 
-- [ ] `review-panel.mjs`: thread a `sessionLog` accumulator through
+- [x] `review-panel.mjs`: thread a `sessionLog` accumulator through
       `askStructured`/`runLens`/`verifyFinding`; add `compareSampleAgreement`,
       `severityCounts`, `verifierTally` pure helpers; collect per-lens/round
       stats in `main()`; write `review-execution.json` + `review-lens-stats.json`.
-- [ ] `metrics.mjs`: add `sumExecutions`, `aggregatePanelStats`; extend
+- [x] `metrics.mjs`: add `sumExecutions`, `aggregatePanelStats`; extend
       `cmdRecord` for `--kind review` (+ `--lens-stats`); split
       `renderSummary` into code-fix + review-panel sections + one
       `Total-tokens:` line; extend `cmdSummarize` to split ledger records
       by kind before aggregating.
-- [ ] `agent-review-panel.yml`: upload the two files as a `review-panel`
+- [x] `agent-review-panel.yml`: upload the two files as a `review-panel`
       job artifact; download + `metrics.mjs record --kind review` from
       `promote` and `fix` jobs.
-- [ ] Extend `review-panel.test.mjs` + `metrics.test.mjs` for all new pure
+- [x] Extend `review-panel.test.mjs` + `metrics.test.mjs` for all new pure
       functions; `node --test *.test.mjs` green.
-- [ ] `pnpm verify:fast` green per commit.
-- [ ] Self-review pass over the diff.
-- [ ] Open PR against `wafflebase/wafflebase:main`.
+- [x] `pnpm verify:fast` green per commit.
+- [x] Self-review pass over the diff.
+- [x] Open PR against `wafflebase/wafflebase:main` (#540).
