@@ -1,17 +1,4 @@
-const SAFE_PROTOCOLS = ['http:', 'https:', 'mailto:'];
-
-/**
- * Check if a URL has a safe protocol (not javascript:, data:, etc.).
- * Returns false for invalid URLs.
- */
-export function isSafeUrl(href: string): boolean {
-  try {
-    const url = new URL(href);
-    return SAFE_PROTOCOLS.includes(url.protocol);
-  } catch {
-    return false;
-  }
-}
+import { isSafeUrl } from '@wafflebase/core/url';
 
 /**
  * Detects whether a cell's plain value is a standalone hyperlink and returns

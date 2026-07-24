@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cellHyperlink, isSafeUrl } from '../url-detect';
+import { cellHyperlink } from '../url-detect';
 
 describe('cellHyperlink', () => {
   it('detects a plain http(s) URL as a link', () => {
@@ -34,19 +34,5 @@ describe('cellHyperlink', () => {
   it('rejects unsafe protocols', () => {
     expect(cellHyperlink('javascript:alert(1)')).toBeNull();
     expect(cellHyperlink('data:text/html,<h1>x</h1>')).toBeNull();
-  });
-});
-
-describe('isSafeUrl', () => {
-  it('accepts http/https/mailto', () => {
-    expect(isSafeUrl('https://example.com')).toBe(true);
-    expect(isSafeUrl('http://example.com')).toBe(true);
-    expect(isSafeUrl('mailto:a@b.com')).toBe(true);
-  });
-
-  it('rejects unsafe or invalid protocols', () => {
-    expect(isSafeUrl('javascript:alert(1)')).toBe(false);
-    expect(isSafeUrl('data:text/plain,x')).toBe(false);
-    expect(isSafeUrl('not a url')).toBe(false);
   });
 });
