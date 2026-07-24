@@ -133,6 +133,13 @@ export function BoardView({ documentId }: BoardViewProps) {
     overlay.style.pointerEvents = "none";
     container.appendChild(overlay);
 
+    // Inject pointer-events for handles (overlay-level CSS). The
+    // overlay itself uses pointer-events: none so empty-area clicks
+    // pass through to the canvas; handle children opt back in.
+    const style = document.createElement("style");
+    style.textContent = "[data-handle] { pointer-events: auto !important; }";
+    document.head.appendChild(style);
+
     const store = new YorkieBoardStore(doc);
 
     // Host fills the container edge-to-edge — there is no fitted slide
@@ -335,6 +342,7 @@ export function BoardView({ documentId }: BoardViewProps) {
       editor.detach();
       store.dispose();
       editorRef.current = null;
+      style.remove();
     };
   }, [didMount, doc]);
 
