@@ -29,9 +29,13 @@ import { fileURLToPath } from "node:url";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
-// other's records. SUMMARY is the single aggregated comment, upserted by the
-// promote job (one writer, no race).
-const METRIC_PREFIX = "<!-- agent-metric ";
+// other's records. `summarize` aggregates them into one human-readable SUMMARY,
+// posted FRESH at the bottom of the thread (the old summary is deleted, not
+// edited in place, so the up-to-date one isn't buried mid-thread). On the
+// terminal promote (`--final`) it also sweeps the hidden per-session records,
+// whose totals are now captured in the summary and which otherwise render as
+// empty comment boxes.
+export const METRIC_PREFIX = "<!-- agent-metric ";
 export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
@@ -255,24 +259,30 @@ function listAllComments(pr) {
   return Array.isArray(pages) ? pages.flat() : [];
 }
 
-function findComment(pr, marker) {
-  return listAllComments(pr).find((c) => (c.body || "").includes(marker));
+function postComment(pr, body) {
+  gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${pr}/comments`, "-f", `body=${body}`]);
 }
 
-function upsertComment(pr, marker, body) {
-  const existing = findComment(pr, marker);
-  if (existing) {
-    gh(["api", "-X", "PATCH", `repos/{owner}/{repo}/issues/comments/${existing.id}`, "-f", `body=${body}`]);
-  } else {
-    gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${pr}/comments`, "-f", `body=${body}`]);
+// Best-effort delete: metrics must never fail the pipeline, so a comment we
+// can't remove (already gone, permission) is logged and skipped, not fatal.
+function safeDeleteComment(id) {
+  try {
+    gh(["api", "-X", "DELETE", `repos/{owner}/{repo}/issues/comments/${id}`]);
+  } catch (e) {
+    console.error(`metrics: could not delete comment ${id}: ${e.message}`);
   }
 }
 
 function parseArgs(argv) {
   const a = {};
   for (let i = 3; i < argv.length; i++) {
-    if (argv[i].startsWith("--")) {
-      a[argv[i].slice(2)] = argv[i + 1];
+    if (!argv[i].startsWith("--")) continue;
+    const key = argv[i].slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith("--")) {
+      a[key] = true; // boolean flag (e.g. --final)
+    } else {
+      a[key] = next;
       i++;
     }
   }
@@ -329,14 +339,15 @@ function cmdRecord(args) {
 function cmdSummarize(args) {
   const pr = args.pr;
   if (!pr) return bail("summarize needs --pr");
-  let records, prInfo;
+  let comments, prInfo;
   try {
-    records = listAllComments(pr).map((c) => parseMetricComment(c.body || "")).filter(Boolean);
-    if (records.length === 0) return bail(`no metrics recorded for PR #${pr}; skipping summary`);
+    comments = listAllComments(pr);
     prInfo = ghJson(["pr", "view", pr, "--json", "additions,deletions"]);
   } catch (e) {
     return bail(`could not read metrics/PR for #${pr}: ${e.message}`);
   }
+  const records = comments.map((c) => parseMetricComment(c.body || "")).filter(Boolean);
+  if (records.length === 0) return bail(`no metrics recorded for PR #${pr}; skipping summary`);
   // Code-fix agent (implement/ci-fix/review-fix) and review panel (review) are
   // kept as separate aggregates — see renderSummary's doc comment for why.
   const codeFixRecords = records.filter((r) => r.kind !== "review");
@@ -348,11 +359,34 @@ function cmdSummarize(args) {
     : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
   try {
-    upsertComment(pr, SUMMARY_MARKER, renderSummary({ agg, panelAgg, panelStats, scope }));
+    // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
+    // its original creation point (often an early paged hand-off), so editing it
+    // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
+    // BOTTOM where a human looks; the old one is deleted just below.
+    postComment(pr, renderSummary({ agg, panelAgg, panelStats, scope }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }
-  console.log(`posted agent-effort summary for PR #${pr} (sessions=${agg.sessions} turns=${agg.turns} tokens=${agg.tokens})`);
+  // Cleanup is best-effort (never fail the pipeline). Delete the OLD summary
+  // comment(s) so only the fresh bottom one remains.
+  for (const c of comments) {
+    if ((c.body || "").includes(SUMMARY_MARKER)) safeDeleteComment(c.id);
+  }
+  // On the TERMINAL promote (--final), sweep the hidden per-session agent-metric
+  // records: their totals are now captured in the summary, and each renders as an
+  // empty comment box that clutters the thread. Only on --final — a paged /
+  // non-terminal summary keeps them so a later re-run still aggregates the full
+  // history. (SUMMARY_MARKER never matches METRIC_PREFIX — "agent-metrics-" vs
+  // "agent-metric " — so this can't delete the summary we just posted.)
+  if (args.final) {
+    for (const c of comments) {
+      if ((c.body || "").includes(METRIC_PREFIX)) safeDeleteComment(c.id);
+    }
+  }
+  console.log(
+    `posted agent-effort summary for PR #${pr} (sessions=${agg.sessions} turns=${agg.turns} tokens=${agg.tokens})` +
+      (args.final ? " [final: reposted at bottom, swept per-session records]" : ""),
+  );
 }
 
 // Only run the CLI when executed directly (not when imported for tests).
@@ -364,7 +398,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   else {
     console.error(
       "usage: metrics.mjs <record|summarize> [--pr N | --issue N] [--execution PATH] " +
-        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH]",
+        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH] [--final]",
     );
     process.exit(2);
   }
