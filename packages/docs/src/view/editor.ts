@@ -2976,19 +2976,51 @@ export function initialize(
     insertLink: (url: string) => {
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
+        // Record the caret + selection so undo restores them. Mirrors
+        // applyStyleImpl: this direct toolbar/⌘K path bypasses the
+        // text-editor's saveSnapshot hook, so without this undo would
+        // collapse the selection (see #523).
+        if ('setCursorForHistory' in docStore) {
+          (docStore as {
+            setCursorForHistory(
+              pos: { blockId: string; offset: number },
+              selection?: DocRange | null,
+            ): void;
+          }).setCursorForHistory(cursor.position, selection.range ?? null);
+        }
         const range = selection.range;
 
+        // Cell-range mode: apply to all cells in range (mirrors applyStyleImpl)
+        if (range.tableCellRange) {
+          applyStyleToCellRange(range.tableCellRange, { href: url });
+          markDirty(range.tableCellRange.blockId);
+          render();
+          notifyStyleApplied();
+          return;
+        }
+
         doc.applyInlineStyle(range, { href: url });
-        const startIdx = doc.getBlockIndex(range.anchor.blockId);
-        const endIdx = doc.getBlockIndex(range.focus.blockId);
-        if (startIdx >= 0 && endIdx >= 0) {
-          const lo = Math.min(startIdx, endIdx);
-          const hi = Math.max(startIdx, endIdx);
-          for (let i = lo; i <= hi; i++) {
-            markDirty(doc.document.blocks[i].id);
+        // Mark affected blocks as dirty (mirrors applyStyleImpl)
+        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+        const focusCI = layout.blockParentMap.get(range.focus.blockId);
+        if (anchorCI) {
+          // Cell block: mark the parent table block dirty
+          markDirty(anchorCI.tableBlockId);
+        } else if (focusCI) {
+          markDirty(focusCI.tableBlockId);
+        } else {
+          const startIdx = doc.getBlockIndex(range.anchor.blockId);
+          const endIdx = doc.getBlockIndex(range.focus.blockId);
+          if (startIdx >= 0 && endIdx >= 0) {
+            const lo = Math.min(startIdx, endIdx);
+            const hi = Math.max(startIdx, endIdx);
+            for (let i = lo; i <= hi; i++) {
+              markDirty(doc.document.blocks[i].id);
+            }
           }
         }
         render();
+        notifyStyleApplied();
       } else {
         docStore.snapshot();
         const pos = cursor.position;
@@ -3000,7 +3032,9 @@ export function initialize(
         };
         doc.applyInlineStyle(range, { href: url });
         cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
-        markDirty(pos.blockId);
+        // Cell block: mark the parent table block dirty (mirrors removeLink)
+        const cellInfo = layout.blockParentMap.get(pos.blockId);
+        markDirty(cellInfo ? cellInfo.tableBlockId : pos.blockId);
         needsScrollIntoView = true;
         render();
       }

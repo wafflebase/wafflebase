@@ -65,8 +65,15 @@ REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
          ;
 fragment SHEET_NAME: [A-Za-z][A-Za-z0-9]* ;
 fragment QUOTED_SHEET_NAME: '\'' (~['])+ '\'' ;
-REF: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? '$'? [1-9][0-9]* ;
-REFRANGE: REF ':' REF ;
+fragment COL: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? ;
+fragment ROW: '$'? [1-9][0-9]* ;
+REF: COL ROW ;
+REFRANGE: REF ':' REF        // A1:B2
+        | COL ':' COL         // A:A, A:C   (whole column)
+        | ROW ':' ROW         // 1:1, 2:5   (whole row)
+        | REF ':' COL | COL ':' REF   // A1:B, A:B1 (open-ended column)
+        | REF ':' ROW | ROW ':' REF   // A1:2, 1:B2 (open-ended row)
+        ;
 NUM: [0-9]+('.' [0-9]+)? ([eE] [+-]? [0-9]+)? ;
 ```
 
@@ -80,6 +87,49 @@ expression call → `^` (right-associative) → `* /` → `+ -` → `&` →
 
 **Cross-sheet references** use the `SheetName!Ref` syntax. Sheet names
 containing spaces or special characters are quoted: `'My Sheet'!A1`.
+
+#### Whole-column / whole-row / open-ended ranges
+
+`REFRANGE` also accepts ranges whose endpoints omit a row and/or column,
+matching Excel / Google Sheets:
+
+| Syntax   | Meaning                                        |
+| -------- | ---------------------------------------------- |
+| `A:A`    | Entire column A                                |
+| `A:C`    | Columns A through C                            |
+| `1:1`    | Entire row 1                                   |
+| `2:5`    | Rows 2 through 5                               |
+| `A1:B`   | From A1 to the bottom of column B (open-ended) |
+| `B2:B`   | From B2 to the bottom of column B              |
+
+Because the data model stores every range as a concrete `[from, to]` pair
+of cells, an unbounded range must be clamped to the sheet's data extent
+before evaluation. This happens **up front**, so the evaluator and every
+`toSrefs` call site keep working on ordinary bounded ranges:
+
+1. `Store.getUsedBounds()` returns the bounding `Range` of all populated
+   cells (delegates to `CellIndex.bounds()`), or `undefined` for an empty
+   sheet.
+2. `expandUnboundedRanges(formula, bounds)` (in `formula.ts`) tokenizes the
+   formula and rewrites each local unbounded `REFERENCE` token to a concrete
+   `toSrng(resolveRange(ref, bounds))`. Omitted parts of the `from` endpoint
+   default to the top-left (row 1 / column 1); omitted parts of `to` default
+   to the bottom-right of `bounds`. Formulas with no unbounded reference are
+   returned unchanged.
+3. The **calculator** rewrites `cell.f` before `extractReferences` /
+   `evaluateWithSpill`; `buildDependantsMap` (MemStore + YorkieStore) applies
+   the same rewrite so editing any cell in a referenced column/row still
+   triggers recalculation (the dependants map is rebuilt on every edit, so
+   cells added beyond the prior extent are picked up on their own write).
+
+Blank cells inside a range contribute nothing to aggregations
+(`Arguments.iterate` skips them), so `AVERAGE`/`MIN`/`MAX`/`COUNT` over a
+whole column ignore the empty cells rather than treating them as `0`.
+
+**Limitations.** Cross-sheet unbounded refs (`Sheet2!A:A`) are not resolved —
+the calculator only knows the local sheet's bounds — and evaluate to
+`#ERROR!`. Whole-column/row highlighting (`extractFormulaRanges`) skips
+unbounded refs.
 
 ### Evaluation Pipeline
 
@@ -115,6 +165,7 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 | Function                                         | Source       | Description                                                                               |
 | ------------------------------------------------ | ------------ | ----------------------------------------------------------------------------------------- |
 | `extractReferences(formula)`                     | (see above) | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
+| `expandUnboundedRanges(formula, bounds)`         | (see above) | Rewrites whole-column/row/open-ended refs (`A:A`, `1:1`, `A1:B`) to concrete ranges clamped to `bounds` |
 | `extractTokens(formula)`                         | (see above) | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
 | `extractFormulaRanges(formula)`                   | (see above) | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
 | `evaluate(formula, grid?)`                       | (see above) | Full parse → visit → resolve pipeline, returns a display string                           |

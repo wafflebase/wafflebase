@@ -154,6 +154,10 @@ export class ReadOnlyStore implements Store {
     return new Map();
   }
 
+  async getUsedBounds(): Promise<Range | undefined> {
+    return this.cellIndex.bounds();
+  }
+
   getPresences(): Array<{
     clientID: string;
     presence: {

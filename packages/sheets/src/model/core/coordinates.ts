@@ -394,6 +394,78 @@ export function parseRange(srng: Srng): Range {
   return [parseRef(from), parseRef(to)];
 }
 
+/**
+ * `PartialRef` is a range endpoint that may omit its row or column, as in the
+ * open-ended forms `A` (whole column) or `1` (whole row).
+ */
+type PartialRef = { r: number | null; c: number | null };
+
+/**
+ * `parsePartialRef` parses one endpoint of a range, tolerating a missing row
+ * (`A`, `$A`) or missing column (`1`). `$` markers are ignored. Throws on an
+ * endpoint that has neither a column nor a row.
+ */
+function parsePartialRef(ref: string): PartialRef {
+  const cleaned = ref.replace(/\$/g, '');
+  const match = cleaned.match(/^([A-Za-z]*)([0-9]*)$/);
+  if (!match || (match[1] === '' && match[2] === '')) {
+    throw new Error('Invalid Reference');
+  }
+  return {
+    c: match[1] ? parseColumnLabel(match[1]) : null,
+    r: match[2] ? parseInt(match[2], 10) : null,
+  };
+}
+
+/**
+ * `isFullRef` returns whether the given endpoint carries both a column and a
+ * row (e.g. `A1`, `$B$2`), as opposed to a column-only or row-only endpoint.
+ */
+function isFullRef(ref: string): boolean {
+  return /^\$?[A-Za-z]+\$?[0-9]+$/.test(ref);
+}
+
+/**
+ * `isUnboundedRange` returns whether the reference is a whole-column
+ * (`A:A`, `A:C`), whole-row (`1:1`, `2:5`), or open-ended (`A1:B`, `B2:B`)
+ * range — i.e. a range whose endpoints omit a row and/or a column. Bounded
+ * ranges (`A1:B2`) and single cells return `false`.
+ */
+export function isUnboundedRange(reference: Reference): boolean {
+  if (!reference.includes(':')) return false;
+  const local = isCrossSheetRef(reference)
+    ? parseCrossSheetRef(reference).localRef
+    : reference;
+  const [from, to] = local.split(':');
+  if (to === undefined) return false;
+  return !isFullRef(from) || !isFullRef(to);
+}
+
+/**
+ * `resolveRange` parses a range string into a concrete `Range`, filling any
+ * omitted row/column from the given data `bounds`. Omitted parts of the `from`
+ * endpoint default to the top-left (row 1 / column 1); omitted parts of the
+ * `to` endpoint default to the bottom-right of `bounds`. The result is
+ * normalized via `toRange`, so it also accepts fully-bounded ranges.
+ *
+ * Examples (bounds = [{1,1},{maxR,maxC}]):
+ *   `A:A`   → [{1,1},   {maxR,1}]     (whole column A)
+ *   `1:1`   → [{1,1},   {1,maxC}]     (whole row 1)
+ *   `A1:B`  → [{1,1},   {maxR,2}]     (A1 to bottom of column B)
+ *   `B2:B`  → [{2,2},   {maxR,2}]
+ *   `A:B2`  → [{1,1},   {2,2}]
+ */
+export function resolveRange(srng: Srng, bounds: Range): Range {
+  const [fromStr, toStr] = srng.split(':');
+  const a = parsePartialRef(fromStr);
+  const b = parsePartialRef(toStr);
+  const [, max] = bounds;
+  return toRange(
+    { r: a.r ?? 1, c: a.c ?? 1 },
+    { r: b.r ?? max.r, c: b.c ?? max.c },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Ranges utilities
 // ---------------------------------------------------------------------------
