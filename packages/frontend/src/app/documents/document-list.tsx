@@ -150,6 +150,9 @@ const rowTitle = (row: ListRow): string =>
 const rowModified = (row: ListRow): string =>
   row.kind === "folder" ? row.item.createdAt : lastModified(row.item);
 
+/** The value used for the row's "Created" column. */
+const rowCreated = (row: ListRow): string => row.item.createdAt;
+
 const DOC_KEY_PREFIX = "doc:";
 const FOLDER_KEY_PREFIX = "folder:";
 
@@ -763,6 +766,7 @@ export function DocumentList({
       },
     },
     dateColumn("updatedAt", "Modified", (row) => rowModified(row)),
+    dateColumn("createdAt", "Created", (row) => rowCreated(row)),
     {
       id: "actions",
       enableHiding: false,
