@@ -273,6 +273,31 @@ is ever produced. `<details open>` renders expanded by default; a stray
 `</details>` with no matching open falls through and is escaped as literal
 text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
 
+#### Empty nested bullet vs setext heading — shipped (issue #517)
+
+CommonMark has a genuine ambiguity: a lone `-` on the line after a paragraph is
+a valid **setext heading underline**, so
+
+```
+- 1
+  -
+```
+
+renders (in strict CommonMark, and on GitHub) as `<li><h2>1</h2></li>` — the
+empty nested bullet a user is typing turns the parent's text into a Header 2.
+Two upstream guards conspire: `markdown-it`'s `lheading` rule claims the lone
+`-` as an underline before `list` runs, and even without `lheading` the `list`
+rule refuses to let an *empty* bullet interrupt a paragraph (it degrades to
+lazy `1<br>-` text).
+
+`packages/notes/src/view/list-empty-bullet-plugin.ts` makes the notes preview
+deviate — deliberately and narrowly — toward the intuitive reading: a **lone
+single `-`** (the empty-bullet shape) is never a setext underline, and an empty
+bullet is allowed to interrupt a paragraph so it nests as an empty child item.
+Multi-dash `---` and `=` setext underlines are untouched, so ordinary setext
+headings still render. This is a notes-preview-only rendering choice, not a
+change to the shared markdown model.
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

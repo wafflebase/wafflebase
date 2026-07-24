@@ -148,6 +148,52 @@ describe('NotePreview', () => {
     expect(preview.el.textContent).toContain('<script>alert(1)</script>');
   });
 
+  // Issue #517: a list item followed by an empty nested bullet used to render
+  // the parent's text as a setext `<h2>` (the lone `-` was read as an underline).
+  it('nests an empty bullet instead of turning the parent into an <h2>', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  -');
+
+    // No accidental heading.
+    expect(preview.el.querySelector('h2')).toBeNull();
+
+    // Parent keeps body text and gains an empty nested child item.
+    const outer = preview.el.querySelector('ul > li');
+    expect(outer?.textContent?.trim().startsWith('1')).toBe(true);
+    const nested = outer?.querySelector('ul > li');
+    expect(nested).toBeTruthy();
+    expect(nested?.textContent?.trim()).toBe('');
+  });
+
+  it('nests an empty bullet with a trailing space too', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  - ');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    expect(preview.el.querySelector('ul > li > ul > li')).toBeTruthy();
+  });
+
+  it('still renders the blank-line workaround correctly', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n\n  - ');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    expect(preview.el.querySelector('ul > li > ul > li')).toBeTruthy();
+  });
+
+  it('preserves multi-dash setext headings', () => {
+    const preview = new NotePreview();
+    preview.render('Heading\n---');
+    const h2 = preview.el.querySelector('h2');
+    expect(h2?.textContent).toBe('Heading');
+  });
+
+  it('leaves a non-empty nested list unchanged', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  - 2');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    const nested = preview.el.querySelector('ul > li > ul > li');
+    expect(nested?.textContent?.trim()).toBe('2');
+  });
+
   it('copies code to the clipboard when the copy button is clicked', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
