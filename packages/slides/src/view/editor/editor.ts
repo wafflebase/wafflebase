@@ -49,6 +49,7 @@ import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
 import { resolveEndpoint } from '../canvas/connector-frame';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import { screenToWorld } from '../canvas/viewport';
 import {
   alignFrames,
   distributeFrames,
@@ -994,6 +995,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideHeight: slideH,
         permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+        ...this.overlayPan(),
       });
       this.reattachEditingTextBox();
       return;
@@ -1010,6 +1012,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideWidth: SLIDE_WIDTH,
         slideHeight: slideH,
         cropWindow: { ...f, rotation: s.rotation },
+        ...this.overlayPan(),
       });
       return;
     }
@@ -1153,6 +1156,7 @@ class SlidesEditorImpl implements SlidesEditor {
         });
         this.requestRender();
       },
+      ...this.overlayPan(),
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -1217,7 +1221,21 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private scale(): number {
-    return this.options.hostWidth / SLIDE_WIDTH;
+    return this.options.viewport?.zoom ?? this.options.hostWidth / SLIDE_WIDTH;
+  }
+
+  /**
+   * Board-mode pan offset (screen px, applied after `scale()`), read from
+   * the viewport when present. Spread into every `renderOverlay(...)`
+   * options object so handles/guides land at `world * scale + pan`.
+   * Defaults to `{ panX: 0, panY: 0 }` absent a viewport, which keeps the
+   * existing fit-scale overlay rendering byte-identical.
+   */
+  private overlayPan(): { panX: number; panY: number } {
+    return {
+      panX: this.options.viewport?.panX ?? 0,
+      panY: this.options.viewport?.panY ?? 0,
+    };
   }
 
   /**
@@ -5185,6 +5203,7 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      ...this.overlayPan(),
     });
   }
 
@@ -5221,6 +5240,7 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      ...this.overlayPan(),
     });
   }
 
@@ -5270,6 +5290,10 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private clientToLogical(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.options.canvas.getBoundingClientRect();
+    const vp = this.options.viewport;
+    if (vp) {
+      return screenToWorld(vp, { x: clientX - rect.left, y: clientY - rect.top });
+    }
     const scale = this.scale();
     // The canvas DOM may extend past the slide rect on each axis
     // (the surrounding empty area inside `scrollHost` becomes the
@@ -5443,6 +5467,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
         connectorAffordance: this.connectorAffordance(),
+        ...this.overlayPan(),
       });
     };
 
@@ -5640,6 +5665,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideWidth: SLIDE_WIDTH,
         slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
+        ...this.overlayPan(),
       });
     };
 
@@ -5701,6 +5727,7 @@ class SlidesEditorImpl implements SlidesEditor {
       slideWidth: SLIDE_WIDTH,
       slideHeight: this.slideHeight(),
       allElements: synthetic.elements,
+      ...this.overlayPan(),
     });
   }
 
