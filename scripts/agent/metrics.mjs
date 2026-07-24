@@ -58,6 +58,41 @@ export function parseExecution(messages, kind = "implement") {
   };
 }
 
+/** Sum turns/tokens/duration/cost across EVERY result message in a parsed
+ * execution log — NOT last-wins like `parseExecution`. One review-panel round
+ * makes many small SDK calls (lens samples + verifier calls) inside a single
+ * process, so its total compute is a sum of every call, not "the last call's
+ * numbers". `calls` is the count of result messages actually summed, so a
+ * caller can tell "0 calls" (nothing to record) from "1 call, cheap round". */
+export function sumExecutions(messages, kind = "review") {
+  const arr = Array.isArray(messages) ? messages : [];
+  const results = arr.filter((m) => m && m.type === "result");
+  const models = new Set();
+  let turns = 0, tokens = 0, durationMs = 0, costUsd = 0;
+  for (const r of results) {
+    const u = r.usage || {};
+    tokens +=
+      (u.input_tokens || 0) +
+      (u.output_tokens || 0) +
+      (u.cache_creation_input_tokens || 0) +
+      (u.cache_read_input_tokens || 0);
+    turns += r.num_turns || 0;
+    durationMs += r.duration_ms || 0;
+    costUsd += r.total_cost_usd || 0;
+    for (const m of Object.keys(r.modelUsage || {})) models.add(m);
+  }
+  return {
+    kind,
+    models: [...models].sort(),
+    turns,
+    tokens,
+    durationMs,
+    costUsd,
+    sessionId: results.length ? results[results.length - 1].session_id || "" : "",
+    calls: results.length,
+  };
+}
+
 /** Aggregate an array of session records into pipeline-wide totals. */
 export function aggregate(records) {
   const list = Array.isArray(records) ? records : [];
@@ -75,6 +110,35 @@ export function aggregate(records) {
     durationMs: sum("durationMs"),
     costUsd: sum("costUsd"),
   };
+}
+
+/**
+ * Roll up review-panel `lensStats` entries (one per lens per round, from
+ * `review-panel.mjs`'s `kind:"review"` records) into PR-wide totals: sample
+ * agreement, severity-weighted raised/kept counts, verifier confirm/refute
+ * outcomes. Summed across every round on the PR, not just the latest — a
+ * finding that persists across rounds is raised/verified again each round
+ * (mirrors how `aggregate()` sums Sessions/Turns/Tokens across every session
+ * rather than reporting only the last one).
+ */
+export function aggregatePanelStats(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const agreementCounts = { identical: 0, partial: 0, disjoint: 0, single: 0 };
+  const raised = { critical: 0, major: 0, minor: 0, nit: 0 };
+  const kept = { critical: 0, major: 0, minor: 0, nit: 0 };
+  let sentToVerifier = 0, refuted = 0, refutedHighConfidence = 0;
+  for (const e of list) {
+    if (!e || typeof e !== "object") continue;
+    if (Object.prototype.hasOwnProperty.call(agreementCounts, e.agreement)) agreementCounts[e.agreement]++;
+    for (const sev of ["critical", "major", "minor", "nit"]) {
+      raised[sev] += Number(e.raised && e.raised[sev]) || 0;
+      kept[sev] += Number(e.kept && e.kept[sev]) || 0;
+    }
+    sentToVerifier += Number(e.verifier && e.verifier.sentToVerifier) || 0;
+    refuted += Number(e.verifier && e.verifier.refuted) || 0;
+    refutedHighConfidence += Number(e.verifier && e.verifier.refutedHighConfidence) || 0;
+  }
+  return { agreementCounts, raised, kept, verifier: { sentToVerifier, refuted, refutedHighConfidence } };
 }
 
 /** S/M/L from total lines changed in the PR diff. */
@@ -96,11 +160,22 @@ export function formatMinutes(ms) {
   return `${Math.max(1, Math.round((Number(ms) || 0) / 60000))}m`;
 }
 
-/** Render the human-readable summary comment body. */
-export function renderSummary({ agg, scope }) {
-  return [
+/** Render the human-readable summary comment body. `panelAgg`/`panelStats`
+ * are omitted when the PR has no review-panel ledger records yet (kept
+ * separate from the code-fix agent's numbers — review-fix, the agent that
+ * responds to what the panel found, and review, the panel's own compute, are
+ * easy to conflate by name, so their costs are rendered in separate sections
+ * rather than folded into one set of totals). */
+export function renderSummary({ agg, panelAgg, panelStats, scope }) {
+  const hasPanel = !!panelAgg && panelAgg.sessions > 0;
+  const totalTokens = agg.tokens + (hasPanel ? panelAgg.tokens : 0);
+  const lines = [
     SUMMARY_MARKER,
     "## 🤖 Agent effort",
+    "",
+    `- Total-tokens: ${formatTokens(totalTokens)} (code-fix ${formatTokens(agg.tokens)} + review ${formatTokens(hasPanel ? panelAgg.tokens : 0)})`,
+    "",
+    "### Code-fix agent",
     "",
     `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
     `- Scope-size: ${scope}`,
@@ -109,7 +184,30 @@ export function renderSummary({ agg, scope }) {
     `- Total-time: ${formatMinutes(agg.durationMs)}`,
     `- Turns: ${agg.turns}`,
     `- Tokens: ${formatTokens(agg.tokens)}`,
-  ].join("\n");
+  ];
+  if (hasPanel) {
+    const ac = panelStats?.agreementCounts || {};
+    const r = panelStats?.raised || {};
+    const k = panelStats?.kept || {};
+    const v = panelStats?.verifier || {};
+    const sampledRounds = (ac.identical || 0) + (ac.partial || 0) + (ac.disjoint || 0);
+    lines.push(
+      "",
+      "### Review panel",
+      "",
+      `- Agents: ${panelAgg.agents.length ? panelAgg.agents.join(", ") : "unknown"}`,
+      `- Rounds: ${panelAgg.sessions}`,
+      `- Total-time: ${formatMinutes(panelAgg.durationMs)}`,
+      `- Turns: ${panelAgg.turns}`,
+      `- Tokens: ${formatTokens(panelAgg.tokens)}`,
+      `- Sample-agreement: ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint (${sampledRounds} lens-round samples)`,
+      `- Findings raised: ${r.critical || 0} critical, ${r.major || 0} major, ${r.minor || 0} minor, ${r.nit || 0} nit`,
+      `- Sent to verifier: ${v.sentToVerifier || 0}`,
+      `- Refuted: ${v.refuted || 0} (${v.refutedHighConfidence || 0} high-confidence)`,
+      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /** One session's record as a self-contained HIDDEN comment (renders invisibly).
@@ -190,14 +288,34 @@ function bail(msg) {
 function cmdRecord(args) {
   const pr = args.pr || (args.issue ? resolvePrByIssue(args.issue) : "");
   if (!pr) return bail("no PR resolved (need --pr, or --issue with an open agent/<issue>- PR)");
+  const kind = args.kind || "implement";
   let messages;
   try {
     messages = JSON.parse(readFileSync(args.execution, "utf8"));
   } catch (e) {
     return bail(`cannot read execution log ${args.execution}: ${e.message}`);
   }
-  const rec = parseExecution(messages, args.kind || "implement");
-  if (!rec) return bail("no result message in the execution log");
+  let rec;
+  if (kind === "review") {
+    // review-panel.mjs is one process making MANY internal SDK calls — sum
+    // every result message, don't take the last (parseExecution's contract).
+    rec = sumExecutions(messages, kind);
+    if (rec.calls === 0) return bail("no result messages in the review execution log");
+    delete rec.calls;
+    // Sample-agreement/verifier-outcome data is optional and best-effort: a
+    // missing/malformed file must never block recording the cost that WAS
+    // captured, so log and move on rather than bail.
+    if (args["lens-stats"]) {
+      try {
+        rec.lensStats = JSON.parse(readFileSync(args["lens-stats"], "utf8"));
+      } catch (e) {
+        console.error(`metrics: could not read lens-stats ${args["lens-stats"]}: ${e.message}`);
+      }
+    }
+  } else {
+    rec = parseExecution(messages, kind);
+    if (!rec) return bail("no result message in the execution log");
+  }
   try {
     // Append-only: POST this session's own metric comment. No read-modify-write,
     // so concurrent sessions can't clobber each other's records.
@@ -219,10 +337,18 @@ function cmdSummarize(args) {
   } catch (e) {
     return bail(`could not read metrics/PR for #${pr}: ${e.message}`);
   }
-  const agg = aggregate(records);
+  // Code-fix agent (implement/ci-fix/review-fix) and review panel (review) are
+  // kept as separate aggregates — see renderSummary's doc comment for why.
+  const codeFixRecords = records.filter((r) => r.kind !== "review");
+  const panelRecords = records.filter((r) => r.kind === "review");
+  const agg = aggregate(codeFixRecords);
+  const panelAgg = panelRecords.length ? aggregate(panelRecords) : null;
+  const panelStats = panelRecords.length
+    ? aggregatePanelStats(panelRecords.flatMap((r) => (Array.isArray(r.lensStats) ? r.lensStats : [])))
+    : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
   try {
-    upsertComment(pr, SUMMARY_MARKER, renderSummary({ agg, scope }));
+    upsertComment(pr, SUMMARY_MARKER, renderSummary({ agg, panelAgg, panelStats, scope }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }
@@ -236,7 +362,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (cmd === "record") cmdRecord(args);
   else if (cmd === "summarize") cmdSummarize(args);
   else {
-    console.error("usage: metrics.mjs <record|summarize> [--pr N | --issue N] [--execution PATH] [--kind implement|ci-fix|review-fix]");
+    console.error(
+      "usage: metrics.mjs <record|summarize> [--pr N | --issue N] [--execution PATH] " +
+        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH]",
+    );
     process.exit(2);
   }
 }

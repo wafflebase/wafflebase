@@ -258,6 +258,21 @@ tree readers/writers). The v1 `POST /documents` create path also learned to
 accept `type: 'note'` (it previously downgraded unknown types to `sheet`).
 See [cli.md](../cli.md).
 
+#### Collapsible sections (`<details>` / `<summary>`) — shipped (issue #542)
+
+The preview runs `markdown-it` with `html: false` (raw HTML in a
+collaborator's note is a stored-XSS vector). To support GitHub/MDN-style
+foldouts without weakening that posture, a narrow allowlist plugin
+(`packages/notes/src/view/details-plugin.ts`) recognizes **only** the
+`<details>` / `<summary>` disclosure tags as block tokens and emits safe
+`<details class="note-details" [open]>` / `<summary class="note-summary">`
+elements (fixed class + boolean `open` only). The summary label and the
+folded body are still parsed through the normal `html: false` pipeline, so
+nested markdown (including nested disclosures) works while no arbitrary HTML
+is ever produced. `<details open>` renders expanded by default; a stray
+`</details>` with no matching open falls through and is escaped as literal
+text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

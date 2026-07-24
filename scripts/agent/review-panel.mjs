@@ -185,9 +185,68 @@ export function parsePriorFindings(text) {
   return data.filter((f) => f && typeof f === "object");
 }
 
+/**
+ * Do N samples of one lens agree on what they found? Compared by the same
+ * file+lowercased-summary key `dedupeFindings` uses, via `coerceFindings` so a
+ * malformed sample still keys consistently. `"single"` when fewer than 2
+ * samples succeeded (nothing to compare — includes the all-failed case).
+ * `"identical"` iff every sample's key set matches exactly (including all
+ * finding nothing); `"disjoint"` iff every pair shares zero keys; otherwise
+ * `"partial"`. A reliability signal distinct from the union itself: two
+ * samples landing on the same finding is a different story from one sample
+ * finding it alone and surviving only because of that one sample.
+ */
+export function compareSampleAgreement(sampleFindingsList) {
+  const list = Array.isArray(sampleFindingsList) ? sampleFindingsList : [];
+  if (list.length < 2) return "single";
+  const keyOf = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
+  const keySets = list.map((findings) => new Set(coerceFindings(findings).map(keyOf)));
+  const setsEqual = (a, b) => a.size === b.size && [...a].every((k) => b.has(k));
+  const disjointPair = (a, b) => [...a].every((k) => !b.has(k));
+  if (keySets.every((s) => setsEqual(s, keySets[0]))) return "identical";
+  for (let i = 0; i < keySets.length; i++) {
+    for (let j = i + 1; j < keySets.length; j++) {
+      if (!disjointPair(keySets[i], keySets[j])) return "partial";
+    }
+  }
+  return "disjoint";
+}
+
+/** Severity breakdown `{critical,major,minor,nit}` of a findings array — the
+ * severity-weighted building block for any rollup (a lens that only ever
+ * flags nits shouldn't look as "productive" as one that catches criticals). */
+export function severityCounts(findings) {
+  const out = { critical: 0, major: 0, minor: 0, nit: 0 };
+  for (const f of Array.isArray(findings) ? findings : []) {
+    out[normalizeSeverity(f && f.severity)]++;
+  }
+  return out;
+}
+
+/**
+ * Tally the verifier's confirm/refute pass over a (findings, verdicts) pair —
+ * only blocking findings are ever sent to the verifier (mirrors
+ * `applyVerifications`' own gate, so `sentToVerifier` never counts a
+ * minor/nit). `refuted` is any refute verdict; `refutedHighConfidence` is the
+ * subset that actually drops the finding (see `applyVerifications`).
+ */
+export function verifierTally(findings, verdicts) {
+  let sentToVerifier = 0, refuted = 0, refutedHighConfidence = 0;
+  (Array.isArray(findings) ? findings : []).forEach((f, i) => {
+    if (!BLOCKING.has(normalizeSeverity(f.severity))) return;
+    sentToVerifier++;
+    const v = verdicts[i];
+    if (v && v.verdict === "refuted") {
+      refuted++;
+      if (v.confidence === "high") refutedHighConfidence++;
+    }
+  });
+  return { sentToVerifier, refuted, refutedHighConfidence };
+}
+
 // --- SDK wrapper (lazy import) ----------------------------------------------
 
-async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
+async function askStructured({ systemPrompt, prompt, model, repo, schema, sessionLog }) {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   for await (const message of query({
     prompt,
@@ -207,6 +266,11 @@ async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
     },
   })) {
     if (message.type === "result") {
+      // Record cost/turns/tokens regardless of success — the call still burned
+      // compute even when it didn't produce usable structured output. This is
+      // the ONLY place a review-panel SDK call's result is observable at all;
+      // everything else here discards it, so record before the throw below.
+      if (sessionLog) sessionLog.push(message);
       if (message.subtype === "success" && message.structured_output) {
         return message.structured_output;
       }
@@ -218,7 +282,7 @@ async function askStructured({ systemPrompt, prompt, model, repo, schema }) {
 
 // --- lens + verifier runs ----------------------------------------------------
 
-async function runLens(lens, { rubric, diff, issue, repo }) {
+async function runLens(lens, { rubric, diff, issue, repo, sessionLog }) {
   const parts = [
     rubric,
     "",
@@ -241,10 +305,11 @@ async function runLens(lens, { rubric, diff, issue, repo }) {
     model: lens.model,
     repo,
     schema: LENS_SCHEMA,
+    sessionLog,
   });
 }
 
-async function verifyFinding(finding, { rubric, diff, repo, model }) {
+async function verifyFinding(finding, { rubric, diff, repo, model, sessionLog }) {
   // Contract: refuting DROPS the finding, so bias toward keeping. Return
   // `refuted` + `high` ONLY when you can name a concrete reason the finding is
   // not actually present/blocking in THIS diff. If you are unsure — for ANY
@@ -273,6 +338,7 @@ async function verifyFinding(finding, { rubric, diff, repo, model }) {
     model,
     repo,
     schema: VERIFIER_SCHEMA,
+    sessionLog,
   });
 }
 
@@ -324,10 +390,20 @@ async function main() {
   // one entry per manifest lens (applicable or skipped), so the three-way drift
   // between lenses.json / the workflow / mark-ready is removed.
   const panel = [];
+  // Every internal SDK call's raw `result` message, across every lens sample +
+  // verifier call this round — shape-compatible with claude-execution-output.json
+  // so metrics.mjs can sum over it the same way it reads a claude-code-action
+  // transcript. This is the panel's own compute, otherwise invisible to the
+  // metrics ledger entirely (see docs/tasks/active/20260724-review-panel-metrics-todo.md).
+  const sessionLog = [];
+  // Per-lens reliability/verifier signals for THIS round (skipped/failure
+  // lenses don't get an entry — there's no sampling/verification to report).
+  const lensStats = [];
 
   await Promise.all(allLenses.map(async (lens) => {
     const lensOut = path.join(outDir, lens.id);
     const blocking = String(lens.gating ?? "blocking") === "blocking";
+    const samples = Math.max(1, Number(lens.samples) || 2);
 
     // Not applicable to this diff → skipped (neutral), never blocks. Distinct
     // from a crashed lens so the fail-closed loop can't turn it into a failure.
@@ -337,21 +413,20 @@ async function main() {
       return;
     }
 
-    let findings, summary;
+    let findings, summary, ok;
     try {
       // Part 1: sample the lens N times (default 2) and UNION the findings, to
       // fight single-sample non-determinism (the #521 false negative). Each
       // sample is independent and individually caught: a sample that throws
       // contributes nothing, but if ALL samples fail we fall through to the
       // catch below (fail-closed, same as the old single-run crash path).
-      const samples = Math.max(1, Number(lens.samples) || 2);
       const results = await Promise.all(
         Array.from({ length: samples }, async () => {
-          try { return await runLens(lens, { rubric: lens.rubric, diff, issue, repo }); }
+          try { return await runLens(lens, { rubric: lens.rubric, diff, issue, repo, sessionLog }); }
           catch (e) { return { __error: e.message }; }
         }),
       );
-      const ok = results.filter((r) => r && !r.__error);
+      ok = results.filter((r) => r && !r.__error);
       if (ok.length === 0) throw new Error((results[0] && results[0].__error) || "all lens samples failed");
       // unionSamples coerces (never drops) + dedupes (collapses identical
       // file+summary, keeps highest severity, never merges distinct bugs).
@@ -361,6 +436,15 @@ async function main() {
       const failFindings = [{ severity: "major", summary: `Reviewer did not produce a valid verdict: ${err.message}` }];
       writeVerdict(lensOut, lens, failFindings, "(no valid verdict — failing closed)", { valid: false });
       panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false });
+      lensStats.push({
+        id: lens.id,
+        samplesRun: samples,
+        samplesOk: 0,
+        agreement: compareSampleAgreement([]),
+        raised: severityCounts(failFindings),
+        verifier: { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0 },
+        kept: severityCounts(failFindings),
+      });
       return;
     }
 
@@ -368,7 +452,7 @@ async function main() {
     // the lens's own definitions; keeps the finding on any uncertainty).
     const verdicts = await Promise.all(findings.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model }); }
+      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model, sessionLog }); }
       catch { return null; } // error → keep the finding (fail toward blocking)
     }));
     const kept = applyVerifications(findings, verdicts);
@@ -382,13 +466,32 @@ async function main() {
     const priorForLens = priorFindings.filter((p) => p.lens === lens.id);
     const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model }); }
+      try { return await verifyFinding(f, { rubric: lens.rubric, diff, repo, model: lens.model, sessionLog }); }
       catch { return null; } // error → keep (fail toward blocking)
     }));
     const priorKept = applyVerifications(priorForLens, priorVerdicts);
     // Merge fresh + still-open prior findings; dedupe collapses a prior finding
     // the fresh pass also re-found (and never merges two distinct bugs).
     const merged = dedupeFindings([...kept, ...priorKept]);
+
+    // Reliability signals for this round: did the samples agree (fresh pass
+    // only — prior-round re-checks aren't a sampling question), and what did
+    // the verifier do across BOTH the fresh and prior-round re-check passes.
+    const freshTally = verifierTally(findings, verdicts);
+    const priorTally = verifierTally(priorForLens, priorVerdicts);
+    lensStats.push({
+      id: lens.id,
+      samplesRun: samples,
+      samplesOk: ok.length,
+      agreement: compareSampleAgreement(ok.map((r) => r.findings)),
+      raised: severityCounts(findings),
+      verifier: {
+        sentToVerifier: freshTally.sentToVerifier + priorTally.sentToVerifier,
+        refuted: freshTally.refuted + priorTally.refuted,
+        refutedHighConfidence: freshTally.refutedHighConfidence + priorTally.refutedHighConfidence,
+      },
+      kept: severityCounts(merged),
+    });
 
     // Advisory lenses report findings but never block.
     const { conclusion } = writeVerdict(lensOut, lens, merged, summary, {
@@ -401,6 +504,10 @@ async function main() {
 
   mkdirSync(outDir, { recursive: true });
   writeFileSync(path.join(outDir, "panel.json"), JSON.stringify(panel, null, 2) + "\n");
+  // Metrics inputs for the workflow's "record --kind review" step (best-effort;
+  // consumed by metrics.mjs which is itself fail-safe on missing/malformed input).
+  writeFileSync(path.join(outDir, "review-execution.json"), JSON.stringify(sessionLog));
+  writeFileSync(path.join(outDir, "review-lens-stats.json"), JSON.stringify(lensStats));
   process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}`).join("\n") + "\n");
 }
 
