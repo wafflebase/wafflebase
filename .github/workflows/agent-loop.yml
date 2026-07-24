@@ -1,0 +1,116 @@
+# "@claude loop": opt a PR into the autonomous review→fix→promote machinery. A
+# trusted maintainer comments "@claude loop" on a PR; this labels it `agent:managed`
+# (which agent-review-panel.yml + agent-iterate-ci.yml now honor alongside the
+# `agent/` branch prefix) and re-runs CI to engage the loop immediately.
+#
+# Unlike "@claude review" (read-only, comment-only), this drives bot commits and
+# promotion, so it is TRUSTED-AUTHOR ONLY. It only works on same-repo branches:
+# the fixer pushes to the PR head branch, which is impossible on a fork, so a fork
+# PR gets a note pointing at the read-only "@claude review" instead.
+name: Agent Loop
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  route:
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.comment.user.type != 'Bot' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      command: ${{ steps.route.outputs.command }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/agent/command.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Route command
+        id: route
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node scripts/agent/command.mjs "$BODY" pr
+
+  loop:
+    needs: [route]
+    if: needs.route.outputs.command == 'loop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # apply the agent:managed label
+      issues: write # post the confirmation / fork-fallback comment
+      actions: write # re-run CI to engage the loop now
+    concurrency:
+      group: agent-loop-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      # Authoritative trust gate — loop pushes commits and promotes, so it is
+      # maintainers only (org membership ≠ repo write; check the real permission).
+      - name: Verify commenter has write access
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.payload.comment.user.login;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner, repo: context.repo.repo, username: actor,
+            });
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) {
+              core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
+            }
+
+      - name: Enable the loop (label + re-run CI), or fall back on forks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr_number = context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+
+            // Forks: the fixer can't push to the contributor's fork branch, so the
+            // auto-fix/promote loop can't run. Point them at the read-only review.
+            const isFork = !pr.head.repo || pr.head.repo.full_name !== `${owner}/${repo}`;
+            if (isFork) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr_number, body:
+                "⚠️ `@claude loop` can't run on a fork PR — the auto-fix loop pushes commits to the PR branch, which isn't possible on a fork. " +
+                "Comment **`@claude review`** for the read-only review panel instead (that works on forks)." });
+              return;
+            }
+
+            // Ensure the label exists, then apply it. agent-review-panel.yml and
+            // agent-iterate-ci.yml gate on it (alongside the agent/ prefix).
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: 'agent:managed' });
+            } catch (e) {
+              if (e.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name: 'agent:managed',
+                  color: '5319e7', description: 'PR opted into the autonomous review→fix→promote loop' });
+              }
+            }
+            await github.rest.issues.addLabels({ owner, repo, issue_number: pr_number, labels: ['agent:managed'] });
+
+            // Re-run the latest CI run for the head SHA so the loop engages now
+            // (a green run → review panel; a red run → CI-fix arm). Best-effort:
+            // if there's nothing to re-run, the label still engages the next CI run.
+            let reran = false;
+            try {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 1,
+              });
+              const run = runs.data.workflow_runs[0];
+              if (run) { await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id }); reran = true; }
+            } catch (e) {
+              core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
+            }
+            await github.rest.issues.createComment({ owner, repo, issue_number: pr_number, body:
+              "🔁 Loop enabled — this PR is now `agent:managed`. On green CI the review panel runs and can promote it; " +
+              "on red CI the fixer pushes a follow-up commit. Bounded by the pipeline's round/attempt caps; a human approval is still required to merge." +
+              (reran ? "\n\nRe-running CI now to engage the loop." : "\n\nIt will engage on the next CI run.") });

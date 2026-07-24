@@ -351,20 +351,47 @@ evidence comment. It adds no parallel process; it triggers Claude Code
 (`anthropics/claude-code-action`) and enforces one human review gate.
 
 Components:
+- **Command dispatch** — the `@claude` mention is a command surface parsed by the
+  shared `scripts/agent/command.mjs` (flexible/containment matching: a comment
+  triggers a verb when it contains `@claude <verb>` anywhere, case-insensitive,
+  first-occurrence wins). Each workflow runs a cheap `route` job that calls the
+  parser and gates on the resulting verb, so the mention maps deterministically
+  and the workflows never double-fire on each other. Verbs:
+  - `@claude fix` (issue) → Kickoff (below). A bare `@claude` on an issue gets a
+    help reply.
+  - `@claude summarize` (PR) → `.github/workflows/agent-summarize.yml`: a
+    READ-ONLY, no-checkout summary comment ("what does this PR do / good to go?").
+    PR author OR maintainer, throttled to one per head SHA.
+  - `@claude review` (PR) → `.github/workflows/agent-review-on-demand.yml`: runs
+    the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
+    comment, records NO check runs and drives no promote/fix, so it never touches
+    the merge gate. Works on any PR incl. forks (read-only). PR author OR
+    maintainer, throttled per head SHA.
+  - `@claude loop` (PR) → `.github/workflows/agent-loop.yml`: MAINTAINER-ONLY;
+    labels the PR `agent:managed` and re-runs CI to opt it into the full
+    review→fix→promote machinery. Same-repo branches only (the fixer can't push to
+    a fork → fork PRs get a note pointing at `@claude review`).
+  - `@claude` + anything else (PR) → the review-reply arm (below). Note this arm
+    acts ONLY on `agent/`-authored PRs; ordinary and `agent:managed` PRs are left
+    to humans (it never pushes to a branch it did not author).
 - **Kickoff** — `.github/workflows/agent-implement.yml`: a trusted-author
-  `@claude` mention on an issue (or manual dispatch) runs Claude Code headless,
+  `@claude fix` mention on an issue (or manual dispatch) runs Claude Code headless,
   which follows the standard task workflow and opens a **draft** PR from an
   `agent/<issue#>-<slug>` branch. Structured spec via
   `.github/ISSUE_TEMPLATE/agent-task.yml`.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
-  failure for an `agent/` branch, `scripts/agent/summarize-ci.mjs` (Phase 21)
+  failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
+  `agent:managed` via `@claude loop`), `scripts/agent/summarize-ci.mjs` (Phase 21)
   feeds the diagnosis back to the agent, which pushes a fix. A bounded attempts counter
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
-  a `@claude` mention in a PR/review thread has the agent address the finding (or
-  push back with reasoning) in-thread.
+  a generic `@claude` mention (no command verb) in a PR/review thread has the
+  agent address the finding (or push back with reasoning) in-thread. Restricted to
+  `agent/`-authored PRs (the `is_agent` gate) — ordinary and `agent:managed` PRs
+  are left to humans, since the arm only acts on branches it authored.
 - **Review panel** — `.github/workflows/agent-review-panel.yml`: on green CI for a
-  base-repo `agent/` branch (fork-originated `workflow_run` events are rejected),
+  base-repo agent-managed PR (an `agent/` branch or an `agent:managed`-labelled PR;
+  fork-originated `workflow_run` events are rejected),
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
@@ -494,7 +521,7 @@ moves to the approving human reviewer.
   approval-free autonomy is a later phase, only once the (now unforgeable) loop
   bounds are trusted in practice.
 
-Done criteria: A maintainer's `@claude` on a well-specified issue yields a green,
+Done criteria: A maintainer's `@claude fix` on a well-specified issue yields a green,
 independently-reviewed, disclosed draft PR marked ready-for-review with no human
 *authoring* keystroke between the mention and the review request — and no path for
 the agent to reach `main`.
