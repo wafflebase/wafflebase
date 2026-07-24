@@ -316,9 +316,11 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
 /**
  * Shared board layout — simplest of the shared layouts: no per-type
  * toolbar/panel machinery, mirroring `SharedNotesLayout`'s header + content
- * shape. `BoardView` has no `readOnly` prop yet (see board-view.tsx), so a
- * viewer-role share link still mounts the same interactive canvas as an
- * editor link; the "View only" badge is informational only for now (SP1).
+ * shape. `BoardView`'s `readOnly` prop forwards straight into
+ * `initializeEditor({ readOnly })` (same mechanism `SlidesView` uses), so a
+ * viewer-role share link gets a canvas that paints (including remote peer
+ * edits) but accepts no pointer/keyboard input — matching the "View only"
+ * badge instead of just displaying it.
  */
 function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
@@ -338,7 +340,7 @@ function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
       </header>
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<Loader />}>
-          <BoardView documentId={resolved.documentId} />
+          <BoardView documentId={resolved.documentId} readOnly={readOnly} />
         </Suspense>
       </div>
     </div>

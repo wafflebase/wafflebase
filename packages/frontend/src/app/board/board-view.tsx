@@ -27,6 +27,16 @@ interface BoardViewProps {
    * so manual smoke / e2e tooling can target this mount by document.
    */
   documentId: string;
+  /**
+   * Forwarded to `initializeEditor({ readOnly })`. When true, the
+   * reused slides editor still paints (including remote peer edits)
+   * but skips every pointer/keyboard binding, so a viewer-role
+   * share-link visitor can look at and pan/zoom the board without
+   * being able to mutate it. Omitted (undefined → editable) on the
+   * owner route (`board-detail.tsx`); `SharedBoardLayout` passes
+   * `role === 'viewer'`.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -83,7 +93,7 @@ function mapBoardPeers(
  * rAF-throttled to one `doc.update` per frame so a fast mouse doesn't
  * flood the CRDT with presence churn.
  */
-export function BoardView({ documentId }: BoardViewProps) {
+export function BoardView({ documentId, readOnly }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   // Live pan/zoom state. A ref (not React state) because it updates on
@@ -170,6 +180,14 @@ export function BoardView({ documentId }: BoardViewProps) {
       // unbounded and only the visible screen rect needs painting.
       viewport: vp.current,
       cull: true,
+      // A board has no slides — drop "Change layout…" (and any future
+      // slide-scoped item) from the empty-canvas context menu; it maps
+      // to a `notSupported()` throw on `YorkieBoardStore`.
+      suppressSlideChrome: true,
+      // Viewer-role share-link visitors get a read-only mount: the
+      // editor still paints (including remote peer edits) but accepts
+      // no pointer/keyboard input.
+      readOnly,
     });
     editorRef.current = editor;
 
@@ -279,6 +297,20 @@ export function BoardView({ documentId }: BoardViewProps) {
       const isSpaceDrag = spaceDown && e.button === 0;
       if (!isMiddleButton && !isSpaceDrag) return;
       e.preventDefault();
+      // Registered on `container` (an ancestor of both the reused
+      // editor's canvas and overlay) in the CAPTURE phase, and only
+      // once we've decided to actually claim the gesture: this halts
+      // dispatch before the event ever reaches the editor's own
+      // canvas/overlay pointerdown listeners, so a space/middle-drag
+      // pan never also starts a marquee-select or deselect underneath
+      // it. `stopPropagation()` on a bubble-phase listener attached
+      // directly to `canvas` would be too late for this — the editor's
+      // listener is registered on that same element earlier (inside
+      // `initializeEditor`) and same-element listeners always fire in
+      // registration order regardless of the `capture` flag. A normal
+      // click/drag (neither branch above) falls through untouched, so
+      // element selection/drag/resize still reach the editor.
+      e.stopPropagation();
       panning = true;
       panPointerId = e.pointerId;
       panLastX = e.clientX;
@@ -310,7 +342,7 @@ export function BoardView({ documentId }: BoardViewProps) {
       canvas.releasePointerCapture(e.pointerId);
       canvas.style.cursor = spaceDown ? "grab" : "";
     };
-    canvas.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointerdown", onPointerDown, { capture: true });
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
@@ -328,7 +360,7 @@ export function BoardView({ documentId }: BoardViewProps) {
     return () => {
       resizeObserver.disconnect();
       canvas.removeEventListener("wheel", onWheel);
-      canvas.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointerdown", onPointerDown, { capture: true });
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
@@ -344,7 +376,7 @@ export function BoardView({ documentId }: BoardViewProps) {
       editorRef.current = null;
       style.remove();
     };
-  }, [didMount, doc]);
+  }, [didMount, doc, readOnly]);
 
   if (loading) {
     return (
