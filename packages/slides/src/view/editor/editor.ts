@@ -49,7 +49,7 @@ import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
 import { resolveEndpoint } from '../canvas/connector-frame';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
-import { screenToWorld } from '../canvas/viewport';
+import { screenToWorld, type Viewport } from '../canvas/viewport';
 import {
   alignFrames,
   distributeFrames,
@@ -462,6 +462,14 @@ export interface SlidesEditor {
    * The editor only updates its internal scale and triggers a repaint.
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
+  /**
+   * Replace the active pan/zoom viewport used for the world↔screen
+   * mapping (board callers only — slide callers never set this).
+   * Marks the renderer dirty and repaints immediately so the caller
+   * doesn't need to separately call `markDirty()` + `render()` on
+   * every pan/zoom tick.
+   */
+  setViewport(viewport: Viewport): void;
   /**
    * Update the slide's offset inside the canvas bitmap, in
    * slide-logical pixels. Used when the canvas is bigger than the
@@ -1492,6 +1500,12 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+  }
+
+  setViewport(viewport: Viewport): void {
+    this.options.viewport = viewport;
+    this.markDirty();
+    this.render();
   }
 
   setSlideOffset(logicalX: number, logicalY: number): void {
