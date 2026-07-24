@@ -6,6 +6,8 @@ import {
   dedupeFindings,
   applyVerifications,
   coerceFindings,
+  unionSamples,
+  parsePriorFindings,
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
@@ -69,6 +71,56 @@ test("coerceFindings + dedupeFindings (main pipeline): a critical is never maske
     ]).conclusion,
     "failure",
   );
+});
+
+test("unionSamples: union across N samples; recall gained, dups collapse fail-toward-blocking", () => {
+  // Part 1: sample A finds X; sample B finds X (same) + Y (new) → union {X, Y}.
+  const a = { findings: [{ severity: "major", file: "a.ts", summary: "X" }] };
+  const b = { findings: [{ severity: "major", file: "a.ts", summary: "X" }, { severity: "critical", file: "b.ts", summary: "Y" }] };
+  const u = unionSamples([a, b]);
+  assert.equal(u.length, 2); // X deduped, Y added (recall from sampling)
+  assert.ok(u.some((f) => f.summary === "Y" && f.severity === "critical"));
+  // same finding at two severities across samples → highest wins (fail toward blocking)
+  const s1 = { findings: [{ severity: "nit", file: "a.ts", summary: "Z" }] };
+  const s2 = { findings: [{ severity: "critical", file: "a.ts", summary: "Z" }] };
+  const uz = unionSamples([s1, s2]);
+  assert.equal(uz.length, 1);
+  assert.equal(uz[0].severity, "critical");
+  // failed samples (null / {__error}) contribute nothing; a well-formed one still counts
+  assert.equal(unionSamples([null, { __error: "boom" }, a]).length, 1);
+  assert.equal(unionSamples([]).length, 0);
+  // a MALFORMED successful sample (findings not an array, or missing) must fail
+  // toward blocking via coerceFindings — never be dropped into a clean verdict
+  assert.equal(classify(unionSamples([{ summary: "x", findings: "oops" }])).conclusion, "failure");
+  assert.equal(classify(unionSamples([{ summary: "x" }])).conclusion, "failure");
+  // a legitimately empty sample (findings: []) contributes nothing (not blocking)
+  assert.equal(unionSamples([{ findings: [] }]).length, 0);
+});
+
+test("parsePriorFindings: tolerant — valid array round-trips, junk → []", () => {
+  const recs = [{ lens: "correctness", severity: "major", file: "a.ts", summary: "prior" }];
+  assert.deepEqual(parsePriorFindings(JSON.stringify(recs)), recs);
+  assert.deepEqual(parsePriorFindings(""), []);
+  assert.deepEqual(parsePriorFindings("not json"), []);
+  assert.deepEqual(parsePriorFindings('{"not":"an array"}'), []);
+  // non-object entries are dropped
+  assert.deepEqual(parsePriorFindings('[null, 3, {"severity":"major","summary":"ok"}]'), [{ severity: "major", summary: "ok" }]);
+});
+
+// Part 2: a prior blocking finding that this round's fresh pass MISSED must
+// still block after being re-checked (verifier didn't refute it) and merged.
+// This is the #521 false-negative, guarded at the composition level.
+test("cross-round merge: an unresolved prior finding the fresh pass missed still blocks", () => {
+  const freshKept = []; // this round's lens returned nothing (missed it)
+  const priorForLens = [{ lens: "correctness", severity: "major", file: "s.ts", summary: "MIN/MAX all-blank returns #NUM!" }];
+  // re-check couldn't refute it (null verdict = kept, biased-to-block)
+  const priorKept = applyVerifications(priorForLens, [null]);
+  const merged = dedupeFindings([...freshKept, ...priorKept]);
+  assert.equal(merged.length, 1);
+  assert.equal(classify(merged).conclusion, "failure");
+  // but if the re-check confidently refutes it (genuinely resolved) → dropped
+  const resolved = applyVerifications(priorForLens, [{ verdict: "refuted", confidence: "high" }]);
+  assert.equal(classify(dedupeFindings([...freshKept, ...resolved])).conclusion, "success");
 });
 
 test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any doubt", () => {

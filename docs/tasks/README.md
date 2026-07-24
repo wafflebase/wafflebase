@@ -18,7 +18,16 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| maintainer merge skill (2026-07-23) | [20260723-maintainer-merge-skill-todo.md](./active/20260723-maintainer-merge-skill-todo.md) | [20260723-maintainer-merge-skill-lessons.md](./active/20260723-maintainer-merge-skill-lessons.md) |
+| note code block style (2026-07-23) | [20260723-note-code-block-style-todo.md](./active/20260723-note-code-block-style-todo.md) | [20260723-note-code-block-style-lessons.md](./active/20260723-note-code-block-style-lessons.md) |
+| docs baseline dedup (2026-07-22) | [20260722-docs-baseline-dedup-todo.md](./active/20260722-docs-baseline-dedup-todo.md) | [20260722-docs-baseline-dedup-lessons.md](./active/20260722-docs-baseline-dedup-lessons.md) |
+| docs hyperlink formatting exit (2026-07-22) | [20260722-docs-hyperlink-formatting-exit-todo.md](./active/20260722-docs-hyperlink-formatting-exit-todo.md) | - |
+| docs undo selection (2026-07-22) | [20260722-docs-undo-selection-todo.md](./active/20260722-docs-undo-selection-todo.md) | [20260722-docs-undo-selection-lessons.md](./active/20260722-docs-undo-selection-lessons.md) |
+| byte text functions (2026-07-21) | [20260721-byte-text-functions-todo.md](./active/20260721-byte-text-functions-todo.md) | [20260721-byte-text-functions-lessons.md](./active/20260721-byte-text-functions-lessons.md) |
+| docs mixed fontsize baseline (2026-07-21) | [20260721-docs-mixed-fontsize-baseline-todo.md](./active/20260721-docs-mixed-fontsize-baseline-todo.md) | [20260721-docs-mixed-fontsize-baseline-lessons.md](./active/20260721-docs-mixed-fontsize-baseline-lessons.md) |
 | docx sdt text import (2026-07-21) | [20260721-docx-sdt-text-import-todo.md](./active/20260721-docx-sdt-text-import-todo.md) | [20260721-docx-sdt-text-import-lessons.md](./active/20260721-docx-sdt-text-import-lessons.md) |
+| xlsx style tiling (2026-07-21) | [20260721-xlsx-style-tiling-todo.md](./active/20260721-xlsx-style-tiling-todo.md) | - |
+| autonomous issue to pr pipeline (2026-07-20) | [20260720-autonomous-issue-to-pr-pipeline-todo.md](./active/20260720-autonomous-issue-to-pr-pipeline-todo.md) | [20260720-autonomous-issue-to-pr-pipeline-lessons.md](./active/20260720-autonomous-issue-to-pr-pipeline-lessons.md) |
 | documents bulk select move (2026-07-20) | [20260720-documents-bulk-select-move-todo.md](./active/20260720-documents-bulk-select-move-todo.md) | [20260720-documents-bulk-select-move-lessons.md](./active/20260720-documents-bulk-select-move-lessons.md) |
 | analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./active/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./active/20260719-analytics-dashboard-viz-lessons.md) |
 | image viewer (2026-07-19) | [20260719-image-viewer-todo.md](./active/20260719-image-viewer-todo.md) | [20260719-image-viewer-lessons.md](./active/20260719-image-viewer-lessons.md) |
@@ -41,4 +50,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docx sdt text import (2026-07-21)
+Latest active task: maintainer merge skill (2026-07-23)

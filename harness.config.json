@@ -25,6 +25,11 @@
           "pattern": "^notes-view-",
           "maxKb": 1400,
           "reason": "Notes editor bundle — CodeMirror plus the markdown preview engine (markdown-it + highlight.js/lib/common for ~35 fenced-code languages, @vscode/markdown-it-katex + katex for math, markdown-it-task-lists for checkboxes) and the optional Vim keybinding mode (@replit/codemirror-vim), loaded only when navigating to a notes document route. Grew from ~724 kB → ~1.16 MB (CodePair-parity preview: syntax highlighting, KaTeX, task lists) → ~1.29 MB (Vim keymap). highlight.js's curated `lib/common` entry point was used instead of the full ~190-language bundle specifically to keep this bounded. Same lazily-loaded-route-chunk pattern as `slides-detail-`."
+        },
+        {
+          "pattern": "^vendor-yorkie-",
+          "maxKb": 760,
+          "reason": "Yorkie CRDT SDK vendor chunk (@yorkie-js/sdk + @yorkie-js/react), the real-time collaboration engine loaded on every collaborative document route. Crossed the 710 kB global cap (~742 kB) with the 0.7.8 → 0.7.13 SDK upgrade, which added the treelist RGATreeList structure, identity-preserving Text undo/redo, the disableGC attach path, and PeekChannel read-only support. It is a third-party dependency with no practical in-app code-split, so it gets its own targeted cap slightly above the measured size rather than loosening the global per-chunk budget for unrelated app chunks."
         }
       ]
     }

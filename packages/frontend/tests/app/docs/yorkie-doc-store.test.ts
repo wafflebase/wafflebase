@@ -365,6 +365,76 @@ describe('YorkieDocStore', () => {
       expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
+    // --- selection-range restore (issue #340) ---
+
+    it('undo should restore the active selection range via presence', () => {
+      const block = makeBlock('Hello World');
+      store.setDocument({ blocks: [block] });
+      const sel = {
+        anchor: { blockId: block.id, offset: 0 },
+        focus: { blockId: block.id, offset: 5 },
+      };
+      // Editor flow: caret at focus, pre-edit selection published, then the
+      // mutation (typing over the selection).
+      store.updateCursorPos({ blockId: block.id, offset: 5 }, sel);
+      store.setCursorForHistory({ blockId: block.id, offset: 5 }, sel);
+      store.insertText(block.id, 5, 'X');
+      store.undo();
+      expect(store.getPresenceSelection()).toEqual(sel);
+    });
+
+    it('redo should collapse the selection (post-edit caret only)', () => {
+      const block = makeBlock('Hello World');
+      store.setDocument({ blocks: [block] });
+      const sel = {
+        anchor: { blockId: block.id, offset: 0 },
+        focus: { blockId: block.id, offset: 5 },
+      };
+      store.updateCursorPos({ blockId: block.id, offset: 5 }, sel);
+      store.setCursorForHistory({ blockId: block.id, offset: 5 }, sel);
+      store.insertText(block.id, 5, 'X');
+      store.undo();
+      store.redo();
+      const restored = store.getPresenceSelection();
+      // A collapsed range (anchor === focus) reads as "no selection".
+      expect(restored?.anchor).toEqual(restored?.focus);
+    });
+
+    it('undo applyStyle should restore the styled selection range', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      const sel = {
+        anchor: { blockId: block.id, offset: 0 },
+        focus: { blockId: block.id, offset: 5 },
+      };
+      store.updateCursorPos({ blockId: block.id, offset: 5 }, sel);
+      store.setCursorForHistory({ blockId: block.id, offset: 5 }, sel);
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      store.undo();
+      expect(store.getPresenceSelection()).toEqual(sel);
+    });
+
+    it('type-over (delete + insert = two units) restores the selection on the second undo', () => {
+      const block = makeBlock('Hello World');
+      store.setDocument({ blocks: [block] });
+      const sel = {
+        anchor: { blockId: block.id, offset: 0 },
+        focus: { blockId: block.id, offset: 5 },
+      };
+      // Unit 1: delete the selected range (records the pre-edit selection).
+      store.updateCursorPos({ blockId: block.id, offset: 5 }, sel);
+      store.setCursorForHistory({ blockId: block.id, offset: 5 }, sel);
+      store.deleteText(block.id, 0, 5);
+      // Unit 2: insert the typed text (no selection, collapsed caret).
+      store.setCursorForHistory({ blockId: block.id, offset: 0 }, null);
+      store.insertText(block.id, 0, 'X');
+      store.undo(); // undo insert → post-delete state (collapsed)
+      const afterFirst = store.getPresenceSelection();
+      expect(afterFirst?.anchor).toEqual(afterFirst?.focus);
+      store.undo(); // undo delete → original selection restored
+      expect(store.getPresenceSelection()).toEqual(sel);
+    });
+
     // --- IME composition undo (issue #318) ---
     //
     // The fixed IME path keeps interim composing text out of the model and
