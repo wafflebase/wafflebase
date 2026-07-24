@@ -51,11 +51,11 @@ function listAll(path) {
 
 function page(msg) {
   gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}`]);
-  try {
-    gh(["pr", "edit", String(pr), "--add-label", "agent:needs-human-review"]);
-  } catch {
-    /* best-effort, matches the original .catch(() => {}) */
-  }
+  // Labeling is intentionally NOT done here: the single-value state machine
+  // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
+  // output) runs set-state.mjs, which atomically strips every lifecycle label
+  // and sets agent:blocked. Writing agent:needs-human-review here would only
+  // be immediately overwritten and contradicts that clean single-label cutover.
   setOutput("paged", "true");
   setOutput("proceed", "false");
 }
