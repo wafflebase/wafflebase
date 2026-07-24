@@ -469,6 +469,18 @@ export class Doc {
   }
 
   /**
+   * Insert `block` immediately after the sibling identified by
+   * `siblingBlockId`, wherever that sibling lives — top-level body, header,
+   * footer, or inside a table cell. Region/cell-aware (the store resolves the
+   * sibling's containing array), unlike `insertBlockAt`, which is body-index
+   * based. Used by paste so a table dropped inside a cell nests into it.
+   */
+  insertBlockAfter(siblingBlockId: string, block: Block): void {
+    this.store.insertBlockAfter(siblingBlockId, block);
+    this.refresh();
+  }
+
+  /**
    * Search for text matches across all blocks.
    * Returns matches with block ID and character offsets.
    */

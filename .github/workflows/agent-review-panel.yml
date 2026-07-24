@@ -76,7 +76,11 @@ jobs:
     permissions:
       contents: read # read-only toward the PR
       checks: write # record per-lens verdicts
-      issues: read # design-fit lens reads the originating issue spec
+      # issues:write is used ONLY by the trusted "Set state → reviewing" run-step
+      # to set the advisory agent:reviewing label (labels use the issues API). The
+      # SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
+      # only), so this does not widen what prompt-injected branch code can reach.
+      issues: write # design-fit reads the issue spec + set advisory agent:reviewing
       pull-requests: read
     outputs:
       pr: ${{ steps.pr.outputs.number }}
@@ -234,6 +238,17 @@ jobs:
             }
             fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
             core.info(`prior findings carried into re-check: ${prior.length}`);
+
+      # Advisory single-value state: mark the PR "under automated review" while the
+      # panel runs. Best-effort; the label is a projection, never a gate. Runs the
+      # TRUSTED copy from .trusted (checked out above), not the branch's copy.
+      - name: Set state → reviewing
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: node .trusted/scripts/agent/set-state.mjs "$PR" reviewing
 
       - name: Run review panel
         if: steps.pr.outputs.number != ''
@@ -443,64 +458,36 @@ jobs:
     env:
       WAFFLEBASE_AGENT_AUTONOMOUS: "true"
     steps:
+      # Everything below runs against UNTRUSTED PR data (commit list,
+      # check-run results, PR comments), so the code deciding what to do with
+      # it must come from the TRUSTED `main` copy, never the PR branch's own
+      # version — also what makes scripts/agent/rounds.mjs importable by
+      # review-round-guard.mjs. Runs unconditionally (not gated on `paged`
+      # like before) since the guard step itself now needs it too.
+      - name: Check out trusted main (for the review-round guard)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false # only reads scripts here; the fix push later uses its own App token
+
       - name: Review-round guard
         id: guard
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const pr = Number('${{ needs.review-panel.outputs.pr }}');
-            const max = parseInt(process.env.MAX_REVIEW_ROUNDS, 10);
-            const PAGED = '<!-- agent-review-paged -->';
-            const page = async (msg) => {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body: `${PAGED}\n🛑 ${msg}` });
-              await github.rest.issues.addLabels({ owner, repo, issue_number: pr, labels: ['agent:needs-human-review'] }).catch(() => {});
-              core.setOutput('paged', 'true');
-              core.setOutput('proceed', 'false');
-            };
-            // Paginate: the PAGED latch must see ALL comments, not just the first
-            // page — an iterating PR easily exceeds 30 comments, and missing the
-            // sentinel would re-fire the fix loop after a human was already paged.
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr, per_page: 100 });
-            if (comments.some((c) => c.body.includes(PAGED))) { core.setOutput('proceed', 'false'); return; }
-            // A lens that failed CLOSED (no valid verdict) → structural problem, page now.
-            if ('${{ needs.review-panel.outputs.all_valid }}' !== 'true') {
-              return page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`);
-            }
-            // Unforgeable round bound: count commits where one of OUR panel's
-            // lens checks failed. Match the exact required-check names AND the
-            // producing app (github-actions), so a stray same-prefixed check from
-            // some other installed app can't inflate the counter.
-            const NAMES = new Set('${{ needs.review-panel.outputs.required_checks }}'.split(',').filter(Boolean));
-            const mine = (r) => NAMES.has(r.name) && r.app && r.app.slug === 'github-actions';
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
-            let failedRounds = 0;
-            for (const c of commits) {
-              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
-              if (runs.some((r) => mine(r) && r.conclusion === 'failure')) failedRounds++;
-            }
-            if (failedRounds >= max) {
-              return page(`The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`);
-            }
-            core.setOutput('proceed', 'true');
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          ALL_VALID: ${{ needs.review-panel.outputs.all_valid }}
+          REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
+        # Unforgeable round bound: count commits where one of OUR panel's lens
+        # checks failed, EXCLUDING merge commits (see rounds.mjs for the why —
+        # PR #521 demonstrated human branch-sync merges inflating this count).
+        run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS"
 
       # This round's panel cost/reliability data (uploaded by the review-panel
       # job, which lacks write scope to record it itself) — record it
       # unconditionally (not gated on proceed/paged): the panel ran this round
-      # regardless of what the guard above decided next. Own checkout since
-      # every other step in this job gates its checkout on proceed/paged, and
-      # the "already paged" early-return path (see the guard script above)
-      # takes neither branch.
-      - name: Check out gate script (review-panel metrics)
-        if: always()
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-      - if: always()
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
+      # regardless of what the guard above decided next. Reuses the trusted main
+      # checkout above; recorded before the paged summary so it reflects this
+      # round. Tolerant of the artifact being absent.
       - name: Download review-panel execution log
         if: always()
         continue-on-error: true
@@ -524,14 +511,6 @@ jobs:
             echo "no review-panel execution log artifact; skipping"
           fi
 
-      # Loop gave up (round cap, or a lens failed closed) and paged a human →
-      # post the effort summary too. The fix job's normal checkout is gated on
-      # `proceed`, so check out the TRUSTED main copy here to run summarize.
-      - name: Check out gate script (paged summary)
-        if: steps.guard.outputs.paged == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: main
       - name: Post agent-effort summary (paged → needs human review)
         if: steps.guard.outputs.paged == 'true'
         continue-on-error: true
@@ -539,6 +518,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+
+      # Single-value state: the loop paged a human → agent:blocked. Uses the
+      # trusted main checkout above.
+      - name: Set state → blocked (paged)
+        if: steps.guard.outputs.paged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/set-state.mjs "$PR" blocked
 
       - name: Gather failing lens findings
         id: findings
@@ -596,6 +585,17 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.proceed == 'true'
         run: pnpm install --frozen-lockfile
+
+      # Single-value state: a fix round is in flight → agent:fixing. Uses the
+      # branch's own checkout (this job is author-side and already runs branch
+      # code). Best-effort; advisory only.
+      - name: Set state → fixing
+        if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+        run: node ./scripts/agent/set-state.mjs "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
       # can detect a fix round that pushed NO new commit. We read the remote
@@ -687,7 +687,7 @@ jobs:
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               | gh pr comment "$PR" --body-file -
-            gh pr edit "$PR" --add-label "agent:needs-human-review" || true
+            node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
 
       # Record this review-fix session's effort into the PR metrics ledger
@@ -732,6 +732,8 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+      actions: read # set-state reconcile reads the CI workflow-run conclusion
+      checks: read # set-state reconcile reads the lens check-run conclusions
     steps:
       - name: Page a human
         id: page
@@ -768,10 +770,9 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
               body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.`,
             });
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
-              labels: ['agent:needs-human-review'],
-            }).catch(() => {});
+            // The single-value label is set by the "Reconcile agent state" step
+            // below — it re-derives state from the unforgeable signals (the paged
+            // comment just posted → agent:blocked) and self-heals any drift.
 
       # The panel died before producing verdicts, but earlier sessions
       # (kickoff / ci-fix) recorded effort — post the summary so the hand-off
@@ -788,3 +789,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.page.outputs.pr }}
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+
+      # Self-heal the single-value state from the unforgeable signals (CI
+      # conclusion, lens checks, draft flag, paged latch). On the stalled path
+      # this normally resolves to agent:blocked, but deriving it (rather than
+      # hardcoding) also corrects any drift left by a mid-transition crash.
+      - name: Reconcile agent state
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node ./scripts/agent/set-state.mjs reconcile "${{ steps.page.outputs.pr }}"

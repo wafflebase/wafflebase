@@ -423,6 +423,21 @@ Components:
   the pipeline's *own* files, so it additionally requires an owner's review for
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
+- **Agent state (advisory single-value label)** — `scripts/agent/set-state.mjs`
+  keeps **exactly one** `agent:<state>` label on the PR at a time
+  (`implementing → awaiting-ci → reviewing → fixing → ready | blocked`), replacing
+  the old additive `agent:iterating` / `agent:needs-human-review` labels (which
+  could co-exist, and where `needs-human-review` ambiguously meant both "promoted"
+  and "gave up"). `computeLabelSet` replaces the whole label set (atomic PUT),
+  stripping every lifecycle *and* legacy label while preserving non-agent labels
+  and the issue-side `agent:candidate` provenance. States are set inline by the
+  trusted steps that already run — `reviewing` (review-panel), `fixing` (fix /
+  iterate-ci), `ready` (mark-ready on promotion), `blocked` (every paging path);
+  `implementing` is set by the kickoff agent and `awaiting-ci` is derived-only.
+  **The label is a projection, never a gate** — no `if:` reads it (gates stay on
+  check runs / CI conclusion / job results / the paged-comment latch). `set-state
+  reconcile` re-derives the state from those unforgeable signals and overwrites
+  drift; it runs on the stalled path and can be invoked manually.
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
@@ -455,6 +470,12 @@ moves to the approving human reviewer.
   environment (optional per-run human approval), the enablement switch, fork-
   origin rejection, and treating the Claude auth secret as least-privilege and
   rotatable. Adopters must accept this risk consciously.
+- **The agent-state label is forgeable and advisory.** The author agent holds
+  `issues:write`, so it can set any `agent:<state>` (e.g. a fake `agent:ready`).
+  This is acceptable because **nothing gates on the label** — it is a human-facing
+  projection only — and `set-state reconcile` re-derives the true state from the
+  unforgeable signals (CI conclusion, lens check runs, draft flag, paged latch) and
+  overwrites drift. Never wire a workflow `if:` to read `agent:<state>`.
 - **LLM-reviewer prompt injection.** The panel's lens subagents read an untrusted
   diff (and, for design-fit, the issue), so injected text can sway their severity
   classification; the per-finding verifier reduces but doesn't eliminate this. The

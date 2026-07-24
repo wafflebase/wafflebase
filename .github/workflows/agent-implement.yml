@@ -181,8 +181,10 @@ jobs:
              <=70 chars; body = why + test plan from the acceptance criteria +
              screenshots for UI; add "Fixes #__ISSUE_NUMBER__"; in "Notes for
              Reviewers" DISCLOSE autonomous Claude Code authorship and what you could
-             NOT verify). Add the label "agent:iterating" and comment on issue
-             #__ISSUE_NUMBER__ linking the PR.
+             NOT verify). Set the agent state by running
+             `node ./scripts/agent/set-state.mjs <pr> implementing` (use the PR
+             number you just opened), then comment on issue #__ISSUE_NUMBER__
+             linking the PR.
           5. LET CI VERIFY — do NOT run `pnpm verify:self`, `pnpm verify:fast`,
              `pnpm verify:integration:docker`, or full builds locally: they are slow
              and this is a one-shot headless run. The PR's CI runs the full lanes and

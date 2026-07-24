@@ -55,6 +55,8 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-local-caret-anchoring.md](docs/docs-local-caret-anchoring.md)              | Local caret anchoring — Yorkie Tree-anchored caret/selection, resolves to DocPosition at render time (issue #237) |
 | [docs-spell-check.md](docs/docs-spell-check.md)                                  | Docs spell check — red-squiggle decoration via the search/comment highlight path, pluggable `SpellChecker` (local nspell/en_US + wired-deferred backend), per-word script-based language routing, view-local session state, suggestions in the unified context menu |
 | [docs-context-menu.md](docs/docs-context-menu.md)                                | Docs unified context menu — one Google-Docs-style body right-click menu (spell suggestions + clipboard + add link/comment) as a non-Radix positioned overlay; docs-package `EditorAPI` primitives, table menu kept separate |
+| [docs-paste-table-into-cell.md](docs/docs-paste-table-into-cell.md)              | Paste a table into a table cell — nest it via the cell-aware insert path (reuse `insertTable`'s `blockParentMap` cell detection) instead of the body-only paste insert (issue #528) |
+| [docs-ime-composing-underline.md](docs/docs-ime-composing-underline.md)          | IME composing underline — thin solid underline under uncommitted composing text via a view-local `composing` marker on the injected preview run, painted in `renderRun` (issue #342) |
 
 ## Slides
 
