@@ -10,22 +10,25 @@
 // from "./checks.mjs"`).
 //
 // Usage (GH_TOKEN must be set):
-//   node ./scripts/agent/review-round-guard.mjs <pr> <max-rounds> <all-valid:true|false> <required-checks-csv>
+//   node ./scripts/agent/review-round-guard.mjs <pr> <max-rounds> <all-valid:true|false> <required-checks-csv> [infra-detail]
 // Writes `paged` and `proceed` ("true"/"false") to $GITHUB_OUTPUT.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { countFailedReviewRounds } from "./rounds.mjs";
 
-const [, , prArg, maxArg, allValidArg, requiredChecksArg] = process.argv;
+const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
 const max = parseInt(maxArg, 10);
 const allValid = allValidArg === "true";
 const requiredCheckNames = (requiredChecksArg ?? "").split(",").filter(Boolean);
+// Non-empty when EVERY blocking lens failed on an API/quota error (the panel
+// never ran) — a distinct, non-code failure worth its own honest hand-off.
+const infra = (infraArg ?? "").trim();
 
 if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   console.error(
-    "Usage: node ./scripts/agent/review-round-guard.mjs <pr> <max-rounds> <all-valid> <required-checks-csv>",
+    "Usage: node ./scripts/agent/review-round-guard.mjs <pr> <max-rounds> <all-valid> <required-checks-csv> [infra-detail]",
   );
   process.exit(2);
 }
@@ -66,6 +69,18 @@ function page(msg) {
 const comments = listAll(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`);
 if (comments.some((c) => (c.body ?? "").includes(PAGED))) {
   setOutput("proceed", "false");
+  process.exit(0);
+}
+
+// API/quota outage (every blocking lens failed on an API error) → the reviewer
+// never ran. Page with the REAL reason and DO NOT dispatch the fixer or count a
+// round — there's nothing to fix, and a quota outage isn't a failed review
+// round. Checked before the generic all_valid page so the message is honest.
+if (infra) {
+  page(
+    `The review panel could not run — Claude API/quota error: ${infra} ` +
+      `This is an infrastructure/credential issue, not a code problem. Re-run the panel after the limit resets.`,
+  );
   process.exit(0);
 }
 
