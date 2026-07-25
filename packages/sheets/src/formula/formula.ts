@@ -395,6 +395,7 @@ export function expandUnboundedRanges(
  */
 export function extractFormulaRanges(
   formula: string,
+  bounds?: Range,
 ): Array<{ text: string; range: Range }> {
   const tokens = extractTokens(formula);
   const results: Array<{ text: string; range: Range }> = [];
@@ -408,7 +409,15 @@ export function extractFormulaRanges(
       if (isCrossSheetRef(text)) continue;
 
       if (text.includes(':')) {
-        results.push({ text, range: parseRange(text) });
+        // A:A / 1:1 / A1:B can't be parsed by the strict parseRange; resolve
+        // them against the grid `bounds`, or skip when no bounds are given.
+        if (isUnboundedRange(text)) {
+          if (bounds) {
+            results.push({ text, range: resolveRange(text, bounds) });
+          }
+        } else {
+          results.push({ text, range: parseRange(text) });
+        }
       } else {
         const ref = parseRef(text);
         results.push({ text, range: [ref, ref] });
