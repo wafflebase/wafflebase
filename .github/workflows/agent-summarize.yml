@@ -161,6 +161,20 @@ jobs:
             --model claude-opus-4-8
             --allowedTools "Read,Write"
 
+      # Post with a GitHub App token, NOT the default GITHUB_TOKEN. Summarize runs
+      # on any PR incl. forks, and a run triggered by an issue_comment on a FORK PR
+      # gets a read-only GITHUB_TOKEN, so issues.createComment would 403. The App
+      # installation token isn't subject to that fork restriction. Scoped to
+      # issues:write; Claude never sees it (only this trusted step does).
+      - name: Generate GitHub App token (post-only, issues:write)
+        id: app-token
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
       # Trusted post: prepend the throttle marker (so it's reliable, not
       # agent-authored) and create the comment. Skips quietly if Claude produced
       # nothing.
@@ -171,7 +185,7 @@ jobs:
           PR: ${{ steps.gate.outputs.pr }}
           HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const owner = context.repo.owner, repo = context.repo.repo;

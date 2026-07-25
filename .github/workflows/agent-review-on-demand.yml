@@ -230,6 +230,22 @@ jobs:
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
 
+      # Post the comment with a GitHub App token, NOT the default GITHUB_TOKEN.
+      # This workflow runs on ANY PR incl. forks, and for a run triggered by an
+      # issue_comment on a FORK PR, GitHub forces GITHUB_TOKEN to read-only —
+      # so issues.createComment 403s ("Resource not accessible by integration").
+      # The App installation token is not subject to that fork restriction. Minted
+      # AFTER the read-only panel ran (never shares the job with the SDK step) and
+      # scoped to issues:write only. Same pattern as the promote/fix jobs.
+      - name: Generate GitHub App token (post-only, issues:write)
+        id: app-token
+        if: always()
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write # PR conversation comments use the issues API
+
       # Aggregate panel.json + each lens's pre-rendered summary.md into ONE comment.
       # No check runs — this is advisory. Fails closed to a note if the panel crashed.
       - name: Post aggregated review comment
@@ -239,7 +255,7 @@ jobs:
           HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
           PR: ${{ needs.authorize.outputs.pr }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const owner = context.repo.owner, repo = context.repo.repo;
