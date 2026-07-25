@@ -21,7 +21,13 @@
       "require": "./dist/cjs/tokens/index.js",
       "default": "./dist/tokens/index.js"
     },
-    "./tokens.css": "./dist/tokens.css"
+    "./tokens.css": "./dist/tokens.css",
+    "./url": {
+      "types": "./dist/url/index.d.ts",
+      "import": "./dist/url/index.js",
+      "require": "./dist/cjs/url/index.js",
+      "default": "./dist/url/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}\\n')\" && tsx scripts/build-css.ts",

@@ -20,6 +20,7 @@ import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
+import { cellHyperlink } from './url-detect';
 import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
@@ -3405,6 +3406,25 @@ export class Worksheet {
       await this.finishEditing();
       await this.showFilterPanel(filterButtonCol);
       return;
+    }
+
+    // Ctrl/Cmd+Click on a cell whose plain value is a URL opens it in a new
+    // tab, matching the Docs editor's link behavior. Formula cells are
+    // excluded (their value is a computed result, not a raw URL).
+    if (
+      e.button === 0 &&
+      (e.ctrlKey || e.metaKey) &&
+      x > RowHeaderWidth &&
+      y > DefaultCellHeight
+    ) {
+      const ref = this.toRefFromMouse(x, y);
+      const cell = await this.sheet?.getCell(ref);
+      const url = cell && !cell.f ? cellHyperlink(cell.v) : null;
+      if (url) {
+        e.preventDefault();
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
     }
 
     // Checkbox toggle: left-click on the checkbox glyph selects the cell and
