@@ -1,26 +1,25 @@
 # On-demand PR summary: when someone comments "@claude summarize" on a PR, post a
-# short "what this PR does + is it good to go?" comment. READ-ONLY — it never
-# checks out or executes branch code, never pushes, and never merges; it reads the
-# PR diff/metadata via `gh` and posts one comment.
+# "🤖 Summarizing…" comment immediately, then EDIT it into a short "what this PR
+# does + is it good to go?" summary once Claude finishes. READ-ONLY toward code —
+# it never checks out or executes branch code, never pushes, and never merges; it
+# reads the PR diff/metadata via the API and hands it to Claude as data.
 #
 # Trust: the PR author OR a trusted maintainer may trigger it (a read-only summary
 # is low-risk, so contributors can self-serve on their own PR). Throttled to one
 # summary per head SHA so re-comments don't spam or burn budget.
 #
-# The command verb is parsed by the shared scripts/agent/command.mjs; this
-# workflow runs only for `summarize`.
+# The placeholder + edit are posted with a GitHub App token (a fork-PR-triggered
+# run's GITHUB_TOKEN is read-only, so a plain comment would 403). The `announce`
+# job holds that token and does no untrusted work; the `summarize` job runs Claude
+# read-only and only mints its own token AFTER Claude, so the token never coexists
+# with the model. The command verb is parsed by scripts/agent/command.mjs.
 name: Agent Summarize
 
 on:
   issue_comment:
     types: [created]
 
-# Read-only toward the repo; only needs to post a comment. No contents:write, no
-# App token — this job must never be able to push.
-permissions:
-  contents: read
-  pull-requests: read
-  issues: write # post the summary comment (PR comments use the issues API)
+permissions: {}
 
 jobs:
   route:
@@ -47,20 +46,21 @@ jobs:
           BODY: ${{ github.event.comment.body }}
         run: node scripts/agent/command.mjs "$BODY" pr
 
-  summarize:
+  # Gate + post the "running" placeholder. Runs no untrusted code, so it safely
+  # holds the App token used to post (and later edit) the comment.
+  announce:
     needs: [route]
     if: needs.route.outputs.command == 'summarize'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # The CLAUDE_CODE_OAUTH_TOKEN lives in the protected `agent` environment (same
-    # as the rest of the pipeline). A maintainer can tune that environment's
-    # protection rules — e.g. no required reviewers — if they want summarize to be
-    # self-service rather than approval-gated.
-    environment: agent
-    # One summary in flight per PR; queue re-requests rather than cancel.
-    concurrency:
-      group: agent-summarize-${{ github.event.issue.number }}
-      cancel-in-progress: false
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+      issues: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      pr: ${{ steps.gate.outputs.pr }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      comment_id: ${{ steps.placeholder.outputs.id }}
     steps:
       # Authoritative trust + throttle gate. Authorized = the PR author OR a
       # maintainer with write access. Throttle = skip if this exact head SHA was
@@ -102,16 +102,63 @@ jobs:
             }
             core.setOutput('proceed', 'true');
 
+      # App token for the comment: a fork-PR-triggered run's GITHUB_TOKEN is
+      # read-only, so a plain createComment would 403. announce runs no untrusted
+      # code, so holding the token here is safe. Scoped to issues:write.
+      - name: Generate GitHub App token (comment)
+        id: app-token
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      # Post the placeholder now (with the throttle marker) and hand its id to the
+      # summarize job, which edits it into the summary once Claude finishes.
+      - name: Post running placeholder
+        id: placeholder
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const { data } = await github.rest.issues.createComment({
+              owner, repo, issue_number: context.payload.issue.number,
+              body: `<!-- agent-summarize:${process.env.HEAD_SHA} -->\n🤖 Summarizing this PR…`,
+            });
+            core.setOutput('id', String(data.id));
+
+  summarize:
+    needs: [route, announce]
+    if: needs.announce.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The CLAUDE_CODE_OAUTH_TOKEN lives in the protected `agent` environment (same
+    # as the rest of the pipeline). A maintainer can tune that environment's
+    # protection rules — e.g. no required reviewers — if they want summarize to be
+    # self-service rather than approval-gated.
+    environment: agent
+    permissions:
+      contents: read # fetch the PR diff via the API
+      pull-requests: read
+    # One summary in flight per PR; queue re-requests rather than cancel.
+    concurrency:
+      group: agent-summarize-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
       # Fetch the PR metadata + diff with the trusted GITHUB_TOKEN and write them
       # to files. Claude then reads these as DATA — it never runs `gh` itself, so
       # it needs no repo credential and no shell. (This job has no checkout, so a
       # `gh` call by Claude would also have no repo context — another reason to
       # fetch here via the API.)
       - name: Prepare PR data (trusted read)
-        if: steps.gate.outputs.proceed == 'true'
         uses: actions/github-script@v7
         env:
-          PR: ${{ steps.gate.outputs.pr }}
+          PR: ${{ needs.announce.outputs.pr }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -135,7 +182,6 @@ jobs:
             fs.writeFileSync('/tmp/pr.diff', diff);
 
       - name: Summarize (read-only; no repo credentials)
-        if: steps.gate.outputs.proceed == 'true'
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
         # NO github_token and NO Bash — Claude can only Read the pre-fetched PR
         # data and Write its summary to a file. Holding no write-capable credential
@@ -161,23 +207,40 @@ jobs:
             --model claude-opus-4-8
             --allowedTools "Read,Write"
 
-      # Trusted post: prepend the throttle marker (so it's reliable, not
-      # agent-authored) and create the comment. Skips quietly if Claude produced
-      # nothing.
-      - name: Post the summary comment (trusted)
-        if: steps.gate.outputs.proceed == 'true'
+      # App token for the edit, minted AFTER Claude so it never coexists with the
+      # model. A fork-PR run's GITHUB_TOKEN is read-only, so updateComment needs it.
+      - name: Generate GitHub App token (post-only, issues:write)
+        id: app-token
+        if: always()
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      # EDIT the placeholder announce posted into the summary. always() so a Claude
+      # failure still replaces the "Summarizing…" note instead of stranding it. If
+      # the placeholder id is missing, fall back to a fresh comment.
+      - name: Update the running comment with the summary
+        if: always()
         uses: actions/github-script@v7
         env:
-          PR: ${{ steps.gate.outputs.pr }}
-          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+          PR: ${{ needs.announce.outputs.pr }}
+          HEAD_SHA: ${{ needs.announce.outputs.head_sha }}
+          COMMENT_ID: ${{ needs.announce.outputs.comment_id }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const owner = context.repo.owner, repo = context.repo.repo;
-            const issue_number = Number(process.env.PR);
             const marker = `<!-- agent-summarize:${process.env.HEAD_SHA} -->`;
+            const commentId = process.env.COMMENT_ID ? Number(process.env.COMMENT_ID) : null;
+            const publish = (body) => commentId
+              ? github.rest.issues.updateComment({ owner, repo, comment_id: commentId, body })
+              : github.rest.issues.createComment({ owner, repo, issue_number: Number(process.env.PR), body });
             let summary = '';
             try { summary = fs.readFileSync('/tmp/summary.md', 'utf8').trim(); } catch {}
-            if (!summary) { core.warning('No summary was produced; posting nothing.'); return; }
-            await github.rest.issues.createComment({ owner, repo, issue_number, body: `${marker}\n${summary}` });
+            const body = summary
+              ? `${marker}\n${summary}`
+              : `${marker}\n🛑 No summary was produced — see the workflow run log.`;
+            await publish(body);

@@ -63,6 +63,7 @@ jobs:
       proceed: ${{ steps.gate.outputs.proceed }}
       pr: ${{ steps.gate.outputs.pr }}
       head_sha: ${{ steps.gate.outputs.head_sha }}
+      comment_id: ${{ steps.placeholder.outputs.id }}
     steps:
       - name: Authorize and throttle
         id: gate
@@ -95,6 +96,36 @@ jobs:
             }
             core.setOutput('proceed', 'true');
 
+      # Post the "running" placeholder now (with the throttle marker, so a repeat
+      # @claude review on this SHA is deduped) and hand its id to the review job,
+      # which edits it into the findings when the panel finishes. Posted with an
+      # App token because a fork-PR run's GITHUB_TOKEN is read-only. authorize runs
+      # no untrusted code, so holding the token here is safe.
+      - name: Generate GitHub App token (comment)
+        id: app-token
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Post running placeholder
+        id: placeholder
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const { data } = await github.rest.issues.createComment({
+              owner, repo, issue_number: context.payload.issue.number,
+              body: `<!-- agent-review:${process.env.HEAD_SHA} -->\n🤖 Review panel is running…`,
+            });
+            core.setOutput('id', String(data.id));
+
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment) and
   # hand it to the review job as a tarball. Same #501 no-install rule as the
   # autonomous panel: the token-holding review job must never run `npm install`.
@@ -124,7 +155,11 @@ jobs:
 
   review:
     needs: [route, authorize, deps]
-    if: needs.authorize.outputs.proceed == 'true'
+    # always() so that if `deps` fails AFTER authorize posted the placeholder, this
+    # job still runs and the final (always()) step edits the placeholder into a
+    # fail-closed note instead of stranding a "running…" comment. The proceed gate
+    # still keeps it inert for unauthorized/throttled/non-review comments.
+    if: always() && needs.authorize.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # The CLAUDE_CODE_OAUTH_TOKEN lives in the protected `agent` environment. A
@@ -230,30 +265,59 @@ jobs:
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
 
-      # Aggregate panel.json + each lens's pre-rendered summary.md into ONE comment.
-      # No check runs — this is advisory. Fails closed to a note if the panel crashed.
-      - name: Post aggregated review comment
+      # Post the comment with a GitHub App token, NOT the default GITHUB_TOKEN.
+      # This workflow runs on ANY PR incl. forks, and for a run triggered by an
+      # issue_comment on a FORK PR, GitHub forces GITHUB_TOKEN to read-only —
+      # so issues.createComment 403s ("Resource not accessible by integration").
+      # The App installation token is not subject to that fork restriction. Minted
+      # AFTER the read-only panel ran (never shares the job with the SDK step) and
+      # scoped to issues:write only. Same pattern as the promote/fix jobs.
+      - name: Generate GitHub App token (post-only, issues:write)
+        id: app-token
+        if: always()
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write # PR conversation comments use the issues API
+
+      # EDIT the "running" placeholder authorize posted (comment_id) into the
+      # findings — aggregate panel.json + each lens's summary.md. No check runs;
+      # advisory only. Fails closed to a note if the panel crashed. If the
+      # placeholder id is missing (its post failed), fall back to a fresh comment.
+      - name: Update the running comment with results
         if: always()
         uses: actions/github-script@v7
         env:
           HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
           PR: ${{ needs.authorize.outputs.pr }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const owner = context.repo.owner, repo = context.repo.repo;
             const pr = Number(process.env.PR);
+            const commentId = process.env.COMMENT_ID ? Number(process.env.COMMENT_ID) : null;
             const marker = `<!-- agent-review:${process.env.HEAD_SHA} -->`;
-            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            // Edit the placeholder if we have one; otherwise post a fresh comment.
+            const publish = (body) => commentId
+              ? github.rest.issues.updateComment({ owner, repo, comment_id: commentId, body })
+              : github.rest.issues.createComment({ owner, repo, issue_number: pr, body });
+
+            // Read panel.json and take the fail-closed path FIRST, before parsing
+            // the trusted manifest. If an earlier step failed and skipped the
+            // `.trusted` checkout (this job runs under always()), lenses.json is
+            // absent — reading it first would throw and strand the placeholder
+            // instead of editing it to the note below.
             let panel = null;
             try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
 
             if (!panel) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr, body:
-                `${marker}\n🛑 **On-demand review could not complete** — the panel produced no verdict (failing closed). A human should review this PR.` });
+              await publish(`${marker}\n🛑 **On-demand review could not complete** — the panel produced no verdict (failing closed). A human should review this PR.`);
               return;
             }
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
             const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
             // Overall verdict from the BLOCKING+applicable lenses (same rule as the
             // gating panel), but rendered as advice, not a gate.
@@ -277,4 +341,4 @@ jobs:
             let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${note}`;
             // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
             if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + note;
-            await github.rest.issues.createComment({ owner, repo, issue_number: pr, body });
+            await publish(body);

@@ -67,7 +67,36 @@ jobs:
               core.setFailed(`@${actor} lacks write access (permission: ${data.permission}); refusing to run.`);
             }
 
+      # Comments are posted/edited with a GitHub App token, NOT GITHUB_TOKEN: on a
+      # fork-PR-triggered run GITHUB_TOKEN is read-only, so the fork-fallback note
+      # would 403. The App token isn't subject to that restriction. Loop runs no
+      # untrusted code (API calls only), so minting it here is safe. Scoped to the
+      # comment API (issues:write); the label + CI re-run stay on GITHUB_TOKEN,
+      # which is writable on the same-repo path where they actually execute.
+      - name: Generate GitHub App token (comments)
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      # Post the "working on it" comment immediately, then edit it with the result.
+      - name: Post running placeholder
+        id: placeholder
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const { data } = await github.rest.issues.createComment({
+              owner, repo, issue_number: context.payload.issue.number,
+              body: '🤖 Working on `@claude loop`…',
+            });
+            core.setOutput('id', String(data.id));
+
       - name: Enable the loop (label + re-run CI), or fall back on forks
+        id: enable
         uses: actions/github-script@v7
         with:
           script: |
@@ -79,14 +108,15 @@ jobs:
             // auto-fix/promote loop can't run. Point them at the read-only review.
             const isFork = !pr.head.repo || pr.head.repo.full_name !== `${owner}/${repo}`;
             if (isFork) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr_number, body:
+              core.setOutput('outcome',
                 "⚠️ `@claude loop` can't run on a fork PR — the auto-fix loop pushes commits to the PR branch, which isn't possible on a fork. " +
-                "Comment **`@claude review`** for the read-only review panel instead (that works on forks)." });
+                "Comment **`@claude review`** for the read-only review panel instead (that works on forks).");
               return;
             }
 
-            // Ensure the label exists, then apply it. agent-review-panel.yml and
-            // agent-iterate-ci.yml gate on it (alongside the agent/ prefix).
+            // Ensure the label exists, then apply it (GITHUB_TOKEN — same-repo path,
+            // so it is writable here). agent-review-panel.yml + agent-iterate-ci.yml
+            // gate on it alongside the agent/ prefix.
             try {
               await github.rest.issues.getLabel({ owner, repo, name: 'agent:managed' });
             } catch (e) {
@@ -110,7 +140,25 @@ jobs:
             } catch (e) {
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
             }
-            await github.rest.issues.createComment({ owner, repo, issue_number: pr_number, body:
+            core.setOutput('outcome',
               "🔁 Loop enabled — this PR is now `agent:managed`. On green CI the review panel runs and can promote it; " +
               "on red CI the fixer pushes a follow-up commit. Bounded by the pipeline's round/attempt caps; a human approval is still required to merge." +
-              (reran ? "\n\nRe-running CI now to engage the loop." : "\n\nIt will engage on the next CI run.") });
+              (reran ? "\n\nRe-running CI now to engage the loop." : "\n\nIt will engage on the next CI run."));
+
+      # Edit the placeholder into the final result. always() so a failure in the
+      # enable step still replaces the "working on it" note instead of stranding it.
+      - name: Update the running comment with the result
+        if: always() && steps.placeholder.outputs.id != ''
+        uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ steps.placeholder.outputs.id }}
+          OUTCOME: ${{ steps.enable.outputs.outcome }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const body = process.env.OUTCOME ||
+              '🛑 `@claude loop` failed before it could enable the loop — see the workflow run log.';
+            await github.rest.issues.updateComment({
+              owner, repo, comment_id: Number(process.env.COMMENT_ID), body,
+            });
