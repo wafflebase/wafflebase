@@ -72,6 +72,12 @@ humans) see what changed.
 
 **How we apply this:**
 - Browser screenshot baselines via Playwright (desktop + mobile profiles).
+- Screenshots are compared with a perceptual per-pixel threshold plus a small
+  mismatched-pixel budget (`pixelmatch`), not byte-exact PNG equality — Chromium
+  antialiasing is not bit-reproducible across CI runs, so an exact check flakes
+  on a handful of sub-pixel-jitter pixels. Tunable via
+  `VISUAL_PIXELMATCH_THRESHOLD` / `VISUAL_MAX_DIFF_RATIO` /
+  `VISUAL_MAX_DIFF_PIXELS_FLOOR`; a `*.diff.png` is emitted on real mismatches.
 - Interaction regression tests replay cell input, formula evaluation, and
   scroll behavior in a real browser.
 - Canvas-based rendering makes visual regression testing essential — DOM
@@ -345,20 +351,47 @@ evidence comment. It adds no parallel process; it triggers Claude Code
 (`anthropics/claude-code-action`) and enforces one human review gate.
 
 Components:
+- **Command dispatch** — the `@claude` mention is a command surface parsed by the
+  shared `scripts/agent/command.mjs` (flexible/containment matching: a comment
+  triggers a verb when it contains `@claude <verb>` anywhere, case-insensitive,
+  first-occurrence wins). Each workflow runs a cheap `route` job that calls the
+  parser and gates on the resulting verb, so the mention maps deterministically
+  and the workflows never double-fire on each other. Verbs:
+  - `@claude fix` (issue) → Kickoff (below). A bare `@claude` on an issue gets a
+    help reply.
+  - `@claude summarize` (PR) → `.github/workflows/agent-summarize.yml`: a
+    READ-ONLY, no-checkout summary comment ("what does this PR do / good to go?").
+    PR author OR maintainer, throttled to one per head SHA.
+  - `@claude review` (PR) → `.github/workflows/agent-review-on-demand.yml`: runs
+    the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
+    comment, records NO check runs and drives no promote/fix, so it never touches
+    the merge gate. Works on any PR incl. forks (read-only). PR author OR
+    maintainer, throttled per head SHA.
+  - `@claude loop` (PR) → `.github/workflows/agent-loop.yml`: MAINTAINER-ONLY;
+    labels the PR `agent:managed` and re-runs CI to opt it into the full
+    review→fix→promote machinery. Same-repo branches only (the fixer can't push to
+    a fork → fork PRs get a note pointing at `@claude review`).
+  - `@claude` + anything else (PR) → the review-reply arm (below). Note this arm
+    acts ONLY on `agent/`-authored PRs; ordinary and `agent:managed` PRs are left
+    to humans (it never pushes to a branch it did not author).
 - **Kickoff** — `.github/workflows/agent-implement.yml`: a trusted-author
-  `@claude` mention on an issue (or manual dispatch) runs Claude Code headless,
+  `@claude fix` mention on an issue (or manual dispatch) runs Claude Code headless,
   which follows the standard task workflow and opens a **draft** PR from an
   `agent/<issue#>-<slug>` branch. Structured spec via
   `.github/ISSUE_TEMPLATE/agent-task.yml`.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
-  failure for an `agent/` branch, `scripts/agent/summarize-ci.mjs` (Phase 21)
+  failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
+  `agent:managed` via `@claude loop`), `scripts/agent/summarize-ci.mjs` (Phase 21)
   feeds the diagnosis back to the agent, which pushes a fix. A bounded attempts counter
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
-  a `@claude` mention in a PR/review thread has the agent address the finding (or
-  push back with reasoning) in-thread.
+  a generic `@claude` mention (no command verb) in a PR/review thread has the
+  agent address the finding (or push back with reasoning) in-thread. Restricted to
+  `agent/`-authored PRs (the `is_agent` gate) — ordinary and `agent:managed` PRs
+  are left to humans, since the arm only acts on branches it authored.
 - **Review panel** — `.github/workflows/agent-review-panel.yml`: on green CI for a
-  base-repo `agent/` branch (fork-originated `workflow_run` events are rejected),
+  base-repo agent-managed PR (an `agent/` branch or an `agent:managed`-labelled PR;
+  fork-originated `workflow_run` events are rejected),
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
@@ -408,6 +441,19 @@ Components:
 
     Both lower false-negative odds; neither makes the panel safe to self-promote —
     the human review gate stays the backstop.
+
+    **API/quota error classification.** The Agent SDK reports API failures as a
+    `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,
+    e.g. a 429 "You've hit your session limit"), so "success" alone is not proof the
+    model ran. `classifyResult` distinguishes a real verdict from an *API error* (and
+    a transient API error from a *session/usage-limit*, which resets on a fixed
+    schedule) from a genuine *no-output*. Transient API errors get a bounded
+    `withRetry` (exp backoff); a session-limit fails fast (retry can't clear it). When
+    EVERY blocking lens fails on an API error the panel marks an `infraError`: it still
+    fails closed (never promotes), but the fix job pages with the *real* reason
+    ("Claude API/quota error — re-run after reset"), **skips the fixer** (nothing to
+    fix) and does **not** count it toward `MAX_REVIEW_ROUNDS`. This keeps a credential
+    outage from masquerading as a code review finding (the #547/#548 test failures).
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
   workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the
@@ -488,7 +534,7 @@ moves to the approving human reviewer.
   approval-free autonomy is a later phase, only once the (now unforgeable) loop
   bounds are trusted in practice.
 
-Done criteria: A maintainer's `@claude` on a well-specified issue yields a green,
+Done criteria: A maintainer's `@claude fix` on a well-specified issue yields a green,
 independently-reviewed, disclosed draft PR marked ready-for-review with no human
 *authoring* keystroke between the mention and the review request — and no path for
 the agent to reach `main`.

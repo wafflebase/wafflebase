@@ -197,6 +197,23 @@ Expectations:
   billed; an agent cannot launch it for you. Use it on substantial
   changes when you want a second opinion before merge.
 
+### `@claude` commands on issues and PRs
+
+If the pipeline is enabled, you can direct Claude by commenting on an issue or
+PR. Matching is flexible — a comment triggers a command when it contains
+`@claude <verb>` anywhere (case-insensitive), so `@claude fix this please` works.
+
+| Comment | Where | Who | What it does |
+| --- | --- | --- | --- |
+| `@claude fix` | issue | maintainer | Plans, implements, and opens a **draft** PR for the issue. |
+| `@claude summarize` | PR | PR author or maintainer | Posts a short read-only "what this PR does / is it good to go?" comment. |
+| `@claude review` | PR | PR author or maintainer | Runs the read-only review panel and posts its findings as one comment (advisory — no status checks, does not gate merge). |
+| `@claude loop` | PR | maintainer | Opts the PR into the autonomous review→fix→promote loop (same-repo branches only; forks fall back to `@claude review`). |
+| `@claude …` (anything else) | PR | maintainer | Treats your comment as review feedback to address in-thread. **Only on `agent/`-authored PRs** — ordinary and `agent:managed` PRs are left to humans. |
+
+`review`/`summarize` are throttled to once per commit; push a new commit to
+re-run. None of these can merge — a human approval is always required.
+
 ## Package-specific gotchas
 
 A few things bite first-time contributors:

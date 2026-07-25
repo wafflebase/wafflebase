@@ -3,6 +3,7 @@ import {
   evaluate,
   evaluateWithSpill,
   expandUnboundedRanges,
+  extractFormulaRanges,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
@@ -3933,6 +3934,56 @@ describe('Formula.findReferenceTokenAtCursor', () => {
     expect(result!.text).toBe('AA1');
     expect(result!.start).toBe(1);
     expect(result!.end).toBe(4);
+  });
+});
+
+describe('Formula.extractFormulaRanges', () => {
+  // Grid bounds used to resolve unbounded refs: rows 1..1000, cols A..Z.
+  const bounds: Range = [
+    { r: 1, c: 1 },
+    { r: 1000, c: 26 },
+  ];
+
+  it('extracts a single-cell reference as a collapsed range', () => {
+    expect(extractFormulaRanges('=A1')).toEqual([
+      { text: 'A1', range: [{ r: 1, c: 1 }, { r: 1, c: 1 }] },
+    ]);
+  });
+
+  it('extracts a bounded range without needing bounds', () => {
+    expect(extractFormulaRanges('=SUM(A1:B2)')).toEqual([
+      { text: 'A1:B2', range: [{ r: 1, c: 1 }, { r: 2, c: 2 }] },
+    ]);
+  });
+
+  it('skips whole-column/row refs when no bounds are given', () => {
+    expect(extractFormulaRanges('=SUM(A:A)')).toEqual([]);
+    expect(extractFormulaRanges('=SUM(1:1)')).toEqual([]);
+    expect(extractFormulaRanges('=AVERAGE(B2:B)')).toEqual([]);
+  });
+
+  it('resolves a whole-column ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(A:A)', bounds)).toEqual([
+      { text: 'A:A', range: [{ r: 1, c: 1 }, { r: 1000, c: 1 }] },
+    ]);
+  });
+
+  it('resolves a whole-row ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(1:1)', bounds)).toEqual([
+      { text: '1:1', range: [{ r: 1, c: 1 }, { r: 1, c: 26 }] },
+    ]);
+  });
+
+  it('resolves an open-ended ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=AVERAGE(B2:B)', bounds)).toEqual([
+      { text: 'B2:B', range: [{ r: 2, c: 2 }, { r: 1000, c: 2 }] },
+    ]);
+  });
+
+  it('resolves a multi-column whole ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(A:C)', bounds)).toEqual([
+      { text: 'A:C', range: [{ r: 1, c: 1 }, { r: 1000, c: 3 }] },
+    ]);
   });
 });
 
