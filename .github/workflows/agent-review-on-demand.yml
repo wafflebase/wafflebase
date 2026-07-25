@@ -305,7 +305,11 @@ jobs:
               ? github.rest.issues.updateComment({ owner, repo, comment_id: commentId, body })
               : github.rest.issues.createComment({ owner, repo, issue_number: pr, body });
 
-            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            // Read panel.json and take the fail-closed path FIRST, before parsing
+            // the trusted manifest. If an earlier step failed and skipped the
+            // `.trusted` checkout (this job runs under always()), lenses.json is
+            // absent — reading it first would throw and strand the placeholder
+            // instead of editing it to the note below.
             let panel = null;
             try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
 
@@ -313,6 +317,7 @@ jobs:
               await publish(`${marker}\n🛑 **On-demand review could not complete** — the panel produced no verdict (failing closed). A human should review this PR.`);
               return;
             }
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
             const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
             // Overall verdict from the BLOCKING+applicable lenses (same rule as the
             // gating panel), but rendered as advice, not a gate.
