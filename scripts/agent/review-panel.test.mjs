@@ -215,6 +215,17 @@ test("classifyResult: transient API errors → api-error, retryable", () => {
   assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
   assert.equal(classifyResult({ subtype: "error", is_error: true, api_error_status: 500, result: "internal error" }).retryable, true);
   assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+  // A plain 429 rate limit (NOT a session/usage-limit) is transient — retry it.
+  // Status, not the human text, decides: "rate limit" wording must not veto retry.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "Number of requests has exceeded your per-minute rate limit" }).retryable, true);
+});
+
+test("classifyResult: permanent client errors (auth / invalid-request) → NOT retryable", () => {
+  // 4xx auth/invalid-request errors can't clear by retrying, regardless of the
+  // wording — must not become retryable just because they lack quota phrasing.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 401, result: "authentication_error: invalid x-api-key" }).retryable, false);
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 400, result: "invalid_request_error" }).retryable, false);
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 403, result: "permission_error" }).retryable, false);
 });
 
 test("classifyResult: success but no structured output → no-output, not retryable", () => {

@@ -252,9 +252,18 @@ export function verifierTally(findings, verdicts) {
  *   { ok:true, output }                                  — real structured verdict
  *   { ok:false, kind:'api-error', status, detail, retryable } — API/quota failure
  *   { ok:false, kind:'no-output', detail, retryable:false }   — ran but no verdict
- * A session/usage-limit resets on a fixed schedule (often hours out), so it is
- * NOT retryable in-run; any other API error (plain 429/529/overload/network) is.
+ * Retryability is driven by `api_error_status`, NOT by matching the human text:
+ * a plain 429 rate-limit / 529 overload / 5xx / network blip is transient and
+ * retried, but a session/usage-limit (resets on a fixed schedule, often hours
+ * out) and permanent client errors (auth / invalid-request / not-found 4xx)
+ * can't clear by retrying, so they fail fast. Only the session/usage-limit case
+ * needs the text — a 429 alone can't be told apart from a plain rate limit.
  */
+// Permanent HTTP client errors — retrying can't clear them (bad auth, malformed
+// request, missing resource). 429 is deliberately absent: a plain rate limit is
+// transient; only an explicit session/usage-limit (matched by text) is permanent.
+const PERMANENT_API_STATUS = new Set([400, 401, 403, 404, 413]);
+
 export function classifyResult(message) {
   const m = message || {};
   if (m.subtype === "success" && m.structured_output) {
@@ -262,8 +271,11 @@ export function classifyResult(message) {
   }
   if (m.is_error || m.api_error_status || m.terminal_reason === "api_error") {
     const detail = typeof m.result === "string" && m.result ? m.result : "";
-    const isQuota = /session limit|usage limit|quota|rate limit|resets?\b/i.test(detail);
-    return { ok: false, kind: "api-error", status: m.api_error_status ?? null, detail, retryable: !isQuota };
+    const status = m.api_error_status ?? null;
+    // Session/usage-limits reset on a fixed schedule — not retryable in-run.
+    const isUsageLimit = /session limit|usage limit/i.test(detail);
+    const permanent = isUsageLimit || (status != null && PERMANENT_API_STATUS.has(status));
+    return { ok: false, kind: "api-error", status, detail, retryable: !permanent };
   }
   return { ok: false, kind: "no-output", status: null, detail: `subtype=${m.subtype}`, retryable: false };
 }
@@ -484,12 +496,15 @@ async function main() {
       );
       ok = results.filter((r) => r && !r.__error);
       if (ok.length === 0) {
-        // All samples failed. If ANY failed on an API/quota error, this is an
-        // INFRASTRUCTURE failure (the reviewer never ran), NOT a review finding —
-        // tag it so the panel pages honestly instead of inventing "changes requested".
+        // All samples failed. Only an INFRASTRUCTURE failure (the reviewer never
+        // ran) when EVERY sample failed on an API/quota error — a single no-output
+        // means the model DID run and produced nothing, which is a real review
+        // failure, not infra. Requiring all-api-error avoids skipping the fixer on
+        // a mixed [api-error, no-output] set.
+        const allApiErr = results.every((r) => r && r.kind === "api-error");
         const apiErr = results.find((r) => r && r.kind === "api-error");
         const err = new Error((results[0] && results[0].__error) || "all lens samples failed");
-        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; }
+        if (allApiErr && apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; }
         throw err;
       }
       // unionSamples coerces (never drops) + dedupes (collapses identical
