@@ -9,6 +9,7 @@ import hljs from 'highlight.js/lib/common';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
 import { detailsPlugin } from './details-plugin.js';
+import { listEmptyBulletPlugin } from './list-empty-bullet-plugin.js';
 
 const md: MarkdownIt = new MarkdownIt({
   html: false,
@@ -41,6 +42,10 @@ md.use(katexPlugin);
 // just these two disclosure tags — keeps the preview's `html: false` posture
 // (no arbitrary raw HTML) while supporting GitHub/MDN-style foldouts.
 md.use(detailsPlugin);
+
+// A lone empty bullet under a list item should nest as an empty child, not turn
+// the line above it into a setext `<h2>` (issue #517).
+md.use(listEmptyBulletPlugin);
 
 /**
  * Code fences: reuses markdown-it's own `highlight` option (configured
