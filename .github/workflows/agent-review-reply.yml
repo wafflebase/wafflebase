@@ -1,8 +1,14 @@
-# Develop-review loop, review arm: when a trusted human mentions "@claude" on an
-# agent-authored PR (top-level comment or inline review comment), Claude Code
+# Develop-review loop, review arm: when a trusted human mentions "@claude" WITHOUT
+# a recognized command verb (i.e. the generic address-this-feedback fallback) on
+# an agent-authored PR (top-level comment or inline review comment), Claude Code
 # evaluates the finding, pushes a fix commit if warranted, and replies inside the
 # thread per CONTRIBUTING.md. It pushes back with reasoning when a finding is
 # wrong. It never merges.
+#
+# The command verb is parsed by the shared scripts/agent/command.mjs in a cheap
+# `route` job; this arm runs ONLY for `reply`. "@claude review|summarize|loop" are
+# their own workflows, so gating on `reply` here is what stops this job from
+# double-firing on those commands.
 name: Agent Review Reply
 
 on:
@@ -17,15 +23,14 @@ permissions:
   issues: write # reply in PR comment threads
 
 jobs:
-  reply:
-    # An "@claude" mention from a trusted author on a PR (issue_comment fires for
-    # PRs too — gate on github.event.issue.pull_request), or an inline review
-    # comment on a PR. Restricted to agent-authored branches is enforced by the
-    # checkout + the agent only acting on its own PR context.
+  # Parse the command verb (shared scripts/agent/command.mjs). Runs for any
+  # "@claude" comment on a PR (issue_comment fires for PRs too — gate on
+  # github.event.issue.pull_request — or an inline review comment). The reply arm
+  # below only proceeds when the verb is the generic `reply`.
+  route:
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
       github.event.comment.user.type != 'Bot' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       (
         (github.event_name == 'issue_comment' &&
          github.event.issue.pull_request &&
@@ -33,6 +38,36 @@ jobs:
         (github.event_name == 'pull_request_review_comment' &&
          contains(github.event.comment.body, '@claude'))
       )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout the router script only
+    outputs:
+      command: ${{ steps.route.outputs.command }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/agent/command.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Route command
+        id: route
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node scripts/agent/command.mjs "$BODY" pr
+
+  reply:
+    needs: [route]
+    # Only the generic `reply` verb (an "@claude" mention that is NOT fix /
+    # review / summarize / loop) from a trusted author. author_association is the
+    # cheap pre-filter; the Verify-access step below is authoritative. Restricted
+    # to agent-authored branches by the is_agent gate + the agent only acting on
+    # its own PR context.
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      needs.route.outputs.command == 'reply' &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: agent
