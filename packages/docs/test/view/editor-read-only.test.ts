@@ -63,6 +63,23 @@ function setupEditor(
   return { editor, container, textarea };
 }
 
+/**
+ * Build a paste/cut ClipboardEvent carrying a real text payload. jsdom does
+ * not populate `clipboardData` on a ClipboardEvent, so stub it: paste reads
+ * `text/plain`, cut writes to it (no-op here). A real payload makes the
+ * read-only assertions non-vacuous — without the guard the paste would insert.
+ */
+function clipboardEvent(type: 'paste' | 'cut', text: string): Event {
+  const clipboardData = {
+    getData: (t: string) => (t === 'text/plain' ? text : ''),
+    setData: () => {},
+    items: [] as unknown[],
+  };
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+  return event;
+}
+
 function para(id: string, text: string): Block {
   return {
     id,
@@ -119,9 +136,65 @@ describe('read-only docs editor (issue #482)', () => {
     editor.dispose();
   });
 
-  test('paste event does not mutate the document', () => {
+  test('paste (with a real payload) does not mutate the document', () => {
     const { editor, textarea } = setupEditor([para('b1', 'hello world')], true);
-    textarea.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+    // A plain empty paste event inserts nothing regardless of the guard, so
+    // carry a real text payload — without the read-only gate this WOULD paste.
+    textarea.dispatchEvent(clipboardEvent('paste', 'PASTED'));
+    expect(bodyText(editor)).toBe('hello world');
+    editor.dispose();
+  });
+
+  test('control: the same paste payload DOES insert when not read-only', () => {
+    const { editor, textarea } = setupEditor([para('b1', 'hello world')], false);
+    textarea.dispatchEvent(clipboardEvent('paste', 'PASTED'));
+    expect(bodyText(editor)).toContain('PASTED');
+    editor.dispose();
+  });
+
+  test('cut does not delete the selection', () => {
+    const { editor, textarea } = setupEditor([para('b1', 'hello world')], true);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    textarea.dispatchEvent(clipboardEvent('cut', ''));
+    expect(bodyText(editor)).toBe('hello world');
+    editor.dispose();
+  });
+
+  test('control: cut DOES delete the selection when not read-only', () => {
+    const { editor, textarea } = setupEditor([para('b1', 'hello world')], false);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    textarea.dispatchEvent(clipboardEvent('cut', ''));
+    expect(bodyText(editor)).not.toBe('hello world');
+    expect(bodyText(editor)).not.toContain('hello');
+    editor.dispose();
+  });
+
+  test('Cmd/Ctrl+A selects all (navigation aid) without mutating', () => {
+    const { editor, textarea } = setupEditor([para('b1', 'hello world')], true);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 0 },
+    });
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const sel = editor.getActiveSelection();
+    expect(sel).not.toBeNull();
+    // Whole block is selected: caret 0 → end of "hello world".
+    expect(sel!.anchor.offset).toBe(0);
+    expect(sel!.focus.offset).toBe(11);
     expect(bodyText(editor)).toBe('hello world');
     editor.dispose();
   });
