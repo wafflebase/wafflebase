@@ -15,7 +15,13 @@ const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
  * that need real pixel layout are covered by manual / browser tests.
  */
 
+let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
+let originalResizeObserver: typeof globalThis.ResizeObserver | undefined;
+
 function installCanvasShim(): void {
+  originalGetContext = HTMLCanvasElement.prototype.getContext;
+  originalResizeObserver = (globalThis as { ResizeObserver?: typeof globalThis.ResizeObserver })
+    .ResizeObserver;
   const ctxHandler: ProxyHandler<object> = {
     get(_t, prop) {
       if (prop === 'measureText') {
@@ -81,6 +87,13 @@ describe('read-only docs editor (issue #482)', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    // Restore the global shims so they do not leak into other jsdom tests.
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    if (originalResizeObserver === undefined) {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    } else {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
+    }
   });
 
   test('a text-editor is still constructed (owns selection/copy/link)', () => {
@@ -137,6 +150,27 @@ describe('read-only docs editor (issue #482)', () => {
       new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
     );
     expect(editor.getDoc().document.blocks.length).toBe(1);
+    editor.dispose();
+  });
+
+  test('copy serializes the selected text without mutating the document', () => {
+    const { editor, textarea } = setupEditor([para('b1', 'hello world')], true);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    // Stub clipboardData; jsdom's ClipboardEvent does not carry one.
+    const written = new Map<string, string>();
+    const clipboardData = {
+      setData: (type: string, value: string) => written.set(type, value),
+      getData: (type: string) => written.get(type) ?? '',
+    };
+    const event = new Event('copy', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+    textarea.dispatchEvent(event);
+    // Selected text is copied out; the document itself is untouched.
+    expect(written.get('text/plain')).toBe('hello');
+    expect(bodyText(editor)).toBe('hello world');
     editor.dispose();
   });
 

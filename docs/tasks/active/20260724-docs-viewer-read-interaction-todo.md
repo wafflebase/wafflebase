@@ -86,7 +86,12 @@ link paths intact.
 
 ## Acceptance criteria (from issue #482)
 
-- [ ] Select text by dragging in viewer mode.
-- [ ] Copy selected text.
-- [ ] Click a hyperlink to open its destination.
-- [ ] Editing remains blocked (no content changes).
+- [x] Select text by dragging in viewer mode.
+- [x] Copy selected text.
+- [x] Click a hyperlink to open its destination.
+- [x] Editing remains blocked (no content changes).
+
+Verification: `packages/docs/test/view/editor-read-only.test.ts` pins the
+mutation-blocking guarantees (typing / paste / Backspace / Enter no-op),
+keyboard-driven selection, and copy serialization; drag-select and
+plain-click link open are pointer paths validated by manual / browser tests.
