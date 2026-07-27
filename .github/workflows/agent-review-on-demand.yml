@@ -189,11 +189,26 @@ jobs:
         with:
           node-version: 22.x
 
+      # KEEP IN SYNC with the identical step in agent-review-panel.yml.
       - name: Compute diff + changed files (data for the reviewers)
         run: |
+          set -euo pipefail
           git fetch --no-tags origin main
-          git diff origin/main...HEAD > /tmp/pr.diff
+          # UNFILTERED on purpose — see the twin step in agent-review-panel.yml
+          # for why the changed-file list must never shrink.
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
+          # ANTLR generated output omitted from the diff BODY only; the
+          # hand-written `Formula.g4` grammar is deliberately kept. Lockfiles
+          # are deliberately kept too (supply-chain relevant).
+          git diff origin/main...HEAD -- . \
+            ':(exclude)packages/sheets/antlr/*.ts' \
+            ':(exclude)packages/sheets/antlr/*.interp' \
+            ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/pr.diff
+          # Regeneration-only change → filtered diff is empty and the panel
+          # fails closed. Fall back to the unfiltered diff.
+          if [ ! -s /tmp/pr.diff ]; then
+            git diff origin/main...HEAD > /tmp/pr.diff
+          fi
 
       # Best-effort issue spec for the design-fit lens — same provenance rule as
       # the autonomous panel (only trust an `agent:candidate`, human-authored issue

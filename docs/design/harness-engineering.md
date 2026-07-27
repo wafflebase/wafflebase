@@ -395,7 +395,14 @@ Components:
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
-  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). Each subagent has
+  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). The reviewed
+  artifact is the branch diff against `main`, minus generated ANTLR output
+  (`packages/sheets/antlr/*.ts|.interp|.tokens`) — the hand-written
+  `packages/sheets/antlr/Formula.g4` grammar is deliberately kept (mirroring
+  `scripts/hooks/guard-generated-files.sh`, which already blocks edits to the
+  generated siblings), and the changed-FILE list is left
+  unfiltered because it drives `lensApplies` → the required-check set, so a list
+  that shrank mid-PR could un-require a lens that failed an earlier round. Each subagent has
   read-only tools only (Read/Grep/Glob; no branch-code execution), runs with
   `settingSources: []` (so the untrusted branch's `.claude` hooks/settings are
   never loaded — the workflow also strips `.claude/` and installs the SDK in a
