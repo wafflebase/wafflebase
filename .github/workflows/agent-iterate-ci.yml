@@ -253,8 +253,10 @@ jobs:
 
             Append a follow-up commit (do NOT force-push over history); the commit
             message must end with the trailer "Assisted-by: Claude Code
-            (autonomous)". Then reply in the PR's verification thread noting what
-            you fixed. Do not merge.
+            (autonomous)". Then PUSH it to the remote branch — a commit that is
+            only made locally leaves CI red, cannot re-trigger this loop (no push
+            → no new CI run), and pages a human. Then reply in the PR's
+            verification thread noting what you fixed. Do not merge.
           claude_args: >-
             --max-turns 80
             --model claude-opus-4-8

@@ -633,11 +633,38 @@ jobs:
                 (byFile[file] ||= []).push({ lens, severity: f.severity, summary: f.summary, evidence: f.evidence });
               }
             }
-            const checklist = Object.entries(byFile)
-              .map(([file, items]) => `- [ ] ${file}\n` + items
-                .map((i) => `    - (${i.lens}/${i.severity}) ${i.summary || ''}` + (i.evidence ? `\n      evidence: ${i.evidence}` : ''))
-                .join('\n'))
-              .join('\n') || '(no per-file findings parsed — use the per-lens summaries below)';
+            // BOUND the checklist. Each lens persists up to 60k chars of findings
+            // JSON, so an unbounded join across lenses could emit a step output
+            // hundreds of KB wide — blowing up the very fix prompt this exists to
+            // shrink, and risking the Actions output limit. Emit deterministically
+            // (lens order, then per-file insertion order), stop at the first limit
+            // reached, and state how many findings were left out so the fixer knows
+            // the list is partial rather than complete.
+            const MAX_ITEMS = 40;
+            const MAX_CHARS = 16000;
+            const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? `${t.slice(0, n)}…` : t; };
+            let emitted = 0, total = 0, chars = 0, truncated = false;
+            const blocks = [];
+            for (const [file, items] of Object.entries(byFile)) {
+              total += items.length;
+              if (truncated) continue; // keep counting the remainder for the tally
+              const kept = [];
+              for (const i of items) {
+                if (emitted >= MAX_ITEMS) { truncated = true; break; }
+                const line = `    - (${i.lens}/${i.severity}) ${clip(i.summary, 500)}`
+                  + (i.evidence ? `\n      evidence: ${clip(i.evidence, 400)}` : '');
+                if (chars + line.length > MAX_CHARS) { truncated = true; break; }
+                chars += line.length; emitted++; kept.push(line);
+              }
+              if (kept.length) blocks.push(`- [ ] ${file}\n` + kept.join('\n'));
+            }
+            let checklist = blocks.join('\n')
+              || '(no per-file findings parsed — use the per-lens summaries below)';
+            const omitted = total - emitted;
+            if (omitted > 0) {
+              checklist += `\n\n(${omitted} further finding(s) omitted to bound prompt size — `
+                + 'this list is PARTIAL; see the per-lens summaries below for the rest.)';
+            }
             core.setOutput('checklist', checklist);
 
       - name: Generate GitHub App token
@@ -735,7 +762,11 @@ jobs:
             - Run `pnpm verify:fast` ONCE at the end to confirm green — not after
               every edit.
             - If you believe a finding is wrong, do NOT change code for it; reply
-              in the PR thread with your reasoning per CONTRIBUTING.md.
+              in the PR thread with your reasoning per CONTRIBUTING.md. A reply
+              does NOT resolve the finding — nothing consumes it, the next round
+              will raise it again, and only an independent adjudication or a human
+              can clear it. Never treat a disputed finding as settled, and never
+              treat one as satisfying the merge gate.
 
             Append a follow-up commit (do NOT force-push); the commit message must
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not

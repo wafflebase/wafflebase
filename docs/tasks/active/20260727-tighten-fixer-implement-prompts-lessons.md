@@ -18,8 +18,8 @@ is currently the only thing enforcing that boundary, and it should stay missing.
 
 ## Splitting at the capability boundary belongs at issue-filing time
 
-#563 asked for three deliverables: one the agent could do, two it structurally
-could not. Every component of the pipeline then behaved correctly on an
+Issue #563 asked for three deliverables: one the agent could do, two it
+structurally could not. Every component of the pipeline then behaved correctly on an
 impossible task and the PR still failed — design-fit reported the truth, the
 fixer tried and was rejected, and the no-commit detector paged.
 
@@ -33,8 +33,8 @@ Cheaper to decline a run in five seconds than to spend $9.36 discovering it.
 D1 shipped with a real regression test. D2/D3 cannot: the deliverable *is* the
 prompt, and its effect is a distribution over agent behavior. The only honest
 verification is rounds-to-converge and per-session tokens across the next several
-autonomous PRs, compared against a recorded baseline (#547 at 4 review rounds,
-#548 at 8).
+autonomous PRs, compared against a recorded baseline (PR #547 at 4 review
+rounds, PR #548 at 8).
 
 Worth stating in the PR rather than letting green CI imply the change was
 validated. Green CI here only means the YAML parses.
