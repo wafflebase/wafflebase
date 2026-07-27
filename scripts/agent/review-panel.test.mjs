@@ -30,23 +30,33 @@ test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
 test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always applies", () => {
   // The actual scoping shipped in lenses/lenses.json (Deliverable 1 of #563).
   const correctness = { appliesWhen: ["**"] };
-  const security = { appliesWhen: ["packages/**", "scripts/**", ".github/**"] };
+  // security stays wildcard so supply-chain / secret vectors in root-level and
+  // any top-level file (root package.json, lockfiles, .npmrc, Dockerfile) are
+  // never exempt from the blocking security gate.
+  const security = { appliesWhen: ["**"] };
   const designFit = { appliesWhen: ["packages/**", "scripts/**", "docs/design/**"] };
   const testAdequacy = { appliesWhen: ["packages/**", "scripts/**"] };
 
-  // Docs-only PR: only correctness (and design-fit, since it lists docs/design)
-  // apply; security + test-adequacy are skipped.
+  // Docs-only PR: correctness + security always apply (security must not be
+  // scoped away from root files); design-fit applies (docs/design); test-adequacy skipped.
   const docsOnly = ["docs/design/sheets/formula.md", "README.md"];
   assert.equal(lensApplies(correctness, docsOnly), true);
-  assert.equal(lensApplies(security, docsOnly), false);
+  assert.equal(lensApplies(security, docsOnly), true);
   assert.equal(lensApplies(designFit, docsOnly), true);
   assert.equal(lensApplies(testAdequacy, docsOnly), false);
 
-  // A pure-markdown docs PR that does NOT touch docs/design also skips design-fit.
+  // A pure-markdown docs PR that does NOT touch docs/design still runs security
+  // (wildcard) but skips design-fit + test-adequacy.
   const plainDocs = ["docs/tasks/active/x-todo.md", "CHANGELOG.md"];
   assert.equal(lensApplies(correctness, plainDocs), true);
+  assert.equal(lensApplies(security, plainDocs), true);
   assert.equal(lensApplies(designFit, plainDocs), false);
   assert.equal(lensApplies(testAdequacy, plainDocs), false);
+
+  // A root-level supply-chain change (root package.json + lockfile) must run
+  // the security gate.
+  const rootSupplyChain = ["package.json", "pnpm-lock.yaml"];
+  assert.equal(lensApplies(security, rootSupplyChain), true);
 
   // A code PR runs every lens.
   const code = ["packages/sheets/src/index.ts"];
@@ -54,7 +64,7 @@ test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always a
     assert.equal(lensApplies(lens, code), true);
   }
 
-  // A workflow/harness PR: security applies (.github/**), test-adequacy does not.
+  // A workflow/harness PR: security applies, test-adequacy does not.
   const workflow = [".github/workflows/agent-implement.yml"];
   assert.equal(lensApplies(security, workflow), true);
   assert.equal(lensApplies(testAdequacy, workflow), false);

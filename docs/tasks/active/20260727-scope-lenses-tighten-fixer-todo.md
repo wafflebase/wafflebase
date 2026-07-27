@@ -9,7 +9,9 @@ fail-closed behavior.
 - [ ] `scripts/agent/lenses/lenses.json`: per-lens `appliesWhen` path globs
       - `correctness` → keep `["**"]` (always applies; guarantees a non-empty
         required-check set, per constraints).
-      - `security` → `["packages/**", "scripts/**", ".github/**"]`.
+      - `security` → keep `["**"]` (never scope a blocking security gate away
+        from root-level supply-chain/secret files: root `package.json`,
+        lockfiles, `.npmrc`, `Dockerfile`).
       - `design-fit` → `["packages/**", "scripts/**", "docs/design/**"]`.
       - `test-adequacy` → `["packages/**", "scripts/**"]`.
 - [ ] Extend `review-panel.test.mjs` with cases for the new globs (docs-only
