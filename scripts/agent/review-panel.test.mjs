@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   globToRegExp,
   lensApplies,
@@ -16,6 +19,19 @@ import {
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
+// The lens scoping under test is the REAL manifest, not a copy of it. An
+// earlier draft of this test inlined the globs as literals, which meant an edit
+// to lenses.json left the test green while the shipped behavior changed — the
+// scoping was effectively untested. Read the manifest so the assertions below
+// fail when the thing they claim to cover actually moves.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const LENSES = JSON.parse(readFileSync(path.join(HERE, "lenses", "lenses.json"), "utf8"));
+const lensOf = (id) => {
+  const l = LENSES.find((x) => x.id === id);
+  assert.ok(l, `lenses.json has no lens with id "${id}"`);
+  return l;
+};
+
 test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
   assert.ok(globToRegExp("**").test("packages/frontend/src/x.ts"));
   assert.ok(globToRegExp("packages/frontend/**").test("packages/frontend/src/a.ts"));
@@ -28,14 +44,14 @@ test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
 });
 
 test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always applies", () => {
-  // The actual scoping shipped in lenses/lenses.json (Deliverable 1 of #563).
-  const correctness = { appliesWhen: ["**"] };
+  // Read from the shipped manifest — see the note at the top of this file.
+  const correctness = lensOf("correctness");
   // security stays wildcard so supply-chain / secret vectors in root-level and
   // any top-level file (root package.json, lockfiles, .npmrc, Dockerfile) are
   // never exempt from the blocking security gate.
-  const security = { appliesWhen: ["**"] };
-  const designFit = { appliesWhen: ["packages/**", "scripts/**", "docs/design/**"] };
-  const testAdequacy = { appliesWhen: ["packages/**", "scripts/**"] };
+  const security = lensOf("security");
+  const designFit = lensOf("design-fit");
+  const testAdequacy = lensOf("test-adequacy");
 
   // Docs-only PR: correctness + security always apply (security must not be
   // scoped away from root files); design-fit applies (docs/design); test-adequacy skipped.
@@ -68,6 +84,40 @@ test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always a
   const workflow = [".github/workflows/agent-implement.yml"];
   assert.equal(lensApplies(security, workflow), true);
   assert.equal(lensApplies(testAdequacy, workflow), false);
+});
+
+// The safety property that makes path-scoping survivable, asserted against the
+// real manifest rather than left as a comment on one lens.
+//
+// agent-review-panel.yml builds `required_checks` from the BLOCKING lenses that
+// APPLY to the diff, and mark-ready.mjs refuses to promote on an empty required
+// set (exit 2) — `[].every` is vacuously true, so an empty set would satisfy the
+// review gate with zero evidence. If every lens were narrowly scoped, a PR
+// touching only an unscoped path (LICENSE, .gitignore, a root dotfile) would
+// produce no required checks at all and dead-end the pipeline. At least one
+// blocking lens must therefore match ANY possible changed-file set.
+test("lens manifest: some blocking lens applies to every possible diff", () => {
+  const blocking = LENSES.filter((l) => String(l.gating ?? "blocking") === "blocking");
+  assert.ok(blocking.length > 0, "manifest has no blocking lenses");
+
+  const alwaysOn = blocking.filter((l) => {
+    const globs = l.appliesWhen ?? ["**"];
+    return globs.length === 0 || globs.includes("**");
+  });
+  assert.ok(
+    alwaysOn.length > 0,
+    "every blocking lens is path-scoped: a diff matching none of them yields an " +
+      "empty required-check set, which mark-ready.mjs rejects (exit 2). Keep at " +
+      "least one blocking lens at '**'.",
+  );
+
+  // Spot-check the property on paths no scoped lens claims.
+  for (const unclaimed of [["LICENSE"], [".gitignore"], ["README.md"], []]) {
+    assert.ok(
+      blocking.some((l) => lensApplies(l, unclaimed)),
+      `no blocking lens applies to ${JSON.stringify(unclaimed)}`,
+    );
+  }
 });
 
 test("coerceFindings: malformed findings are KEPT and block (never silently dropped)", () => {
