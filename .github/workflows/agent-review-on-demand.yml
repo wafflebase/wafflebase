@@ -278,7 +278,12 @@ jobs:
               const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
               for (const r of runs) {
                 if (!wantNames.has(r.name) || !r.app || r.app.slug !== 'github-actions') continue;
-                const t = new Date(r.started_at || 0).getTime();
+                // Only COMPLETED runs carry final findings in output.text — an
+                // in-progress/queued run (e.g. a panel round running right now) has
+                // a newer started_at but no findings yet, and would otherwise shadow
+                // the last completed run. Rank by completed_at (fallback started_at).
+                if (r.status !== 'completed') continue;
+                const t = new Date(r.completed_at || r.started_at || 0).getTime();
                 if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { id: r.id, t };
               }
             }
