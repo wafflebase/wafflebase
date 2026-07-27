@@ -35,12 +35,50 @@ Reviewing them was never meaningful:
 
 ## Scope
 
-- [x] `agent-review-panel.yml`: exclude `packages/sheets/antlr/*.ts|.interp|.tokens`
+- [x] `agent-review-panel.yml`: exclude `packages/sheets/antlr/*.interp|.tokens`
       from the diff **body**; keep `changed.txt` unfiltered; add an
       empty-filter fallback; add `set -euo pipefail`.
 - [x] `agent-review-on-demand.yml`: the identical step, marked KEEP IN SYNC.
 - [x] `docs/design/harness-engineering.md`: document the reviewed-artifact scope
       in the review-panel section.
+
+## Narrowed after review: the generated `.ts` files stay in the diff
+
+The first revision also excluded `packages/sheets/antlr/*.ts`. **The security
+lens raised a `major` on that, and it was right:**
+
+> Excluding `packages/sheets/antlr/*.ts` from the reviewed diff body creates a
+> security review blindspot: arbitrary TypeScript added/modified in that path is
+> executed as part of the sheets package but is never shown to any review lens,
+> and the only compensating control is bypassable.
+
+That is the same gap this task's own lessons file had already written down — so
+it was a documented risk, not a surprise, and documenting a risk is not
+mitigating it. The `.ts` exclusion is reverted.
+
+What remains excluded is `.interp` / `.tokens`, which is unambiguously safe:
+`grep` across `packages/sheets/src`, `packages/sheets/package.json`, and
+`scripts/` finds **zero** references, so nothing loads them at runtime or build
+time and no lens could act on their contents.
+
+Cost of the narrowing, measured on #521:
+
+| exclusion | reviewed body | saving |
+|---|---|---|
+| none | 75,566 B | — |
+| `.ts` + `.interp` + `.tokens` (first revision) | 39,923 B | 47% |
+| `.interp` + `.tokens` (shipped) | 58,398 B | **22%** |
+
+Half the benefit, and worth it. A 22% cut on formula-engine PRs is still real,
+and it is now bought with no security tradeoff at all.
+
+The `.ts` exclusion can return once a **regen-and-diff CI lane** exists — CI
+runs `pnpm sheets build:formula` and fails if the committed output differs from
+what `Formula.g4` produces. That is a strictly stronger control than review (no
+reviewer meaningfully audits 18 KB of ANTLR tables), but it needs a JRE in CI
+(`antlr4ts-cli` wraps the Java tool; not installable locally here) and its
+determinism must be verified before anything depends on it. Filed as a follow-up
+rather than guessed at inside this PR.
 
 ## Design decisions
 

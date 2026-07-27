@@ -197,11 +197,12 @@ jobs:
           # UNFILTERED on purpose — see the twin step in agent-review-panel.yml
           # for why the changed-file list must never shrink.
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
-          # ANTLR generated output omitted from the diff BODY only; the
-          # hand-written `Formula.g4` grammar is deliberately kept. Lockfiles
-          # are deliberately kept too (supply-chain relevant).
+          # ANTLR generated TOOLING artifacts (.interp/.tokens — nothing loads
+          # them) omitted from the diff BODY only. The generated `.ts` files are
+          # kept: they are executable code, and excluding them would blind every
+          # lens to a hand-edit. `Formula.g4` and lockfiles are never excluded.
+          # See the twin step in agent-review-panel.yml for the full rationale.
           git diff origin/main...HEAD -- . \
-            ':(exclude)packages/sheets/antlr/*.ts' \
             ':(exclude)packages/sheets/antlr/*.interp' \
             ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/pr.diff
           # Regeneration-only change → filtered diff is empty and the panel

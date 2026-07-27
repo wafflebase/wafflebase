@@ -71,6 +71,33 @@ lens are byte-identical requests firing in parallel, so serializing just those
 would let the second read the first's cache, at the cost of doubling per-lens
 latency. Left for a PR that can measure it against #565's cost line.
 
+## Documenting a risk is not mitigating it
+
+The first revision excluded the generated `.ts` files, and this very file said:
+
+> a hand-edit to `FormulaLexer.ts` that does not match `Formula.g4` would be
+> caught by nothing
+
+The security lens then raised exactly that as a blocking `major`. Writing the
+risk down had made it feel handled; it wasn't. The lens was right, the finding
+was accepted, and the `.ts` exclusion was reverted — the executable half of the
+generated output stays reviewable.
+
+Two things worth keeping from how that went:
+
+- **The lens earned its keep on a PR about the lens system.** It was correct,
+  in-lane, correctly severity-rated (`major`, not `critical`, because
+  exploitability depends on merge automation not visible in the diff), and it
+  explicitly credited the parts of the change that were security-positive
+  (`set -euo pipefail`, the fail-closed empty-diff fallback, keeping lockfiles
+  and `changed.txt` unfiltered). That is what a useful review looks like.
+- **The right response to a valid finding is to close the gap, not to restore the
+  thing that was wasteful.** Reverting the whole exclusion would have put 35 KB
+  of unreviewable state tables back in front of four lenses for a control that
+  detects nothing in practice. Narrowing to the non-executable artifacts kept 22%
+  of the saving with no security tradeoff, and the full saving stays available
+  behind a mechanical check.
+
 ## There is no drift check on the generated output
 
 Nothing in `package.json`, `scripts/verify-*.mjs`, or `harness.config.json`
