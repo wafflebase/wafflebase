@@ -292,6 +292,18 @@ jobs:
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
         run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
 
+      # Classify the issue by category into a hidden `<!-- agent-class -->`
+      # comment, mirroring the metrics ledger (Dimension A from the issue always;
+      # root-cause bug class from the diff when a PR exists). Fail-safe: exit 0.
+      - name: Classify issue category
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+        run: node ./scripts/agent/classify.mjs record --issue "$ISSUE"
+
   # A bare "@claude" (no recognized verb) on an issue → point the commenter at
   # the command they probably meant, instead of silently doing nothing. Trusted
   # authors only, matching the implement gate, so it can't be used for drive-by

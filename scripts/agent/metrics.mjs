@@ -289,14 +289,14 @@ export function parseMetricComment(body) {
 
 // --- gh-backed CLI ---------------------------------------------------------
 
-function gh(args) {
+export function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });
 }
-function ghJson(args) {
+export function ghJson(args) {
   return JSON.parse(gh(args));
 }
 
-function resolvePrByIssue(issue) {
+export function resolvePrByIssue(issue) {
   // The kickoff creates a branch `agent/<issue>-<slug>`; find the open PR for it.
   // --limit well above the default 30 so a busy repo's PR list isn't truncated
   // before ours is seen.
@@ -309,7 +309,7 @@ function resolvePrByIssue(issue) {
 // ALL comment pages, not just the first 100 — a chatty PR exceeds one page, and
 // missing pages would drop metric records or the summary marker. `--slurp` wraps
 // the paginated responses in a JSON array of pages, which we flatten.
-function listAllComments(pr) {
+export function listAllComments(pr) {
   const pages = ghJson(["api", "--paginate", "--slurp", `repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`]);
   return Array.isArray(pages) ? pages.flat() : [];
 }
