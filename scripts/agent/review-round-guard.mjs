@@ -15,7 +15,12 @@
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { countFailedReviewRounds } from "./rounds.mjs";
+import {
+  countFailedReviewRounds,
+  groupReviewRounds,
+  detectStalledRounds,
+  DEFAULT_SIMILARITY,
+} from "./rounds.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -25,6 +30,13 @@ const requiredCheckNames = (requiredChecksArg ?? "").split(",").filter(Boolean);
 // Non-empty when EVERY blocking lens failed on an API/quota error (the panel
 // never ran) — a distinct, non-code failure worth its own honest hand-off.
 const infra = (infraArg ?? "").trim();
+
+// Convergence tuning, read from the env rather than added as a 6th and 7th
+// positional: this script already takes five, and keeping it env-driven means
+// the feature ships without a workflow edit (the agent App cannot push
+// .github/workflows/**).
+const stallRepeats = Number(process.env.STALL_REPEATS) || 2;
+const stallSimilarity = Number(process.env.STALL_SIMILARITY) || DEFAULT_SIMILARITY;
 
 if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   console.error(
@@ -108,6 +120,50 @@ function checkRunsFor(sha) {
 
 const commits = listAll(`repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`);
 for (const c of commits) c.checkRuns = checkRunsFor(c.sha);
+
+// CONVERGENCE, checked before the round cap. A loop that keeps re-raising the
+// same findings without reducing them has already failed; saying *that* is more
+// actionable than "we hit 5 rounds", and it pages ~2 rounds sooner. Same
+// ordering rationale as the INFRA branch above: the more specific reason wins.
+//
+// The list response for commits/{sha}/check-runs can omit or truncate
+// output.text (the panel workflow's own "Read prior findings" step does a
+// separate checks.get for exactly this reason), so back-fill it — but only for
+// the newest rounds convergence actually inspects, and only where it is
+// missing. Bounded to about (rounds x lenses) extra calls, usually zero.
+const lensNames = new Set(requiredCheckNames);
+const isLensRun = (r) => lensNames.has(r.name) && r.app?.slug === "github-actions";
+for (const c of commits.filter((x) => (x.checkRuns ?? []).some(isLensRun)).slice(-(stallRepeats + 1))) {
+  for (const r of c.checkRuns) {
+    if (!isLensRun(r) || (typeof r.output?.text === "string" && r.output.text !== "")) continue;
+    // A failure here leaves output.text absent, which groupReviewRounds treats
+    // as a PARTIAL round — that breaks the stall run rather than inventing one.
+    try {
+      r.output = ghJson(["api", `repos/{owner}/{repo}/check-runs/${r.id}`]).output ?? r.output;
+    } catch {
+      /* fail toward not paging */
+    }
+  }
+}
+
+const stall = detectStalledRounds(groupReviewRounds(commits, requiredCheckNames), {
+  minRepeats: stallRepeats,
+  similarity: stallSimilarity,
+});
+console.error(`convergence: ${stall.reason} (stalls=${stall.stalls}, rounds=${stall.rounds})`);
+if (stall.stalled) {
+  const named = stall.repeated
+    .slice(0, 5)
+    .map((f) => `\`${f.file || "?"}\` — ${String(f.summary ?? "").slice(0, 160)}`)
+    .join("; ");
+  page(
+    `The review panel is re-raising the same findings without resolving them ` +
+      `(${stall.stalls + 1} consecutive rounds with no reduction in blocking findings). ` +
+      `Repeated: ${named}. Another fix round would spend budget on the same ground — ` +
+      `a human should take over on PR #${pr}.`,
+  );
+  process.exit(0);
+}
 
 const failedRounds = countFailedReviewRounds(commits, requiredCheckNames);
 if (failedRounds >= max) {
