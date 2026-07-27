@@ -257,7 +257,7 @@ test("renderSummary: with review-panel data, renders a separate section + combin
     panelStats: {
       agreementCounts: { identical: 6, partial: 1, disjoint: 1, single: 0 },
       raised: { critical: 2, major: 5, minor: 3, nit: 1 },
-      kept: { critical: 1, major: 3, minor: 0, nit: 0 },
+      kept: { critical: 1, major: 3, minor: 2, nit: 2 },
       verifier: { sentToVerifier: 7, refuted: 3, refutedHighConfidence: 2 },
     },
     flips: { flips: [{ lens: "correctness", fromRound: 0, toRound: 1 }], byLens: { correctness: 1 } },
@@ -275,9 +275,10 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   assert.match(md, /- Weighted raised \(effort proxy, not recall\): 21\.5/);
   assert.match(md, /- Sent to verifier: 7/);
   assert.match(md, /- Refuted: 3 \(2 high-confidence\)/);
-  assert.match(md, /- Survived to gate: 1 critical, 3 major/);
-  // 1*4 + 3*2 = 10
-  assert.match(md, /- Weighted survived-to-gate: 10/);
+  // raw line shows all four severities so it reconciles with the weighted scalar
+  assert.match(md, /- Survived to gate: 1 critical, 3 major, 2 minor, 2 nit/);
+  // 1*4 + 3*2 + 2*1 + 2*0.5 = 13
+  assert.match(md, /- Weighted survived-to-gate: 13/);
   // advisory cross-round flip line, with the offending lens + round transition
   assert.match(md, /- ⚠️ Cross-round flips \(blocking→clean; advisory, review manually\): 1 — correctness r0→r1/);
   // per-section cost + weighted/raw tokens carry the split

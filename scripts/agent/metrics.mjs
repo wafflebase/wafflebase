@@ -355,7 +355,10 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
       `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
       `- Refuted: ${v.refuted || 0} (${v.refutedHighConfidence || 0} high-confidence)`,
-      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major`,
+      // All four severities shown (critical/major lead as the blocking ones)
+      // so the raw counts reconcile with the weighted scalar below, which
+      // weights every severity — mirrors the "Findings raised" pair above.
+      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major, ${k.minor || 0} minor, ${k.nit || 0} nit`,
       `- Weighted survived-to-gate: ${weightSeverity(k)}`,
     );
     // Advisory heads-up (NOT a verdict): a lens that blocked then approved across
