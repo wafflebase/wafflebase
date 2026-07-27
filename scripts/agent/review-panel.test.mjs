@@ -27,6 +27,39 @@ test("globToRegExp / lensApplies: ** always; path globs match & reject", () => {
   assert.equal(lensApplies({ appliesWhen: ["packages/frontend/**"] }, ["packages/backend/a.ts"]), false);
 });
 
+test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always applies", () => {
+  // The actual scoping shipped in lenses/lenses.json (Deliverable 1 of #563).
+  const correctness = { appliesWhen: ["**"] };
+  const security = { appliesWhen: ["packages/**", "scripts/**", ".github/**"] };
+  const designFit = { appliesWhen: ["packages/**", "scripts/**", "docs/design/**"] };
+  const testAdequacy = { appliesWhen: ["packages/**", "scripts/**"] };
+
+  // Docs-only PR: only correctness (and design-fit, since it lists docs/design)
+  // apply; security + test-adequacy are skipped.
+  const docsOnly = ["docs/design/sheets/formula.md", "README.md"];
+  assert.equal(lensApplies(correctness, docsOnly), true);
+  assert.equal(lensApplies(security, docsOnly), false);
+  assert.equal(lensApplies(designFit, docsOnly), true);
+  assert.equal(lensApplies(testAdequacy, docsOnly), false);
+
+  // A pure-markdown docs PR that does NOT touch docs/design also skips design-fit.
+  const plainDocs = ["docs/tasks/active/x-todo.md", "CHANGELOG.md"];
+  assert.equal(lensApplies(correctness, plainDocs), true);
+  assert.equal(lensApplies(designFit, plainDocs), false);
+  assert.equal(lensApplies(testAdequacy, plainDocs), false);
+
+  // A code PR runs every lens.
+  const code = ["packages/sheets/src/index.ts"];
+  for (const lens of [correctness, security, designFit, testAdequacy]) {
+    assert.equal(lensApplies(lens, code), true);
+  }
+
+  // A workflow/harness PR: security applies (.github/**), test-adequacy does not.
+  const workflow = [".github/workflows/agent-implement.yml"];
+  assert.equal(lensApplies(security, workflow), true);
+  assert.equal(lensApplies(testAdequacy, workflow), false);
+});
+
 test("coerceFindings: malformed findings are KEPT and block (never silently dropped)", () => {
   // a critical finding with a non-string summary must still block, not vanish
   assert.equal(classify(coerceFindings([{ severity: "critical", summary: {} }])).conclusion, "failure");
