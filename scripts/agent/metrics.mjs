@@ -5,17 +5,23 @@
 // promoted to ready-for-review, the promote job renders one aggregated,
 // human-readable SUMMARY comment:
 //
-//   - Agents: claude-opus-4-8
-//   - Scope-size: M
-//   - Attempt: 1
-//   - Sessions: 1
-//   - Total-time: 89m
-//   - Turns: 27
-//   - Tokens: ~1.0M
+//   - Total-cost: $1.23 (code-fix $1.10 + review $0.13)
+//   - Total-tokens: ~120K weighted (~1.0M raw)
+//   ...
+//   - Cost: $1.10
+//   - Tokens: ~110K weighted (~950K raw)
 //
 // Data source: `claude-execution-output.json` (the claude-code-action transcript)
-// — its final `result` message carries num_turns / duration_ms / usage / modelUsage.
-// Tokens = input+output+cache (total processed). Scope-size = PR diff lines.
+// — its final `result` message carries num_turns / duration_ms / usage /
+// modelUsage / total_cost_usd.
+//
+// Cost = model-reported `total_cost_usd`, the truest measure of how
+// resource-intensive a run was: it already prices cache reads at ~1/10 of fresh
+// input and the review panel's pricier/other models correctly. Raw tokens =
+// input+output+cache (total processed) — but raw over-counts, since cache-read
+// reprocessing is billed at ~1/10 yet summed at full weight. Weighted tokens
+// re-weight the fields toward spend (see `weightedTokensFor`). Scope-size = PR
+// diff lines.
 //
 // Pure helpers are exported and unit-tested (no gh). The CLI (`record` /
 // `summarize`) talks to GitHub via the `gh` CLI (GH_TOKEN / GITHUB_TOKEN).
@@ -40,6 +46,28 @@ export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
+/**
+ * Per-token weights relative to fresh input, so a token total tracks spend
+ * rather than raw throughput. `cache_read_input_tokens` (re-processing an
+ * already-cached prefix) is billed at ~1/10 of fresh input but is otherwise
+ * summed at full weight, which inflates the raw total; cache creation carries a
+ * ~1.25x write premium. Output stays at 1x here — weighting it accurately needs
+ * per-model pricing, which the model-reported `total_cost_usd` (kept as
+ * `costUsd`) already applies exactly, so cost is the authoritative measure.
+ */
+export const TOKEN_WEIGHTS = { input: 1, output: 1, cacheCreation: 1.25, cacheRead: 0.1 };
+
+/** Weighted (spend-representative) token count from a usage object. */
+export function weightedTokensFor(usage) {
+  const u = usage || {};
+  return Math.round(
+    (u.input_tokens || 0) * TOKEN_WEIGHTS.input +
+      (u.output_tokens || 0) * TOKEN_WEIGHTS.output +
+      (u.cache_creation_input_tokens || 0) * TOKEN_WEIGHTS.cacheCreation +
+      (u.cache_read_input_tokens || 0) * TOKEN_WEIGHTS.cacheRead,
+  );
+}
+
 /** Extract one session record from a parsed claude-execution-output.json array. */
 export function parseExecution(messages, kind = "implement") {
   const arr = Array.isArray(messages) ? messages : [];
@@ -56,6 +84,7 @@ export function parseExecution(messages, kind = "implement") {
     models: Object.keys(result.modelUsage || {}),
     turns: result.num_turns || 0,
     tokens,
+    weightedTokens: weightedTokensFor(u),
     durationMs: result.duration_ms || 0,
     costUsd: result.total_cost_usd || 0,
     sessionId: result.session_id || "",
@@ -72,7 +101,7 @@ export function sumExecutions(messages, kind = "review") {
   const arr = Array.isArray(messages) ? messages : [];
   const results = arr.filter((m) => m && m.type === "result");
   const models = new Set();
-  let turns = 0, tokens = 0, durationMs = 0, costUsd = 0;
+  let turns = 0, tokens = 0, weightedTokens = 0, durationMs = 0, costUsd = 0;
   for (const r of results) {
     const u = r.usage || {};
     tokens +=
@@ -80,6 +109,7 @@ export function sumExecutions(messages, kind = "review") {
       (u.output_tokens || 0) +
       (u.cache_creation_input_tokens || 0) +
       (u.cache_read_input_tokens || 0);
+    weightedTokens += weightedTokensFor(u);
     turns += r.num_turns || 0;
     durationMs += r.duration_ms || 0;
     costUsd += r.total_cost_usd || 0;
@@ -90,6 +120,7 @@ export function sumExecutions(messages, kind = "review") {
     models: [...models].sort(),
     turns,
     tokens,
+    weightedTokens,
     durationMs,
     costUsd,
     sessionId: results.length ? results[results.length - 1].session_id || "" : "",
@@ -111,6 +142,13 @@ export function aggregate(records) {
     attempt: reviewFixes + 1,
     turns: sum("turns"),
     tokens: sum("tokens"),
+    // Records written before weighted tokens existed have no `weightedTokens`;
+    // fall back to raw `tokens` for those so an in-flight PR's total isn't
+    // silently under-counted mid-rollout.
+    weightedTokens: list.reduce(
+      (s, r) => s + (Number(r.weightedTokens) || Number(r.tokens) || 0),
+      0,
+    ),
     durationMs: sum("durationMs"),
     costUsd: sum("costUsd"),
   };
@@ -164,6 +202,12 @@ export function formatMinutes(ms) {
   return `${Math.max(1, Math.round((Number(ms) || 0) / 60000))}m`;
 }
 
+export function formatUsd(n) {
+  const v = Number(n) || 0;
+  if (v > 0 && v < 0.01) return "<$0.01";
+  return `$${v.toFixed(2)}`;
+}
+
 /** Render the human-readable summary comment body. `panelAgg`/`panelStats`
  * are omitted when the PR has no review-panel ledger records yet (kept
  * separate from the code-fix agent's numbers — review-fix, the agent that
@@ -172,22 +216,32 @@ export function formatMinutes(ms) {
  * rather than folded into one set of totals). */
 export function renderSummary({ agg, panelAgg, panelStats, scope }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
-  const totalTokens = agg.tokens + (hasPanel ? panelAgg.tokens : 0);
+  const panelTokens = hasPanel ? panelAgg.tokens : 0;
+  const panelWeighted = hasPanel ? panelAgg.weightedTokens : 0;
+  const panelCost = hasPanel ? panelAgg.costUsd : 0;
+  const totalWeighted = agg.weightedTokens + panelWeighted;
+  const totalRaw = agg.tokens + panelTokens;
+  const totalCost = agg.costUsd + panelCost;
+  // Cost leads (it prices cache reads and pricier panel models correctly);
+  // tokens are shown weighted with the raw total in parens. Per-section cost
+  // and tokens carry the code-fix vs review split.
   const lines = [
     SUMMARY_MARKER,
     "## 🤖 Agent effort",
     "",
-    `- Total-tokens: ${formatTokens(totalTokens)} (code-fix ${formatTokens(agg.tokens)} + review ${formatTokens(hasPanel ? panelAgg.tokens : 0)})`,
+    `- Total-cost: ${formatUsd(totalCost)} (code-fix ${formatUsd(agg.costUsd)} + review ${formatUsd(panelCost)})`,
+    `- Total-tokens: ${formatTokens(totalWeighted)} weighted (${formatTokens(totalRaw)} raw)`,
     "",
     "### Code-fix agent",
     "",
+    `- Cost: ${formatUsd(agg.costUsd)}`,
+    `- Tokens: ${formatTokens(agg.weightedTokens)} weighted (${formatTokens(agg.tokens)} raw)`,
     `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
     `- Scope-size: ${scope}`,
     `- Attempt: ${agg.attempt}`,
     `- Sessions: ${agg.sessions}`,
     `- Total-time: ${formatMinutes(agg.durationMs)}`,
     `- Turns: ${agg.turns}`,
-    `- Tokens: ${formatTokens(agg.tokens)}`,
   ];
   if (hasPanel) {
     const ac = panelStats?.agreementCounts || {};
@@ -199,11 +253,12 @@ export function renderSummary({ agg, panelAgg, panelStats, scope }) {
       "",
       "### Review panel",
       "",
+      `- Cost: ${formatUsd(panelAgg.costUsd)}`,
+      `- Tokens: ${formatTokens(panelAgg.weightedTokens)} weighted (${formatTokens(panelAgg.tokens)} raw)`,
       `- Agents: ${panelAgg.agents.length ? panelAgg.agents.join(", ") : "unknown"}`,
       `- Rounds: ${panelAgg.sessions}`,
       `- Total-time: ${formatMinutes(panelAgg.durationMs)}`,
       `- Turns: ${panelAgg.turns}`,
-      `- Tokens: ${formatTokens(panelAgg.tokens)}`,
       `- Sample-agreement: ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint (${sampledRounds} lens-round samples)`,
       `- Findings raised: ${r.critical || 0} critical, ${r.major || 0} major, ${r.minor || 0} minor, ${r.nit || 0} nit`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,

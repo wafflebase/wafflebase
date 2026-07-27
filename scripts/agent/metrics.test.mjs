@@ -8,6 +8,8 @@ import {
   scopeSize,
   formatTokens,
   formatMinutes,
+  formatUsd,
+  weightedTokensFor,
   renderSummary,
   serializeRecord,
   parseMetricComment,
@@ -36,7 +38,9 @@ test("parseExecution: pulls turns/tokens(incl cache)/time/model from the last re
   assert.equal(rec.kind, "implement");
   assert.deepEqual(rec.models, ["claude-opus-4-8"]);
   assert.equal(rec.turns, 27);
-  assert.equal(rec.tokens, 100 + 34633 + 136293 + 800000); // total incl. cache
+  assert.equal(rec.tokens, 100 + 34633 + 136293 + 800000); // raw total incl. cache
+  // weighted: cache reads at 0.1x, cache writes at 1.25x, input/output at 1x
+  assert.equal(rec.weightedTokens, Math.round(100 + 34633 + 136293 * 1.25 + 800000 * 0.1));
   assert.equal(rec.durationMs, 89 * 60000);
   // no result message → null (caller treats as nothing to record)
   assert.equal(parseExecution([{ type: "assistant" }]), null);
@@ -51,6 +55,7 @@ test("sumExecutions: sums EVERY result message (not last-wins like parseExecutio
   assert.deepEqual(rec.models, ["claude-opus-4-8", "claude-sonnet-5"]); // unique, sorted, across all calls
   assert.equal(rec.turns, 8); // 3 + 5, not just the last (5)
   assert.equal(rec.tokens, 30); // 10 + 20
+  assert.equal(rec.weightedTokens, 30); // input-only usage → unweighted (summed, not last-wins)
   assert.equal(rec.durationMs, 3000);
   assert.equal(rec.costUsd, 3.75); // 1.5 + 2.25, not just the last
   assert.equal(rec.sessionId, "s2"); // last call's session id
@@ -64,9 +69,9 @@ test("sumExecutions: sums EVERY result message (not last-wins like parseExecutio
 
 test("aggregate: sums across sessions; attempt counts review-fix rounds + 1", () => {
   const recs = [
-    { kind: "implement", models: ["claude-opus-4-8"], turns: 10, tokens: 500000, durationMs: 600000 },
-    { kind: "ci-fix", models: ["claude-opus-4-8"], turns: 5, tokens: 200000, durationMs: 120000 },
-    { kind: "review-fix", models: ["claude-sonnet-5"], turns: 8, tokens: 300000, durationMs: 300000 },
+    { kind: "implement", models: ["claude-opus-4-8"], turns: 10, tokens: 500000, weightedTokens: 150000, costUsd: 2, durationMs: 600000 },
+    { kind: "ci-fix", models: ["claude-opus-4-8"], turns: 5, tokens: 200000, weightedTokens: 60000, costUsd: 0.5, durationMs: 120000 },
+    { kind: "review-fix", models: ["claude-sonnet-5"], turns: 8, tokens: 300000, weightedTokens: 90000, costUsd: 1, durationMs: 300000 },
   ];
   const agg = aggregate(recs);
   assert.deepEqual(agg.agents, ["claude-opus-4-8", "claude-sonnet-5"]); // unique, sorted
@@ -74,7 +79,12 @@ test("aggregate: sums across sessions; attempt counts review-fix rounds + 1", ()
   assert.equal(agg.attempt, 2); // one review-fix → attempt 2
   assert.equal(agg.turns, 23);
   assert.equal(agg.tokens, 1000000);
+  assert.equal(agg.weightedTokens, 300000);
+  assert.equal(agg.costUsd, 3.5);
   assert.equal(agg.durationMs, 1020000);
+  // pre-rollout records lack weightedTokens → fall back to raw tokens (not 0)
+  assert.equal(aggregate([{ tokens: 500000 }]).weightedTokens, 500000);
+  assert.equal(aggregate([{ tokens: 500000, weightedTokens: 120000 }]).weightedTokens, 120000);
   // no review-fix → attempt 1
   assert.equal(aggregate([{ kind: "implement" }]).attempt, 1);
   assert.equal(aggregate([]).sessions, 0);
@@ -114,38 +124,52 @@ test("scopeSize: S/M/L thresholds on total diff lines", () => {
   assert.equal(scopeSize(400, 200), "L");
 });
 
-test("formatTokens / formatMinutes: human-friendly", () => {
+test("formatTokens / formatMinutes / formatUsd: human-friendly", () => {
   assert.equal(formatTokens(1_000_000), "~1.0M");
   assert.equal(formatTokens(6_200_000), "~6.2M");
   assert.equal(formatTokens(34_733), "~35K");
   assert.equal(formatTokens(0), "~0");
   assert.equal(formatMinutes(89 * 60000), "89m");
   assert.equal(formatMinutes(5000), "1m"); // floor at 1m
+  assert.equal(formatUsd(4.1), "$4.10");
+  assert.equal(formatUsd(0), "$0.00");
+  assert.equal(formatUsd(0.004), "<$0.01"); // sub-cent, non-zero
+});
+
+test("weightedTokensFor: cache reads 0.1x, cache writes 1.25x, input/output 1x", () => {
+  assert.equal(
+    weightedTokensFor({ input_tokens: 100, output_tokens: 200, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000 }),
+    Math.round(100 + 200 + 1000 * 1.25 + 5000 * 0.1), // 100 + 200 + 1250 + 500 = 2050
+  );
+  assert.equal(weightedTokensFor({}), 0);
+  assert.equal(weightedTokensFor(undefined), 0);
 });
 
 test("renderSummary: matches the requested bullet format", () => {
   const md = renderSummary({
-    agg: { agents: ["claude-opus-4-8"], sessions: 1, attempt: 1, turns: 27, tokens: 1_000_000, durationMs: 89 * 60000 },
+    agg: { agents: ["claude-opus-4-8"], sessions: 1, attempt: 1, turns: 27, tokens: 1_000_000, weightedTokens: 300_000, costUsd: 3.3, durationMs: 89 * 60000 },
     scope: "M",
   });
   assert.match(md, /### Code-fix agent/);
+  assert.match(md, /- Cost: \$3\.30/);
+  assert.match(md, /- Tokens: ~300K weighted \(~1\.0M raw\)/);
   assert.match(md, /- Agents: claude-opus-4-8/);
   assert.match(md, /- Scope-size: M/);
   assert.match(md, /- Attempt: 1/);
   assert.match(md, /- Sessions: 1/);
   assert.match(md, /- Total-time: 89m/);
   assert.match(md, /- Turns: 27/);
-  assert.match(md, /- Tokens: ~1\.0M/);
   // no review-panel records on this PR → no "Review panel" section at all,
-  // and the top total-tokens line reflects code-fix only
+  // and the top totals collapse the review side to zero
   assert.doesNotMatch(md, /### Review panel/);
-  assert.match(md, /- Total-tokens: ~1\.0M \(code-fix ~1\.0M \+ review ~0\)/);
+  assert.match(md, /- Total-cost: \$3\.30 \(code-fix \$3\.30 \+ review \$0\.00\)/);
+  assert.match(md, /- Total-tokens: ~300K weighted \(~1\.0M raw\)/);
 });
 
 test("renderSummary: with review-panel data, renders a separate section + combined total", () => {
   const md = renderSummary({
-    agg: { agents: ["claude-opus-4-8"], sessions: 3, attempt: 2, turns: 31, tokens: 1_100_000, durationMs: 94 * 60000 },
-    panelAgg: { agents: ["claude-opus-4-8"], sessions: 2, turns: 15, tokens: 300_000, durationMs: 27 * 60000 },
+    agg: { agents: ["claude-opus-4-8"], sessions: 3, attempt: 2, turns: 31, tokens: 1_100_000, weightedTokens: 300_000, costUsd: 3.3, durationMs: 94 * 60000 },
+    panelAgg: { agents: ["claude-opus-4-8", "claude-sonnet-5"], sessions: 2, turns: 15, tokens: 300_000, weightedTokens: 40_000, costUsd: 0.8, durationMs: 27 * 60000 },
     panelStats: {
       agreementCounts: { identical: 6, partial: 1, disjoint: 1, single: 0 },
       raised: { critical: 2, major: 5, minor: 3, nit: 1 },
@@ -163,8 +187,11 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   assert.match(md, /- Sent to verifier: 7/);
   assert.match(md, /- Refuted: 3 \(2 high-confidence\)/);
   assert.match(md, /- Survived to gate: 1 critical, 3 major/);
-  // combined total = code-fix (1.1M) + review (300K) = 1.4M
-  assert.match(md, /- Total-tokens: ~1\.4M \(code-fix ~1\.1M \+ review ~300K\)/);
+  // per-section cost + weighted/raw tokens carry the split
+  assert.match(md, /### Review panel\n\n- Cost: \$0\.80\n- Tokens: ~40K weighted \(~300K raw\)/);
+  // combined totals: cost $3.30 + $0.80 = $4.10; weighted 300K + 40K = 340K; raw 1.1M + 300K = 1.4M
+  assert.match(md, /- Total-cost: \$4\.10 \(code-fix \$3\.30 \+ review \$0\.80\)/);
+  assert.match(md, /- Total-tokens: ~340K weighted \(~1\.4M raw\)/);
 });
 
 test("metric comment round-trip: hidden, self-contained, parses back; junk → null", () => {
