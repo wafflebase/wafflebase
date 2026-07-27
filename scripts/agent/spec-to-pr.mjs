@@ -106,6 +106,13 @@ function ghJson(args) {
   return JSON.parse(gh(args));
 }
 
+/** Parse "owner/repo" from a GitHub remote URL (https or ssh forms); null if it
+ *  is not a recognizable github.com URL. Exported for unit tests. */
+export function parseRepoFromRemoteUrl(url) {
+  const m = String(url).match(/github\.com[:/]+([^/]+)\/(.+?)(?:\.git)?\/?$/i);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
 // Fail CLOSED — a half-finished local handoff must stop loudly.
 function fail(msg) {
   console.error(`spec-to-pr: ${msg}`);
@@ -157,6 +164,33 @@ function cmdHandoff(args) {
   if (cur === "main") return fail("refusing to run on main");
   if (cur !== branch) return fail(`current branch is '${cur}', expected '${branch}' — checkout the agent branch first`);
 
+  // 2.5 origin must be the BASE repo, not a fork. The handoff pushes to origin and
+  // opens the PR from it; a fork PR is rejected by the back half (fork-originated
+  // workflow_run events), so it would never run the pipeline. Resolve origin and
+  // refuse if it is a fork — and pass the base repo explicitly to `gh pr create`.
+  let originUrl;
+  try {
+    originUrl = git(["remote", "get-url", "origin"]);
+  } catch (e) {
+    return fail(`could not read the 'origin' remote: ${e.message}`);
+  }
+  const origin = parseRepoFromRemoteUrl(originUrl);
+  if (!origin) return fail(`the 'origin' remote (${originUrl}) is not a recognizable GitHub URL`);
+  let originInfo;
+  try {
+    originInfo = ghJson(["api", `repos/${origin}`]);
+  } catch (e) {
+    return fail(`could not resolve the origin repo (${origin}): ${e.message}`);
+  }
+  if (originInfo.fork) {
+    return fail(
+      `origin (${originInfo.full_name}) is a FORK — the handoff must target the base repo ` +
+        `${originInfo.parent?.full_name || "(its upstream)"}, or the back half rejects the PR and the ` +
+        `pipeline never runs. Re-run in a clone whose 'origin' points to the base repo.`,
+    );
+  }
+  const baseRepo = originInfo.full_name;
+
   // 3. at least one commit ahead of origin/main, every one carrying the trailer.
   try {
     git(["fetch", "origin", "main"]);
@@ -191,7 +225,7 @@ function cmdHandoff(args) {
     console.log("[dry-run] would hand off:");
     console.log(`  branch:  ${branch} (${messages.length} commit(s), all carry the trailer)`);
     console.log(`  push:    git push -u origin ${branch}`);
-    console.log(`  pr:      gh pr create --draft --base main --title "${title}"`);
+    console.log(`  pr:      gh pr create --repo ${baseRepo} --draft --base main --title "${title}"`);
     console.log(`  state:   node ./scripts/agent/set-state.mjs <pr> awaiting-ci`);
     console.log("  --- PR body ---");
     console.log(body);
@@ -210,7 +244,7 @@ function cmdHandoff(args) {
   const bodyFile = path.join(dir, "pr-body.md");
   writeFileSync(bodyFile, body);
   try {
-    gh(["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", title, "--body-file", bodyFile]);
+    gh(["pr", "create", "--repo", baseRepo, "--draft", "--base", "main", "--head", branch, "--title", title, "--body-file", bodyFile]);
   } catch (e) {
     return fail(`gh pr create failed: ${e.message}`);
   }
