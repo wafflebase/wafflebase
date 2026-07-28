@@ -33,6 +33,22 @@ function parseArgs(argv) {
   return a;
 }
 
+/**
+ * Decide an item's outcome from the panel result — NOT from call count. The SDK
+ * emits `result` messages even for API/auth/quota errors (is_error, cost 0), so
+ * "calls > 0" is NOT proof the review ran. If any applicable lens carries an
+ * `infraError` (auth/quota — the reviewer never actually ran), the gate verdict
+ * is contaminated (fail-closed to "block"), so the item is an ERROR and must be
+ * excluded from reliability, not counted as a real verdict.
+ */
+export function classifyItemOutcome(panel, calls) {
+  const applicable = (Array.isArray(panel) ? panel : []).filter((p) => p && p.applicable);
+  const infra = applicable.find((p) => p.infraError);
+  if (infra) return { status: "error", reason: "infra", error: { message: infra.infraError, kind: "infra" } };
+  if (!calls) return { status: "error", reason: "no-output", error: { message: "panel produced no SDK result messages", kind: "no-output" } };
+  return { status: "ok", reason: null, error: null };
+}
+
 /** Recompute run totals/counts from the stored (immutable) item envelopes — so
  * resume and finalize are always consistent with what is actually on disk. */
 function summarizeRun(store, runId, plannedIds) {
@@ -112,14 +128,14 @@ async function main() {
       payload = cap.payload;
       transcript = cap.executionMessages;
       const cost = sumExecutions(cap.executionMessages, "review");
-      const ran = cost.calls > 0;
+      const outcome = classifyItemOutcome(cap.payload.panel, cost.calls);
       envelope = {
         run_id: runId, item_id: itemId, config_hash, corpus_version: corpusVersion,
-        status: ran ? "ok" : "error", reason: ran ? null : "no-output",
+        status: outcome.status, reason: outcome.reason,
         cost_usd: cost.costUsd, weighted_tokens: cost.weightedTokens, raw_tokens: cost.tokens,
         duration_ms: cost.durationMs, turns: cost.turns, calls: cost.calls,
         timestamp: nowIso(), payload_ref: "payload.json", transcript_ref: "transcript.json.gz",
-        error: ran ? null : { message: "panel produced no SDK result messages", kind: "no-output" },
+        error: outcome.error,
       };
     } catch (e) {
       envelope = {

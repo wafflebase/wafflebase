@@ -395,17 +395,7 @@ Components:
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
-  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). The reviewed
-  artifact is the branch diff against `main`, minus ANTLR generated *tooling*
-  artifacts (`packages/sheets/antlr/*.interp|.tokens` — nothing loads them at
-  runtime, so no lens can act on them). The generated `.ts` files stay IN the
-  diff even though they are the larger half: they are executable code, and
-  excluding them would leave every lens blind to a hand-edit that
-  `packages/sheets/antlr/Formula.g4` does not justify, whose only compensating
-  control (`scripts/hooks/guard-generated-files.sh`) is bypassable out-of-band.
-  Re-excluding them requires a regen-and-diff lane first. The changed-FILE list
-  is left unfiltered because it drives `lensApplies` → the required-check set, so
-  a list that shrank mid-PR could un-require a lens that failed an earlier round. Each subagent has
+  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). Each subagent has
   read-only tools only (Read/Grep/Glob; no branch-code execution), runs with
   `settingSources: []` (so the untrusted branch's `.claude` hooks/settings are
   never loaded — the workflow also strips `.claude/` and installs the SDK in a
@@ -421,8 +411,7 @@ Components:
   **`agent-review-<lens>` check run** per lens (the author agent lacks
   `checks:write`). On all-pass it invokes the ready gate; on any failure it feeds
   the combined findings to the author in a bounded fix loop (pages after
-  `MAX_REVIEW_ROUNDS`, or earlier on **non-convergence** — see below). The
-  `design-fit` lens additionally reads the originating
+  `MAX_REVIEW_ROUNDS`). The `design-fit` lens additionally reads the originating
   issue (via `Fixes #N`) for spec-conformance — but ONLY when that issue is
   labelled `agent:candidate` AND authored by a non-Bot account (otherwise the
   author agent, which holds `issues:write`, could hand itself an arbitrary spec);
@@ -499,25 +488,6 @@ Components:
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
 
-- **Convergence detection (early exit from the fix loop).** `MAX_REVIEW_ROUNDS`
-  is a blunt backstop — PR #521 burned all five rounds re-litigating overlapping
-  findings before anyone was paged. `scripts/agent/rounds.mjs`'s
-  `detectStalledRounds` (wired into
-  `scripts/agent/review-round-guard.mjs`, checked BEFORE the round cap so the
-  more specific reason wins) pages as soon as two consecutive round pairs both
-  (a) fail to reduce the blocking-finding count and (b) exceed a similarity
-  threshold against the previous round's findings.
-  **Overlap alone is deliberately NOT the trigger**: the cross-round re-check
-  above re-merges unresolved priors by design, so a healthy PR shows high
-  overlap every round — only overlap *without* a falling count distinguishes a
-  stall. Similarity is the overlap coefficient over tokenised summaries, gated
-  on lens + file, calibrated at 0.3 against real rephrasings from PR #564
-  (same-defect 0.39-0.71, different-defect ≤0.08). It **fails toward not
-  paging**: malformed, unreadable, or infra/quota rounds break the run rather
-  than manufacture a page, since `MAX_REVIEW_ROUNDS` still backstops and a
-  spurious page is the costlier error. Tuned via `STALL_REPEATS` /
-  `STALL_SIMILARITY`.
-
 Human gate (mechanical, not prompt-based): branch protection on `main` requires a
 human approving review + CI green + dismiss-stale-approvals; the `agent-implement`
 kickoff also fails closed unless that protection is present. The agent token is
@@ -568,47 +538,6 @@ Done criteria: A maintainer's `@claude fix` on a well-specified issue yields a g
 independently-reviewed, disclosed draft PR marked ready-for-review with no human
 *authoring* keystroke between the mention and the review request — and no path for
 the agent to reach `main`.
-
-### Phase 25: Local Spec→PR front half
-
-A second front door to the same back half, run on the developer's machine via the
-Claude Code CLI instead of an `@claude` issue comment. `.claude/commands/spec-to-pr.md`
-(slash command) drives spec → human gate → task → branch → implement → local review →
-`verify:self` → draft PR; `scripts/agent/spec-to-pr.mjs handoff` is the deterministic
-last mile. The key insight: the back half (`.github/workflows/agent-iterate-ci.yml` +
-`.github/workflows/agent-review-panel.yml`) is triggered purely by CI `workflow_run` on same-repo
-`agent/*` branches — it is **not** coupled to issues — so a locally-produced
-`agent/*` draft PR is picked up identically to an issue-originated one. Nothing in
-the back half changes; only this local front half is new.
-
-- **Byte-identical artifact** to the cloud front half: branch `agent/<slug>` off
-  `main` pushed to the base repo; draft PR with base `main`; every commit carries
-  the `Assisted-by: Claude Code (autonomous)` trailer (enforced locally by
-  `scripts/hooks/require-ai-disclosure.sh` once `WAFFLEBASE_AGENT_AUTONOMOUS=true` is exported);
-  a PR body that satisfies the ready-gate disclosure check. The draft PR's
-  `pull_request:[main]` event runs CI (a bare branch push does not — push is
-  filtered to `main`), which is the same trigger the cloud front half relies on.
-- **Single source of truth for the disclosure gate:** `scripts/agent/disclosure.mjs`
-  exports `disclosesAiAuthorship`, imported by BOTH `scripts/agent/mark-ready.mjs`
-  (the gate) and `scripts/agent/spec-to-pr.mjs` (the local self-check) — so the
-  local body can never drift from the gate it must pass.
-- **Runner split:** local machine for spec→…→draft-PR (verify runs locally, a
-  deliberate divergence from the cloud front half, which defers to CI); existing
-  GitHub Actions for the CI-fix loop → review panel → ready.
-- **Local review is a convenience, not authority:** `spec-to-pr.mjs review` runs the
-  same lenses over the working diff, but needs `CLAUDE_CODE_OAUTH_TOKEN` and degrades
-  to a warn-and-skip when it is absent. The authoritative panel is still the cloud
-  one on green CI.
-- **Single-writer / branch ownership (the key risk):** the local session owns the
-  branch only until the draft PR is created; after that the cloud loops push
-  follow-up commits to it. The rebase-on-`main` happens BEFORE handoff (so the
-  first push can't conflict), the helper prints a loud "branch is now cloud-owned"
-  notice, and the playbook ends the session immediately. Pushing again races the
-  cloud fixer and a force-push would break the loops' append-only counters. This is
-  behavioral, not mechanical — the one residual risk to respect.
-- **Access tier:** because the back half requires `head_repository == base repo`,
-  this front door works only for a developer with **push rights to the base repo**
-  (fork pushes are rejected) — the same tier that can arm the pipeline.
 
 ## Harness Policy
 

@@ -169,8 +169,7 @@ jobs:
     permissions:
       contents: read # read-only toward the PR
       pull-requests: read
-      checks: read # READ prior agent-review-<lens> findings (never checks:write — advisory only)
-      issues: write # post the single findings comment
+      issues: write # post the single findings comment (NO checks:write — advisory only)
     concurrency:
       group: agent-review-ondemand-${{ needs.authorize.outputs.pr }}
       cancel-in-progress: false
@@ -190,27 +189,11 @@ jobs:
         with:
           node-version: 22.x
 
-      # KEEP IN SYNC with the identical step in agent-review-panel.yml.
       - name: Compute diff + changed files (data for the reviewers)
         run: |
-          set -euo pipefail
           git fetch --no-tags origin main
-          # UNFILTERED on purpose — see the twin step in agent-review-panel.yml
-          # for why the changed-file list must never shrink.
+          git diff origin/main...HEAD > /tmp/pr.diff
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
-          # ANTLR generated TOOLING artifacts (.interp/.tokens — nothing loads
-          # them) omitted from the diff BODY only. The generated `.ts` files are
-          # kept: they are executable code, and excluding them would blind every
-          # lens to a hand-edit. `Formula.g4` and lockfiles are never excluded.
-          # See the twin step in agent-review-panel.yml for the full rationale.
-          git diff origin/main...HEAD -- . \
-            ':(exclude)packages/sheets/antlr/*.interp' \
-            ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/pr.diff
-          # Regeneration-only change → filtered diff is empty and the panel
-          # fails closed. Fall back to the unfiltered diff.
-          if [ ! -s /tmp/pr.diff ]; then
-            git diff origin/main...HEAD > /tmp/pr.diff
-          fi
 
       # Best-effort issue spec for the design-fit lens — same provenance rule as
       # the autonomous panel (only trust an `agent:candidate`, human-authored issue
@@ -266,55 +249,6 @@ jobs:
       - name: Strip untrusted agent config from the branch
         run: rm -rf "$GITHUB_WORKSPACE/.claude" "$GITHUB_WORKSPACE/.mcp.json"
 
-      # Carry forward the AUTONOMOUS panel's prior blocking findings (stored as JSON
-      # in each `agent-review-<lens>` check run's output.text) and hand them to the
-      # panel via --prior-findings, so this advisory review RE-CHECKS them the same
-      # way the gate does. Without this, a finding the gate is still holding open
-      # can look "resolved" here just because a fresh pass happened to miss it (the
-      # divergence seen on #548). Same logic as agent-review-panel.yml's "Read prior
-      # findings". Best-effort (continue-on-error) and empty when there's no prior
-      # panel history (e.g. a non-agent PR). This review posts NO check runs, so it
-      # only READS priors and never contributes new ones.
-      - name: Read prior findings (align with the gating panel)
-        continue-on-error: true
-        uses: actions/github-script@v7
-        env:
-          PR: ${{ needs.authorize.outputs.pr }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const pr = Number(process.env.PR);
-            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
-            const wantNames = new Set(manifest.map((l) => `agent-review-${l.id}`));
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
-            const latest = {}; // check name -> { id, t }
-            for (const c of commits) {
-              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
-              for (const r of runs) {
-                if (!wantNames.has(r.name) || !r.app || r.app.slug !== 'github-actions') continue;
-                // Only COMPLETED runs carry final findings in output.text — an
-                // in-progress/queued run (e.g. a panel round running right now) has
-                // a newer started_at but no findings yet, and would otherwise shadow
-                // the last completed run. Rank by completed_at (fallback started_at).
-                if (r.status !== 'completed') continue;
-                const t = new Date(r.completed_at || r.started_at || 0).getTime();
-                if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { id: r.id, t };
-              }
-            }
-            const prior = [];
-            for (const [name, { id }] of Object.entries(latest)) {
-              const lens = name.replace(/^agent-review-/, '');
-              let text = '';
-              try { const { data } = await github.rest.checks.get({ owner, repo, check_run_id: id }); text = (data.output && data.output.text) || ''; } catch {}
-              let findings = [];
-              try { findings = JSON.parse(text); } catch {}
-              if (Array.isArray(findings)) for (const f of findings) if (f && typeof f === 'object') prior.push({ ...f, lens });
-            }
-            fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
-            core.info(`prior findings carried into on-demand review: ${prior.length}`);
-
       - name: Run review panel
         id: panel
         # A crash must not fail the job — the aggregate step below then posts a
@@ -322,14 +256,11 @@ jobs:
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        # --prior-findings is tolerant of a missing file (existsSync guard in
-        # review-panel.mjs → treated as []), so a skipped/failed read step is safe.
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
-          --prior-findings /tmp/prior-findings.json
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
