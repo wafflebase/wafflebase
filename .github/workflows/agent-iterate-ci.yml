@@ -274,10 +274,13 @@ jobs:
               commit, so the hook is redundant here
               (docs/design/harness-engineering.md documents `--no-verify` as its
               sanctioned bypass).
-            - CONFIRM the push landed with `git ls-remote origin <branch>` rather
-              than trusting the exit code — a push whose hook output is very large
-              can report non-zero even though the ref advanced. If the remote head
-              did not advance, fix the cause and push again before your turn ends.
+            - CONFIRM the push landed by SHA, not by exit code — a push whose hook
+              output is very large can report non-zero even though the ref advanced,
+              and "the remote tip moved" is not proof YOUR commit is the one that
+              landed. Capture your commit with `git rev-parse HEAD`, read the remote
+              tip with `git ls-remote origin <branch>`, and confirm the two SHAs are
+              equal. If they differ, fix the cause and push again before your turn
+              ends.
 
             Then reply in the PR's verification thread noting what you fixed. Do not
             merge.

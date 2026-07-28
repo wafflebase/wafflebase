@@ -818,11 +818,13 @@ jobs:
             above. You already ran `pnpm verify:fast` above and this push re-runs the
             full CI lanes, so the hook is redundant here
             (docs/design/harness-engineering.md documents `--no-verify` as its
-            sanctioned bypass). Then CONFIRM the push landed with
-            `git ls-remote origin <branch>` rather than trusting the exit code — a
-            push whose hook output is very large can report non-zero even though the
-            ref advanced. If the remote head did not advance, push again before your
-            turn ends.
+            sanctioned bypass). Then CONFIRM the push landed by SHA, not by exit
+            code — a push whose hook output is very large can report non-zero even
+            though the ref advanced, and "the remote tip moved" is not proof YOUR
+            commit is the one that landed. Capture your commit with
+            `git rev-parse HEAD`, read the remote tip with
+            `git ls-remote origin <branch>`, and confirm the two SHAs are equal. If
+            they differ, push again before your turn ends.
           claude_args: >-
             --max-turns 80
             --model claude-opus-5
