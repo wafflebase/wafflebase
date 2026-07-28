@@ -10,14 +10,23 @@ the code that acted on the answer.
 
 The fix is not a firmer prompt. It is making the shape the model must produce
 carry the evidence, and having trusted code check the shape —
-`refutationGround` is a closed enum and `groundedIn` must contain at least one
-non-blank string, both verified in `isDroppingVerdict`. The model can still lie
-about *what* it read, but it can no longer drop a finding while saying nothing at
-all.
+`refutationGround` is a closed enum and `groundedIn` must contain something
+shaped like `file.ext:line`, both verified in `isDroppingVerdict`. The model can
+still lie about *what* it read, but it can no longer drop a finding while saying
+nothing at all.
+
+**The first draft of this PR made the same mistake one level up.** It checked
+that `groundedIn` held a non-blank string — so `["looks fine"]` passed as a
+citation, which is the identical unevidenced assertion merely wearing a
+citation's costume. And it withdrew the `pre-existing` ground *in the prompt*
+when the changed-file list wasn't authoritative, while `isDroppingVerdict` knew
+nothing about it: a model that ignored the instruction still dropped the finding.
+Review caught both. Writing down the principle is not the same as having applied
+it — worth re-reading your own diff against your own stated rule.
 
 Worth applying to the other prompt-only contracts in this pipeline: any "only do
 X if Y" aimed at a subagent whose output the script consumes is a candidate for
-promotion into the schema.
+promotion into the schema, and then into a check.
 
 ## Independence is about the input, not the model
 
@@ -51,8 +60,15 @@ a fail-open that drops real findings on large PRs — the exact direction
 everything else on this path is built to avoid.
 
 Hence `authoritative`: truncated is treated as missing, and the ground is
-withdrawn. The general shape — *bounding an input can change what conclusions it
-supports* — is worth checking for wherever a prompt gets a "list of everything".
+withdrawn — in the trusted script, not only in the prompt. The general shape —
+*bounding an input can change what conclusions it supports* — is worth checking
+for wherever a prompt gets a "list of everything".
+
+The same argument extends past truncation, which the first draft missed:
+silently filtering a malformed entry also removes a path the verifier cannot see
+is gone. `changedFileContext` therefore drops junk from what it *lists* (so the
+prompt stays clean) but stops calling the list authoritative. Filtering junk and
+carrying on is the reflex; here the filtering itself was the information loss.
 
 ## Keep the metric that measures the change you made
 

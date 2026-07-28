@@ -34,10 +34,12 @@ in the same series.
       `Glob`, so the verifier locates the code itself, and the prompt tells it to
       distrust the finding's quoted evidence ("checking it IS the job").
 - [x] `VERIFIER_SCHEMA` — add `refutationGround`
-      (`not-present | already-guarded | out-of-scope | pre-existing | none`,
-      **required**) and `groundedIn: string[]` (locations it actually read).
-- [x] New pure export `isDroppingVerdict(v)` — the complete drop rule, checked by
-      trusted code. `applyVerifications` now calls it.
+      (`not-present | already-guarded | out-of-scope | pre-existing | none`) and
+      `groundedIn: string[]` (locations it actually read). **Both required**, so
+      the schema tells the model what the gate already demands.
+- [x] New pure export `isDroppingVerdict(v, { allowPreExisting })` — the complete
+      drop rule, checked by trusted code. `applyVerifications` and
+      `verifierTally` both call it, with the same options.
 - [x] New pure export `changedFileContext(changedFiles, max = 200)` — bounds the
       list and decides whether it is `authoritative`.
 - [x] `askStructured` — optional `maxTurns` passthrough; verifier capped at 8.
@@ -48,14 +50,26 @@ in the same series.
 
 `pre-existing` lets the verifier say "this defect is in code the PR did not
 touch". That is only decidable from a **complete** changed-file list. Truncate
-the list and an absent path reads as "untouched" when it was merely cut off —
-the one way this list could fail OPEN and drop a real finding.
+the list, or silently drop a malformed entry from it, and an absent path reads as
+"untouched" when it was merely missing — the one way this list could fail OPEN
+and drop a real finding.
 
-So `changedFileContext` reports `authoritative: false` for a missing, malformed,
-**or truncated** list, and the prompt then withdraws `pre-existing` as a ground
-outright. The cap exists because the list is re-sent with every verification
-(one per blocking finding, per lens, per round); the safety property is that
-hitting the cap costs recall of one *ground*, never a dropped finding.
+So `changedFileContext` reports `authoritative: false` for a missing, truncated,
+**or junk-containing** list. Two things then follow from that one flag:
+
+1. the prompt withdraws `pre-existing` as a ground, and
+2. `isDroppingVerdict` **refuses** a `pre-existing` verdict via
+   `allowPreExisting`, which `main()` threads from the same computation.
+
+Step 2 is the one that matters. Step 1 alone is advisory — a model that ignores
+the instruction still drops the finding — and "a prompt instruction the script
+does not check is not a rule" is the exact defect this whole PR is about. The
+flag defaults to `false`, so a caller that forgets to thread it gets the strict
+behaviour.
+
+The cap exists because the list is re-sent with every verification (one per
+blocking finding, per lens, per round); the safety property is that hitting it
+costs the availability of one *ground*, never a dropped finding.
 
 This creates a **new dependency for the incremental-review PR**: that change must
 keep `--changed-files` cumulative. It was already required (a shrinking list
@@ -75,8 +89,8 @@ re-raising the same findings now pages a human at round 3 instead of burning to
 
 ## Verification
 
-- `agent:tests` lane: 107 tests green (was 105; +`isDroppingVerdict`,
-  +`changedFileContext`).
+- `agent:tests` lane: 110 tests green (was 105; +`isDroppingVerdict` incl. the
+  citation-shape and `allowPreExisting` rules, +`changedFileContext`).
 - `pnpm verify:self` green.
 - The rendered verifier prompt was **executed** for four changed-file shapes
   (complete / exactly at cap / one over cap / junk-only) and inspected: the

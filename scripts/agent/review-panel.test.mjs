@@ -324,6 +324,62 @@ test("isDroppingVerdict: drops only on the complete grounded shape", () => {
   }
 });
 
+test("isDroppingVerdict: a citation must locate something, not just be non-empty", () => {
+  const cite = (...groundedIn) => isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn });
+  // prose is not a citation, however confident — this is the unevidenced
+  // assertion the grounding rule exists to reject, wearing a citation's costume.
+  for (const junk of ["looks fine", "I checked it", "the guard is there", "n/a", "-", "42", "src/a.ts"]) {
+    assert.equal(cite(junk), false, `"${junk}" must not count as a citation`);
+  }
+  // real locations, including ranges and prose wrapped around one
+  for (const ok of [
+    "src/a.ts:42",
+    "packages/docs/src/editor-api.ts:214-220",
+    "scripts/agent/review-panel.mjs:172",
+    "see review-panel.mjs:172 for the guard",
+    "a.ts:1",
+  ]) {
+    assert.ok(cite(ok), `"${ok}" must count as a citation`);
+  }
+});
+
+test("isDroppingVerdict: `pre-existing` needs an authoritative changed-file list", () => {
+  const preExisting = { ...GROUNDED_REFUTE, refutationGround: "pre-existing" };
+  // The prompt withdraws this ground when the list is not authoritative, but a
+  // prompt instruction the script does not check is not a rule — so the trusted
+  // code refuses it too. Without this the whole changed-file trust story is
+  // advisory, and a model ignoring the instruction drops a real finding.
+  assert.equal(isDroppingVerdict(preExisting, { allowPreExisting: false }), false);
+  assert.ok(isDroppingVerdict(preExisting, { allowPreExisting: true }));
+  // DEFAULT is the strict one: a caller that forgets to thread the flag gets the
+  // keep-the-finding behaviour, like every other default on this path.
+  assert.equal(isDroppingVerdict(preExisting), false);
+  assert.equal(isDroppingVerdict(preExisting, {}), false);
+  // the flag is scoped to `pre-existing` — it must not gate the other grounds
+  for (const g of ["not-present", "already-guarded", "out-of-scope"]) {
+    assert.ok(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: g }, { allowPreExisting: false }));
+  }
+  // ...and it never RELAXES anything else: an ungrounded pre-existing still keeps
+  assert.equal(
+    isDroppingVerdict({ verdict: "refuted", confidence: "high", refutationGround: "pre-existing" },
+      { allowPreExisting: true }),
+    false,
+  );
+});
+
+test("applyVerifications / verifierTally thread the pre-existing trust flag", () => {
+  const F = [{ severity: "major", summary: "m" }];
+  const V = [{ ...GROUNDED_REFUTE, refutationGround: "pre-existing" }];
+  assert.equal(applyVerifications(F, V, { allowPreExisting: true }).length, 0, "dropped when trusted");
+  assert.equal(applyVerifications(F, V, { allowPreExisting: false }).length, 1, "kept when not");
+  assert.equal(applyVerifications(F, V).length, 1, "kept by default");
+  // the tally must agree with the gate, or `dropped` reports a decision that
+  // was never made
+  assert.equal(verifierTally(F, V, { allowPreExisting: true }).dropped, 1);
+  assert.equal(verifierTally(F, V, { allowPreExisting: false }).dropped, 0);
+  assert.equal(verifierTally(F, V).dropped, 0);
+});
+
 test("changedFileContext: only a complete list is authoritative", () => {
   assert.deepEqual(changedFileContext(["a.ts", "b.ts"], 5), {
     authoritative: true, listed: ["a.ts", "b.ts"], total: 2,
@@ -343,8 +399,13 @@ test("changedFileContext: only a complete list is authoritative", () => {
     assert.deepEqual(c.listed, []);
     assert.equal(c.total, 0);
   }
-  // junk entries are dropped, real ones survive alongside them
-  assert.deepEqual(changedFileContext(["", null, "a.ts", 7], 5).listed, ["a.ts"]);
+  // A single junk entry alongside real ones costs authority, for the same reason
+  // truncation does: the verifier would be handed a list missing a path it
+  // cannot see is missing — indistinguishable, from inside the prompt, from a
+  // file the PR genuinely did not touch. Junk still leaves `listed` clean.
+  const mixed = changedFileContext(["", null, "a.ts", 7], 5);
+  assert.deepEqual(mixed.listed, ["a.ts"]);
+  assert.equal(mixed.authoritative, false, "a dropped entry must cost authority");
 });
 
 test("applyVerifications: drops ONLY on a grounded refute; keeps on any doubt", () => {

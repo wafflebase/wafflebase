@@ -422,12 +422,17 @@ Components:
   so it can tell new code from pre-existing. Dropping is **grounded, not
   asserted** (`isDroppingVerdict`): the verdict must be an explicit `refuted`, at
   high confidence, naming one of `not-present | already-guarded | out-of-scope |
-  pre-existing`, AND citing at least one `file:line` it actually read. Anything
-  less — including a bare high-confidence refute, which used to be enough — keeps
-  the finding (fails toward blocking, so the false-positive lever can't swallow a
-  real bug). `pre-existing` is withdrawn whenever the changed-file list is
-  missing or was truncated, since an absent path would otherwise read as
-  "untouched" when it was merely cut off. The metrics comment reports
+  pre-existing`, AND citing at least one location that is *shaped* like one
+  (`file.ext:line`) — a bare non-empty string would let `"looks fine"` pass as
+  evidence, which is the same unevidenced assertion in a citation's costume.
+  Anything less — including a bare high-confidence refute, which used to be
+  enough — keeps the finding (fails toward blocking, so the false-positive lever
+  can't swallow a real bug). `pre-existing` additionally requires the changed-file
+  list to be **authoritative**: complete, untruncated, and free of malformed
+  entries, since a path absent for any of those reasons would otherwise read as
+  "the PR didn't touch it". That is enforced in the trusted script, not only in
+  the prompt — a prompt instruction the script does not check is not a rule. The
+  metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
   count of confident refutations the gate declined to act on. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
