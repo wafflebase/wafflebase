@@ -20,6 +20,30 @@ const DEFAULT_REPO = "wafflebase/wafflebase";
 
 // --- pure helpers (exported for tests) --------------------------------------
 
+/**
+ * Provenance of a diff — critical for honest reliability reporting:
+ *   - "autonomous"      : the app/yorkie-agent bot ran issue→PR end-to-end (the
+ *                         real production review target); branch agent/<issue#>-.
+ *   - "local-cli-agent" : a human built it via local Claude CLI on an agent/*
+ *                         branch (mostly pipeline self-development).
+ *   - "human"           : an ordinary human-authored PR.
+ * Only "autonomous" items back a claim about the panel on real bot output.
+ */
+export function classifyProvenance(view) {
+  const author = view.author?.login ?? "";
+  const branch = view.headRefName ?? "";
+  if (author === "app/yorkie-agent") return "autonomous";
+  if (branch.startsWith("agent/")) return "local-cli-agent";
+  return "human";
+}
+
+/** Issue number from an autonomous branch (agent/<num>-slug) or a closing ref. */
+export function issueNumberOf(view) {
+  const m = /^agent\/(\d+)-/.exec(view.headRefName ?? "");
+  if (m) return Number(m[1]);
+  return (view.closingIssuesReferences ?? [])[0]?.number ?? null;
+}
+
 /** Assemble the per-item meta.json from a PR view + diff. */
 export function buildItemMeta(view, diff, issueSpec) {
   const changedFiles = (view.files ?? []).map((f) => f.path).filter(Boolean);
@@ -28,6 +52,8 @@ export function buildItemMeta(view, diff, issueSpec) {
     source_pr: view.number,
     title: view.title ?? "",
     author: view.author?.login ?? "",
+    provenance: classifyProvenance(view),
+    issue_number: issueNumberOf(view),
     merged_at: view.mergedAt ?? null,
     base_ref: view.baseRefOid ?? "",
     base_ref_name: view.baseRefName ?? "",
