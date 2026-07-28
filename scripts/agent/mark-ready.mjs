@@ -36,6 +36,7 @@
 import { execFileSync } from "node:child_process";
 import { allRequiredPassed } from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
+import { disclosesAiAuthorship } from "./disclosure.mjs";
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -161,9 +162,7 @@ const { allPassed: reviewApproved, perCheck } = reviewChecks(pr.headRefOid);
 
 // --- gate 3: AI disclosure -------------------------------------------------
 
-const disclosure =
-  /autonomous/i.test(body) &&
-  /(claude|ai[- ]assist|ai tools)/i.test(body);
+const disclosure = disclosesAiAuthorship(body);
 
 // --- report ----------------------------------------------------------------
 

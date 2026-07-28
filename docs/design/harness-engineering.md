@@ -539,6 +539,47 @@ independently-reviewed, disclosed draft PR marked ready-for-review with no human
 *authoring* keystroke between the mention and the review request — and no path for
 the agent to reach `main`.
 
+### Phase 25: Local Spec→PR front half
+
+A second front door to the same back half, run on the developer's machine via the
+Claude Code CLI instead of an `@claude` issue comment. `.claude/commands/spec-to-pr.md`
+(slash command) drives spec → human gate → task → branch → implement → local review →
+`verify:self` → draft PR; `scripts/agent/spec-to-pr.mjs handoff` is the deterministic
+last mile. The key insight: the back half (`.github/workflows/agent-iterate-ci.yml` +
+`.github/workflows/agent-review-panel.yml`) is triggered purely by CI `workflow_run` on same-repo
+`agent/*` branches — it is **not** coupled to issues — so a locally-produced
+`agent/*` draft PR is picked up identically to an issue-originated one. Nothing in
+the back half changes; only this local front half is new.
+
+- **Byte-identical artifact** to the cloud front half: branch `agent/<slug>` off
+  `main` pushed to the base repo; draft PR with base `main`; every commit carries
+  the `Assisted-by: Claude Code (autonomous)` trailer (enforced locally by
+  `scripts/hooks/require-ai-disclosure.sh` once `WAFFLEBASE_AGENT_AUTONOMOUS=true` is exported);
+  a PR body that satisfies the ready-gate disclosure check. The draft PR's
+  `pull_request:[main]` event runs CI (a bare branch push does not — push is
+  filtered to `main`), which is the same trigger the cloud front half relies on.
+- **Single source of truth for the disclosure gate:** `scripts/agent/disclosure.mjs`
+  exports `disclosesAiAuthorship`, imported by BOTH `scripts/agent/mark-ready.mjs`
+  (the gate) and `scripts/agent/spec-to-pr.mjs` (the local self-check) — so the
+  local body can never drift from the gate it must pass.
+- **Runner split:** local machine for spec→…→draft-PR (verify runs locally, a
+  deliberate divergence from the cloud front half, which defers to CI); existing
+  GitHub Actions for the CI-fix loop → review panel → ready.
+- **Local review is a convenience, not authority:** `spec-to-pr.mjs review` runs the
+  same lenses over the working diff, but needs `CLAUDE_CODE_OAUTH_TOKEN` and degrades
+  to a warn-and-skip when it is absent. The authoritative panel is still the cloud
+  one on green CI.
+- **Single-writer / branch ownership (the key risk):** the local session owns the
+  branch only until the draft PR is created; after that the cloud loops push
+  follow-up commits to it. The rebase-on-`main` happens BEFORE handoff (so the
+  first push can't conflict), the helper prints a loud "branch is now cloud-owned"
+  notice, and the playbook ends the session immediately. Pushing again races the
+  cloud fixer and a force-push would break the loops' append-only counters. This is
+  behavioral, not mechanical — the one residual risk to respect.
+- **Access tier:** because the back half requires `head_repository == base repo`,
+  this front door works only for a developer with **push rights to the base repo**
+  (fork pushes are rejected) — the same tier that can arm the pipeline.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:
