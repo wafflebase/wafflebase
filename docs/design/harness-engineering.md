@@ -421,7 +421,8 @@ Components:
   **`agent-review-<lens>` check run** per lens (the author agent lacks
   `checks:write`). On all-pass it invokes the ready gate; on any failure it feeds
   the combined findings to the author in a bounded fix loop (pages after
-  `MAX_REVIEW_ROUNDS`). The `design-fit` lens additionally reads the originating
+  `MAX_REVIEW_ROUNDS`, or earlier on **non-convergence** — see below). The
+  `design-fit` lens additionally reads the originating
   issue (via `Fixes #N`) for spec-conformance — but ONLY when that issue is
   labelled `agent:candidate` AND authored by a non-Bot account (otherwise the
   author agent, which holds `issues:write`, could hand itself an arbitrary spec);
@@ -497,6 +498,25 @@ Components:
 - **Provenance** — `scripts/hooks/require-ai-disclosure.sh` (PreToolUse Bash,
   gated on `WAFFLEBASE_AGENT_AUTONOMOUS`) enforces an
   `Assisted-by: Claude Code (autonomous)` commit trailer on autonomous runs.
+
+- **Convergence detection (early exit from the fix loop).** `MAX_REVIEW_ROUNDS`
+  is a blunt backstop — PR #521 burned all five rounds re-litigating overlapping
+  findings before anyone was paged. `scripts/agent/rounds.mjs`'s
+  `detectStalledRounds` (wired into
+  `scripts/agent/review-round-guard.mjs`, checked BEFORE the round cap so the
+  more specific reason wins) pages as soon as two consecutive round pairs both
+  (a) fail to reduce the blocking-finding count and (b) exceed a similarity
+  threshold against the previous round's findings.
+  **Overlap alone is deliberately NOT the trigger**: the cross-round re-check
+  above re-merges unresolved priors by design, so a healthy PR shows high
+  overlap every round — only overlap *without* a falling count distinguishes a
+  stall. Similarity is the overlap coefficient over tokenised summaries, gated
+  on lens + file, calibrated at 0.3 against real rephrasings from PR #564
+  (same-defect 0.39-0.71, different-defect ≤0.08). It **fails toward not
+  paging**: malformed, unreadable, or infra/quota rounds break the run rather
+  than manufacture a page, since `MAX_REVIEW_ROUNDS` still backstops and a
+  spurious page is the costlier error. Tuned via `STALL_REPEATS` /
+  `STALL_SIMILARITY`.
 
 Human gate (mechanical, not prompt-based): branch protection on `main` requires a
 human approving review + CI green + dismiss-stale-approvals; the `agent-implement`
