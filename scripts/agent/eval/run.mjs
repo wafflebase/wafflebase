@@ -10,7 +10,7 @@
 //   node run.mjs --out <results-repo> --corpus-version <v> [--config-id baseline-opus-s2]
 //        [--lenses-dir ../lenses] [--sdk-version 0.3.217] [--items pr-1,pr-2] [--run-id <id>]
 
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, renameSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -31,44 +31,43 @@ function countFiles(dir) {
 /**
  * Fidelity (a): materialize the repo TREE at `commit` so lenses get the same
  * surrounding-code context they'd Read in production (vs an empty diff-only dir).
- * Cached per commit, reused across replicate runs (extract once). Returns the
- * checkout path, or null (→ caller falls back to diff-only) if unavailable.
+ * Cached per commit, reused across replicate runs. Returns { path, files } or
+ * null (→ caller falls back to diff-only).
  *
- * HARDENED: a naive `git archive | tar` masks a truncated archive (the pipe exits
- * 0 on partial input), which under corporate EDR / a partial fetch cached a
- * near-empty repo behind a `.materialized` flag — silently degrading context to
- * nothing. Now: archive to a FILE (git's non-zero exit can't be hidden), then
- * VERIFY the extracted file count matches the commit's tree before trusting it.
- * Anything short is discarded → honest diff-only fallback, not fake context.
+ * EDR-HARDENED: the corporate EDR intermittently blocks `git` from reading object
+ * files, so a single `git archive` can return a TRUNCATED tree (e.g. 43 files
+ * instead of 2944) — and the same command reads fine moments later. A `| tar`
+ * pipe hid this (exit 0 on partial input) and cached a near-empty repo. Now:
+ * archive to a FILE (git's non-zero exit can't be masked), RETRY up to `attempts`
+ * times, and keep the extraction with the MOST files (the attempt that dodged the
+ * block). The caller logs/records the file count so a degraded context is never
+ * silent. `git ls-tree` is NOT used as the reference — under EDR it truncates the
+ * same way, so it can't detect the truncation.
  */
-export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
+export function materializeRepoAt({ repoSource, commit, cacheRoot, attempts = 3 }) {
   if (!commit || !repoSource) return null;
   const dest = path.join(cacheRoot, commit);
-  if (existsSync(path.join(dest, ".materialized"))) return dest; // cache hit (previously verified)
-  try {
-    rmSync(dest, { recursive: true, force: true });
-    mkdirSync(dest, { recursive: true });
-    const tarf = path.join(dest, ".archive.tar");
-    execFileSync("git", ["-C", repoSource, "archive", "-o", tarf, commit], { stdio: "pipe" });
-    execFileSync("tar", ["-xf", tarf, "-C", dest], { stdio: "pipe" });
-    rmSync(tarf, { force: true });
-    // `git archive` legitimately omits export-ignore files, so don't require an
-    // exact match — just catch GROSS truncation (the bug cached 19/2943 files).
-    // The archive-to-file above is the real guard (git's non-zero exit throws);
-    // this is a cheap structural backstop.
-    const expected = execFileSync("git", ["-C", repoSource, "ls-tree", "-r", "--name-only", commit],
-      { encoding: "utf8", maxBuffer: 512 * 1024 * 1024 }).split("\n").filter(Boolean).length;
-    const actual = countFiles(dest);
-    if (!expected || actual < expected * 0.5) {
-      rmSync(dest, { recursive: true, force: true }); // grossly incomplete → don't cache a broken tree
-      return null;
-    }
-    writeFileSync(path.join(dest, ".materialized"), `${commit} ${actual}/${expected}\n`);
-    return dest;
-  } catch {
-    rmSync(dest, { recursive: true, force: true });
-    return null; // commit not fetched / archive failed → diff-only fallback
+  const mark = path.join(dest, ".materialized");
+  if (existsSync(mark)) return { path: dest, files: Number(readFileSync(mark, "utf8").trim().split(" ")[1]) || countFiles(dest) };
+  mkdirSync(cacheRoot, { recursive: true });
+  let best = null;
+  for (let i = 0; i < attempts; i++) {
+    const tmp = mkdtempSync(path.join(cacheRoot, `.tmp-`));
+    try {
+      const tarf = path.join(tmp, ".archive.tar");
+      execFileSync("git", ["-C", repoSource, "archive", "-o", tarf, commit], { stdio: "pipe" });
+      execFileSync("tar", ["-xf", tarf, "-C", tmp], { stdio: "pipe" });
+      rmSync(tarf, { force: true });
+      const files = countFiles(tmp);
+      if (!best || files > best.files) { if (best) rmSync(best.tmp, { recursive: true, force: true }); best = { tmp, files }; }
+      else rmSync(tmp, { recursive: true, force: true });
+    } catch { rmSync(tmp, { recursive: true, force: true }); }
   }
+  if (!best || best.files <= 0) return null;
+  rmSync(dest, { recursive: true, force: true });
+  renameSync(best.tmp, dest);
+  writeFileSync(mark, `${commit} ${best.files}\n`);
+  return { path: dest, files: best.files };
 }
 
 function parseArgs(argv) {
@@ -171,8 +170,10 @@ async function main() {
     const outDir = path.join(workDir, "out");
     mkdirSync(outDir, { recursive: true });
     // (a) repo context at the review commit; falls back to an empty dir (diff-only).
-    const repoDir = materializeRepoAt({ repoSource, commit: input.meta?.review_commit, cacheRoot: repoCache })
-      ?? path.join(workDir, "repo");
+    const ctx = materializeRepoAt({ repoSource, commit: input.meta?.review_commit, cacheRoot: repoCache });
+    const repoDir = ctx?.path ?? path.join(workDir, "repo");
+    const contextFiles = ctx?.files ?? 0; // 0 = diff-only (context unavailable)
+    if (repoSource) process.stdout.write(`  → ${itemId}: repo context = ${contextFiles ? `${contextFiles} files` : "DIFF-ONLY (unavailable)"}\n`);
 
     let envelope, payload, transcript;
     try {
@@ -206,6 +207,7 @@ async function main() {
         status: outcome.status, reason: outcome.reason,
         cost_usd: cost.costUsd, weighted_tokens: cost.weightedTokens, raw_tokens: cost.tokens,
         duration_ms: cost.durationMs, turns: cost.turns, calls: cost.calls,
+        repo_context_files: contextFiles, // 0 = diff-only; low = truncated (EDR) — audit fidelity
         timestamp: nowIso(), payload_ref: "payload.json", transcript_ref: "transcript.json.gz",
         error: outcome.error,
       };
