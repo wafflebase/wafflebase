@@ -808,9 +808,21 @@ jobs:
             WAIT for it to finish. This is a one-shot headless run with NO resume:
             when your turn ends the job tears down, so a BACKGROUNDED push is killed
             before it completes and your fix is lost (the loop then pages a human
-            for "no commit"). The pre-push hook runs the slow `pnpm verify:self` —
-            let it finish; never background the push or use sleep/Monitor/any
-            wait-for-later mechanism.
+            for "no commit"). Never background the push or use sleep/Monitor/any
+            wait-for-later mechanism to "come back to it".
+
+            Push with `git push --no-verify`. The pre-push hook runs
+            `pnpm verify:self`, which takes several minutes — longer than the Bash
+            tool's default ~2-minute timeout, so an un-bypassed push is killed
+            mid-hook and never lands, producing exactly the "no commit" dead-end
+            above. You already ran `pnpm verify:fast` above and this push re-runs the
+            full CI lanes, so the hook is redundant here
+            (docs/design/harness-engineering.md documents `--no-verify` as its
+            sanctioned bypass). Then CONFIRM the push landed with
+            `git ls-remote origin <branch>` rather than trusting the exit code — a
+            push whose hook output is very large can report non-zero even though the
+            ref advanced. If the remote head did not advance, push again before your
+            turn ends.
           claude_args: >-
             --max-turns 80
             --model claude-opus-5
