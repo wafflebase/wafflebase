@@ -38,9 +38,16 @@ negative class is unbounded → κ is mis-specified; use positive overlap there)
 Cost per run ≈ (lenses × samples × (+verifier)) × items Opus calls. Start small.
 
 ```bash
-# 0. one-time: install the SDK the panel imports, and auth
-cd scripts/agent && corepack pnpm install
-export CLAUDE_CODE_OAUTH_TOKEN=...            # the panel reads this
+# 0. one-time: install the SDK the panel imports
+cd scripts/agent && npm ci                    # (or: corepack pnpm install)
+
+# Auth: the panel's SDK reads CLAUDE_CODE_OAUTH_TOKEN. `claude setup-token` is
+# INTERACTIVE (opens a browser, prints a banner) — do NOT wrap it in $(...), that
+# captures the banner as the token and every call fails with an invalid
+# Authorization header. Run it alone, copy the printed sk-ant-oat01-… token, then:
+export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-…'   # paste the token, quoted
+# sanity check — must print ONLY the token prefix, not a banner:
+printf '%s\n' "${CLAUDE_CODE_OAUTH_TOKEN:0:14}"    # → sk-ant-oat01-
 
 EVAL=../../..//wafflebase-agent-eval          # path to the results repo checkout
 V=2026-07-28-pilot
