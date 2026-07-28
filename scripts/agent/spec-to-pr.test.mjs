@@ -67,6 +67,11 @@ test("hasDisclosureTrailer / commitsMissingTrailer", () => {
   const bad = "Add a thing\n\nBody with no trailer.";
   assert.ok(hasDisclosureTrailer(good));
   assert.ok(!hasDisclosureTrailer(bad));
+  // Terminal-only: a trailer followed by more content does NOT count (an
+  // includes() check would wrongly pass this).
+  assert.ok(!hasDisclosureTrailer(`Add a thing\n\n${DISCLOSURE_TRAILER}\n\nSneaky trailing line.`));
+  // Trailing whitespace after the trailer is tolerated (still terminal).
+  assert.ok(hasDisclosureTrailer(`${good}\n  \n`));
   assert.deepEqual(commitsMissingTrailer([good, good]), []);
   assert.deepEqual(commitsMissingTrailer([good, bad]), [bad]);
   assert.deepEqual(commitsMissingTrailer([]), []);

@@ -18,7 +18,11 @@ export function disclosesAiAuthorship(body) {
   return /autonomous/i.test(b) && /(claude|ai[- ]assist|ai tools)/i.test(b);
 }
 
-/** True iff a single commit message carries the autonomous disclosure trailer. */
+/** True iff a single commit message ENDS with the autonomous disclosure trailer.
+ * The contract is that the trailer is terminal (a git trailer, last line); an
+ * `includes()` check would also pass a message with the trailer buried mid-body
+ * followed by arbitrary content, so require it at the end (ignoring trailing
+ * whitespace). */
 export function hasDisclosureTrailer(message) {
-  return String(message ?? "").includes(DISCLOSURE_TRAILER);
+  return String(message ?? "").trimEnd().endsWith(DISCLOSURE_TRAILER);
 }
