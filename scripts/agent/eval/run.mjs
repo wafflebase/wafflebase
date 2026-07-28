@@ -10,8 +10,8 @@
 //   node run.mjs --out <results-repo> --corpus-version <v> [--config-id baseline-opus-s2]
 //        [--lenses-dir ../lenses] [--sdk-version 0.3.217] [--items pr-1,pr-2] [--run-id <id>]
 
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,23 +24,49 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const nowIso = () => new Date().toISOString();
 const isoSafe = () => nowIso().replace(/[:.]/g, "-");
 
+function countFiles(dir) {
+  return readdirSync(dir, { recursive: true, withFileTypes: true }).filter((d) => d.isFile()).length;
+}
+
 /**
  * Fidelity (a): materialize the repo TREE at `commit` so lenses get the same
  * surrounding-code context they'd Read in production (vs an empty diff-only dir).
- * `git archive <commit> | tar -x` — no .git, just files; cached per commit and
- * reused across replicate runs (same review_commit → extract once). Returns the
+ * Cached per commit, reused across replicate runs (extract once). Returns the
  * checkout path, or null (→ caller falls back to diff-only) if unavailable.
+ *
+ * HARDENED: a naive `git archive | tar` masks a truncated archive (the pipe exits
+ * 0 on partial input), which under corporate EDR / a partial fetch cached a
+ * near-empty repo behind a `.materialized` flag — silently degrading context to
+ * nothing. Now: archive to a FILE (git's non-zero exit can't be hidden), then
+ * VERIFY the extracted file count matches the commit's tree before trusting it.
+ * Anything short is discarded → honest diff-only fallback, not fake context.
  */
 export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
   if (!commit || !repoSource) return null;
   const dest = path.join(cacheRoot, commit);
-  if (existsSync(path.join(dest, ".materialized"))) return dest; // cache hit
+  if (existsSync(path.join(dest, ".materialized"))) return dest; // cache hit (previously verified)
   try {
+    rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
-    execSync(`git -C "${repoSource}" archive ${commit} | tar -x -C "${dest}"`, { stdio: "pipe" });
-    writeFileSync(path.join(dest, ".materialized"), commit);
+    const tarf = path.join(dest, ".archive.tar");
+    execFileSync("git", ["-C", repoSource, "archive", "-o", tarf, commit], { stdio: "pipe" });
+    execFileSync("tar", ["-xf", tarf, "-C", dest], { stdio: "pipe" });
+    rmSync(tarf, { force: true });
+    // `git archive` legitimately omits export-ignore files, so don't require an
+    // exact match — just catch GROSS truncation (the bug cached 19/2943 files).
+    // The archive-to-file above is the real guard (git's non-zero exit throws);
+    // this is a cheap structural backstop.
+    const expected = execFileSync("git", ["-C", repoSource, "ls-tree", "-r", "--name-only", commit],
+      { encoding: "utf8", maxBuffer: 512 * 1024 * 1024 }).split("\n").filter(Boolean).length;
+    const actual = countFiles(dest);
+    if (!expected || actual < expected * 0.5) {
+      rmSync(dest, { recursive: true, force: true }); // grossly incomplete → don't cache a broken tree
+      return null;
+    }
+    writeFileSync(path.join(dest, ".materialized"), `${commit} ${actual}/${expected}\n`);
     return dest;
   } catch {
+    rmSync(dest, { recursive: true, force: true });
     return null; // commit not fetched / archive failed → diff-only fallback
   }
 }
