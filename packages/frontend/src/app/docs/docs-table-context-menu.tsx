@@ -61,6 +61,13 @@ export function DocsTableContextMenu({
 
   const handleContextMenu = useCallback(
     (e: MouseEvent) => {
+      // Every item in this menu edits the table (insert/delete row+column,
+      // merge/unmerge, cell background). In read-only viewer mode the caret
+      // can now enter a table cell (the editor's pointer handling is active
+      // so text is selectable), which would make `isInTable()` true — but
+      // opening a table-edit menu there would defeat the read-only guarantee.
+      // Bail so the (edit-free) body context menu handles the right-click.
+      if (readOnly) return;
       if (!editor?.isInTable()) return;
       e.preventDefault();
       setPosition({ x: e.clientX, y: e.clientY });
@@ -68,7 +75,7 @@ export function DocsTableContextMenu({
       setHasSelection(!!editor.getActiveSelection());
       setShowColors(false);
     },
-    [editor],
+    [editor, readOnly],
   );
 
   const close = useCallback(() => {

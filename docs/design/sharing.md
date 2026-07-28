@@ -117,6 +117,26 @@ The `Spreadsheet` class accepts a `readOnly` option. When enabled:
 - Navigation, selection, scrolling, and copy still work
 - The formatting toolbar is hidden in the React component
 
+### Docs Package (Read-Only Mode)
+
+The Docs editor accepts a `readOnly` flag threaded through
+`initialize(container, store, theme, readOnly)`. Rather than skipping the
+`TextEditor` (which owns all pointer, clipboard, and link machinery), it is
+constructed in read-only mode too, with every **mutating** path gated so
+"read the document" interactions match Google-Docs viewer parity. When enabled:
+- Typing, IME composition, cut, and paste are blocked
+- Keyboard is limited to caret navigation (Arrows / Home / End),
+  `Cmd/Ctrl+A` select-all, and `Cmd/Ctrl+F` find; other edit shortcuts no-op
+- Table-border resize and header/footer edit-context switching are blocked
+- The programmatic `EditorAPI` mutating commands (`applyStyle`, `insertLink`,
+  `paste`, table / image ops, …) are neutralized at the API boundary, and the
+  direct `TextEditor` entry points (`pasteContent`, `insertText`) are gated —
+  so read-only holds even for callers that bypass pointer / keyboard events
+- The link popover shows only the open-link anchor (Edit / Remove hidden)
+- Drag selection, `Cmd/Ctrl+C` copy, and plain-click link open still work
+- The hidden textarea is not auto-focused on mount; focus is acquired on
+  first click so the caret paints and the browser copy event fires
+
 ### Security
 
 - **Token entropy** — UUIDs provide 122 bits of entropy, making tokens

@@ -19,6 +19,12 @@ interface DocsLinkPopoverProps {
     position: { x: number; y: number; height: number };
   } | null;
   onEditRequestHandled: () => void;
+  /**
+   * Viewer / read-only mode. When set, the popover shows only the
+   * open-link affordance — the Edit and Remove-link buttons (both mutate
+   * the document) are hidden. See issue #482.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -31,6 +37,7 @@ export function DocsLinkPopover({
   containerRef,
   editRequest,
   onEditRequestHandled,
+  readOnly,
 }: DocsLinkPopoverProps) {
   const [linkInfo, setLinkInfo] = useState<LinkHoverInfo | undefined>();
   const [visible, setVisible] = useState(false);
@@ -187,22 +194,26 @@ export function DocsLinkPopover({
               ? linkInfo.href.slice(0, 37) + "..."
               : linkInfo.href}
           </a>
-          <button
-            className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted"
-            onClick={handleEdit}
-            aria-label="Edit link"
-            title="Edit link"
-          >
-            <IconEdit size={14} />
-          </button>
-          <button
-            className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted"
-            onClick={handleRemove}
-            aria-label="Remove link"
-            title="Remove link"
-          >
-            <IconUnlink size={14} />
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted"
+                onClick={handleEdit}
+                aria-label="Edit link"
+                title="Edit link"
+              >
+                <IconEdit size={14} />
+              </button>
+              <button
+                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted"
+                onClick={handleRemove}
+                aria-label="Remove link"
+                title="Remove link"
+              >
+                <IconUnlink size={14} />
+              </button>
+            </>
+          )}
         </>
       ) : mode === "edit" ? (
         <>
