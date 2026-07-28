@@ -5,17 +5,23 @@
 // promoted to ready-for-review, the promote job renders one aggregated,
 // human-readable SUMMARY comment:
 //
-//   - Agents: claude-opus-4-8
-//   - Scope-size: M
-//   - Attempt: 1
-//   - Sessions: 1
-//   - Total-time: 89m
-//   - Turns: 27
-//   - Tokens: ~1.0M
+//   - Total-cost: $1.23 (code-fix $1.10 + review $0.13)
+//   - Total-tokens: ~120K weighted (~1.0M raw)
+//   ...
+//   - Cost: $1.10
+//   - Tokens: ~110K weighted (~950K raw)
 //
 // Data source: `claude-execution-output.json` (the claude-code-action transcript)
-// — its final `result` message carries num_turns / duration_ms / usage / modelUsage.
-// Tokens = input+output+cache (total processed). Scope-size = PR diff lines.
+// — its final `result` message carries num_turns / duration_ms / usage /
+// modelUsage / total_cost_usd.
+//
+// Cost = model-reported `total_cost_usd`, the truest measure of how
+// resource-intensive a run was: it already prices cache reads at ~1/10 of fresh
+// input and the review panel's pricier/other models correctly. Raw tokens =
+// input+output+cache (total processed) — but raw over-counts, since cache-read
+// reprocessing is billed at ~1/10 yet summed at full weight. Weighted tokens
+// re-weight the fields toward spend (see `weightedTokensFor`). Scope-size = PR
+// diff lines.
 //
 // Pure helpers are exported and unit-tested (no gh). The CLI (`record` /
 // `summarize`) talks to GitHub via the `gh` CLI (GH_TOKEN / GITHUB_TOKEN).
@@ -40,6 +46,28 @@ export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
+/**
+ * Per-token weights relative to fresh input, so a token total tracks spend
+ * rather than raw throughput. `cache_read_input_tokens` (re-processing an
+ * already-cached prefix) is billed at ~1/10 of fresh input but is otherwise
+ * summed at full weight, which inflates the raw total; cache creation carries a
+ * ~1.25x write premium. Output stays at 1x here — weighting it accurately needs
+ * per-model pricing, which the model-reported `total_cost_usd` (kept as
+ * `costUsd`) already applies exactly, so cost is the authoritative measure.
+ */
+export const TOKEN_WEIGHTS = { input: 1, output: 1, cacheCreation: 1.25, cacheRead: 0.1 };
+
+/** Weighted (spend-representative) token count from a usage object. */
+export function weightedTokensFor(usage) {
+  const u = usage || {};
+  return Math.round(
+    (u.input_tokens || 0) * TOKEN_WEIGHTS.input +
+      (u.output_tokens || 0) * TOKEN_WEIGHTS.output +
+      (u.cache_creation_input_tokens || 0) * TOKEN_WEIGHTS.cacheCreation +
+      (u.cache_read_input_tokens || 0) * TOKEN_WEIGHTS.cacheRead,
+  );
+}
+
 /** Extract one session record from a parsed claude-execution-output.json array. */
 export function parseExecution(messages, kind = "implement") {
   const arr = Array.isArray(messages) ? messages : [];
@@ -56,6 +84,7 @@ export function parseExecution(messages, kind = "implement") {
     models: Object.keys(result.modelUsage || {}),
     turns: result.num_turns || 0,
     tokens,
+    weightedTokens: weightedTokensFor(u),
     durationMs: result.duration_ms || 0,
     costUsd: result.total_cost_usd || 0,
     sessionId: result.session_id || "",
@@ -72,7 +101,7 @@ export function sumExecutions(messages, kind = "review") {
   const arr = Array.isArray(messages) ? messages : [];
   const results = arr.filter((m) => m && m.type === "result");
   const models = new Set();
-  let turns = 0, tokens = 0, durationMs = 0, costUsd = 0;
+  let turns = 0, tokens = 0, weightedTokens = 0, durationMs = 0, costUsd = 0;
   for (const r of results) {
     const u = r.usage || {};
     tokens +=
@@ -80,6 +109,7 @@ export function sumExecutions(messages, kind = "review") {
       (u.output_tokens || 0) +
       (u.cache_creation_input_tokens || 0) +
       (u.cache_read_input_tokens || 0);
+    weightedTokens += weightedTokensFor(u);
     turns += r.num_turns || 0;
     durationMs += r.duration_ms || 0;
     costUsd += r.total_cost_usd || 0;
@@ -90,6 +120,7 @@ export function sumExecutions(messages, kind = "review") {
     models: [...models].sort(),
     turns,
     tokens,
+    weightedTokens,
     durationMs,
     costUsd,
     sessionId: results.length ? results[results.length - 1].session_id || "" : "",
@@ -111,6 +142,13 @@ export function aggregate(records) {
     attempt: reviewFixes + 1,
     turns: sum("turns"),
     tokens: sum("tokens"),
+    // Records written before weighted tokens existed have no `weightedTokens`;
+    // fall back to raw `tokens` for those so an in-flight PR's total isn't
+    // silently under-counted mid-rollout.
+    weightedTokens: list.reduce(
+      (s, r) => s + (Number(r.weightedTokens) || Number(r.tokens) || 0),
+      0,
+    ),
     durationMs: sum("durationMs"),
     costUsd: sum("costUsd"),
   };
@@ -145,6 +183,91 @@ export function aggregatePanelStats(entries) {
   return { agreementCounts, raised, kept, verifier: { sentToVerifier, refuted, refutedHighConfidence } };
 }
 
+/**
+ * Detect blocking→clean flips per lens across an ORDERED list of review records
+ * (one `kind:"review"` record per round). `listAllComments` returns GitHub issue
+ * comments in created_at-ascending order, so the array is already chronological =
+ * round order — do NOT re-sort it. A flip is a lens that was blocking (kept
+ * critical/major > 0) in one valid round and clean (non-blocking) in a LATER
+ * valid round, i.e. it requested changes and then approved. This is the
+ * cross-round analogue of the intra-round sample-agreement signal and is exactly
+ * the failure PR #521 exhibited (blocking finding silently dropped next round).
+ *
+ * Rounds where a lens hit an infra/quota error (`infraError` set or
+ * `samplesOk === 0`, which carry a synthetic blocking finding) are skipped for
+ * that lens — an infra recovery the next round is not a review flip. Only
+ * *valid* consecutive rounds of a lens are compared.
+ *
+ * HONEST LIMITATION: with only per-round severity counts we cannot tell a flip
+ * caused by a genuine fix (good) from one caused by judge inconsistency (bad).
+ * This is therefore an ADVISORY heads-up flag, not a defect count. Tightening it
+ * to "the finding-relevant code did not change" needs per-round diff/line data
+ * the ledger does not carry today. (If GitHub's comment ordering ever stopped
+ * being chronological, flip direction could invert — accepted risk.)
+ *
+ * Shape-safe: records without `lensStats` (pre-instrumentation) or a `kept`
+ * missing a severity key are tolerated and contribute nothing.
+ *
+ * @returns {{ flips: {lens: string, fromRound: number, toRound: number}[], byLens: Record<string, number> }}
+ */
+export function detectFlips(reviewRecords) {
+  const list = Array.isArray(reviewRecords) ? reviewRecords : [];
+  // Per lens id, the ordered subsequence of that lens's VALID round states
+  // (true = blocking, false = clean), tagged with the record index for
+  // human-readable r<from>→r<to> traceability.
+  const byLensStates = new Map();
+  list.forEach((rec, round) => {
+    const lensStats = rec && Array.isArray(rec.lensStats) ? rec.lensStats : [];
+    for (const e of lensStats) {
+      if (!e || typeof e !== "object" || e.id == null) continue;
+      // Skip infra/quota rounds — their synthetic blocking finding and next-round
+      // recovery are not a review flip.
+      if (e.infraError || Number(e.samplesOk) === 0) continue;
+      const kept = e.kept || {};
+      const blocking = (Number(kept.critical) || 0) + (Number(kept.major) || 0) > 0;
+      if (!byLensStates.has(e.id)) byLensStates.set(e.id, []);
+      byLensStates.get(e.id).push({ blocking, round });
+    }
+  });
+  const flips = [];
+  const byLens = {};
+  for (const [lens, seq] of byLensStates) {
+    for (let i = 1; i < seq.length; i++) {
+      // A flip = an adjacent pair of valid rounds going blocking → clean.
+      if (seq[i - 1].blocking && !seq[i].blocking) {
+        flips.push({ lens, fromRound: seq[i - 1].round, toRound: seq[i].round });
+        byLens[lens] = (byLens[lens] || 0) + 1;
+      }
+    }
+  }
+  return { flips, byLens };
+}
+
+/**
+ * Severity weights for collapsing a {critical,major,minor,nit} vector into one
+ * scalar. Mirrors the report's DoorDash-style scheme mapped onto this scale.
+ * A critical finding is worth 8× a nit, so a lens that catches real problems
+ * isn't scored like one that only flags style.
+ */
+export const SEVERITY_WEIGHTS = { critical: 4, major: 2, minor: 1, nit: 0.5 };
+
+/**
+ * Weighted scalar for a severity-count vector. This is an EFFORT/NOISE proxy
+ * (how much reviewer attention the lens generated), NOT recall — recall needs
+ * ground truth, which this per-PR layer deliberately does not have. Always
+ * reported alongside the raw per-severity vector, never as a replacement for it.
+ * Null/shape-safe: a missing object and missing keys count as 0.
+ */
+export function weightSeverity(counts) {
+  const c = counts || {};
+  return (
+    (Number(c.critical) || 0) * SEVERITY_WEIGHTS.critical +
+    (Number(c.major) || 0) * SEVERITY_WEIGHTS.major +
+    (Number(c.minor) || 0) * SEVERITY_WEIGHTS.minor +
+    (Number(c.nit) || 0) * SEVERITY_WEIGHTS.nit
+  );
+}
+
 /** S/M/L from total lines changed in the PR diff. */
 export function scopeSize(additions = 0, deletions = 0) {
   const changed = (Number(additions) || 0) + (Number(deletions) || 0);
@@ -164,30 +287,46 @@ export function formatMinutes(ms) {
   return `${Math.max(1, Math.round((Number(ms) || 0) / 60000))}m`;
 }
 
+export function formatUsd(n) {
+  const v = Number(n) || 0;
+  if (v > 0 && v < 0.01) return "<$0.01";
+  return `$${v.toFixed(2)}`;
+}
+
 /** Render the human-readable summary comment body. `panelAgg`/`panelStats`
  * are omitted when the PR has no review-panel ledger records yet (kept
  * separate from the code-fix agent's numbers — review-fix, the agent that
  * responds to what the panel found, and review, the panel's own compute, are
  * easy to conflate by name, so their costs are rendered in separate sections
  * rather than folded into one set of totals). */
-export function renderSummary({ agg, panelAgg, panelStats, scope }) {
+export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
-  const totalTokens = agg.tokens + (hasPanel ? panelAgg.tokens : 0);
+  const panelTokens = hasPanel ? panelAgg.tokens : 0;
+  const panelWeighted = hasPanel ? panelAgg.weightedTokens : 0;
+  const panelCost = hasPanel ? panelAgg.costUsd : 0;
+  const totalWeighted = agg.weightedTokens + panelWeighted;
+  const totalRaw = agg.tokens + panelTokens;
+  const totalCost = agg.costUsd + panelCost;
+  // Cost leads (it prices cache reads and pricier panel models correctly);
+  // tokens are shown weighted with the raw total in parens. Per-section cost
+  // and tokens carry the code-fix vs review split.
   const lines = [
     SUMMARY_MARKER,
     "## 🤖 Agent effort",
     "",
-    `- Total-tokens: ${formatTokens(totalTokens)} (code-fix ${formatTokens(agg.tokens)} + review ${formatTokens(hasPanel ? panelAgg.tokens : 0)})`,
+    `- Total-cost: ${formatUsd(totalCost)} (code-fix ${formatUsd(agg.costUsd)} + review ${formatUsd(panelCost)})`,
+    `- Total-tokens: ${formatTokens(totalWeighted)} weighted (${formatTokens(totalRaw)} raw)`,
     "",
     "### Code-fix agent",
     "",
+    `- Cost: ${formatUsd(agg.costUsd)}`,
+    `- Tokens: ${formatTokens(agg.weightedTokens)} weighted (${formatTokens(agg.tokens)} raw)`,
     `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
     `- Scope-size: ${scope}`,
     `- Attempt: ${agg.attempt}`,
     `- Sessions: ${agg.sessions}`,
     `- Total-time: ${formatMinutes(agg.durationMs)}`,
     `- Turns: ${agg.turns}`,
-    `- Tokens: ${formatTokens(agg.tokens)}`,
   ];
   if (hasPanel) {
     const ac = panelStats?.agreementCounts || {};
@@ -199,16 +338,36 @@ export function renderSummary({ agg, panelAgg, panelStats, scope }) {
       "",
       "### Review panel",
       "",
+      `- Cost: ${formatUsd(panelAgg.costUsd)}`,
+      `- Tokens: ${formatTokens(panelAgg.weightedTokens)} weighted (${formatTokens(panelAgg.tokens)} raw)`,
       `- Agents: ${panelAgg.agents.length ? panelAgg.agents.join(", ") : "unknown"}`,
       `- Rounds: ${panelAgg.sessions}`,
       `- Total-time: ${formatMinutes(panelAgg.durationMs)}`,
       `- Turns: ${panelAgg.turns}`,
-      `- Tokens: ${formatTokens(panelAgg.tokens)}`,
-      `- Sample-agreement: ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint (${sampledRounds} lens-round samples)`,
+      // Reliability = whether the judge agrees with ITSELF across the N samples
+      // of a single round (intra-round self-consistency), NOT whether it agrees
+      // with the truth. High agreement here means a stable judge, not a correct
+      // one — see the meta-eval's reliability≠validity finding.
+      `- Reliability (intra-round self-consistency, not correctness): ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint across ${sampledRounds} lens-rounds`,
       `- Findings raised: ${r.critical || 0} critical, ${r.major || 0} major, ${r.minor || 0} minor, ${r.nit || 0} nit`,
+      // Weighted scalar companion to the raw vector above — an effort/noise
+      // proxy, not recall (no ground truth here). Shown alongside, not instead.
+      `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
       `- Refuted: ${v.refuted || 0} (${v.refutedHighConfidence || 0} high-confidence)`,
-      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major`,
+      // All four severities shown (critical/major lead as the blocking ones)
+      // so the raw counts reconcile with the weighted scalar below, which
+      // weights every severity — mirrors the "Findings raised" pair above.
+      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major, ${k.minor || 0} minor, ${k.nit || 0} nit`,
+      `- Weighted survived-to-gate: ${weightSeverity(k)}`,
+    );
+    // Advisory heads-up (NOT a verdict): a lens that blocked then approved across
+    // rounds — the PR #521 pattern. Can't distinguish a genuine fix from judge
+    // inconsistency here (see detectFlips), so the wording says "review manually".
+    const flipList = flips?.flips || [];
+    lines.push(
+      `- ⚠️ Cross-round flips (blocking→clean; advisory, review manually): ${flipList.length}` +
+        (flipList.length ? ` — ${flipList.map((f) => `${f.lens} r${f.fromRound}→r${f.toRound}`).join(", ")}` : ""),
     );
   }
   return lines.join("\n");
@@ -234,14 +393,14 @@ export function parseMetricComment(body) {
 
 // --- gh-backed CLI ---------------------------------------------------------
 
-function gh(args) {
+export function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8" });
 }
-function ghJson(args) {
+export function ghJson(args) {
   return JSON.parse(gh(args));
 }
 
-function resolvePrByIssue(issue) {
+export function resolvePrByIssue(issue) {
   // The kickoff creates a branch `agent/<issue>-<slug>`; find the open PR for it.
   // --limit well above the default 30 so a busy repo's PR list isn't truncated
   // before ours is seen.
@@ -254,7 +413,7 @@ function resolvePrByIssue(issue) {
 // ALL comment pages, not just the first 100 — a chatty PR exceeds one page, and
 // missing pages would drop metric records or the summary marker. `--slurp` wraps
 // the paginated responses in a JSON array of pages, which we flatten.
-function listAllComments(pr) {
+export function listAllComments(pr) {
   const pages = ghJson(["api", "--paginate", "--slurp", `repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`]);
   return Array.isArray(pages) ? pages.flat() : [];
 }
@@ -357,13 +516,16 @@ function cmdSummarize(args) {
   const panelStats = panelRecords.length
     ? aggregatePanelStats(panelRecords.flatMap((r) => (Array.isArray(r.lensStats) ? r.lensStats : [])))
     : null;
+  // `panelRecords` is in ledger (chronological = round) order — detectFlips
+  // relies on that, so pass it as-is without re-sorting.
+  const flips = panelRecords.length ? detectFlips(panelRecords) : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
   try {
     // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, scope }));
+    postComment(pr, renderSummary({ agg, panelAgg, panelStats, flips, scope }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }

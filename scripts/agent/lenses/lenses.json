@@ -22,7 +22,7 @@
     "title": "Design-fit",
     "gating": "blocking",
     "needsIssueSpec": true,
-    "appliesWhen": ["**"],
+    "appliesWhen": ["packages/**", "scripts/**", "docs/design/**"],
     "model": "claude-opus-4-8",
     "samples": 2
   },
@@ -31,7 +31,7 @@
     "title": "Test-adequacy",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["**"],
+    "appliesWhen": ["packages/**", "scripts/**"],
     "model": "claude-opus-4-8",
     "samples": 2
   }

@@ -121,11 +121,11 @@ The per-session effort is **not** in the git commits. Each agent session
 comment `<!-- agent-metric {json} -->`, and the pipeline renders one aggregated
 summary comment marked `<!-- agent-metrics-summary -->` (heading `## 🤖 Agent
 effort`) via `scripts/agent/metrics.mjs summarize`. **That summary already IS
-the combined effort of every commit** — `renderSummary()` emits Agents,
-Scope-size, Attempt, Sessions, Total-time, Turns, and Tokens (summed across
-sessions). Note it does **not** render a dollar cost: `aggregate()` sums
-`costUsd` internally but `renderSummary()` never prints it, so the summary you
-copy is effort-only. To fold it into the squash body, copy it — don't recompute:
+the combined effort of every commit** — `renderSummary()` emits Total-cost and
+Total-tokens (weighted + raw) up top, then per section (Code-fix agent / Review
+panel) Cost, Tokens, Agents, Scope-size, Attempt, Sessions, Total-time, and
+Turns (all summed across sessions). To fold it into the squash body, copy it —
+don't recompute:
 
 ```bash
 # Pull the rendered summary (aggregate of all sessions) and strip the marker.
@@ -140,9 +140,9 @@ predates the metrics feature, or the pipeline never promoted it — **omit the
 block entirely. Never write plausible-looking numbers.** If you want the raw
 ledger instead of the rendered summary, aggregate the `<!-- agent-metric -->`
 records the same way `aggregate()` in `scripts/agent/metrics.mjs` does (sum
-turns/tokens/durationMs; sessions = count; attempt = review-fix rounds + 1) —
-`costUsd` is summed there too, but keep it out of the message unless the
-renderer starts emitting it.
+turns/tokens/weightedTokens/durationMs/costUsd; sessions = count; attempt =
+review-fix rounds + 1). `costUsd` and `weightedTokens` are now rendered, so the
+copied summary already carries cost and weighted tokens.
 
 ## Pitfalls
 

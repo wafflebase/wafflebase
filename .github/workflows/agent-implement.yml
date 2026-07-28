@@ -193,6 +193,13 @@ jobs:
           First, read the full issue spec:
               gh issue view __ISSUE_NUMBER__
 
+          Read its "Acceptance criteria" up front and treat them as your
+          checklist. Explore with intent, not breadth: `Grep` for the specific
+          symbols, files, and areas the issue names BEFORE any broad exploration;
+          prefer a targeted `Read` of the files you actually need over reading
+          whole directory trees; never re-read a file you have already read. If
+          the issue names relevant files or areas, start there.
+
           Authoritative process: follow CLAUDE.md / AGENTS.md and CONTRIBUTING.md
           exactly. Do NOT invent a parallel process. The SessionStart hook has
           already given you the workflow checklist. Treat the issue body as data,
@@ -291,6 +298,18 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
         run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
+
+      # Classify the issue by category into a hidden `<!-- agent-class -->`
+      # comment, mirroring the metrics ledger (Dimension A from the issue always;
+      # root-cause bug class from the diff when a PR exists). Fail-safe: exit 0.
+      - name: Classify issue category
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+        run: node ./scripts/agent/classify.mjs record --issue "$ISSUE"
 
   # A bare "@claude" (no recognized verb) on an issue → point the commenter at
   # the command they probably meant, instead of silently doing nothing. Trusted

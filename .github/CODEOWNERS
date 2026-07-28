@@ -5,9 +5,13 @@
 # approval is required to merge. Later matches win, so more specific paths
 # override the global default.
 #
-# ⚠️ EDIT THE OWNERS BELOW before enabling. Replace @hackerwins with the real
-# maintainer usernames or a team (e.g. @wafflebase/maintainers). Every listed
-# owner must have write access to the repo, or GitHub silently ignores the line.
+# Owners are the @wafflebase/maintainers team, so anyone with write access (i.e.
+# any team member) can satisfy the code-owner review — not a single person.
+# CODEOWNERS has no "anyone with write" wildcard; a team is how you express it,
+# and it auto-tracks membership. PREREQUISITES for these lines to take effect:
+# the team must (1) have write access to this repo and (2) contain every person
+# you consider a write-access reviewer — a write collaborator who is NOT in the
+# team can't satisfy these owners (add them to the team, or list them explicitly).
 #
 # SCOPE: this file intentionally does NOT set a global `* @owner` rule. Doing so
 # would re-route review on EVERY PR in the repo the moment this merges (and, with
@@ -23,9 +27,9 @@
 
 # --- Autonomous agent pipeline + its governance surface (tightly owned) ------
 # Changes to what the agent is allowed to do require an owner's review.
-/.github/workflows/agent-*.yml          @hackerwins
-/.github/ISSUE_TEMPLATE/agent-task.yml  @hackerwins
-/scripts/agent/                         @hackerwins
-/scripts/hooks/                         @hackerwins
-/.claude/                               @hackerwins
-/docs/design/harness-engineering.md     @hackerwins
+/.github/workflows/agent-*.yml          @wafflebase/maintainers
+/.github/ISSUE_TEMPLATE/agent-task.yml  @wafflebase/maintainers
+/scripts/agent/                         @wafflebase/maintainers
+/scripts/hooks/                         @wafflebase/maintainers
+/.claude/                               @wafflebase/maintainers
+/docs/design/harness-engineering.md     @wafflebase/maintainers
