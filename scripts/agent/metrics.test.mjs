@@ -105,6 +105,7 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
     {
       agreement: "partial",
       raised: { critical: 0, major: 2, minor: 0, nit: 1 },
+      raisedConfidence: { high: 1, medium: 1, low: 1, unknown: 0 },
       kept: { critical: 0, major: 1, minor: 0, nit: 1 },
       verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1, dropped: 1 },
     },
@@ -116,8 +117,16 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   // a ledger entry written before `dropped` existed contributes 0, not NaN — the
   // ledger is append-only, so a mid-PR upgrade always produces this mixed shape.
   assert.deepEqual(rolled.verifier, { sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1, dropped: 1 });
+  // Same append-only story for confidence: the first entry predates the field
+  // entirely, so it contributes nothing — NOT four `unknown`s. Rounds recorded
+  // before the split are absent data, not findings a lens declined to rate, and
+  // conflating the two would make the "is the lens using confidence?" signal
+  // unreadable on exactly the PRs that straddle the change.
+  assert.deepEqual(rolled.raisedConfidence, { high: 1, medium: 1, low: 1, unknown: 0 });
   // tolerant of junk/empty input — never throws, never blocks recording
   assert.deepEqual(aggregatePanelStats([]).verifier, { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 });
+  assert.deepEqual(aggregatePanelStats([]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
+  assert.deepEqual(aggregatePanelStats([{ raisedConfidence: "junk" }]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
   assert.deepEqual(aggregatePanelStats(null).agreementCounts, { identical: 0, partial: 0, disjoint: 0, single: 0 });
   assert.deepEqual(aggregatePanelStats([null, "junk", {}]).raised, { critical: 0, major: 0, minor: 0, nit: 0 });
 });
@@ -260,6 +269,10 @@ test("renderSummary: with review-panel data, renders a separate section + combin
     panelStats: {
       agreementCounts: { identical: 6, partial: 1, disjoint: 1, single: 0 },
       raised: { critical: 2, major: 5, minor: 3, nit: 1 },
+      // Deliberately does NOT sum to the 11 raised above: one finding came from
+      // a lens that emitted no confidence (→ unrated). The row is a distribution
+      // over the same findings, not a second count of them.
+      raisedConfidence: { high: 4, medium: 3, low: 3, unknown: 1 },
       kept: { critical: 1, major: 3, minor: 2, nit: 2 },
       verifier: { sentToVerifier: 7, refuted: 3, refutedHighConfidence: 2, dropped: 1 },
     },
@@ -273,6 +286,11 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   // reliability wording makes explicit this is self-consistency, not correctness
   assert.match(md, /- Reliability \(intra-round self-consistency, not correctness\): 6 identical, 1 partial, 1 disjoint across 8 lens-rounds/);
   assert.match(md, /- Findings raised: 2 critical, 5 major, 3 minor, 1 nit/);
+  // Exact row: label, order, counts, and the "does NOT gate" disclaimer. The
+  // disclaimer is the load-bearing part — without it a reader can reasonably
+  // assume a low-confidence critical was filtered, which is the misreading the
+  // severity/confidence split exists to prevent.
+  assert.match(md, /- Confidence of raised \(does NOT gate\): 4 high, 3 medium, 3 low, 1 unrated/);
   // weighted companion is additional, not a replacement for the raw vector:
   // 2*4 + 5*2 + 3*1 + 1*0.5 = 21.5
   assert.match(md, /- Weighted raised \(effort proxy, not recall\): 21\.5/);

@@ -411,7 +411,21 @@ Components:
   never loaded — the workflow also strips `.claude/` and installs the SDK in a
   separate UNPRIVILEGED `deps` job so no install runs with the secrets), and
   returns findings (schema-requested, then locally shape-validated + fail-safe
-  severity-normalized) classified `critical`/`major`/`minor`/`nit`. A per-finding
+  severity-normalized) classified `critical`/`major`/`minor`/`nit`, each with a
+  separate `confidence` of `high`/`medium`/`low`. The two axes are deliberately
+  independent: **`severity` is impact if the finding is real, `confidence` is how
+  sure the lens is**, and the rubrics tell lenses never to downgrade severity to
+  express doubt. Before this split the only channel for doubt WAS severity — the
+  rubrics closed with *"when unsure, downgrade"* — which is the documented
+  anti-pattern where a model investigates just as thoroughly and then declines to
+  report, and is why the panel recorded zero `critical` findings in its first
+  nineteen PRs. The rubrics are now **coverage-first**: report everything,
+  including uncertain findings, and let the verifier filter. **Gating is
+  unchanged and reads `severity` only** (`BLOCKING = {critical, major}`) — gating
+  on confidence would rebuild the same clamp inside the trusted script. The
+  confidence distribution is reported per PR so the axis can be seen to be in
+  use; it is not shown to the fix agent, which must address every blocking
+  finding regardless of how sure the lens was. A per-finding
   **verifier** subagent then tries to refute each blocking finding. It is
   deliberately **not given the diff**: the lens that raised the finding reasoned
   from that diff, so a verifier reading the same diff inherits its misreadings
