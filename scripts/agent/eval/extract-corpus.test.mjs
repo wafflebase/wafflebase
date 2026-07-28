@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildItemMeta, manifestItem, resolveReviewPoint } from "./extract-corpus.mjs";
+import { buildItemMeta, manifestItem, resolveReviewPoint, headAtOpen } from "./extract-corpus.mjs";
 
 const view = {
   number: 517, title: "Fix X", author: { login: "agent" }, mergedAt: "2026-07-01T00:00:00Z",
@@ -29,6 +29,45 @@ test("buildItemMeta records scope from additions+deletions (S/M/L)", () => {
 test("has_issue_spec is false for empty/whitespace issue spec", () => {
   assert.equal(buildItemMeta(view, "d", "").has_issue_spec, false);
   assert.equal(buildItemMeta(view, "d", "   ").has_issue_spec, false);
+});
+
+test("headAtOpen: newest commit pushed before PR creation = the opened state", () => {
+  const view = {
+    headRefOid: "H", createdAt: "2026-07-22T01:34:18Z",
+    commits: [
+      { oid: "C1", committedDate: "2026-07-22T01:33:40Z" }, // before open
+      { oid: "C2", committedDate: "2026-07-22T05:48:04Z" }, // pushed during review
+      { oid: "C3", committedDate: "2026-07-22T23:44:54Z" },
+    ],
+  };
+  assert.equal(headAtOpen(view), "C1");
+});
+
+test("headAtOpen: multiple pre-open commits → the latest of them", () => {
+  const view = {
+    headRefOid: "H", createdAt: "2026-07-22T10:00:00Z",
+    commits: [
+      { oid: "C1", committedDate: "2026-07-22T08:00:00Z" },
+      { oid: "C2", committedDate: "2026-07-22T09:00:00Z" }, // both before open
+      { oid: "C3", committedDate: "2026-07-22T11:00:00Z" }, // after
+    ],
+  };
+  assert.equal(headAtOpen(view), "C2");
+});
+
+test("resolveReviewPoint: default is pr-open; uses head-at-open", () => {
+  const view = {
+    headRefOid: "H", baseRefOid: "B", createdAt: "2026-07-22T01:34:18Z",
+    author: { login: "someone" }, headRefName: "feature/x",
+    commits: [
+      { oid: "C1", committedDate: "2026-07-22T01:33:40Z" },
+      { oid: "C2", committedDate: "2026-07-22T05:48:04Z" },
+    ],
+  };
+  const r = resolveReviewPoint(view); // default
+  assert.equal(r.review_point, "pr-open");
+  assert.equal(r.review_commit, "C1");
+  assert.equal(r.review_base, "B");
 });
 
 test("resolveReviewPoint: auto → first for autonomous, head for others", () => {

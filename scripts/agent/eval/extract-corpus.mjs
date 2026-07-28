@@ -48,23 +48,45 @@ export function issueNumberOf(view) {
 }
 
 /**
+ * The commit the PR pointed at WHEN IT WAS OPENED for review — i.e. every commit
+ * pushed before `createdAt` (the newest of them), so it's the exact diff a
+ * reviewer first saw. Commits pushed after open (fix-loop / review-response) are
+ * excluded. Falls back to the first commit, then head. ISO dates compare
+ * correctly as strings.
+ */
+export function headAtOpen(view) {
+  const commits = Array.isArray(view.commits) ? view.commits : [];
+  if (!commits.length) return view.headRefOid ?? "";
+  const createdAt = view.createdAt;
+  const present = commits.filter((c) => c.committedDate && createdAt && c.committedDate <= createdAt);
+  const pool = present.length ? present : [commits[0]];
+  const latest = pool.reduce((a, b) => ((a.committedDate ?? "") >= (b.committedDate ?? "") ? a : b));
+  return latest.oid ?? view.headRefOid ?? "";
+}
+
+/**
  * The REVIEW POINT — which commit to review at, so the frozen diff matches what
  * the panel actually reviewed rather than the merged (already-fixed) state.
- *   - "head"  : the PR's final state (== the merged diff). No pre-review context.
- *   - "first" : the PR's FIRST commit (the pre-fix state, where the panel's
- *               blocking findings originate) → gives verdict diversity.
- *   - "auto"  : autonomous PRs → "first" (they went through the fix loop),
- *               everything else → "head" (no meaningful pre-review state).
+ *   - "pr-open" (default): the diff AS THE PR WAS OPENED for review — every commit
+ *               before createdAt. For agents this is their implement commit; for
+ *               humans it's what they pushed before opening (no partial-WIP risk).
+ *   - "first" : the PR's literal FIRST commit (can be partial for humans who
+ *               iterated locally before the change was complete).
+ *   - "head"  : the PR's final/merged state (skews approve).
+ *   - "auto"  : autonomous → "first", everything else → "head" (legacy).
  * Returns { review_commit, review_base, review_point }.
  */
-export function resolveReviewPoint(view, mode = "auto") {
+export function resolveReviewPoint(view, mode = "pr-open") {
   const commits = Array.isArray(view.commits) ? view.commits : [];
   const head = view.headRefOid ?? "";
   const base = view.baseRefOid ?? "";
   const first = commits[0]?.oid ?? head;
   let point = mode;
   if (mode === "auto") point = classifyProvenance(view) === "autonomous" ? "first" : "head";
-  const review_commit = point === "first" ? first : head;
+  let review_commit;
+  if (point === "first") review_commit = first;
+  else if (point === "pr-open") review_commit = headAtOpen(view);
+  else review_commit = head; // "head"
   return { review_commit, review_base: base, review_point: point };
 }
 
@@ -185,7 +207,7 @@ function fetchIssueSpec(repo, view) {
 function fetchPr(repo, n, { reviewPointMode = "auto", repoSource } = {}) {
   const view = ghJson([
     "pr", "view", n, "-R", repo, "--json",
-    "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
+    "number,title,author,createdAt,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
   ]);
   const reviewPoint = resolveReviewPoint(view, reviewPointMode);
   // Fetch the PR's commits so review_commit (head OR first) is locally available
@@ -218,7 +240,7 @@ function main() {
   const corpusVersion = args["corpus-version"];
   // Local clone to fetch PR commits into + diff/archive from (default: this repo).
   const repoSource = path.resolve(args["repo-source"] ?? path.join(HERE, "..", ".."));
-  const reviewPointMode = args["review-point"] ?? "auto"; // auto | head | first
+  const reviewPointMode = args["review-point"] ?? "pr-open"; // pr-open | first | head | auto
   const numbers = resolvePrNumbers(args);
   console.log(`extract-corpus: ${numbers.length} PR(s) from ${args.repo} → corpus "${corpusVersion}" (review-point=${reviewPointMode})${args["dry-run"] ? " (dry-run)" : ""}`);
 

@@ -76,10 +76,13 @@ to what the panel saw in production:
   `review_commit` (`git archive`, cached per commit) and passes it as `--repo`, so
   lenses `Read`/`Grep` real surrounding code (not an empty dir). Disable with
   `--no-repo-context` for diff-only replay.
-- **(b) Review-point diff** — `extract-corpus --review-point auto` freezes the
-  diff at the commit the panel actually reviewed: autonomous PRs → **first commit**
-  (pre-fix state, where blocking findings originate → verdict diversity), others →
-  **head**. Recorded per item as `review_commit`/`review_point`.
+- **(b) Review-point diff** — `extract-corpus --review-point` freezes the diff at
+  the commit the panel actually reviewed, not the merged state. Modes:
+  **`pr-open`** (default) — the diff as the PR was *opened for review* (every commit
+  before `createdAt`; agents → their implement commit, humans → what they pushed
+  before opening, no partial-WIP risk); **`first`** — the literal first commit;
+  **`head`** — the merged state; **`auto`** — agent→first / human→head (legacy).
+  Recorded per item as `review_commit`/`review_point`.
 
 Remaining divergences (documented, not yet closed): single review pass (no
 multi-round fix loop / prior-findings recheck), no GitHub workflow orchestration,
