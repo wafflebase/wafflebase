@@ -105,6 +105,7 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
     {
       agreement: "partial",
       raised: { critical: 0, major: 2, minor: 0, nit: 1 },
+      raisedConfidence: { high: 1, medium: 1, low: 1, unknown: 0 },
       kept: { critical: 0, major: 1, minor: 0, nit: 1 },
       verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1, dropped: 1 },
     },
@@ -116,8 +117,16 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   // a ledger entry written before `dropped` existed contributes 0, not NaN — the
   // ledger is append-only, so a mid-PR upgrade always produces this mixed shape.
   assert.deepEqual(rolled.verifier, { sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1, dropped: 1 });
+  // Same append-only story for confidence: the first entry predates the field
+  // entirely, so it contributes nothing — NOT four `unknown`s. Rounds recorded
+  // before the split are absent data, not findings a lens declined to rate, and
+  // conflating the two would make the "is the lens using confidence?" signal
+  // unreadable on exactly the PRs that straddle the change.
+  assert.deepEqual(rolled.raisedConfidence, { high: 1, medium: 1, low: 1, unknown: 0 });
   // tolerant of junk/empty input — never throws, never blocks recording
   assert.deepEqual(aggregatePanelStats([]).verifier, { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 });
+  assert.deepEqual(aggregatePanelStats([]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
+  assert.deepEqual(aggregatePanelStats([{ raisedConfidence: "junk" }]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
   assert.deepEqual(aggregatePanelStats(null).agreementCounts, { identical: 0, partial: 0, disjoint: 0, single: 0 });
   assert.deepEqual(aggregatePanelStats([null, "junk", {}]).raised, { critical: 0, major: 0, minor: 0, nit: 0 });
 });

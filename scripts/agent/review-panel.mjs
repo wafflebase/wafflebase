@@ -34,15 +34,25 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // --- structured-output schemas (raw JSON Schema draft-7) --------------------
 
+// `severity` and `confidence` are deliberately SEPARATE axes, and both are
+// required so a lens cannot collapse them back together by omission.
+//   severity   = impact IF the finding is real  → this is what the gate reads
+//   confidence = how sure the lens is           → this gates NOTHING
+// Without a confidence field the only way to express doubt is to downgrade
+// severity, which is what the rubrics used to instruct ("when unsure,
+// downgrade") and what buried every real `critical` under `minor`. The gate
+// stays on severity alone: filtering by confidence here would just rebuild the
+// clamp inside the trusted script, and it is the verifier's job to filter.
 const FINDING = {
   type: "object",
   properties: {
     severity: { type: "string", enum: ["critical", "major", "minor", "nit"] },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
     file: { type: "string" },
     summary: { type: "string" },
     evidence: { type: "string" },
   },
-  required: ["severity", "summary"],
+  required: ["severity", "confidence", "summary"],
 };
 const LENS_SCHEMA = {
   type: "object",
@@ -320,6 +330,26 @@ export function severityCounts(findings) {
 }
 
 /**
+ * Confidence breakdown `{high,medium,low,unknown}` of a findings array.
+ *
+ * Anything missing or unrecognised lands in `unknown` rather than being coerced
+ * into a real bucket. `normalizeSeverity` coerces (unknown → `major`) because
+ * severity gates the merge and must fail toward blocking; confidence gates
+ * nothing, so it is purely a measurement — and a measurement that silently files
+ * missing data under `high` would hide exactly what this is here to detect: a
+ * lens that is not using the confidence axis at all, and is therefore still
+ * expressing doubt by downgrading severity.
+ */
+export function confidenceCounts(findings) {
+  const out = { high: 0, medium: 0, low: 0, unknown: 0 };
+  for (const f of Array.isArray(findings) ? findings : []) {
+    const c = f && f.confidence;
+    out[typeof c === "string" && c in out && c !== "unknown" ? c : "unknown"]++;
+  }
+  return out;
+}
+
+/**
  * Tally the verifier's confirm/refute pass over a (findings, verdicts) pair —
  * only blocking findings are ever sent to the verifier (mirrors
  * `applyVerifications`' own gate, so `sentToVerifier` never counts a
@@ -459,10 +489,21 @@ async function runLens(lens, { rubric, diff, issue, repo, sessionLog }) {
   if (lens.needsIssueSpec && issue) {
     parts.push("", "## The originating issue this PR claims to satisfy (DATA):", "```", issue, "```");
   }
+  // This closing block is the LAST thing the lens reads, so it wins ties against
+  // the rubric above it. It used to read "Use critical/major severity ONLY for a
+  // concrete, defensible violation with cited evidence" — a certainty clamp that
+  // would have silently overridden every coverage-first rubric, which is exactly
+  // how the rubrics and the wrapper can drift apart unnoticed. Keep the two
+  // saying the same thing.
   parts.push(
     "",
-    "Return ONLY the structured verdict. Use critical/major severity ONLY for a",
-    "concrete, defensible violation with cited evidence; taste → minor/nit.",
+    "Return ONLY the structured verdict.",
+    "Report EVERY issue you find, including ones you are unsure about — an",
+    "independent verifier re-checks each blocking finding afterwards, so filtering",
+    "for confidence is not your job. Set `severity` by IMPACT IF REAL and",
+    "`confidence` by how sure you are; never lower severity to signal doubt.",
+    "Taste and preference stay minor/nit however confident you are — that is a",
+    "judgement about the finding's KIND, not about your certainty.",
   );
   return askStructured({
     systemPrompt: `You are the ${lens.title} reviewer. Stay strictly in your lane; defer other lenses' concerns.`,
@@ -683,6 +724,7 @@ async function main() {
         ...(infra ? { infraError: infra } : {}),
         agreement: compareSampleAgreement([]),
         raised: severityCounts(failFindings),
+        raisedConfidence: confidenceCounts(failFindings),
         verifier: { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
         kept: severityCounts(failFindings),
       });
@@ -726,6 +768,7 @@ async function main() {
       samplesOk: ok.length,
       agreement: compareSampleAgreement(ok.map((r) => r.findings)),
       raised: severityCounts(findings),
+      raisedConfidence: confidenceCounts(findings),
       verifier: {
         sentToVerifier: freshTally.sentToVerifier + priorTally.sentToVerifier,
         refuted: freshTally.refuted + priorTally.refuted,

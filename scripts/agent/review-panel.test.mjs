@@ -15,6 +15,7 @@ import {
   parsePriorFindings,
   compareSampleAgreement,
   severityCounts,
+  confidenceCounts,
   verifierTally,
   classifyResult,
   withRetry,
@@ -252,6 +253,60 @@ test("severityCounts: tallies by normalized severity, unknown → major", () => 
     { critical: 2, major: 1, minor: 1, nit: 0 },
   );
   assert.deepEqual(severityCounts("not an array"), { critical: 0, major: 0, minor: 0, nit: 0 });
+  // Severity and confidence are independent axes. A low-confidence critical is
+  // still a critical — if confidence ever starts influencing this count, the
+  // clamp the coverage-first rubrics removed has grown back inside the script.
+  assert.deepEqual(
+    severityCounts([
+      { severity: "critical", confidence: "low" },
+      { severity: "critical", confidence: "high" },
+      { severity: "major", confidence: "low" },
+    ]),
+    { critical: 2, major: 1, minor: 0, nit: 0 },
+  );
+});
+
+test("confidenceCounts: buckets by confidence; anything unrated → unknown", () => {
+  assert.deepEqual(confidenceCounts([]), { high: 0, medium: 0, low: 0, unknown: 0 });
+  assert.deepEqual(
+    confidenceCounts([{ confidence: "high" }, { confidence: "low" }, { confidence: "low" }, { confidence: "medium" }]),
+    { high: 1, medium: 1, low: 2, unknown: 0 },
+  );
+  // Unrated does NOT get coerced into a real bucket the way severity does. A
+  // lens that stops emitting confidence must show up as `unknown`, because that
+  // is the signal that it is back to expressing doubt through severity.
+  assert.deepEqual(
+    confidenceCounts([{ severity: "major" }, { confidence: "wat" }, { confidence: 7 }, { confidence: null }]),
+    { high: 0, medium: 0, low: 0, unknown: 4 },
+  );
+  // "unknown" is not a value a lens can claim — it means "not rated"
+  assert.deepEqual(confidenceCounts([{ confidence: "unknown" }]), { high: 0, medium: 0, low: 0, unknown: 1 });
+  // junk input never throws
+  for (const bad of ["not an array", null, undefined, 7, {}]) {
+    assert.deepEqual(confidenceCounts(bad), { high: 0, medium: 0, low: 0, unknown: 0 });
+  }
+  assert.deepEqual(confidenceCounts([null, 7, "x"]), { high: 0, medium: 0, low: 0, unknown: 3 });
+});
+
+// Read the REAL rubrics, same reasoning as the manifest above: these files ARE
+// the behaviour, and a clamp re-added by hand is invisible to every other test.
+test("lens rubrics are coverage-first, with no certainty clamp", () => {
+  const RUBRICS = ["correctness", "security", "design-fit", "test-adequacy"];
+  // Phrases that make a lens investigate thoroughly and then decline to report —
+  // the documented failure mode this whole change exists to remove.
+  const CLAMPS = [/when unsure,?\s+downgrade/i, /mark it minor/i, /only with (?:a )?concrete/i, /ONLY for a\s+concrete/i];
+  for (const id of RUBRICS) {
+    const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
+    for (const clamp of CLAMPS) {
+      assert.ok(!clamp.test(md), `${id}.md re-introduces a certainty clamp: ${clamp}`);
+    }
+    assert.match(md, /Report EVERY issue you find/, `${id}.md must instruct coverage-first`);
+    assert.match(md, /[Nn]ever downgrade\s+severity/, `${id}.md must separate severity from doubt`);
+    assert.match(md, /confidence/i, `${id}.md must tell the lens what confidence is for`);
+  }
+  // Every rubric in the manifest is covered by the loop above — otherwise a new
+  // lens could ship with a clamp and nothing here would notice.
+  assert.deepEqual(LENSES.map((l) => l.id).sort(), [...RUBRICS].sort());
 });
 
 test("verifierTally: only blocking findings are sent; refuted vs high-confidence vs dropped", () => {
