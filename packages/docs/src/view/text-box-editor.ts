@@ -33,6 +33,7 @@ import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
+import { findLinkRunAt } from './link-run.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -1120,8 +1121,28 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         requestRender();
         notifyStyleApplied();
       } else {
-        docStore.snapshot();
         const pos = cursor.position;
+
+        // Caret inside an existing link: update its href in place instead
+        // of inserting the URL as a new link at the caret (#494).
+        const block = doc.findBlock(pos.blockId);
+        const link = block ? findLinkRunAt(block, pos.offset) : undefined;
+        if (block && link) {
+          docStore.snapshot();
+          doc.applyInlineStyle(
+            {
+              anchor: { blockId: block.id, offset: link.start },
+              focus: { blockId: block.id, offset: link.end },
+            },
+            { href: url },
+          );
+          layoutCache = undefined;
+          requestRender();
+          notifyStyleApplied();
+          return;
+        }
+
+        docStore.snapshot();
         doc.insertText(pos, url);
         const range = {
           anchor: { blockId: pos.blockId, offset: pos.offset },
@@ -1138,26 +1159,12 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     removeLink(): void {
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return;
-      const inlines = block.inlines;
-      let cursorInlineIdx = -1;
-      const offsets: number[] = [0];
-      for (let i = 0; i < inlines.length; i++) {
-        const inlineEnd = offsets[i] + inlines[i].text.length;
-        offsets.push(inlineEnd);
-        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
-          cursorInlineIdx = i;
-        }
-      }
-      if (cursorInlineIdx < 0) return;
-      const href = inlines[cursorInlineIdx].style.href;
-      let lo = cursorInlineIdx;
-      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
-      let hi = cursorInlineIdx;
-      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
+      const link = findLinkRunAt(block, cursor.position.offset);
+      if (!link) return;
       docStore.snapshot();
       const range = {
-        anchor: { blockId: block.id, offset: offsets[lo] },
-        focus: { blockId: block.id, offset: offsets[hi + 1] },
+        anchor: { blockId: block.id, offset: link.start },
+        focus: { blockId: block.id, offset: link.end },
       };
       doc.applyInlineStyle(range, { href: undefined });
       layoutCache = undefined;

@@ -22,6 +22,7 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
+import { findLinkRunAt } from './link-run.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -3030,9 +3031,30 @@ export function initialize(
         render();
         notifyStyleApplied();
       } else {
-        docStore.snapshot();
         const pos = cursor.position;
 
+        // Caret inside an existing link: update its href in place instead
+        // of inserting the URL as a new link at the caret (#494).
+        const block = doc.getBlock(pos.blockId);
+        const link = block ? findLinkRunAt(block, pos.offset) : undefined;
+        if (block && link) {
+          docStore.snapshot();
+          doc.applyInlineStyle(
+            {
+              anchor: { blockId: block.id, offset: link.start },
+              focus: { blockId: block.id, offset: link.end },
+            },
+            { href: url },
+          );
+          // Cell block: mark the parent table block dirty (mirrors removeLink)
+          const cellInfo = layout.blockParentMap.get(block.id);
+          markDirty(cellInfo ? cellInfo.tableBlockId : block.id);
+          render();
+          notifyStyleApplied();
+          return;
+        }
+
+        docStore.snapshot();
         doc.insertText(pos, url);
         const range = {
           anchor: { blockId: pos.blockId, offset: pos.offset },
@@ -3052,28 +3074,13 @@ export function initialize(
       const block = doc.getBlock(cursor.position.blockId);
       if (!block) return;
 
-      const inlines = block.inlines;
-
-      let cursorInlineIdx = -1;
-      const offsets: number[] = [0];
-      for (let i = 0; i < inlines.length; i++) {
-        const inlineEnd = offsets[i] + inlines[i].text.length;
-        offsets.push(inlineEnd);
-        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
-          cursorInlineIdx = i;
-        }
-      }
-      if (cursorInlineIdx < 0) return;
-      const href = inlines[cursorInlineIdx].style.href;
-      let lo = cursorInlineIdx;
-      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
-      let hi = cursorInlineIdx;
-      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
+      const link = findLinkRunAt(block, cursor.position.offset);
+      if (!link) return;
 
       docStore.snapshot();
       const range = {
-        anchor: { blockId: block.id, offset: offsets[lo] },
-        focus: { blockId: block.id, offset: offsets[hi + 1] },
+        anchor: { blockId: block.id, offset: link.start },
+        focus: { blockId: block.id, offset: link.end },
       };
       doc.applyInlineStyle(range, { href: undefined });
       // Mark the containing block (or table block for cell blocks) as dirty
