@@ -58,9 +58,25 @@ node eval/reliability.mjs --out "$EVAL" --config-hash sha256:<hash> --corpus-ver
 git -C "$EVAL" add -A && git -C "$EVAL" commit -m "pilot runs + reliability score"
 ```
 
-## Fidelity caveat (v1)
+## Fidelity to production
 
-Replay is **diff-only** — the panel runs against an empty `--repo`, so lenses
-reason from the diff, not surrounding code they could `Read` in production.
-Reliability (self-consistency under identical conditions) is unaffected;
-production-fidelity (repo checked out at the PR head) is a future enhancement.
+The harness invokes the **exact** `review-panel.mjs` orchestrator (not a
+reimplementation) with the live `lenses.json` + rubric prompts + models, so the
+reviewer's *judgment* is faithful. Two context upgrades bring the *input* closer
+to what the panel saw in production:
+
+- **(a) Repo context** — the runner checks out the repo TREE at each item's
+  `review_commit` (`git archive`, cached per commit) and passes it as `--repo`, so
+  lenses `Read`/`Grep` real surrounding code (not an empty dir). Disable with
+  `--no-repo-context` for diff-only replay.
+- **(b) Review-point diff** — `extract-corpus --review-point auto` freezes the
+  diff at the commit the panel actually reviewed: autonomous PRs → **first commit**
+  (pre-fix state, where blocking findings originate → verdict diversity), others →
+  **head**. Recorded per item as `review_commit`/`review_point`.
+
+Remaining divergences (documented, not yet closed): single review pass (no
+multi-round fix loop / prior-findings recheck), no GitHub workflow orchestration,
+and `additions`/`deletions`/`scope` reflect the merged PR (a size proxy) rather
+than the review-point diff. The repo checkout requires the PR commits fetched into
+`--repo-source` (the extractor fetches `refs/pull/N/head`); if a commit is
+unavailable the runner falls back to diff-only for that item.

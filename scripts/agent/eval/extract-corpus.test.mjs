@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildItemMeta, manifestItem } from "./extract-corpus.mjs";
+import { buildItemMeta, manifestItem, resolveReviewPoint } from "./extract-corpus.mjs";
 
 const view = {
   number: 517, title: "Fix X", author: { login: "agent" }, mergedAt: "2026-07-01T00:00:00Z",
@@ -31,11 +31,32 @@ test("has_issue_spec is false for empty/whitespace issue spec", () => {
   assert.equal(buildItemMeta(view, "d", "   ").has_issue_spec, false);
 });
 
+test("resolveReviewPoint: auto → first for autonomous, head for others", () => {
+  const auto = { headRefName: "agent/280-x", author: { login: "app/yorkie-agent" }, headRefOid: "H", baseRefOid: "B", commits: [{ oid: "C1" }, { oid: "C2" }] };
+  const human = { headRefName: "feature/x", author: { login: "someone" }, headRefOid: "H", baseRefOid: "B", commits: [{ oid: "C1" }] };
+  const a = resolveReviewPoint(auto, "auto");
+  assert.deepEqual([a.review_point, a.review_commit, a.review_base], ["first", "C1", "B"]);
+  const h = resolveReviewPoint(human, "auto");
+  assert.deepEqual([h.review_point, h.review_commit], ["head", "H"]);
+});
+
+test("resolveReviewPoint: explicit modes override; empty commits → head fallback", () => {
+  const v = { headRefName: "agent/1-x", author: { login: "app/yorkie-agent" }, headRefOid: "H", baseRefOid: "B", commits: [] };
+  assert.equal(resolveReviewPoint(v, "head").review_commit, "H");
+  assert.equal(resolveReviewPoint(v, "first").review_commit, "H"); // no commits → falls back to head oid
+});
+
+test("buildItemMeta carries the review point", () => {
+  const meta = buildItemMeta(view, "d", "", { review_commit: "C1", review_base: "B", review_point: "first" });
+  assert.equal(meta.review_commit, "C1");
+  assert.equal(meta.review_point, "first");
+});
+
 test("manifestItem is the compact index entry", () => {
   const meta = buildItemMeta(view, "d", "spec");
   assert.deepEqual(manifestItem(meta), {
     id: "pr-517", source_pr: 517, base_ref: "base123",
     sha256_diff: meta.sha256_diff, has_issue_spec: true,
-    scope: "M", provenance: "human",
+    scope: "M", provenance: "human", review_point: "head",
   });
 });

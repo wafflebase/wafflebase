@@ -17,6 +17,8 @@ import { GitFsStore } from "./store.mjs";
 import { contentHash } from "./config-hash.mjs";
 import { scopeSize } from "../metrics.mjs"; // reuse the pipeline's own S/M/L rule
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
 const DEFAULT_REPO = "wafflebase/wafflebase";
 
 // --- pure helpers (exported for tests) --------------------------------------
@@ -45,9 +47,46 @@ export function issueNumberOf(view) {
   return (view.closingIssuesReferences ?? [])[0]?.number ?? null;
 }
 
-/** Assemble the per-item meta.json from a PR view + diff. */
-export function buildItemMeta(view, diff, issueSpec) {
-  const changedFiles = (view.files ?? []).map((f) => f.path).filter(Boolean);
+/**
+ * The REVIEW POINT — which commit to review at, so the frozen diff matches what
+ * the panel actually reviewed rather than the merged (already-fixed) state.
+ *   - "head"  : the PR's final state (== the merged diff). No pre-review context.
+ *   - "first" : the PR's FIRST commit (the pre-fix state, where the panel's
+ *               blocking findings originate) → gives verdict diversity.
+ *   - "auto"  : autonomous PRs → "first" (they went through the fix loop),
+ *               everything else → "head" (no meaningful pre-review state).
+ * Returns { review_commit, review_base, review_point }.
+ */
+export function resolveReviewPoint(view, mode = "auto") {
+  const commits = Array.isArray(view.commits) ? view.commits : [];
+  const head = view.headRefOid ?? "";
+  const base = view.baseRefOid ?? "";
+  const first = commits[0]?.oid ?? head;
+  let point = mode;
+  if (mode === "auto") point = classifyProvenance(view) === "autonomous" ? "first" : "head";
+  const review_commit = point === "first" ? first : head;
+  return { review_commit, review_base: base, review_point: point };
+}
+
+/** Changed-file paths parsed from a unified diff (the ACTUAL reviewed files, so
+ * lens path-scoping matches the review point). `+++ b/<path>` wins; deletions
+ * (`+++ /dev/null`) fall back to the `diff --git a/… b/<path>` header. */
+export function changedFilesFromDiff(diff) {
+  const files = new Set();
+  for (const line of String(diff ?? "").split("\n")) {
+    let m = /^\+\+\+ b\/(.+)$/.exec(line);
+    if (m && m[1] !== "/dev/null") { files.add(m[1]); continue; }
+    m = /^diff --git a\/.+ b\/(.+)$/.exec(line);
+    if (m) files.add(m[1]);
+  }
+  return [...files];
+}
+
+/** Assemble the per-item meta.json from a PR view + diff + resolved review point. */
+export function buildItemMeta(view, diff, issueSpec, reviewPoint = {}) {
+  // Prefer files parsed from the reviewed diff; fall back to the PR's file list.
+  const fromDiff = changedFilesFromDiff(diff);
+  const changedFiles = fromDiff.length ? fromDiff : (view.files ?? []).map((f) => f.path).filter(Boolean);
   const additions = Number(view.additions) || 0;
   const deletions = Number(view.deletions) || 0;
   return {
@@ -61,6 +100,11 @@ export function buildItemMeta(view, diff, issueSpec) {
     base_ref: view.baseRefOid ?? "",
     base_ref_name: view.baseRefName ?? "",
     head_ref: view.headRefOid ?? "",
+    // The commit the frozen diff/context are taken AT (fidelity: reviewed state,
+    // not merged). review_commit is what the adapter checks the repo out at.
+    review_commit: reviewPoint.review_commit ?? view.headRefOid ?? "",
+    review_base: reviewPoint.review_base ?? view.baseRefOid ?? "",
+    review_point: reviewPoint.review_point ?? "head",
     changed_files: changedFiles,
     additions,
     deletions,
@@ -78,7 +122,7 @@ export function manifestItem(meta) {
   return {
     id: meta.id, source_pr: meta.source_pr, base_ref: meta.base_ref,
     sha256_diff: meta.sha256_diff, has_issue_spec: meta.has_issue_spec,
-    scope: meta.scope, provenance: meta.provenance,
+    scope: meta.scope, provenance: meta.provenance, review_point: meta.review_point,
   };
 }
 
@@ -86,6 +130,37 @@ export function manifestItem(meta) {
 
 function gh(args) { return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }); }
 function ghJson(args) { return JSON.parse(gh(args)); }
+
+function gitC(repoSource, args, opts = {}) {
+  return execFileSync("git", ["-C", repoSource, ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, ...opts });
+}
+
+/** Fetch a PR's commits into the local clone so we can diff/archive at any of
+ * them (refs/pull/N/head brings the head + all PR commits). Best-effort. */
+function ensurePrCommits(repoSource, repo, n) {
+  try {
+    gitC(repoSource, ["fetch", "-q", `https://github.com/${repo}.git`, `refs/pull/${n}/head`], { stdio: "pipe" });
+    return true;
+  } catch (e) {
+    console.error(`  (fetch pull/${n}/head failed: ${e.message.split("\n")[0]})`);
+    return false;
+  }
+}
+
+/** The diff to review, taken AT review_commit. Three-dot (merge-base) semantics
+ * to match GitHub's PR diff. Falls back to the single review commit's own change
+ * if the base isn't locally reachable. */
+function diffAtReviewPoint(repoSource, repo, n, reviewPoint) {
+  const { review_commit, review_base, review_point } = reviewPoint;
+  // "head" == the merged/current PR diff — gh gives it robustly, no local commits needed.
+  if (review_point === "head") return gh(["pr", "diff", n, "-R", repo, "--patch"]);
+  ensurePrCommits(repoSource, repo, n);
+  try {
+    return gitC(repoSource, ["diff", `${review_base}...${review_commit}`]);
+  } catch {
+    return gitC(repoSource, ["diff", `${review_commit}^...${review_commit}`]); // base unreachable → first commit alone
+  }
+}
 
 function resolvePrNumbers(args) {
   if (args.prs) return String(args.prs).split(",").map((s) => s.trim()).filter(Boolean);
@@ -108,14 +183,15 @@ function fetchIssueSpec(repo, view) {
   }
 }
 
-function fetchPr(repo, n) {
+function fetchPr(repo, n, { reviewPointMode = "auto", repoSource } = {}) {
   const view = ghJson([
     "pr", "view", n, "-R", repo, "--json",
-    "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,closingIssuesReferences",
+    "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
   ]);
-  const diff = gh(["pr", "diff", n, "-R", repo, "--patch"]);
+  const reviewPoint = resolveReviewPoint(view, reviewPointMode);
+  const diff = diffAtReviewPoint(repoSource, repo, n, reviewPoint);
   const issueSpec = fetchIssueSpec(repo, view);
-  return { view, diff, issueSpec };
+  return { view, diff, issueSpec, reviewPoint };
 }
 
 function parseArgs(argv) {
@@ -138,21 +214,24 @@ function main() {
 
   const store = new GitFsStore(args.out);
   const corpusVersion = args["corpus-version"];
+  // Local clone to fetch PR commits into + diff/archive from (default: this repo).
+  const repoSource = path.resolve(args["repo-source"] ?? path.join(HERE, "..", ".."));
+  const reviewPointMode = args["review-point"] ?? "auto"; // auto | head | first
   const numbers = resolvePrNumbers(args);
-  console.log(`extract-corpus: ${numbers.length} PR(s) from ${args.repo} → corpus "${corpusVersion}"${args["dry-run"] ? " (dry-run)" : ""}`);
+  console.log(`extract-corpus: ${numbers.length} PR(s) from ${args.repo} → corpus "${corpusVersion}" (review-point=${reviewPointMode})${args["dry-run"] ? " (dry-run)" : ""}`);
 
   const items = [];
   let skipped = 0;
   for (const n of numbers) {
     try {
-      const { view, diff, issueSpec } = fetchPr(args.repo, n);
+      const { view, diff, issueSpec, reviewPoint } = fetchPr(args.repo, n, { reviewPointMode, repoSource });
       if (!diff || diff.trim() === "") { console.error(`  skip PR #${n}: empty diff`); skipped++; continue; }
-      const meta = buildItemMeta(view, diff, issueSpec);
+      const meta = buildItemMeta(view, diff, issueSpec, reviewPoint);
       if (!args["dry-run"]) {
         store.putCorpusItem(meta.id, { meta, diff, changedFiles: meta.changed_files, issueSpec });
       }
       items.push(manifestItem(meta));
-      console.log(`  + ${meta.id} (${meta.changed_files.length} files, issue_spec=${meta.has_issue_spec})`);
+      console.log(`  + ${meta.id} (${meta.changed_files.length} files, issue_spec=${meta.has_issue_spec}, @${meta.review_point} ${meta.review_commit.slice(0, 8)})`);
     } catch (e) {
       console.error(`  skip PR #${n}: ${e.message}`);
       skipped++;

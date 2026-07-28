@@ -10,7 +10,8 @@
 //   node run.mjs --out <results-repo> --corpus-version <v> [--config-id baseline-opus-s2]
 //        [--lenses-dir ../lenses] [--sdk-version 0.3.217] [--items pr-1,pr-2] [--run-id <id>]
 
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,27 @@ import { sumExecutions } from "../metrics.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const nowIso = () => new Date().toISOString();
 const isoSafe = () => nowIso().replace(/[:.]/g, "-");
+
+/**
+ * Fidelity (a): materialize the repo TREE at `commit` so lenses get the same
+ * surrounding-code context they'd Read in production (vs an empty diff-only dir).
+ * `git archive <commit> | tar -x` — no .git, just files; cached per commit and
+ * reused across replicate runs (same review_commit → extract once). Returns the
+ * checkout path, or null (→ caller falls back to diff-only) if unavailable.
+ */
+export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
+  if (!commit || !repoSource) return null;
+  const dest = path.join(cacheRoot, commit);
+  if (existsSync(path.join(dest, ".materialized"))) return dest; // cache hit
+  try {
+    mkdirSync(dest, { recursive: true });
+    execSync(`git -C "${repoSource}" archive ${commit} | tar -x -C "${dest}"`, { stdio: "pipe" });
+    writeFileSync(path.join(dest, ".materialized"), commit);
+    return dest;
+  } catch {
+    return null; // commit not fetched / archive failed → diff-only fallback
+  }
+}
 
 function parseArgs(argv) {
   const a = {};
@@ -82,6 +104,10 @@ async function main() {
   const sdkVersion = args["sdk-version"] ?? "0.3.217";
   const corpusVersion = args["corpus-version"];
   const panelScript = path.join(HERE, "..", "review-panel.mjs");
+  // Fidelity (a): a local clone to check out repo context from (default: this
+  // repo). --no-repo-context forces diff-only replay (empty --repo).
+  const repoSource = args["no-repo-context"] ? null : path.resolve(args["repo-source"] ?? path.join(HERE, "..", ".."));
+  const repoCache = path.join(tmpdir(), "eval-repo-cache");
 
   const { manifest, snapshot, config_hash } = buildConfig(lensesDir, {
     configId, sdkVersion, description: args.description ?? "",
@@ -117,8 +143,10 @@ async function main() {
 
     const workDir = mkdtempSync(path.join(tmpdir(), "eval-item-"));
     const outDir = path.join(workDir, "out");
-    const repoDir = path.join(workDir, "repo");
     mkdirSync(outDir, { recursive: true });
+    // (a) repo context at the review commit; falls back to an empty dir (diff-only).
+    const repoDir = materializeRepoAt({ repoSource, commit: input.meta?.review_commit, cacheRoot: repoCache })
+      ?? path.join(workDir, "repo");
 
     let envelope, payload, transcript;
     try {
