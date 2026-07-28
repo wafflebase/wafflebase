@@ -20,7 +20,18 @@ import { gh, ghJson, resolvePrByIssue, listAllComments } from "./metrics.mjs";
 const CLASS_PREFIX = "<!-- agent-class ";
 const API = "https://api.anthropic.com/v1/messages";
 const MODEL_A = "claude-haiku-4-5";
-const MODEL_B = "claude-opus-4-8";
+const MODEL_B = "claude-opus-5";
+
+// `max_tokens` bounds thinking AND response text together, and Claude Opus 5
+// runs adaptive thinking when the `thinking` parameter is omitted (Opus 4.8 did
+// not — omitting it there meant no thinking at all). The previous budget of 400
+// was sized for a no-thinking model and would now be consumed before the
+// structured record was emitted, truncating the response and throwing in
+// `JSON.parse`. Raised rather than disabling thinking: these are analysis calls,
+// disabled thinking on Opus 5 carries its own failure modes, and the records
+// themselves stay small so the extra ceiling is only ever headroom. MODEL_A
+// (Haiku) has no adaptive default and simply never reaches it.
+const MAX_TOKENS = 4000;
 
 const TYPE_LABEL = {
   A1: "type:bug-fix", A2: "type:feature", A3: "type:refactor", A4: "type:performance",
@@ -121,7 +132,7 @@ async function callModel(model, system, user, schema) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 400,
+      max_tokens: MAX_TOKENS,
       system,
       output_config: { format: { type: "json_schema", schema } },
       messages: [{ role: "user", content: user }],
