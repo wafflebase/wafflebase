@@ -8,6 +8,8 @@ import {
   lensApplies,
   dedupeFindings,
   applyVerifications,
+  isDroppingVerdict,
+  changedFileContext,
   coerceFindings,
   unionSamples,
   parsePriorFindings,
@@ -216,8 +218,10 @@ test("cross-round merge: an unresolved prior finding the fresh pass missed still
   const merged = dedupeFindings([...freshKept, ...priorKept]);
   assert.equal(merged.length, 1);
   assert.equal(classify(merged).conclusion, "failure");
-  // but if the re-check confidently refutes it (genuinely resolved) → dropped
-  const resolved = applyVerifications(priorForLens, [{ verdict: "refuted", confidence: "high" }]);
+  // but if the re-check refutes it on grounded evidence (genuinely resolved) → dropped
+  const resolved = applyVerifications(priorForLens, [
+    { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["s.ts:88"] },
+  ]);
   assert.equal(classify(dedupeFindings([...freshKept, ...resolved])).conclusion, "success");
 });
 
@@ -250,29 +254,169 @@ test("severityCounts: tallies by normalized severity, unknown → major", () => 
   assert.deepEqual(severityCounts("not an array"), { critical: 0, major: 0, minor: 0, nit: 0 });
 });
 
-test("verifierTally: only blocking findings are sent; refuted vs high-confidence-refuted", () => {
+test("verifierTally: only blocking findings are sent; refuted vs high-confidence vs dropped", () => {
   const findings = [
     { severity: "critical", summary: "c" },
     { severity: "major", summary: "m" },
     { severity: "minor", summary: "n" }, // never sent to the verifier
   ];
   const verdicts = [{ verdict: "refuted", confidence: "high" }, { verdict: "refuted", confidence: "low" }, null];
-  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1 });
+  // the high-confidence refute is UNGROUNDED, so it is counted but not dropped —
+  // this gap is the whole point of reporting both numbers.
+  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 0 });
+  // the same shape WITH a ground and a citation does drop
+  assert.deepEqual(
+    verifierTally(findings, [GROUNDED_REFUTE, { verdict: "refuted", confidence: "low" }, null]),
+    { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 1 },
+  );
   // confirmed / null verdicts: sent but not refuted
   assert.deepEqual(
     verifierTally(findings, [{ verdict: "confirmed", confidence: "high" }, null, null]),
-    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0 },
+    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
   );
-  assert.deepEqual(verifierTally([], []), { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0 });
+  assert.deepEqual(verifierTally([], []), { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 });
+  // a dropping verdict on a NON-blocking finding is not counted: it was never
+  // sent, and applyVerifications would not have acted on it either.
+  assert.deepEqual(
+    verifierTally([{ severity: "minor", summary: "n" }], [GROUNDED_REFUTE]),
+    { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
+  );
 });
 
-test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any doubt", () => {
+/** The one verdict shape that is allowed to drop a finding. */
+const GROUNDED_REFUTE = {
+  verdict: "refuted",
+  confidence: "high",
+  refutationGround: "not-present",
+  groundedIn: ["src/a.ts:42"],
+};
+
+test("isDroppingVerdict: drops only on the complete grounded shape", () => {
+  assert.ok(isDroppingVerdict(GROUNDED_REFUTE));
+  // REGRESSION GUARD. This exact shape used to drop the finding. Under the
+  // grounded rule it must NOT: a confident assertion with no ground named and
+  // nothing cited is precisely what the gate stopped acting on. If this ever
+  // goes green again, the grounding requirement has been silently reverted.
+  assert.equal(isDroppingVerdict({ verdict: "refuted", confidence: "high" }), false);
+  // each piece of the shape removed in turn → keeps
+  const without = (k) => { const v = { ...GROUNDED_REFUTE }; delete v[k]; return v; };
+  for (const k of ["verdict", "confidence", "refutationGround", "groundedIn"]) {
+    assert.equal(isDroppingVerdict(without(k)), false, `missing ${k} must keep the finding`);
+  }
+  // wrong values for each field → keeps
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, verdict: "confirmed" }), false);
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, confidence: "low" }), false);
+  // `none` is a legal enum value meaning "I am not refuting" — never drops
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: "none" }), false);
+  // a ground outside the enum is not a ground (guards a model inventing one)
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: "looks-fine" }), false);
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: 1 }), false);
+  // citations that cite nothing → keeps
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn: [] }), false);
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn: ["", "   "] }), false);
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn: [null, 7] }), false);
+  assert.equal(isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn: "src/a.ts:42" }), false);
+  // one usable citation among junk is enough
+  assert.ok(isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn: ["", "src/a.ts:42"] }));
+  // junk input never throws
+  for (const v of [null, undefined, 0, "", "refuted", [], {}]) {
+    assert.equal(isDroppingVerdict(v), false);
+  }
+});
+
+test("isDroppingVerdict: a citation must locate something, not just be non-empty", () => {
+  const cite = (...groundedIn) => isDroppingVerdict({ ...GROUNDED_REFUTE, groundedIn });
+  // prose is not a citation, however confident — this is the unevidenced
+  // assertion the grounding rule exists to reject, wearing a citation's costume.
+  for (const junk of ["looks fine", "I checked it", "the guard is there", "n/a", "-", "42", "src/a.ts"]) {
+    assert.equal(cite(junk), false, `"${junk}" must not count as a citation`);
+  }
+  // real locations, including ranges and prose wrapped around one
+  for (const ok of [
+    "src/a.ts:42",
+    "packages/docs/src/editor-api.ts:214-220",
+    "scripts/agent/review-panel.mjs:172",
+    "see review-panel.mjs:172 for the guard",
+    "a.ts:1",
+  ]) {
+    assert.ok(cite(ok), `"${ok}" must count as a citation`);
+  }
+});
+
+test("isDroppingVerdict: `pre-existing` needs an authoritative changed-file list", () => {
+  const preExisting = { ...GROUNDED_REFUTE, refutationGround: "pre-existing" };
+  // The prompt withdraws this ground when the list is not authoritative, but a
+  // prompt instruction the script does not check is not a rule — so the trusted
+  // code refuses it too. Without this the whole changed-file trust story is
+  // advisory, and a model ignoring the instruction drops a real finding.
+  assert.equal(isDroppingVerdict(preExisting, { allowPreExisting: false }), false);
+  assert.ok(isDroppingVerdict(preExisting, { allowPreExisting: true }));
+  // DEFAULT is the strict one: a caller that forgets to thread the flag gets the
+  // keep-the-finding behaviour, like every other default on this path.
+  assert.equal(isDroppingVerdict(preExisting), false);
+  assert.equal(isDroppingVerdict(preExisting, {}), false);
+  // the flag is scoped to `pre-existing` — it must not gate the other grounds
+  for (const g of ["not-present", "already-guarded", "out-of-scope"]) {
+    assert.ok(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: g }, { allowPreExisting: false }));
+  }
+  // ...and it never RELAXES anything else: an ungrounded pre-existing still keeps
+  assert.equal(
+    isDroppingVerdict({ verdict: "refuted", confidence: "high", refutationGround: "pre-existing" },
+      { allowPreExisting: true }),
+    false,
+  );
+});
+
+test("applyVerifications / verifierTally thread the pre-existing trust flag", () => {
+  const F = [{ severity: "major", summary: "m" }];
+  const V = [{ ...GROUNDED_REFUTE, refutationGround: "pre-existing" }];
+  assert.equal(applyVerifications(F, V, { allowPreExisting: true }).length, 0, "dropped when trusted");
+  assert.equal(applyVerifications(F, V, { allowPreExisting: false }).length, 1, "kept when not");
+  assert.equal(applyVerifications(F, V).length, 1, "kept by default");
+  // the tally must agree with the gate, or `dropped` reports a decision that
+  // was never made
+  assert.equal(verifierTally(F, V, { allowPreExisting: true }).dropped, 1);
+  assert.equal(verifierTally(F, V, { allowPreExisting: false }).dropped, 0);
+  assert.equal(verifierTally(F, V).dropped, 0);
+});
+
+test("changedFileContext: only a complete list is authoritative", () => {
+  assert.deepEqual(changedFileContext(["a.ts", "b.ts"], 5), {
+    authoritative: true, listed: ["a.ts", "b.ts"], total: 2,
+  });
+  // a full-length list is still complete — the cap is inclusive
+  assert.equal(changedFileContext(["a", "b"], 2).authoritative, true);
+  // ONE over the cap withdraws authority: an absent path would otherwise read as
+  // "the PR didn't touch it" when it was merely truncated off (the fail-open).
+  const over = changedFileContext(["a", "b", "c"], 2);
+  assert.equal(over.authoritative, false);
+  assert.deepEqual(over.listed, ["a", "b"]);
+  assert.equal(over.total, 3, "total reports the true count, not the listed count");
+  // empty / malformed → not authoritative, never throws
+  for (const bad of [[], null, undefined, "a.ts", 7, {}, [null, 7, "", "   "]]) {
+    const c = changedFileContext(bad, 5);
+    assert.equal(c.authoritative, false);
+    assert.deepEqual(c.listed, []);
+    assert.equal(c.total, 0);
+  }
+  // A single junk entry alongside real ones costs authority, for the same reason
+  // truncation does: the verifier would be handed a list missing a path it
+  // cannot see is missing — indistinguishable, from inside the prompt, from a
+  // file the PR genuinely did not touch. Junk still leaves `listed` clean.
+  const mixed = changedFileContext(["", null, "a.ts", 7], 5);
+  assert.deepEqual(mixed.listed, ["a.ts"]);
+  assert.equal(mixed.authoritative, false, "a dropped entry must cost authority");
+});
+
+test("applyVerifications: drops ONLY on a grounded refute; keeps on any doubt", () => {
   const F = [{ severity: "critical", summary: "c" }, { severity: "major", summary: "m" }, { severity: "minor", summary: "n" }];
   const keptSummaries = (verdicts) => applyVerifications(F, verdicts).map((f) => f.summary);
-  // high-confidence refuted → dropped
-  assert.ok(!keptSummaries([{ verdict: "refuted", confidence: "high" }, null, null]).includes("c"));
-  // low-confidence refuted → KEPT (uncertainty)
-  assert.ok(keptSummaries([{ verdict: "refuted", confidence: "low" }, null, null]).includes("c"));
+  // grounded high-confidence refute → dropped
+  assert.ok(!keptSummaries([GROUNDED_REFUTE, null, null]).includes("c"));
+  // ungrounded high-confidence refute → KEPT (the old dropping shape)
+  assert.ok(keptSummaries([{ verdict: "refuted", confidence: "high" }, null, null]).includes("c"));
+  // low-confidence refute, even grounded → KEPT (uncertainty)
+  assert.ok(keptSummaries([{ ...GROUNDED_REFUTE, confidence: "low" }, null, null]).includes("c"));
   // confirmed → kept
   assert.ok(keptSummaries([{ verdict: "confirmed", confidence: "high" }, null, null]).includes("c"));
   // null (verifier error) → kept
@@ -280,7 +424,7 @@ test("applyVerifications: drops ONLY on high-confidence refuted; keeps on any do
   // malformed (no confidence) → kept
   assert.ok(keptSummaries([{ verdict: "refuted" }, null, null]).includes("c"));
   // non-blocking (minor) is never verified/dropped
-  assert.ok(keptSummaries([null, null, { verdict: "refuted", confidence: "high" }]).includes("n"));
+  assert.ok(keptSummaries([null, null, GROUNDED_REFUTE]).includes("n"));
 });
 
 test("classifyResult: success with structured output → ok", () => {

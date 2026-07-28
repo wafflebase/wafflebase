@@ -99,22 +99,25 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
       agreement: "identical",
       raised: { critical: 1, major: 0, minor: 2, nit: 0 },
       kept: { critical: 1, major: 0, minor: 2, nit: 0 },
+      // pre-grounded-refute entry: no `dropped` field at all (see below)
       verifier: { sentToVerifier: 1, refuted: 0, refutedHighConfidence: 0 },
     },
     {
       agreement: "partial",
       raised: { critical: 0, major: 2, minor: 0, nit: 1 },
       kept: { critical: 0, major: 1, minor: 0, nit: 1 },
-      verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1 },
+      verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1, dropped: 1 },
     },
   ];
   const rolled = aggregatePanelStats(entries);
   assert.deepEqual(rolled.agreementCounts, { identical: 1, partial: 1, disjoint: 0, single: 0 });
   assert.deepEqual(rolled.raised, { critical: 1, major: 2, minor: 2, nit: 1 });
   assert.deepEqual(rolled.kept, { critical: 1, major: 1, minor: 2, nit: 1 });
-  assert.deepEqual(rolled.verifier, { sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1 });
+  // a ledger entry written before `dropped` existed contributes 0, not NaN — the
+  // ledger is append-only, so a mid-PR upgrade always produces this mixed shape.
+  assert.deepEqual(rolled.verifier, { sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1, dropped: 1 });
   // tolerant of junk/empty input — never throws, never blocks recording
-  assert.deepEqual(aggregatePanelStats([]).verifier, { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0 });
+  assert.deepEqual(aggregatePanelStats([]).verifier, { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 });
   assert.deepEqual(aggregatePanelStats(null).agreementCounts, { identical: 0, partial: 0, disjoint: 0, single: 0 });
   assert.deepEqual(aggregatePanelStats([null, "junk", {}]).raised, { critical: 0, major: 0, minor: 0, nit: 0 });
 });
@@ -258,7 +261,7 @@ test("renderSummary: with review-panel data, renders a separate section + combin
       agreementCounts: { identical: 6, partial: 1, disjoint: 1, single: 0 },
       raised: { critical: 2, major: 5, minor: 3, nit: 1 },
       kept: { critical: 1, major: 3, minor: 2, nit: 2 },
-      verifier: { sentToVerifier: 7, refuted: 3, refutedHighConfidence: 2 },
+      verifier: { sentToVerifier: 7, refuted: 3, refutedHighConfidence: 2, dropped: 1 },
     },
     flips: { flips: [{ lens: "correctness", fromRound: 0, toRound: 1 }], byLens: { correctness: 1 } },
     scope: "M",
@@ -274,7 +277,7 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   // 2*4 + 5*2 + 3*1 + 1*0.5 = 21.5
   assert.match(md, /- Weighted raised \(effort proxy, not recall\): 21\.5/);
   assert.match(md, /- Sent to verifier: 7/);
-  assert.match(md, /- Refuted: 3 \(2 high-confidence\)/);
+  assert.match(md, /- Refuted: 3 \(2 high-confidence, 1 dropped\)/);
   // raw line shows all four severities so it reconciles with the weighted scalar
   assert.match(md, /- Survived to gate: 1 critical, 3 major, 2 minor, 2 nit/);
   // 1*4 + 3*2 + 2*1 + 2*0.5 = 13
