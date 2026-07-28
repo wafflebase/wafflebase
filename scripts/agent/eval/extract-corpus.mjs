@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GitFsStore } from "./store.mjs";
 import { contentHash } from "./config-hash.mjs";
+import { scopeSize } from "../metrics.mjs"; // reuse the pipeline's own S/M/L rule
 
 const DEFAULT_REPO = "wafflebase/wafflebase";
 
@@ -47,6 +48,8 @@ export function issueNumberOf(view) {
 /** Assemble the per-item meta.json from a PR view + diff. */
 export function buildItemMeta(view, diff, issueSpec) {
   const changedFiles = (view.files ?? []).map((f) => f.path).filter(Boolean);
+  const additions = Number(view.additions) || 0;
+  const deletions = Number(view.deletions) || 0;
   return {
     id: `pr-${view.number}`,
     source_pr: view.number,
@@ -59,6 +62,11 @@ export function buildItemMeta(view, diff, issueSpec) {
     base_ref_name: view.baseRefName ?? "",
     head_ref: view.headRefOid ?? "",
     changed_files: changedFiles,
+    additions,
+    deletions,
+    // Scope lets reliability be sliced by diff size (S/M/L) later; same rule the
+    // pipeline itself uses for the effort summary.
+    scope: scopeSize(additions, deletions),
     has_issue_spec: !!(issueSpec && issueSpec.trim()),
     sha256_diff: contentHash(diff),
     label_status: "unlabeled", // Track B
@@ -70,6 +78,7 @@ export function manifestItem(meta) {
   return {
     id: meta.id, source_pr: meta.source_pr, base_ref: meta.base_ref,
     sha256_diff: meta.sha256_diff, has_issue_spec: meta.has_issue_spec,
+    scope: meta.scope, provenance: meta.provenance,
   };
 }
 
@@ -102,7 +111,7 @@ function fetchIssueSpec(repo, view) {
 function fetchPr(repo, n) {
   const view = ghJson([
     "pr", "view", n, "-R", repo, "--json",
-    "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,closingIssuesReferences",
+    "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,closingIssuesReferences",
   ]);
   const diff = gh(["pr", "diff", n, "-R", repo, "--patch"]);
   const issueSpec = fetchIssueSpec(repo, view);

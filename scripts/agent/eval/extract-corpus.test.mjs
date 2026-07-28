@@ -5,7 +5,7 @@ import { buildItemMeta, manifestItem } from "./extract-corpus.mjs";
 const view = {
   number: 517, title: "Fix X", author: { login: "agent" }, mergedAt: "2026-07-01T00:00:00Z",
   baseRefName: "main", baseRefOid: "base123", headRefOid: "head456",
-  files: [{ path: "a.ts" }, { path: "b.ts" }],
+  files: [{ path: "a.ts" }, { path: "b.ts" }], additions: 200, deletions: 40,
 };
 
 test("buildItemMeta maps PR view + diff into a corpus meta", () => {
@@ -19,6 +19,13 @@ test("buildItemMeta maps PR view + diff into a corpus meta", () => {
   assert.equal(meta.label_status, "unlabeled");
 });
 
+test("buildItemMeta records scope from additions+deletions (S/M/L)", () => {
+  assert.equal(buildItemMeta({ ...view, additions: 200, deletions: 40 }, "d", "").scope, "M"); // 240
+  assert.equal(buildItemMeta({ ...view, additions: 10, deletions: 5 }, "d", "").scope, "S");    // 15
+  assert.equal(buildItemMeta({ ...view, additions: 500, deletions: 5 }, "d", "").scope, "L");   // 505
+  assert.equal(buildItemMeta({ ...view, additions: 200, deletions: 40 }, "d", "").additions, 200);
+});
+
 test("has_issue_spec is false for empty/whitespace issue spec", () => {
   assert.equal(buildItemMeta(view, "d", "").has_issue_spec, false);
   assert.equal(buildItemMeta(view, "d", "   ").has_issue_spec, false);
@@ -29,5 +36,6 @@ test("manifestItem is the compact index entry", () => {
   assert.deepEqual(manifestItem(meta), {
     id: "pr-517", source_pr: 517, base_ref: "base123",
     sha256_diff: meta.sha256_diff, has_issue_spec: true,
+    scope: "M", provenance: "human",
   });
 });
