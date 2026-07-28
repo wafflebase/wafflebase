@@ -67,3 +67,27 @@ suite would reveal it.
 Re-adding `When unsure, downgrade.` to `correctness.md` and watching the test go
 red took thirty seconds and is the only evidence the guard works. Do it for any
 test whose subject is text rather than behaviour.
+
+**But mutation-testing a guard does not tell you it guards the right thing.** The
+first version covered the four rubric files and not `runLens`'s closing block —
+so the guard passed its own mutation test while leaving unprotected the exact
+line this PR was written to fix. Review caught it. Ask "what is NOT covered by
+this guard?" separately from "can this guard fail?"; they are different
+questions, and only the first one catches a guard aimed slightly off target.
+
+The related trap, worth guarding explicitly: extracting the text into an exported
+constant makes it testable *and* makes it possible for the constant to stop being
+used while the test keeps passing. The guard now also asserts `runLens` still
+appends it.
+
+## `in` is not a membership test
+
+`out[c in out ? c : "unknown"]++` reads like an allowlist check and is not one —
+`in` walks the prototype chain, so `"constructor"`, `"toString"`, and
+`"valueOf"` all pass. The result: an extra key on the returned counts object, and
+the finding silently missing from `unknown`. Two bugs from one operator.
+
+The reflex fix is `Object.hasOwn`, but the better one here was a `Set` built from
+the schema enum — it is both prototype-safe and impossible to drift from the
+values the model is allowed to send. Whenever a plain object is doubling as a
+lookup table for untrusted keys, that is the shape to reach for.

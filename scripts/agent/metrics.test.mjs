@@ -269,6 +269,10 @@ test("renderSummary: with review-panel data, renders a separate section + combin
     panelStats: {
       agreementCounts: { identical: 6, partial: 1, disjoint: 1, single: 0 },
       raised: { critical: 2, major: 5, minor: 3, nit: 1 },
+      // Deliberately does NOT sum to the 11 raised above: one finding came from
+      // a lens that emitted no confidence (→ unrated). The row is a distribution
+      // over the same findings, not a second count of them.
+      raisedConfidence: { high: 4, medium: 3, low: 3, unknown: 1 },
       kept: { critical: 1, major: 3, minor: 2, nit: 2 },
       verifier: { sentToVerifier: 7, refuted: 3, refutedHighConfidence: 2, dropped: 1 },
     },
@@ -282,6 +286,11 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   // reliability wording makes explicit this is self-consistency, not correctness
   assert.match(md, /- Reliability \(intra-round self-consistency, not correctness\): 6 identical, 1 partial, 1 disjoint across 8 lens-rounds/);
   assert.match(md, /- Findings raised: 2 critical, 5 major, 3 minor, 1 nit/);
+  // Exact row: label, order, counts, and the "does NOT gate" disclaimer. The
+  // disclaimer is the load-bearing part — without it a reader can reasonably
+  // assume a low-confidence critical was filtered, which is the misreading the
+  // severity/confidence split exists to prevent.
+  assert.match(md, /- Confidence of raised \(does NOT gate\): 4 high, 3 medium, 3 low, 1 unrated/);
   // weighted companion is additional, not a replacement for the raw vector:
   // 2*4 + 5*2 + 3*1 + 1*0.5 = 21.5
   assert.match(md, /- Weighted raised \(effort proxy, not recall\): 21\.5/);

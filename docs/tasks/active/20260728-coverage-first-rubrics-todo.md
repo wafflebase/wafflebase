@@ -54,8 +54,12 @@ coverage-first rubric and a certainty clamp immediately after it, and the clamp
 would plausibly have won. The measured result would have been "the rubric
 inversion didn't work".
 
-Both now say the same thing, and the code comment at that call site says why they
-have to.
+Both now say the same thing. The block is an exported constant
+(`LENS_CLOSING_INSTRUCTION`) so the anti-clamp guard can check **both halves of
+the prompt with one list of forbidden phrasings** — guarding only the `.md` files
+would leave the place the clamp actually lived unguarded. The guard also asserts
+`runLens` still appends it, since an exported constant nothing uses is a guard
+over dead text.
 
 The one part worth keeping was *"taste → minor/nit"*. That is a judgement about a
 finding's **kind**, not about certainty, so it survives in both places — now
@@ -111,13 +115,28 @@ at round 3 instead of burning to `MAX_REVIEW_ROUNDS`.
 
 ## Verification
 
-- `agent:tests`: 112 tests green (was 110).
+- `agent:tests`: 113 tests green (was 110).
 - `pnpm verify:self` green.
-- The rubric guard is **mutation-tested**: re-adding `When unsure, downgrade.` to
-  `correctness.md` makes it fail, and removing it makes it pass again. A guard
-  that cannot fail is not a guard.
-- The guard also asserts the rubric set it checks equals the manifest's lens ids,
+- Both guards are **mutation-tested** — a guard that cannot fail is not a guard:
+  - re-adding `When unsure, downgrade.` to `correctness.md` fails the rubric
+    guard;
+  - restoring the old clamp inside `LENS_CLOSING_INSTRUCTION` fails the wrapper
+    guard;
+  - and detaching the constant from `runLens` fails the "it must still reach the
+    prompt" assertion.
+- The rubric guard also asserts the set it checks equals the manifest's lens ids,
   so a fifth lens cannot ship with a clamp unnoticed.
+
+## Two defects review caught after the first push
+
+- **`confidenceCounts` used `c in out`**, which walks the prototype chain. A
+  finding with `confidence: "constructor"` matched, incremented an inherited
+  property, and left an extra `constructor` key on the returned counts — *and*
+  was not counted under `unknown`. Corrupted shape plus a lost count, from one
+  untrusted string. Now an allowlist `Set` derived from the schema enum.
+- **The wrapper had no guard.** The rubric test covered the four `.md` files but
+  not `runLens`'s closing block — the one place the clamp actually lived. Fixed
+  by exporting the block and running the same checks over it.
 
 What this does not verify: **whether the lenses actually change behaviour.** No
 test here exercises a model. The real signal is the two counts above on the next

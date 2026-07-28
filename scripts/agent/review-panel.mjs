@@ -344,10 +344,44 @@ export function confidenceCounts(findings) {
   const out = { high: 0, medium: 0, low: 0, unknown: 0 };
   for (const f of Array.isArray(findings) ? findings : []) {
     const c = f && f.confidence;
-    out[typeof c === "string" && c in out && c !== "unknown" ? c : "unknown"]++;
+    // Allowlist membership, NOT `c in out`. `in` walks the prototype chain, so
+    // `confidence: "constructor"` matched, incremented an inherited property,
+    // and left an extra `constructor` key on the returned counts — while ALSO
+    // not counting that finding under `unknown`. Corrupted shape and a lost
+    // count from one untrusted string.
+    out[CONFIDENCE_LEVELS.has(c) ? c : "unknown"]++;
   }
   return out;
 }
+
+/** Derived from the schema so the counter and the model's contract can't drift. */
+const CONFIDENCE_LEVELS = new Set(FINDING.properties.confidence.enum);
+
+/**
+ * The LAST thing a lens reads, appended by `runLens` after the rubric and the
+ * diff — so it wins ties against everything above it.
+ *
+ * Exported for the guard in `review-panel.test.mjs`, which applies the same
+ * anti-clamp checks here as to the four rubric `.md` files. That pairing is the
+ * point. This block previously read *"Use critical/major severity ONLY for a
+ * concrete, defensible violation with cited evidence"* — a certainty clamp that
+ * silently overrode any coverage-first rubric, and which lived in the one place
+ * nobody editing the rubrics would think to look. The two must keep saying the
+ * same thing, so one test checks both.
+ *
+ * "Taste → minor/nit" survives deliberately: that is a judgement about a
+ * finding's KIND, not about certainty, and it is the distinction the whole
+ * severity/confidence split turns on.
+ */
+export const LENS_CLOSING_INSTRUCTION = [
+  "Return ONLY the structured verdict.",
+  "Report EVERY issue you find, including ones you are unsure about — an",
+  "independent verifier re-checks each blocking finding afterwards, so filtering",
+  "for confidence is not your job. Set `severity` by IMPACT IF REAL and",
+  "`confidence` by how sure you are; never lower severity to signal doubt.",
+  "Taste and preference stay minor/nit however confident you are — that is a",
+  "judgement about the finding's KIND, not about your certainty.",
+].join("\n");
 
 /**
  * Tally the verifier's confirm/refute pass over a (findings, verdicts) pair —
@@ -489,22 +523,7 @@ async function runLens(lens, { rubric, diff, issue, repo, sessionLog }) {
   if (lens.needsIssueSpec && issue) {
     parts.push("", "## The originating issue this PR claims to satisfy (DATA):", "```", issue, "```");
   }
-  // This closing block is the LAST thing the lens reads, so it wins ties against
-  // the rubric above it. It used to read "Use critical/major severity ONLY for a
-  // concrete, defensible violation with cited evidence" — a certainty clamp that
-  // would have silently overridden every coverage-first rubric, which is exactly
-  // how the rubrics and the wrapper can drift apart unnoticed. Keep the two
-  // saying the same thing.
-  parts.push(
-    "",
-    "Return ONLY the structured verdict.",
-    "Report EVERY issue you find, including ones you are unsure about — an",
-    "independent verifier re-checks each blocking finding afterwards, so filtering",
-    "for confidence is not your job. Set `severity` by IMPACT IF REAL and",
-    "`confidence` by how sure you are; never lower severity to signal doubt.",
-    "Taste and preference stay minor/nit however confident you are — that is a",
-    "judgement about the finding's KIND, not about your certainty.",
-  );
+  parts.push("", LENS_CLOSING_INSTRUCTION);
   return askStructured({
     systemPrompt: `You are the ${lens.title} reviewer. Stay strictly in your lane; defer other lenses' concerns.`,
     prompt: parts.join("\n"),
@@ -712,6 +731,14 @@ async function main() {
       const summaryText = infra
         ? `Review could not run — Claude API/quota error${err.status ? ` (${err.status})` : ""}: ${infra}`
         : `Reviewer did not produce a valid verdict: ${err.message}`;
+      // Carries NO `confidence`, on purpose. FINDING's `required` constrains the
+      // MODEL's output; this record is synthesised by the script because the lens
+      // produced nothing usable, so there is no assessment to report. Stamping a
+      // value here would fabricate certainty about a blocking finding that says
+      // "the review did not run" — the one place a confident-looking rating would
+      // be actively misleading. It lands in `confidenceCounts`' `unknown` bucket,
+      // which is literally accurate and keeps the raised/confidence rows
+      // reconciling.
       const failFindings = [{ severity: "major", summary: summaryText }];
       writeVerdict(lensOut, lens, failFindings, infra ? "(review did not run — infrastructure/quota error)" : "(no valid verdict — failing closed)", { valid: false });
       const entry = { id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false };
