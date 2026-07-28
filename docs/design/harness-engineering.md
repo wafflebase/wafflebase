@@ -412,9 +412,24 @@ Components:
   separate UNPRIVILEGED `deps` job so no install runs with the secrets), and
   returns findings (schema-requested, then locally shape-validated + fail-safe
   severity-normalized) classified `critical`/`major`/`minor`/`nit`. A per-finding
-  **verifier** subagent then tries to refute each blocking finding and drops it
-  ONLY on a high-confidence explicit refute — any uncertainty keeps the finding
-  (fails toward blocking, so the false-positive lever can't swallow a real bug). The
+  **verifier** subagent then tries to refute each blocking finding. It is
+  deliberately **not given the diff**: the lens that raised the finding reasoned
+  from that diff, so a verifier reading the same diff inherits its misreadings
+  and confirms them — the correlated-error failure of naive review panels. It
+  instead re-establishes the facts from the repository itself (Read/Grep/Glob
+  against the branch checkout, capped at 8 turns), is told to distrust the
+  finding's quoted evidence, and receives only the cumulative changed-FILE list
+  so it can tell new code from pre-existing. Dropping is **grounded, not
+  asserted** (`isDroppingVerdict`): the verdict must be an explicit `refuted`, at
+  high confidence, naming one of `not-present | already-guarded | out-of-scope |
+  pre-existing`, AND citing at least one `file:line` it actually read. Anything
+  less — including a bare high-confidence refute, which used to be enough — keeps
+  the finding (fails toward blocking, so the false-positive lever can't swallow a
+  real bug). `pre-existing` is withdrawn whenever the changed-file list is
+  missing or was truncated, since an absent path would otherwise read as
+  "untouched" when it was merely cut off. The metrics comment reports
+  `refutedHighConfidence` and `dropped` separately; the gap between them is the
+  count of confident refutations the gate declined to act on. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
@@ -445,10 +460,11 @@ Components:
     2. **Cross-round re-check.** Each round persists its blocking findings in the
        per-lens check run's `output.text`; the next round reads the latest prior
        `agent-review-<lens>` findings (`--prior-findings`) and re-verifies each
-       against the *current* diff with the same biased-to-keep refute pass. A
-       prior finding survives unless it is confidently *resolved* — so it can't
-       vanish just because a later fresh pass missed it (only because it was
-       actually fixed). Unresolved priors merge (deduped) into the round's findings.
+       against the *current repository* with the same biased-to-keep refute pass.
+       A prior finding survives unless it is *resolved* on grounded evidence — so
+       it can't vanish just because a later fresh pass missed it (only because it
+       was actually fixed, cited). Unresolved priors merge (deduped) into the
+       round's findings.
 
     Both lower false-negative odds; neither makes the panel safe to self-promote —
     the human review gate stays the backstop.
