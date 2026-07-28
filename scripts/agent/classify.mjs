@@ -70,6 +70,44 @@ export function truncate(s, n) {
 }
 
 /** Localization scope (Dimension C1) from the fix diff. */
+/**
+ * Pull the structured-output text out of a Messages API response, or throw with
+ * a message naming the actual cause.
+ *
+ * `stop_reason` MUST be inspected BEFORE parsing. A truncated or declined
+ * response still arrives as HTTP 200 with a partial or empty `content` array,
+ * so parsing first collapses every distinct cause into one opaque
+ * `Unexpected end of JSON input`. Both causes became materially more reachable
+ * with Claude Opus 5: adaptive thinking draws on the same `max_tokens` budget
+ * as the answer, and its safety classifiers can decline a request outright.
+ *
+ * Deliberately does NOT retry at a larger budget. `classify.mjs` already exits
+ * 0 on any error (see `bail`) so the pipeline is never harmed — the actionable
+ * output is a log line naming the cause. A retry would double spend on the
+ * expensive Opus pass exactly when the model is being verbose, and would break
+ * the b1/b2 two-pass agreement check by comparing passes produced under
+ * different budgets.
+ */
+export function extractStructuredText(data, model = "model", maxTokens = 0) {
+  const d = data && typeof data === "object" ? data : {};
+  if (d.stop_reason === "max_tokens") {
+    throw new Error(
+      `${model} hit the ${maxTokens}-token budget before finishing the record ` +
+        `(stop_reason=max_tokens) — raise MAX_TOKENS; refusing to parse a truncated response`,
+    );
+  }
+  if (d.stop_reason === "refusal") {
+    throw new Error(
+      `${model} declined the request (stop_reason=refusal, category=${d.stop_details?.category ?? "unknown"})`,
+    );
+  }
+  const text = (Array.isArray(d.content) ? d.content : []).find((b) => b && b.type === "text")?.text;
+  if (typeof text !== "string" || text === "") {
+    throw new Error(`${model} returned no usable text block (stop_reason=${d.stop_reason ?? "unknown"})`);
+  }
+  return text;
+}
+
 export function localizationFromDiff(diff) {
   const files = new Set();
   let hunks = 0;
@@ -139,9 +177,7 @@ async function callModel(model, system, user, schema) {
     }),
   });
   if (!res.ok) throw new Error(`messages API ${res.status}`);
-  const data = await res.json();
-  const text = (data.content || []).find((b) => b.type === "text")?.text;
-  return JSON.parse(text);
+  return JSON.parse(extractStructuredText(await res.json(), model, MAX_TOKENS));
 }
 
 // --- gh-backed CLI ---------------------------------------------------------

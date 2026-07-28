@@ -44,6 +44,20 @@ Opus 5 carries its own documented failure modes, and the records are small enoug
 that the ceiling is only ever headroom. Haiku has no adaptive default and never
 reaches it.
 
+Raising the ceiling makes truncation unlikely, not impossible, so
+`extractStructuredText` now inspects `stop_reason` **before** parsing. A
+truncated or declined response is still HTTP 200 with a partial or empty
+`content` array, so parsing first collapsed every cause into an opaque
+`Unexpected end of JSON input`. It now reports the budget it hit, or the refusal
+category — the other `stop_reason` Opus 5 made reachable, since its safety
+classifiers can decline a request outright.
+
+It deliberately does **not** retry at a larger budget. The classifier already
+exits 0 on any error, so the actionable output is a log line naming the cause; a
+retry would double spend on the expensive Opus pass exactly when the model is
+being verbose, and would break the `b1`/`b2` two-pass agreement check by
+comparing passes produced under different budgets.
+
 ## Corrections to the planned scope
 
 - **Five workflows, not three.** `agent-review-reply` and `agent-summarize` also
