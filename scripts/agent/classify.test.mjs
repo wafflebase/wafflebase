@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { serializeClass, parseClassComment, truncate, localizationFromDiff } from "./classify.mjs";
+import {
+  serializeClass,
+  parseClassComment,
+  truncate,
+  localizationFromDiff,
+  extractStructuredText,
+} from "./classify.mjs";
 
 test("serializeClass / parseClassComment round-trip", () => {
   const rec = {
@@ -48,4 +54,45 @@ test("localizationFromDiff classifies scope from the diff", () => {
     localizationFromDiff("+++ b/pkg/a/x.ts\n@@ -1 +1 @@\n+++ b/pkg/b/y.ts\n@@ -1 +1 @@"),
     "cross_module", // two files, different modules (pkg/a vs pkg/b)
   );
+});
+
+// A truncated or declined response is HTTP 200 with a partial/empty content
+// array. Parsing it first turns every cause into "Unexpected end of JSON
+// input"; these assert the caller learns WHY instead. Both causes got more
+// reachable on Opus 5 — adaptive thinking spends the same max_tokens budget as
+// the answer, and the safety classifiers can decline outright.
+test("extractStructuredText: happy path returns the text block", () => {
+  const data = { stop_reason: "end_turn", content: [{ type: "text", text: '{"a":1}' }] };
+  assert.equal(extractStructuredText(data, "claude-opus-5", 4000), '{"a":1}');
+  // ignores non-text blocks and picks the text one
+  assert.equal(
+    extractStructuredText({ content: [{ type: "thinking" }, { type: "text", text: "ok" }] }),
+    "ok",
+  );
+});
+
+test("extractStructuredText: max_tokens truncation names the budget, never parses", () => {
+  const truncated = { stop_reason: "max_tokens", content: [{ type: "text", text: '{"a":' }] };
+  assert.throws(
+    () => extractStructuredText(truncated, "claude-opus-5", 4000),
+    /claude-opus-5 hit the 4000-token budget.*stop_reason=max_tokens.*raise MAX_TOKENS/s,
+  );
+});
+
+test("extractStructuredText: a refusal is reported as a refusal, with its category", () => {
+  assert.throws(
+    () => extractStructuredText({ stop_reason: "refusal", stop_details: { category: "cyber" }, content: [] }, "claude-opus-5"),
+    /declined the request \(stop_reason=refusal, category=cyber\)/,
+  );
+  // stop_details is null for most stop reasons, so the category lookup must not throw
+  assert.throws(
+    () => extractStructuredText({ stop_reason: "refusal", stop_details: null, content: [] }),
+    /category=unknown/,
+  );
+});
+
+test("extractStructuredText: missing/garbage payloads still give a reason, never a parse error", () => {
+  for (const bad of [null, undefined, {}, "nope", { content: [] }, { content: "x" }, { content: [{ type: "text" }] }, { content: [{ type: "text", text: "" }] }]) {
+    assert.throws(() => extractStructuredText(bad, "m"), /no usable text block/);
+  }
 });

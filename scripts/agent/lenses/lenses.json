@@ -5,7 +5,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -14,7 +14,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -22,8 +22,8 @@
     "title": "Design-fit",
     "gating": "blocking",
     "needsIssueSpec": true,
-    "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "appliesWhen": ["packages/**", "scripts/**", "docs/design/**"],
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -31,8 +31,8 @@
     "title": "Test-adequacy",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "appliesWhen": ["packages/**", "scripts/**"],
+    "model": "claude-opus-5",
     "samples": 2
   }
 ]

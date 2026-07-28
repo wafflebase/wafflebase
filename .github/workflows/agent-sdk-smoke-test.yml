@@ -13,7 +13,12 @@
 name: Agent SDK Auth Smoke Test
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id to smoke-test (blank = auth-smoke.mjs's default)"
+        required: false
+        default: ""
 
 permissions: {}
 
@@ -39,7 +44,12 @@ jobs:
       # token present). Only the next step gets the token.
       - name: Install the Agent SDK
         run: cd scripts/agent && npm ci --no-audit --no-fund
+      # auth-smoke.mjs already honours SMOKE_MODEL; wiring it to a dispatch input
+      # makes this the pre-flight for a model change too, not just a credential
+      # check — "does this model id resolve on the pinned SDK, with this token".
+      # Blank falls through to the script's own default.
       - name: Live auth check
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SMOKE_MODEL: ${{ inputs.model }}
         run: node scripts/agent/auth-smoke.mjs

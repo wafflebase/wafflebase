@@ -2037,7 +2037,11 @@ export function initialize(
     afterCursorRender();
   };
 
-  const textEditor = readOnly ? null : new TextEditor(
+  // The TextEditor is constructed in read-only mode too: it owns the
+  // pointer/clipboard/link machinery (drag selection, copy serialization,
+  // hyperlink opening) that viewers need. Its `readOnly` flag gates every
+  // mutating path so no edit can reach the store. See issue #482.
+  const textEditor = new TextEditor(
     container,
     doc,
     cursor,
@@ -2076,6 +2080,7 @@ export function initialize(
     invalidateLayout,
     () => headerLayout,
     () => footerLayout,
+    readOnly,
   );
   textEditorRef = textEditor;
 
@@ -2579,10 +2584,13 @@ export function initialize(
   };
   if (textEditor) {
     textEditor.onFocusChange(handleFocus, handleBlur);
-    textEditor.focus();
+    // In read-only mode don't steal focus on mount — a viewer opening the
+    // document shouldn't get a blinking caret at the start. Focus is
+    // acquired on first click (so Ctrl/Cmd+C works) via handleMouseDown.
+    if (!readOnly) textEditor.focus();
   }
 
-  return {
+  const api: EditorAPI = {
     render,
     getDoc: () => doc,
     getStore: () => docStore,
@@ -3689,4 +3697,33 @@ export function initialize(
     },
     _getCursorForTest: () => ({ ...cursor.position }),
   };
+
+  // View-only mode: neutralize every mutating command at the public API
+  // boundary. TextEditor's per-handler guards already block pointer /
+  // keyboard / clipboard events, but the programmatic EditorAPI (e.g.
+  // paste, applyStyle, table ops) is reachable by any holder of `api`, so
+  // gate it here too. Keep this allowlist in sync when adding mutating
+  // methods. Read-only stays a client-side convenience — the store/server
+  // remains the authoritative write boundary for viewer share tokens.
+  if (readOnly) {
+    const MUTATING_METHODS = [
+      'applyStyle', 'clearInlineFormatting', 'applyBlockStyle',
+      'undo', 'redo', 'setBlockType', 'setDocStyles',
+      'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
+      'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
+      'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
+      'insertTableRow', 'deleteTableRow', 'insertTableColumn',
+      'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
+      'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
+      'insertPageNumber',
+    ] as const;
+    const noop = () => {};
+    for (const name of MUTATING_METHODS) {
+      // `paste`/`insertImage` are async (Promise<void>); the rest are sync
+      // void. A bare no-op satisfies both — callers only await or ignore.
+      (api as unknown as Record<string, () => void>)[name] = noop;
+    }
+  }
+
+  return api;
 }

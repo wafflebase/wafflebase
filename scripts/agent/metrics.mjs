@@ -183,6 +183,91 @@ export function aggregatePanelStats(entries) {
   return { agreementCounts, raised, kept, verifier: { sentToVerifier, refuted, refutedHighConfidence } };
 }
 
+/**
+ * Detect blocking→clean flips per lens across an ORDERED list of review records
+ * (one `kind:"review"` record per round). `listAllComments` returns GitHub issue
+ * comments in created_at-ascending order, so the array is already chronological =
+ * round order — do NOT re-sort it. A flip is a lens that was blocking (kept
+ * critical/major > 0) in one valid round and clean (non-blocking) in a LATER
+ * valid round, i.e. it requested changes and then approved. This is the
+ * cross-round analogue of the intra-round sample-agreement signal and is exactly
+ * the failure PR #521 exhibited (blocking finding silently dropped next round).
+ *
+ * Rounds where a lens hit an infra/quota error (`infraError` set or
+ * `samplesOk === 0`, which carry a synthetic blocking finding) are skipped for
+ * that lens — an infra recovery the next round is not a review flip. Only
+ * *valid* consecutive rounds of a lens are compared.
+ *
+ * HONEST LIMITATION: with only per-round severity counts we cannot tell a flip
+ * caused by a genuine fix (good) from one caused by judge inconsistency (bad).
+ * This is therefore an ADVISORY heads-up flag, not a defect count. Tightening it
+ * to "the finding-relevant code did not change" needs per-round diff/line data
+ * the ledger does not carry today. (If GitHub's comment ordering ever stopped
+ * being chronological, flip direction could invert — accepted risk.)
+ *
+ * Shape-safe: records without `lensStats` (pre-instrumentation) or a `kept`
+ * missing a severity key are tolerated and contribute nothing.
+ *
+ * @returns {{ flips: {lens: string, fromRound: number, toRound: number}[], byLens: Record<string, number> }}
+ */
+export function detectFlips(reviewRecords) {
+  const list = Array.isArray(reviewRecords) ? reviewRecords : [];
+  // Per lens id, the ordered subsequence of that lens's VALID round states
+  // (true = blocking, false = clean), tagged with the record index for
+  // human-readable r<from>→r<to> traceability.
+  const byLensStates = new Map();
+  list.forEach((rec, round) => {
+    const lensStats = rec && Array.isArray(rec.lensStats) ? rec.lensStats : [];
+    for (const e of lensStats) {
+      if (!e || typeof e !== "object" || e.id == null) continue;
+      // Skip infra/quota rounds — their synthetic blocking finding and next-round
+      // recovery are not a review flip.
+      if (e.infraError || Number(e.samplesOk) === 0) continue;
+      const kept = e.kept || {};
+      const blocking = (Number(kept.critical) || 0) + (Number(kept.major) || 0) > 0;
+      if (!byLensStates.has(e.id)) byLensStates.set(e.id, []);
+      byLensStates.get(e.id).push({ blocking, round });
+    }
+  });
+  const flips = [];
+  const byLens = {};
+  for (const [lens, seq] of byLensStates) {
+    for (let i = 1; i < seq.length; i++) {
+      // A flip = an adjacent pair of valid rounds going blocking → clean.
+      if (seq[i - 1].blocking && !seq[i].blocking) {
+        flips.push({ lens, fromRound: seq[i - 1].round, toRound: seq[i].round });
+        byLens[lens] = (byLens[lens] || 0) + 1;
+      }
+    }
+  }
+  return { flips, byLens };
+}
+
+/**
+ * Severity weights for collapsing a {critical,major,minor,nit} vector into one
+ * scalar. Mirrors the report's DoorDash-style scheme mapped onto this scale.
+ * A critical finding is worth 8× a nit, so a lens that catches real problems
+ * isn't scored like one that only flags style.
+ */
+export const SEVERITY_WEIGHTS = { critical: 4, major: 2, minor: 1, nit: 0.5 };
+
+/**
+ * Weighted scalar for a severity-count vector. This is an EFFORT/NOISE proxy
+ * (how much reviewer attention the lens generated), NOT recall — recall needs
+ * ground truth, which this per-PR layer deliberately does not have. Always
+ * reported alongside the raw per-severity vector, never as a replacement for it.
+ * Null/shape-safe: a missing object and missing keys count as 0.
+ */
+export function weightSeverity(counts) {
+  const c = counts || {};
+  return (
+    (Number(c.critical) || 0) * SEVERITY_WEIGHTS.critical +
+    (Number(c.major) || 0) * SEVERITY_WEIGHTS.major +
+    (Number(c.minor) || 0) * SEVERITY_WEIGHTS.minor +
+    (Number(c.nit) || 0) * SEVERITY_WEIGHTS.nit
+  );
+}
+
 /** S/M/L from total lines changed in the PR diff. */
 export function scopeSize(additions = 0, deletions = 0) {
   const changed = (Number(additions) || 0) + (Number(deletions) || 0);
@@ -214,7 +299,7 @@ export function formatUsd(n) {
  * responds to what the panel found, and review, the panel's own compute, are
  * easy to conflate by name, so their costs are rendered in separate sections
  * rather than folded into one set of totals). */
-export function renderSummary({ agg, panelAgg, panelStats, scope }) {
+export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
   const panelTokens = hasPanel ? panelAgg.tokens : 0;
   const panelWeighted = hasPanel ? panelAgg.weightedTokens : 0;
@@ -259,11 +344,30 @@ export function renderSummary({ agg, panelAgg, panelStats, scope }) {
       `- Rounds: ${panelAgg.sessions}`,
       `- Total-time: ${formatMinutes(panelAgg.durationMs)}`,
       `- Turns: ${panelAgg.turns}`,
-      `- Sample-agreement: ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint (${sampledRounds} lens-round samples)`,
+      // Reliability = whether the judge agrees with ITSELF across the N samples
+      // of a single round (intra-round self-consistency), NOT whether it agrees
+      // with the truth. High agreement here means a stable judge, not a correct
+      // one — see the meta-eval's reliability≠validity finding.
+      `- Reliability (intra-round self-consistency, not correctness): ${ac.identical || 0} identical, ${ac.partial || 0} partial, ${ac.disjoint || 0} disjoint across ${sampledRounds} lens-rounds`,
       `- Findings raised: ${r.critical || 0} critical, ${r.major || 0} major, ${r.minor || 0} minor, ${r.nit || 0} nit`,
+      // Weighted scalar companion to the raw vector above — an effort/noise
+      // proxy, not recall (no ground truth here). Shown alongside, not instead.
+      `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
       `- Refuted: ${v.refuted || 0} (${v.refutedHighConfidence || 0} high-confidence)`,
-      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major`,
+      // All four severities shown (critical/major lead as the blocking ones)
+      // so the raw counts reconcile with the weighted scalar below, which
+      // weights every severity — mirrors the "Findings raised" pair above.
+      `- Survived to gate: ${k.critical || 0} critical, ${k.major || 0} major, ${k.minor || 0} minor, ${k.nit || 0} nit`,
+      `- Weighted survived-to-gate: ${weightSeverity(k)}`,
+    );
+    // Advisory heads-up (NOT a verdict): a lens that blocked then approved across
+    // rounds — the PR #521 pattern. Can't distinguish a genuine fix from judge
+    // inconsistency here (see detectFlips), so the wording says "review manually".
+    const flipList = flips?.flips || [];
+    lines.push(
+      `- ⚠️ Cross-round flips (blocking→clean; advisory, review manually): ${flipList.length}` +
+        (flipList.length ? ` — ${flipList.map((f) => `${f.lens} r${f.fromRound}→r${f.toRound}`).join(", ")}` : ""),
     );
   }
   return lines.join("\n");
@@ -412,13 +516,16 @@ function cmdSummarize(args) {
   const panelStats = panelRecords.length
     ? aggregatePanelStats(panelRecords.flatMap((r) => (Array.isArray(r.lensStats) ? r.lensStats : [])))
     : null;
+  // `panelRecords` is in ledger (chronological = round) order — detectFlips
+  // relies on that, so pass it as-is without re-sorting.
+  const flips = panelRecords.length ? detectFlips(panelRecords) : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
   try {
     // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, scope }));
+    postComment(pr, renderSummary({ agg, panelAgg, panelStats, flips, scope }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }

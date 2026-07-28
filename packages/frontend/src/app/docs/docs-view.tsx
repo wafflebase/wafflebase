@@ -568,6 +568,7 @@ export function DocsView({
         containerRef={containerRef}
         editRequest={linkInputRequest}
         onEditRequestHandled={() => setLinkInputRequest(null)}
+        readOnly={readOnly}
       />
       {findBarOpen && (
         <DocsFindBar
