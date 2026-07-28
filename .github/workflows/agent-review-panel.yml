@@ -177,7 +177,8 @@ jobs:
           # `.interp` / `.tokens` are IDE/tooling files with no reference
           # anywhere in src, package.json, or the build — nothing loads them at
           # runtime, so no lens can act on their contents. On PR #521 they were
-          # 17.2 KB of a 75.6 KB diff, re-read by 4 lenses x 2 samples x 5 rounds.
+          # 17.2 KB of a 75.6 KB diff, re-read by every lens x 2 samples x 5
+          # rounds (4 lenses then, 5 now — the multiplier only grows).
           #
           # The generated `.ts` files are deliberately KEPT, even though they are
           # the larger half: they are executable code shipped in the sheets

@@ -14,6 +14,16 @@ Security (its own lens), architecture/design fit or duplication, test quality,
 code style. Import-boundary and lint violations are already caught mechanically —
 don't report them.
 
+## The diff is where the change is, not where the bug is
+For every new or modified guard, validation, or conditional in this diff, use
+Grep/Glob to enumerate the **other call sites** of the code it protects and check
+that none reach the protected operation without it. Report an unguarded path as a
+finding on the guard, citing the bypassing call site by `file:line`.
+
+The blast-radius lens owns out-of-diff impact in general and will go looking too.
+Do this anyway for guards in your own lane — a crash or data-loss path reachable
+around a new check is a correctness bug, and two lenses looking is the point.
+
 ## Coverage first
 **Report EVERY issue you find, including ones you are not sure about.** Do NOT
 filter for importance or confidence. An independent verifier re-checks each

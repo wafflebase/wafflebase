@@ -88,6 +88,47 @@ test("lensApplies: path-scoped lenses skip docs-only diffs; correctness always a
   const workflow = [".github/workflows/agent-implement.yml"];
   assert.equal(lensApplies(security, workflow), true);
   assert.equal(lensApplies(testAdequacy, workflow), false);
+
+  // blast-radius shares test-adequacy's code scope: out-of-diff impact is a
+  // property of CODE, so a docs-only change has none to find.
+  const blastRadius = lensOf("blast-radius");
+  assert.equal(lensApplies(blastRadius, code), true);
+  assert.equal(lensApplies(blastRadius, docsOnly), false);
+  assert.equal(lensApplies(blastRadius, plainDocs), false);
+  // Deliberately NOT scoped to workflows yet — see the task doc. Asserted so the
+  // choice is visible rather than incidental, and so extending it is a conscious
+  // edit to this line.
+  assert.equal(lensApplies(blastRadius, workflow), false);
+});
+
+// The out-of-diff mandate added to correctness + security. The motivating bug —
+// a new read-only guard with `EditorAPI.paste()` reaching the same mutation
+// around it — was passed twice by both lenses because the bypassing line was
+// never in the diff. blast-radius owns this in general; these two carry the
+// obligation for guards in their own lane, and losing it would silently restore
+// diff-only review.
+test("correctness + security carry the out-of-diff call-site mandate", () => {
+  for (const id of ["correctness", "security"]) {
+    const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
+    assert.match(md, /diff is where the change is, not where the bug is/i, `${id}.md lost the mandate`);
+    assert.match(md, /Grep\/Glob/, `${id}.md must name the tool that leaves the diff`);
+    assert.match(md, /call sites?/i, `${id}.md must ask for other call sites`);
+    assert.match(md, /file:line/, `${id}.md must require a cited bypassing site`);
+  }
+});
+
+// blast-radius is defined by its METHOD, not just its lane: if it does not leave
+// the diff it is a worse copy of the correctness lens, and the one bug class it
+// exists for is invisible from the diff alone.
+test("the blast-radius rubric mandates leaving the diff", () => {
+  const md = readFileSync(path.join(HERE, "lenses", "blast-radius.md"), "utf8");
+  assert.match(md, /Grep/, "must instruct the lens to grep");
+  assert.match(md, /every other reference/i, "must ask for references outside the diff");
+  assert.match(md, /If you finish without running `Grep`/, "must state the method is mandatory");
+  // Its lane is bounded, or it duplicates the other four and doubles the noise.
+  assert.match(md, /NOT your lane/, "must defer the other lenses' concerns");
+  assert.match(md, /correctness lens/i);
+  assert.match(md, /security lens/i);
 });
 
 // The safety property that makes path-scoping survivable, asserted against the
@@ -317,7 +358,7 @@ const assertNoClamp = (text, where) => {
 };
 
 test("lens rubrics are coverage-first, with no certainty clamp", () => {
-  const RUBRICS = ["correctness", "security", "design-fit", "test-adequacy"];
+  const RUBRICS = ["correctness", "security", "design-fit", "test-adequacy", "blast-radius"];
   for (const id of RUBRICS) {
     const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
     assertNoClamp(md, `${id}.md`);

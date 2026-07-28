@@ -394,7 +394,7 @@ Components:
   fork-originated `workflow_run` events are rejected),
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
-  `design-fit`, `test-adequacy` (declared data-drivenly in
+  `design-fit`, `test-adequacy`, `blast-radius` (declared data-drivenly in
   `scripts/agent/lenses/lenses.json` + one rubric `.md` each). The reviewed
   artifact is the branch diff against `main`, minus ANTLR generated *tooling*
   artifacts (`packages/sheets/antlr/*.interp|.tokens` — nothing loads them at
@@ -485,8 +485,32 @@ Components:
        was actually fixed, cited). Unresolved priors merge (deduped) into the
        round's findings.
 
-    Both lower false-negative odds; neither makes the panel safe to self-promote —
-    the human review gate stays the backstop.
+    3. **Out-of-diff review.** The two measures above both re-read the *same
+       artifact*, so neither finds a defect the diff does not contain. A Major
+       correctness bug shipped through review on exactly that shape: a new
+       read-only guard on the docs editor, with `EditorAPI.paste()` reaching the
+       same mutation without it. The correctness and security lenses passed the
+       diff twice; the bypassing line was never in it.
+
+       The **`blast-radius`** lens exists for that class and nothing else. Its
+       method is the lane: for every changed guard, signature, or contract, Grep
+       the repository for every *other* reference and check whether it still
+       holds — bypassed guards, unupdated callers, stale consumers of a changed
+       export, removed exports still referenced, violated invariants. Line-level
+       logic inside the diff is explicitly deferred to correctness, auth design
+       to security, so it does not become a fifth general reviewer doubling the
+       noise. Scoped `packages/**` + `scripts/**` (out-of-diff impact is a
+       property of code) and blocking from day one.
+
+       `scripts/agent/lenses/correctness.md` and
+       `scripts/agent/lenses/security.md` additionally carry a **call-site
+       mandate** for guards in their own lane: enumerate the other call sites of
+       what a new guard protects and cite any bypass by `file:line`. The overlap
+       with `blast-radius` is deliberate — an added-but-bypassable gate reads as
+       covered, which is worse than no gate.
+
+    All three lower false-negative odds; none makes the panel safe to
+    self-promote — the human review gate stays the backstop.
 
     **API/quota error classification.** The Agent SDK reports API failures as a
     `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,

@@ -34,5 +34,14 @@
     "appliesWhen": ["packages/**", "scripts/**"],
     "model": "claude-opus-5",
     "samples": 2
+  },
+  {
+    "id": "blast-radius",
+    "title": "Blast-radius",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": ["packages/**", "scripts/**"],
+    "model": "claude-opus-5",
+    "samples": 2
   }
 ]
