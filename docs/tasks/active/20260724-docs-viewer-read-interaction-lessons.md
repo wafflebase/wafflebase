@@ -30,6 +30,18 @@ machinery with a `readOnly` gate rather than duplicating selection/copy.
   previously-dead interaction surface, re-audit every feature that keys off
   the state that surface produces (here: caret-in-table).
 
+- **Event-handler gating alone left the programmatic API open (CodeRabbit
+  Major).** The `readOnly` flag guarded pointer / keyboard / clipboard
+  *events*, but the public `EditorAPI` (`paste` → `TextEditor.pasteContent`,
+  plus `applyStyle`, `insertLink`, table / image ops) mutates the store
+  directly and bypasses those handlers. Fixed by neutralizing every mutating
+  `EditorAPI` command at the API boundary (allowlist no-op wrapper) and gating
+  the direct `TextEditor.pasteContent` / `insertText` entry points. Lesson:
+  when a mode is enforced per-event-handler, audit the programmatic API that
+  reaches the same mutations without going through those handlers. This stays
+  client-side defense-in-depth; the store/server is the authoritative write
+  boundary (see sharing.md Security).
+
 ## Follow-ups / open questions
 
 - Non-blocking: viewer right-click Copy. Copy works via `Ctrl/Cmd+C`

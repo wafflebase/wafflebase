@@ -247,6 +247,66 @@ describe('read-only docs editor (issue #482)', () => {
     editor.dispose();
   });
 
+  // The programmatic EditorAPI is reachable independently of pointer /
+  // keyboard events, so its mutating commands must be gated too — not just
+  // the event handlers. These pin the API-boundary guard.
+
+  test('programmatic applyStyle() does not mutate in read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    editor.applyStyle({ bold: true });
+    expect(editor.getRangeStyleSummary().bold).not.toBe(true);
+    editor.dispose();
+  });
+
+  test('control: applyStyle() DOES apply when not read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], false);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    editor.applyStyle({ bold: true });
+    expect(editor.getRangeStyleSummary().bold).toBe(true);
+    editor.dispose();
+  });
+
+  test('programmatic insertLink() does not insert text in read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    editor.insertLink('https://example.com');
+    expect(bodyText(editor)).toBe('hello world');
+    editor.dispose();
+  });
+
+  test('control: insertLink() DOES insert URL text when not read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], false);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 11 },
+      focus: { blockId: 'b1', offset: 11 },
+    });
+    editor.insertLink('https://example.com');
+    expect(bodyText(editor)).toContain('https://example.com');
+    editor.dispose();
+  });
+
+  test('programmatic insertTable() does not add a table in read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    const before = editor.getDoc().document.blocks.length;
+    editor.insertTable(2, 2);
+    expect(editor.getDoc().document.blocks.length).toBe(before);
+    editor.dispose();
+  });
+
+  test('control: insertTable() DOES add a table when not read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], false);
+    const before = editor.getDoc().document.blocks.length;
+    editor.insertTable(2, 2);
+    expect(editor.getDoc().document.blocks.length).toBeGreaterThan(before);
+    editor.dispose();
+  });
+
   test('Shift+ArrowRight still extends the selection (navigation works)', () => {
     const { editor, textarea } = setupEditor([para('b1', 'hello world')], true);
     editor._setSelectionForTest({

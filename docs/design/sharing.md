@@ -128,6 +128,10 @@ constructed in read-only mode too, with every **mutating** path gated so
 - Keyboard is limited to caret navigation (Arrows / Home / End),
   `Cmd/Ctrl+A` select-all, and `Cmd/Ctrl+F` find; other edit shortcuts no-op
 - Table-border resize and header/footer edit-context switching are blocked
+- The programmatic `EditorAPI` mutating commands (`applyStyle`, `insertLink`,
+  `paste`, table / image ops, …) are neutralized at the API boundary, and the
+  direct `TextEditor` entry points (`pasteContent`, `insertText`) are gated —
+  so read-only holds even for callers that bypass pointer / keyboard events
 - The link popover shows only the open-link anchor (Edit / Remove hidden)
 - Drag selection, `Cmd/Ctrl+C` copy, and plain-click link open still work
 - The hidden textarea is not auto-focused on mount; focus is acquired on

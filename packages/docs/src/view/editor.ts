@@ -2590,7 +2590,7 @@ export function initialize(
     if (!readOnly) textEditor.focus();
   }
 
-  return {
+  const api: EditorAPI = {
     render,
     getDoc: () => doc,
     getStore: () => docStore,
@@ -3697,4 +3697,33 @@ export function initialize(
     },
     _getCursorForTest: () => ({ ...cursor.position }),
   };
+
+  // View-only mode: neutralize every mutating command at the public API
+  // boundary. TextEditor's per-handler guards already block pointer /
+  // keyboard / clipboard events, but the programmatic EditorAPI (e.g.
+  // paste, applyStyle, table ops) is reachable by any holder of `api`, so
+  // gate it here too. Keep this allowlist in sync when adding mutating
+  // methods. Read-only stays a client-side convenience — the store/server
+  // remains the authoritative write boundary for viewer share tokens.
+  if (readOnly) {
+    const MUTATING_METHODS = [
+      'applyStyle', 'clearInlineFormatting', 'applyBlockStyle',
+      'undo', 'redo', 'setBlockType', 'setDocStyles',
+      'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
+      'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
+      'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
+      'insertTableRow', 'deleteTableRow', 'insertTableColumn',
+      'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
+      'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
+      'insertPageNumber',
+    ] as const;
+    const noop = () => {};
+    for (const name of MUTATING_METHODS) {
+      // `paste`/`insertImage` are async (Promise<void>); the rest are sync
+      // void. A bare no-op satisfies both — callers only await or ignore.
+      (api as unknown as Record<string, () => void>)[name] = noop;
+    }
+  }
+
+  return api;
 }

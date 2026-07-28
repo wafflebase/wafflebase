@@ -492,6 +492,8 @@ export class TextEditor {
    */
   insertText(text: string): void {
     if (text === '') return;
+    // View-only mode: block programmatic text injection, mirroring handleInput.
+    if (this.readOnly) return;
     this.flushHangul();
     this.saveSnapshot();
     this.deleteSelection();
@@ -1169,6 +1171,8 @@ export class TextEditor {
    * keyboard state to respect the "paste as plain text" modifier.
    */
   pasteContent(opts: { html?: string; text?: string }): void {
+    // View-only mode: block programmatic paste, mirroring handlePaste.
+    if (this.readOnly) return;
     this.pending?.clear();
     this.pasteFromParts(opts);
   }
