@@ -1,0 +1,85 @@
+# Offline replay eval harness — manual runs in a CLEAN CI environment.
+#
+# Why CI: the reviewer's repo-context checkout (git archive) is unreliable under
+# corporate EDR on a dev laptop; a GitHub runner has none of that, so context
+# loads fully and reproducibly. Runs are manual (workflow_dispatch) because each
+# spends real model budget. Results are uploaded as a downloadable artifact
+# (no write access to the private results repo needed).
+#
+# One-time setup: add repo secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+name: agent-eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus_version:
+        description: "corpus version (rebuilt fresh from the PRs below)"
+        default: "2026-07-28-pilot"
+      prs:
+        description: "comma-separated PR numbers for the corpus"
+        default: "549,548,547,546,544,521,513,556,536,533,532,531,523,520,514,507,505,502,493,471"
+      runs:
+        description: "K — replicate runs (reliability κ needs ≥2; use 1 for a verdict probe)"
+        default: "1"
+      config_id:
+        description: "judge config id (label only)"
+        default: "baseline-opus5-s2"
+      no_repo_context:
+        description: "true = diff-only replay (skip repo checkout)"
+        default: "false"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install agent-scripts deps (SDK)
+        working-directory: scripts/agent
+        run: npm ci
+
+      - name: Extract corpus (fetches PR commits → real repo context)
+        working-directory: scripts/agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node eval/extract-corpus.mjs --out "$RUNNER_TEMP/results" \
+            --corpus-version "${{ inputs.corpus_version }}" --prs "${{ inputs.prs }}"
+
+      - name: Run K replicate(s)
+        working-directory: scripts/agent
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          [ "${{ inputs.no_repo_context }}" = "true" ] && FLAG="--no-repo-context" || FLAG=""
+          for i in $(seq 1 "${{ inputs.runs }}"); do
+            echo "::group::run $i / ${{ inputs.runs }}"
+            node eval/run.mjs --out "$RUNNER_TEMP/results" \
+              --corpus-version "${{ inputs.corpus_version }}" \
+              --config-id "${{ inputs.config_id }}" $FLAG | tee "run-$i.log"
+            echo "::endgroup::"
+          done
+          grep -o 'config_hash=[^ ]*' run-1.log | head -1 | cut -d= -f2 > "$RUNNER_TEMP/config_hash"
+
+      - name: Score reliability (K ≥ 2)
+        if: ${{ inputs.runs != '1' }}
+        working-directory: scripts/agent
+        run: |
+          HASH=$(cat "$RUNNER_TEMP/config_hash")
+          node eval/reliability.mjs --out "$RUNNER_TEMP/results" \
+            --config-hash "$HASH" --corpus-version "${{ inputs.corpus_version }}"
+
+      - name: Drop raw transcripts (bulky; verdicts live in payload.json)
+        run: find "$RUNNER_TEMP/results/runs" -name 'transcript.json.gz' -delete || true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-${{ inputs.corpus_version }}-K${{ inputs.runs }}
+          path: ${{ runner.temp }}/results
+          retention-days: 30
