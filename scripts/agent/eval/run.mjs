@@ -151,7 +151,25 @@ async function main() {
     let envelope, payload, transcript;
     try {
       const inputs = adapter.prepareInput(input, workDir);
-      adapter.runAgent(inputs, { lensesDir: matLenses, outDir, repoDir, env: process.env });
+      // Live progress: the panel is silent for minutes, but it writes each lens's
+      // `conclusion` file as that lens finishes — poll for them so the terminal
+      // shows N/total lenses + elapsed instead of a dead wait.
+      const lensIds = snapshot.lenses.map((l) => l.id);
+      const started = Date.now();
+      const tty = process.stdout.isTTY;
+      process.stdout.write(`  → ${itemId}: reviewing (${lensIds.length} lenses × samples)…${tty ? "" : "\n"}`);
+      const hb = setInterval(() => {
+        const done = lensIds.filter((id) => existsSync(path.join(outDir, id, "conclusion"))).length;
+        const secs = Math.round((Date.now() - started) / 1000);
+        const msg = `  → ${itemId}: ${done}/${lensIds.length} lenses · ${secs}s`;
+        if (tty) process.stdout.write(`\r${msg}   `); else if (secs % 30 === 0) process.stdout.write(`${msg}\n`);
+      }, tty ? 2000 : 5000);
+      try {
+        await adapter.runAgent(inputs, { lensesDir: matLenses, outDir, repoDir, env: process.env });
+      } finally {
+        clearInterval(hb);
+        if (tty) process.stdout.write(`\r${" ".repeat(48)}\r`); // clear the heartbeat line
+      }
       const cap = adapter.captureArtifacts(outDir);
       payload = cap.payload;
       transcript = cap.executionMessages;

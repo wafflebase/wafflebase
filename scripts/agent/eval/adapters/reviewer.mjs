@@ -13,7 +13,7 @@
 // documented future enhancement.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 
 export function reviewerAdapter({ panelScript }) {
@@ -35,8 +35,10 @@ export function reviewerAdapter({ panelScript }) {
       return { diffFile, changedFilesFile, issueFile };
     },
 
-    /** Spawn review-panel.mjs for this item. `lensesDir` is the materialized
-     * config under test; `repoDir` is an empty dir (diff-only replay). */
+    /** Spawn review-panel.mjs for this item. Async so a caller can show live
+     * progress while it runs (the panel is quiet for minutes otherwise).
+     * `lensesDir` is the materialized config; `repoDir` is the checked-out repo
+     * context (or an empty dir for diff-only). */
     runAgent(inputs, { lensesDir, outDir, repoDir, env = process.env }) {
       mkdirSync(repoDir, { recursive: true });
       const args = [
@@ -48,8 +50,14 @@ export function reviewerAdapter({ panelScript }) {
         "--out", outDir,
       ];
       if (inputs.issueFile) args.push("--issue-file", inputs.issueFile);
-      const res = spawnSync("node", args, { encoding: "utf8", env, maxBuffer: 256 * 1024 * 1024 });
-      return { outDir, code: res.status, stdout: res.stdout, stderr: res.stderr };
+      return new Promise((resolve) => {
+        const child = spawn("node", args, { env });
+        let stdout = "", stderr = "";
+        child.stdout?.on("data", (d) => { stdout += d; });
+        child.stderr?.on("data", (d) => { stderr += d; });
+        child.on("error", (e) => resolve({ outDir, code: -1, stdout, stderr: stderr + String(e) }));
+        child.on("close", (code) => resolve({ outDir, code, stdout, stderr }));
+      });
     },
 
     /** Read the panel's outputs into the artifact payload + the raw SDK messages
