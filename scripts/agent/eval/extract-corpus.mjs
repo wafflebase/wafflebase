@@ -154,7 +154,6 @@ function diffAtReviewPoint(repoSource, repo, n, reviewPoint) {
   const { review_commit, review_base, review_point } = reviewPoint;
   // "head" == the merged/current PR diff — gh gives it robustly, no local commits needed.
   if (review_point === "head") return gh(["pr", "diff", n, "-R", repo, "--patch"]);
-  ensurePrCommits(repoSource, repo, n);
   try {
     return gitC(repoSource, ["diff", `${review_base}...${review_commit}`]);
   } catch {
@@ -189,6 +188,9 @@ function fetchPr(repo, n, { reviewPointMode = "auto", repoSource } = {}) {
     "number,title,author,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
   ]);
   const reviewPoint = resolveReviewPoint(view, reviewPointMode);
+  // Fetch the PR's commits so review_commit (head OR first) is locally available
+  // for BOTH the review-point diff and the runner's repo-context checkout (a).
+  ensurePrCommits(repoSource, repo, n);
   const diff = diffAtReviewPoint(repoSource, repo, n, reviewPoint);
   const issueSpec = fetchIssueSpec(repo, view);
   return { view, diff, issueSpec, reviewPoint };
