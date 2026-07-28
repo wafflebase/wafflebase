@@ -10,8 +10,8 @@
 //   node run.mjs --out <results-repo> --corpus-version <v> [--config-id baseline-opus-s2]
 //        [--lenses-dir ../lenses] [--sdk-version 0.3.217] [--items pr-1,pr-2] [--run-id <id>]
 
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, renameSync, readdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,45 +29,28 @@ function countFiles(dir) {
 }
 
 /**
- * Fidelity (a): materialize the repo TREE at `commit` so lenses get the same
- * surrounding-code context they'd Read in production (vs an empty diff-only dir).
- * Cached per commit, reused across replicate runs. Returns { path, files } or
+ * Fidelity (a): materialize the repo TREE at `commit` (`git archive`) so lenses
+ * get real surrounding-code context (vs an empty diff-only dir). Cached per commit
+ * and reused across replicate runs. Returns { path, files } — the caller logs the
+ * file count per item so a partial/degraded checkout is visible, not silent — or
  * null (→ caller falls back to diff-only).
- *
- * EDR-HARDENED: the corporate EDR intermittently blocks `git` from reading object
- * files, so a single `git archive` can return a TRUNCATED tree (e.g. 43 files
- * instead of 2944) — and the same command reads fine moments later. A `| tar`
- * pipe hid this (exit 0 on partial input) and cached a near-empty repo. Now:
- * archive to a FILE (git's non-zero exit can't be masked), RETRY up to `attempts`
- * times, and keep the extraction with the MOST files (the attempt that dodged the
- * block). The caller logs/records the file count so a degraded context is never
- * silent. `git ls-tree` is NOT used as the reference — under EDR it truncates the
- * same way, so it can't detect the truncation.
  */
-export function materializeRepoAt({ repoSource, commit, cacheRoot, attempts = 3 }) {
+export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
   if (!commit || !repoSource) return null;
   const dest = path.join(cacheRoot, commit);
   const mark = path.join(dest, ".materialized");
-  if (existsSync(mark)) return { path: dest, files: Number(readFileSync(mark, "utf8").trim().split(" ")[1]) || countFiles(dest) };
-  mkdirSync(cacheRoot, { recursive: true });
-  let best = null;
-  for (let i = 0; i < attempts; i++) {
-    const tmp = mkdtempSync(path.join(cacheRoot, `.tmp-`));
-    try {
-      const tarf = path.join(tmp, ".archive.tar");
-      execFileSync("git", ["-C", repoSource, "archive", "-o", tarf, commit], { stdio: "pipe" });
-      execFileSync("tar", ["-xf", tarf, "-C", tmp], { stdio: "pipe" });
-      rmSync(tarf, { force: true });
-      const files = countFiles(tmp);
-      if (!best || files > best.files) { if (best) rmSync(best.tmp, { recursive: true, force: true }); best = { tmp, files }; }
-      else rmSync(tmp, { recursive: true, force: true });
-    } catch { rmSync(tmp, { recursive: true, force: true }); }
+  if (existsSync(mark)) return { path: dest, files: countFiles(dest) };
+  try {
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(dest, { recursive: true });
+    execSync(`git -C "${repoSource}" archive ${commit} | tar -x -C "${dest}"`, { stdio: "pipe" });
+    const files = countFiles(dest);
+    writeFileSync(mark, `${commit} ${files}\n`);
+    return { path: dest, files };
+  } catch {
+    rmSync(dest, { recursive: true, force: true });
+    return null; // commit not fetched / archive failed → diff-only fallback
   }
-  if (!best || best.files <= 0) return null;
-  rmSync(dest, { recursive: true, force: true });
-  renameSync(best.tmp, dest);
-  writeFileSync(mark, `${commit} ${best.files}\n`);
-  return { path: dest, files: best.files };
 }
 
 function parseArgs(argv) {

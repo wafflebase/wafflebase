@@ -34,11 +34,6 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
-        with:
-          # FULL history: a shallow (depth-1) checkout can't resolve a historical
-          # PR commit's tree, so `git archive` returns a truncated repo (18 files)
-          # and base...commit diffs fail ("invalid symmetric difference").
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
