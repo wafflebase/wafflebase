@@ -163,12 +163,44 @@ jobs:
         with:
           node-version: 22.x
 
+      # KEEP IN SYNC with the identical step in agent-review-on-demand.yml.
       - name: Compute diff + changed files (data for the reviewers)
         if: steps.pr.outputs.number != ''
         run: |
+          set -euo pipefail
           git fetch --no-tags origin main
-          git diff origin/main...HEAD > /tmp/pr.diff
+          # UNFILTERED on purpose: this list drives lensApplies → required_checks,
+          # and a list that shrinks mid-PR would let a lens that FAILED an earlier
+          # round silently stop being required, promoting an unresolved blocker.
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
+          # Omit ANTLR generated *tooling* artifacts from the diff BODY only.
+          # `.interp` / `.tokens` are IDE/tooling files with no reference
+          # anywhere in src, package.json, or the build — nothing loads them at
+          # runtime, so no lens can act on their contents. On PR #521 they were
+          # 17.2 KB of a 75.6 KB diff, re-read by 4 lenses x 2 samples x 5 rounds.
+          #
+          # The generated `.ts` files are deliberately KEPT, even though they are
+          # the larger half: they are executable code shipped in the sheets
+          # package, and excluding them would leave EVERY lens (security included)
+          # with no view of a hand-edit that `Formula.g4` does not justify. The
+          # security lens raised exactly this on the PR that introduced this step,
+          # and it was right — the only compensating control is an edit-time hook
+          # that an out-of-band editor bypasses. Re-excluding them requires a
+          # regen-and-diff CI lane first (see the follow-up issue).
+          #
+          # `Formula.g4` (the hand-written grammar) is never excluded. Lockfiles
+          # are never excluded either: supply-chain relevant, and measured at 0%
+          # of every agent PR diff to date.
+          git diff origin/main...HEAD -- . \
+            ':(exclude)packages/sheets/antlr/*.interp' \
+            ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/pr.diff
+          # A regeneration-only change filters down to nothing, and the panel
+          # fails closed on an empty diff. Fall back to the unfiltered diff so
+          # that only ever pages for a genuinely empty change, never because
+          # the filter ate the whole thing.
+          if [ ! -s /tmp/pr.diff ]; then
+            git diff origin/main...HEAD > /tmp/pr.diff
+          fi
 
       - name: Fetch originating issue spec (for design-fit)
         if: steps.pr.outputs.number != ''

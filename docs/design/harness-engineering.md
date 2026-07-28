@@ -395,7 +395,17 @@ Components:
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy` (declared data-drivenly in
-  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). Each subagent has
+  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). The reviewed
+  artifact is the branch diff against `main`, minus ANTLR generated *tooling*
+  artifacts (`packages/sheets/antlr/*.interp|.tokens` — nothing loads them at
+  runtime, so no lens can act on them). The generated `.ts` files stay IN the
+  diff even though they are the larger half: they are executable code, and
+  excluding them would leave every lens blind to a hand-edit that
+  `packages/sheets/antlr/Formula.g4` does not justify, whose only compensating
+  control (`scripts/hooks/guard-generated-files.sh`) is bypassable out-of-band.
+  Re-excluding them requires a regen-and-diff lane first. The changed-FILE list
+  is left unfiltered because it drives `lensApplies` → the required-check set, so
+  a list that shrank mid-PR could un-require a lens that failed an earlier round. Each subagent has
   read-only tools only (Read/Grep/Glob; no branch-code execution), runs with
   `settingSources: []` (so the untrusted branch's `.claude` hooks/settings are
   never loaded — the workflow also strips `.claude/` and installs the SDK in a
