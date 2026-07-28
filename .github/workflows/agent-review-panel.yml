@@ -805,7 +805,7 @@ jobs:
             merge. Pushing re-runs CI and a fresh review panel.
           claude_args: >-
             --max-turns 80
-            --model claude-opus-4-8
+            --model claude-opus-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
       # Diagnostics: keep the fixer's transcript (turns, tool calls, permission

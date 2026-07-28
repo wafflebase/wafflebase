@@ -248,6 +248,14 @@ jobs:
           or any wait-for-later mechanism; they will strand the run before it opens
           the PR. If a command is slow, just let it finish (or skip it per step 5).
 
+          Stay inside the scope of the issue. Deliver the acceptance criteria and
+          nothing beyond them: no unrequested features, refactors, abstractions,
+          or error handling for cases that cannot occur. Make routine judgment
+          calls yourself rather than asking. If you conclude the issue is mistaken
+          or that a better approach exists, say so in a sentence in the PR body and
+          implement what was asked — do not quietly widen, narrow, or substitute
+          the task.
+
           Hard rules: never push to main; never merge; never edit ANTLR generated
           files (regenerate via `pnpm sheets build:formula`); all sheet
           persistence goes through the Store interface. Leave the PR as a DRAFT —
@@ -274,7 +282,7 @@ jobs:
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
             --max-turns 150
-            --model claude-opus-4-8
+            --model claude-opus-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
       # Capture the full agent transcript (every turn + tool call + any
