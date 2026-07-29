@@ -23,9 +23,9 @@
 //
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { latestLensRuns } from "./review-state.mjs";
+import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 
 /**
  * Turn `{ lensCheckName -> check run }` into a flat, lens-tagged findings array.
@@ -76,100 +76,25 @@ export function lensCheckNames(manifest) {
 
 // --- CLI --------------------------------------------------------------------
 
-// Prototype-free accumulator: `--__proto__ x` would otherwise set this object's
-// prototype instead of a key. Also accepts flags before the positional, so
-// argument order is not load-bearing.
-export function parseArgs(argv) {
-  const a = Object.create(null);
-  const positional = [];
-  for (let i = 2; i < (Array.isArray(argv) ? argv.length : 0); i++) {
-    const v = argv[i];
-    if (typeof v !== "string") continue;
-    if (v.startsWith("--")) { a[v.slice(2)] = argv[i + 1]; i++; } else positional.push(v);
-  }
-  a._ = positional;
-  return a;
-}
-
-/** One `gh api` call, parsed. Replaced by a stub in tests — see `collectPrior`. */
-function gh(args) {
-  return JSON.parse(execFileSync("gh", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 }));
-}
-
 /**
  * Read every prior round's findings for a PR.
  *
  * `api` is injected — the reason this module exists is that inline YAML JavaScript
  * cannot be tested, and a version whose only API path was reachable exclusively
- * through a real `gh` binary would have kept exactly that problem. The four
- * failure paths below are each covered in prior-findings.test.mjs.
+ * through a real `gh` binary would have kept exactly that problem.
+ *
+ * The two API contracts this depends on (`--slurp` on the object-wrapped
+ * check-runs endpoint; the per-run re-fetch because the list response omits
+ * `output.text`) live in gh-checks.mjs, stated once and shared with
+ * review-scope.mjs. The first draft of this module got both wrong.
  *
  * NEVER throws: worst case it returns []. See `tagPriorFindings` for why the fail
  * direction here is the opposite of the rest of the pipeline.
  */
 export function collectPrior({ pr, names, api = gh, log = console.error }) {
-  // Object-wrapped-array endpoint (`{ total_count, check_runs: [] }`). Plain
-  // `--paginate` concatenates the raw per-page objects, which is NOT valid single
-  // JSON — verified and documented in review-round-guard.mjs, which hit this
-  // first. `--slurp` wraps each page as an array element instead; flatten
-  // `check_runs` across pages ourselves. Without `--slurp`, any commit past one
-  // page of check runs throws.
-  const checkRunsFor = (sha) => {
-    const pages = api(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`, "--paginate", "--slurp"]);
-    return (Array.isArray(pages) ? pages : []).flatMap((p) => p?.check_runs ?? []);
-  };
-
-  // Re-fetch each SELECTED run so `output.text` is the FULL payload. The list
-  // response omits or truncates it — the inline github-script this replaces does a
-  // per-run `checks.get` for exactly that reason, and review-round-guard.mjs
-  // documents the same contract and back-fills too. Reading the list copy instead
-  // would be worse than useless: a truncated payload fails `JSON.parse`, so a lens
-  // with many findings silently carries ZERO — the #521 false negative this whole
-  // path exists to prevent.
-  //
-  // Bounded at one call per lens (five today). Per-lens `try`, falling back to the
-  // list copy rather than dropping the lens: if that copy is complete it parses,
-  // and if it is truncated the outcome is the same skip.
-  const withFullOutput = (byLens) => {
-    const out = new Map();
-    for (const [name, run] of byLens) {
-      out.set(name, run);
-      if (!run?.id) continue;
-      try {
-        out.set(name, api(["api", `repos/{owner}/{repo}/check-runs/${run.id}`]));
-      } catch (err) {
-        log(`could not fetch ${name} in full (${err.message}); using the list copy.`);
-      }
-    }
-    return out;
-  };
-
-  // Every commit on the PR, not just the head: the last completed run for a lens
-  // may sit on an earlier commit if that lens produced no verdict in the most
-  // recent round. Bare-array endpoint, so plain `--paginate` is correct here (same
-  // call shape as review-round-guard.mjs's `listAll`).
-  let commits;
   try {
-    commits = api(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/commits?per_page=100`]);
-  } catch (err) {
-    // Nothing left to enumerate. Fewer findings, not an outage.
-    log(`Could not list commits for #${pr} (${err.message}); carrying no prior findings.`);
-    return [];
-  }
-  const runs = [];
-  for (const c of Array.isArray(commits) ? commits : []) {
-    if (!c?.sha) continue;
-    // PER COMMIT, so one unreadable commit costs that commit's runs and not the
-    // whole PR's carry-forward. An older run then speaks for the lens, which is
-    // still additive; a panel-wide zero would not be.
-    try {
-      runs.push(...checkRunsFor(c.sha));
-    } catch (err) {
-      log(`could not read check runs for ${c.sha} (${err.message}); skipping that commit.`);
-    }
-  }
-  try {
-    return tagPriorFindings(withFullOutput(latestLensRuns(runs, names)));
+    const runs = allCheckRuns(prCommitsWithCheckRuns(pr, { api, log }));
+    return tagPriorFindings(withFullOutput(latestLensRuns(runs, names), { api, log }));
   } catch (err) {
     log(`Could not assemble prior findings (${err.message}); carrying none.`);
     return [];

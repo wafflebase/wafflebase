@@ -19,10 +19,13 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./active/20260729-absence-claims-todo.md) | - |
+| autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
+| incremental review wiring (2026-07-29) | [20260729-incremental-review-wiring-todo.md](./active/20260729-incremental-review-wiring-todo.md) | [20260729-incremental-review-wiring-lessons.md](./active/20260729-incremental-review-wiring-lessons.md) |
 | review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./active/20260729-review-novelty-gate-todo.md) | - |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./active/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./active/20260728-blast-radius-lens-lessons.md) |
 | coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./active/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./active/20260728-coverage-first-rubrics-lessons.md) |
+| docs edit link in place (2026-07-28) | [20260728-docs-edit-link-in-place-todo.md](./active/20260728-docs-edit-link-in-place-todo.md) | [20260728-docs-edit-link-in-place-lessons.md](./active/20260728-docs-edit-link-in-place-lessons.md) |
 | independent verifier (2026-07-28) | [20260728-independent-verifier-todo.md](./active/20260728-independent-verifier-todo.md) | [20260728-independent-verifier-lessons.md](./active/20260728-independent-verifier-lessons.md) |
 | model refresh opus 5 (2026-07-28) | [20260728-model-refresh-opus-5-todo.md](./active/20260728-model-refresh-opus-5-todo.md) | [20260728-model-refresh-opus-5-lessons.md](./active/20260728-model-refresh-opus-5-lessons.md) |
 | agent metrics cost weighting (2026-07-27) | [20260727-agent-metrics-cost-weighting-todo.md](./active/20260727-agent-metrics-cost-weighting-todo.md) | - |
