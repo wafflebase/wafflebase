@@ -207,7 +207,12 @@ async function verify(candidate, charter, { repo, context, sessionLog, index }) 
     sessionLog,
     allowedTools: HUNT_TOOLS,
     label: "hunt-verify",
-    maxTurns: 8,
+    // 8 was too tight and cost two real findings to `error_max_turns`. Observed
+    // live: successful verifiers used 14-16 turns, because a verifier must
+    // independently re-establish the facts with Read/Grep/Glob rather than trust
+    // the candidate's citations — that is the whole job. Charter-tunable so the
+    // ceiling is a config decision rather than a constant to rediscover.
+    maxTurns: Number.isFinite(charter.verifierMaxTurns) ? charter.verifierMaxTurns : 20,
   }));
 }
 

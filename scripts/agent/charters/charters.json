@@ -3,12 +3,16 @@
     "id": "contract",
     "title": "Documented-contract violations",
     "model": "claude-opus-5",
-    "samples": 2,
-    "oracles": ["contract"],
+    "samples": 3,
+    "oracles": [
+      "contract"
+    ],
     "surface": "cli",
     "needsBackend": false,
     "mutating": false,
-    "codeScope": ["packages/cli/src/**"],
+    "codeScope": [
+      "packages/cli/src/**"
+    ],
     "docsScope": [
       "packages/cli/README.md",
       "docs/design/cli.md",
@@ -18,26 +22,49 @@
     "requiresDocCitation": true,
     "minCitations": 2,
     "verifiers": 2,
-    "reportableSeverities": ["critical", "major"],
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
     "maxCandidates": 8,
-    "probeBudget": { "maxProbes": 40, "perProbeTimeoutMs": 20000, "totalTimeoutMs": 600000 }
+    "probeBudget": {
+      "maxProbes": 40,
+      "perProbeTimeoutMs": 20000,
+      "totalTimeoutMs": 600000
+    },
+    "verifierMaxTurns": 20
   },
   {
     "id": "crash",
     "title": "Unhandled failures and leaked internals",
     "model": "claude-opus-5",
-    "samples": 2,
-    "oracles": ["crash"],
+    "samples": 3,
+    "oracles": [
+      "crash"
+    ],
     "surface": "cli",
     "needsBackend": false,
     "mutating": false,
-    "codeScope": ["packages/cli/src/**"],
-    "docsScope": ["packages/cli/README.md", "docs/design/cli.md"],
+    "codeScope": [
+      "packages/cli/src/**"
+    ],
+    "docsScope": [
+      "packages/cli/README.md",
+      "docs/design/cli.md"
+    ],
     "requiresDocCitation": false,
     "minCitations": 1,
     "verifiers": 2,
-    "reportableSeverities": ["critical", "major"],
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
     "maxCandidates": 8,
-    "probeBudget": { "maxProbes": 40, "perProbeTimeoutMs": 20000, "totalTimeoutMs": 600000 }
+    "probeBudget": {
+      "maxProbes": 40,
+      "perProbeTimeoutMs": 20000,
+      "totalTimeoutMs": 600000
+    },
+    "verifierMaxTurns": 20
   }
 ]

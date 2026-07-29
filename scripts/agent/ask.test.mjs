@@ -234,3 +234,55 @@ test("withRetry: backoff grows exponentially from baseMs", async () => {
   );
   assert.deepEqual(delays, [100, 200, 400]);
 });
+
+test("REGRESSION: a run-limit failure is NOT a retryable API error", () => {
+  // Captured verbatim from a live hunt run. This shape cost two already-reproduced
+  // findings: `is_error` is set but there is no `api_error_status` and no `result`
+  // text, so the old rule filed it under api-error with detail "" -> "unknown" and
+  // marked it retryable. Retrying a turn ceiling burns 3x the cost to fail
+  // identically, and the log blamed the network for a config problem.
+  const maxTurns = {
+    type: "result",
+    subtype: "error_max_turns",
+    is_error: true,
+    api_error_status: undefined,
+    terminal_reason: "max_turns",
+    num_turns: 9,
+    result: "",
+    errors: [],
+  };
+  const c = classifyResult(maxTurns);
+  assert.equal(c.kind, "limit", "must NOT be classified as api-error");
+  assert.equal(c.retryable, false, "retrying a ceiling cannot help");
+  assert.equal(c.turns, 9);
+  assert.match(c.detail, /error_max_turns/, "the detail must name the real cause, not 'unknown'");
+  assert.match(c.detail, /9 turns/, "and say how many turns were spent");
+});
+
+test("classifyResult: every deterministic ceiling subtype is non-retryable", () => {
+  for (const subtype of ["error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries"]) {
+    const c = classifyResult({ subtype, is_error: true });
+    assert.equal(c.kind, "limit", subtype);
+    assert.equal(c.retryable, false, subtype);
+  }
+  // `terminal_reason` alone is enough, even if the subtype is unfamiliar.
+  assert.equal(classifyResult({ subtype: "error_something_new", is_error: true, terminal_reason: "max_turns" }).kind, "limit");
+});
+
+test("classifyResult: a run limit does NOT shadow a genuine API error", () => {
+  // The ordering change must not swallow real transient failures — those still
+  // need to be retryable, which is the counterweight to the test above.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).kind, "api-error");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
+  assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+  // ...and a session limit stays non-retryable for its own separate reason.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "You've hit your session limit" }).retryable, false);
+});
+
+test("classifyResult: a limit surfaces the SDK's own errors[] when present", () => {
+  const c = classifyResult({
+    subtype: "error_max_turns", is_error: true, num_turns: 20,
+    errors: [{ type: "turn_limit", message: "reached the configured turn ceiling" }],
+  });
+  assert.match(c.detail, /reached the configured turn ceiling/);
+});
