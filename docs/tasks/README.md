@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
+| review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./active/20260729-review-novelty-gate-todo.md) | - |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./active/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./active/20260728-blast-radius-lens-lessons.md) |
 | coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./active/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./active/20260728-coverage-first-rubrics-lessons.md) |
 | independent verifier (2026-07-28) | [20260728-independent-verifier-todo.md](./active/20260728-independent-verifier-todo.md) | [20260728-independent-verifier-lessons.md](./active/20260728-independent-verifier-lessons.md) |

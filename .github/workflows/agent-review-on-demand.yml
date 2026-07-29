@@ -192,9 +192,14 @@ jobs:
 
       # KEEP IN SYNC with the identical step in agent-review-panel.yml.
       - name: Compute diff + changed files (data for the reviewers)
+        id: diff
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
+          # Same endpoint as the `...` diff below, so "what changed" and "what
+          # novelty.mjs treats as already-there" cannot disagree. See the twin
+          # step in agent-review-panel.yml.
+          echo "base=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
           # UNFILTERED on purpose — see the twin step in agent-review-panel.yml
           # for why the changed-file list must never shrink.
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
@@ -322,6 +327,9 @@ jobs:
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Via env, never interpolated into the `run:` string — this step holds
+          # the Claude token. Same rule as the twin step in agent-review-panel.yml.
+          BASE_SHA: ${{ steps.diff.outputs.base }}
         # --prior-findings is tolerant of a missing file (existsSync guard in
         # review-panel.mjs → treated as []), so a skipped/failed read step is safe.
         run: >-
@@ -330,6 +338,7 @@ jobs:
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --base-sha "$BASE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
