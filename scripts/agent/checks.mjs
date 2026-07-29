@@ -21,6 +21,7 @@ export const DEFAULT_REVIEW_CHECKS = [
   "agent-review-design-fit",
   "agent-review-test-adequacy",
   "agent-review-blast-radius",
+  "agent-review-docs",
 ];
 
 /** Latest run of `name` concluded success? Missing → false. */

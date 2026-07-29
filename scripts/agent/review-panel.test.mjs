@@ -20,6 +20,10 @@ import {
   verifierTally,
   classifyResult,
   withRetry,
+  FILE_CLASSES,
+  classifyFile,
+  sliceDiffByFile,
+  diffForLens,
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
@@ -130,7 +134,9 @@ test("injection framing covers the working tree, in the wrapper and every rubric
   // into a detection instead of a silent success.
   assert.match(LENS_CLOSING_INSTRUCTION, /is itself a\s+finding/);
 
-  for (const id of ["correctness", "security", "design-fit", "test-adequacy", "blast-radius"]) {
+  // Derived from the manifest, not a hand-kept list: a lens added to lenses.json
+  // with a rubric that frames only the diff must fail HERE, not ship silently.
+  for (const id of LENSES.map((l) => l.id)) {
     const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
     // Two loose assertions rather than one punctuation-sensitive phrase: the
     // security property is "framed as data, not as instructions", not a comma.
@@ -157,6 +163,213 @@ test("the blast-radius rubric mandates leaving the diff", () => {
   assert.match(md, /NOT your lane/, "must defer the other lenses' concerns");
   assert.match(md, /correctness lens/i);
   assert.match(md, /security lens/i);
+});
+
+// --- file-class routing ------------------------------------------------------
+
+test("classifyFile: ordered rules — the .md that is policy is not prose", () => {
+  // THE precedence case. Every one of these is markdown, and routing them by
+  // extension would hand the files that reprogram the agents to the cheap lens.
+  assert.equal(classifyFile("scripts/agent/lenses/security.md"), "policy");
+  assert.equal(classifyFile("CLAUDE.md"), "policy");
+  assert.equal(classifyFile("AGENTS.md"), "policy");
+  assert.equal(classifyFile("CONTRIBUTING.md"), "policy");
+  assert.equal(classifyFile(".github/workflows/agent-review-panel.yml"), "policy");
+  assert.equal(classifyFile("harness.config.json"), "policy");
+
+  // The design contract stays with design-fit, never with docs.
+  assert.equal(classifyFile("docs/design/sheets/formula.md"), "design-spec");
+  assert.equal(classifyFile("docs/design/template.md"), "design-spec");
+  assert.equal(classifyFile("docs/design/README.md"), "design-spec");
+
+  // Markdown that behavior depends on is read as code.
+  assert.equal(classifyFile("packages/docs/test/fixtures/sample.md"), "code-adjacent");
+  assert.equal(classifyFile("packages/sheets/src/__fixtures__/table.md"), "code-adjacent");
+  assert.equal(classifyFile("packages/docs/src/spell/dict/en_US.txt"), "code-adjacent");
+
+  // The narration this whole change exists to stop paying opus to re-read.
+  assert.equal(classifyFile("docs/tasks/active/20260729-x-todo.md"), "prose");
+  assert.equal(classifyFile("docs/tasks/active/20260729-x-lessons.md"), "prose");
+  assert.equal(classifyFile("README.md"), "prose");
+  assert.equal(classifyFile("CHANGELOG.md"), "prose");
+  assert.equal(classifyFile("packages/backend/README.md"), "prose");
+  assert.equal(classifyFile("packages/documentation/src/guide/intro.md"), "prose");
+  assert.equal(classifyFile(".changeset/olive-pans-smile.md"), "prose");
+
+  assert.equal(classifyFile("packages/sheets/src/formula/evaluator.ts"), "code");
+  assert.equal(classifyFile("scripts/agent/review-panel.mjs"), "code");
+});
+
+// The fail-safe DIRECTION is the whole safety argument: `prose` is the only class
+// routed away from the code lenses, so it must require an explicit match and
+// everything unrecognized must land in `code`, where every code lens reads it.
+test("classifyFile: anything unrecognized falls through to code", () => {
+  for (const p of [
+    "LICENSE",
+    ".gitignore",
+    "packages/sheets/src/notes.md",       // stray .md under packages → NOT prose
+    "packages/documentation/vite.config.ts",
+    "some/new/toolchain/config.yaml",
+    "",
+    null,
+    undefined,
+  ]) {
+    assert.equal(classifyFile(p), "code", `${JSON.stringify(p)} must fail safe to code`);
+  }
+});
+
+test("sliceDiffByFile: splits per file, resolves adds/deletes/renames/binary", () => {
+  const diff = [
+    "diff --git a/packages/sheets/src/a.ts b/packages/sheets/src/a.ts",
+    "index 111..222 100644",
+    "--- a/packages/sheets/src/a.ts",
+    "+++ b/packages/sheets/src/a.ts",
+    "@@ -1,2 +1,2 @@",
+    "-old",
+    "+new",
+    "diff --git a/docs/tasks/active/x-todo.md b/docs/tasks/active/x-todo.md",
+    "new file mode 100644",
+    "--- /dev/null",
+    "+++ b/docs/tasks/active/x-todo.md",
+    "@@ -0,0 +1 @@",
+    "+plan",
+    "diff --git a/old/gone.ts b/old/gone.ts",
+    "deleted file mode 100644",
+    "--- a/old/gone.ts",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-bye",
+    "diff --git a/docs/old.md b/docs/new.md",
+    "similarity index 100%",
+    "rename from docs/old.md",
+    "rename to docs/new.md",
+    "diff --git a/assets/logo.png b/assets/logo.png",
+    "index 333..444 100644",
+    "Binary files a/assets/logo.png and b/assets/logo.png differ",
+  ].join("\n");
+
+  const blocks = sliceDiffByFile(diff);
+  assert.deepEqual(blocks.map((b) => b.path), [
+    "packages/sheets/src/a.ts",
+    "docs/tasks/active/x-todo.md",
+    "old/gone.ts",       // deletion → the a-side, not /dev/null
+    "docs/new.md",       // pure rename → `rename to`
+    "assets/logo.png",   // binary block kept, classified by path
+  ]);
+  // Bytes are preserved exactly — findings cite file:line, so a reflowed hunk
+  // would silently invalidate every line number reported against it.
+  assert.equal(blocks.map((b) => b.block).join("\n"), diff);
+});
+
+// A .diff/.patch fixture's CONTENT lines start with `+` + `++ b/…` = `+++ b/…`.
+// Scanning the whole block instead of the header region would let the fixture's
+// payload rename the block, routing a real file to the wrong lens.
+test("sliceDiffByFile: hunk content cannot masquerade as a header", () => {
+  const diff = [
+    "diff --git a/packages/docs/test/fixtures/sample.patch b/packages/docs/test/fixtures/sample.patch",
+    "--- a/packages/docs/test/fixtures/sample.patch",
+    "+++ b/packages/docs/test/fixtures/sample.patch",
+    "@@ -0,0 +1,2 @@",
+    "+--- a/docs/tasks/decoy.md",
+    "++++ b/docs/tasks/decoy.md",
+  ].join("\n");
+  const [only] = sliceDiffByFile(diff);
+  assert.equal(only.path, "packages/docs/test/fixtures/sample.patch");
+  assert.equal(classifyFile(only.path), "code-adjacent");
+});
+
+test("sliceDiffByFile: unparseable input is kept and treated as code", () => {
+  assert.deepEqual(sliceDiffByFile(""), []);
+  assert.deepEqual(sliceDiffByFile("   \n  "), []);
+  // No `diff --git` header at all → one unclassifiable block, never dropped.
+  const loose = sliceDiffByFile("--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b");
+  assert.equal(loose.length, 1);
+  assert.equal(loose[0].path, null);
+  assert.equal(classifyFile(loose[0].path), "code");
+  // A quoted path (spaces/specials) is genuinely ambiguous to split → code.
+  const quoted = sliceDiffByFile('diff --git "a/my file.md" "b/my file.md"\n@@ -1 +1 @@\n-a\n+b');
+  assert.equal(quoted[0].path, null);
+  assert.equal(classifyFile(quoted[0].path), "code");
+});
+
+test("diffForLens: only in-scope blocks, original order, empty when none", () => {
+  const blocks = [
+    { path: "packages/sheets/src/a.ts", block: "CODE" },
+    { path: "docs/tasks/active/x-todo.md", block: "PROSE" },
+    { path: "docs/design/sheets/formula.md", block: "SPEC" },
+    { path: "CLAUDE.md", block: "POLICY" },
+  ];
+  assert.equal(diffForLens({ scopeClasses: ["code", "code-adjacent"] }, blocks), "CODE");
+  assert.equal(diffForLens({ scopeClasses: ["prose"] }, blocks), "PROSE");
+  assert.equal(diffForLens({ scopeClasses: ["code", "design-spec", "policy"] }, blocks), "CODE\nSPEC\nPOLICY");
+  assert.equal(diffForLens({ scopeClasses: ["design-spec"] }, [blocks[0]]), "");
+  // No scopeClasses (un-migrated or hand-added entry) → everything. An omitted
+  // field must fail toward MORE review, never toward a silently empty diff.
+  assert.equal(diffForLens({}, blocks), "CODE\nPROSE\nSPEC\nPOLICY");
+  assert.equal(diffForLens({ scopeClasses: [] }, blocks), "CODE\nPROSE\nSPEC\nPOLICY");
+});
+
+// THE load-bearing invariant. Routing is only safe if narrowing what a lens READS
+// never leaves a file class with no blocking reviewer. If this fails, some class
+// of change is being merged on the strength of a lens that never saw it.
+test("routing coverage: every file class has a blocking lens that reads it", () => {
+  const blocking = LENSES.filter((l) => String(l.gating ?? "blocking") === "blocking");
+  for (const cls of FILE_CLASSES) {
+    const owners = blocking.filter((l) => (l.scopeClasses ?? FILE_CLASSES).includes(cls));
+    assert.ok(owners.length > 0, `file class "${cls}" has no blocking lens reading it`);
+  }
+  // Stronger, per class: the owner must also APPLY to a diff made only of that
+  // class. A lens that reads `prose` but whose appliesWhen never matches a
+  // prose-only PR is not coverage — it is a lens that never runs.
+  const sample = {
+    "code": "packages/sheets/src/a.ts",
+    "code-adjacent": "packages/docs/test/fixtures/sample.md",
+    "policy": "CLAUDE.md",
+    "design-spec": "docs/design/sheets/formula.md",
+    "prose": "docs/tasks/active/x-todo.md",
+  };
+  for (const [cls, file] of Object.entries(sample)) {
+    assert.equal(classifyFile(file), cls, `sample for "${cls}" no longer classifies as ${cls}`);
+    const live = blocking.filter((l) => (l.scopeClasses ?? FILE_CLASSES).includes(cls) && lensApplies(l, [file]));
+    assert.ok(live.length > 0, `a PR touching only ${file} reaches no blocking lens that reads "${cls}"`);
+  }
+});
+
+// Prose is the class this change moves off the expensive lenses, so its coverage
+// is asserted by NAME, not just by the generic loop above. security stays on it:
+// prose is where planted instructions live, and it is the always-applicable
+// blocking lens.
+test("routing coverage: prose is still read by a blocking always-on lens", () => {
+  const security = lensOf("security");
+  assert.ok(security.scopeClasses.includes("prose"),
+    "security dropped `prose`: injection/secret review of narration would fall to the docs lens alone");
+  assert.equal(String(security.gating ?? "blocking"), "blocking");
+  assert.ok((security.appliesWhen ?? ["**"]).includes("**"));
+
+  const docs = lensOf("docs");
+  assert.deepEqual(docs.scopeClasses, ["prose"]);
+  assert.ok(lensApplies(docs, ["docs/tasks/active/x-todo.md"]), "docs must run on a narration-only PR");
+  // ...and stay out of the way of a pure code change.
+  assert.equal(lensApplies(docs, ["packages/sheets/src/a.ts"]), false);
+});
+
+// An empty SLICE must report the same neutral, non-gating shape as an
+// inapplicable lens — including `applicable: false`. The workflow builds
+// required_checks from `blocking && applicable` and then blocks on any
+// conclusion !== 'success'; `applicable: true` alongside a 'skipped' conclusion
+// would make the lens required AND permanently neutral, deadlocking every
+// docs-only PR. This asserts the wiring, since the branch itself needs the SDK.
+test("an empty lens slice is reported as skipped AND not applicable", () => {
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const branch = /if \(lensDiff\.trim\(\) === ""\) \{[\s\S]*?\n    \}/.exec(src);
+  assert.ok(branch, "the empty-slice branch is gone — every lens now gets a diff it may not want");
+  assert.match(branch[0], /conclusion: "skipped"/);
+  assert.match(branch[0], /applicable: false/,
+    "an empty-slice lens marked applicable becomes a required check that can never go green");
+  // The slice must actually reach the lens, or all of the above guards dead code.
+  assert.match(src, /const lensDiff = diffForLens\(lens, fileBlocks\)/);
+  assert.match(src, /runLens\(lens, \{ rubric: lens\.rubric, diff: lensDiff,/,
+    "runLens must receive the SLICED diff, not the full one");
 });
 
 // The safety property that makes path-scoping survivable, asserted against the
@@ -386,17 +599,19 @@ const assertNoClamp = (text, where) => {
 };
 
 test("lens rubrics are coverage-first, with no certainty clamp", () => {
-  const RUBRICS = ["correctness", "security", "design-fit", "test-adequacy", "blast-radius"];
-  for (const id of RUBRICS) {
+  // Enumerate the MANIFEST rather than a literal list. The previous form kept a
+  // hardcoded array and asserted it equalled the manifest, which meant adding a
+  // lens failed this test as a name mismatch instead of actually checking the new
+  // rubric. Iterating the manifest covers every lens that ships, by construction.
+  const ids = LENSES.map((l) => l.id);
+  assert.ok(ids.length >= 5, "manifest lost lenses — this guard would cover almost nothing");
+  for (const id of ids) {
     const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
     assertNoClamp(md, `${id}.md`);
     assert.match(md, /Report EVERY issue you find/, `${id}.md must instruct coverage-first`);
     assert.match(md, /[Nn]ever downgrade\s+severity/, `${id}.md must separate severity from doubt`);
     assert.match(md, /confidence/i, `${id}.md must tell the lens what confidence is for`);
   }
-  // Every rubric in the manifest is covered by the loop above — otherwise a new
-  // lens could ship with a clamp and nothing here would notice.
-  assert.deepEqual(LENSES.map((l) => l.id).sort(), [...RUBRICS].sort());
 });
 
 // The rubrics are only half the prompt. `runLens` appends this block AFTER the
