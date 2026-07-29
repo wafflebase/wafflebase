@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build (runs on the CI host architecture — no QEMU emulation)
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
@@ -55,7 +55,14 @@ RUN pnpm run build
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime (target platform)
 # ---------------------------------------------------------------------------
-FROM node:20-alpine
+FROM node:22-bookworm-slim
+
+# DuckDB downloads signed extensions on first use. The slim image does not
+# include a system CA bundle, and the Delta extension is not published for all
+# musl/Alpine targets (notably linux_arm64_musl).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
