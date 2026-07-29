@@ -17,6 +17,7 @@ import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { BoardToolbar } from "./board-toolbar";
 
 interface BoardViewProps {
   /**
@@ -102,6 +103,11 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
   // only the imperative canvas mount below ever reads.
   const vp = useRef<Viewport>(DEFAULT_VIEWPORT);
   const [didMount, setDidMount] = useState(false);
+  // Lifted into React state (in addition to `editorRef`) purely so the
+  // toolbar can re-render with a live `editor` reference once the mount
+  // effect creates it — `editorRef` alone wouldn't trigger a re-render
+  // of `<BoardToolbar>` when the editor becomes available.
+  const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
   // Same ref-capture pattern as SlidesView: the mount effect's closures
@@ -190,6 +196,7 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       readOnly,
     });
     editorRef.current = editor;
+    setEditor(editor);
 
     const resizeObserver = new ResizeObserver(() => {
       const rect = container.getBoundingClientRect();
@@ -374,6 +381,7 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       editor.detach();
       store.dispose();
       editorRef.current = null;
+      setEditor(null);
       style.remove();
     };
   }, [didMount, doc, readOnly]);
@@ -395,11 +403,20 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      data-document-id={documentId}
-      className="relative flex-1 w-full h-full min-h-0"
-    />
+    <div className="flex h-full w-full min-h-0 flex-col">
+      {/* Toolbar sits ABOVE the canvas host as a sibling, not a wrapper —
+          the mount effect measures `containerRef.getBoundingClientRect()`
+          for canvas sizing and `canvas.getBoundingClientRect()` for
+          pointer→world mapping, so the toolbar must not add to (or live
+          inside) that measured box. Hidden entirely for viewer-role
+          share-link visitors, matching every other insert affordance. */}
+      {!readOnly && <BoardToolbar editor={editor} />}
+      <div
+        ref={containerRef}
+        data-document-id={documentId}
+        className="relative flex-1 w-full h-full min-h-0"
+      />
+    </div>
   );
 }
 
