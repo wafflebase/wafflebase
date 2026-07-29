@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "rootDir": "./src",
-    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo",
-    "paths": {}
-  },
-  "exclude": ["node_modules", "test", "dist", "prisma", "**/*spec.ts"]
-}
