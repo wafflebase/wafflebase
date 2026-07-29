@@ -107,7 +107,7 @@ export function validateCharter(c) {
 // --- exploration ------------------------------------------------------------
 
 async function explore(charter, { repo, context, sessionLog }) {
-  const { askStructured } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("./ask.mjs");
   const prompt = [
     charter.rubric,
     "",
@@ -125,7 +125,11 @@ async function explore(charter, { repo, context, sessionLog }) {
     "valid and often correct result. Every candidate needs a probe plan whose",
     "`failingIndex` probe demonstrates the defect, and citations that locate a line.",
   ].join("\n");
-  return askStructured({
+  // Retry genuinely-transient API errors, exactly as review-panel.mjs does for its
+  // lens samples. classifyResult marks a quota/session-limit non-retryable so it
+  // fails through immediately rather than burning attempts on a limit that cannot
+  // clear in-run.
+  return withRetry(() => askStructured({
     systemPrompt:
       `You are the ${charter.title} hunter. Stay strictly in your lane. You propose probes ` +
       `as argv arrays for a trusted runner to execute; you never run commands yourself.`,
@@ -136,13 +140,13 @@ async function explore(charter, { repo, context, sessionLog }) {
     sessionLog,
     allowedTools: HUNT_TOOLS,
     label: "hunt",
-  });
+  }));
 }
 
 // --- verification -----------------------------------------------------------
 
 async function verify(candidate, charter, { repo, context, sessionLog, index }) {
-  const { askStructured } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("./ask.mjs");
   const claimed = candidate.claimed;
   const prompt = [
     "A hunter proposed the defect below, and a trusted runner ALREADY REPRODUCED it",
@@ -185,7 +189,13 @@ async function verify(candidate, charter, { repo, context, sessionLog, index }) 
   ]
     .filter((l) => l !== null)
     .join("\n");
-  return askStructured({
+  // Retried for the same reason as explore — and this one is load-bearing. Run 3
+  // lost TWO reproduced, cross-sample-agreed findings (the documented exit-code-2
+  // defect and the --format yaml defect) to a single transient "API error:
+  // unknown". Because a null verdict correctly DROPS in the fail-quiet gate, an
+  // un-retried blip silently converts real findings into non-findings — the one
+  // way infrastructure can masquerade as a precision decision.
+  return withRetry(() => askStructured({
     systemPrompt:
       "You are an independent verifier for an automated issue hunter. You did not " +
       "propose this candidate. Your default answer is `refuted`: confirming causes a " +
@@ -198,7 +208,7 @@ async function verify(candidate, charter, { repo, context, sessionLog, index }) 
     allowedTools: HUNT_TOOLS,
     label: "hunt-verify",
     maxTurns: 8,
-  });
+  }));
 }
 
 // --- probing ----------------------------------------------------------------
