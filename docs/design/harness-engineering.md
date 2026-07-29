@@ -460,10 +460,11 @@ Components:
   issue (via `Fixes #N`) for spec-conformance — but ONLY when that issue is
   labelled `agent:candidate` AND authored by a non-Bot account (otherwise the
   author agent, which holds `issues:write`, could hand itself an arbitrary spec);
-  any other referenced issue is not ingested. Issue/diff text is untrusted data,
-  and an LLM reviewer can still be swayed by prompt injection — the human merge
-  gate is the backstop. Same model across lenses for now; a per-lens `model`
-  field makes diversity a one-field change.
+  any other referenced issue is not ingested. Issue and diff text — and the
+  working tree the lenses Grep — are all untrusted data, and an LLM reviewer can
+  still be swayed by prompt injection; see the risk register below for the
+  mitigation stack. The human merge gate is the backstop. Same model across lenses
+  for now; a per-lens `model` field makes diversity a one-field change.
   - **False-negative hardening (the verifier only fights false *positives* — it
     drops findings, it can't add a missed one).** Two measures raise recall so a
     real issue isn't silently missed, motivated by a live case where the
@@ -612,10 +613,26 @@ moves to the approving human reviewer.
   unforgeable signals (CI conclusion, lens check runs, draft flag, paged latch) and
   overwrites drift. Never wire a workflow `if:` to read `agent:<state>`.
 - **LLM-reviewer prompt injection.** The panel's lens subagents read an untrusted
-  diff (and, for design-fit, the issue), so injected text can sway their severity
-  classification; the per-finding verifier reduces but doesn't eliminate this. The
-  human merge gate is the backstop; the `agent-review-<lens>` checks must never be
-  sole merge authority.
+  diff (and, for design-fit, the issue) — **and the untrusted working tree**. They
+  run with `cwd` set to the branch checkout and `Read`/`Grep`/`Glob` allow-listed,
+  and several rubrics now direct them into the repository (`blast-radius` *requires*
+  it), so a planted comment, fixture string, or doc is reached by instruction
+  rather than by chance. Injected text can sway severity classification or ask for
+  an empty verdict.
+
+  Mitigations, weakest to strongest. **Prompt framing:** every rubric and the
+  shared `LENS_CLOSING_INSTRUCTION` frame the diff *and the working tree* as DATA
+  and make steering text a reportable finding — necessary, not sufficient.
+  **Structural:** tools are read-only (no `Bash`/`Write`/network),
+  `settingSources: []` blocks branch-supplied `.claude` hooks, the trusted script
+  rather than the subagent computes the gate, and each lens runs `samples` times
+  with the findings unioned. **Backstop:** the human merge gate; the
+  `agent-review-<lens>` checks must never be sole merge authority.
+
+  Residual risk worth naming: an injected "report nothing" produces an empty
+  findings array, which no trusted-code check can distinguish from a genuinely
+  clean review. The per-finding verifier does not help here — it only removes
+  findings, so it cannot recover one that was never raised.
 - **"No human keystroke" is aspirational, phased.** The done-criterion below
   describes no human *authoring* keystroke. In early phases the `agent`
   environment SHOULD keep required reviewers (a human approves each secret-bearing
