@@ -8,6 +8,11 @@ import {
   lensApplies,
   dedupeFindings,
   applyVerifications,
+  routeFinding,
+  annotateFindings,
+  gatingFindings,
+  laneCounts,
+  LANES,
   isDroppingVerdict,
   changedFileContext,
   coerceFindings,
@@ -736,4 +741,144 @@ test("withRetry: retries retryable errors, gives up after cap, never retries non
   let once = 0;
   await assert.rejects(withRetry(async () => { once++; const e = new Error("quota"); e.retryable = false; throw e; }, noSleep));
   assert.equal(once, 1);
+});
+
+// --- lane routing ------------------------------------------------------------
+// The novelty gate can only DEMOTE. These tests pin that nothing here creates a
+// new way to lose a finding the current gate would have kept.
+
+/** A verdict that satisfies isDroppingVerdict — the only thing that may delete. */
+const DROPPING = {
+  verdict: "refuted",
+  confidence: "high",
+  reason: "not there",
+  refutationGround: "not-present",
+  groundedIn: ["scripts/agent/ask.mjs:105"],
+};
+
+test("routeFinding: only a complete grounded refutation discards", () => {
+  assert.equal(routeFinding({ severity: "major" }, { verdict: DROPPING }), "discarded");
+  // Everything short of that keeps the finding on the gate.
+  assert.equal(routeFinding({ severity: "major" }, { verdict: null }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, {}), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { verdict: { ...DROPPING, confidence: "low" } }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { verdict: { ...DROPPING, groundedIn: ["looks fine"] } }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { verdict: { ...DROPPING, refutationGround: "none" } }), "blocking");
+});
+
+test("routeFinding: code older than the base routes to backlog, not the gate", () => {
+  for (const origin of ["pre-existing", "relocated"]) {
+    assert.equal(routeFinding({ severity: "critical" }, { novelty: { origin } }), "backlog");
+  }
+});
+
+test("routeFinding: introduced/unknown/missing novelty all stay blocking", () => {
+  for (const novelty of [{ origin: "introduced" }, { origin: "unknown" }, null, undefined, {}]) {
+    assert.equal(routeFinding({ severity: "critical" }, { novelty }), "blocking");
+  }
+});
+
+test("routeFinding: a refutation outranks provenance", () => {
+  // A finding describing code that is not there should be dropped outright, not
+  // filed as a pre-existing bug that does not exist either.
+  assert.equal(
+    routeFinding({ severity: "major" }, { verdict: DROPPING, novelty: { origin: "relocated" } }),
+    "discarded",
+  );
+});
+
+test("routeFinding: honours allowPreExisting the same way isDroppingVerdict does", () => {
+  const v = { ...DROPPING, refutationGround: "pre-existing" };
+  // Without an authoritative changed-file list the ground is withdrawn → kept.
+  assert.equal(routeFinding({ severity: "major" }, { verdict: v }, { allowPreExisting: false }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { verdict: v }, { allowPreExisting: true }), "discarded");
+});
+
+test("routeFinding: only ever returns a declared lane", () => {
+  assert.ok(LANES.includes(routeFinding({ severity: "major" }, {})));
+  assert.ok(LANES.includes(routeFinding({ severity: "major" }, { verdict: DROPPING })));
+  assert.ok(LANES.includes(routeFinding({ severity: "major" }, { novelty: { origin: "relocated" } })));
+});
+
+test("annotateFindings: non-blocking findings are returned untouched, with no lane", () => {
+  // minor/nit never reach the gate, so giving them a lane would invent a second
+  // way to express what severity already says.
+  const findings = [{ severity: "minor", summary: "m" }, { severity: "nit", summary: "n" }];
+  const out = annotateFindings(findings, [null, null], [{ origin: "relocated" }, null], {});
+  assert.deepEqual(out, findings);
+  for (const f of out) assert.equal("lane" in f, false);
+});
+
+test("annotateFindings: nothing is filtered out — demotion is a label", () => {
+  const findings = [
+    { severity: "critical", summary: "a" },
+    { severity: "major", summary: "b" },
+    { severity: "major", summary: "c" },
+  ];
+  const out = annotateFindings(
+    findings,
+    [null, DROPPING, null],
+    [{ origin: "introduced" }, null, { origin: "relocated" }],
+    {},
+  );
+  assert.equal(out.length, 3); // every finding survives into the record
+  assert.deepEqual(out.map((f) => f.lane), ["blocking", "discarded", "backlog"]);
+  assert.equal(out[2].novelty.origin, "relocated");
+});
+
+test("annotateFindings: reproduces applyVerifications exactly when no novelty is known", () => {
+  // The compatibility property that lets one routing rule serve both callers.
+  const findings = [
+    { severity: "critical", summary: "a" },
+    { severity: "major", summary: "b" },
+    { severity: "minor", summary: "c" },
+  ];
+  const verdicts = [null, DROPPING, null];
+  const viaOld = applyVerifications(findings, verdicts, {});
+  const viaNew = annotateFindings(findings, verdicts, null, {}).filter((f) => f.lane !== "discarded");
+  assert.deepEqual(viaOld.map((f) => f.summary), viaNew.map((f) => f.summary));
+  assert.deepEqual(viaOld.map((f) => f.summary), ["a", "c"]);
+});
+
+test("gatingFindings: drops demoted blockers, keeps minor/nit on the severity clause", () => {
+  // The #578 shape: the ONLY blocker is a pre-existing one the PR merely moved.
+  const annotated = [
+    { severity: "critical", summary: "old bug in moved code", lane: "backlog" },
+    { severity: "minor", summary: "small" }, // no lane at all
+    { severity: "nit", summary: "tiny" },
+  ];
+  const gating = gatingFindings(annotated);
+  assert.deepEqual(gating.map((f) => f.summary), ["small", "tiny"]);
+  // …and that is what flips the check green vs red: the finding is still
+  // reported (it is in `annotated`), it just stops failing the merge gate.
+  assert.equal(classify(gating).conclusion, "success");
+  assert.equal(classify(annotated).conclusion, "failure");
+
+  // A blocker the gate did NOT demote still fails the check.
+  const withNew = [{ severity: "critical", summary: "new bug", lane: "blocking" }, ...annotated];
+  assert.equal(classify(gatingFindings(withNew)).conclusion, "failure");
+});
+
+test("gatingFindings: an unknown severity still gates (fail-safe → major)", () => {
+  // normalizeSeverity maps unknown → major, so such a finding IS blocking and
+  // must therefore carry a lane to survive. Without one it is correctly excluded.
+  const gating = gatingFindings([{ severity: "weird", summary: "x", lane: "blocking" }]);
+  assert.equal(gating.length, 1);
+  assert.equal(gatingFindings([{ severity: "weird", summary: "x", lane: "backlog" }]).length, 0);
+});
+
+test("laneCounts: counts lanes and how often origin could not be established", () => {
+  const counts = laneCounts([
+    { severity: "critical", lane: "blocking", novelty: { origin: "introduced" } },
+    { severity: "major", lane: "blocking", novelty: { origin: "unknown" } },
+    { severity: "major", lane: "blocking" }, // no novelty at all
+    { severity: "major", lane: "backlog", novelty: { origin: "relocated" } },
+    { severity: "minor" }, // no lane → not counted
+  ]);
+  assert.deepEqual(counts, { blocking: 3, backlog: 1, unknownOrigin: 2 });
+});
+
+test("laneCounts: tolerates junk without throwing", () => {
+  assert.deepEqual(laneCounts(null), { blocking: 0, backlog: 0, unknownOrigin: 0 });
+  assert.deepEqual(laneCounts([null, 42, {}, { lane: "bogus" }]), { blocking: 0, backlog: 0, unknownOrigin: 0 });
 });

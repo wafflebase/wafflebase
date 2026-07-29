@@ -192,9 +192,14 @@ jobs:
 
       # KEEP IN SYNC with the identical step in agent-review-panel.yml.
       - name: Compute diff + changed files (data for the reviewers)
+        id: diff
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
+          # Same endpoint as the `...` diff below, so "what changed" and "what
+          # novelty.mjs treats as already-there" cannot disagree. See the twin
+          # step in agent-review-panel.yml.
+          echo "base=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
           # UNFILTERED on purpose — see the twin step in agent-review-panel.yml
           # for why the changed-file list must never shrink.
           git diff --name-only origin/main...HEAD > /tmp/changed.txt
@@ -330,6 +335,7 @@ jobs:
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --base-sha "${{ steps.diff.outputs.base }}"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review

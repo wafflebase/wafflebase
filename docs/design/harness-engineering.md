@@ -448,7 +448,33 @@ Components:
   the prompt — a prompt instruction the script does not check is not a rule. The
   metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
-  count of confident refutations the gate declined to act on. The
+  count of confident refutations the gate declined to act on.
+  A **novelty gate** (`scripts/agent/novelty.mjs`) then answers the question the
+  verifier structurally cannot: *did this change introduce the code?* The
+  verifier's independence means it never sees the base, so from inside the branch
+  checkout a line a refactor MOVED and a line the change WROTE are identical, and
+  the `pre-existing` ground is file-scoped so a function relocated into a new file
+  legitimately fails it. #578 demonstrated the cost: a PR that lifted
+  `classifyResult` verbatim into a new file had every pre-existing bug in it
+  re-reported as introduced-here, confirmed by the verifier, and handed to the
+  fixer. This is answered with **git, not inference** — `git blame -w -C -C -C`
+  follows a line back through moves and copies to the commit that wrote it, plus
+  an independent `git grep` of the line's text against the base tree that still
+  answers on a shallow clone. Both probes run in the trusted script via
+  `execFileSync` (array args, no shell, timeout); no capability is granted to a
+  model. The result routes each blocking finding to a **lane** (`routeFinding`):
+  `blocking` gates as before, `backlog` is reported with the base location that
+  proves it predates the branch but does not gate and is **filtered out of the
+  fixer's checklist**, and `discarded` remains reachable only through the
+  unchanged `isDroppingVerdict`. Every uncertain path — no `--base-sha`, a
+  shallow clone, a git failure, a finding with no `file:line` — yields `unknown`,
+  which keeps the finding blocking, so the gate can only ever remove a false
+  blocker and never lose a real one. `--base-sha` is the merge-base computed by
+  the workflow and passed in, never guessed: it is the same endpoint the reviewed
+  diff uses, so "what changed" and "what counts as already-there" cannot diverge.
+  `lensStats.lanes` reports `blocking`/`backlog`/`unknownOrigin`, where a high
+  `unknownOrigin` means the gate ran inert rather than that everything was
+  genuinely new. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable

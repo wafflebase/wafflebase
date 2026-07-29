@@ -38,6 +38,8 @@ import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 import { askStructured, withRetry } from "./ask.mjs";
 import { renderScopeNote } from "./review-state.mjs";
+import { CITATION } from "./citation.mjs";
+import { findingLocation, noveltyOf } from "./novelty.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +60,13 @@ const FINDING = {
     severity: { type: "string", enum: ["critical", "major", "minor", "nit"] },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     file: { type: "string" },
+    // The 1-based line the finding is about. NOT required: a lens that omits it
+    // still produces a valid finding, and `findingLocation` falls back to the
+    // first `file:line` citation in `evidence`. Supplying it is what lets
+    // novelty.mjs ask git whether this change actually introduced the code —
+    // without a location that question degrades to `unknown`, which keeps the
+    // finding blocking. So omitting it costs precision, never safety.
+    line: { type: "integer" },
     summary: { type: "string" },
     evidence: { type: "string" },
   },
@@ -171,6 +180,76 @@ export function dedupeFindings(findings) {
 }
 
 /**
+ * Where a blocking finding ends up. Only `discarded` deletes anything, and only
+ * `isDroppingVerdict` can put it there — the rule is unchanged. Every other lane
+ * DEMOTES: the finding is still reported, it just stops gating the merge.
+ *
+ *   blocking  — real, caused by this change → fails the lens check (as before)
+ *   backlog   — real, but the code predates this change → reported, not gating
+ *   discarded — concretely refuted by the verifier → dropped (unchanged rule)
+ *
+ * The split exists because "is this defect real?" and "did this PR cause it?"
+ * are different questions and the verifier can only answer the first. On #578 a
+ * pure code move made every pre-existing bug in the moved function look new to
+ * both the lens (which reasons from the diff) and the verifier (which cannot see
+ * the base), so real-but-not-here findings blocked a merge and were handed to the
+ * fixer. `novelty.mjs` answers the second question with git.
+ */
+export const LANES = ["blocking", "backlog", "discarded"];
+
+/**
+ * Route ONE blocking finding. Pure; `novelty` comes from `noveltyOf`.
+ *
+ * Order matters: a concrete refutation outranks provenance, because a finding
+ * that describes code which is not there should be dropped outright rather than
+ * filed as a pre-existing bug that does not exist either.
+ *
+ * A missing/`unknown` novelty routes to `blocking` — the status quo. Demotion
+ * requires git to have affirmatively placed the code before the base, so nothing
+ * here can lose a finding that the current gate would have kept.
+ */
+export function routeFinding(finding, { verdict = null, novelty = null } = {}, opts) {
+  if (isDroppingVerdict(verdict, opts)) return "discarded";
+  const origin = novelty?.origin;
+  if (origin === "pre-existing" || origin === "relocated") return "backlog";
+  return "blocking";
+}
+
+/**
+ * Attach `lane` (and `novelty`, when known) to a lens's findings.
+ *
+ * NON-BLOCKING findings are returned untouched, without a `lane`. They already
+ * do not gate — `classify` reads severity — so giving them a lane would invent a
+ * second, redundant way to express the same thing, and any disagreement between
+ * the two would be a bug. `lane` means "what happened to this finding AT the
+ * gate", which is only a question for findings that reach it.
+ *
+ * Nothing is filtered out here: unlike the `applyVerifications` this replaces,
+ * every finding survives into the record and demotion is expressed as a label.
+ * That is what lets the summary report a refuted or pre-existing finding instead
+ * of silently vanishing it.
+ */
+export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex, opts) {
+  return findings.map((f, i) => {
+    if (!BLOCKING.has(normalizeSeverity(f.severity))) return f; // only blockers reach the gate
+    const novelty = noveltiesByIndex?.[i] ?? null;
+    const lane = routeFinding(f, { verdict: verdictsByIndex?.[i] ?? null, novelty }, opts);
+    return novelty ? { ...f, lane, novelty } : { ...f, lane };
+  });
+}
+
+/**
+ * The subset that actually gates. A demoted critical/major drops out; a
+ * minor/nit passes on the severity clause exactly as it always has, so
+ * `classify` and `severity.mjs` need no change and cannot disagree with this.
+ */
+export function gatingFindings(annotated) {
+  return annotated.filter(
+    (f) => !BLOCKING.has(normalizeSeverity(f.severity)) || f.lane === "blocking",
+  );
+}
+
+/**
  * Apply verifier verdicts to a lens's findings. A blocking finding is dropped
  * only when `isDroppingVerdict` accepts its verdict — see there for the rule and
  * for `allowPreExisting`, which the caller MUST pass through from
@@ -179,16 +258,14 @@ export function dedupeFindings(findings) {
  * swallow a real bug the verifier was merely unsure about. (The verifier prompt
  * is written to match: refute only with a named ground and cited locations,
  * confirm on any doubt.)
+ *
+ * Now expressed through `annotateFindings` so there is ONE routing rule rather
+ * than two that could drift. With no novelty supplied the only reachable lanes
+ * are `blocking` and `discarded`, which is precisely the old two-way behaviour.
  */
 export function applyVerifications(findings, verdictsByIndex, opts) {
-  return findings.filter((f, i) => {
-    if (!BLOCKING.has(normalizeSeverity(f.severity))) return true; // only verify blockers
-    return !isDroppingVerdict(verdictsByIndex[i], opts);
-  });
+  return annotateFindings(findings, verdictsByIndex, null, opts).filter((f) => f.lane !== "discarded");
 }
-
-/** A citation must locate something: `path.ext:line`, anywhere in the string. */
-const CITATION = /[^\s:]+\.[A-Za-z0-9_]+:\d+/;
 
 /**
  * May this verdict DROP a blocking finding? Only on a complete, grounded
@@ -390,6 +467,32 @@ export function severityCounts(findings) {
   const out = { critical: 0, major: 0, minor: 0, nit: 0 };
   for (const f of Array.isArray(findings) ? findings : []) {
     out[normalizeSeverity(f && f.severity)]++;
+  }
+  return out;
+}
+
+/**
+ * How the novelty gate routed this lens's BLOCKING findings, plus how often it
+ * could not tell. Non-blocking findings carry no lane and are not counted — see
+ * `annotateFindings`.
+ *
+ * `unknownOrigin` is the observability that matters: it counts blockers the gate
+ * looked at and could not place. A round where it equals `blocking` means the
+ * gate is inert (no `--base-sha`, a shallow clone, or findings with no location)
+ * rather than that everything was genuinely introduced here — two very different
+ * situations that the lane counts alone cannot distinguish.
+ */
+export function laneCounts(findings) {
+  const out = { blocking: 0, backlog: 0, unknownOrigin: 0 };
+  for (const f of Array.isArray(findings) ? findings : []) {
+    if (!f || typeof f !== "object" || typeof f.lane !== "string") continue;
+    // An unrecognized lane is not counted at all, in either tally. Counting its
+    // origin while ignoring its lane would make `unknownOrigin` exceed the lanes
+    // it is meant to qualify, and a reader comparing the two would conclude the
+    // gate had judged findings it never saw.
+    if (!(f.lane in out)) continue;
+    out[f.lane]++;
+    if (!f.novelty || f.novelty.origin === "unknown") out.unknownOrigin++;
   }
   return out;
 }
@@ -691,6 +794,31 @@ async function main() {
   // `pre-existing` ground the prompt may have withdrawn.
   const changedContext = changedFileContext(changedFiles);
   const verifyOpts = { allowPreExisting: changedContext.authoritative };
+  // Provenance for the lane router. `--base-sha` is the SAME flag the incremental
+  // -review path already takes, and it is passed in rather than derived: this
+  // script does not know what the base branch is called, and a guessed base would
+  // silently mis-date every finding. Absent → `noveltyOf` answers `unknown` for
+  // everything → every finding stays blocking, i.e. exactly today's behaviour.
+  const baseSha = typeof args["base-sha"] === "string" ? args["base-sha"] : null;
+  if (!baseSha) console.log("novelty: no --base-sha; every finding routes as before (blocking)");
+  // Shared across BOTH verification passes and all lenses: the same file:line is
+  // routinely judged more than once per round and `blame -C -C -C` is the one
+  // slow call in this module.
+  const noveltyCache = new Map();
+  const noveltiesFor = (list) => list.map((f) => {
+    if (!BLOCKING.has(normalizeSeverity(f.severity))) return null; // only blockers are routed
+    const loc = findingLocation(f);
+    if (!loc) return null;
+    return noveltyOf({
+      repo,
+      file: loc.file,
+      line: loc.line,
+      baseSha,
+      changedFiles,
+      changedFilesAuthoritative: changedContext.authoritative,
+      cache: noveltyCache,
+    });
+  });
   // Part 2: blocking findings from the PREVIOUS review round (tagged with their
   // lens id by the workflow). Absent/empty on the first round. Re-checked per
   // lens below so a still-present issue can't vanish if this round's pass misses it.
@@ -798,7 +926,8 @@ async function main() {
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
       catch { return null; } // error → keep the finding (fail toward blocking)
     }));
-    const kept = applyVerifications(findings, verdicts, verifyOpts);
+    const kept = annotateFindings(findings, verdicts, noveltiesFor(findings), verifyOpts)
+      .filter((f) => f.lane !== "discarded");
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
     // against the CURRENT diff, biased-to-keep. verifyFinding asks "is this
@@ -812,10 +941,16 @@ async function main() {
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
       catch { return null; } // error → keep (fail toward blocking)
     }));
-    const priorKept = applyVerifications(priorForLens, priorVerdicts, verifyOpts);
+    const priorKept = annotateFindings(priorForLens, priorVerdicts, noveltiesFor(priorForLens), verifyOpts)
+      .filter((f) => f.lane !== "discarded");
     // Merge fresh + still-open prior findings; dedupe collapses a prior finding
     // the fresh pass also re-found (and never merges two distinct bugs).
     const merged = dedupeFindings([...kept, ...priorKept]);
+    // What the LENS CHECK gates on: `merged` minus the demoted blockers. The
+    // backlog ones stay in `merged` so the summary still reports them (with the
+    // base location that justifies the demotion) — they simply stop failing the
+    // check and stop reaching the fixer.
+    const gating = gatingFindings(merged);
 
     // Reliability signals for this round: did the samples agree (fresh pass
     // only — prior-round re-checks aren't a sampling question), and what did
@@ -836,6 +971,12 @@ async function main() {
         dropped: freshTally.dropped + priorTally.dropped,
       },
       kept: severityCounts(merged),
+      // What the novelty gate actually did this round. `backlog` is the count of
+      // real findings this PR did not cause; `unknownOrigin` is how often git
+      // could not place a finding at all — if that number is high the gate is
+      // inert and the cause (no --base-sha, shallow clone, findings with no
+      // location) is worth chasing rather than assuming the demotions are right.
+      lanes: laneCounts(merged),
     });
 
     // Advisory lenses report findings but never block.
@@ -843,6 +984,7 @@ async function main() {
       valid: true,
       conclusion: blocking ? undefined : "success",
       advisory: !blocking,
+      gating,
     });
     panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion, valid: true });
   }));
@@ -863,14 +1005,25 @@ async function main() {
   }
 }
 
-function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false } = {}) {
+function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false, gating } = {}) {
   mkdirSync(lensOut, { recursive: true });
-  // Explicit conclusion (skipped / advisory-success) wins; else compute from severities.
-  const finalConclusion = conclusion ?? classify(findings).conclusion;
+  // Explicit conclusion (skipped / advisory-success) wins; else compute from
+  // severities — over `gating` when the caller supplied it, so a demoted
+  // pre-existing blocker still appears in `findings` (and in the summary, with
+  // the evidence for its demotion) without failing the check. Defaults to
+  // `findings` so every other caller is unchanged.
+  const finalConclusion = conclusion ?? classify(gating ?? findings).conclusion;
+  // verdict.json keeps EVERY finding, demoted ones included, with the `lane` and
+  // `novelty` that explain each decision — it is the record, not the gate.
   writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion }, null, 2) + "\n");
   // advisory lenses always report success → render the body as advisory so it
-  // doesn't contradict the green check with a "changes requested" header.
-  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, findings, summary, { advisory }) + "\n");
+  // doesn't contradict the green check with a "changes requested" header. The
+  // same reasoning splits gating from demoted: the header must count what
+  // actually gates, or it contradicts the conclusion computed right above.
+  // Empty for every caller that passes no `gating`, since only annotated
+  // findings carry a lane at all.
+  const demoted = (Array.isArray(findings) ? findings : []).filter((f) => f && f.lane === "backlog");
+  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, gating ?? findings, summary, { advisory, demoted }) + "\n");
   writeFileSync(path.join(lensOut, "conclusion"), finalConclusion + "\n");
   return { conclusion: finalConclusion };
 }

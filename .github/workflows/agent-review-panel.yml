@@ -165,10 +165,18 @@ jobs:
 
       # KEEP IN SYNC with the identical step in agent-review-on-demand.yml.
       - name: Compute diff + changed files (data for the reviewers)
+        id: diff
         if: steps.pr.outputs.number != ''
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
+          # The merge-base is the SAME endpoint the diff below uses (`...`), so
+          # "what this PR changed" and "what novelty.mjs treats as already-there"
+          # cannot disagree. Passed to the panel explicitly: the trusted script
+          # has no idea what the base branch is called, and a guessed base would
+          # silently mis-date every finding. If this is ever empty the panel just
+          # routes everything as it does today (blocking), so it fails inert.
+          echo "base=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
           # UNFILTERED on purpose: this list drives lensApplies → required_checks,
           # and a list that shrinks mid-PR would let a lens that FAILED an earlier
           # round silently stop being required, promoting an unresolved blocker.
@@ -350,6 +358,7 @@ jobs:
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --base-sha "${{ steps.diff.outputs.base }}"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
@@ -396,9 +405,15 @@ jobs:
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
                 const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
                 const trim = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
+                // `lane` and `line` ride along so the next round does not have to
+                // re-derive them: `lane` is what the fixer step filters on (a
+                // pre-existing finding must never reach the fixer), and `line`
+                // is what lets novelty.mjs place a carried-forward finding at all
+                // — without it the re-check degrades to `unknown` and a finding
+                // correctly demoted in round N blocks again in round N+1.
                 let blockers = (Array.isArray(v.findings) ? v.findings : [])
                   .filter((f) => norm(f.severity) === 'critical' || norm(f.severity) === 'major')
-                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
+                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), line: Number.isInteger(f.line) ? f.line : undefined, lane: typeof f.lane === 'string' ? f.lane : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
                 // Keep output.text VALID JSON within the 60k limit: NEVER slice the
                 // serialized string (that yields JSON the next round can't parse).
                 // Fields are trimmed above; drop trailing findings until it fits.
@@ -662,6 +677,14 @@ jobs:
               const lens = r.name.replace(/^agent-review-/, '');
               for (const f of findings) {
                 if (!f || typeof f !== 'object') continue;
+                // Only findings the panel actually gated on reach the fixer. A
+                // `backlog` finding is real but PRE-EXISTING — the panel proved
+                // the code predates this branch — so asking the fixer to "fix
+                // every blocking finding" would spend a bounded round rewriting
+                // code the PR never touched, and widen a diff whose contract may
+                // be behaviour-preserving. Absent lane (older rounds, or the
+                // gate ran inert) is treated as blocking, matching the panel.
+                if (typeof f.lane === 'string' && f.lane !== 'blocking') continue;
                 const file = typeof f.file === 'string' && f.file.trim() ? f.file.trim() : '(file not specified)';
                 (byFile[file] ||= []).push({ lens, severity: f.severity, summary: f.summary, evidence: f.evidence });
               }
