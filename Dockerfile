@@ -92,6 +92,17 @@ COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
 COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
 COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
 
+# Pre-bundle the DuckDB extensions the lakehouse connector needs, for THIS
+# platform (the runtime stage, not the builder's). Design §6 lists extension
+# auto-download as a limitation and asks locked-down networks to pre-bundle;
+# without this an egress-restricted deployment boots healthy and then fails
+# its first lakehouse read against extensions.duckdb.org. The script also
+# LOADs each one, so a platform whose binary is missing fails the build here
+# rather than in production.
+ENV LAKEHOUSE_DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions
+COPY packages/backend/scripts/bundle-duckdb-extensions.cjs ./scripts/
+RUN node scripts/bundle-duckdb-extensions.cjs "$LAKEHOUSE_DUCKDB_EXTENSION_DIR"
+
 ENV NODE_ENV=production
 ENV PORT=3000
 

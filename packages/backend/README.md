@@ -100,6 +100,29 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # `enabled: false`).
 ```
 
+### Lakehouse: DuckDB extensions are bundled into the image
+
+The lakehouse connector needs four DuckDB extensions (`httpfs`, `iceberg`,
+`delta`, `azure`, plus `avro` which `iceberg` pulls in). The production image
+downloads them **at build time** into `LAKEHOUSE_DUCKDB_EXTENSION_DIR`
+(`/app/.duckdb-extensions`) for the platform it will run on, so a deployment
+needs no egress to `extensions.duckdb.org`:
+
+- `verify-backend-image` in CI builds the image for amd64 and arm64 and runs
+  `packages/backend/test/smoke-duckdb-runtime.cjs` inside it with
+  `--network none`. That is the real assertion — an image that lost the
+  bundling step fails there rather than on a deployment's first read.
+- The build step also `LOAD`s each extension, so a platform whose binary is
+  missing (the reason the image is glibc-based: DuckDB publishes no `delta`
+  build for `linux_arm64_musl`) fails the build instead of production.
+- Cost: roughly 170 MB of extension binaries, most of it `delta` (73 MB) and
+  `iceberg` (44 MB).
+
+Outside the image — a developer machine, or an image built without that step —
+`LAKEHOUSE_DUCKDB_EXTENSION_DIR` is unset, DuckDB falls back to `~/.duckdb`,
+and the service downloads any extension whose `LOAD` fails. Loading is always
+tried first, so nothing hits the network when the binaries are already there.
+
 ### Yorkie auth webhook (per-document access control)
 
 `POST /internal/yorkie/auth` enforces per-document read/write access at the
