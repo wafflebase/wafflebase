@@ -49,7 +49,13 @@ export function BoardDetail() {
       }}
       enableDevtools={import.meta.env.DEV}
     >
-      <BoardView documentId={id!} />
+      {/* `/b/:id` sits outside the sidebar <Layout>, so BoardDetail owns its
+          full-viewport shell (mirrors NotesDetail/SharedBoardLayout). Without
+          a sized parent, BoardView's `h-full` canvas host collapses to 0px
+          and the board renders blank. */}
+      <div className="flex h-screen w-full flex-col">
+        <BoardView documentId={id!} />
+      </div>
     </DocumentProvider>
   );
 }
