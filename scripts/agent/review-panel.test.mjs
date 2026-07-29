@@ -609,9 +609,19 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   assert.match(src, /if \(!noNewHunks && ok\.length === 0\)/,
     "zero samples is expected when detection was skipped, not an all-samples-failed error");
   // The prior-round re-check must sit OUTSIDE any noNewHunks guard.
-  const priorRecheck = /const priorForLens = priorFindings\.filter[\s\S]*?const priorKept = applyVerifications\([\s\S]*?\);/.exec(src);
-  assert.ok(priorRecheck, "the prior-round re-check is gone");
-  assert.ok(!/noNewHunks/.test(priorRecheck[0]),
+  //
+  // Anchored on two landmarks that are load-bearing in their own right — the
+  // prior-findings filter and the fresh+prior merge — rather than on how the
+  // re-check verifies. An earlier version of this pinned
+  // `applyVerifications(`, which #583 legitimately replaced with
+  // `keepUnrefuted(annotateFindings(...))`; the region was intact but the regex
+  // stopped matching, and this test failed claiming the re-check was "gone".
+  // A guard over an implementation detail reports refactors as breakage.
+  const priorStart = src.indexOf("const priorForLens = priorFindings.filter");
+  const mergeAt = src.indexOf("const merged = dedupeFindings", priorStart);
+  assert.ok(priorStart > 0, "the prior-round re-check is gone");
+  assert.ok(mergeAt > priorStart, "the fresh + prior merge no longer follows the re-check");
+  assert.ok(!src.slice(priorStart, mergeAt).includes("noNewHunks"),
     "the prior-round re-check must run even when this round has no new hunks");
 });
 
