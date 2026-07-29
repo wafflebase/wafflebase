@@ -43,6 +43,7 @@ import {
 } from "./hunt-gate.mjs";
 import {
   fingerprint,
+  defectKey,
   observedKey,
   parseSeenLedger,
   serializeSeenLedger,
@@ -407,17 +408,14 @@ async function cmdRun(args) {
   // session/usage limit lands mid-run, finishing one charter completely beats
   // half-finishing both. Within a charter everything that can be concurrent is.
   for (const charter of charters) {
-    const fpOf = (c) => {
-      const failing = c.probes?.[c.failingIndex];
-      return fingerprint({
-        charterId: charter.id,
-        argv: failing?.argv ?? [],
-        oracle: c.oracle,
-        // Pre-probe we only have the model's prediction; the post-probe
-        // fingerprint below uses the real observation.
-        observed: { exitCode: null, stdout: "", stderr: String(c.observed ?? "") },
-      });
-    };
+    // Cross-sample agreement is keyed on the DEFECT (oracle + cited location),
+    // not on the probe argv. Two samples that find the same bug routinely reach it
+    // by different probes — the first live run proved it, agreeing on nothing out
+    // of 9 candidates because agreement was tested on byte-identical argv.
+    // `fingerprint()` (argv + real observation) is still the ledger's identity
+    // below, where the probe has actually run.
+    const keyOf = (c) =>
+      defectKey({ charterId: charter.id, oracle: c.oracle, citations: c.citations, docCitation: c.docCitation });
 
     // Sample the explorer N times and INTERSECT (hunt-gate). A candidate only one
     // sample produced is exactly the profile of a one-off confabulation.
@@ -446,14 +444,36 @@ async function cmdRun(args) {
       for (const b of bad) dropped.push({ title: b.candidate?.title, why: `malformed: ${b.why}` });
       samples.push(kept);
     }
-    const agreed = dedupeCandidates(intersectSamples(samples, fpOf), fpOf);
+    // Persist the RAW proposals before any filtering. Without this a run that
+    // drops everything leaves no evidence of what the model actually said, so the
+    // only way to diagnose the funnel is to pay for another run. Learned the
+    // expensive way: the first live run cost $2.80 and produced nothing
+    // inspectable. Redacted, because probe args can carry a token.
+    const charterDir = path.join(outDir, charter.id);
+    mkdirSync(charterDir, { recursive: true });
+    writeFileSync(
+      path.join(charterDir, "explore-raw.json"),
+      redactSecrets(JSON.stringify(sampleResults, null, 2), { extra: [context.cfg.apiKey].filter(Boolean) }) + "\n",
+    );
+
+    const { kept: agreedRaw, dropped: notAgreed } = intersectSamples(samples, keyOf);
+    for (const d of notAgreed) dropped.push({ title: d.candidate?.title, why: d.why });
+    const agreed = dedupeCandidates(agreedRaw, keyOf);
     stats.agreed += agreed.length;
     stats.wellFormed += agreed.length;
 
     const changedSince = makeChangedSince(repo, charter.codeScope);
     for (const cand of agreed) {
-      const preFp = fpOf(cand);
-      if (!isNovel(preFp, seen, { changedSince })) {
+      // The ledger's primary identity is the DEFECT, not the probe. "Have we
+      // already resolved this?" is a question about the defect, and the defect key
+      // is the only identity available before a probe has run. The precise
+      // argv+observation fingerprint is recorded alongside it as `probeFp`.
+      const dk = keyOf(cand);
+      if (dk === "") {
+        dropped.push({ title: cand.title, why: "no locatable citation — cannot be tracked in the ledger" });
+        continue;
+      }
+      if (!isNovel(dk, seen, { changedSince })) {
         dropped.push({ title: cand.title, why: "already seen in a previous run (ledger)" });
         continue;
       }
@@ -487,7 +507,7 @@ async function cmdRun(args) {
 
       if (rep.status !== "reproduced" || !rep.deterministic) {
         dropped.push({ title: cand.title, why: `replay: ${rep.status}` });
-        ledgerAdds.push({ fp, charterId: charter.id, verdict: "dropped", dropReason: rep.status, runId, sha: headSha });
+        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: rep.status, runId, sha: headSha });
         continue;
       }
       stats.reproduced++;
@@ -511,11 +531,11 @@ async function cmdRun(args) {
       if (isFilingVerdict(record, verdicts, charter)) {
         reported.push(record);
         stats.reported++;
-        ledgerAdds.push({ fp, charterId: charter.id, verdict: "reported", runId, sha: headSha });
+        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "reported", runId, sha: headSha });
       } else {
         const why = dropReason(record, verdicts, charter);
         dropped.push({ title: cand.title, why });
-        ledgerAdds.push({ fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
+        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
       }
     }
   }

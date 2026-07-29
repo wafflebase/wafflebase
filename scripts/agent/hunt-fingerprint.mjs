@@ -131,6 +131,40 @@ export function fingerprint({ charterId, argv, oracle, observed }) {
 }
 
 /**
+ * The identity of the DEFECT a candidate describes — used to ask whether two
+ * independent samples found the same thing.
+ *
+ * This is deliberately NOT `fingerprint()`. That one hashes the probe argv, which
+ * is the right identity for the ledger (where the argv has actually been run and
+ * the observation is real), and the WRONG identity for cross-sample agreement:
+ * two samples that find the same defect routinely reach it by different probes.
+ * The first live run showed this exactly — 9 candidates proposed across 2 samples,
+ * 0 agreements, because agreement was being tested on byte-identical argv.
+ *
+ * A defect is identified instead by WHERE it is and WHAT KIND it is: the oracle
+ * plus the code location the candidate blames. That is stable across two samples
+ * describing the same bug in different words with different probes, and still
+ * distinguishes two genuinely different bugs — including two in the same file,
+ * because the line number participates.
+ *
+ * Still no model prose: a `file.ext:line` citation is a location, not phrasing.
+ */
+export function defectKey({ charterId, oracle, citations, docCitation }) {
+  // First citation that actually locates a line wins — candidates list the
+  // primary evidence first, and a bare filename cannot identify a defect.
+  const located = (Array.isArray(citations) ? citations : [])
+    .map((c) => (typeof c === "string" ? /[^\s:]+\.[A-Za-z0-9_]+:\d+/.exec(c)?.[0] : null))
+    .filter(Boolean);
+  const doc = typeof docCitation === "string" ? /[^\s:]+\.[A-Za-z0-9_]+:\d+/.exec(docCitation)?.[0] : null;
+  // A candidate that locates nothing gets no defect key — it cannot be matched
+  // against anything, and returning "" makes the caller drop it rather than
+  // silently grouping every unlocatable candidate together under one key.
+  if (located.length === 0 && !doc) return "";
+  const parts = [String(charterId ?? ""), String(oracle ?? ""), located[0] ?? "", doc ?? ""];
+  return createHash("sha256").update(parts.join(NUL)).digest("hex").slice(0, 32);
+}
+
+/**
  * A coarser "somewhere in this file, under this charter" key.
  *
  * Advisory ONLY — used to note in the report that a run touched the same file

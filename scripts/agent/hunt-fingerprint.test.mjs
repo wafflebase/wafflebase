@@ -4,6 +4,7 @@ import {
   scrubVolatile,
   observedKey,
   fingerprint,
+  defectKey,
   siteFingerprint,
   parseSeenLedger,
   serializeSeenLedger,
@@ -144,4 +145,38 @@ test("isNovel: a sighting EXPIRES once the code it concerns has changed", () => 
   // A sighting with no sha cannot be expiry-checked, so it stays known — the
   // conservative direction (cost is a missed rediscovery, not a duplicate report).
   assert.equal(isNovel("k", [{ fp: "k" }], { changedSince: () => true }), false);
+});
+
+test("defectKey: same defect via DIFFERENT probes still matches — the 0-agreement fix", () => {
+  // The first live run agreed on nothing out of 9 candidates because agreement
+  // was tested on byte-identical probe argv. Two samples that find the same bug
+  // routinely reach it by different probes, so the defect's identity has to be
+  // WHERE it is, not how it was provoked.
+  const a = defectKey({ charterId: "contract", oracle: "contract",
+    citations: ["packages/cli/src/output/formatter.ts:39", "docs/design/cli.md:691"],
+    docCitation: "docs/design/cli.md:691" });
+  const b = defectKey({ charterId: "contract", oracle: "contract",
+    citations: ["packages/cli/src/output/formatter.ts:39", "packages/cli/README.md:114"],
+    docCitation: "docs/design/cli.md:691" });
+  assert.equal(a, b, "same code location + same doc promise = same defect");
+});
+
+test("defectKey: different locations stay distinct, including within one file", () => {
+  const base = { charterId: "contract", oracle: "contract", docCitation: "docs/design/cli.md:691" };
+  const l39 = defectKey({ ...base, citations: ["packages/cli/src/output/formatter.ts:39"] });
+  const l44 = defectKey({ ...base, citations: ["packages/cli/src/output/formatter.ts:44"] });
+  assert.notEqual(l39, l44, "line number participates — one file holds several defects");
+  assert.notEqual(l39, defectKey({ ...base, oracle: "crash", citations: ["packages/cli/src/output/formatter.ts:39"] }));
+  assert.notEqual(l39, defectKey({ ...base, charterId: "crash", citations: ["packages/cli/src/output/formatter.ts:39"] }));
+});
+
+test("defectKey: unlocatable citations yield NO key rather than a shared one", () => {
+  // Returning a constant would silently group every unlocatable candidate under
+  // one key, so two unrelated vague candidates would look like agreement.
+  assert.equal(defectKey({ charterId: "c", oracle: "contract", citations: ["looks fine"] }), "");
+  assert.equal(defectKey({ charterId: "c", oracle: "contract", citations: [] }), "");
+  assert.equal(defectKey({ charterId: "c", oracle: "contract" }), "");
+  assert.equal(defectKey({}), "");
+  // A doc citation alone is enough to identify a doc-side defect.
+  assert.notEqual(defectKey({ charterId: "c", oracle: "contract", citations: [], docCitation: "docs/design/cli.md:691" }), "");
 });

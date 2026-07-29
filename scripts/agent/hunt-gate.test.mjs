@@ -268,13 +268,39 @@ test("intersectSamples: requires agreement, the inverse of unionSamples", () => 
   const fp = (c) => c.fp;
   const s1 = [{ fp: "x" }, { fp: "y" }];
   const s2 = [{ fp: "x" }, { fp: "z" }];
-  assert.deepEqual(intersectSamples([s1, s2], fp).map(fp), ["x"], "only the agreed candidate survives");
+  assert.deepEqual(intersectSamples([s1, s2], fp).kept.map(fp), ["x"], "only the agreed candidate survives");
   // One sample is NOT agreement — unionSamples would return everything here.
-  assert.deepEqual(intersectSamples([s1], fp), []);
-  assert.deepEqual(intersectSamples([], fp), []);
-  assert.deepEqual(intersectSamples(null, fp), []);
+  assert.deepEqual(intersectSamples([s1], fp).kept, []);
+  assert.deepEqual(intersectSamples([], fp).kept, []);
+  assert.deepEqual(intersectSamples(null, fp).kept, []);
   // A single sample repeating itself must not reach the threshold on its own.
-  assert.deepEqual(intersectSamples([[{ fp: "x" }, { fp: "x" }], [{ fp: "q" }]], fp), []);
+  assert.deepEqual(intersectSamples([[{ fp: "x" }, { fp: "x" }], [{ fp: "q" }]], fp).kept, []);
+});
+
+test("REGRESSION: intersectSamples explains every drop instead of discarding silently", () => {
+  // The first live run reported "9 proposed → 0 agreed" with an EMPTY drop table,
+  // which reads identically to "the explorer found nothing". A funnel that cannot
+  // explain its own biggest gap is unusable for calibration, and the plan's
+  // no-silent-caps rule exists precisely for this.
+  const fp = (c) => c.fp;
+  const out = intersectSamples([[{ fp: "x", title: "solo" }], [{ fp: "y", title: "other" }]], fp);
+  assert.deepEqual(out.kept, []);
+  assert.equal(out.dropped.length, 2, "both unmatched candidates must be accounted for");
+  for (const d of out.dropped) {
+    assert.match(d.why, /only 1 of 2 samples/, "the reason must name the actual agreement count");
+    assert.ok(d.candidate, "the dropped candidate is carried so the report can name it");
+  }
+
+  // Too few samples to compare at all — still every candidate accounted for.
+  const thin = intersectSamples([[{ fp: "x", title: "a" }, { fp: "y", title: "b" }]], fp);
+  assert.equal(thin.dropped.length, 2);
+  assert.match(thin.dropped[0].why, /only 1 sample\(s\) succeeded/);
+
+  // A candidate with no usable key is dropped WITH a reason, not skipped.
+  const unkeyed = intersectSamples([[{ fp: "", title: "nowhere" }], [{ fp: "", title: "nowhere2" }]], fp);
+  assert.equal(unkeyed.kept.length, 0);
+  assert.equal(unkeyed.dropped.length, 2);
+  assert.match(unkeyed.dropped[0].why, /no locatable citation/);
 });
 
 // --- schema wiring ----------------------------------------------------------

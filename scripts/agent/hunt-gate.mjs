@@ -257,22 +257,44 @@ export function dedupeCandidates(candidates, fingerprintOf) {
  */
 export function intersectSamples(sampleCandidateLists, fingerprintOf, { minAgreement = 2 } = {}) {
   const lists = (Array.isArray(sampleCandidateLists) ? sampleCandidateLists : []).filter(Array.isArray);
-  if (lists.length < minAgreement) return [];
+  const dropped = [];
+  if (lists.length < minAgreement) {
+    // Report every candidate that is being discarded for lack of a second
+    // opinion. Returning a bare [] here is what made the first live run
+    // unexplainable: the funnel said "9 proposed → 0 agreed" with an empty drop
+    // table, which reads identically to "the explorer found nothing".
+    for (const list of lists) {
+      for (const c of list) {
+        dropped.push({ candidate: c, why: `only ${lists.length} sample(s) succeeded; need ${minAgreement} to compare` });
+      }
+    }
+    return { kept: [], dropped };
+  }
   const counts = new Map();
   const first = new Map();
+  const unkeyed = [];
   for (const list of lists) {
     // Per-sample dedupe first: one sample repeating itself must not be able to
     // reach the agreement threshold on its own.
     const withinSample = new Set();
     for (const c of list) {
       const fp = fingerprintOf(c);
-      if (typeof fp !== "string" || fp === "" || withinSample.has(fp)) continue;
+      if (typeof fp !== "string" || fp === "") {
+        unkeyed.push({ candidate: c, why: "no locatable citation — cannot be matched across samples" });
+        continue;
+      }
+      if (withinSample.has(fp)) continue;
       withinSample.add(fp);
       counts.set(fp, (counts.get(fp) ?? 0) + 1);
       if (!first.has(fp)) first.set(fp, c);
     }
   }
-  return [...counts.entries()].filter(([, n]) => n >= minAgreement).map(([fp]) => first.get(fp));
+  const kept = [];
+  for (const [fp, n] of counts.entries()) {
+    if (n >= minAgreement) kept.push(first.get(fp));
+    else dropped.push({ candidate: first.get(fp), why: `only ${n} of ${lists.length} samples found it (need ${minAgreement})` });
+  }
+  return { kept, dropped: [...dropped, ...unkeyed] };
 }
 
 // --- citations --------------------------------------------------------------
