@@ -286,3 +286,38 @@ test("classifyResult: a limit surfaces the SDK's own errors[] when present", () 
   });
   assert.match(c.detail, /reached the configured turn ceiling/);
 });
+
+test("REGRESSION: structured output from a FAILED session is not a verdict", () => {
+  // The fail-open. Testing `subtype === "success" && structured_output` alone
+  // accepted output from a session the SDK had flagged as failed — and
+  // `subtype: "success"` with `is_error: true` is precisely how this SDK reports an
+  // API failure, which is the whole reason classifyResult exists.
+  //
+  // In review-panel that means a lens's findings from a failed session reach the
+  // merge gate. In the issue hunter it means a verifier's "confirmed" from a failed
+  // session can cause a report to a real maintainer. A fail-open path is the one
+  // thing a fail-quiet gate cannot tolerate.
+  const output = { verdict: "confirmed", confidence: "high" };
+
+  const apiErrored = classifyResult({ subtype: "success", structured_output: output, is_error: true, api_error_status: 529, result: "overloaded_error" });
+  assert.equal(apiErrored.ok, false, "an api-errored session's output is not a verdict");
+  assert.equal(apiErrored.kind, "api-error");
+
+  const statusOnly = classifyResult({ subtype: "success", structured_output: output, api_error_status: 500 });
+  assert.equal(statusOnly.ok, false, "an api_error_status alone disqualifies the output");
+
+  const terminal = classifyResult({ subtype: "success", structured_output: output, terminal_reason: "api_error" });
+  assert.equal(terminal.ok, false, "terminal_reason api_error disqualifies the output");
+
+  const ceilinged = classifyResult({ subtype: "error_max_turns", structured_output: output, is_error: true, num_turns: 20 });
+  assert.equal(ceilinged.ok, false, "partial output from a run that hit its ceiling is not a verdict");
+  assert.equal(ceilinged.kind, "limit");
+});
+
+test("classifyResult: the fix is strictly tightening — clean successes still pass", () => {
+  // The counterweight. A genuinely successful result sets none of the error flags,
+  // so no previously-accepted verdict is now rejected.
+  const clean = classifyResult({ type: "result", subtype: "success", structured_output: { findings: [] }, is_error: false, terminal_reason: "completed", num_turns: 14 });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.output, { findings: [] });
+});

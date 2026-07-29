@@ -183,12 +183,29 @@ function describeErrors(m) {
 
 export function classifyResult(message) {
   const m = message || {};
-  if (m.subtype === "success" && m.structured_output) {
+  const isLimit = LIMIT_SUBTYPES.has(m.subtype) || m.terminal_reason === "max_turns";
+  const isApiError = Boolean(m.is_error || m.api_error_status || m.terminal_reason === "api_error");
+
+  // A verdict is trustworthy only when NOTHING flags the session as failed.
+  //
+  // The `!isLimit && !isApiError` guard is the point. Testing
+  // `subtype === "success" && structured_output` alone was a FAIL-OPEN: the SDK
+  // reports API failures as `subtype: "success"` with `is_error: true` (the whole
+  // reason this function exists), so a failed session that happened to carry
+  // partial structured output was returned as a real verdict. In the review panel
+  // that means a lens's findings from a failed session reach the merge gate; in the
+  // issue hunter it means a verifier's "confirmed" from a failed session can cause
+  // a report. Both directions are wrong, and in a fail-quiet gate a fail-open path
+  // is the one thing that cannot be tolerated.
+  //
+  // Strictly tightening: a genuinely successful result sets none of these flags, so
+  // no previously-accepted verdict is now rejected.
+  if (m.subtype === "success" && m.structured_output && !isLimit && !isApiError) {
     return { ok: true, output: m.structured_output };
   }
-  // Deterministic ceilings FIRST — the api-error branch below would otherwise
+  // Deterministic ceilings BEFORE the api-error branch, which would otherwise
   // claim them and mark them retryable.
-  if (LIMIT_SUBTYPES.has(m.subtype) || m.terminal_reason === "max_turns") {
+  if (isLimit) {
     const reason = String(m.subtype ?? m.terminal_reason ?? "limit");
     const extra = describeErrors(m);
     const turns = Number.isFinite(m.num_turns) ? ` after ${m.num_turns} turns` : "";
@@ -201,7 +218,7 @@ export function classifyResult(message) {
       turns: Number.isFinite(m.num_turns) ? m.num_turns : null,
     };
   }
-  if (m.is_error || m.api_error_status || m.terminal_reason === "api_error") {
+  if (isApiError) {
     const detail = typeof m.result === "string" && m.result ? m.result : "";
     const status = m.api_error_status ?? null;
     const retryable = !SESSION_LIMIT_RE.test(detail) && isRetryableStatus(status);
