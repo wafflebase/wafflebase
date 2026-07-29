@@ -547,14 +547,30 @@ async function cmdRun(args) {
         }),
       );
 
+      // Was this candidate actually JUDGED? A verifier that errored or hit a run
+      // limit produced no opinion at all. The gate correctly drops such a
+      // candidate (no evidence cannot become a report) — but recording it in the
+      // ledger as "seen" would permanently blind the hunter to a real finding it
+      // never assessed, until the code in scope happens to change.
+      //
+      // Run 3 did exactly that: two reproduced, cross-sample-agreed findings were
+      // dropped to `error_max_turns` and then written to the ledger, so the next
+      // run would have skipped them as already-seen. The ledger must remember
+      // judgements, not infrastructure failures — the same distinction
+      // review-panel.mjs draws when it refuses to count an infraError round
+      // toward MAX_REVIEW_ROUNDS.
+      const unjudged = verdicts.some((v) => !v || typeof v !== "object");
+
       if (isFilingVerdict(record, verdicts, charter)) {
         reported.push(record);
         stats.reported++;
         ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "reported", runId, sha: headSha });
       } else {
         const why = dropReason(record, verdicts, charter);
-        dropped.push({ title: cand.title, why });
-        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
+        dropped.push({ title: cand.title, why: unjudged ? `${why} — NOT recorded, will be retried next run` : why });
+        if (!unjudged) {
+          ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
+        }
       }
     }
   }
