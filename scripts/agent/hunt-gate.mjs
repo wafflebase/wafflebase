@@ -255,6 +255,44 @@ export function dedupeCandidates(candidates, fingerprintOf) {
  * Comparison is by fingerprint (the probe + observed shape), not by prose, so two
  * samples describing the same defect in different words still agree.
  */
+/**
+ * The in-scope code locations a candidate blames — its evidence set.
+ *
+ * `file.ext:line` strings inside `codeScope` only. Doc citations are excluded on
+ * purpose: `docCitation` is optional in the schema, and the first live runs showed
+ * one sample supplying it and the other omitting it for the SAME defect, so
+ * letting it into the identity made the identity unstable.
+ */
+export function codeLocations(candidate, codeScope) {
+  const cites = Array.isArray(candidate?.citations) ? candidate.citations : [];
+  const out = new Set();
+  for (const c of cites) {
+    const loc = citationPath(c) === null ? null : CITATION.exec(String(c))?.[0];
+    if (loc && citationInScope(c, codeScope)) out.add(loc);
+  }
+  return out;
+}
+
+/**
+ * Do two candidates describe the same defect? True when their in-scope code
+ * evidence OVERLAPS on at least one `file:line`.
+ *
+ * Overlap, not equality — this is the correction the first two live runs forced.
+ * Hashing an identity (whether the argv, or the first citation, or the full
+ * citation set) failed because two samples describing the same defect cite
+ * overlapping but not identical evidence, in arbitrary order. Meanwhile a single
+ * shared FILE is too coarse: `formatter.ts` genuinely holds two distinct defects
+ * (the exit-code bug at :39/:46 and the envelope bug at :43), and collapsing them
+ * would hide one. Line-level overlap separates those two cases exactly.
+ *
+ * Same shape of judgement `rounds.mjs` already makes for stall detection — an
+ * overlap measure gated on file, not a hash comparison.
+ */
+export function sameDefect(locsA, locsB) {
+  for (const l of locsA) if (locsB.has(l)) return true;
+  return false;
+}
+
 export function intersectSamples(sampleCandidateLists, fingerprintOf, { minAgreement = 2 } = {}) {
   const lists = (Array.isArray(sampleCandidateLists) ? sampleCandidateLists : []).filter(Array.isArray);
   const dropped = [];
@@ -270,31 +308,39 @@ export function intersectSamples(sampleCandidateLists, fingerprintOf, { minAgree
     }
     return { kept: [], dropped };
   }
-  const counts = new Map();
-  const first = new Map();
-  const unkeyed = [];
-  for (const list of lists) {
-    // Per-sample dedupe first: one sample repeating itself must not be able to
-    // reach the agreement threshold on its own.
-    const withinSample = new Set();
-    for (const c of list) {
-      const fp = fingerprintOf(c);
-      if (typeof fp !== "string" || fp === "") {
-        unkeyed.push({ candidate: c, why: "no locatable citation — cannot be matched across samples" });
+  // `fingerprintOf` returns the candidate's in-scope code-location SET (see
+  // codeLocations). Matching is greedy clustering by overlap: take an unclaimed
+  // candidate as the anchor, then claim at most one overlapping candidate per
+  // OTHER sample. One-per-sample is what stops a sample that raised three
+  // near-identical candidates from satisfying the threshold by itself.
+  const pools = lists.map((list) => list.map((c) => ({ c, locs: fingerprintOf(c), taken: false })));
+  const kept = [];
+  for (let i = 0; i < pools.length; i++) {
+    for (const anchor of pools[i]) {
+      if (anchor.taken) continue;
+      anchor.taken = true;
+      if (!anchor.locs || anchor.locs.size === 0) {
+        dropped.push({ candidate: anchor.c, why: "no in-scope code citation that locates a line — cannot be matched across samples" });
         continue;
       }
-      if (withinSample.has(fp)) continue;
-      withinSample.add(fp);
-      counts.set(fp, (counts.get(fp) ?? 0) + 1);
-      if (!first.has(fp)) first.set(fp, c);
+      let agreeing = 1;
+      for (let j = i + 1; j < pools.length; j++) {
+        const match = pools[j].find((o) => !o.taken && o.locs && sameDefect(anchor.locs, o.locs));
+        if (match) {
+          match.taken = true;
+          agreeing++;
+        }
+      }
+      if (agreeing >= minAgreement) kept.push(anchor.c);
+      else {
+        dropped.push({
+          candidate: anchor.c,
+          why: `only ${agreeing} of ${lists.length} samples cited an overlapping location (need ${minAgreement})`,
+        });
+      }
     }
   }
-  const kept = [];
-  for (const [fp, n] of counts.entries()) {
-    if (n >= minAgreement) kept.push(first.get(fp));
-    else dropped.push({ candidate: first.get(fp), why: `only ${n} of ${lists.length} samples found it (need ${minAgreement})` });
-  }
-  return { kept, dropped: [...dropped, ...unkeyed] };
+  return { kept, dropped };
 }
 
 // --- citations --------------------------------------------------------------

@@ -40,6 +40,7 @@ import {
   coerceCandidates,
   dedupeCandidates,
   intersectSamples,
+  codeLocations,
 } from "./hunt-gate.mjs";
 import {
   fingerprint,
@@ -414,8 +415,11 @@ async function cmdRun(args) {
     // of 9 candidates because agreement was tested on byte-identical argv.
     // `fingerprint()` (argv + real observation) is still the ledger's identity
     // below, where the probe has actually run.
+    const locsOf = (c) => codeLocations(c, charter.codeScope);
+    // Ledger identity: a stable hash of the SORTED in-scope locations. Sorted so
+    // citation order cannot change it, and scoped so a doc-only citation cannot.
     const keyOf = (c) =>
-      defectKey({ charterId: charter.id, oracle: c.oracle, citations: c.citations, docCitation: c.docCitation });
+      defectKey({ charterId: charter.id, oracle: c.oracle, citations: [...locsOf(c)].sort(), docCitation: null });
 
     // Sample the explorer N times and INTERSECT (hunt-gate). A candidate only one
     // sample produced is exactly the profile of a one-off confabulation.
@@ -456,7 +460,7 @@ async function cmdRun(args) {
       redactSecrets(JSON.stringify(sampleResults, null, 2), { extra: [context.cfg.apiKey].filter(Boolean) }) + "\n",
     );
 
-    const { kept: agreedRaw, dropped: notAgreed } = intersectSamples(samples, keyOf);
+    const { kept: agreedRaw, dropped: notAgreed } = intersectSamples(samples, locsOf);
     for (const d of notAgreed) dropped.push({ title: d.candidate?.title, why: d.why });
     const agreed = dedupeCandidates(agreedRaw, keyOf);
     stats.agreed += agreed.length;
