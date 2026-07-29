@@ -420,7 +420,11 @@ jobs:
                 let blockers = (Array.isArray(v.findings) ? v.findings : [])
                   .filter((f) => norm(f.severity) === 'critical' || norm(f.severity) === 'major')
                   .filter((f) => f.lane !== 'backlog')
-                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
+                  // `claimType` rides along so the next round verifies an
+                  // absence claim as an absence claim. Without it a carried
+                  // finding defaults to `presence` and gets the wrong procedure
+                  // (and the smaller turn budget) on every round after the first.
+                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), claimType: f.claimType === 'absence' ? 'absence' : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
                 // Keep output.text VALID JSON within the 60k limit: NEVER slice the
                 // serialized string (that yields JSON the next round can't parse).
                 // Fields are trimmed above; drop trailing findings until it fits.

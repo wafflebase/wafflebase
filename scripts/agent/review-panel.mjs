@@ -69,8 +69,23 @@ const FINDING = {
     line: { type: "integer" },
     summary: { type: "string" },
     evidence: { type: "string" },
+    // Is the defect something PRESENT that should not be, or something ABSENT
+    // that should be there? The two are verified in opposite directions, and
+    // conflating them is why a false "no CI workflow runs these tests" survived
+    // #578: refuting a presence claim means failing to find the code, but
+    // refuting an ABSENCE claim means FINDING the thing — a search whose failure
+    // is indistinguishable from the thing not existing. The verifier is told
+    // which job it has; without this it always did the first one.
+    // Required, so a lens must actually decide rather than defaulting by
+    // omission — the same reason `confidence` is required.
+    claimType: { type: "string", enum: ["presence", "absence"] },
+    // For an absence claim ONLY: what you actually searched before concluding
+    // the thing is missing. Handed to the verifier so it searches DIFFERENTLY
+    // rather than repeating a search that already came up empty. Advisory —
+    // it never affects gating (see the note in verifyFinding).
+    searchedFor: { type: "array", items: { type: "string" } },
   },
-  required: ["severity", "confidence", "summary"],
+  required: ["severity", "confidence", "summary", "claimType"],
 };
 const LENS_SCHEMA = {
   type: "object",
@@ -89,12 +104,23 @@ const LENS_SCHEMA = {
 const VERIFIER_SCHEMA = {
   type: "object",
   properties: {
-    verdict: { type: "string", enum: ["confirmed", "refuted"] },
+    // `unresolved` exists so "I could not settle this" stops being reported as
+    // "confirmed". It does NOT drop the finding — `isDroppingVerdict` still
+    // requires an explicit `refuted`, so an unresolved verification keeps the
+    // finding on the gate exactly as a confirmation would. The value is
+    // measurement: an absence claim nobody can settle is a different animal from
+    // one a verifier actively confirmed, and collapsing them hides how often the
+    // verifier is guessing.
+    verdict: { type: "string", enum: ["confirmed", "refuted", "unresolved"] },
     confidence: { type: "string", enum: ["high", "low"] },
     reason: { type: "string" },
     refutationGround: {
       type: "string",
-      enum: ["not-present", "already-guarded", "out-of-scope", "pre-existing", "none"],
+      // `counterexample` is the ground for refuting an ABSENCE claim: the
+      // finding says "there is no X", and the verifier found an X. The other
+      // grounds all describe ways a PRESENT thing fails to be a defect, which is
+      // the wrong shape for that job.
+      enum: ["not-present", "already-guarded", "out-of-scope", "pre-existing", "counterexample", "none"],
     },
     groundedIn: { type: "array", items: { type: "string" } },
   },
@@ -249,9 +275,17 @@ export function routeFinding(finding, { verdict = null, novelty = null } = {}, o
 export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex, opts) {
   return findings.map((f, i) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return f; // only blockers reach the gate
+    const verdict = verdictsByIndex?.[i] ?? null;
     const novelty = noveltiesByIndex?.[i] ?? null;
-    const lane = routeFinding(f, { verdict: verdictsByIndex?.[i] ?? null, novelty }, opts);
-    return novelty ? { ...f, lane, novelty } : { ...f, lane };
+    const lane = routeFinding(f, { verdict, novelty }, opts);
+    const out = { ...f, lane };
+    if (novelty) out.novelty = novelty;
+    // Carried through to reporting ONLY. `unresolved` does not change the lane —
+    // an unsettled finding gates exactly like a confirmed one — but a reader
+    // deciding whether to trust it should be told the verifier could not settle
+    // it rather than reading silence as endorsement.
+    if (verdict?.verdict === "unresolved") out.unsettled = true;
+    return out;
   });
 }
 
@@ -602,6 +636,17 @@ export const LENS_CLOSING_INSTRUCTION = [
   "change RELOCATED rather than wrote. A finding on code the change did not add",
   "is never set aside for that reason, so cite the true location; omitting it is",
   "safe and only costs precision.",
+  "Set `claimType`. `presence` = something is THERE that should not be (a wrong",
+  "condition, a missing-guard crash, an injectable path). `absence` = something",
+  "is NOT there that should be (no test covers this, no validation on this input,",
+  "no design doc records this module). Most findings are `presence`; say so",
+  "rather than guessing.",
+  "If you raise an `absence` finding, fill `searchedFor` with the searches you",
+  "actually ran before concluding the thing is missing — the greps, globs and",
+  "files you opened. Proving something absent needs an exhaustive search, so the",
+  "verifier has to look where you did NOT; telling it what you already tried is",
+  "what makes its search complementary instead of a repeat. This never changes",
+  "whether your finding blocks — it only makes a wrong one easier to disprove.",
 ].join("\n");
 
 /**
@@ -621,19 +666,30 @@ export const LENS_CLOSING_INSTRUCTION = [
  */
 export function verifierTally(findings, verdicts, opts) {
   let sentToVerifier = 0, refuted = 0, refutedHighConfidence = 0, dropped = 0;
+  // Absence claims, and how often one could not be settled either way. Both
+  // outcomes KEEP the finding, so neither number changes the gate — they exist
+  // because "the verifier confirmed this" and "the verifier could not disprove
+  // it" are very different statements that used to be the same word. A high
+  // `unresolved` against a low `absenceRefuted` is the signal that absence
+  // claims are riding through unchecked, which is the #578 failure.
+  let absenceRaised = 0, absenceRefuted = 0, unresolved = 0;
   (Array.isArray(findings) ? findings : []).forEach((f, i) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return;
     sentToVerifier++;
+    const isAbsence = claimTypeOf(f) === "absence";
+    if (isAbsence) absenceRaised++;
     const v = verdicts[i];
     if (v && v.verdict === "refuted") {
       refuted++;
       if (v.confidence === "high") refutedHighConfidence++;
+      if (isAbsence) absenceRefuted++;
     }
-    // Same `opts` as applyVerifications, so `dropped` counts what was actually
-    // dropped rather than what would have been under a different trust rule.
+    if (v && v.verdict === "unresolved") unresolved++;
+    // Same `opts` as the router, so `dropped` counts what was actually dropped
+    // rather than what would have been under a different trust rule.
     if (isDroppingVerdict(v, opts)) dropped++;
   });
-  return { sentToVerifier, refuted, refutedHighConfidence, dropped };
+  return { sentToVerifier, refuted, refutedHighConfidence, dropped, absenceRaised, absenceRefuted, unresolved };
 }
 
 // `askStructured`, `classifyResult` and `withRetry` moved to ask.mjs, which owns
@@ -697,13 +753,34 @@ async function runLens(lens, { rubric, diff, issue, repo, sessionLog, scopeNote 
   });
 }
 
-// Turn ceiling for one verification. The verifier now establishes facts from the
+// Turn ceiling for one verification. The verifier establishes facts from the
 // repository instead of being handed a diff, so it needs tool calls — but it is
 // judging ONE finding, and an unbounded budget multiplies across every blocking
 // finding in every round.
-const VERIFIER_MAX_TURNS = 8;
+//
+// ABSENCE claims get more. Refuting "there is no X" means FINDING an X, which is
+// a search across the repository, while refuting a presence claim is a lookup at
+// a location the finding already names. On #578 the false "no CI workflow runs
+// these tests" survived precisely here: the counterexample is real and
+// reachable — ci.yml -> `pnpm verify:self` -> verify-self.mjs -> the agent:tests
+// lane — but that is three hops plus the reads to confirm each, and the verifier
+// ran out of turns, so bias-to-keep confirmed a false claim. Absence claims are
+// the minority, so the extra ceiling is bounded in practice.
+export const VERIFIER_MAX_TURNS = { presence: 8, absence: 20 };
 
-async function verifyFinding(finding, { rubric, repo, model, sessionLog, changedContext }) {
+/** `presence` unless the finding explicitly says otherwise. */
+export function claimTypeOf(finding) {
+  return finding?.claimType === "absence" ? "absence" : "presence";
+}
+
+/**
+ * Assemble one verifier prompt. Exported and pure for the same reason
+ * `buildLensPrompt` is: the claim-type branch is a behaviour claim about the
+ * PROMPT, and a regex over this file cannot observe it. Rendering both branches
+ * is the only way to check that an absence claim is actually told to hunt for a
+ * counterexample rather than to look the code up. Nothing else imports it.
+ */
+export function buildVerifierPrompt(finding, { rubric, changedContext }) {
   // INDEPENDENCE — the point of this function. The verifier is deliberately NOT
   // given the diff. The lens that raised this finding reasoned from the diff, so
   // a verifier reading that same diff inherits its blind spots: a misread line
@@ -717,16 +794,48 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, changed
   // could disagree; then the prompt would offer a ground the gate silently
   // refuses, or worse, the reverse.
   const { authoritative, listed, total } = changedContext ?? changedFileContext([]);
+  const claimType = claimTypeOf(finding);
+  const searched = Array.isArray(finding.searchedFor)
+    ? finding.searchedFor.filter((s) => typeof s === "string" && s.trim()).slice(0, 20)
+    : [];
   const prompt = [
     "Another reviewer raised the finding below. Decide whether it is genuinely a",
     "blocking defect in THIS repository, which is your working directory.",
     "",
+    // The two claim shapes are verified in OPPOSITE directions, and running the
+    // presence procedure on an absence claim is what let a false one through on
+    // #578. Say which job this is, first, before any of the how-to.
+    claimType === "absence"
+      ? [
+          "THIS IS AN ABSENCE CLAIM: the reviewer says something is MISSING.",
+          "You refute it by FINDING ONE COUNTEREXAMPLE — a single instance of the",
+          "thing it says does not exist is enough, and that is the whole job.",
+          "",
+          "Search hard and search WIDE before concluding it is really missing.",
+          "The thing may exist under another name, in another directory, or be",
+          "reached indirectly: a script invoked by another script, a config that",
+          "includes a file, a helper called by the thing you expected to find it",
+          "in. Follow those chains — the counterexample is often two or three hops",
+          "from where you started, not in the obvious place.",
+          searched.length
+            ? `The reviewer already searched the following and came up empty, so look\nELSEWHERE rather than repeating these:\n${searched.map((s) => `  - ${s}`).join("\n")}`
+            : "The reviewer did not record what it searched, so assume nothing was\nchecked thoroughly and search from scratch.",
+        ].join("\n")
+      : [
+          "THIS IS A PRESENCE CLAIM: the reviewer says something IS there and is",
+          "wrong. You refute it by showing the code is not as described, or is",
+          "unreachable, or is out of scope for this lens.",
+        ].join("\n"),
+    "",
     "How to work:",
     "- Locate the code yourself with Grep/Glob/Read. Do NOT take the finding's",
     "  quoted evidence at face value — checking it IS the job.",
-    "- Code not present as described        -> refutationGround `not-present`",
-    "- A guard/check/caller elsewhere already makes it unreachable",
-    "                                       -> `already-guarded` (cite the guard)",
+    ...(claimType === "absence"
+      ? ["- Found even ONE instance of the thing said to be missing",
+         "                                       -> `counterexample` (cite it)"]
+      : ["- Code not present as described        -> refutationGround `not-present`",
+         "- A guard/check/caller elsewhere already makes it unreachable",
+         "                                       -> `already-guarded` (cite the guard)"]),
     "- Real, but not blocking under this lens's rubric -> `out-of-scope`",
     authoritative
       ? "- Lives in a file this change did not touch -> `pre-existing`. The changed-file\n  list below is authoritative for what this PR modified."
@@ -735,8 +844,12 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, changed
     "Refuting DROPS the finding from the merge gate, so the bar is high:",
     '- Return {verdict:"refuted", confidence:"high"} ONLY with a named',
     "  `refutationGround` AND `groundedIn` file:line locations you actually read.",
-    '- Unsure for ANY reason -> {verdict:"confirmed"}, refutationGround "none".',
-    "  Uncertainty keeps the finding. That is the correct outcome, not a failure.",
+    // The honest third answer. Without it, "I searched and found nothing" and "I
+    // checked and it is real" both come back as `confirmed`, which is why an
+    // unsettleable claim was indistinguishable from a verified one.
+    claimType === "absence"
+      ? '- Searched thoroughly and still found no counterexample, but cannot be sure\n  you looked everywhere -> {verdict:"unresolved"}, refutationGround "none".\n  This KEEPS the finding on the gate, exactly like `confirmed` — it only\n  records that you could not settle it. Prefer it over a confirmation you\n  do not actually have.'
+      : '- Unsure for ANY reason -> {verdict:"confirmed"}, refutationGround "none".\n  Uncertainty keeps the finding. That is the correct outcome, not a failure.',
     "",
     "Judge 'blocking' strictly by this lens's rubric:",
     "",
@@ -763,18 +876,32 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, changed
   ]
     .filter((l) => l !== null) // `""` entries are deliberate blank lines — keep them
     .join("\n");
+  return prompt;
+}
+
+async function verifyFinding(finding, { rubric, repo, model, sessionLog, changedContext }) {
+  const claimType = claimTypeOf(finding);
   return askStructured({
     systemPrompt:
       "You are an independent verifier. You did not write this code and did not raise this " +
       "finding. Establish the facts from the repository yourself rather than trusting the " +
       "reviewer's account of them. Refuting removes a finding from the merge gate, so refute " +
-      "only with a named ground and cited locations; when in doubt, confirm.",
-    prompt,
+      "only with a named ground and cited locations. " +
+      (claimType === "absence"
+        // "Confirm when in doubt" is wrong for an absence claim: doubt there
+        // means "I did not find it", which is exactly what the claim asserts, so
+        // confirming on doubt rubber-stamps it. `unresolved` keeps the finding
+        // just the same but says what actually happened.
+        ? "This is an absence claim: one counterexample refutes it. If you cannot find one " +
+          "but cannot be confident you looked everywhere, answer `unresolved` rather than " +
+          "`confirmed` — both keep the finding, only one is honest."
+        : "When in doubt, confirm."),
+    prompt: buildVerifierPrompt(finding, { rubric, changedContext }),
     model,
     repo,
     schema: VERIFIER_SCHEMA,
     sessionLog,
-    maxTurns: VERIFIER_MAX_TURNS,
+    maxTurns: VERIFIER_MAX_TURNS[claimType],
     allowedTools: REVIEW_TOOLS,
     label: "review",
   });
@@ -1010,6 +1137,9 @@ async function main() {
         refuted: freshTally.refuted + priorTally.refuted,
         refutedHighConfidence: freshTally.refutedHighConfidence + priorTally.refutedHighConfidence,
         dropped: freshTally.dropped + priorTally.dropped,
+        absenceRaised: freshTally.absenceRaised + priorTally.absenceRaised,
+        absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
+        unresolved: freshTally.unresolved + priorTally.unresolved,
       },
       // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this
       // lens blocked this round" and compares it against the next round, so

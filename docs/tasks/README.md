@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./active/20260729-absence-claims-todo.md) | - |
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
 | review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./active/20260729-review-novelty-gate-todo.md) | - |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./active/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./active/20260728-blast-radius-lens-lessons.md) |
@@ -73,4 +74,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: incremental review (2026-07-29)
+Latest active task: absence claims (2026-07-29)
