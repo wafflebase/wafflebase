@@ -1,10 +1,10 @@
-// Did THIS change introduce the code a finding points at? Answered with git, not
-// with a model.
+// Did THIS change PUT this line here, carrying code that already existed?
+// Answered with git, not with a model.
 //
 // WHY THIS EXISTS. #573 deliberately stopped handing the verifier the diff: the
 // lens that raised a finding reasoned FROM the diff, so a verifier reading the
 // same diff inherits its misreadings. That independence is right and stays. But
-// it leaves the verifier standing inside the branch checkout with no view of the
+// it leaves the verifier standing in the branch checkout with no view of the
 // base — and from there a line a refactor MOVED and a line the change WROTE are
 // byte-identical. The `pre-existing` refutation ground is file-scoped ("lives in
 // a file this change did not touch"), so a function relocated into a new file
@@ -15,52 +15,78 @@
 // re-reported as introduced-here, and the verifier confirmed them all because,
 // from where it stands, they ARE present.
 //
-// `git blame -w -C -C -C` answers this exactly: it follows a line back through
-// moves and copies to the commit that WROTE it, not the one that moved it. On
-// #578's `resets?\b` regex, plain blame says the PR commit; move-aware blame
-// says a commit that predates the base. No model is needed or wanted here.
+// WHAT THIS DELIBERATELY DOES NOT DO. "The code at this location is old" does
+// NOT mean "this change did not cause the defect". A new guard bypassed by an
+// untouched call site, a new caller reaching an old unguarded path, a test that
+// stopped covering a branch — those defects live entirely in pre-base lines, and
+// the blast-radius lens exists to find them. Its rubric orders it to cite the
+// bypassing site, "not the diff line that introduced the guard"; correctness and
+// security carry the same out-of-diff mandate. Demoting on line age alone would
+// route that entire class off the gate — the opposite of the goal.
+//
+// So the question is narrower than "is this code old". It is: DID THIS CHANGE
+// PUT THIS LINE HERE, and was the code it put here already in the tree? Two
+// blames answer it, and both are needed:
+//
+//   plain  `git blame`            → which commit put this line at this offset
+//   moved  `git blame -w -C -C -C` → which commit originally WROTE that content
+//
+// A line the change did not add is `pre-existing` and is NEVER demoted: whether
+// it is a bug is exactly what the lens was asked, and it is not this module's
+// business. Only a line the change ADDED, whose content predates the base, is
+// `relocated` — and that alone demotes. That is the #578 shape and nothing else.
 //
 // THE ONE RULE: every uncertain path returns `unknown`, and `unknown` keeps the
-// finding blocking — i.e. exactly today's behaviour. This module can only ever
-// REMOVE a false blocker; there is no path by which it loses a real one.
+// finding blocking. Demotion requires BOTH blames to have answered.
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCitation } from "./citation.mjs";
 
+const execFileAsync = promisify(execFile);
+
 /**
  * Where the code a finding points at came from.
- *   introduced   — written by this change
- *   relocated    — moved/copied here by this change; the code itself is older
- *   pre-existing — lives in code this change did not touch
+ *   introduced   — this change added the line, and the content is new
+ *   relocated    — this change added the line, but the content predates the base
+ *   pre-existing — this change did not add this line
  *   unknown      — could not tell (no location, no base, git unavailable/failed)
- * `introduced` and `unknown` both keep a finding blocking; the difference is
- * diagnostic only, so mislabelling one as the other is never a gate error.
+ * ONLY `relocated` demotes. `introduced`, `pre-existing` and `unknown` all keep
+ * the finding on the gate, so mislabelling among those three is never a gate
+ * error — it only affects how the finding reads.
  */
 export const ORIGINS = ["introduced", "relocated", "pre-existing", "unknown"];
 
+/** Origins that take a finding off the merge gate. Deliberately one element. */
+export const DEMOTING_ORIGINS = new Set(["relocated"]);
+
+// Accepts an abbreviated sha as well as a full one. The workflows always pass a
+// full 40-hex `git merge-base`, but the dry-run entry point is driven by hand and
+// rejecting `08c7885f9` there would make the gate silently INERT — every finding
+// `unknown` — which looks identical to "nothing was relocated". Ambiguity is not
+// a risk this regex should be guarding: git itself refuses an ambiguous prefix,
+// and the value only ever reaches git as a rev to resolve.
 const SHA = /^[0-9a-fA-F]{7,40}$/;
 
 // `blame -C -C -C` searches for copies across every file in the commit, which on
 // a large file with deep history is the one genuinely slow call here. A finding
-// that costs more than this to place is not worth the wall-clock: it degrades to
-// `unknown`, which is the status quo.
+// that costs more than this to place degrades to `unknown`, i.e. the status quo.
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 
-// The content probe (below) asks whether a line's exact text already exists in
-// the base tree. On a SHORT or structural line that question is meaningless —
-// `}`, `});`, `*/` and `return null;` occur in almost any tree, so every finding
-// touching one would probe as "already in base" and be demoted off the gate.
-// That is the one way this module could lose a real finding, so the probe is
-// only consulted for lines distinctive enough for a match to mean something:
-// long enough, and carrying at least two identifier-ish runs.
+// The content probe asks whether a line's exact text already existed in the base
+// tree. On a SHORT or structural line that question is meaningless — `}`, `});`
+// and `return null;` occur in almost any tree, so a finding touching one would
+// probe as "already in base" and be demoted off the gate. That is the one way
+// this module could lose a real finding, so the probe is consulted only for
+// lines distinctive enough for a match to mean something.
 const MIN_PROBE_LEN = 16;
 const IDENTIFIER_RUN = /[A-Za-z_][A-Za-z0-9_]{2,}/g;
 const MIN_PROBE_IDENTIFIERS = 2;
 
-/** Is this line worth asking `git grep -F` about? See MIN_PROBE_LEN. */
+/** Is this line worth asking git about? See MIN_PROBE_LEN. */
 export function isProbeableLine(text) {
   if (typeof text !== "string") return false;
   const t = text.trim();
@@ -71,44 +97,53 @@ export function isProbeableLine(text) {
 /**
  * The whole decision table, as a pure function — this is what the tests pin.
  *
- * Direction of every default: toward `unknown`, which keeps a finding blocking.
- * Note that `introduced` is ALSO a blocking outcome, which is what lets the last
- * branch be unconditional: once a probe has run and neither says "this code is
- * older than the base", the conservative answer and the accurate answer agree.
- * Only an affirmative "older" demotes, and only a probe can produce one.
+ * `changeAddedLine` is the load-bearing input and comes from PLAIN blame: did
+ * this change put this line at this offset? When it is false the answer is
+ * `pre-existing` and the finding stays on the gate no matter how old the content
+ * is — that is what keeps out-of-diff findings (blast-radius, and the
+ * correctness/security call-site mandate) gating.
+ *
+ * `contentPredatesBase` comes from MOVE-AWARE blame and `contentFoundInBase` from
+ * a WHOLE-LINE search of the base tree. They answer the same question two ways,
+ * and either affirmative is enough: `blame -C` reliably misses some moves (it
+ * did on #578's `structured_output` line), and the text search still answers on
+ * a shallow clone where blame cannot. Only `true` demotes; `false` and `null`
+ * both leave the finding on the gate.
+ *
+ * What keeps the text search honest is the STRICTNESS of the match, not a rule
+ * about when it may speak: it must be the exact same line, after trimming, on a
+ * line distinctive enough to mean something (`isProbeableLine`). A substring
+ * match would demote any new line whose text merely occurs inside an existing
+ * one — which is both a false-demotion source and a bypass an author could aim
+ * at deliberately.
  */
 export function originFrom({
   hasLocation = false,
-  probesFailed = false,
-  blameIsAncestorOfBase = null,
-  fileExistedInBase = null,
+  changeAddedLine = null,
+  contentPredatesBase = null,
   contentFoundInBase = null,
 } = {}) {
-  // Nothing to place, or neither probe could run: we cannot tell.
-  if (!hasLocation || probesFailed) return "unknown";
-  // Blame is the precise probe: it followed this line to the commit that wrote
-  // it, and that commit is reachable from the base. The code predates the change.
-  if (blameIsAncestorOfBase === true) {
-    // Old line, new file → the change moved it here. Old line, old file → the
-    // change never touched it. When the file's fate is unknown, say the weaker
-    // thing (`pre-existing` claims nothing about the change having moved it);
-    // both route identically, so this only affects how the finding reads.
-    return fileExistedInBase === false ? "relocated" : "pre-existing";
-  }
-  // Blame said "written here", or could not run. The content probe gets a second
-  // chance to spot a move blame missed (it survives a shallow clone, which blame
-  // does not) — but only on a distinctive line; see isProbeableLine.
-  if (contentFoundInBase === true) return "relocated";
+  // Nothing to place, or plain blame could not answer: we cannot tell.
+  if (!hasLocation || changeAddedLine === null) return "unknown";
+  // The change did not put this line here. Whether the code is buggy is exactly
+  // what the lens was asked; its age is not this module's business.
+  if (changeAddedLine === false) return "pre-existing";
+  // The change added this line. Did it bring content that already existed?
+  if (contentPredatesBase === true || contentFoundInBase === true) return "relocated";
   return "introduced";
 }
 
 /**
  * Where does a finding point? `line` if the lens supplied one, else the first
- * `file:line` citation in its evidence, else the file alone.
+ * `file:line` citation in its evidence — but ONLY when that citation names the
+ * same file as the finding.
  *
- * Returns `{file, line}` with `line: null` when only a file could be resolved,
- * or `null` when not even that — both of which land on a non-demoting path in
- * `noveltyOf`, so a lens that omits locations costs precision, never safety.
+ * The file check is not pedantry. Evidence routinely cites a second location for
+ * contrast ("unlike other.mjs:7"), and pairing the finding's file with a foreign
+ * file's line number produces a location that exists but means nothing — git is
+ * then asked about whatever happens to sit at that offset, and an arbitrary old
+ * line there would demote a genuinely new finding. A location that cannot be
+ * trusted is worse than none, because none yields `unknown` and stays blocking.
  */
 export function findingLocation(finding) {
   if (!finding || typeof finding !== "object") return null;
@@ -117,146 +152,189 @@ export function findingLocation(finding) {
     return { file, line: finding.line };
   }
   const cited = parseCitation(finding.evidence);
-  // Trust the finding's own `file` over the citation's path when both exist: the
-  // citation is prose the model wrote and may name a file it was merely
-  // discussing, while `file` is the field the gate and the fixer already key on.
-  if (cited) return { file: file ?? cited.file, line: cited.line };
-  return file ? { file, line: null } : null;
+  if (!cited) return file ? { file, line: null } : null;
+  // No file on the finding → the citation is all we have, so take it whole.
+  if (!file) return { file: cited.file, line: cited.line };
+  // Both present → the line is only usable if they agree on the file. Compare
+  // on the trailing path segments so `a/b.mjs` and `./a/b.mjs` still match.
+  return samePath(file, cited.file) ? { file, line: cited.line } : { file, line: null };
+}
+
+/** Do two path strings denote the same file, allowing `./` and prefix drift? */
+function samePath(a, b) {
+  const norm = (p) => p.replace(/^\.\//, "").replace(/^\/+/, "");
+  const x = norm(a);
+  const y = norm(b);
+  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
 }
 
 /**
- * Run git. Never throws: returns `{ok:false}` on any failure, including timeout.
+ * Run git. Never throws: resolves `{ok:false}` on any failure, including timeout.
  *
  * `status` is carried out because some git commands use the exit code as an
  * ANSWER rather than as an error — `grep` exits 1 for "no match", `merge-base
  * --is-ancestor` exits 1 for "no". Callers must be able to tell that from a
  * command that could not run at all, or a broken lookup gets recorded as a
- * confident negative. `null` means the process did not produce an exit status
- * (spawn failure or timeout), which is never an answer.
+ * confident negative. `null` means no exit status (spawn failure or timeout),
+ * which is never an answer.
+ *
+ * Async on purpose. These run inside the orchestrator's per-lens `Promise.all`,
+ * where every other lens is streaming an SDK session; a synchronous spawn with a
+ * 10s ceiling would block the event loop and stall all of them.
  */
-function git(args, repo) {
+async function git(args, repo) {
   try {
-    const stdout = execFileSync("git", args, {
+    const { stdout } = await execFileAsync("git", args, {
       cwd: repo,
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
     });
     return { ok: true, status: 0, stdout };
   } catch (e) {
-    return { ok: false, status: typeof e?.status === "number" ? e.status : null, stdout: "" };
+    return { ok: false, status: typeof e?.code === "number" ? e.code : null, stdout: "" };
   }
 }
 
-/** `git blame -w -C -C -C` for one line → the sha that WROTE it, or null. */
-function blameSha(repo, file, line) {
-  // -w ignores whitespace changes, -C -C -C looks for the line's origin in other
-  // files in the same commit, in files that commit modified, and in the original
-  // commit — the three levels that between them catch a refactor's moves.
-  // `--` before the path so a file named like a rev cannot be misread as one.
-  const r = git(["blame", "-w", "-C", "-C", "-C", "-L", `${line},${line}`, "--porcelain", "HEAD", "--", file], repo);
-  if (!r.ok) return null;
-  const first = r.stdout.split("\n", 1)[0] ?? "";
+/**
+ * Does `baseSha` name a commit in this repo? Called ONCE by the caller so a
+ * misconfigured base is reported loudly instead of silently turning every
+ * finding into `unknown` — which is safe (everything keeps gating) but reads
+ * exactly like "nothing was relocated", and a gate that is quietly off is worse
+ * than one that is loudly off.
+ */
+export async function baseResolves(repo, baseSha) {
+  if (!repo || typeof baseSha !== "string" || !SHA.test(baseSha)) return false;
+  return (await git(["cat-file", "-e", `${baseSha}^{commit}`], repo)).ok;
+}
+
+/** First-field sha from `blame --porcelain`, or null. */
+function porcelainSha(stdout) {
+  const first = String(stdout).split("\n", 1)[0] ?? "";
   const sha = first.split(" ", 1)[0] ?? "";
   return SHA.test(sha) ? sha : null;
 }
 
 /**
- * Is `sha` reachable from `baseSha`? `--is-ancestor` exits 0 for yes, 1 for no,
- * and non-zero-non-1 for an error — which `git()` flattens to `ok:false`. That
- * flattening is why this returns null (unknown) rather than false on error: a
- * failed lookup must not read as "not an ancestor", which would demote nothing
- * but would let the content probe conclude `introduced` on no evidence.
+ * Is `sha` reachable from `baseSha`? Exit 1 is git's ANSWER ("no"); any other
+ * status, or none, means the lookup itself broke (unknown rev on a shallow
+ * clone, timeout) and must not be recorded as a confident negative.
  */
-function isAncestor(repo, sha, baseSha) {
+async function isAncestor(repo, sha, baseSha) {
   if (!sha) return null;
-  const r = git(["merge-base", "--is-ancestor", sha, baseSha], repo);
+  const r = await git(["merge-base", "--is-ancestor", sha, baseSha], repo);
   if (r.ok) return true;
-  // Exit 1 is git's ANSWER ("no"); any other status, or none, means the lookup
-  // itself broke (unknown rev on a shallow clone, timeout) and must not be
-  // recorded as a confident "not an ancestor" — that would let the content probe
-  // conclude `introduced` on evidence that was never gathered.
   return r.status === 1 ? false : null;
 }
 
 /**
- * Answer "where did this code come from" for one finding location.
+ * Answer "did this change put this line here, and was its content already in the
+ * tree" for one finding location.
  *
  * `baseSha` is passed in, never guessed: this script has no idea what the base
  * branch is called, and a wrong guess would silently mis-date every finding.
  * Absent or malformed → `unknown` for everything, i.e. today's behaviour.
  *
- * `cache` is a caller-supplied Map. The same finding is verified twice per round
- * (the fresh pass and the prior-round re-check), and `blame -C -C -C` is the
- * expensive call here.
+ * `cache` is a caller-supplied Map — the same location is judged more than once
+ * per round and `blame -C -C -C` is the expensive call.
  */
-export function noveltyOf({ repo, file, line, baseSha, changedFiles, changedFilesAuthoritative = false, cache }) {
-  const unknown = { origin: "unknown", blameSha: null, alsoAt: null };
+export async function noveltyOf({ repo, file, line, baseSha, cache }) {
+  const unknown = { origin: "unknown", addedBy: null, contentSha: null, alsoAt: null };
   if (!repo || typeof file !== "string" || !file.trim()) return unknown;
   if (typeof baseSha !== "string" || !SHA.test(baseSha)) return unknown;
-
-  // No line number: the only sound call left is the file-scoped one the verifier
-  // prompt already makes — and only when the changed-file list is complete, for
-  // the same reason `isDroppingVerdict` gates `pre-existing` on it. A file absent
-  // from a TRUNCATED list is not untouched, merely unlisted.
-  if (!Number.isInteger(line) || line < 1) {
-    if (changedFilesAuthoritative && Array.isArray(changedFiles) && !changedFiles.includes(file)) {
-      return { origin: "pre-existing", blameSha: null, alsoAt: null };
-    }
-    return unknown;
-  }
+  // No line → no probe → `unknown`. There is deliberately no file-level
+  // fallback: demoting a finding because its `file` string is absent from a
+  // changed-file list is not a git answer, it is a string comparison, and a
+  // `./` prefix or a path the model spelled differently would silently drop a
+  // real blocker off the gate. The verifier's own `pre-existing` ground already
+  // covers the file-level case, and it requires a grounded refutation to act.
+  if (!Number.isInteger(line) || line < 1) return unknown;
 
   const key = `${file}:${line}`;
   if (cache instanceof Map && cache.has(key)) return cache.get(key);
 
-  const sha = blameSha(repo, file, line);
-  const blameIsAncestorOfBase = isAncestor(repo, sha, baseSha);
-
-  // Only look up the file's fate when blame already established the line is old
-  // — it is purely a label refinement (pre-existing vs relocated), and both route
-  // to the same lane.
-  const fileExistedInBase = blameIsAncestorOfBase === true
-    ? git(["cat-file", "-e", `${baseSha}:${file}`], repo).ok
-    : null;
-
-  // Content probe: does this exact line already exist anywhere in the base tree?
-  // Independent of blame and, unlike blame, it needs only the base tree object —
-  // so it still answers on a shallow clone. Run when blame did NOT conclude (it
-  // is the second chance to spot a move), and ALSO when blame said "relocated",
-  // where it is not deciding anything — it is fetching the base location for the
-  // report, because "this line already lives at review-panel.mjs:436" is the
-  // evidence that makes a demotion checkable by eye, and a bare sha is not.
-  // Skipped for `pre-existing` (same file, so the location adds nothing) and on
-  // non-distinctive lines.
-  let contentFoundInBase = null;
-  let alsoAt = null;
-  if (blameIsAncestorOfBase !== true || fileExistedInBase === false) {
-    const shown = git(["show", `HEAD:${file}`], repo);
-    const text = shown.ok ? (shown.stdout.split("\n")[line - 1] ?? "") : "";
-    if (shown.ok && isProbeableLine(text)) {
-      const hit = git(["grep", "-F", "-n", "--max-count", "1", "-e", text.trim(), baseSha], repo);
-      // Exit 0 = found, exit 1 = definitively absent, anything else (or no exit
-      // status at all) = the probe could not run, which is `null`, not "absent".
-      // Collapsing those would report a broken lookup as `introduced` and hide
-      // the failure from `unknownOrigin`, the counter whose whole job is to say
-      // when the gate is flying blind.
-      contentFoundInBase = hit.ok ? hit.stdout.trim() !== "" : hit.status === 1 ? false : null;
-      if (contentFoundInBase) alsoAt = hit.stdout.split("\n", 1)[0]?.trim() ?? null;
-    }
-  }
-
-  const origin = originFrom({
-    hasLocation: true,
-    // Both probes came back with nothing usable → we learned nothing at all.
-    probesFailed: blameIsAncestorOfBase === null && contentFoundInBase === null,
-    blameIsAncestorOfBase,
-    fileExistedInBase,
-    contentFoundInBase,
-  });
-  const result = { origin, blameSha: sha, alsoAt };
+  const result = await probe(repo, file, line, baseSha);
   if (cache instanceof Map) cache.set(key, result);
   return result;
+}
+
+async function probe(repo, file, line, baseSha) {
+  const at = ["-L", `${line},${line}`, "--porcelain", "HEAD", "--", file];
+  // Both blames in parallel — they are independent questions about the same line.
+  // `--` before the path so a file named like a rev cannot be read as one.
+  const [plain, moved] = await Promise.all([
+    git(["blame", "-w", ...at], repo),
+    git(["blame", "-w", "-C", "-C", "-C", ...at], repo),
+  ]);
+
+  // PLAIN blame: which commit put this line at this offset? If that commit is
+  // reachable from the base, the change did not add this line.
+  const plainSha = plain.ok ? porcelainSha(plain.stdout) : null;
+  const plainIsOld = await isAncestor(repo, plainSha, baseSha);
+  const changeAddedLine = plainIsOld === null ? null : !plainIsOld;
+
+  // Everything below only refines HOW a line the change added got there, so
+  // there is nothing to learn once we know it did not add it.
+  if (changeAddedLine !== true) {
+    return {
+      origin: originFrom({ hasLocation: true, changeAddedLine }),
+      addedBy: plainSha,
+      contentSha: null,
+      alsoAt: null,
+    };
+  }
+
+  // MOVE-AWARE blame: the change added this line — where did its content come
+  // from? An ancestor commit means the content predates the base: a move.
+  const movedSha = moved.ok ? porcelainSha(moved.stdout) : null;
+  const contentPredatesBase = await isAncestor(repo, movedSha, baseSha);
+
+  // Content probe: is this exact line already in the base tree? A second,
+  // independent answer to the same question, because `blame -C` demonstrably
+  // misses moves (#578's `structured_output` line is one), and because it still
+  // works on a shallow clone where blame cannot. It also supplies `alsoAt` — the
+  // base location that makes a demotion checkable by eye, which a bare sha is
+  // not. Skipped once blame has already concluded the content is older, since
+  // there is nothing left to establish beyond that location.
+  let contentFoundInBase = null;
+  let alsoAt = null;
+  const shown = await git(["show", `HEAD:${file}`], repo);
+  const text = shown.ok ? (shown.stdout.split("\n")[line - 1] ?? "") : "";
+  if (shown.ok && isProbeableLine(text)) {
+    const found = await grepWholeLine(repo, baseSha, text.trim());
+    alsoAt = found.at;
+    if (contentPredatesBase !== true) contentFoundInBase = found.answered ? found.hit : null;
+  }
+
+  return {
+    origin: originFrom({ hasLocation: true, changeAddedLine: true, contentPredatesBase, contentFoundInBase }),
+    addedBy: plainSha,
+    contentSha: movedSha,
+    alsoAt,
+  };
+}
+
+/**
+ * Does a line whose trimmed text is EXACTLY `text` exist in the base tree?
+ *
+ * `git grep -F` is a substring match, so grepping `foo()` also hits
+ * `not_foo()` and any comment mentioning it — on a whole-tree search that is a
+ * broad net, and here a spurious hit demotes a finding off the merge gate. So
+ * the grep is only a candidate filter: every hit is re-checked for whole-line
+ * equality after trimming, and only an exact match counts.
+ */
+async function grepWholeLine(repo, baseSha, text) {
+  const r = await git(["grep", "-F", "-n", "-e", text, baseSha], repo);
+  if (!r.ok) return { answered: r.status === 1, hit: false, at: null };
+  for (const row of r.stdout.split("\n")) {
+    if (!row.trim()) continue;
+    // `<rev>:<path>:<lineno>:<content>` — content may itself contain colons, so
+    // split off exactly three leading fields and keep the rest intact.
+    const m = /^([^:]+):(.+?):(\d+):(.*)$/.exec(row);
+    if (!m) continue;
+    if (m[4].trim() === text) return { answered: true, hit: true, at: `${m[1]}:${m[2]}:${m[3]}` };
+  }
+  return { answered: true, hit: false, at: null };
 }
 
 // --- dry run -----------------------------------------------------------------
@@ -266,11 +344,7 @@ export function noveltyOf({ repo, file, line, baseSha, changedFiles, changedFile
 // panel or spending a token. This exists so a change to the probes can be
 // checked against a REAL past review rather than only against fixtures: replay
 // the findings from a PR whose disposition is already known and confirm the
-// pre-existing ones come out `relocated`/`pre-existing` and the genuinely new
-// ones come out `introduced`. Fixtures pin the decision table; this pins that
-// the probes feeding it read the repository correctly.
-//
-// Reads only; writes nothing but stdout.
+// moved-code ones come out `relocated` and the rest do not. Reads only.
 async function dryRun(argv) {
   const args = {};
   for (let i = 2; i < argv.length; i++) {
@@ -283,6 +357,10 @@ async function dryRun(argv) {
     console.error("usage: node novelty.mjs --findings <json> --base-sha <sha> [--repo <dir>]");
     process.exit(2);
   }
+  if (!(await baseResolves(repo, baseSha))) {
+    console.error(`base-sha ${baseSha} does not resolve to a commit in ${repo} — every finding would read 'unknown'`);
+    process.exit(2);
+  }
   const raw = JSON.parse(readFileSync(args.findings, "utf8"));
   const findings = Array.isArray(raw) ? raw : (raw.findings ?? []);
   const cache = new Map();
@@ -290,13 +368,14 @@ async function dryRun(argv) {
   for (const f of findings) {
     const loc = findingLocation(f);
     const r = loc
-      ? noveltyOf({ repo, file: loc.file, line: loc.line, baseSha, cache })
-      : { origin: "unknown", blameSha: null, alsoAt: null };
+      ? await noveltyOf({ repo, file: loc.file, line: loc.line, baseSha, cache })
+      : { origin: "unknown", alsoAt: null };
     tally[r.origin] = (tally[r.origin] ?? 0) + 1;
-    const at = loc ? `${loc.file}:${loc.line ?? "?"}` : "(unlocatable)";
-    console.log(`${r.origin.padEnd(13)} ${String(f.severity ?? "?").padEnd(9)} ${at}`);
-    console.log(`              ${String(f.summary ?? "").slice(0, 100)}`);
-    if (r.alsoAt) console.log(`              already at ${r.alsoAt.split(":").slice(0, 3).join(":")}`);
+    const where = loc ? `${loc.file}:${loc.line ?? "?"}` : "(unlocatable)";
+    const gates = DEMOTING_ORIGINS.has(r.origin) ? "demoted" : "GATES";
+    console.log(`${r.origin.padEnd(13)} ${gates.padEnd(8)} ${where}`);
+    console.log(`              ${String(f.summary ?? "").slice(0, 96)}`);
+    if (r.alsoAt) console.log(`              already at ${r.alsoAt}`);
   }
   console.log(`\n${findings.length} finding(s): ${JSON.stringify(tally)}`);
 }

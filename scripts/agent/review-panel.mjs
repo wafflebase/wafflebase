@@ -39,7 +39,7 @@ import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from ".
 import { askStructured, withRetry } from "./ask.mjs";
 import { renderScopeNote } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
-import { findingLocation, noveltyOf } from "./novelty.mjs";
+import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -162,9 +162,19 @@ export function coerceFindings(raw) {
  * `critical` that share a file+summary, or two findings coerceFindings rewrote to
  * the same placeholder). Dedup must never drop a blocker; it fails toward
  * blocking, and the result is order-independent.
+ *
+ * LANE is the second axis, and it outranks severity. A finding that GATES must
+ * never be displaced by a duplicate that does not, or dedup silently un-gates
+ * it: a fresh blocking finding colliding with a higher-severity prior-round copy
+ * routed to `backlog` would otherwise hand the slot to the backlog copy and turn
+ * the check green. Gating wins first; severity decides only among equals. Same
+ * fail-toward-blocking direction the severity rule already has.
  */
 export function dedupeFindings(findings) {
   const rank = (f) => KNOWN.indexOf(normalizeSeverity(f.severity)); // 0=critical … 3=nit
+  const gates = (f) => f?.lane !== "backlog"; // no lane = gates (see gatingFindings)
+  /** Does `a` beat the finding already in the slot? Lane first, then severity. */
+  const beats = (a, b) => (gates(a) !== gates(b) ? gates(a) : rank(a) < rank(b));
   const byKey = new Map();
   const order = [];
   for (const f of findings) {
@@ -172,8 +182,8 @@ export function dedupeFindings(findings) {
     if (!byKey.has(key)) {
       byKey.set(key, f);
       order.push(key);
-    } else if (rank(f) < rank(byKey.get(key))) {
-      byKey.set(key, f); // more severe (lower rank index) wins the slot
+    } else if (beats(f, byKey.get(key))) {
+      byKey.set(key, f);
     }
   }
   return order.map((k) => byKey.get(k));
@@ -196,6 +206,8 @@ export function dedupeFindings(findings) {
  * fixer. `novelty.mjs` answers the second question with git.
  */
 export const LANES = ["blocking", "backlog", "discarded"];
+/** Lanes `laneCounts` tallies. `discarded` is filtered out before it is reached. */
+const COUNTED_LANES = new Set(["blocking", "backlog"]);
 
 /**
  * Route ONE blocking finding. Pure; `novelty` comes from `noveltyOf`.
@@ -210,8 +222,13 @@ export const LANES = ["blocking", "backlog", "discarded"];
  */
 export function routeFinding(finding, { verdict = null, novelty = null } = {}, opts) {
   if (isDroppingVerdict(verdict, opts)) return "discarded";
-  const origin = novelty?.origin;
-  if (origin === "pre-existing" || origin === "relocated") return "backlog";
+  // ONLY `relocated` — a line this change added, carrying code that already
+  // existed. Notably NOT `pre-existing`: a finding about code the change did not
+  // touch is what the blast-radius lens is FOR (its rubric orders it to cite the
+  // bypassing site, "not the diff line that introduced the guard"), and the
+  // correctness/security call-site mandate says the same. Demoting on age alone
+  // would route that whole class off the gate.
+  if (DEMOTING_ORIGINS.has(novelty?.origin)) return "backlog";
   return "blocking";
 }
 
@@ -244,27 +261,25 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex, op
  * `classify` and `severity.mjs` need no change and cannot disagree with this.
  */
 export function gatingFindings(annotated) {
-  return annotated.filter(
-    (f) => !BLOCKING.has(normalizeSeverity(f.severity)) || f.lane === "blocking",
-  );
+  // Excludes ONLY an explicit `backlog`. Phrased as a deny rather than an allow
+  // because a finding with no lane at all — one no novelty pass reached, e.g. a
+  // carried-forward prior finding — must keep gating. An allow-list phrasing
+  // (`lane === "blocking"`) silently drops those, which is a way to lose a real
+  // blocker rather than merely fail to demote a false one.
+  return annotated.filter((f) => !f || f.lane !== "backlog");
 }
 
 /**
- * Apply verifier verdicts to a lens's findings. A blocking finding is dropped
- * only when `isDroppingVerdict` accepts its verdict — see there for the rule and
- * for `allowPreExisting`, which the caller MUST pass through from
- * `changedFileContext().authoritative`. Everything else KEEPS the finding, which
- * is what makes the refute pass fail toward blocking so it cannot silently
- * swallow a real bug the verifier was merely unsure about. (The verifier prompt
- * is written to match: refute only with a named ground and cited locations,
- * confirm on any doubt.)
+ * Drop the findings a verdict concretely refuted. `annotateFindings` is the one
+ * routing rule; this is just the filter both call sites apply after it.
  *
- * Now expressed through `annotateFindings` so there is ONE routing rule rather
- * than two that could drift. With no novelty supplied the only reachable lanes
- * are `blocking` and `discarded`, which is precisely the old two-way behaviour.
+ * (This replaces the old `applyVerifications`, which had become a second name
+ * for the same rule with no production caller — both call sites went through
+ * `annotateFindings` — and whose "still behaves like the old one" test compared
+ * an expression against a literal copy of itself.)
  */
-export function applyVerifications(findings, verdictsByIndex, opts) {
-  return annotateFindings(findings, verdictsByIndex, null, opts).filter((f) => f.lane !== "discarded");
+export function keepUnrefuted(annotated) {
+  return annotated.filter((f) => f.lane !== "discarded");
 }
 
 /**
@@ -344,9 +359,15 @@ export function changedFileContext(changedFiles, max = 200) {
  * directions are testable — `main()` is not, and an untested fail-closed guard is
  * a guard nobody has seen fire.
  *
- * This script does NOT decide the mode: it has no git or API access by design (it
- * takes files, not commands). The caller resolves it with `resolveReviewMode` in
+ * This script does NOT decide the mode: it has no API access and does not resolve
+ * revisions, so it cannot know what the base branch is called or which commits a
+ * lens last saw. The caller resolves it with `resolveReviewMode` in
  * review-state.mjs and passes the answer here.
+ *
+ * (It is no longer true that the script never shells out to git at all: the
+ * novelty gate runs read-only `blame`/`grep` against the branch checkout, once
+ * per blocking finding. That is a lookup about a location it was HANDED, not a
+ * decision about scope, and it still receives every revision as an argument.)
  *
  * The default is `full` and `renderScopeNote` returns "" there, so the three
  * existing callers — which pass none of these flags — get byte-identical prompts
@@ -486,11 +507,14 @@ export function laneCounts(findings) {
   const out = { blocking: 0, backlog: 0, unknownOrigin: 0 };
   for (const f of Array.isArray(findings) ? findings : []) {
     if (!f || typeof f !== "object" || typeof f.lane !== "string") continue;
-    // An unrecognized lane is not counted at all, in either tally. Counting its
-    // origin while ignoring its lane would make `unknownOrigin` exceed the lanes
-    // it is meant to qualify, and a reader comparing the two would conclude the
-    // gate had judged findings it never saw.
-    if (!(f.lane in out)) continue;
+    // Allowlist membership, NOT `f.lane in out` — `in` walks the prototype
+    // chain, so `lane: "constructor"` would match, increment an inherited
+    // property and leave a NaN own key on the returned counts. Same bug
+    // `confidenceCounts` documents and avoids, on the same untrusted input.
+    // An unrecognized lane is not counted in either tally: counting its origin
+    // while ignoring its lane would let `unknownOrigin` exceed the lanes it
+    // qualifies, implying the gate judged findings it never saw.
+    if (!COUNTED_LANES.has(f.lane)) continue;
     out[f.lane]++;
     if (!f.novelty || f.novelty.origin === "unknown") out.unknownOrigin++;
   }
@@ -570,6 +594,14 @@ export const LENS_CLOSING_INSTRUCTION = [
   "`confidence` by how sure you are; never lower severity to signal doubt.",
   "Taste and preference stay minor/nit however confident you are — that is a",
   "judgement about the finding's KIND, not about your certainty.",
+  "Set `line` to the 1-based line your finding is about whenever you can point at",
+  "one, and set `file` to the file that line is in. Cite the site the defect is",
+  "AT, which is not always a line the diff changed — an out-of-diff bypassing",
+  "call site is the right answer when that is where the problem lives. The panel",
+  "uses the pair to ask git how the line got there, purely to spot code this",
+  "change RELOCATED rather than wrote. A finding on code the change did not add",
+  "is never set aside for that reason, so cite the true location; omitting it is",
+  "safe and only costs precision.",
 ].join("\n");
 
 /**
@@ -800,25 +832,26 @@ async function main() {
   // silently mis-date every finding. Absent → `noveltyOf` answers `unknown` for
   // everything → every finding stays blocking, i.e. exactly today's behaviour.
   const baseSha = typeof args["base-sha"] === "string" ? args["base-sha"] : null;
-  if (!baseSha) console.log("novelty: no --base-sha; every finding routes as before (blocking)");
+  // Say out loud when the gate is off. Inert is SAFE (every finding keeps
+  // gating) but it looks identical in the output to "nothing was relocated", so
+  // a misconfigured base would otherwise be invisible for as long as it lasted.
+  if (!baseSha) {
+    console.log("novelty gate: OFF (no --base-sha) — every finding routes as before");
+  } else if (!(await baseResolves(repo, baseSha))) {
+    console.log(`novelty gate: OFF — --base-sha ${baseSha} does not resolve in ${repo}`);
+  } else {
+    console.log(`novelty gate: on, base ${baseSha}`);
+  }
   // Shared across BOTH verification passes and all lenses: the same file:line is
   // routinely judged more than once per round and `blame -C -C -C` is the one
   // slow call in this module.
   const noveltyCache = new Map();
-  const noveltiesFor = (list) => list.map((f) => {
+  const noveltiesFor = (list) => Promise.all(list.map((f) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return null; // only blockers are routed
     const loc = findingLocation(f);
     if (!loc) return null;
-    return noveltyOf({
-      repo,
-      file: loc.file,
-      line: loc.line,
-      baseSha,
-      changedFiles,
-      changedFilesAuthoritative: changedContext.authoritative,
-      cache: noveltyCache,
-    });
-  });
+    return noveltyOf({ repo, file: loc.file, line: loc.line, baseSha, cache: noveltyCache });
+  }));
   // Part 2: blocking findings from the PREVIOUS review round (tagged with their
   // lens id by the workflow). Absent/empty on the first round. Re-checked per
   // lens below so a still-present issue can't vanish if this round's pass misses it.
@@ -926,8 +959,9 @@ async function main() {
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
       catch { return null; } // error → keep the finding (fail toward blocking)
     }));
-    const kept = annotateFindings(findings, verdicts, noveltiesFor(findings), verifyOpts)
-      .filter((f) => f.lane !== "discarded");
+    const kept = keepUnrefuted(
+      annotateFindings(findings, verdicts, await noveltiesFor(findings), verifyOpts),
+    );
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
     // against the CURRENT diff, biased-to-keep. verifyFinding asks "is this
@@ -941,8 +975,15 @@ async function main() {
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
       catch { return null; } // error → keep (fail toward blocking)
     }));
-    const priorKept = annotateFindings(priorForLens, priorVerdicts, noveltiesFor(priorForLens), verifyOpts)
-      .filter((f) => f.lane !== "discarded");
+    // Carried-forward findings are NOT routed. Their `line` was recorded against
+    // a previous round's HEAD, and the fixer has rewritten the tree since; that
+    // offset now points at whatever happens to sit there, so probing it could
+    // affirmatively "place" a still-open blocker in old code and demote it
+    // permanently. They keep today's behaviour (no lane → gates). The fresh pass
+    // re-finds and re-routes anything genuinely relocated, against real lines.
+    const priorKept = keepUnrefuted(
+      annotateFindings(priorForLens, priorVerdicts, null, verifyOpts),
+    );
     // Merge fresh + still-open prior findings; dedupe collapses a prior finding
     // the fresh pass also re-found (and never merges two distinct bugs).
     const merged = dedupeFindings([...kept, ...priorKept]);
@@ -970,12 +1011,17 @@ async function main() {
         refutedHighConfidence: freshTally.refutedHighConfidence + priorTally.refutedHighConfidence,
         dropped: freshTally.dropped + priorTally.dropped,
       },
-      kept: severityCounts(merged),
-      // What the novelty gate actually did this round. `backlog` is the count of
-      // real findings this PR did not cause; `unknownOrigin` is how often git
-      // could not place a finding at all — if that number is high the gate is
-      // inert and the cause (no --base-sha, shallow clone, findings with no
-      // location) is worth chasing rather than assuming the demotions are right.
+      // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this
+      // lens blocked this round" and compares it against the next round, so
+      // counting demoted findings here would report a lens whose check was GREEN
+      // as blocking and raise phantom blocking→clean flip alarms. `lanes.backlog`
+      // below is where the demoted ones are accounted for.
+      kept: severityCounts(gating),
+      // What the novelty gate actually did this round. `backlog` counts findings
+      // whose line this change added but whose code predates it; `unknownOrigin`
+      // is how often git could not place a finding at all — if that is high the
+      // gate is inert, and the cause (no --base-sha, a shallow clone, findings
+      // with no location) is worth chasing rather than trusting the demotions.
       lanes: laneCounts(merged),
     });
 

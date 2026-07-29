@@ -75,17 +75,24 @@ function demotedSection(demoted) {
     .map((f) => {
       const where = f.file ? `\`${f.file}\` — ` : "";
       const n = f.novelty ?? {};
+      // Only claim what a probe established. `alsoAt` is a location git matched;
+      // `contentSha` is the commit move-aware blame named AND that was checked
+      // against the base. Anything else prints no proof line rather than an
+      // unbacked assertion — an audit line that can be false is worse than none,
+      // because its whole job is to let a reader check the demotion.
       const proof = n.alsoAt
-        ? `\n  - already at \`${n.alsoAt.split(":").slice(0, 3).join(":")}\``
-        : n.blameSha
-          ? `\n  - written in \`${String(n.blameSha).slice(0, 9)}\`, which predates this branch`
+        ? `\n  - this line already exists at \`${n.alsoAt}\``
+        : n.contentSha
+          ? `\n  - content dates to \`${String(n.contentSha).slice(0, 9)}\`, which predates the base`
           : "";
       return `- ${where}${f.summary ?? "(no summary)"}${proof}`;
     })
     .join("\n");
   return (
-    `\n### Pre-existing — not introduced by this change (${rows.length}, not blocking)\n` +
-    `_Confirmed real, but the code predates this branch, so it does not gate this PR._\n${body}\n`
+    `\n### Relocated code — not written by this change (${rows.length}, not blocking)\n` +
+    "_Confirmed real. This change moved these lines here; the code itself already " +
+    "existed, so the defect is not this PR's to fix and does not gate it._\n" +
+    `${body}\n`
   );
 }
 

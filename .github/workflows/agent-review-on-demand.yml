@@ -327,6 +327,9 @@ jobs:
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Via env, never interpolated into the `run:` string — this step holds
+          # the Claude token. Same rule as the twin step in agent-review-panel.yml.
+          BASE_SHA: ${{ steps.diff.outputs.base }}
         # --prior-findings is tolerant of a missing file (existsSync guard in
         # review-panel.mjs → treated as []), so a skipped/failed read step is safe.
         run: >-
@@ -335,7 +338,7 @@ jobs:
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
-          --base-sha "${{ steps.diff.outputs.base }}"
+          --base-sha "$BASE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review

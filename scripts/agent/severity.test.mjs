@@ -42,3 +42,47 @@ test("renderSummaryMd: advisory lens with a critical finding does NOT say 'chang
   assert.match(advisory, /### Critical \(1\)/); // still lists the finding
   assert.match(advisory, /big issue/);
 });
+
+// --- demoted (novelty-gate) rendering ----------------------------------------
+
+test("renderSummaryMd: demoted findings are reported but do not affect the header", () => {
+  // The header must count what GATES. Counting demoted findings would print
+  // "❌ 1 blocking" above a check the panel concluded green — the same
+  // contradiction the `advisory` flag exists to prevent, one level down.
+  const md = renderSummaryMd("Correctness review", [{ severity: "minor", file: "a.mjs", summary: "small" }], "", {
+    demoted: [{ severity: "critical", file: "moved.mjs", summary: "old bug in moved code" }],
+  });
+  assert.match(md, /approved/);
+  assert.doesNotMatch(md, /changes requested/);
+  assert.match(md, /Relocated code — not written by this change \(1, not blocking\)/);
+  assert.match(md, /old bug in moved code/); // still reported, not vanished
+});
+
+test("renderSummaryMd: a demotion prints the evidence that makes it auditable", () => {
+  const md = renderSummaryMd("R", [], "", {
+    demoted: [
+      { summary: "a", novelty: { alsoAt: "abc123:old.mjs:42" } },
+      { summary: "b", novelty: { contentSha: "fd374623f5aa", alsoAt: null } },
+    ],
+  });
+  assert.match(md, /this line already exists at `abc123:old\.mjs:42`/);
+  assert.match(md, /content dates to `fd374623f`/);
+});
+
+test("renderSummaryMd: a demotion with no established proof asserts nothing", () => {
+  // An audit line that can be false is worse than none — its whole job is to let
+  // a reader check the demotion.
+  const md = renderSummaryMd("R", [], "", { demoted: [{ summary: "unproven", novelty: {} }] });
+  // The bullet is rendered with NO proof clause appended after it.
+  assert.match(md, /^- unproven$/m);
+  assert.doesNotMatch(md, /content dates to/);
+  assert.doesNotMatch(md, /already exists at/);
+});
+
+test("renderSummaryMd: no demoted findings renders no demoted section at all", () => {
+  const plain = renderSummaryMd("R", [{ severity: "minor", summary: "x" }], "");
+  assert.doesNotMatch(plain, /Relocated code/);
+  assert.doesNotMatch(renderSummaryMd("R", [], "", { demoted: [] }), /Relocated code/);
+  // Junk entries are ignored rather than rendered as empty bullets.
+  assert.doesNotMatch(renderSummaryMd("R", [], "", { demoted: [null, 42] }), /Relocated code/);
+});

@@ -1,102 +1,98 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ORIGINS, originFrom, findingLocation, isProbeableLine, noveltyOf } from "./novelty.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  ORIGINS,
+  DEMOTING_ORIGINS,
+  originFrom,
+  findingLocation,
+  isProbeableLine,
+  noveltyOf,
+} from "./novelty.mjs";
 
 // --- originFrom: the decision table ------------------------------------------
-// Every row of the table in the module docblock, pinned explicitly. These are
-// the rules the gate acts on; a silent change here changes what gets demoted.
 
-test("originFrom: no location → unknown (nothing to place)", () => {
+test("originFrom: no location, or plain blame could not answer → unknown", () => {
   assert.equal(originFrom({ hasLocation: false }), "unknown");
+  assert.equal(originFrom({ hasLocation: true, changeAddedLine: null }), "unknown");
   assert.equal(originFrom({}), "unknown"); // defaults are the safe ones
   assert.equal(originFrom(), "unknown");
 });
 
-test("originFrom: both probes failed → unknown (learned nothing)", () => {
-  assert.equal(originFrom({ hasLocation: true, probesFailed: true }), "unknown");
-  // Even with values present, probesFailed wins — it means they are not trustworthy.
-  assert.equal(
-    originFrom({ hasLocation: true, probesFailed: true, blameIsAncestorOfBase: true }),
-    "unknown",
-  );
+test("originFrom: a line the change did NOT add is pre-existing, whatever its content", () => {
+  // The property that keeps out-of-diff findings on the gate. Content evidence
+  // is irrelevant here and must not be consulted.
+  for (const content of [true, false, null]) {
+    assert.equal(
+      originFrom({ hasLocation: true, changeAddedLine: false, contentPredatesBase: content, contentFoundInBase: content }),
+      "pre-existing",
+    );
+  }
 });
 
-test("originFrom: blame says old + file is old → pre-existing", () => {
+test("originFrom: change added the line + content predates the base → relocated", () => {
   assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: true, fileExistedInBase: true }),
-    "pre-existing",
-  );
-});
-
-test("originFrom: blame says old + file is new → relocated (the #578 case)", () => {
-  // A function lifted verbatim into a file the PR created. This is the row that
-  // the file-scoped `pre-existing` refutation ground could never express.
-  assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: true, fileExistedInBase: false }),
+    originFrom({ hasLocation: true, changeAddedLine: true, contentPredatesBase: true }),
     "relocated",
   );
 });
 
-test("originFrom: blame inconclusive but content already in base → relocated", () => {
-  // The content probe is the shallow-clone fallback: it catches a move blame
-  // could not follow.
-  assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: null, contentFoundInBase: true }),
-    "relocated",
-  );
-  assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: false, contentFoundInBase: true }),
-    "relocated",
-  );
+test("originFrom: either content signal suffices; neither is required", () => {
+  // Two independent answers to the same question. `blame -C` misses some moves
+  // (#578's `structured_output` line), and the text search still answers on a
+  // shallow clone — so requiring both, or ranking one above the other, loses
+  // real detections. What keeps the text search honest is the strictness of the
+  // match (whole-line, distinctive), not a rule about when it may speak.
+  for (const [predates, found] of [[true, null], [null, true], [false, true], [true, false]]) {
+    assert.equal(
+      originFrom({ hasLocation: true, changeAddedLine: true, contentPredatesBase: predates, contentFoundInBase: found }),
+      "relocated",
+      `predates=${predates} found=${found}`,
+    );
+  }
 });
 
-test("originFrom: nothing says the code is older → introduced", () => {
+test("originFrom: change added the line and nothing says the content is older → introduced", () => {
   assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: false, contentFoundInBase: false }),
+    originFrom({ hasLocation: true, changeAddedLine: true, contentPredatesBase: false, contentFoundInBase: false }),
     "introduced",
   );
-  // Blame ran and said "written here" while the content probe was skipped
-  // (non-distinctive line). `introduced` is both the accurate and the
-  // conservative answer, so the missing probe costs nothing.
   assert.equal(
-    originFrom({ hasLocation: true, blameIsAncestorOfBase: false, contentFoundInBase: null }),
+    originFrom({ hasLocation: true, changeAddedLine: true, contentPredatesBase: null, contentFoundInBase: null }),
     "introduced",
   );
 });
 
-test("originFrom: only ever returns a declared origin", () => {
-  const rows = [
-    {}, { hasLocation: true }, { hasLocation: true, probesFailed: true },
-    { hasLocation: true, blameIsAncestorOfBase: true, fileExistedInBase: true },
-    { hasLocation: true, blameIsAncestorOfBase: true, fileExistedInBase: false },
-    { hasLocation: true, blameIsAncestorOfBase: true, fileExistedInBase: null },
-    { hasLocation: true, blameIsAncestorOfBase: false, contentFoundInBase: true },
-    { hasLocation: true, blameIsAncestorOfBase: false, contentFoundInBase: false },
-  ];
-  for (const r of rows) assert.ok(ORIGINS.includes(originFrom(r)), JSON.stringify(r));
+test("originFrom: only `relocated` ever demotes", () => {
+  // The safety property of the whole module, stated as a rule about the OUTPUT
+  // rather than about any one input path.
+  assert.deepEqual([...DEMOTING_ORIGINS], ["relocated"]);
+  for (const o of ORIGINS) {
+    if (o !== "relocated") assert.equal(DEMOTING_ORIGINS.has(o), false, `${o} must not demote`);
+  }
 });
 
-test("originFrom: demotion requires an AFFIRMATIVE probe result", () => {
-  // The safety property of the whole module: no combination of missing or null
-  // evidence may produce a demoting origin. Only `true` demotes.
-  const demoting = new Set(["pre-existing", "relocated"]);
-  for (const blame of [null, false, undefined]) {
-    for (const content of [null, false, undefined]) {
-      for (const fileIn of [null, true, false, undefined]) {
+test("originFrom: demotion requires an AFFIRMATIVE probe on BOTH questions", () => {
+  // No combination of missing/false/null evidence may produce a demoting origin.
+  for (const added of [null, false, undefined]) {
+    for (const predates of [null, false, undefined]) {
+      for (const found of [null, false, undefined]) {
         const got = originFrom({
           hasLocation: true,
-          blameIsAncestorOfBase: blame,
-          contentFoundInBase: content,
-          fileExistedInBase: fileIn,
+          changeAddedLine: added,
+          contentPredatesBase: predates,
+          contentFoundInBase: found,
         });
-        assert.equal(demoting.has(got), false, `demoted on blame=${blame} content=${content}`);
+        assert.equal(DEMOTING_ORIGINS.has(got), false, `demoted on added=${added} predates=${predates} found=${found}`);
       }
     }
   }
 });
 
 // --- isProbeableLine ---------------------------------------------------------
-// The guard that stops `}` from demoting every finding it touches.
 
 test("isProbeableLine: rejects short and structural lines", () => {
   for (const bad of ["}", "});", "*/", "  }", "", "   ", "return;", "if (x) {", null, 42]) {
@@ -109,8 +105,7 @@ test("isProbeableLine: accepts a distinctive line of real code", () => {
   assert.ok(isProbeableLine(" * Classify an SDK `result` message. The SDK reports failures as"));
 });
 
-test("isProbeableLine: a long line of punctuation is still not probeable", () => {
-  // Length alone is not distinctiveness — it must carry identifiers too.
+test("isProbeableLine: length alone is not distinctiveness", () => {
   assert.equal(isProbeableLine("// ============================================"), false);
 });
 
@@ -123,26 +118,38 @@ test("findingLocation: prefers the lens's explicit line", () => {
   );
 });
 
-test("findingLocation: falls back to the first citation in evidence", () => {
+test("findingLocation: uses a citation's line only when it names the SAME file", () => {
   assert.deepEqual(
     findingLocation({ file: "a/b.mjs", evidence: "the guard at a/b.mjs:44 is inverted" }),
     { file: "a/b.mjs", line: 44 },
   );
-});
-
-test("findingLocation: the finding's own `file` outranks the citation's path", () => {
-  // The citation is prose the model wrote and may name a file it was merely
-  // discussing; `file` is the field the gate and the fixer already key on.
+  // `./` and prefix drift still count as the same file.
   assert.deepEqual(
-    findingLocation({ file: "a/b.mjs", evidence: "compare with other.mjs:7" }),
-    { file: "a/b.mjs", line: 7 },
+    findingLocation({ file: "a/b.mjs", evidence: "see ./a/b.mjs:44" }),
+    { file: "a/b.mjs", line: 44 },
+  );
+  assert.deepEqual(
+    findingLocation({ file: "pkg/a/b.mjs", evidence: "see a/b.mjs:44" }),
+    { file: "pkg/a/b.mjs", line: 44 },
   );
 });
 
-test("findingLocation: file with no resolvable line → line null (does not demote)", () => {
-  assert.deepEqual(findingLocation({ file: "a/b.mjs" }), { file: "a/b.mjs", line: null });
-  assert.deepEqual(findingLocation({ file: "a/b.mjs", line: 0 }), { file: "a/b.mjs", line: null });
-  assert.deepEqual(findingLocation({ file: "a/b.mjs", line: "12" }), { file: "a/b.mjs", line: null });
+test("findingLocation: a citation naming a DIFFERENT file yields no line", () => {
+  // Evidence routinely cites a second location for contrast. Pairing this
+  // finding's file with that file's line number invents a location that exists
+  // but means nothing — git would then be asked about whatever sits at that
+  // offset, and an arbitrary old line there would demote a new finding.
+  assert.deepEqual(
+    findingLocation({ file: "a/b.mjs", evidence: "unlike other.mjs:7, this one…" }),
+    { file: "a/b.mjs", line: null },
+  );
+});
+
+test("findingLocation: with no file at all, the citation is taken whole", () => {
+  assert.deepEqual(
+    findingLocation({ evidence: "broken at x/y.mjs:9" }),
+    { file: "x/y.mjs", line: 9 },
+  );
 });
 
 test("findingLocation: nothing locatable → null", () => {
@@ -151,102 +158,50 @@ test("findingLocation: nothing locatable → null", () => {
   }
 });
 
-// --- noveltyOf: guards -------------------------------------------------------
-// These must answer WITHOUT running git, so they are safe to assert anywhere.
+// --- noveltyOf: guards (answer without running git) --------------------------
 
-test("noveltyOf: no base sha → unknown (the gate is inert, not wrong)", () => {
-  const r = noveltyOf({ repo: "/tmp", file: "a.mjs", line: 1, baseSha: null });
+test("noveltyOf: no base sha → unknown (the gate is inert, not wrong)", async () => {
+  const r = await noveltyOf({ repo: "/tmp", file: "a.mjs", line: 1, baseSha: null });
   assert.equal(r.origin, "unknown");
-  assert.equal(r.blameSha, null);
 });
 
-test("noveltyOf: a malformed base sha is refused rather than guessed at", () => {
+test("noveltyOf: a malformed base sha is refused rather than guessed at", async () => {
   for (const bad of ["main", "HEAD~1", "zzz", "", 42, "12345"]) {
-    assert.equal(noveltyOf({ repo: "/tmp", file: "a.mjs", line: 1, baseSha: bad }).origin, "unknown");
+    const r = await noveltyOf({ repo: "/tmp", file: "a.mjs", line: 1, baseSha: bad });
+    assert.equal(r.origin, "unknown", `expected unknown for ${JSON.stringify(bad)}`);
   }
 });
 
-test("noveltyOf: missing repo or file → unknown", () => {
-  const base = "f26c77692341111111111111111111111111abcd";
-  assert.equal(noveltyOf({ repo: null, file: "a.mjs", line: 1, baseSha: base }).origin, "unknown");
-  assert.equal(noveltyOf({ repo: "/tmp", file: "", line: 1, baseSha: base }).origin, "unknown");
-  assert.equal(noveltyOf({ repo: "/tmp", file: "   ", line: 1, baseSha: base }).origin, "unknown");
-});
-
-test("noveltyOf: no line + authoritative changed-files that omit the file → pre-existing", () => {
-  // The file-scoped rule the verifier prompt already makes, kept for findings
-  // that carry no line at all.
-  const r = noveltyOf({
+test("noveltyOf: no line → unknown, with NO file-level fallback", async () => {
+  // Deliberate: demoting because a `file` string is absent from a changed-file
+  // list is a string comparison, not a git answer — a `./` prefix or a path the
+  // model spelled differently would drop a real blocker off the gate.
+  const r = await noveltyOf({
     repo: "/tmp",
     file: "untouched.mjs",
     line: null,
     baseSha: "f26c77692341111111111111111111111111abcd",
-    changedFiles: ["other.mjs"],
-    changedFilesAuthoritative: true,
-  });
-  assert.equal(r.origin, "pre-existing");
-});
-
-test("noveltyOf: no line + NON-authoritative changed-files → unknown", () => {
-  // A file absent from a TRUNCATED list is not untouched, merely unlisted —
-  // the one way this list could fail open.
-  const r = noveltyOf({
-    repo: "/tmp",
-    file: "untouched.mjs",
-    line: null,
-    baseSha: "f26c77692341111111111111111111111111abcd",
-    changedFiles: ["other.mjs"],
-    changedFilesAuthoritative: false,
   });
   assert.equal(r.origin, "unknown");
 });
 
-test("noveltyOf: no line + the file IS in the changed set → unknown, never demoted", () => {
-  const r = noveltyOf({
-    repo: "/tmp",
-    file: "touched.mjs",
-    line: null,
-    baseSha: "f26c77692341111111111111111111111111abcd",
-    changedFiles: ["touched.mjs"],
-    changedFilesAuthoritative: true,
-  });
-  assert.equal(r.origin, "unknown");
+test("noveltyOf: a broken repo degrades to unknown rather than throwing", async () => {
+  for (const repo of ["/nonexistent-path-for-novelty-test", "/tmp"]) {
+    const r = await noveltyOf({
+      repo,
+      file: "a.mjs",
+      line: 1,
+      baseSha: "f26c77692341111111111111111111111111abcd",
+    });
+    assert.equal(r.origin, "unknown");
+  }
 });
 
-test("noveltyOf: a git failure degrades to unknown rather than throwing", () => {
-  // Nonexistent repo → every git call fails → both probes fail. The panel must
-  // survive this: an unrunnable gate keeps findings blocking.
-  const r = noveltyOf({
-    repo: "/nonexistent-path-for-novelty-test",
-    file: "a.mjs",
-    line: 1,
-    baseSha: "f26c77692341111111111111111111111111abcd",
-  });
-  assert.equal(r.origin, "unknown");
-});
-
-test("noveltyOf: a repo that is not a git repo → unknown, not a confident answer", () => {
-  // The distinction that matters: git's exit code is an ANSWER for some
-  // commands (`grep` 1 = no match, `--is-ancestor` 1 = no) and an ERROR for
-  // everything else. If the two were collapsed, a broken lookup here would be
-  // recorded as "not an ancestor" + "content not in base" → `introduced`, which
-  // still blocks (safe) but lies in `unknownOrigin`, the counter whose only job
-  // is to reveal that the gate ran blind. /tmp is a real directory and not a
-  // repo, so every probe fails with a git error rather than a clean answer.
-  const r = noveltyOf({
-    repo: "/tmp",
-    file: "a.mjs",
-    line: 1,
-    baseSha: "f26c77692341111111111111111111111111abcd",
-  });
-  assert.equal(r.origin, "unknown");
-});
-
-test("noveltyOf: the cache is consulted before any git work", () => {
+test("noveltyOf: the cache is consulted before any git work", async () => {
   const cache = new Map();
-  const cached = { origin: "relocated", blameSha: "deadbeef", alsoAt: "base:x.mjs:1" };
+  const cached = { origin: "relocated", addedBy: "deadbeef", contentSha: "cafe", alsoAt: "base:x.mjs:1" };
   cache.set("a.mjs:7", cached);
-  const r = noveltyOf({
+  const r = await noveltyOf({
     repo: "/nonexistent-path-for-novelty-test", // would fail if git ran
     file: "a.mjs",
     line: 7,
@@ -254,4 +209,144 @@ test("noveltyOf: the cache is consulted before any git work", () => {
     cache,
   });
   assert.deepEqual(r, cached);
+});
+
+// --- noveltyOf: against a REAL git repository --------------------------------
+// The probes are the whole point of this module, and mocking them would only
+// re-assert the decision table that is already pinned above. Build an actual
+// repo with an actual refactor in it and read the actual answers, so a change
+// that renders the gate inert (or demoting) cannot ship green.
+
+/** git with a fixed identity, so the test does not depend on global config. */
+function git(dir, ...args) {
+  return execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+}
+
+/**
+ * A repo whose HEAD commit performs the #578 refactor:
+ *   - `moved.mjs` is NEW and contains a function lifted verbatim from `old.mjs`
+ *   - it also contains one genuinely new line
+ *   - `untouched.mjs` is not modified at all
+ */
+function makeRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), "novelty-test-"));
+  git(dir, "init", "-q", "-b", "main");
+
+  const movedFn = [
+    "export function classifyResult(result) {",
+    "  const isQuota = /session limit|usage limit|quota/i.test(result.detail);",
+    "  return { retryable: !isQuota, detail: result.detail };",
+    "}",
+  ].join("\n");
+
+  writeFileSync(path.join(dir, "old.mjs"), `// original home\n${movedFn}\n`);
+  writeFileSync(path.join(dir, "untouched.mjs"), "export const UNTOUCHED_CONSTANT = 'never edited here';\n");
+  // A base line that CONTAINS a distinctive fragment. The refactor below adds
+  // that fragment as a line of its own — a substring search would call it
+  // "already in base"; whole-line comparison must not.
+  writeFileSync(
+    path.join(dir, "banner.mjs"),
+    'export const NOTE = "validateSessionToken(request) is deprecated";\n',
+  );
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "base");
+  const base = git(dir, "rev-parse", "HEAD").trim();
+
+  // The refactor: lift the function verbatim into a new file, add one new line.
+  writeFileSync(path.join(dir, "old.mjs"), "// original home\nexport { classifyResult } from './moved.mjs';\n");
+  writeFileSync(
+    path.join(dir, "moved.mjs"),
+    `${movedFn}\n` +
+      "export function brandNewHelper(x) { return String(x).padStart(12, '0'); }\n" +
+      "validateSessionToken(request) is deprecated\n", // substring of banner.mjs's line
+  );
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "extract classifyResult into moved.mjs");
+
+  return { dir, base };
+}
+
+test("noveltyOf [real git]: verbatim-moved code is `relocated` and demotes", async () => {
+  const { dir, base } = makeRepo();
+  try {
+    // line 2 of moved.mjs is the quota regex, moved verbatim from old.mjs.
+    const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 2, baseSha: base });
+    assert.equal(r.origin, "relocated");
+    assert.ok(DEMOTING_ORIGINS.has(r.origin));
+    // …and it reports WHERE the code already lived, so the demotion is auditable.
+    assert.match(String(r.alsoAt), /old\.mjs:\d+$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noveltyOf [real git]: genuinely new code in the same new file is `introduced`", async () => {
+  const { dir, base } = makeRepo();
+  try {
+    const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 5, baseSha: base });
+    assert.equal(r.origin, "introduced");
+    assert.equal(DEMOTING_ORIGINS.has(r.origin), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noveltyOf [real git]: an untouched line is `pre-existing` and does NOT demote", async () => {
+  // THE regression test for the blast-radius class. That lens is told to cite
+  // the bypassing site, "not the diff line that introduced the guard" — so its
+  // findings land on code the change never touched. Demoting them would take the
+  // whole lens off the merge gate.
+  const { dir, base } = makeRepo();
+  try {
+    const r = await noveltyOf({ repo: dir, file: "untouched.mjs", line: 1, baseSha: base });
+    assert.equal(r.origin, "pre-existing");
+    assert.equal(DEMOTING_ORIGINS.has(r.origin), false, "an out-of-diff finding must keep gating");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noveltyOf [real git]: a line the change did not add stays pre-existing in a MODIFIED file", async () => {
+  // old.mjs was edited by the change, but line 1 was not — file-level scoping
+  // would call this "touched"; line-level provenance must not.
+  const { dir, base } = makeRepo();
+  try {
+    const r = await noveltyOf({ repo: dir, file: "old.mjs", line: 1, baseSha: base });
+    assert.equal(r.origin, "pre-existing");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noveltyOf [real git]: a line out of range degrades to unknown", async () => {
+  const { dir, base } = makeRepo();
+  try {
+    const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 9999, baseSha: base });
+    assert.equal(r.origin, "unknown");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noveltyOf [real git]: a line that is only a SUBSTRING of a base line stays gating", () => {
+  // `git grep -F` is a substring search over the whole base tree, so grepping
+  // `validateSessionToken(request) is deprecated` also hits the longer line that
+  // merely contains it. If a substring hit counted, any new line whose text
+  // happens to occur inside an existing one would drop off the merge gate — a
+  // false-demotion source, and one an author could aim at on purpose. Every hit
+  // is re-checked for whole-line equality, so this must NOT demote.
+  return (async () => {
+    const { dir, base } = makeRepo();
+    try {
+      const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 6, baseSha: base });
+      assert.equal(r.origin, "introduced");
+      assert.equal(DEMOTING_ORIGINS.has(r.origin), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  })();
 });

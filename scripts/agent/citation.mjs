@@ -1,12 +1,11 @@
 // What counts as evidence that LOCATES something: a `path.ext:line` citation.
 //
-// Its own module because three callers need the SAME answer and a drifted second
+// Its own module because two callers need the SAME answer and a drifted second
 // copy would silently disagree about what evidence is:
 //   - `isDroppingVerdict` (review-panel.mjs) — a verifier may only DROP a finding
 //     when it cites a location it actually read.
-//   - `noveltyOf` (novelty.mjs) — needs a file:line to ask git where that code
-//     came from; a finding it cannot locate is `unknown`, i.e. still blocking.
-//   - the reporting side, which enforces the same rule on findings it emits.
+//   - `findingLocation` (novelty.mjs) — needs a file:line to ask git how that
+//     code got there; a finding it cannot locate is `unknown`, i.e. still blocking.
 //
 // It cannot live in either consumer: review-panel.mjs imports novelty.mjs, so a
 // definition in novelty.mjs that review-panel.mjs also imported would be fine,

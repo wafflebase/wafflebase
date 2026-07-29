@@ -7,7 +7,7 @@ import {
   globToRegExp,
   lensApplies,
   dedupeFindings,
-  applyVerifications,
+  keepUnrefuted,
   routeFinding,
   annotateFindings,
   gatingFindings,
@@ -28,7 +28,7 @@ import {
   buildLensPrompt,
   resolveReviewScope,
 } from "./review-panel.mjs";
-import { classify } from "./severity.mjs";
+import { classify, normalizeSeverity } from "./severity.mjs";
 
 // The lens scoping under test is the REAL manifest, not a copy of it. An
 // earlier draft of this test inlined the globs as literals, which meant an edit
@@ -36,6 +36,13 @@ import { classify } from "./severity.mjs";
 // scoping was effectively untested. Read the manifest so the assertions below
 // fail when the thing they claim to cover actually moves.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// The verify-then-drop pass, as the orchestrator composes it. Kept as a local
+// helper so the drop-rule tests below — which predate the lane router and pin
+// behaviour that must not change — keep exercising the real path without the
+// module carrying a second exported name for one rule.
+const applyVerifications = (findings, verdicts, opts) =>
+  keepUnrefuted(annotateFindings(findings, verdicts, null, opts));
 const LENSES = JSON.parse(readFileSync(path.join(HERE, "lenses", "lenses.json"), "utf8"));
 const lensOf = (id) => {
   const l = LENSES.find((x) => x.id === id);
@@ -766,14 +773,16 @@ test("routeFinding: only a complete grounded refutation discards", () => {
   assert.equal(routeFinding({ severity: "major" }, { verdict: { ...DROPPING, refutationGround: "none" } }), "blocking");
 });
 
-test("routeFinding: code older than the base routes to backlog, not the gate", () => {
-  for (const origin of ["pre-existing", "relocated"]) {
-    assert.equal(routeFinding({ severity: "critical" }, { novelty: { origin } }), "backlog");
-  }
-});
-
-test("routeFinding: introduced/unknown/missing novelty all stay blocking", () => {
-  for (const novelty of [{ origin: "introduced" }, { origin: "unknown" }, null, undefined, {}]) {
+test("routeFinding: relocated code routes to backlog, nothing else does", () => {
+  assert.equal(routeFinding({ severity: "critical" }, { novelty: { origin: "relocated" } }), "backlog");
+  for (const novelty of [
+    { origin: "pre-existing" }, // the change did not add this line — keeps gating
+    { origin: "introduced" },
+    { origin: "unknown" },
+    null,
+    undefined,
+    {},
+  ]) {
     assert.equal(routeFinding({ severity: "critical" }, { novelty }), "blocking");
   }
 });
@@ -826,18 +835,81 @@ test("annotateFindings: nothing is filtered out — demotion is a label", () => 
   assert.equal(out[2].novelty.origin, "relocated");
 });
 
-test("annotateFindings: reproduces applyVerifications exactly when no novelty is known", () => {
-  // The compatibility property that lets one routing rule serve both callers.
+test("annotateFindings: with no novelty, the only reachable lanes are blocking and discarded", () => {
+  // Not a comparison against a copy of the implementation — an assertion about
+  // which lanes are reachable when the gate has no provenance to act on, i.e.
+  // that an unrouted round behaves exactly as it did before the gate existed.
   const findings = [
     { severity: "critical", summary: "a" },
     { severity: "major", summary: "b" },
     { severity: "minor", summary: "c" },
   ];
-  const verdicts = [null, DROPPING, null];
-  const viaOld = applyVerifications(findings, verdicts, {});
-  const viaNew = annotateFindings(findings, verdicts, null, {}).filter((f) => f.lane !== "discarded");
-  assert.deepEqual(viaOld.map((f) => f.summary), viaNew.map((f) => f.summary));
-  assert.deepEqual(viaOld.map((f) => f.summary), ["a", "c"]);
+  const out = annotateFindings(findings, [null, DROPPING, null], null, {});
+  assert.deepEqual(out.map((f) => f.lane), ["blocking", "discarded", undefined]);
+  assert.deepEqual(keepUnrefuted(out).map((f) => f.summary), ["a", "c"]);
+});
+
+test("routeFinding: pre-existing code does NOT demote — the blast-radius property", () => {
+  // blast-radius is told to cite the bypassing site, "not the diff line that
+  // introduced the guard", and correctness/security carry the same out-of-diff
+  // mandate. Demoting on code age would take that whole class off the gate.
+  assert.equal(routeFinding({ severity: "critical" }, { novelty: { origin: "pre-existing" } }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { novelty: { origin: "introduced" } }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, { novelty: { origin: "unknown" } }), "blocking");
+  // Exactly one origin demotes.
+  assert.equal(routeFinding({ severity: "major" }, { novelty: { origin: "relocated" } }), "backlog");
+});
+
+test("gatingFindings: a finding with NO lane still gates", () => {
+  // Carried-forward prior findings are deliberately not routed, so they arrive
+  // laneless. An allow-list phrasing (`lane === "blocking"`) would silently drop
+  // them off the gate — losing a real blocker rather than failing to demote a
+  // false one.
+  const gating = gatingFindings([
+    { severity: "critical", summary: "carried forward" }, // no lane
+    { severity: "major", summary: "demoted", lane: "backlog" },
+  ]);
+  assert.deepEqual(gating.map((f) => f.summary), ["carried forward"]);
+  assert.equal(classify(gating).conclusion, "failure");
+});
+
+test("dedupeFindings: a gating finding is never displaced by a demoted duplicate", () => {
+  // Lane outranks severity. A fresh blocking finding colliding with a
+  // higher-severity backlog copy must keep the slot, or dedup silently un-gates
+  // it and turns the check green.
+  const merged = dedupeFindings([
+    { severity: "major", file: "a.mjs", summary: "same bug", lane: "blocking" },
+    { severity: "critical", file: "a.mjs", summary: "same bug", lane: "backlog" },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].lane, "blocking");
+  assert.equal(classify(gatingFindings(merged)).conclusion, "failure");
+
+  // Order-independent: the backlog copy first must not win either.
+  const flipped = dedupeFindings([
+    { severity: "critical", file: "a.mjs", summary: "same bug", lane: "backlog" },
+    { severity: "major", file: "a.mjs", summary: "same bug", lane: "blocking" },
+  ]);
+  assert.equal(flipped[0].lane, "blocking");
+
+  // Among findings on the SAME side of the gate, severity still decides.
+  const bySeverity = dedupeFindings([
+    { severity: "major", file: "a.mjs", summary: "same bug", lane: "blocking" },
+    { severity: "critical", file: "a.mjs", summary: "same bug", lane: "blocking" },
+  ]);
+  assert.equal(normalizeSeverity(bySeverity[0].severity), "critical");
+});
+
+test("laneCounts: a prototype-chain lane name cannot corrupt the counts", () => {
+  // `lane in out` would match "constructor"/"toString" and leave a NaN own key.
+  // Same bug confidenceCounts documents; the lane field is equally untrusted.
+  const counts = laneCounts([
+    { lane: "constructor", novelty: { origin: "introduced" } },
+    { lane: "toString" },
+    { lane: "blocking", novelty: { origin: "introduced" } },
+  ]);
+  assert.deepEqual(counts, { blocking: 1, backlog: 0, unknownOrigin: 0 });
+  assert.deepEqual(Object.keys(counts), ["blocking", "backlog", "unknownOrigin"]);
 });
 
 test("gatingFindings: drops demoted blockers, keeps minor/nit on the severity clause", () => {
