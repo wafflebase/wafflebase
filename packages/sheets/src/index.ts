@@ -145,10 +145,7 @@ import {
   resolveSystemLocale,
   type LocaleFormatPreview,
 } from './model/core/locale';
-import {
-  formatValue,
-  type FormatValueOptions,
-} from './model/worksheet/format';
+import { formatValue, type FormatValueOptions } from './model/worksheet/format';
 import {
   inferInput,
   cellFromInput,
@@ -195,6 +192,8 @@ import {
   type SheetImage,
   type WorksheetFilterState,
   type Worksheet,
+  type TimeTravelPoint,
+  type LakehouseTableRef,
   type TabType,
   type SheetKind,
   type TabMeta,
@@ -218,15 +217,9 @@ import {
   type CommentAuthor,
   type Thread,
 } from './comment/types';
-import {
-  createThread,
-  addReply,
-} from './comment/thread';
+import { createThread, addReply } from './comment/thread';
 import { cellAnchorToSref, isAnchorAlive } from './comment/anchor';
-import {
-  importXlsxFile,
-  importXlsxWorkbook,
-} from './import/xlsx-importer';
+import { importXlsxFile, importXlsxWorkbook } from './import/xlsx-importer';
 import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
 import { importJsonText } from './import/json-importer';
 import type {
@@ -426,6 +419,8 @@ export type {
   SheetImage,
   WorksheetFilterState,
   Worksheet,
+  TimeTravelPoint,
+  LakehouseTableRef,
   TabType,
   SheetKind,
   TabMeta,

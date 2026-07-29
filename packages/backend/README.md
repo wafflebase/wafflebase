@@ -57,6 +57,19 @@ FILE_STORAGE_PREFIX=                    # Optional, object-key prefix for the
 IMAGE_STORAGE_PREFIX=                   # Optional, the same for the image
                                         # bucket. Composes outside the
                                         # per-workspace key prefix.
+DATASOURCE_ENCRYPTION_KEY=              # Required for datasource/lakehouse
+                                        # credentials: 64 hex characters
+LAKEHOUSE_ALLOWED_ENDPOINTS=            # Optional comma-separated exact HTTP(S)
+                                        # origins for custom S3/Azure/GCS-interop
+                                        # endpoints and Iceberg REST catalogs
+LAKEHOUSE_QUERY_TIMEOUT_MS=30000         # Optional, 100..300000
+LAKEHOUSE_DUCKDB_MEMORY_LIMIT=512MB      # Optional, integer KB/MB/GB
+LAKEHOUSE_DUCKDB_THREADS=2               # Optional, 1..32
+LAKEHOUSE_DUCKDB_POOL_SIZE=2             # Optional, 1..8; operations remain
+                                        # globally serialized for secret safety
+LAKEHOUSE_DUCKDB_MAX_PENDING=64          # Optional, 1..1000
+LAKEHOUSE_ALLOW_LOCAL_PATHS=false        # Optional, trusted-admin feature
+LAKEHOUSE_LOCAL_ROOT=                    # Required when local paths are enabled
 YORKIE_RPC_ADDR=http://localhost:8080   # Optional, Yorkie RPC/admin endpoint
 YORKIE_PUBLIC_KEY=                      # Optional, project public key (SDK)
 YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
@@ -150,6 +163,14 @@ before running it.
 
 It covers both DB-backed service integration and authenticated HTTP integration
 through JWT guards/controllers for core datasource/share-link/document flows.
+
+`RUN_LAKEHOUSE_INTEGRATION_TESTS=true` enables the lakehouse connector-parity
+suite (`test/lakehouse-parity.e2e-spec.ts`): real DuckDB against MinIO S3,
+GCS-interop (HMAC through MinIO), Azurite Azure (set
+`LAKEHOUSE_AZURITE_ENDPOINT`, e.g. `http://127.0.0.1:10000/devstoreaccount1`),
+and the local filesystem. `docker compose up -d minio azurite` provides both
+emulators; see `test/fixtures/lakehouse/README.md` for the fixture contract
+and the opt-in real-cloud smoke.
 
 A separate gate `RUN_YORKIE_INTEGRATION_TESTS=true` enables tests that
 attach to a running Yorkie server (e.g.,

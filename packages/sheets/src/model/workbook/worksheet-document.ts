@@ -99,7 +99,22 @@ export type Worksheet = {
   pivotTable?: PivotTableDefinition;
 };
 
-export type TabType = 'sheet' | 'datasource';
+export type TimeTravelPoint =
+  | { kind: 'version'; version: number }
+  | { kind: 'snapshot'; snapshotId: string }
+  | { kind: 'timestamp'; iso: string };
+
+/**
+ * Which lakehouse table a tab shows: a direct metadata/table-root URI, or
+ * catalog coordinates (namespace + table) for catalog-mode sources.
+ */
+export type LakehouseTableRef = {
+  metadataUri?: string;
+  namespace?: string[];
+  table?: string;
+};
+
+export type TabType = 'sheet' | 'datasource' | 'lakehouse';
 
 export type SheetKind = 'normal' | 'pivot';
 
@@ -110,6 +125,9 @@ export type TabMeta = {
   kind?: SheetKind;
   datasourceId?: string;
   query?: string;
+  lakehouseSourceId?: string;
+  lakehouseRef?: LakehouseTableRef;
+  asOf?: TimeTravelPoint;
 };
 
 export type SpreadsheetDocument = {
