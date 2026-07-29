@@ -20,11 +20,11 @@
 //   <out>/<lens>/verdict.json + summary.md   and   <out>/panel.json + panel-summary.md
 //
 // SDK access goes through ./ask.mjs, which owns the session options and REQUIRES
-// an explicit `allowedTools` (it refuses Bash/write/network/Task outright). This
-// module grants exactly `REVIEW_TOOLS` — read-only — at both call sites. ask.mjs
-// imports the SDK lazily, so the pure helpers below stay unit-testable without
-// the dependency installed. `classifyResult`/`withRetry` live there too and are
-// re-exported from here for existing importers.
+// an explicit tool grant, validated against its read-only allow-list. This module
+// grants exactly `REVIEW_TOOLS` at both call sites. ask.mjs imports the SDK
+// lazily, so the pure helpers below stay unit-testable without the dependency
+// installed. `classifyResult`/`withRetry` live there too and are re-exported from
+// here for existing importers.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -181,10 +181,7 @@ export function applyVerifications(findings, verdictsByIndex, opts) {
 }
 
 /** A citation must locate something: `path.ext:line`, anywhere in the string. */
-// Exported so other gates reuse this exact pattern rather than re-typing it. A
-// hand-copied regex that drifted would silently change what counts as evidence —
-// the same class of failure `REFUTATION_GROUNDS` avoids by deriving from the schema.
-export const CITATION = /[^\s:]+\.[A-Za-z0-9_]+:\d+/;
+const CITATION = /[^\s:]+\.[A-Za-z0-9_]+:\d+/;
 
 /**
  * May this verdict DROP a blocking finding? Only on a complete, grounded
@@ -454,10 +451,11 @@ export { withRetry };
 // --- lens + verifier runs ----------------------------------------------------
 
 // The ONE tool grant for every reviewer subagent: read-only inspection, no
-// branch-code execution. ask.mjs REQUIRES this argument (and refuses Bash/write/
-// network/Task whatever is passed), so widening review's capabilities has to be a
-// visible edit here rather than a default someone inherits.
-const REVIEW_TOOLS = ["Read", "Grep", "Glob"];
+// branch-code execution. ask.mjs REQUIRES this argument and validates it against
+// its `PERMITTED_TOOLS` allow-list, so widening review's capabilities has to be a
+// visible edit HERE and is refused there anyway. Exported so a test can assert
+// what the panel actually grants; nothing else imports it.
+export const REVIEW_TOOLS = ["Read", "Grep", "Glob"];
 
 async function runLens(lens, { rubric, diff, issue, repo, sessionLog }) {
   const parts = [
