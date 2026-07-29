@@ -402,6 +402,10 @@ async function cmdRun(args) {
   const stats = { proposed: 0, agreed: 0, wellFormed: 0, novel: 0, reproduced: 0, reported: 0 };
   const ledgerAdds = [];
 
+  // Charters run SERIALLY, unlike samples and verifiers below. This is a budget
+  // decision, not an oversight: each charter is a few Opus sessions, and if a
+  // session/usage limit lands mid-run, finishing one charter completely beats
+  // half-finishing both. Within a charter everything that can be concurrent is.
   for (const charter of charters) {
     const fpOf = (c) => {
       const failing = c.probes?.[c.failingIndex];
@@ -417,17 +421,30 @@ async function cmdRun(args) {
 
     // Sample the explorer N times and INTERSECT (hunt-gate). A candidate only one
     // sample produced is exactly the profile of a one-off confabulation.
+    // Samples run CONCURRENTLY (as review-panel.mjs does for its lens samples).
+    // They are independent by construction — that independence is the whole point
+    // of intersecting them — so running them serially doubles wall-clock for no
+    // benefit. Each is individually caught: a failed sample contributes nothing
+    // rather than aborting the charter, and `intersectSamples` then returns []
+    // because fewer than 2 succeeded, which is the correct fail-quiet outcome.
+    const sampleCount = Math.max(2, Number(charter.samples) || 2);
+    const sampleResults = await Promise.all(
+      Array.from({ length: sampleCount }, async (_unused, i) => {
+        try {
+          return await explore(charter, { repo, context, sessionLog });
+        } catch (err) {
+          console.error(`hunt: ${charter.id} sample ${i} failed: ${err.message}`);
+          return null;
+        }
+      }),
+    );
     const samples = [];
-    for (let i = 0; i < Math.max(2, Number(charter.samples) || 2); i++) {
-      try {
-        const out = await explore(charter, { repo, context, sessionLog });
-        const { kept, dropped: bad } = coerceCandidates(out?.candidates);
-        stats.proposed += Array.isArray(out?.candidates) ? out.candidates.length : 0;
-        for (const b of bad) dropped.push({ title: b.candidate?.title, why: `malformed: ${b.why}` });
-        samples.push(kept);
-      } catch (err) {
-        console.error(`hunt: ${charter.id} sample ${i} failed: ${err.message}`);
-      }
+    for (const out of sampleResults) {
+      if (!out) continue;
+      const { kept, dropped: bad } = coerceCandidates(out.candidates);
+      stats.proposed += Array.isArray(out.candidates) ? out.candidates.length : 0;
+      for (const b of bad) dropped.push({ title: b.candidate?.title, why: `malformed: ${b.why}` });
+      samples.push(kept);
     }
     const agreed = dedupeCandidates(intersectSamples(samples, fpOf), fpOf);
     stats.agreed += agreed.length;
@@ -476,15 +493,20 @@ async function cmdRun(args) {
       stats.reproduced++;
 
       // Verify with N independent verifiers, then let the trusted gate decide.
-      const verdicts = [];
-      for (let i = 0; i < Math.max(2, Number(charter.verifiers) || 2); i++) {
-        try {
-          verdicts.push(await verify(record, charter, { repo, context, sessionLog, index: i }));
-        } catch (err) {
-          console.error(`hunt: verifier ${i} errored on "${cand.title}": ${err.message}`);
-          verdicts.push(null); // a null verdict DROPS here — see hunt-gate.mjs
-        }
-      }
+      // Verifiers run CONCURRENTLY. They must be INDEPENDENT to be worth having —
+      // a verifier that could see another's answer would just agree with it — so
+      // there is nothing to serialize. `Promise.all` preserves index order, which
+      // matters because the gate reads the array positionally.
+      const verdicts = await Promise.all(
+        Array.from({ length: Math.max(2, Number(charter.verifiers) || 2) }, async (_unused, i) => {
+          try {
+            return await verify(record, charter, { repo, context, sessionLog, index: i });
+          } catch (err) {
+            console.error(`hunt: verifier ${i} errored on "${cand.title}": ${err.message}`);
+            return null; // a null verdict DROPS here — see hunt-gate.mjs
+          }
+        }),
+      );
 
       if (isFilingVerdict(record, verdicts, charter)) {
         reported.push(record);
@@ -514,6 +536,13 @@ async function cmdRun(args) {
       extra: [context.cfg.apiKey].filter(Boolean),
     }) + "\n",
   );
+  // Every SDK call's raw `result` message this run — shape-compatible with the
+  // review panel's `review-execution.json`, so metrics.mjs can sum tokens and
+  // cost over it the same way. Without this the sessionLog is collected and
+  // discarded, and the run's actual spend is unknowable: the funnel counts would
+  // say what the hunter found but nothing would say what it cost, which is the
+  // one number that decides whether this pipeline is worth running nightly.
+  writeFileSync(path.join(outDir, "hunt-execution.json"), JSON.stringify(sessionLog));
   writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
   process.stdout.write(
     `hunt: ${stats.proposed} proposed → ${stats.agreed} agreed → ${stats.novel} novel → ` +
