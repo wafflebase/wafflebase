@@ -1181,7 +1181,13 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
           return inline.style.href;
         }
-        if (cursor.position.offset === inlineEnd && inline.style.href) {
+        // Skip an empty-text href residue at the boundary — it must not
+        // shadow an adjacent real link, matching findLinkRunAt's tie-break.
+        if (
+          cursor.position.offset === inlineEnd &&
+          inline.text.length > 0 &&
+          inline.style.href
+        ) {
           return inline.style.href;
         }
         pos = inlineEnd;

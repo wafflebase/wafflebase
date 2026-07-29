@@ -18,7 +18,8 @@ export interface LinkRun {
  * isn't touching one. An offset on either edge of an `href` inline
  * counts as inside it. At the shared boundary between two adjacent
  * *different* links (end of A == start of B) the earlier run wins —
- * the same tie-break as `getLinkAtCursor`, so the link a popover
+ * the same tie-break as `getLinkAtCursor` (both editors skip an
+ * empty-text href residue at the boundary), so the link a popover
  * displays is the link that gets edited or removed.
  *
  * An empty-text inline cannot anchor a run: the `href` residue that

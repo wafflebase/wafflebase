@@ -125,9 +125,11 @@ describe('initializeTextBox — edit link in place (#494)', () => {
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
       );
     }
-    // The emptied run keeps its style, so the residue href is still
-    // reported at the caret — but it is not an editable run.
-    expect(api.getLinkAtCursor()).toBe('https://example.com');
+    // The emptied run keeps its style, but the residue href is not an
+    // editable run — getLinkAtCursor skips the empty-text inline, matching
+    // findLinkRunAt, so the popover shows "add link" rather than prefilling
+    // an invisible href.
+    expect(api.getLinkAtCursor()).toBeUndefined();
 
     api.insertLink('https://example.org');
 

@@ -254,6 +254,37 @@ describe('docs editor — edit link in place (#494)', () => {
     expect(firstBlockInlines().every((i) => !i.text || i.style.href === 'https://example.org')).toBe(true);
   });
 
+  it('getLinkAtCursor ignores an empty href residue shadowing an adjacent link', () => {
+    // An empty-text href inline directly before a real link is not
+    // reachable through normalizeInlines (it drops empty inlines), so
+    // inject it straight into the store. getLinkAtCursor must skip the
+    // residue and report the real link the caret sits on — matching
+    // findLinkRunAt's tie-break, which is what Apply actually targets.
+    const injected = new MemDocStore();
+    const base = createEmptyBlock();
+    injected.setDocument({
+      blocks: [
+        {
+          ...base,
+          inlines: [
+            { text: '', style: { href: 'https://a.example.com' } },
+            { text: 'abc', style: { href: 'https://b.example.com' } },
+          ],
+        },
+      ],
+    });
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    const scoped = initialize(box, injected);
+    try {
+      scoped.restoreLocalCursor({ blockId: base.id, offset: 0 }, null);
+      expect(scoped.getLinkAtCursor()).toBe('https://b.example.com');
+    } finally {
+      scoped.dispose();
+      document.body.removeChild(box);
+    }
+  });
+
   it('undo restores the previous href', () => {
     makeLinkedExample(3);
     editor.insertLink('https://example.org');
