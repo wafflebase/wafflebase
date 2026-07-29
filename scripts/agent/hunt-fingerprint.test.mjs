@@ -9,6 +9,7 @@ import {
   parseSeenLedger,
   serializeSeenLedger,
   isNovel,
+  LEDGER_KEY_VERSION,
 } from "./hunt-fingerprint.mjs";
 
 // The property under test throughout: two runs that found the SAME defect must
@@ -109,15 +110,33 @@ test("parseSeenLedger: reports corruption instead of silently looking empty", ()
   assert.deepEqual(parseSeenLedger(undefined), { seen: [], parseErrors: 0 });
   assert.equal(parseSeenLedger("{ this is not json").parseErrors, 1);
   assert.equal(parseSeenLedger('{"not":"an array"}').parseErrors, 1);
-  const mixed = parseSeenLedger(JSON.stringify([{ fp: "a" }, null, { nofp: 1 }, { fp: "" }]));
-  assert.deepEqual(mixed.seen, [{ fp: "a" }]);
+  const mixed = parseSeenLedger(JSON.stringify([{ fp: "a", keyVersion: LEDGER_KEY_VERSION }, null, { nofp: 1 }, { fp: "" }]));
+  assert.deepEqual(mixed.seen, [{ fp: "a", keyVersion: LEDGER_KEY_VERSION }]);
   assert.equal(mixed.parseErrors, 3, "each unusable entry is counted, not quietly skipped");
 });
 
 test("serializeSeenLedger round-trips through parseSeenLedger", () => {
-  const entries = [{ fp: "a", charterId: "contract", verdict: "dropped", runId: "r1", sha: "abc" }];
-  assert.deepEqual(parseSeenLedger(serializeSeenLedger(entries)), { seen: entries, parseErrors: 0 });
-  assert.deepEqual(parseSeenLedger(serializeSeenLedger(null)), { seen: [], parseErrors: 0 });
+  const entries = [{ fp: "a", keyVersion: LEDGER_KEY_VERSION, charterId: "contract", verdict: "dropped", runId: "r1", sha: "abc" }];
+  const out = parseSeenLedger(serializeSeenLedger(entries));
+  assert.deepEqual(out.seen, entries);
+  assert.equal(out.parseErrors, 0);
+  assert.equal(out.staleKeys, 0);
+  assert.deepEqual(parseSeenLedger(serializeSeenLedger(null)).seen, []);
+});
+
+test("REGRESSION: entries from an older key version cannot silently suppress", () => {
+  // Between runs 3 and 4 the defectKey algorithm changed. Every stored entry
+  // stopped matching, so a defect run 3 had reported and recorded came straight
+  // back as novel and was re-verified. The ledger was present, parsed cleanly, and
+  // was simply full of keys that could no longer match — an invisible reset.
+  const stale = parseSeenLedger(JSON.stringify([
+    { fp: "old-style-key", charterId: "contract" },              // no keyVersion => v1
+    { fp: "older", keyVersion: 1, charterId: "contract" },
+    { fp: "current", keyVersion: LEDGER_KEY_VERSION, charterId: "contract" },
+  ]));
+  assert.deepEqual(stale.seen.map((e) => e.fp), ["current"], "only current-version keys can suppress");
+  assert.equal(stale.staleKeys, 2, "stale entries are COUNTED so the caller can warn");
+  assert.equal(stale.parseErrors, 0, "stale is not the same as corrupt");
 });
 
 test("isNovel: unseen is novel, seen is not", () => {

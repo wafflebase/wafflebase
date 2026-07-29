@@ -194,6 +194,20 @@ export function siteFingerprint(charterId, citation) {
  * the run when `parseErrors > 0`, rather than proceeding on a ledger it cannot
  * trust. Returning a bare array would make that impossible to detect.
  */
+/**
+ * Bump this whenever the meaning of a ledger `fp` changes — i.e. whenever
+ * `defectKey`'s inputs or normalisation change.
+ *
+ * Without it a key-algorithm change silently voids the whole ledger: every stored
+ * entry stops matching, every previously-resolved defect looks novel, and the
+ * hunter re-reports work a human already dispositioned. Observed live between
+ * runs 3 and 4 — `defectKey` moved from `located[0] + docCitation` to sorted
+ * in-scope locations, and a candidate that run 3 had reported and recorded came
+ * straight back as novel. The failure is invisible: the ledger is present, parses
+ * fine, and is simply full of keys that can no longer match anything.
+ */
+export const LEDGER_KEY_VERSION = 2;
+
 export function parseSeenLedger(text) {
   const raw = typeof text === "string" ? text.trim() : "";
   if (raw === "") return { seen: [], parseErrors: 0 };
@@ -206,11 +220,23 @@ export function parseSeenLedger(text) {
   if (!Array.isArray(data)) return { seen: [], parseErrors: 1 };
   const seen = [];
   let parseErrors = 0;
+  let staleKeys = 0;
   for (const e of data) {
-    if (e && typeof e === "object" && typeof e.fp === "string" && e.fp !== "") seen.push(e);
-    else parseErrors++;
+    if (!e || typeof e !== "object" || typeof e.fp !== "string" || e.fp === "") {
+      parseErrors++;
+      continue;
+    }
+    // An entry written under a different key algorithm cannot match anything the
+    // current one produces. Count it rather than keeping it: keeping it is
+    // harmless but misleading (the ledger looks populated while suppressing
+    // nothing), and the caller needs to know suppression is not in effect.
+    if ((e.keyVersion ?? 1) !== LEDGER_KEY_VERSION) {
+      staleKeys++;
+      continue;
+    }
+    seen.push(e);
   }
-  return { seen, parseErrors };
+  return { seen, parseErrors, staleKeys };
 }
 
 export function serializeSeenLedger(entries) {

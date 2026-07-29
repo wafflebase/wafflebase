@@ -49,6 +49,7 @@ import {
   parseSeenLedger,
   serializeSeenLedger,
   isNovel,
+  LEDGER_KEY_VERSION,
 } from "./hunt-fingerprint.mjs";
 import {
   buildProbeEnv,
@@ -407,9 +408,20 @@ async function cmdRun(args) {
   // A ledger we cannot read is FATAL, not empty. Treating corruption as "nothing
   // seen" would make every previously-resolved candidate novel again and
   // re-report the exact noise the ledger exists to suppress.
-  const { seen, parseErrors } = parseSeenLedger(existsSync(ledgerFile) ? readFileSync(ledgerFile, "utf8") : "");
+  const { seen, parseErrors, staleKeys } = parseSeenLedger(existsSync(ledgerFile) ? readFileSync(ledgerFile, "utf8") : "");
   if (parseErrors > 0) {
     fail(`ledger ${ledgerFile} has ${parseErrors} unreadable entr${parseErrors === 1 ? "y" : "ies"} — refusing to run on a ledger it cannot trust (fix or delete it)`);
+  }
+  // Loud, not silent: a stale key version means duplicate suppression is NOT in
+  // effect, so previously-dispositioned defects can be reported again. Warn
+  // rather than abort — the run is still useful, the operator just needs to know
+  // its drop table may contain old news.
+  if (staleKeys > 0) {
+    console.error(
+      `hunt: WARNING — ${staleKeys} ledger entr${staleKeys === 1 ? "y was" : "ies were"} written under an older key ` +
+        `version and cannot suppress anything (current v${LEDGER_KEY_VERSION}). Previously-seen defects may be ` +
+        `re-reported this run. Delete ${ledgerFile} to start clean.`,
+    );
   }
 
   const context = loadContext(repo, args);
@@ -526,7 +538,7 @@ async function cmdRun(args) {
 
       if (rep.status !== "reproduced" || !rep.deterministic) {
         dropped.push({ title: cand.title, why: `replay: ${rep.status}` });
-        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: rep.status, runId, sha: headSha });
+        ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: rep.status, runId, sha: headSha });
         continue;
       }
       stats.reproduced++;
@@ -564,12 +576,12 @@ async function cmdRun(args) {
       if (isFilingVerdict(record, verdicts, charter)) {
         reported.push(record);
         stats.reported++;
-        ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "reported", runId, sha: headSha });
+        ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, probeFp: fp, charterId: charter.id, verdict: "reported", runId, sha: headSha });
       } else {
         const why = dropReason(record, verdicts, charter);
         dropped.push({ title: cand.title, why: unjudged ? `${why} — NOT recorded, will be retried next run` : why });
         if (!unjudged) {
-          ledgerAdds.push({ fp: dk, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
+          ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
         }
       }
     }
