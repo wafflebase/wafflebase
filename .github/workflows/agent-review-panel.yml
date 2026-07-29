@@ -284,49 +284,119 @@ jobs:
         if: steps.pr.outputs.number != ''
         run: rm -rf "$GITHUB_WORKSPACE/.claude" "$GITHUB_WORKSPACE/.mcp.json"
 
+      # INCREMENTAL REVIEW, part 1 of 2: decide whether this round may review only
+      # the commits added since every lens last produced a verdict. The decision
+      # needs the checks API (each lens's pointer lives in its check run's
+      # external_id) and git (is the pointer still an ancestor, is there a merge in
+      # range, how big is the delta), so it runs in the TRUSTED script rather than
+      # inline here.
+      #
+      # The script resolves every internal failure to `full` itself. `continue-on-error`
+      # covers the class it CANNOT catch — a module-resolution error or a missing
+      # node, which crash before its `main().catch`. Without it such a crash fails
+      # the job, and while that still fails closed (the post step below runs on
+      # `always()` and marks every lens failed), it would turn a bug in a COST
+      # OPTIMISER into a blocked PR. A full review is always correct and merely more
+      # expensive; the empty outputs skip the narrow step below, so the fallback is
+      # exactly today's behaviour with a red step to explain it.
+      - name: Resolve review scope
+        id: scope
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: >-
+          node .trusted/scripts/agent/review-scope.mjs "$PR"
+          --head "$HEAD_SHA"
+          --lenses .trusted/scripts/agent/lenses/lenses.json
+          --changed-files /tmp/changed.txt
+          --repo "$GITHUB_WORKSPACE"
+
+      # Why this round did what it did, in the run UI. Without it "we never narrow"
+      # and "we narrow and it saves nothing" are indistinguishable from the outside,
+      # and the ten distinct reasons exist precisely to answer that.
+      - name: Report the review scope
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          MODE: ${{ steps.scope.outputs.mode }}
+          REASON: ${{ steps.scope.outputs.reason }}
+          ROUNDS: ${{ steps.scope.outputs.rounds }}
+        run: |
+          echo "Review scope: **$MODE** (\`$REASON\`), round $ROUNDS" >> "$GITHUB_STEP_SUMMARY"
+
+      # INCREMENTAL REVIEW, part 2 of 2: replace /tmp/pr.diff with the delta.
+      #
+      # This step is what makes the diff and the `--review-mode` flag inseparable:
+      # BOTH come from here, so they cannot disagree. When it is skipped its outputs
+      # are empty, the panel below receives no flag, and the full diff written by
+      # "Compute diff + changed files" stands — which is why that step is left
+      # byte-identical to the on-demand workflow's copy of it.
+      #
+      # The exclusions and the empty-result fallback mirror the full-diff step for
+      # the same reasons documented there. The extra case is a delta that is empty
+      # even unfiltered: the panel fails closed on an empty diff, so rather than
+      # turn a harmless re-run into an outage we keep the full diff and emit no
+      # flag. `-U15` because a one-line change in an unseen function is
+      # unreviewable at the default -U3, and the delta is small enough to afford it.
+      - name: Narrow the reviewed diff to the delta
+        id: narrow
+        # Also skipped when the scope step crashed: its outputs are then empty, so
+        # this never runs and the full diff stands.
+        if: steps.pr.outputs.number != '' && steps.scope.outputs.mode == 'incremental'
+        # Deliberately NOT continue-on-error, unlike the scope step above, and the
+        # asymmetry is the point: scope only COMPUTES, so tolerating its failure
+        # costs a full review. This step MUTATES the reviewed artifact. If it died
+        # between replacing /tmp/pr.diff and writing `mode`, tolerating that would
+        # hand the panel a narrowed diff with no flag — a lens reviewing a fragment
+        # while believing it is the whole PR, which is the one failure this design
+        # must not have. review-panel.mjs cannot detect it either: it receives a
+        # file and cannot tell a narrowed diff from a full one. So any failure here
+        # fails the job, and the post step (`always()`) marks every lens failed.
+        env:
+          SINCE_SHA: ${{ steps.scope.outputs.since }}
+        run: |
+          set -euo pipefail
+          git diff --no-color -U15 "$SINCE_SHA" HEAD -- . \
+            ':(exclude)packages/sheets/antlr/*.interp' \
+            ':(exclude)packages/sheets/antlr/*.tokens' > /tmp/delta.diff
+          if [ ! -s /tmp/delta.diff ]; then
+            git diff --no-color -U15 "$SINCE_SHA" HEAD > /tmp/delta.diff
+          fi
+          if [ -s /tmp/delta.diff ]; then
+            mv /tmp/delta.diff /tmp/pr.diff
+            echo "mode=incremental" >> "$GITHUB_OUTPUT"
+            echo "narrowed the reviewed diff to $(wc -l < /tmp/pr.diff) lines since $SINCE_SHA" >&2
+          else
+            echo "delta is empty — keeping the full diff and reviewing in full" >&2
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          fi
+
       # Part 2: carry the PREVIOUS round's blocking findings into this run so the
       # panel can re-check they were actually resolved (not just missed). Each
       # lens's findings were persisted in its check run's output.text; take the
       # latest agent-review-<lens> check per lens across the PR's commits (ours
       # only). This runs BEFORE the panel posts its checks, so all existing ones
       # are prior rounds. Never fails the job (best-effort; empty on round 1).
+      #
+      # The logic moved to the TRUSTED script so it could be tested: two GitHub API
+      # contracts here are non-obvious and each silently yields "carried 0 findings"
+      # when got wrong (the list response omits output.text; the object-wrapped
+      # check-runs endpoint needs --slurp). Inline YAML JavaScript can hold neither
+      # a unit test nor a linter, and #558 needed a second copy of it for the
+      # on-demand workflow.
       - name: Read prior findings
         if: steps.pr.outputs.number != ''
         continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const pr = Number('${{ steps.pr.outputs.number }}');
-            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
-            const wantNames = new Set(manifest.map((l) => `agent-review-${l.id}`));
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
-            const latest = {}; // check name -> { id, t }
-            for (const c of commits) {
-              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
-              for (const r of runs) {
-                if (!wantNames.has(r.name) || !r.app || r.app.slug !== 'github-actions') continue;
-                // Only COMPLETED runs carry final findings in output.text — an
-                // in-progress/queued run has a newer started_at but no findings yet,
-                // and would otherwise shadow the last completed run. Rank by
-                // completed_at (fallback started_at).
-                if (r.status !== 'completed') continue;
-                const t = new Date(r.completed_at || r.started_at || 0).getTime();
-                if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { id: r.id, t };
-              }
-            }
-            const prior = [];
-            for (const [name, { id }] of Object.entries(latest)) {
-              const lens = name.replace(/^agent-review-/, '');
-              let text = '';
-              try { const { data } = await github.rest.checks.get({ owner, repo, check_run_id: id }); text = (data.output && data.output.text) || ''; } catch {}
-              let findings = [];
-              try { findings = JSON.parse(text); } catch {}
-              if (Array.isArray(findings)) for (const f of findings) if (f && typeof f === 'object') prior.push({ ...f, lens });
-            }
-            fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
-            core.info(`prior findings carried into re-check: ${prior.length}`);
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: >-
+          node .trusted/scripts/agent/prior-findings.mjs "$PR"
+          --lenses .trusted/scripts/agent/lenses/lenses.json
+          --out /tmp/prior-findings.json
 
       # Advisory single-value state: mark the PR "under automated review" while the
       # panel runs. Best-effort; the label is a projection, never a gate. Runs the
@@ -356,6 +426,20 @@ jobs:
           # the Claude token, and repo convention keeps workflow expressions out
           # of shell commands in jobs that hold secrets.
           BASE_SHA: ${{ steps.diff.outputs.base }}
+          # From the NARROW step, not the scope step: whichever step actually wrote
+          # /tmp/pr.diff is the one allowed to say what is in it. When narrowing did
+          # not happen both are EMPTY STRINGS, which review-panel.mjs reads as
+          # absent — so the flags are passed unconditionally rather than assembled
+          # with `${VAR:+...}` inside a folded `run:`, where a quoting slip would
+          # silently drop one of the pair. The script refuses a half-passed pair in
+          # either direction, so a lost value fails the step loudly instead of
+          # reviewing a fragment as if it were the whole PR.
+          REVIEW_MODE: ${{ steps.narrow.outputs.mode }}
+          SINCE_SHA: ${{ steps.narrow.outputs.mode == 'incremental' && steps.scope.outputs.since || '' }}
+          # What this round stamps back as each lens's last-reviewed pointer. The
+          # SHA the check runs below are attested against, so the pointer and the
+          # attestation cannot drift apart.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
@@ -363,6 +447,9 @@ jobs:
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
           --base-sha "$BASE_SHA"
+          --head-sha "$HEAD_SHA"
+          --review-mode "$REVIEW_MODE"
+          --since-sha "$SINCE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
@@ -371,10 +458,17 @@ jobs:
         id: panel
         if: always() && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
+        env:
+          # Suffixed onto the check-run title on narrowed rounds ONLY, so a human
+          # reading a verdict knows it saw a delta rather than the whole PR. Empty
+          # in full mode, which keeps those titles byte-identical to before.
+          NARROWED_SINCE: ${{ steps.narrow.outputs.mode == 'incremental' && steps.scope.outputs.since || '' }}
         with:
           script: |
             const fs = require('fs');
             const sha = context.payload.workflow_run.head_sha;
+            const since = process.env.NARROWED_SINCE || '';
+            const scopeSuffix = since ? ` (delta since ${since.slice(0, 12)})` : '';
             // Single source of truth for the lens set: the TRUSTED manifest. The
             // orchestrator writes panel.json (one entry per lens incl. skipped);
             // any manifest lens missing from panel.json = orchestrator crash → fail closed.
@@ -433,7 +527,20 @@ jobs:
               await github.rest.checks.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
-                output: { title: `${lens.id}: ${conclusion}`, summary: summary.slice(0, 60000), text: findingsText },
+                // Incremental review's state channel: what this lens reviewed, so
+                // the NEXT round can narrow to what came after it. Present only
+                // when the orchestrator decided this lens produced a real verdict
+                // (see `panelEntry`) — the write rule is enforced there, in tested
+                // code, rather than re-derived from `conclusion` here where it
+                // could drift. `undefined` omits the field, which is what makes a
+                // crashed or skipped lens force a full round next time.
+                //
+                // Why not output.text: that field is trimmed to fit 60k BY DROPPING
+                // FINDINGS (just below). It is designed to lose data, and a value
+                // deciding whether code gets reviewed must not live in a lossy
+                // channel. external_id is a fixed 255-char slot nothing else writes.
+                external_id: p && p.reviewState ? p.reviewState : undefined,
+                output: { title: `${lens.id}: ${conclusion}${scopeSuffix}`, summary: summary.slice(0, 60000), text: findingsText },
               });
             }
             core.setOutput('blocked', String(blocked));

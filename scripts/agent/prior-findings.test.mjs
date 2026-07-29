@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tagPriorFindings, lensCheckNames, parseArgs, collectPrior } from "./prior-findings.mjs";
+import { tagPriorFindings, lensCheckNames, collectPrior } from "./prior-findings.mjs";
+import { parseArgs } from "./gh-checks.mjs";
 
 const NAMES = ["agent-review-correctness", "agent-review-security"];
 

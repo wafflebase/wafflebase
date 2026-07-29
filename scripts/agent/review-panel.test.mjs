@@ -27,6 +27,7 @@ import {
   withRetry,
   buildLensPrompt,
   resolveReviewScope,
+  panelEntry,
 } from "./review-panel.mjs";
 import { classify, normalizeSeverity } from "./severity.mjs";
 
@@ -210,18 +211,101 @@ test("resolveReviewScope: refuses a half-wired incremental invocation, both dire
   assert.match(ok.scopeNote, new RegExp(SHA.slice(0, 12)));
 });
 
-// The scope note reaches the model only if main() threads it through runLens.
-// Neither is executable without opening an SDK session, so this stays a source
-// assertion — narrowed to the plumbing, with the prompt SHAPE now covered by the
-// rendered tests above.
-test("main() threads the resolved scope note into runLens", () => {
+// The pointer this run stamps back, so the NEXT round knows what was reviewed.
+// Serialized here rather than in the workflow's github-script step because that
+// step cannot import an ES module and `serializeReviewState` refuses to emit junk.
+test("resolveReviewScope: stamps a pointer only when --head-sha is given", () => {
+  const HEAD = "a".repeat(40), BASE = "b".repeat(40), SINCE = "c".repeat(40);
+  // No --head-sha = today's behaviour: nothing is stamped, so no round can narrow.
+  assert.equal(resolveReviewScope({}, []).stateExternalId, "");
+  assert.equal(resolveReviewScope({ "base-sha": BASE }, []).stateExternalId, "");
+
+  const full = resolveReviewScope({ "head-sha": HEAD, "base-sha": BASE }, []);
+  assert.deepEqual(JSON.parse(full.stateExternalId),
+    { v: 1, reviewed: HEAD, base: BASE, since: "", mode: "full" });
+
+  const inc = resolveReviewScope(
+    { "head-sha": HEAD, "base-sha": BASE, "since-sha": SINCE, "review-mode": "incremental" }, []);
+  assert.deepEqual(JSON.parse(inc.stateExternalId),
+    { v: 1, reviewed: HEAD, base: BASE, since: SINCE, mode: "incremental" });
+
+  // A malformed --head-sha must fail BEFORE the panel spends a token, not after —
+  // and it must not silently stamp nothing, which would disable narrowing forever
+  // with no signal.
+  assert.throws(() => resolveReviewScope({ "head-sha": "nope" }, []), /'reviewed' must be a 40-hex sha/);
+  assert.throws(() => resolveReviewScope({ "head-sha": HEAD, "base-sha": "nope" }, []), /'base'/);
+});
+
+// The scope note reaches the model only if main() threads it through runLens, and
+// neither is executable without opening an SDK session. So this stays a source
+// assertion — but on the PROPERTIES, not on a literal destructuring: the first
+// version pinned `const { reviewMode, scopeNote } = ...` and broke the moment a
+// third field was added, which is a test failing for its own formatting rather
+// than for the behaviour it guards.
+test("main() threads the resolved scope through runLens", () => {
   const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
-  assert.match(src, /const \{ reviewMode, scopeNote \} = resolveReviewScope\(args, changedFiles\)/,
-    "main() must resolve the scope through the tested helper");
+  const call = /const \{([^}]*)\} = resolveReviewScope\(args, changedFiles\)/.exec(src);
+  assert.ok(call, "main() must resolve the scope through the tested helper");
+  for (const field of ["reviewMode", "scopeNote", "stateExternalId"]) {
+    assert.ok(call[1].includes(field), `main() must take ${field} from resolveReviewScope`);
+  }
   assert.match(src, /runLens\(lens, \{[^}]*scopeNote[^}]*\}\)/,
     "runLens must receive scopeNote, or incremental mode reviews a fragment silently");
   assert.match(src, /prompt: buildLensPrompt\(lens, \{[^}]*scopeNote[^}]*\}\)/,
     "runLens must pass scopeNote on to the prompt builder");
+  // Every panel entry must be built by panelEntry, which is what makes the
+  // write-rule test below binding. An entry assembled inline could carry a pointer
+  // the rule would have stripped.
+  assert.equal((src.match(/panel\.push\(/g) ?? []).length, (src.match(/panel\.push\(panelEntry\(/g) ?? []).length,
+    "every panel.push must go through panelEntry, or the write rule is bypassable");
+});
+
+// THE WRITE RULE, executed. A lens that did not produce a verdict must not hand
+// back a last-reviewed pointer: the next round would narrow past commits nothing
+// actually looked at, and `resolveReviewMode` cannot detect that because a pointer
+// being present IS its evidence of coverage.
+//
+// This replaced a source scan that asserted which `panel.push` carried the field.
+// That scan passed while the pointer was also attached to the fail-closed entry by
+// a separate `entry.reviewState = ...` — it watched the syntax it expected instead
+// of the property, the same defect as the mis-aimed clamp guard on #574.
+test("panelEntry: only a real verdict carries a review-state pointer", () => {
+  const lens = { id: "correctness", title: "Correctness" };
+  const PTR = '{"v":1,"reviewed":"a"}';
+  const entry = (over) => panelEntry(lens, { blocking: true, reviewState: PTR, ...over });
+
+  // The one case that stamps.
+  assert.equal(entry({ applicable: true, conclusion: "success", valid: true }).reviewState, PTR);
+  // A FAILING verdict still stamps: the lens did review the code, and its findings
+  // are preserved by carry-forward. Not stamping here would force a full round
+  // after every round that found something — i.e. never narrow on a real PR.
+  assert.equal(entry({ applicable: true, conclusion: "failure", valid: true }).reviewState, PTR);
+
+  for (const [why, over] of [
+    ["a crashed or quota-failed lens", { applicable: true, conclusion: "failure", valid: false }],
+    ["an invalid success", { applicable: true, conclusion: "success", valid: false }],
+    ["an inapplicable lens", { applicable: false, conclusion: "skipped", valid: true }],
+    ["a lens skipped for any reason", { applicable: true, conclusion: "skipped", valid: true }],
+  ]) {
+    assert.ok(!("reviewState" in entry(over)), `${why} must not stamp a pointer`);
+  }
+  // No pointer to stamp (no --head-sha) is today's behaviour, on every path.
+  for (const bad of [undefined, null, "", 7, {}]) {
+    assert.ok(!("reviewState" in panelEntry(lens, {
+      blocking: true, applicable: true, conclusion: "success", valid: true, reviewState: bad,
+    })), `reviewState=${JSON.stringify(bad)} must not be stamped`);
+  }
+  // infraError still rides along only when present — the field the fix job pages on.
+  assert.equal(entry({ applicable: true, conclusion: "failure", valid: false, infraError: "429" }).infraError, "429");
+  assert.ok(!("infraError" in entry({ applicable: true, conclusion: "success", valid: true })));
+
+  // RESIDUAL, stated rather than guarded: the only remaining way to stamp from a
+  // non-verdict path is to also claim `valid: true` for a lens that crashed. That
+  // is not a loophole in this rule — `valid` is the same field the workflow feeds
+  // to `all_valid`, which makes review-round-guard.mjs page ("a review lens did
+  // not produce a valid verdict"). Tying the pointer to the validity claim is the
+  // point: you cannot stamp without asserting a verdict, and asserting a verdict
+  // that did not happen breaks something louder than narrowing.
 });
 
 // Injection framing must cover the WORKING TREE, not just the diff. Every lens

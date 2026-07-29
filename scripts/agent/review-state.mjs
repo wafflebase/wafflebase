@@ -173,6 +173,77 @@ export function latestLensRuns(runs, lensCheckNames) {
  * Checks run correctness-first, then policy, so the reported reason names a real
  * hazard when one exists rather than an arbitrary cap that happened to also fire.
  */
+/**
+ * The one sha every lens agrees it last reviewed, or `{ sha: "", reason }`.
+ *
+ * Exported to make the two-phase caller contract usable rather than merely
+ * documented. `resolveReviewMode` needs git facts measured over `since..head`,
+ * but `since` is only knowable AFTER reading the states — so a caller cannot
+ * gather its inputs in one pass. It calls this first to learn the range (or that
+ * there is no range and the answer is already `full`), measures git over exactly
+ * that range, then calls `resolveReviewMode`.
+ *
+ * `resolveReviewMode` uses this internally too, so the two cannot disagree about
+ * which pointer is under consideration.
+ *
+ * Never throws. Reasons are the state-only subset: `invalid-input`,
+ * `no-prior-state`, `lens-state-gap`, `lens-state-divergence`, or `ok`.
+ */
+export function agreedReviewedSha(lensIds, states) {
+  const none = (reason) => ({ sha: "", reason });
+  const ids = (Array.isArray(lensIds) ? lensIds : []).filter((id) => typeof id === "string" && id !== "");
+  if (ids.length === 0) return none("invalid-input");
+
+  // Keyed by lens id (`correctness`) OR by check name (`agent-review-correctness`),
+  // because `latestLensRuns` returns the latter and `lensIds` are the former.
+  // Accepting both removes a silent trap: the natural composition of the two would
+  // otherwise find no state for any lens, report `no-prior-state` forever, and
+  // never narrow anything with nothing to indicate a mistake.
+  //
+  // `Object.hasOwn` rather than a bare index: a lens id of `constructor` would
+  // otherwise pick up `Object.prototype.constructor` as if it were state.
+  const pick = (k) => {
+    if (states instanceof Map) return states.get(k);
+    return states && typeof states === "object" && Object.hasOwn(states, k) ? states[k] : undefined;
+  };
+  const get = (id) => {
+    const v = pick(id) ?? pick(`agent-review-${id}`);
+    // Either a raw external_id string or an already-parsed record — both go
+    // through the same validation, so pre-parsing cannot skip it.
+    return typeof v === "string" ? parseReviewState(v) : normalizeState(v);
+  };
+
+  // EVERY lens must have usable, agreeing state. A lens with no state has a
+  // coverage hole: it never saw the commits between its last verdict and now, and
+  // an incremental round would never show them to it. One lens short is enough to
+  // force a full round for all of them — the reviewed artifact is global, so
+  // partial narrowing is not on offer.
+  //
+  // This is also what covers "a check run exists but no review happened", which is
+  // NOT a separate input and does not need to be. The pointer is stamped only when
+  // a lens produced a real verdict, so a crashed, quota-failed, skipped or
+  // otherwise `neutral` run carries no `external_id` at all; `latestLensRuns` hands
+  // back that newest run, it parses as no state, and this forces `full`. Same for a
+  // lens that was inapplicable in earlier rounds and becomes applicable now: no
+  // state, so no narrowing until it has reviewed a full diff once. Coverage is
+  // proven by the presence of a pointer, not asserted alongside it.
+  const found = ids.map(get);
+  if (found.every((s) => !s)) return none("no-prior-state");
+  // `!s` is the whole test: anything `get` returns non-null came through
+  // `normalizeState`, so `reviewed` is already a validated 40-hex sha. A second
+  // check here would be unreachable, and an unreachable condition in a gate reads
+  // as protection that is not doing anything.
+  if (found.some((s) => !s)) return none("lens-state-gap");
+
+  const reviewedSet = new Set(found.map((s) => s.reviewed));
+  // Lenses normally stamp the same head SHA in one panel run. They diverge only
+  // when a lens missed a round (infra error), which is the same coverage hole as
+  // a gap — and picking the newest would skip commits the laggard never saw,
+  // while picking the oldest re-reviews for everyone anyway. So: full.
+  if (reviewedSet.size !== 1) return none("lens-state-divergence");
+  return { sha: [...reviewedSet][0], reason: "ok" };
+}
+
 export function resolveReviewMode(opts) {
   // Destructure from a coerced object, NOT via a `= {}` parameter default: that
   // default only fires for `undefined`, so `resolveReviewMode(null)` threw — which
@@ -192,61 +263,16 @@ export function resolveReviewMode(opts) {
   const full = (reason) => ({ mode: "full", sinceSha: "", reason });
 
   // --- input sanity: a caller passing junk gets `full`, never a throw ---------
-  const ids = (Array.isArray(lensIds) ? lensIds : []).filter((id) => typeof id === "string" && id !== "");
   const head = sha(headSha);
   const okEvery = Number.isInteger(fullEvery) && fullEvery > 0;
   const okRound = Number.isInteger(roundIndex) && roundIndex >= 0;
   const okMax = Number.isFinite(maxDeltaLines) && maxDeltaLines >= 0;
-  if (ids.length === 0 || !head || !okEvery || !okRound || !okMax) return full("invalid-input");
+  if (!head || !okEvery || !okRound || !okMax) return full("invalid-input");
 
   // --- per-lens state: EVERY lens must have usable, agreeing state ------------
-  // A lens with no state has a coverage hole: it never saw the commits between
-  // its last verdict and now, and an incremental round would never show them to
-  // it. One lens short is enough to force a full round for all of them — the
-  // reviewed artifact is global, so partial narrowing is not on offer.
-  //
-  // This is also what covers "a check run exists but no review happened", which is
-  // NOT a separate input here and does not need to be. The pointer is stamped only
-  // when a lens produced a real verdict, so a crashed, quota-failed, skipped or
-  // otherwise `neutral` run carries no `external_id` at all; `latestLensRuns`
-  // hands back that newest run, it parses as no state, and this check forces
-  // `full`. Same for a lens that was inapplicable in earlier rounds and becomes
-  // applicable now: no state, so no narrowing until it has reviewed a full diff
-  // once. Coverage is proven by the presence of a pointer, not asserted alongside
-  // it.
-  // Keyed by lens id (`correctness`) OR by check name (`agent-review-correctness`),
-  // because `latestLensRuns` returns the latter and `lensIds` are the former.
-  // Accepting both removes a silent trap: the natural composition of the two would
-  // otherwise find no state for any lens, report `no-prior-state` forever, and
-  // never narrow anything with nothing to indicate a mistake.
-  //
-  // `Object.hasOwn` rather than a bare index: a lens id of `constructor` would
-  // otherwise pick up `Object.prototype.constructor` as if it were state.
-  const pick = (k) => {
-    if (states instanceof Map) return states.get(k);
-    return states && typeof states === "object" && Object.hasOwn(states, k) ? states[k] : undefined;
-  };
-  const get = (id) => {
-    const v = pick(id) ?? pick(`agent-review-${id}`);
-    // Either a raw external_id string or an already-parsed record — both go
-    // through the same validation, so pre-parsing cannot skip it.
-    return typeof v === "string" ? parseReviewState(v) : normalizeState(v);
-  };
-  const found = ids.map(get);
-  if (found.every((s) => !s)) return full("no-prior-state");
-  // `!s` is the whole test: anything `get` returns non-null came through
-  // `normalizeState`, so `reviewed` is already a validated 40-hex sha. A second
-  // check here would be unreachable, and an unreachable condition in a gate reads
-  // as protection that is not doing anything.
-  if (found.some((s) => !s)) return full("lens-state-gap");
-
-  const reviewedSet = new Set(found.map((s) => s.reviewed));
-  // Lenses normally stamp the same head SHA in one panel run. They diverge only
-  // when a lens missed a round (infra error), which is the same coverage hole as
-  // a gap — and picking the newest would skip commits the laggard never saw,
-  // while picking the oldest re-reviews for everyone anyway. So: full.
-  if (reviewedSet.size !== 1) return full("lens-state-divergence");
-  const since = [...reviewedSet][0];
+  const agreed = agreedReviewedSha(lensIds, states);
+  if (!agreed.sha) return full(agreed.reason);
+  const since = agreed.sha;
 
   // Re-run on an already-reviewed SHA. The delta is empty, and review-panel.mjs
   // refuses an empty diff (fails closed), so narrowing here would turn a
