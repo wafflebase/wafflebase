@@ -34,7 +34,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
-import { allRequiredPassed } from "./checks.mjs";
+import { allRequiredPassed, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
 import { disclosesAiAuthorship } from "./disclosure.mjs";
 
@@ -47,17 +47,11 @@ if (!prNumber || !/^\d+$/.test(prNumber)) {
 }
 
 const HANDOFF_MARKER = "<!-- agent-handoff -->";
-const DEFAULT_REVIEW_CHECKS = [
-  "agent-review-correctness",
-  "agent-review-security",
-  "agent-review-design-fit",
-  "agent-review-test-adequacy",
-];
 const rcIdx = process.argv.indexOf("--require-checks");
 // Absent flag → defaults. Explicit `--require-checks ""` → empty set. Only the
 // missing flag falls back to DEFAULT; an explicitly empty value must NOT (else
-// an all-advisory / no-blocking-lens panel would be pinned against four
-// never-posted default checks and could never promote).
+// an all-advisory / no-blocking-lens panel would be pinned against default
+// checks it never posted and could never promote).
 const REQUIRED_CHECKS =
   rcIdx === -1
     ? DEFAULT_REVIEW_CHECKS
@@ -66,10 +60,14 @@ const REQUIRED_CHECKS =
 // FAIL CLOSED on an empty required-check set. `allRequiredPassed(runs, [])` is
 // vacuously true (`[].every` → true), so an empty set would satisfy gate 2 with
 // ZERO review evidence — a fail-open in a component whose whole job is to fail
-// closed. It's unreachable with today's manifest (four lenses, all blocking,
-// all appliesWhen "**", so the panel always emits ≥1 required check), but a
-// future narrow-glob lens or an empty changed-file set could produce it. Treat
-// it as a tooling error unless the caller OPTS IN explicitly.
+// closed. Treat it as a tooling error unless the caller OPTS IN explicitly.
+//
+// This used to note the case was unreachable because every lens was `**`-scoped.
+// That stopped being true when design-fit, test-adequacy, and now blast-radius
+// gained path globs. It is still unreachable — correctness and security remain
+// blocking at `**`, which `review-panel.test.mjs` asserts against the real
+// manifest — but the guarantee now rests on that invariant rather than on all
+// lenses being unscoped.
 if (REQUIRED_CHECKS.length === 0 && !process.argv.includes("--allow-no-checks")) {
   console.error(
     "Refusing to promote with an empty required-check set: gate 2 (review-panel " +
