@@ -117,6 +117,30 @@ test("correctness + security carry the out-of-diff call-site mandate", () => {
   }
 });
 
+// INERTNESS: with no --review-mode flag, every existing caller (both panel
+// workflows and spec-to-pr.mjs) must produce a byte-identical lens prompt. Two
+// properties together guarantee it, and both are asserted because either alone
+// would let the prompt drift:
+//   1. renderScopeNote returns "" in full mode (covered in review-state.test.mjs);
+//   2. runLens appends NOTHING when the note is empty — an unconditional
+//      `parts.push("", scopeNote)` would insert a blank line into every prompt on
+//      every PR, silently invalidating the whole before/after comparison.
+test("incremental review is inert without the flag: no empty scope-note push", () => {
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  assert.match(
+    src,
+    /\.\.\.\(scopeNote \? \["", scopeNote\] : \[\]\)/,
+    "runLens must add the scope note CONDITIONALLY, or full-mode prompts change",
+  );
+  // The mode must default to full — an `=== "full"` test would make any typo or
+  // unset value turn incremental ON, which is the fail-open direction.
+  assert.match(
+    src,
+    /args\["review-mode"\] === "incremental" \? "incremental" : "full"/,
+    "review-mode must allow-list 'incremental' and default everything else to full",
+  );
+});
+
 // Injection framing must cover the WORKING TREE, not just the diff. Every lens
 // runs with cwd = the untrusted branch checkout and Read/Grep/Glob allow-listed,
 // and several rubrics now send it into the repository (blast-radius requires it),

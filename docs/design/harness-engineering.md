@@ -513,6 +513,48 @@ Components:
     All three lower false-negative odds; none makes the panel safe to
     self-promote — the human review gate stays the backstop.
 
+  - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs`).**
+    The reviewed artifact is `git diff origin/main...HEAD`, recomputed every
+    round, so an 8-round PR reads round-1 code eight times. Both endpoints of
+    `...` also move: a human `git merge main` changed the artifact with no
+    semantic change to the branch and flipped a lens verdict.
+
+    Each lens's **`external_id`** carries what it last reviewed —
+    `{"v":1,"reviewed":…,"base":…,"since":…,"mode":…}`. Every candidate location
+    sits behind the same `checks:write` boundary (the author agent cannot forge
+    any of them), so the choice was about failure modes: `output.text` is
+    disqualified because the panel trims it to fit a 60k limit by *dropping
+    findings* — it is designed to lose data, and a field that decides whether code
+    gets reviewed must not live in a lossy channel.
+
+    `resolveReviewMode` is fully pure (every git fact injected) and **fails to
+    `full` on any doubt**, reporting which: `no-prior-state`, `lens-state-gap`,
+    `lens-state-divergence`, `no-new-commits`, `git-facts-unavailable`,
+    `force-push-or-rewrite`, `merge-in-range`, `periodic-rebaseline`,
+    `delta-too-large`, `invalid-input`, or `ok`. Correctness hazards are checked
+    before policy caps so the reported reason names a real problem when one
+    exists. Reviewing code twice costs tokens; reviewing it zero times ships a
+    bug — there is no case where "probably fine" resolves to `incremental`.
+
+    **The recall regression is real, not hypothetical.** Carry-forward re-checks
+    findings already *raised*; it cannot surface a defect whose root cause is
+    round-1 code that only became reachable via round-3 code. Three mitigations,
+    all mandatory: a **scope note** (`renderScopeNote`) telling the lens it still
+    owns defects the delta newly exposes in earlier code, that the full working
+    tree is its cwd, and that the changed-file list is cumulative; a **forced full
+    round** every 3 rounds plus on any of the hazards above; and wider diff
+    context on narrowed rounds. The honest saving is therefore **~2x, not ~8x**.
+
+    `--changed-files` stays **cumulative** in every mode. Fed the delta instead,
+    `lensApplies` could mark a narrow-glob lens inapplicable in round N, the
+    workflow would drop it from `required_checks`, and a lens that FAILED in round
+    2 would silently stop being required in round 3 — promoting with an unresolved
+    blocker. Unreachable today; the constraint exists so it stays that way.
+
+    CLI defaults to `full`, so all three callers behave byte-identically until the
+    workflow opts in. The on-demand path must never narrow: it records no check
+    runs, so it can never write a pointer back.
+
     **API/quota error classification.** The Agent SDK reports API failures as a
     `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,
     e.g. a 429 "You've hit your session limit"), so "success" alone is not proof the
