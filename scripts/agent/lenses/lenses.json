@@ -15,7 +15,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "scopeClasses": ["code", "code-adjacent", "policy", "prose"],
+    "scopeClasses": ["code", "code-adjacent", "policy", "design-spec", "prose"],
     "model": "claude-opus-5",
     "samples": 2
   },
@@ -56,6 +56,7 @@
     "needsIssueSpec": false,
     "appliesWhen": [
       "docs/**/*.md",
+      "docs/**/*.txt",
       "*.md",
       "*.txt",
       "packages/*/README.md",

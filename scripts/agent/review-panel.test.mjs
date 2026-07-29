@@ -339,17 +339,54 @@ test("routing coverage: every file class has a blocking lens that reads it", () 
 // is asserted by NAME, not just by the generic loop above. security stays on it:
 // prose is where planted instructions live, and it is the always-applicable
 // blocking lens.
-test("routing coverage: prose is still read by a blocking always-on lens", () => {
+// security is the ONE lens routing must never narrow. Every other lens has a
+// subject-matter lane, so giving it less to read only costs it findings in its
+// own lane. security's lane is "anything in this diff that is hostile", which is
+// not a property of any one file class: a planted instruction or a pasted
+// credential can live in code, a fixture, a workflow, a design doc, or a task
+// file. Before routing it read the whole diff; it must keep reading the whole
+// diff, or the routing has quietly relocated the security gate.
+//
+// Caught two ways here, because the generic per-class loop above cannot: that
+// loop is satisfied by ANY blocking owner, so `design-spec` looked covered while
+// only design-fit — a lens whose system prompt tells it to defer security
+// concerns — was reading it.
+test("routing coverage: security reads every file class", () => {
   const security = lensOf("security");
-  assert.ok(security.scopeClasses.includes("prose"),
-    "security dropped `prose`: injection/secret review of narration would fall to the docs lens alone");
+  assert.deepEqual(
+    [...security.scopeClasses].sort(),
+    [...FILE_CLASSES].sort(),
+    "security must read every file class — narrowing it moves the security gate off a class of files",
+  );
   assert.equal(String(security.gating ?? "blocking"), "blocking");
-  assert.ok((security.appliesWhen ?? ["**"]).includes("**"));
+  assert.ok((security.appliesWhen ?? ["**"]).includes("**"), "security must apply to every diff");
+});
 
+test("routing coverage: the docs lens runs on exactly the prose it is scoped to", () => {
   const docs = lensOf("docs");
   assert.deepEqual(docs.scopeClasses, ["prose"]);
-  assert.ok(lensApplies(docs, ["docs/tasks/active/x-todo.md"]), "docs must run on a narration-only PR");
-  // ...and stay out of the way of a pure code change.
+
+  // appliesWhen decides whether docs RUNS; scopeClasses decides what it READS.
+  // If a path classifies as `prose` but no appliesWhen glob matches it, the lens
+  // is skipped and that file is never prose-reviewed — the two lists drifting
+  // apart is silent. Assert one representative path per prose rule.
+  for (const p of [
+    "docs/tasks/active/x-todo.md",
+    "docs/tasks/active/x-notes.txt",   // the .txt variant appliesWhen once missed
+    "docs/site/guide.md",
+    "README.md",
+    "NOTES.txt",
+    "packages/backend/README.md",
+    "packages/documentation/src/guide/intro.md",
+    "packages/documentation/src/guide/intro.mdx",
+    ".changeset/olive-pans-smile.md",
+  ]) {
+    assert.equal(classifyFile(p), "prose", `${p} is no longer classified as prose`);
+    assert.ok(lensApplies(docs, [p]),
+      `${p} classifies as prose but docs.appliesWhen does not match it — the lens would never run`);
+  }
+
+  // ...and it stays out of the way of a pure code change.
   assert.equal(lensApplies(docs, ["packages/sheets/src/a.ts"]), false);
 });
 
