@@ -257,14 +257,21 @@ export function sliceDiffByFile(diffText) {
 }
 
 /**
+ * The classes a lens reads. No `scopeClasses` (un-migrated or hand-added entry)
+ * means EVERYTHING — an omission must fail toward more review, not toward a
+ * silently empty diff.
+ */
+function lensScope(lens) {
+  const declared = lens?.scopeClasses;
+  return new Set(Array.isArray(declared) && declared.length > 0 ? declared : FILE_CLASSES);
+}
+
+/**
  * The diff body one lens receives: its in-scope blocks, in original order.
- * A lens with no `scopeClasses` gets EVERYTHING — an un-migrated or hand-added
- * manifest entry must fail toward more review, not toward a silently empty diff.
- * Returns "" when nothing is in scope; main() turns that into skipped/neutral.
+ * Returns "" when none of this diff's files are in scope.
  */
 export function diffForLens(lens, fileBlocks) {
-  const declared = lens?.scopeClasses;
-  const scope = new Set(Array.isArray(declared) && declared.length > 0 ? declared : FILE_CLASSES);
+  const scope = lensScope(lens);
   return fileBlocks
     .filter((b) => scope.has(classifyFile(b.path)))
     .map((b) => b.block)
@@ -272,26 +279,63 @@ export function diffForLens(lens, fileBlocks) {
 }
 
 /**
+ * Does this PR touch anything this lens reads? Answered from the CUMULATIVE
+ * changed-file list, never from the diff — see `lensReviewPlan` for why that
+ * distinction is the whole point.
+ *
+ * Falls back to the diff when no changed-file list was supplied (`--changed-files`
+ * is optional), which is the best available answer and matches the pre-existing
+ * behaviour for those callers.
+ */
+export function lensHasScope(lens, changedFiles, fileBlocks) {
+  const files = Array.isArray(changedFiles) ? changedFiles : [];
+  if (files.length === 0) return diffForLens(lens, fileBlocks).trim() !== "";
+  const scope = lensScope(lens);
+  return files.some((f) => scope.has(classifyFile(f)));
+}
+
+/**
  * Decide, for one lens, whether it reviews this round and what diff it gets.
- * Returns `{ skip: null, diff }` to review, or `{ skip: <reason> }` to report a
- * skipped/neutral verdict.
+ * Returns `{ skip: <reason> }` to report a skipped/neutral verdict, or
+ * `{ skip: null, diff }` to review — where `diff` may be `""`, which is NOT the
+ * same thing as skipping. See below.
  *
  * Extracted from main() so the decision is EXECUTED by tests rather than
  * asserted by grepping main()'s source. It carries the gate's sharpest edge:
- * both skips must reach panel.json as `applicable: false`. The workflow builds
+ * a skip must reach panel.json as `applicable: false`. The workflow builds
  * required_checks from `blocking && applicable` and then blocks on any
  * conclusion other than `success`, mapping skipped → neutral — so an
  * `applicable: true` skip is a required check that can never go green.
+ *
+ * WHY THE SCOPE TEST READS `changedFiles` AND NOT THE DIFF. Under
+ * `--review-mode incremental` the diff is only what changed SINCE THE LAST
+ * ROUND, while `changedFiles` stays cumulative for the whole PR (deliberately —
+ * see `resolveReviewScope`). Deciding "has this lens anything to review?" from
+ * the diff would therefore answer a different question each round: a round that
+ * only fixes a typo in a task file would leave correctness with an empty slice,
+ * mark it not-applicable, and drop it out of required_checks — so a correctness
+ * finding from round 1 would stop gating in round 2, and the PR would promote
+ * with an open blocker. That is exactly the failure `--changed-files` is kept
+ * cumulative to prevent; reading the diff here would reintroduce it one axis
+ * over. The cumulative list makes this decision monotonic, like `lensApplies`.
+ *
+ * So the two outcomes are genuinely different:
+ *   skip            — this PR contains nothing this lens reads. Neutral, not gating.
+ *   review, diff "" — the PR does contain files it reads, but none changed in
+ *                     THIS round. The lens stays required; main() skips detection
+ *                     and runs only the prior-round re-check, which is what
+ *                     decides whether an earlier finding is now resolved.
  */
 export function lensReviewPlan(lens, changedFiles, fileBlocks) {
   if (!lensApplies(lens, changedFiles)) {
     return { skip: "Not applicable to the changed files." };
   }
-  // Applies, but nothing in its scope changed (correctness on a docs-only PR).
-  // Not a finding and not fail-closed: the hunks belong to another lens.
-  const diff = diffForLens(lens, fileBlocks);
-  if (diff.trim() === "") return { skip: "No changed files in this lens's scope." };
-  return { skip: null, diff };
+  // Applies, but this PR changes nothing it reads (correctness on a docs-only
+  // PR). Not a finding and not fail-closed: those hunks are another lens's scope.
+  if (!lensHasScope(lens, changedFiles, fileBlocks)) {
+    return { skip: "No changed files in this lens's scope." };
+  }
+  return { skip: null, diff: diffForLens(lens, fileBlocks) };
 }
 
 /**
@@ -913,6 +957,14 @@ async function main() {
       return;
     }
     const lensDiff = plan.diff;
+    // In scope for this PR, but nothing it reads changed in THIS round — only
+    // reachable under `--review-mode incremental`, where the diff is a delta.
+    // The lens stays applicable (it must keep gating; see lensReviewPlan), and
+    // detection is skipped because there is nothing new to detect. The
+    // prior-round re-check below still runs, and it is what resolves or keeps an
+    // earlier finding. In full mode this is always false: lensHasScope and the
+    // slice are then computed over the same set of files.
+    const noNewHunks = lensDiff.trim() === "";
 
     let findings, summary, ok;
     try {
@@ -921,7 +973,7 @@ async function main() {
       // sample is independent and individually caught: a sample that throws
       // contributes nothing, but if ALL samples fail we fall through to the
       // catch below (fail-closed, same as the old single-run crash path).
-      const results = await Promise.all(
+      const results = noNewHunks ? [] : await Promise.all(
         Array.from({ length: samples }, async () => {
           // Retry only genuinely-transient API errors (classifyResult); a
           // quota/session-limit fails through immediately (can't clear in-run).
@@ -930,7 +982,9 @@ async function main() {
         }),
       );
       ok = results.filter((r) => r && !r.__error);
-      if (ok.length === 0) {
+      // `noNewHunks` ran zero samples ON PURPOSE, so zero successes is the
+      // expected outcome there, not the all-samples-failed disaster below.
+      if (!noNewHunks && ok.length === 0) {
         // All samples failed. If ANY failed on an API/quota error, this is an
         // INFRASTRUCTURE failure (the reviewer never ran), NOT a review finding —
         // tag it so the panel pages honestly instead of inventing "changes requested".
@@ -941,8 +995,10 @@ async function main() {
       }
       // unionSamples coerces (never drops) + dedupes (collapses identical
       // file+summary, keeps highest severity, never merges distinct bugs).
-      findings = unionSamples(ok);
-      summary = ok.map((r) => (typeof r.summary === "string" ? r.summary : "")).filter(Boolean).join("\n\n");
+      findings = noNewHunks ? [] : unionSamples(ok);
+      summary = noNewHunks
+        ? "No changes in this lens's scope since the last reviewed commit; re-checked earlier findings only."
+        : ok.map((r) => (typeof r.summary === "string" ? r.summary : "")).filter(Boolean).join("\n\n");
     } catch (err) {
       // Infra/quota error → the reviewer never ran. Fail closed (never promote),
       // but say so honestly and tag the entry so the workflow pages with the real
@@ -1012,7 +1068,9 @@ async function main() {
     const priorTally = verifierTally(priorForLens, priorVerdicts, verifyOpts);
     lensStats.push({
       id: lens.id,
-      samplesRun: samples,
+      // 0/0 when detection was skipped for want of new hunks — reporting the
+      // configured `samples` there would claim runs that never happened.
+      samplesRun: noNewHunks ? 0 : samples,
       samplesOk: ok.length,
       agreement: compareSampleAgreement(ok.map((r) => r.findings)),
       raised: severityCounts(findings),

@@ -25,6 +25,7 @@ import {
   sliceDiffByFile,
   diffForLens,
   lensReviewPlan,
+  lensHasScope,
   buildLensPrompt,
   resolveReviewScope,
 } from "./review-panel.mjs";
@@ -508,6 +509,47 @@ test("lens manifest: every scopeClasses entry is a real file class", () => {
   }
 });
 
+// The scope question must be answered from the CUMULATIVE changed-file list, not
+// from the diff, because under `--review-mode incremental` the diff is only the
+// delta since the last round. Answering it from the diff makes a lens's
+// applicability oscillate round to round, and an inapplicable lens is dropped
+// from required_checks — so a correctness finding raised in round 1 would stop
+// gating in round 2 just because round 2 only touched a task file. That is the
+// promote-with-an-open-blocker failure `--changed-files` is kept cumulative to
+// prevent; this asserts routing does not reintroduce it one axis over.
+test("lensHasScope: cumulative changed files decide scope, not the round's diff", () => {
+  const codeLens = { appliesWhen: ["**"], scopeClasses: ["code", "code-adjacent"] };
+  const cumulative = ["packages/sheets/src/a.ts", "docs/tasks/active/x-todo.md"];
+  // Round 2 of an incremental review: only the task file changed since round 1.
+  const deltaBlocks = [{ path: "docs/tasks/active/x-todo.md", block: "PROSE" }];
+
+  assert.equal(lensHasScope(codeLens, cumulative, deltaBlocks), true,
+    "a.ts is still part of this PR — correctness must stay in scope");
+  // ...whereas a PR that genuinely never touches code is out of scope.
+  assert.equal(lensHasScope(codeLens, ["docs/tasks/active/x-todo.md"], deltaBlocks), false);
+
+  // No changed-file list supplied (--changed-files is optional): fall back to
+  // the diff, the only signal available.
+  assert.equal(lensHasScope(codeLens, [], [{ path: "packages/sheets/src/a.ts", block: "CODE" }]), true);
+  assert.equal(lensHasScope(codeLens, [], deltaBlocks), false);
+});
+
+// The distinction the fix turns on: "skip" and "review an empty diff" are
+// different outcomes, and only the first is allowed to stop the lens gating.
+test("lensReviewPlan: in scope with no new hunks reviews (diff ''), never skips", () => {
+  const codeLens = { appliesWhen: ["**"], scopeClasses: ["code", "code-adjacent"] };
+  const cumulative = ["packages/sheets/src/a.ts", "docs/tasks/active/x-todo.md"];
+  const deltaBlocks = [{ path: "docs/tasks/active/x-todo.md", block: "PROSE" }];
+
+  const plan = lensReviewPlan(codeLens, cumulative, deltaBlocks);
+  assert.equal(plan.skip, null, "an incremental round with nothing new must NOT un-require the lens");
+  assert.equal(plan.diff, "", "and it has no new hunks to detect against");
+
+  // Same delta, but the PR really is prose-only → a genuine skip.
+  assert.match(lensReviewPlan(codeLens, ["docs/tasks/active/x-todo.md"], deltaBlocks).skip,
+    /No changed files in this lens's scope/);
+});
+
 test("lensReviewPlan: reviews, or skips with a reason and the right diff", () => {
   const blocks = [
     { path: "packages/sheets/src/a.ts", block: "CODE" },
@@ -544,6 +586,21 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   assert.match(src, /const lensDiff = plan\.diff/);
   assert.match(src, /runLens\(lens, \{ rubric: lens\.rubric, diff: lensDiff,/,
     "runLens must receive the SLICED diff, not the full one");
+
+  // An empty slice on an in-scope lens must skip DETECTION only. If it also
+  // short-circuited the prior-round re-check, an earlier blocking finding would
+  // never be re-verified and never re-persisted, so it would silently stop
+  // gating — the same fail-open, arrived at from the other side.
+  assert.match(src, /const noNewHunks = lensDiff\.trim\(\) === ""/);
+  assert.match(src, /const results = noNewHunks \? \[\] : await Promise\.all\(/,
+    "detection must be skipped when there are no new hunks");
+  assert.match(src, /if \(!noNewHunks && ok\.length === 0\)/,
+    "zero samples is expected when detection was skipped, not an all-samples-failed error");
+  // The prior-round re-check must sit OUTSIDE any noNewHunks guard.
+  const priorRecheck = /const priorForLens = priorFindings\.filter[\s\S]*?const priorKept = applyVerifications\([\s\S]*?\);/.exec(src);
+  assert.ok(priorRecheck, "the prior-round re-check is gone");
+  assert.ok(!/noNewHunks/.test(priorRecheck[0]),
+    "the prior-round re-check must run even when this round has no new hunks");
 });
 
 // The safety property that makes path-scoping survivable, asserted against the
