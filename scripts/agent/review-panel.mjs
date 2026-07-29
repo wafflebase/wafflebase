@@ -263,6 +263,62 @@ export function changedFileContext(changedFiles, max = 200) {
 }
 
 /**
+ * Resolve this run's review scope from the CLI args. Exported so both failure
+ * directions are testable — `main()` is not, and an untested fail-closed guard is
+ * a guard nobody has seen fire.
+ *
+ * This script does NOT decide the mode: it has no git or API access by design (it
+ * takes files, not commands). The caller resolves it with `resolveReviewMode` in
+ * review-state.mjs and passes the answer here.
+ *
+ * The default is `full` and `renderScopeNote` returns "" there, so the three
+ * existing callers — which pass none of these flags — get byte-identical prompts
+ * to before.
+ *
+ * `--changed-files` MUST stay cumulative even in incremental mode. Fed the delta's
+ * files instead, `lensApplies` could mark a narrow-glob lens inapplicable in
+ * round N; the workflow drops inapplicable lenses from `required_checks`; and a
+ * lens that FAILED in round 2 would silently stop being required in round 3 —
+ * promoting with an unresolved blocker.
+ *
+ * Two inconsistent invocations throw rather than review something, because both
+ * mean the caller and this script disagree about what the diff contains:
+ *   - incremental with no usable `--since-sha` — the lens would get a partial diff
+ *     with no scope note, i.e. review a fragment believing it is the whole PR;
+ *   - `--since-sha` present without `--review-mode incremental` — the caller
+ *     computed a narrowing and the mode flag did not arrive, which is exactly the
+ *     shape a typo or a lost workflow input takes. This script cannot detect a
+ *     narrowed diff from the diff itself, so this is the only reverse-direction
+ *     signal available, and it covers the realistic mechanism.
+ */
+export function resolveReviewScope(args, changedFiles) {
+  const a = args && typeof args === "object" ? args : {};
+  // Allow-list the risky value: any typo, empty string or unset variable must
+  // land on `full`. An `=== "full"` test would invert that.
+  const reviewMode = a["review-mode"] === "incremental" ? "incremental" : "full";
+  const scopeNote = renderScopeNote({
+    mode: reviewMode,
+    sinceSha: a["since-sha"],
+    baseSha: a["base-sha"],
+    changedFiles,
+  });
+  if (reviewMode === "incremental" && scopeNote === "") {
+    throw new Error(
+      "--review-mode incremental requires a valid 40-hex --since-sha; refusing to " +
+        "review a partial diff without telling the lens it is partial (failing closed).",
+    );
+  }
+  if (reviewMode !== "incremental" && a["since-sha"]) {
+    throw new Error(
+      `--since-sha was given (${a["since-sha"]}) without --review-mode incremental. ` +
+        "If the diff is narrowed, the lens must be told; if it is not, drop the flag. " +
+        "Refusing to guess (failing closed).",
+    );
+  }
+  return { reviewMode, scopeNote };
+}
+
+/**
  * Union the findings from N independent samples of one lens (Part 1: fight
  * false negatives from single-sample non-determinism). We take the UNION, not a
  * vote — a finding raised by any sample enters the gate (the verifier refute
@@ -622,40 +678,12 @@ async function main() {
     throw new Error("--diff-file is empty — refusing to review an empty diff (failing closed).");
   }
   const issue = args["issue-file"] && existsSync(args["issue-file"]) ? readFileSync(args["issue-file"], "utf8") : "";
-  // CUMULATIVE for the whole PR, never the delta — see the note on `scopeNote`.
+  // CUMULATIVE for the whole PR, never the delta — see `resolveReviewScope`.
   const changedFiles = args["changed-files"] && existsSync(args["changed-files"])
     ? readFileSync(args["changed-files"], "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
     : [];
-  // Incremental review. This script does NOT decide the mode: it has no git or
-  // API access by design (it takes files, not commands). The caller resolves it
-  // with `resolveReviewMode` in review-state.mjs and passes the answer here.
-  //
-  // Default is `full`, so the three existing callers that pass none of these
-  // flags produce byte-identical prompts to before. `renderScopeNote` returns ""
-  // in full mode, so even the concatenation is unchanged.
-  //
-  // `--changed-files` MUST stay cumulative even in incremental mode. Fed the
-  // delta's files instead, `lensApplies` could mark a narrow-glob lens
-  // inapplicable in round N; the workflow drops inapplicable lenses from
-  // `required_checks`; and a lens that FAILED in round 2 would silently stop
-  // being required in round 3 — promoting with an unresolved blocker.
-  const reviewMode = args["review-mode"] === "incremental" ? "incremental" : "full";
-  const scopeNote = renderScopeNote({
-    mode: reviewMode,
-    sinceSha: args["since-sha"],
-    baseSha: args["base-sha"],
-    changedFiles,
-  });
-  // A caller that asked for incremental but gave no usable --since-sha would
-  // otherwise get a delta diff with no scope note, i.e. a lens reviewing a
-  // fragment while believing it is the whole PR. Fail closed instead.
-  if (reviewMode === "incremental" && scopeNote === "") {
-    throw new Error(
-      "--review-mode incremental requires a valid 40-hex --since-sha; refusing to " +
-        "review a partial diff without telling the lens it is partial (failing closed).",
-    );
-  }
-  if (scopeNote !== "") console.log(`review scope: incremental since ${args["since-sha"]}`);
+  const { reviewMode, scopeNote } = resolveReviewScope(args, changedFiles);
+  if (reviewMode === "incremental") console.log(`review scope: incremental since ${args["since-sha"]}`);
   // ONE source of truth for the changed-file trust decision, shared by the
   // verifier prompt (which grounds it may offer) and the gate (which grounds it
   // will honour). `verifyOpts` is threaded to every applyVerifications /

@@ -8,13 +8,21 @@ behaviour yet** — every default preserves today's full-diff review.
 
 This is the **script half**. Workflow wiring is a follow-up.
 
-That split is not just size management. The script half is fully verifiable
-locally — `resolveReviewMode` is pure, so its whole decision table is a unit test.
-The wiring half is **not** locally verifiable: it depends on `external_id` round-
-tripping through the GitHub checks API, on `git merge-base --is-ancestor` against
-real branch history, and on a `workflow_run` context no local run reproduces.
-Landing the logic first, tested, makes the risky half small and reviewable in
-isolation instead of buried in a 1000-line diff.
+Two reasons, and the second one is not a choice:
+
+1. **Verifiability.** The script half is fully verifiable locally —
+   `resolveReviewMode` is pure, so its whole decision table is a unit test. The
+   wiring half is **not**: it depends on `external_id` round-tripping through the
+   GitHub checks API, on `git merge-base --is-ancestor` against real branch
+   history, and on a `workflow_run` context no local run reproduces. Landing the
+   logic first, tested, makes the risky half small and reviewable in isolation
+   instead of buried in a 1000-line diff.
+2. **A capability boundary.** The wiring edits `.github/workflows/**`, which the
+   agent App cannot push (no `workflows` scope — this is what blocked #564, and it
+   is deliberate: `ci.yml` runs on `pull_request`, so a branch that could rewrite
+   workflows could make CI pass on its own PR and defeat `mark-ready.mjs` gate 1).
+   So the wiring needs a human push regardless of how it is packaged, and the
+   scripts are the part that can travel the normal path.
 
 **In this PR:**
 
@@ -22,11 +30,15 @@ isolation instead of buried in a 1000-line diff.
       `parseReviewState`, `latestLensRuns`, `resolveReviewMode`,
       `renderScopeNote`.
 - [x] `scripts/agent/prior-findings.mjs` — `tagPriorFindings`, `lensCheckNames`,
+      `collectPrior` (API access injected so its failure paths are testable),
       plus a `gh`-CLI entry point, replacing ~40 lines of inline
       `github-script` (and the second copy #558 would have needed).
 - [x] `review-panel.mjs` — `--review-mode` / `--since-sha` / `--base-sha`, all
-      defaulting to today's behaviour; scope note threaded into the lens prompt.
-- [x] Tests (`review-state.test.mjs`, 17 cases) + the inertness guard.
+      defaulting to today's behaviour; `resolveReviewScope` and
+      `buildLensPrompt` exported so the scope decision and the rendered prompt
+      are both testable.
+- [x] Tests: `review-state.test.mjs`, `prior-findings.test.mjs`, and the
+      inertness guard in `review-panel.test.mjs`.
 
 **Follow-up (wiring):** stamp `external_id` on each check run, compute the git
 facts, `git diff --no-color -U15 <since> <head>` on narrowed rounds, replace the
@@ -42,7 +54,7 @@ is *designed* to lose data. A control field that decides whether code gets
 reviewed must not live in a lossy channel.
 
 `external_id` is a fixed 255-char slot the panel writes and nothing else touches.
-The widest shape here is ~170 chars, and `serializeReviewState` throws rather than
+The widest shape here is 183 chars, and `serializeReviewState` throws rather than
 emit something over the cap.
 
 ## The one rule
@@ -90,10 +102,13 @@ and any rebase or merge resets to full.
   lenses from `required_checks`; and a lens that **failed in round 2** would
   silently stop being required in round 3 — promoting with an unresolved blocker.
   Unreachable today. The comment and the constraint exist so it stays that way.
-- **Incremental without a scope note is refused.** A caller passing
-  `--review-mode incremental` with no usable `--since-sha` would otherwise get a
-  partial diff with no note — a lens reviewing a fragment while believing it is
-  the whole PR. `review-panel.mjs` throws instead.
+- **Incremental without a scope note is refused, and so is the reverse.** A caller
+  passing `--review-mode incremental` with no usable `--since-sha` would otherwise
+  get a partial diff with no note — a lens reviewing a fragment while believing it
+  is the whole PR. `resolveReviewScope` throws instead. It also throws on
+  `--since-sha` *without* the mode flag: this script cannot tell a narrowed diff
+  from a full one by looking at it, so the flag pair is the only signal there is,
+  and a lost or mistyped `--review-mode` is exactly how that pair comes apart.
 
 ## Deviation from the plan: no `countCompletedRounds`
 
@@ -106,16 +121,21 @@ kind of hand-maintained duplicate this series keeps having to fix (see
 
 ## Verification
 
-- `agent:tests`: **131 tests** green (was 117); 17 new in `review-state.test.mjs`.
+- `agent:tests`: **161 tests** green (was 148 on `main` after #578).
 - `pnpm verify:self` green.
-- **Inertness proven by execution, not by inspection.** `runLens` was extracted
-  from both `origin/main` and this branch and rendered against the same inputs
-  with no flags: the prompts are **byte-identical**. With a scope note they differ,
-  and the note lands *before* the diff.
-- That property is now a **test**, and it is mutation-tested against both
-  fail-open directions: making the scope-note push unconditional (which would add
-  a blank line to every prompt on every PR) and defaulting the mode to
-  incremental.
+- **Inertness proven by execution, not by inspection.** `runLens`'s prompt
+  assembly was extracted from `origin/main` and rendered beside this branch's
+  `buildLensPrompt` on identical inputs: **byte-identical**, 1012 bytes each. With
+  a scope note they differ, and the note lands *before* the diff.
+- That property is now a **test that renders the prompt** — the first version
+  grepped `review-panel.mjs` for two literal expressions, which cannot observe the
+  property it claimed, since any other edit to the assembly changes the prompt
+  while the regexes still match. `buildLensPrompt` and `resolveReviewScope` were
+  exported for that reason and no other.
+- `collectPrior` takes its API function as an argument, so all four of
+  `prior-findings.mjs`'s failure paths are covered, and each new guard is
+  mutation-tested: dropping the `checks.get` back-fill, dropping `--slurp`, and
+  collapsing the per-commit `catch` into one outer `try` each fail a test.
 - `resolveReviewMode`'s own test caught a real bug during development: a `= {}`
   parameter default only fires for `undefined`, so `resolveReviewMode(null)` threw
   — contradicting its no-throw contract. `renderScopeNote` had the identical bug

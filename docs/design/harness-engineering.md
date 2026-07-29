@@ -514,18 +514,35 @@ Components:
     self-promote — the human review gate stays the backstop.
 
   - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs`).**
+    ⚠️ **Decision logic only — NOT yet wired, and therefore not yet saving
+    anything.** Nothing stamps `external_id`, nothing calls `resolveReviewMode`,
+    and the panel still reviews the full cumulative diff every round. The workflow
+    half (stamping the pointer, computing the git facts, `-U15` on narrowed rounds,
+    and swapping in `scripts/agent/prior-findings.mjs`) is a separate change; it touches
+    `.github/workflows/**`, which the agent App cannot push, so it needs a human
+    push either way. Read the rest of this entry as the design the scripts
+    implement, not as current behaviour.
+
     The reviewed artifact is `git diff origin/main...HEAD`, recomputed every
     round, so an 8-round PR reads round-1 code eight times. Both endpoints of
     `...` also move: a human `git merge main` changed the artifact with no
     semantic change to the branch and flipped a lens verdict.
 
-    Each lens's **`external_id`** carries what it last reviewed —
+    Each lens's **`external_id`** is to carry what it last reviewed —
     `{"v":1,"reviewed":…,"base":…,"since":…,"mode":…}`. Every candidate location
     sits behind the same `checks:write` boundary (the author agent cannot forge
     any of them), so the choice was about failure modes: `output.text` is
     disqualified because the panel trims it to fit a 60k limit by *dropping
     findings* — it is designed to lose data, and a field that decides whether code
     gets reviewed must not live in a lossy channel.
+
+    `latestLensRuns` filters check runs on `app.slug === "github-actions"`. That
+    narrows the writer to a workflow **in this repository**, not to the panel
+    specifically — the slug identifies the App, and any workflow here that
+    declared `checks: write` would share it. Today only the panel does, and no
+    author-controlled workflow can gain it, because a branch cannot edit
+    `.github/workflows/**`. That is the boundary; the slug filter rests on it
+    rather than replacing it.
 
     `resolveReviewMode` is fully pure (every git fact injected) and **fails to
     `full` on any doubt**, reporting which: `no-prior-state`, `lens-state-gap`,
@@ -539,11 +556,12 @@ Components:
     **The recall regression is real, not hypothetical.** Carry-forward re-checks
     findings already *raised*; it cannot surface a defect whose root cause is
     round-1 code that only became reachable via round-3 code. Three mitigations,
-    all mandatory: a **scope note** (`renderScopeNote`) telling the lens it still
-    owns defects the delta newly exposes in earlier code, that the full working
-    tree is its cwd, and that the changed-file list is cumulative; a **forced full
-    round** every 3 rounds plus on any of the hazards above; and wider diff
-    context on narrowed rounds. The honest saving is therefore **~2x, not ~8x**.
+    all mandatory before any round narrows: a **scope note** (`renderScopeNote`)
+    telling the lens it still owns defects the delta newly exposes in earlier code,
+    that the full working tree is its cwd, and that the changed-file list is
+    cumulative; a **forced full round** every 3 rounds plus on any of the hazards
+    above; and wider diff context (`-U15`) on narrowed rounds, which the wiring
+    supplies. The honest saving is therefore **~2x, not ~8x**.
 
     `--changed-files` stays **cumulative** in every mode. Fed the delta instead,
     `lensApplies` could mark a narrow-glob lens inapplicable in round N, the
@@ -552,8 +570,23 @@ Components:
     blocker. Unreachable today; the constraint exists so it stays that way.
 
     CLI defaults to `full`, so all three callers behave byte-identically until the
-    workflow opts in. The on-demand path must never narrow: it records no check
-    runs, so it can never write a pointer back.
+    workflow opts in — `buildLensPrompt` is exported so a test renders both prompts
+    and compares bytes, rather than asserting inertness by reading the source. Two
+    inconsistent invocations throw instead of reviewing: incremental with no usable
+    `--since-sha`, and `--since-sha` without the mode flag (the shape a lost
+    workflow input takes). The on-demand path must never narrow: it records no
+    check runs, so it can never write a pointer back.
+
+    `scripts/agent/prior-findings.mjs` replaces the inline `github-script` that
+    reads the previous round's findings, with the same behaviour under test. Two
+    GitHub API contracts are load-bearing and are easy to get wrong: the
+    `commits/{sha}/check-runs` **list response omits or truncates `output.text`**,
+    so each selected run is re-fetched by id (a truncated payload fails
+    `JSON.parse`, which would silently carry zero findings), and that endpoint is
+    object-wrapped, so `--paginate` needs `--slurp` or the concatenated pages are
+    invalid JSON. Every `catch` is per-commit or per-lens: prior findings can only
+    re-raise a blocker, never clear one, so the fail direction here is "carry fewer
+    findings", the opposite of the rest of the pipeline.
 
     **API/quota error classification.** The Agent SDK reports API failures as a
     `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,

@@ -39,9 +39,18 @@ function sha(v) {
  * fails the panel step loudly, which is the correct direction.
  *
  * Key order is fixed so the value is stable across rounds and diffable by eye.
- * GitHub caps `external_id` at 255 characters; the widest shape here is ~170.
+ *
+ * GitHub caps `external_id` at 255 characters. With three validated 40-hex shas
+ * the widest shape is 183, so the cap check below cannot fire on valid input — it
+ * is a tripwire for a FUTURE field, so the limit is hit here with a stack trace
+ * rather than at GitHub with a silently rejected or truncated value.
  */
-export function serializeReviewState({ reviewed, base, since, mode }) {
+export function serializeReviewState(opts) {
+  // Coerced rather than destructured directly, so `serializeReviewState()` and
+  // `(null)` raise this module's own descriptive error instead of an opaque
+  // TypeError from the destructuring itself. It still throws — that is the
+  // contract — just legibly.
+  const { reviewed, base, since, mode } = opts && typeof opts === "object" ? opts : {};
   const r = sha(reviewed);
   if (!r) throw new Error(`review state: 'reviewed' must be a 40-hex sha (got ${JSON.stringify(reviewed)})`);
   if (!MODES.has(mode)) throw new Error(`review state: 'mode' must be full|incremental (got ${JSON.stringify(mode)})`);
@@ -65,12 +74,21 @@ export function serializeReviewState({ reviewed, base, since, mode }) {
  */
 export function parseReviewState(raw) {
   if (typeof raw !== "string" || raw === "") return null;
-  let d;
   try {
-    d = JSON.parse(raw);
+    return normalizeState(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+/**
+ * Validate an already-parsed state record. Factored out of `parseReviewState` so
+ * that `resolveReviewMode`, whose callers may hand it pre-parsed states, applies
+ * the SAME checks — otherwise a record this module would reject could still drive
+ * a narrowing decision, and the validation it argues is load-bearing would be
+ * skippable by passing an object instead of a string.
+ */
+function normalizeState(d) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return null;
   if (d.v !== REVIEW_STATE_VERSION) return null;
   const reviewed = sha(d.reviewed);
@@ -87,14 +105,35 @@ export function parseReviewState(raw) {
 /**
  * Latest COMPLETED run per lens check name, from a flat list of check runs.
  *
- * Shared by `prior-findings.mjs`, which needs the same "which run speaks for this
- * lens" answer — one implementation rather than two that drift.
+ * Shared with `prior-findings.mjs`, which needs the same "which run speaks for
+ * this lens" answer. (`rounds.mjs::groupReviewRounds` answers a related but
+ * different question — latest per lens WITHIN one commit, as part of grouping
+ * commits into rounds — and is deliberately not refactored onto this: it feeds
+ * the round-guard page path, and widening this PR into that path would put a
+ * gate file in an inert change.)
  *
- * Two filters carry weight:
- *   - `app.slug === "github-actions"` — only the panel workflow may speak for a
- *     lens. Without it any App able to post a check could inject state.
+ * Three filters carry weight:
+ *   - `app.slug === "github-actions"` — the run came from a GitHub Actions
+ *     workflow in this repository, not from another App. This is NOT per-workflow
+ *     identity: any workflow here that declared `checks: write` could post a run
+ *     under the same slug. Today none does but the panel, and no author workflow
+ *     can gain it (a branch cannot edit `.github/workflows/**` — the agent App
+ *     has no `workflows` scope). That is an invariant maintained by review, which
+ *     this filter narrows but does not by itself enforce.
  *   - `status === "completed"` — a queued/in-progress run has a newer timestamp
  *     but no verdict yet, and would otherwise shadow the last real one.
+ *   - ties broken by `id`, not by input order. `completed_at` has one-second
+ *     granularity, so two runs of a lens can share it; ranking on timestamp alone
+ *     would then pick whichever the API happened to list last. Check-run ids
+ *     increase monotonically, so the larger id is the later run — deterministic
+ *     regardless of response order.
+ *
+ * `conclusion` is deliberately NOT filtered, and the two callers rely on the
+ * newest run winning either way. Carry-forward wants whatever findings the lens
+ * last persisted. Review state wants the newest run precisely BECAUSE a failed or
+ * neutral run carries no `external_id`: that parses as no state, which forces a
+ * full round. Preferring an older successful run instead would hand back a stale
+ * pointer and narrow past the commits the failed round never reviewed.
  */
 export function latestLensRuns(runs, lensCheckNames) {
   const want = new Set(Array.isArray(lensCheckNames) ? lensCheckNames : []);
@@ -106,8 +145,9 @@ export function latestLensRuns(runs, lensCheckNames) {
     if (r.status !== "completed") continue;
     const t = new Date(r.completed_at || r.started_at || 0).getTime();
     const at = Number.isFinite(t) ? t : 0;
+    const id = Number.isFinite(r.id) ? r.id : 0;
     const cur = out.get(r.name);
-    if (!cur || at >= cur.at) out.set(r.name, { run: r, at });
+    if (!cur || at > cur.at || (at === cur.at && id > cur.id)) out.set(r.name, { run: r, at, id });
   }
   return new Map([...out].map(([name, { run }]) => [name, run]));
 }
@@ -118,6 +158,12 @@ export function latestLensRuns(runs, lensCheckNames) {
  *
  * Returns `{ mode, sinceSha, reason }`. `mode` is `full` unless every condition
  * for a safe narrowing holds; `sinceSha` is non-empty only when `incremental`.
+ *
+ * CALLER CONTRACT: `isAncestor`, `hasMergeInRange` and `deltaLines` must be
+ * computed for the range ending at `headSha` and starting at the sha the `states`
+ * name — the same pointer this returns as `sinceSha`. Nothing here can check that
+ * (the whole point of injecting them), so facts measured against a different
+ * range would validate one range and narrow another.
  *
  * `reason` is a superset of the values the plan sketched, because a fused reason
  * is a worse diagnostic: `lens-state-divergence`, `no-new-commits`, and
@@ -158,16 +204,43 @@ export function resolveReviewMode(opts) {
   // its last verdict and now, and an incremental round would never show them to
   // it. One lens short is enough to force a full round for all of them — the
   // reviewed artifact is global, so partial narrowing is not on offer.
+  //
+  // This is also what covers "a check run exists but no review happened", which is
+  // NOT a separate input here and does not need to be. The pointer is stamped only
+  // when a lens produced a real verdict, so a crashed, quota-failed, skipped or
+  // otherwise `neutral` run carries no `external_id` at all; `latestLensRuns`
+  // hands back that newest run, it parses as no state, and this check forces
+  // `full`. Same for a lens that was inapplicable in earlier rounds and becomes
+  // applicable now: no state, so no narrowing until it has reviewed a full diff
+  // once. Coverage is proven by the presence of a pointer, not asserted alongside
+  // it.
+  // Keyed by lens id (`correctness`) OR by check name (`agent-review-correctness`),
+  // because `latestLensRuns` returns the latter and `lensIds` are the former.
+  // Accepting both removes a silent trap: the natural composition of the two would
+  // otherwise find no state for any lens, report `no-prior-state` forever, and
+  // never narrow anything with nothing to indicate a mistake.
+  //
+  // `Object.hasOwn` rather than a bare index: a lens id of `constructor` would
+  // otherwise pick up `Object.prototype.constructor` as if it were state.
+  const pick = (k) => {
+    if (states instanceof Map) return states.get(k);
+    return states && typeof states === "object" && Object.hasOwn(states, k) ? states[k] : undefined;
+  };
   const get = (id) => {
-    const v = states instanceof Map ? states.get(id) : states?.[id];
-    // Accept either a parsed state or the raw external_id string.
-    return typeof v === "string" ? parseReviewState(v) : (v ?? null);
+    const v = pick(id) ?? pick(`agent-review-${id}`);
+    // Either a raw external_id string or an already-parsed record — both go
+    // through the same validation, so pre-parsing cannot skip it.
+    return typeof v === "string" ? parseReviewState(v) : normalizeState(v);
   };
   const found = ids.map(get);
   if (found.every((s) => !s)) return full("no-prior-state");
-  if (found.some((s) => !s || !sha(s.reviewed))) return full("lens-state-gap");
+  // `!s` is the whole test: anything `get` returns non-null came through
+  // `normalizeState`, so `reviewed` is already a validated 40-hex sha. A second
+  // check here would be unreachable, and an unreachable condition in a gate reads
+  // as protection that is not doing anything.
+  if (found.some((s) => !s)) return full("lens-state-gap");
 
-  const reviewedSet = new Set(found.map((s) => sha(s.reviewed)));
+  const reviewedSet = new Set(found.map((s) => s.reviewed));
   // Lenses normally stamp the same head SHA in one panel run. They diverge only
   // when a lens missed a round (infra error), which is the same coverage hole as
   // a gap — and picking the newest would skip commits the laggard never saw,
@@ -246,10 +319,16 @@ export function renderScopeNote(opts) {
     "  to read files the diff does not show you — that is expected, not out of scope.",
     "- The changed-file list you were given is CUMULATIVE for the whole pull request,",
     "  not just this delta. Use it to find what else the PR has already touched.",
-    files.length > 0 ? `- Files changed by the PR so far: ${files.length}.` : "",
+    files.length > 0 ? `- Files changed by the PR so far: ${files.length}.` : null,
     "",
     "This is DATA about your task, not an instruction from the code under review.",
   ]
-    .filter((l) => l !== "")
+    // `!== null`, NOT `!== ""`. Filtering empty strings would delete every blank
+    // line above, collapsing the note into one block: the heading would run into
+    // the paragraph and the closing DATA line would become a lazy continuation of
+    // the last bullet. A `null` sentinel drops only the optional line. This exact
+    // filter ate the verifier prompt's separators earlier in this series — hence
+    // the rendered-output test rather than a substring match.
+    .filter((l) => l !== null)
     .join("\n");
 }

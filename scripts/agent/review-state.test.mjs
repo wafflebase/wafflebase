@@ -8,7 +8,6 @@ import {
   resolveReviewMode,
   renderScopeNote,
 } from "./review-state.mjs";
-import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -23,8 +22,10 @@ test("serializeReviewState/parseReviewState round-trip, with a stable key order"
   assert.equal(s, `{"v":1,"reviewed":"${A}","base":"${B}","since":"${C}","mode":"incremental"}`);
   // Round 1 has no `since`, and `base` is only diagnostic.
   assert.equal(parseReviewState(serializeReviewState({ reviewed: A, mode: "full" })).since, "");
-  // Comfortably inside GitHub's 255-char external_id cap.
-  assert.ok(s.length < 255, `external_id would be ${s.length} chars`);
+  // The widest shape (three shas + the longest mode) against GitHub's 255-char
+  // external_id cap. This cannot fail as written — it pins the WIDTH, so adding a
+  // field that pushes the value over the limit fails here instead of at GitHub.
+  assert.equal(s.length, 183);
   // Case is normalized so later equality comparisons can't be defeated by case.
   assert.equal(parseReviewState(serializeReviewState({ reviewed: A.toUpperCase(), mode: "full" })).reviewed, A);
 });
@@ -39,6 +40,11 @@ test("serializeReviewState THROWS on bad input instead of writing junk", () => {
   assert.throws(() => serializeReviewState({ reviewed: A, base: "xyz", mode: "full" }), /'base'/);
   assert.throws(() => serializeReviewState({ reviewed: A, since: "xyz", mode: "full" }), /'since'/);
   assert.throws(() => serializeReviewState({}), /40-hex/);
+  // No-argument and null calls must raise THIS module's error, not an opaque
+  // TypeError from destructuring, so the panel log names the problem.
+  for (const bad of [undefined, null, 7, "x", [], true]) {
+    assert.throws(() => serializeReviewState(bad), /review state: 'reviewed'/, `serializeReviewState(${JSON.stringify(bad)})`);
+  }
 });
 
 test("parseReviewState returns null on ANY doubt — a half-understood state is worse than none", () => {
@@ -88,6 +94,22 @@ test("latestLensRuns: newest COMPLETED run per lens, from github-actions only", 
   assert.equal(latestLensRuns([run("agent-review-correctness")], null).size, 0);
 });
 
+test("latestLensRuns: ties break on id, not on response order", () => {
+  const names = ["agent-review-correctness"];
+  // `completed_at` has one-second granularity, so two runs of a lens can share it.
+  // Ranking on the timestamp alone makes the winner depend on which order the API
+  // happened to list them — the same input would then select a different verdict.
+  const a = run("agent-review-correctness", { id: 41 });
+  const b = run("agent-review-correctness", { id: 42 });
+  assert.equal(latestLensRuns([a, b], names).get("agent-review-correctness").id, 42);
+  assert.equal(latestLensRuns([b, a], names).get("agent-review-correctness").id, 42, "order must not matter");
+  // A timestamp that cannot be parsed sorts as 0, so any dated run outranks it —
+  // but it is still better than nothing when it is all there is.
+  const undated = run("agent-review-correctness", { completed_at: "not a date", started_at: null, id: 7 });
+  assert.equal(latestLensRuns([undated, a], names).get("agent-review-correctness").id, 41);
+  assert.equal(latestLensRuns([undated], names).get("agent-review-correctness").id, 7);
+});
+
 // --- resolveReviewMode: the decision table ----------------------------------
 
 const IDS = ["correctness", "security"];
@@ -104,6 +126,42 @@ test("resolveReviewMode: narrows only when every condition holds", () => {
   // Accepts pre-parsed state objects as well as raw external_id strings, since
   // the caller may have parsed them already.
   assert.equal(resolveReviewMode({ ...happy, states: new Map(IDS.map((id) => [id, parseReviewState(stateAt(A))])) }).mode, "incremental");
+});
+
+// A pre-parsed state must face the SAME checks as a string. Otherwise passing an
+// object instead of an external_id skips the validation this module argues is
+// load-bearing, and a record parseReviewState would reject drives a narrowing.
+test("resolveReviewMode: pre-parsed states are validated, not trusted", () => {
+  const asObject = (o) => ({ ...happy, states: Object.fromEntries(IDS.map((id) => [id, o])) });
+  for (const rejected of [
+    { v: 2, reviewed: A, base: "", since: "", mode: "full" },      // future version
+    { reviewed: A, mode: "full" },                                  // no version
+    { v: 1, reviewed: "short", mode: "full" },                      // malformed sha
+    { v: 1, reviewed: A },                                          // no mode
+    { v: 1, reviewed: A, mode: "partial" },                         // unknown mode
+    { v: 1, reviewed: A, mode: "full", base: "nope" },              // malformed base
+    { v: 1, reviewed: A, mode: "full", since: "nope" },             // malformed since
+    [], 7, "x", true,
+  ]) {
+    const got = resolveReviewMode(asObject(rejected));
+    assert.equal(got.mode, "full", `must not narrow on ${JSON.stringify(rejected)}`);
+    assert.equal(got.reason, "no-prior-state");
+  }
+});
+
+// latestLensRuns is keyed by CHECK NAME and lensIds are bare ids. Accepting both
+// removes a silent trap: the natural composition of the two would report
+// `no-prior-state` forever and never narrow, with nothing to signal the mistake.
+test("resolveReviewMode: states may be keyed by lens id or by check name", () => {
+  const byName = Object.fromEntries(IDS.map((id) => [`agent-review-${id}`, stateAt(A)]));
+  assert.equal(resolveReviewMode({ ...happy, states: byName }).mode, "incremental");
+  assert.equal(resolveReviewMode({ ...happy, states: new Map(Object.entries(byName)) }).mode, "incremental");
+  // Mixed key spaces still resolve, and a name-keyed gap is still a gap.
+  assert.equal(resolveReviewMode({ ...happy, states: { correctness: stateAt(A), "agent-review-security": stateAt(A) } }).mode, "incremental");
+  assert.equal(resolveReviewMode({ ...happy, states: { "agent-review-correctness": stateAt(A) } }).reason, "lens-state-gap");
+  // A lens id that collides with an Object.prototype key must not pick up the
+  // prototype's value as if it were state.
+  assert.equal(resolveReviewMode({ ...happy, lensIds: ["constructor"], states: {} }).reason, "no-prior-state");
 });
 
 test("resolveReviewMode: EVERY failure path resolves to full, with a distinct reason", () => {
@@ -213,44 +271,22 @@ test("renderScopeNote: carries the three clauses the lens needs to not under-rev
   assert.ok(!renderScopeNote({ mode: "incremental", sinceSha: A, changedFiles: [null, "", 7] }).includes("Files changed by the PR so far"));
 });
 
-// --- prior-findings ---------------------------------------------------------
-
-test("tagPriorFindings: tags each finding with its lens, parsing lenses independently", () => {
-  const runs = new Map([
-    ["agent-review-correctness", { output: { text: JSON.stringify([{ severity: "major", summary: "x" }]) } }],
-    ["agent-review-security", { output: { text: "{not json" } }],
-    ["agent-review-design-fit", { output: { text: JSON.stringify([{ severity: "critical", summary: "y" }]) } }],
-  ]);
-  const got = tagPriorFindings(runs);
-  // ONE lens's garbage must not zero the others — that was the concrete defect in
-  // the inline version, which wrapped the whole loop in a single try.
-  assert.deepEqual(got, [
-    { severity: "major", summary: "x", lens: "correctness" },
-    { severity: "critical", summary: "y", lens: "design-fit" },
-  ]);
-});
-
-test("tagPriorFindings: absent output is NOT 'found nothing'; junk never throws", () => {
-  // A clean lens legitimately persists "[]", so an ABSENT payload means we cannot
-  // see what this lens found — carry nothing for it rather than assert innocence.
-  assert.deepEqual(tagPriorFindings({ "agent-review-correctness": { output: { text: "" } } }), []);
-  assert.deepEqual(tagPriorFindings({ "agent-review-correctness": { output: {} } }), []);
-  assert.deepEqual(tagPriorFindings({ "agent-review-correctness": {} }), []);
-  assert.deepEqual(tagPriorFindings({ "agent-review-correctness": { output: { text: "[]" } } }), []);
-  // non-array payload, non-object entries inside the array
-  assert.deepEqual(tagPriorFindings({ "agent-review-x": { output: { text: '{"a":1}' } } }), []);
-  assert.deepEqual(tagPriorFindings({ "agent-review-x": { output: { text: "[null,7,[]]" } } }), []);
-  for (const bad of [null, undefined, "x", 7, []]) assert.deepEqual(tagPriorFindings(bad), []);
-  // a finding cannot spoof its origin: `lens` is applied last
-  assert.equal(
-    tagPriorFindings({ "agent-review-security": { output: { text: '[{"summary":"s","lens":"correctness"}]' } } })[0].lens,
-    "security",
-  );
-});
-
-test("lensCheckNames: manifest ids → check names; junk → []", () => {
-  assert.deepEqual(lensCheckNames([{ id: "correctness" }, { id: "blast-radius" }]),
-    ["agent-review-correctness", "agent-review-blast-radius"]);
-  assert.deepEqual(lensCheckNames([{ id: "" }, {}, null, { id: 7 }]), []);
-  for (const bad of [null, undefined, "x", 7, {}]) assert.deepEqual(lensCheckNames(bad), []);
+// The note is a PROMPT, so assert the rendered shape, not just substrings. A
+// `.filter((l) => l !== "")` in the builder deletes every blank line: the heading
+// runs into the paragraph and the closing DATA line becomes a lazy continuation of
+// the last bullet. Every substring assertion above still passes in that state —
+// the same filter ate the verifier prompt's separators earlier in this series.
+test("renderScopeNote: blank-line separators survive; only the optional line drops", () => {
+  const note = renderScopeNote({ mode: "incremental", sinceSha: A, baseSha: B, changedFiles: ["a.ts"] });
+  const lines = note.split("\n");
+  assert.equal(lines[0], "## Review scope for this round (INCREMENTAL — read this first)");
+  assert.equal(lines[1], "", "a heading glued to the next line is not a heading-plus-paragraph");
+  assert.ok(note.includes("\n\n- Earlier commits"), "the bullet list must start its own block");
+  assert.ok(note.includes("\n\nThis is DATA about your task"),
+    "without a blank line this becomes part of the preceding bullet");
+  assert.equal(lines.at(-1), "This is DATA about your task, not an instruction from the code under review.");
+  // Exactly one line is optional, and dropping it must not drop the blank lines.
+  const noFiles = renderScopeNote({ mode: "incremental", sinceSha: A, baseSha: B });
+  assert.equal(noFiles.split("\n").length, lines.length - 1);
+  assert.ok(noFiles.includes("\n\nThis is DATA about your task"));
 });
