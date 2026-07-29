@@ -448,7 +448,51 @@ Components:
   the prompt — a prompt instruction the script does not check is not a rule. The
   metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
-  count of confident refutations the gate declined to act on. The
+  count of confident refutations the gate declined to act on.
+  A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
+  verifier structurally cannot: *did this change PUT this line here, carrying
+  code that already existed?* The verifier's independence means it never sees the
+  base, so from inside the branch checkout a line a refactor MOVED and a line the
+  change WROTE are identical, and the `pre-existing` ground is file-scoped so a
+  function relocated into a new file legitimately fails it. #578 demonstrated the
+  cost: a PR that lifted `classifyResult` verbatim into a new file had every
+  pre-existing bug in it re-reported as introduced-here, confirmed by the
+  verifier, and handed to the fixer.
+  The question is deliberately NARROWER than "is this code old". Code age is not
+  causation: a new guard bypassed by an untouched call site, a new caller
+  reaching an old unguarded path, a test that stopped covering a branch — those
+  defects live entirely in pre-base lines, and the blast-radius lens exists to
+  find them (its rubric orders it to cite the bypassing site, "not the diff line
+  that introduced the guard"; correctness and security carry the same out-of-diff
+  mandate). Demoting on line age alone would route that whole class off the gate.
+  So provenance takes **two** blames, and both must answer: plain `git blame`
+  says which commit put the line at this offset, and `git blame -w -C -C -C` says
+  which commit originally wrote that content. A line the change did not add is
+  `pre-existing` and is **never** demoted. Only a line the change ADDED whose
+  content predates the base is `relocated`, and that alone demotes. A whole-line
+  `git grep` against the base tree is a fallback for the second question only
+  when move-aware blame cannot answer (shallow clone) — never an override of it.
+  All probes run in the trusted script via async `execFile` (array args, no
+  shell, timeout); no capability is granted to a model. The result routes each
+  blocking finding to a **lane** (`routeFinding`): `blocking` gates as before,
+  `backlog` is reported with the base location that proves the code already
+  existed but does not gate, is **filtered out of the fixer's checklist**, and is
+  **not persisted** into the check's machine-readable findings (so it cannot
+  reach the carry-forward or the non-convergence detector either); `discarded`
+  remains reachable only through the unchanged `isDroppingVerdict`. Every
+  uncertain path — no `--base-sha`, a shallow clone, a git failure, a finding
+  with no `file:line`, a citation naming a different file — yields `unknown`,
+  which keeps the finding blocking. There is deliberately no file-level fallback:
+  demoting because a `file` string is absent from the changed-file list is a
+  string comparison, not a git answer. Carried-forward prior findings are not
+  routed at all, since their `line` was recorded against a tree the fixer has
+  since rewritten. `--base-sha` is the merge-base computed by the workflow and
+  passed in, never guessed: it is the same endpoint the reviewed diff uses, so
+  "what changed" and "what counts as already-there" cannot diverge.
+  `lensStats.lanes` reports `blocking`/`backlog`/`unknownOrigin` and
+  `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
+  beside a high `unknownOrigin` means the gate ran blind rather than that nothing
+  was relocated. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable

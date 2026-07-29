@@ -55,12 +55,59 @@ function section(findings, severity, heading) {
 }
 
 /**
+ * Findings the gate looked at and DEMOTED — real, but not caused by this change.
+ *
+ * Rendered apart from the severity sections and after them, because they are a
+ * different kind of statement: the severity sections say "fix this before
+ * merging", this one says "this is worth fixing, but not here, and here is the
+ * proof it predates you". Each row carries that proof — the base location the
+ * code already lives at, or failing that the commit that wrote it — so a reader
+ * can check the demotion by eye instead of trusting it. A demotion nobody can
+ * audit is just a silent drop with extra steps.
+ *
+ * This module is deliberately not lane-aware: the caller decides what was
+ * demoted and passes it in, so the routing vocabulary stays in one place.
+ */
+function demotedSection(demoted) {
+  const rows = Array.isArray(demoted) ? demoted.filter((f) => f && typeof f === "object") : [];
+  if (rows.length === 0) return "";
+  const body = rows
+    .map((f) => {
+      const where = f.file ? `\`${f.file}\` — ` : "";
+      const n = f.novelty ?? {};
+      // Only claim what a probe established. `alsoAt` is a location git matched;
+      // `contentSha` is the commit move-aware blame named AND that was checked
+      // against the base. Anything else prints no proof line rather than an
+      // unbacked assertion — an audit line that can be false is worse than none,
+      // because its whole job is to let a reader check the demotion.
+      const proof = n.alsoAt
+        ? `\n  - this line already exists at \`${n.alsoAt}\``
+        : n.contentSha
+          ? `\n  - content dates to \`${String(n.contentSha).slice(0, 9)}\`, which predates the base`
+          : "";
+      return `- ${where}${f.summary ?? "(no summary)"}${proof}`;
+    })
+    .join("\n");
+  return (
+    `\n### Relocated code — not written by this change (${rows.length}, not blocking)\n` +
+    "_Confirmed real. This change moved these lines here; the code itself already " +
+    "existed, so the defect is not this PR's to fix and does not gate it._\n" +
+    `${body}\n`
+  );
+}
+
+/**
  * Render the Markdown check-run body for a set of findings.
  * `advisory: true` marks a NON-GATING lens: its check always reports success, so
  * the body must not claim "changes requested" even when it raised a blocking
  * finding — otherwise a green check would open with a ❌ that contradicts it.
+ *
+ * `demoted` is the same idea one level down: those findings are excluded from
+ * `rawFindings` by the caller, so the header counts what actually gates. Passing
+ * them inside `rawFindings` instead would print "❌ 3 blocking" above a green
+ * check — the exact contradiction `advisory` exists to prevent.
  */
-export function renderSummaryMd(label, rawFindings, summaryText, { advisory = false } = {}) {
+export function renderSummaryMd(label, rawFindings, summaryText, { advisory = false, demoted = [] } = {}) {
   // Render from the NORMALIZED findings so an unknown severity (→ major) is
   // counted and shown as a blocking finding, not omitted or counted as zero.
   const { approved, blockingCount, findings } = classify(rawFindings);
@@ -74,6 +121,7 @@ export function renderSummaryMd(label, rawFindings, summaryText, { advisory = fa
     section(findings, "critical", "Critical") +
     section(findings, "major", "Major") +
     section(findings, "minor", "Minor (non-blocking)") +
-    section(findings, "nit", "Nit (non-blocking)")
+    section(findings, "nit", "Nit (non-blocking)") +
+    demotedSection(demoted)
   );
 }

@@ -165,10 +165,18 @@ jobs:
 
       # KEEP IN SYNC with the identical step in agent-review-on-demand.yml.
       - name: Compute diff + changed files (data for the reviewers)
+        id: diff
         if: steps.pr.outputs.number != ''
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
+          # The merge-base is the SAME endpoint the diff below uses (`...`), so
+          # "what this PR changed" and "what novelty.mjs treats as already-there"
+          # cannot disagree. Passed to the panel explicitly: the trusted script
+          # has no idea what the base branch is called, and a guessed base would
+          # silently mis-date every finding. If this is ever empty the panel just
+          # routes everything as it does today (blocking), so it fails inert.
+          echo "base=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
           # UNFILTERED on purpose: this list drives lensApplies → required_checks,
           # and a list that shrinks mid-PR would let a lens that FAILED an earlier
           # round silently stop being required, promoting an unresolved blocker.
@@ -344,12 +352,17 @@ jobs:
           # claude-code-action steps use. Export ONLY that one — no second
           # credential in a process whose cwd is the untrusted branch checkout.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Via env, never interpolated into the `run:` string. This step holds
+          # the Claude token, and repo convention keeps workflow expressions out
+          # of shell commands in jobs that hold secrets.
+          BASE_SHA: ${{ steps.diff.outputs.base }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --base-sha "$BASE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
@@ -396,8 +409,17 @@ jobs:
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
                 const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
                 const trim = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
+                // Only findings that actually GATE are persisted. This channel
+                // feeds three consumers — the fixer checklist, the next round's
+                // carry-forward, and the non-convergence detector — and a demoted
+                // finding is wrong input for all three: it is not the fixer's to
+                // fix, it must not be re-dated against a tree the fixer has since
+                // rewritten, and it can never shrink round over round. Demoted
+                // findings remain in verdict.json and in the human-readable
+                // summary, which is where they are meant to be read.
                 let blockers = (Array.isArray(v.findings) ? v.findings : [])
                   .filter((f) => norm(f.severity) === 'critical' || norm(f.severity) === 'major')
+                  .filter((f) => f.lane !== 'backlog')
                   .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
                 // Keep output.text VALID JSON within the 60k limit: NEVER slice the
                 // serialized string (that yields JSON the next round can't parse).

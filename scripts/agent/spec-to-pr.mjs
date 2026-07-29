@@ -290,6 +290,16 @@ function cmdReview(args) {
   } catch (e) {
     return fail(`could not build the working diff: ${e.message}`);
   }
+  // The merge-base the novelty gate dates findings against — the SAME endpoint
+  // the `...` diff above uses, so this local gate and the CI one agree about
+  // what counts as already-there. Separately try/caught and best-effort on
+  // purpose: without it the gate just runs inert (every finding stays blocking),
+  // which is the pre-gate behaviour and the safe direction, so it must not turn
+  // a reviewable diff into a hard failure.
+  let baseSha = null;
+  try {
+    baseSha = execFileSync("git", ["merge-base", "origin/main", "HEAD"], { encoding: "utf8" }).trim();
+  } catch { /* gate runs inert */ }
   if (dryRun) {
     console.log(`[dry-run] would review ${diffFile} via review-panel.mjs → ${outDir}`);
     return;
@@ -301,6 +311,7 @@ function cmdReview(args) {
         path.join(HERE, "review-panel.mjs"),
         "--diff-file", diffFile,
         "--changed-files", changedFile,
+        ...(baseSha ? ["--base-sha", baseSha] : []),
         "--lenses-dir", path.join(HERE, "lenses"),
         "--out", outDir,
       ],
