@@ -448,7 +448,51 @@ Components:
   the prompt — a prompt instruction the script does not check is not a rule. The
   metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
-  count of confident refutations the gate declined to act on. The
+  count of confident refutations the gate declined to act on.
+  A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
+  verifier structurally cannot: *did this change PUT this line here, carrying
+  code that already existed?* The verifier's independence means it never sees the
+  base, so from inside the branch checkout a line a refactor MOVED and a line the
+  change WROTE are identical, and the `pre-existing` ground is file-scoped so a
+  function relocated into a new file legitimately fails it. #578 demonstrated the
+  cost: a PR that lifted `classifyResult` verbatim into a new file had every
+  pre-existing bug in it re-reported as introduced-here, confirmed by the
+  verifier, and handed to the fixer.
+  The question is deliberately NARROWER than "is this code old". Code age is not
+  causation: a new guard bypassed by an untouched call site, a new caller
+  reaching an old unguarded path, a test that stopped covering a branch — those
+  defects live entirely in pre-base lines, and the blast-radius lens exists to
+  find them (its rubric orders it to cite the bypassing site, "not the diff line
+  that introduced the guard"; correctness and security carry the same out-of-diff
+  mandate). Demoting on line age alone would route that whole class off the gate.
+  So provenance takes **two** blames, and both must answer: plain `git blame`
+  says which commit put the line at this offset, and `git blame -w -C -C -C` says
+  which commit originally wrote that content. A line the change did not add is
+  `pre-existing` and is **never** demoted. Only a line the change ADDED whose
+  content predates the base is `relocated`, and that alone demotes. A whole-line
+  `git grep` against the base tree is a fallback for the second question only
+  when move-aware blame cannot answer (shallow clone) — never an override of it.
+  All probes run in the trusted script via async `execFile` (array args, no
+  shell, timeout); no capability is granted to a model. The result routes each
+  blocking finding to a **lane** (`routeFinding`): `blocking` gates as before,
+  `backlog` is reported with the base location that proves the code already
+  existed but does not gate, is **filtered out of the fixer's checklist**, and is
+  **not persisted** into the check's machine-readable findings (so it cannot
+  reach the carry-forward or the non-convergence detector either); `discarded`
+  remains reachable only through the unchanged `isDroppingVerdict`. Every
+  uncertain path — no `--base-sha`, a shallow clone, a git failure, a finding
+  with no `file:line`, a citation naming a different file — yields `unknown`,
+  which keeps the finding blocking. There is deliberately no file-level fallback:
+  demoting because a `file` string is absent from the changed-file list is a
+  string comparison, not a git answer. Carried-forward prior findings are not
+  routed at all, since their `line` was recorded against a tree the fixer has
+  since rewritten. `--base-sha` is the merge-base computed by the workflow and
+  passed in, never guessed: it is the same endpoint the reviewed diff uses, so
+  "what changed" and "what counts as already-there" cannot diverge.
+  `lensStats.lanes` reports `blocking`/`backlog`/`unknownOrigin` and
+  `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
+  beside a high `unknownOrigin` means the gate ran blind rather than that nothing
+  was relocated. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
@@ -512,6 +556,81 @@ Components:
 
     All three lower false-negative odds; none makes the panel safe to
     self-promote — the human review gate stays the backstop.
+
+  - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs`).**
+    ⚠️ **Decision logic only — NOT yet wired, and therefore not yet saving
+    anything.** Nothing stamps `external_id`, nothing calls `resolveReviewMode`,
+    and the panel still reviews the full cumulative diff every round. The workflow
+    half (stamping the pointer, computing the git facts, `-U15` on narrowed rounds,
+    and swapping in `scripts/agent/prior-findings.mjs`) is a separate change; it touches
+    `.github/workflows/**`, which the agent App cannot push, so it needs a human
+    push either way. Read the rest of this entry as the design the scripts
+    implement, not as current behaviour.
+
+    The reviewed artifact is `git diff origin/main...HEAD`, recomputed every
+    round, so an 8-round PR reads round-1 code eight times. Both endpoints of
+    `...` also move: a human `git merge main` changed the artifact with no
+    semantic change to the branch and flipped a lens verdict.
+
+    Each lens's **`external_id`** is to carry what it last reviewed —
+    `{"v":1,"reviewed":…,"base":…,"since":…,"mode":…}`. Every candidate location
+    sits behind the same `checks:write` boundary (the author agent cannot forge
+    any of them), so the choice was about failure modes: `output.text` is
+    disqualified because the panel trims it to fit a 60k limit by *dropping
+    findings* — it is designed to lose data, and a field that decides whether code
+    gets reviewed must not live in a lossy channel.
+
+    `latestLensRuns` filters check runs on `app.slug === "github-actions"`. That
+    narrows the writer to a workflow **in this repository**, not to the panel
+    specifically — the slug identifies the App, and any workflow here that
+    declared `checks: write` would share it. Today only the panel does, and no
+    author-controlled workflow can gain it, because a branch cannot edit
+    `.github/workflows/**`. That is the boundary; the slug filter rests on it
+    rather than replacing it.
+
+    `resolveReviewMode` is fully pure (every git fact injected) and **fails to
+    `full` on any doubt**, reporting which: `no-prior-state`, `lens-state-gap`,
+    `lens-state-divergence`, `no-new-commits`, `git-facts-unavailable`,
+    `force-push-or-rewrite`, `merge-in-range`, `periodic-rebaseline`,
+    `delta-too-large`, `invalid-input`, or `ok`. Correctness hazards are checked
+    before policy caps so the reported reason names a real problem when one
+    exists. Reviewing code twice costs tokens; reviewing it zero times ships a
+    bug — there is no case where "probably fine" resolves to `incremental`.
+
+    **The recall regression is real, not hypothetical.** Carry-forward re-checks
+    findings already *raised*; it cannot surface a defect whose root cause is
+    round-1 code that only became reachable via round-3 code. Three mitigations,
+    all mandatory before any round narrows: a **scope note** (`renderScopeNote`)
+    telling the lens it still owns defects the delta newly exposes in earlier code,
+    that the full working tree is its cwd, and that the changed-file list is
+    cumulative; a **forced full round** every 3 rounds plus on any of the hazards
+    above; and wider diff context (`-U15`) on narrowed rounds, which the wiring
+    supplies. The honest saving is therefore **~2x, not ~8x**.
+
+    `--changed-files` stays **cumulative** in every mode. Fed the delta instead,
+    `lensApplies` could mark a narrow-glob lens inapplicable in round N, the
+    workflow would drop it from `required_checks`, and a lens that FAILED in round
+    2 would silently stop being required in round 3 — promoting with an unresolved
+    blocker. Unreachable today; the constraint exists so it stays that way.
+
+    CLI defaults to `full`, so all three callers behave byte-identically until the
+    workflow opts in — `buildLensPrompt` is exported so a test renders both prompts
+    and compares bytes, rather than asserting inertness by reading the source. Two
+    inconsistent invocations throw instead of reviewing: incremental with no usable
+    `--since-sha`, and `--since-sha` without the mode flag (the shape a lost
+    workflow input takes). The on-demand path must never narrow: it records no
+    check runs, so it can never write a pointer back.
+
+    `scripts/agent/prior-findings.mjs` replaces the inline `github-script` that
+    reads the previous round's findings, with the same behaviour under test. Two
+    GitHub API contracts are load-bearing and are easy to get wrong: the
+    `commits/{sha}/check-runs` **list response omits or truncates `output.text`**,
+    so each selected run is re-fetched by id (a truncated payload fails
+    `JSON.parse`, which would silently carry zero findings), and that endpoint is
+    object-wrapped, so `--paginate` needs `--slurp` or the concatenated pages are
+    invalid JSON. Every `catch` is per-commit or per-lens: prior findings can only
+    re-raise a blocker, never clear one, so the fail direction here is "carry fewer
+    findings", the opposite of the rest of the pipeline.
 
     **API/quota error classification.** The Agent SDK reports API failures as a
     `result` message with `subtype:"success"` but `is_error:true` (+ `api_error_status`,

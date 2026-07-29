@@ -18,6 +18,24 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
+| review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./active/20260729-review-novelty-gate-todo.md) | - |
+| blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./active/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./active/20260728-blast-radius-lens-lessons.md) |
+| coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./active/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./active/20260728-coverage-first-rubrics-lessons.md) |
+| independent verifier (2026-07-28) | [20260728-independent-verifier-todo.md](./active/20260728-independent-verifier-todo.md) | [20260728-independent-verifier-lessons.md](./active/20260728-independent-verifier-lessons.md) |
+| model refresh opus 5 (2026-07-28) | [20260728-model-refresh-opus-5-todo.md](./active/20260728-model-refresh-opus-5-todo.md) | [20260728-model-refresh-opus-5-lessons.md](./active/20260728-model-refresh-opus-5-lessons.md) |
+| agent metrics cost weighting (2026-07-27) | [20260727-agent-metrics-cost-weighting-todo.md](./active/20260727-agent-metrics-cost-weighting-todo.md) | - |
+| detect stalled review rounds (2026-07-27) | [20260727-detect-stalled-review-rounds-todo.md](./active/20260727-detect-stalled-review-rounds-todo.md) | [20260727-detect-stalled-review-rounds-lessons.md](./active/20260727-detect-stalled-review-rounds-lessons.md) |
+| omit generated antlr from review (2026-07-27) | [20260727-omit-generated-antlr-from-review-todo.md](./active/20260727-omit-generated-antlr-from-review-todo.md) | [20260727-omit-generated-antlr-from-review-lessons.md](./active/20260727-omit-generated-antlr-from-review-lessons.md) |
+| scope review lenses (2026-07-27) | [20260727-scope-review-lenses-todo.md](./active/20260727-scope-review-lenses-todo.md) | [20260727-scope-review-lenses-lessons.md](./active/20260727-scope-review-lenses-lessons.md) |
+| tighten fixer implement prompts (2026-07-27) | [20260727-tighten-fixer-implement-prompts-todo.md](./active/20260727-tighten-fixer-implement-prompts-todo.md) | [20260727-tighten-fixer-implement-prompts-lessons.md](./active/20260727-tighten-fixer-implement-prompts-lessons.md) |
+| docs viewer read interaction (2026-07-24) | [20260724-docs-viewer-read-interaction-todo.md](./active/20260724-docs-viewer-read-interaction-todo.md) | [20260724-docs-viewer-read-interaction-lessons.md](./active/20260724-docs-viewer-read-interaction-lessons.md) |
+| document created sort (2026-07-24) | [20260724-document-created-sort-todo.md](./active/20260724-document-created-sort-todo.md) | [20260724-document-created-sort-lessons.md](./active/20260724-document-created-sort-lessons.md) |
+| local spec to pr pipeline (2026-07-24) | [20260724-local-spec-to-pr-pipeline-todo.md](./active/20260724-local-spec-to-pr-pipeline-todo.md) | [20260724-local-spec-to-pr-pipeline-lessons.md](./active/20260724-local-spec-to-pr-pipeline-lessons.md) |
+| notes collapsible sections (2026-07-24) | [20260724-notes-collapsible-sections-todo.md](./active/20260724-notes-collapsible-sections-todo.md) | [20260724-notes-collapsible-sections-lessons.md](./active/20260724-notes-collapsible-sections-lessons.md) |
+| notes empty bullet setext (2026-07-24) | [20260724-notes-empty-bullet-setext-todo.md](./active/20260724-notes-empty-bullet-setext-todo.md) | [20260724-notes-empty-bullet-setext-lessons.md](./active/20260724-notes-empty-bullet-setext-lessons.md) |
+| review panel metrics (2026-07-24) | [20260724-review-panel-metrics-todo.md](./active/20260724-review-panel-metrics-todo.md) | - |
+| sheets cell hyperlink (2026-07-24) | [20260724-sheets-cell-hyperlink-todo.md](./active/20260724-sheets-cell-hyperlink-todo.md) | [20260724-sheets-cell-hyperlink-lessons.md](./active/20260724-sheets-cell-hyperlink-lessons.md) |
 | visual harness pixel tolerance (2026-07-24) | [20260724-visual-harness-pixel-tolerance-todo.md](./active/20260724-visual-harness-pixel-tolerance-todo.md) | [20260724-visual-harness-pixel-tolerance-lessons.md](./active/20260724-visual-harness-pixel-tolerance-lessons.md) |
 | hyperlink tables consistency (2026-07-23) | [20260723-hyperlink-tables-consistency-todo.md](./active/20260723-hyperlink-tables-consistency-todo.md) | [20260723-hyperlink-tables-consistency-lessons.md](./active/20260723-hyperlink-tables-consistency-lessons.md) |
 | maintainer merge skill (2026-07-23) | [20260723-maintainer-merge-skill-todo.md](./active/20260723-maintainer-merge-skill-todo.md) | [20260723-maintainer-merge-skill-lessons.md](./active/20260723-maintainer-merge-skill-lessons.md) |
@@ -55,4 +73,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: visual harness pixel tolerance (2026-07-24)
+Latest active task: incremental review (2026-07-29)
