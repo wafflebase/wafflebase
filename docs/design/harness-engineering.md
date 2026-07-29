@@ -805,6 +805,131 @@ the back half changes; only this local front half is new.
   this front door works only for a developer with **push rights to the base repo**
   (fork pushes are rejected) — the same tier that can arm the pipeline.
 
+### Phase 26: Autonomous Issue Hunting
+
+**Principle:** Capability-First Debugging + Entropy Management — the pipeline so
+far *consumes* issues; this produces them, by driving the product and observing it
+fail.
+
+Goal: an agent explores the `wafflebase` CLI, finds real defects, verifies them,
+and emits a report. Tier 1 (shipped) is local and **files nothing** — precision is
+measured before any maintainer attention is spent. Filing is a later phase.
+
+**Why this is a separate subsystem and not a fifth review lens.** The cost
+asymmetry *inverts*. The review panel FAILS CLOSED: uncertainty keeps a finding,
+because a false positive costs one fix round while a false negative merges a bug.
+Issue hunting must FAIL QUIET: uncertainty DROPS the candidate, because a false
+positive costs a maintainer's attention and pollutes the tracker, while a false
+negative costs nothing — the defect stays undiscovered exactly as it is today and
+the next run looks again. Getting this backwards produces the documented curl
+outcome (~20% of submissions AI slop, zero genuine vulnerabilities in six years of
+monitoring, bug bounty discontinued 2026-02-01).
+
+That inversion makes every review-panel helper actively unsafe here, and
+`scripts/agent/hunt-gate.mjs` documents each rejection in its header:
+`normalizeSeverity` maps unknown → `major` (reportable → invents a report);
+`coerceFindings` turns junk into a synthetic blocking finding; `dedupeFindings`
+escalates severity on collision; `unionSamples` needs only one lucky sample; and
+`applyVerifications` treats a null verdict as KEEP. All five are replaced with the
+failure direction flipped. Polarity-neutral helpers ARE shared — `globToRegExp`,
+`classifyResult`, `withRetry`, `CITATION`, and `KNOWN` from `scripts/agent/severity.mjs` (the
+severity vocabulary is shared; only the coercion rule differs).
+
+Components:
+
+- **The hunter never gets `Bash`.** `scripts/agent/ask.mjs` refuses it outright, so
+  the model emits a probe PLAN — `argv` arrays plus a predicted observation — and
+  `scripts/agent/hunt-probe.mjs` executes it via `spawnSync` with no shell. Three
+  consequences: no shell string is ever built from model output; the clean room is
+  enforceable because trusted code owns env/cwd/timeouts; and **replay is exact**,
+  because re-running the same argv IS the replay, so the "repro doesn't match what
+  the agent did" failure class cannot occur. `renderReproSh` renders shell for
+  humans only and is quote-tested against `; rm -rf /`, `$(id)`, backticks,
+  newlines and embedded quotes.
+- **Charters carry their own oracle.** "Look for bugs" produces slop;
+  "behavior contradicts this cited documented promise" produces evidence.
+  Data-driven in `scripts/agent/charters/charters.json` + one `.md` rubric each,
+  mirroring `lenses/`. Tier 1 ships `contract` and `crash`, both
+  `needsBackend: false` — no docker lifecycle, the single largest source of flake.
+- **Clean room.** `buildProbeEnv` **replaces** the environment rather than
+  extending it. Spreading `process.env` would let the developer's real
+  `~/.wafflebase/session.json` and default workspace leak in, so the clean room
+  would be a lie and a mutating probe could act on real documents.
+  `TZ`/`LANG`/`LC_ALL`/`NO_COLOR` are pinned for determinism.
+- **Replay is the anti-slop gate.** The whole probe sequence re-runs 3× in fresh
+  scratches and must agree with itself AND match the claim. Timestamps, generated
+  ids and map ordering are the top source of phantom repros; this kills them
+  before any model is asked to verify anything.
+- **Agreement is OVERLAP, not identity.** Two independent samples describe the same
+  defect with overlapping-but-not-identical evidence in arbitrary order, so no hash
+  of any identity matches them (see the lessons file — three successive
+  identity schemes each returned zero agreements on live data). `sameDefect` tests
+  whether the in-scope code-location sets share a `file:line`. Line-level
+  deliberately: `packages/cli/src/output/formatter.ts` genuinely holds two distinct defects, and file-level
+  matching would collapse them. Same shape of judgement `scripts/agent/rounds.mjs` already makes
+  for stall detection.
+- **The gate.** `isFilingVerdict` is the ONLY place "report it" is decided, in four
+  stages — two owned by trusted code (replay reproduced + deterministic; charter
+  conformance) and two checking model output (unanimous high-confidence confirms on
+  a named `confirmationGround` with `duplicateOf` unset; enough in-scope
+  `file:line` citations). Every branch returns false; there is exactly one path to
+  `true`. **A null verdict DROPS**, the inverse of `applyVerifications` — the most
+  heavily commented line in the file, because a reviewer skimming for symmetry with
+  the panel reads it as a bug.
+- **Duplicate suppression, two corpora** (`scripts/agent/hunt-corpus.mjs`). Issues
+  are handed over whole — 56 issues with bodies, ~37 KB — so no embeddings and no
+  similarity threshold. Deferrals need a DETERMINISTIC digest because
+  `docs/design/**` is ~375K tokens: plain section-slicing and grep, scoped to the
+  charter's `docsScope`, with no model in the loop. A model summarising the
+  deferrals would be one more place for a hallucination to enter the one input
+  whose job is to prevent hallucinated findings.
+- **Novelty ledger** (`scripts/agent/hunt-fingerprint.mjs`). Exploration is
+  unbounded, unlike review. Entries are keyed on the defect, carry
+  `LEDGER_KEY_VERSION`, and expire once the code in scope changes so the ledger
+  cannot blind the hunter to a regression. Two rules learned live: a corrupt ledger
+  is FATAL rather than empty (treating corruption as "nothing seen" re-reports the
+  exact noise the ledger exists to suppress), and a candidate the panel never
+  JUDGED — a verifier that errored or hit a run limit — is never recorded, or an
+  infrastructure blip becomes a permanent blind spot.
+- **Local front door** — `.claude/commands/hunt.md` + `node scripts/agent/hunt.mjs
+  <preflight|run|report>`. `preflight` returns before the SDK is imported, so it
+  reports what is missing without `npm ci`.
+
+Reportable severities are `critical`/`major` only; the rubrics tell the model not
+to emit `minor`/`nit` at all, since the gate drops them and emitting them spends
+budget for nothing.
+
+**Measured, not estimated** — each run writes a hunt-execution.json artifact shaped
+like the review panel's own execution log, so `scripts/agent/metrics.mjs` can sum
+tokens and cost over it: one `contract` run at
+`samples: 3`, `verifiers: 2` costs **~$6.20** and ~12 minutes, dominated by 3.1M
+cache-read tokens billed at 0.1×. Two verified defects were filed from it (#585,
+#586).
+
+Residual risks:
+
+- **A real finding can die to one dissenting verifier.** Unanimity is the precision
+  mechanism, and it cost recall: the same `docs import --replace --dry-run` defect
+  was reported in one run and refuted in the next. Hand-verification sided with the
+  report. Precision is bought with recall here, deliberately, but the trade is real.
+- **Secret leakage is the highest-severity risk.** A `--verbose` probe can echo
+  `Authorization: Bearer …`, and the eventual destination is a public repo.
+  `redactSecrets` is applied at both the report and the artifact-dump boundaries
+  and is unit-tested; it must stay that way before filing is enabled.
+- **CLI coverage is a slice.** The CLI does not reach Canvas rendering, CRDT
+  collaboration, or frontend interaction — where most currently-open bugs live
+  (#494, #343, #333). A Playwright-driven UI hunter reusing the existing
+  `verify:frontend:interaction` + Docker Chromium lanes is the natural next surface.
+
+Done criteria for Tier 1 (met): a local run reports at least one defect that a
+human independently confirms, with **zero** reports a human judges wrong, and the
+funnel explains every dropped candidate.
+
+Not yet built: `round-trip` and `state` charters (need the backend tier and a
+`WAFFLEBASE_HUNT_WORKSPACE` safety rail), the rolling GitHub-issue report,
+autonomous filing behind `HUNT_FILING_ENABLED` with a mechanical accept-rate kill
+switch, and the formula differential oracle.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:

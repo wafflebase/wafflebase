@@ -51,6 +51,7 @@ import {
   isNovel,
   LEDGER_KEY_VERSION,
 } from "./hunt-fingerprint.mjs";
+import { renderDeferrals, loadScopedDocs, renderIssues, fetchIssues } from "./hunt-corpus.mjs";
 import {
   buildProbeEnv,
   resolveCliBin,
@@ -324,6 +325,23 @@ function fail(msg) {
   process.exit(1);
 }
 
+/**
+ * `owner/repo` for the issue corpus. Resolved via `gh repo view` rather than by
+ * parsing `git remote get-url origin`: this clone has three remotes (origin,
+ * fork, hwisoo) and spec-to-pr.mjs's hardcoded `origin` assumption does not hold
+ * here. Returns null rather than guessing, and the caller warns.
+ */
+function repoSlug(repo) {
+  try {
+    return execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
+      cwd: repo,
+      encoding: "utf8",
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function gitSha(repo) {
   try {
     return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -424,7 +442,7 @@ async function cmdRun(args) {
     );
   }
 
-  const context = loadContext(repo, args);
+  const context = loadContext(repo, args, charters);
   const sessionLog = [];
   const reported = [];
   const dropped = [];
@@ -618,12 +636,42 @@ async function cmdRun(args) {
   );
 }
 
-/** Read the duplicate-suppression corpora and the probe config. */
-function loadContext(repo, args) {
+/**
+ * Build the duplicate-suppression corpora, or read them from explicit files.
+ *
+ * Auto-built by default so a run cannot silently proceed with EMPTY suppression —
+ * which is what the first live runs did, giving the explorer no way to know what
+ * was already filed or deliberately deferred. `--issues` / `--deferrals` stay as
+ * overrides for reproducing a past run against a frozen corpus.
+ */
+function loadContext(repo, args, charters) {
   const read = (p) => (p && existsSync(p) ? readFileSync(p, "utf8") : "");
+
+  let deferrals = read(args.deferrals);
+  if (!deferrals) {
+    // Union of every selected charter's docsScope — a charter reads only its own
+    // scope, but one digest for the run keeps the prompt identical across charters
+    // and therefore cache-friendly.
+    const scope = [...new Set(charters.flatMap((c) => c.docsScope ?? []))];
+    deferrals = renderDeferrals(loadScopedDocs(repo, scope));
+  }
+
+  let issues = read(args.issues);
+  if (!issues) {
+    const slug = repoSlug(repo);
+    const fetched = slug ? fetchIssues(slug) : { error: "could not resolve the repo slug" };
+    if (fetched.error) {
+      console.error(`hunt: WARNING — issue corpus unavailable (${fetched.error}). Duplicate suppression is WEAKER this run; the verifiers' own duplicate check is the only guard.`);
+      issues = "";
+    } else {
+      issues = renderIssues(fetched);
+      console.error(`hunt: issue corpus: ${fetched.length} issues (open + closed)`);
+    }
+  }
+
   return {
-    deferrals: read(args.deferrals),
-    issues: read(args.issues),
+    deferrals,
+    issues,
     cfg: {
       server: process.env.WAFFLEBASE_HUNT_SERVER ?? "",
       workspace: process.env.WAFFLEBASE_HUNT_WORKSPACE ?? "",
