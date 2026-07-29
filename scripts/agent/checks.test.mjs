@@ -1,6 +1,35 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkPassed, allRequiredPassed } from "./checks.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { checkPassed, allRequiredPassed, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+
+// `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
+// itself from lenses.json, so it is the one that silently rots when a lens is
+// added. Assert it against the REAL manifest — this test is the reason the
+// constant lives in checks.mjs at all (mark-ready.mjs is a CLI with top-level
+// process.exit and cannot be imported).
+test("DEFAULT_REVIEW_CHECKS covers every blocking lens in the manifest", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const lenses = JSON.parse(readFileSync(path.join(HERE, "lenses", "lenses.json"), "utf8"));
+  const blocking = lenses
+    .filter((l) => String(l.gating ?? "blocking") === "blocking")
+    .map((l) => `agent-review-${l.id}`);
+  assert.deepEqual(
+    [...DEFAULT_REVIEW_CHECKS].sort(),
+    [...blocking].sort(),
+    "add the new lens's check name to DEFAULT_REVIEW_CHECKS in checks.mjs",
+  );
+  // Advisory lenses must NOT be required — the ready gate would wait forever on
+  // a check that is posted as `neutral` and never `success`.
+  for (const l of lenses.filter((x) => String(x.gating ?? "blocking") !== "blocking")) {
+    assert.ok(
+      !DEFAULT_REVIEW_CHECKS.includes(`agent-review-${l.id}`),
+      `advisory lens ${l.id} must not be a required default check`,
+    );
+  }
+});
 
 const succ = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "success", started_at: t });
 const fail = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "failure", started_at: t });

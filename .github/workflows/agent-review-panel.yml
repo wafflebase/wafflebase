@@ -177,7 +177,8 @@ jobs:
           # `.interp` / `.tokens` are IDE/tooling files with no reference
           # anywhere in src, package.json, or the build — nothing loads them at
           # runtime, so no lens can act on their contents. On PR #521 they were
-          # 17.2 KB of a 75.6 KB diff, re-read by 4 lenses x 2 samples x 5 rounds.
+          # 17.2 KB of a 75.6 KB diff, re-read by every lens x 2 samples x 5
+          # rounds (4 lenses then, 5 now — the multiplier only grows).
           #
           # The generated `.ts` files are deliberately KEPT, even though they are
           # the larger half: they are executable code shipped in the sheets
@@ -803,6 +804,26 @@ jobs:
             Append a follow-up commit (do NOT force-push); the commit message must
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not
             merge. Pushing re-runs CI and a fresh review panel.
+
+            Run every command — ESPECIALLY the `git push` — in the FOREGROUND and
+            WAIT for it to finish. This is a one-shot headless run with NO resume:
+            when your turn ends the job tears down, so a BACKGROUNDED push is killed
+            before it completes and your fix is lost (the loop then pages a human
+            for "no commit"). Never background the push or use sleep/Monitor/any
+            wait-for-later mechanism to "come back to it".
+
+            Push with `git push --no-verify`. The pre-push hook runs
+            `pnpm verify:self`, which takes several minutes — longer than the Bash
+            tool's default ~2-minute timeout, so an un-bypassed push is killed
+            mid-hook and never lands, producing exactly the "no commit" dead-end
+            above. You already ran `pnpm verify:fast` above and this push re-runs the
+            full CI lanes, so the hook is redundant here
+            (docs/design/harness-engineering.md documents `--no-verify` as its
+            sanctioned bypass). Then CONFIRM the push landed with
+            `git ls-remote origin <branch>` rather than trusting the exit code — a
+            push whose hook output is very large can report non-zero even though the
+            ref advanced. If the remote head did not advance, push again before your
+            turn ends.
           claude_args: >-
             --max-turns 80
             --model claude-opus-5
