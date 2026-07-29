@@ -5,7 +5,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "scopeClasses": ["code", "code-adjacent"],
+    "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
     "samples": 2
   },
@@ -35,7 +35,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["packages/**", "scripts/**"],
-    "scopeClasses": ["code", "code-adjacent"],
+    "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
     "samples": 2
   },
@@ -45,7 +45,7 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["packages/**", "scripts/**"],
-    "scopeClasses": ["code", "code-adjacent"],
+    "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
     "samples": 2
   },
@@ -67,6 +67,6 @@
     "scopeClasses": ["prose"],
     "model": "claude-sonnet-5",
     "samples": 1,
-    "maxTurns": 3
+    "maxTurns": 8
   }
 ]

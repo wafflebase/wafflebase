@@ -265,6 +265,29 @@ export function diffForLens(lens, fileBlocks) {
 }
 
 /**
+ * Decide, for one lens, whether it reviews this round and what diff it gets.
+ * Returns `{ skip: null, diff }` to review, or `{ skip: <reason> }` to report a
+ * skipped/neutral verdict.
+ *
+ * Extracted from main() so the decision is EXECUTED by tests rather than
+ * asserted by grepping main()'s source. It carries the gate's sharpest edge:
+ * both skips must reach panel.json as `applicable: false`. The workflow builds
+ * required_checks from `blocking && applicable` and then blocks on any
+ * conclusion other than `success`, mapping skipped → neutral — so an
+ * `applicable: true` skip is a required check that can never go green.
+ */
+export function lensReviewPlan(lens, changedFiles, fileBlocks) {
+  if (!lensApplies(lens, changedFiles)) {
+    return { skip: "Not applicable to the changed files." };
+  }
+  // Applies, but nothing in its scope changed (correctness on a docs-only PR).
+  // Not a finding and not fail-closed: the hunks belong to another lens.
+  const diff = diffForLens(lens, fileBlocks);
+  if (diff.trim() === "") return { skip: "No changed files in this lens's scope." };
+  return { skip: null, diff };
+}
+
+/**
  * Coerce a raw lens findings array into well-formed records WITHOUT dropping any.
  * A malformed finding must fail toward blocking, never disappear off the gate
  * path — the same fail-safe direction as normalizeSeverity (unknown → major).
@@ -796,30 +819,17 @@ async function main() {
 
     // Not applicable to this diff → skipped (neutral), never blocks. Distinct
     // from a crashed lens so the fail-closed loop can't turn it into a failure.
-    if (!lensApplies(lens, changedFiles)) {
-      writeVerdict(lensOut, lens, [], "Not applicable to the changed files.", { valid: true, conclusion: "skipped" });
+    // Not applicable, or applicable with nothing in scope → skipped (neutral),
+    // never blocking. See lensReviewPlan for why both must be applicable:false.
+    // The global empty-diff guard in main() still fails closed on a PR with no
+    // diff at all; only a per-lens slice may be empty.
+    const plan = lensReviewPlan(lens, changedFiles, fileBlocks);
+    if (plan.skip) {
+      writeVerdict(lensOut, lens, [], plan.skip, { valid: true, conclusion: "skipped" });
       panel.push({ id: lens.id, title: lens.title, blocking, applicable: false, conclusion: "skipped", valid: true });
       return;
     }
-
-    // A lens can APPLY (its globs matched the changed-file list) and still have
-    // nothing to read: correctness applies to every PR, but a docs-only PR has
-    // no `code`/`code-adjacent` hunks for it. Reviewing an empty diff yields no
-    // findings, so this is reported as skipped — the same neutral, non-gating
-    // shape as !lensApplies, and NOT a finding: the prose is another lens's scope.
-    //
-    // `applicable: false` is load-bearing, not cosmetic. The workflow builds
-    // required_checks from `blocking && applicable` and then blocks on any
-    // conclusion !== 'success'. `applicable: true` here would make the lens
-    // REQUIRED while it reports `neutral` — a check that can never go green, on
-    // every docs-only PR. The global empty-diff guard above still fails closed
-    // on a PR with no diff at all; only a per-lens slice may be empty.
-    const lensDiff = diffForLens(lens, fileBlocks);
-    if (lensDiff.trim() === "") {
-      writeVerdict(lensOut, lens, [], "No changed files in this lens's scope.", { valid: true, conclusion: "skipped" });
-      panel.push({ id: lens.id, title: lens.title, blocking, applicable: false, conclusion: "skipped", valid: true });
-      return;
-    }
+    const lensDiff = plan.diff;
 
     let findings, summary, ok;
     try {

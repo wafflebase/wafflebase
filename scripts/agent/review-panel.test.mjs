@@ -24,6 +24,7 @@ import {
   classifyFile,
   sliceDiffByFile,
   diffForLens,
+  lensReviewPlan,
 } from "./review-panel.mjs";
 import { classify } from "./severity.mjs";
 
@@ -396,15 +397,56 @@ test("routing coverage: the docs lens runs on exactly the prose it is scoped to"
 // conclusion !== 'success'; `applicable: true` alongside a 'skipped' conclusion
 // would make the lens required AND permanently neutral, deadlocking every
 // docs-only PR. This asserts the wiring, since the branch itself needs the SDK.
-test("an empty lens slice is reported as skipped AND not applicable", () => {
+// Every declared class must be one classifyFile can actually return. A typo
+// ("cdoe") matches nothing, so the lens gets a permanently empty slice and is
+// reported not-applicable on every PR — it silently stops gating, with no error
+// anywhere. The coverage test above cannot catch this: it is satisfied by any
+// OTHER lens owning the class.
+test("lens manifest: every scopeClasses entry is a real file class", () => {
+  for (const lens of LENSES) {
+    assert.ok(Array.isArray(lens.scopeClasses) && lens.scopeClasses.length > 0,
+      `${lens.id} has no scopeClasses — it would silently receive the entire diff`);
+    for (const cls of lens.scopeClasses) {
+      assert.ok(FILE_CLASSES.includes(cls),
+        `${lens.id} declares unknown class "${cls}" — its slice would always be empty and it would never gate`);
+    }
+  }
+});
+
+test("lensReviewPlan: reviews, or skips with a reason and the right diff", () => {
+  const blocks = [
+    { path: "packages/sheets/src/a.ts", block: "CODE" },
+    { path: "docs/tasks/active/x-todo.md", block: "PROSE" },
+  ];
+  const files = blocks.map((b) => b.path);
+  const codeLens = { appliesWhen: ["**"], scopeClasses: ["code", "code-adjacent"] };
+  const proseLens = { appliesWhen: ["docs/**/*.md"], scopeClasses: ["prose"] };
+
+  // Reviews: the plan carries the SLICE, not the whole diff.
+  assert.deepEqual(lensReviewPlan(codeLens, files, blocks), { skip: null, diff: "CODE" });
+  assert.deepEqual(lensReviewPlan(proseLens, files, blocks), { skip: null, diff: "PROSE" });
+
+  // Skip 1 — appliesWhen does not match.
+  const codeOnly = [blocks[0]];
+  assert.match(lensReviewPlan(proseLens, ["packages/sheets/src/a.ts"], codeOnly).skip, /Not applicable/);
+
+  // Skip 2 — applies (wildcard) but nothing of its classes changed. This is the
+  // case the routing introduces: correctness on a docs-only PR.
+  const proseOnly = [blocks[1]];
+  assert.match(lensReviewPlan(codeLens, ["docs/tasks/active/x-todo.md"], proseOnly).skip, /No changed files in this lens's scope/);
+});
+
+// The two skips must be indistinguishable to the workflow, and the review path
+// must hand runLens the slice. Executed via lensReviewPlan above; this asserts
+// main() actually consumes it, since a correct helper nothing calls is dead code.
+test("main() routes both skips to applicable:false and feeds runLens the slice", () => {
   const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
-  const branch = /if \(lensDiff\.trim\(\) === ""\) \{[\s\S]*?\n    \}/.exec(src);
-  assert.ok(branch, "the empty-slice branch is gone — every lens now gets a diff it may not want");
+  const branch = /const plan = lensReviewPlan\(lens, changedFiles, fileBlocks\);[\s\S]*?\n    \}/.exec(src);
+  assert.ok(branch, "main() no longer routes lens skipping through lensReviewPlan");
   assert.match(branch[0], /conclusion: "skipped"/);
   assert.match(branch[0], /applicable: false/,
-    "an empty-slice lens marked applicable becomes a required check that can never go green");
-  // The slice must actually reach the lens, or all of the above guards dead code.
-  assert.match(src, /const lensDiff = diffForLens\(lens, fileBlocks\)/);
+    "a skipped lens marked applicable becomes a required check that can never go green");
+  assert.match(src, /const lensDiff = plan\.diff/);
   assert.match(src, /runLens\(lens, \{ rubric: lens\.rubric, diff: lensDiff,/,
     "runLens must receive the SLICED diff, not the full one");
 });
