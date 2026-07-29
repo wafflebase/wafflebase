@@ -100,6 +100,47 @@ export function assertAllowedTools(allowedTools) {
 }
 
 /**
+ * A session/usage limit resets on a fixed schedule, often hours out, so no
+ * in-run retry can clear it. This is the ONE thing that overrides an otherwise
+ * retryable status, so the pattern is deliberately narrow and anchored.
+ *
+ * It replaced `/session limit|usage limit|quota|rate limit|resets?\b/i`, which
+ * over-matched badly in both directions:
+ *   - `resets?\b` matched `ECONNRESET`, `read ECONNRESET` and `connection reset
+ *     by peer` (word boundary at end-of-string), turning ordinary transport
+ *     blips into "give up immediately".
+ *   - `rate limit` made every plain 429 non-retryable, contradicting the very
+ *     docblock above it — a rate limit is the canonical thing you retry.
+ *   - bare `quota` is ambiguous enough to catch unrelated messages.
+ * Dropping those is safe in the cheap direction: if a genuine limit is now
+ * retried, the cost is a few seconds of backoff before the same failure is
+ * reported correctly. Whereas mis-classifying a transient error as permanent
+ * pages a human for nothing, which is the expensive mistake.
+ */
+const SESSION_LIMIT_RE = /\b(?:session|usage)\s+limit\b/i;
+
+/**
+ * Is another attempt at this HTTP status plausibly worth making?
+ *
+ * Keyed on the status the API actually returned rather than on prose, because
+ * the message text is a human string that varies by provider and version while
+ * the status is a contract. Absent status means a transport/network failure
+ * (`fetch failed`, `ECONNRESET`) — those are the most retryable of all.
+ *
+ * 4xx other than 408/429 are deterministic: a 401 from a bad token or a 400 from
+ * a malformed schema will fail identically three times, so retrying only delays
+ * the real error. That is a change in behavior from the previous regex-only rule,
+ * and an intentional one.
+ */
+function isRetryableStatus(status) {
+  if (status == null) return true; // no status → transport/network → transient
+  const s = Number(status);
+  if (!Number.isFinite(s)) return true; // unparseable → treat as transient
+  if (s === 408 || s === 429) return true; // request timeout / rate limited
+  return s >= 500; // 500/502/503/529 overload → transient; other 4xx → not
+}
+
+/**
  * Classify an SDK `result` message. The SDK reports API/quota failures as
  * subtype "success" with `is_error: true` (+ `api_error_status`, and a human
  * `result` string like "You've hit your session limit · resets 3:30pm (UTC)"),
@@ -107,8 +148,11 @@ export function assertAllowedTools(allowedTools) {
  *   { ok:true, output }                                  — real structured verdict
  *   { ok:false, kind:'api-error', status, detail, retryable } — API/quota failure
  *   { ok:false, kind:'no-output', detail, retryable:false }   — ran but no verdict
- * A session/usage-limit resets on a fixed schedule (often hours out), so it is
- * NOT retryable in-run; any other API error (plain 429/529/overload/network) is.
+ *
+ * Retryability = "could another attempt succeed?", decided by `isRetryableStatus`
+ * and overridden to false only for an explicit session/usage limit. A plain 429
+ * IS retryable even when its message mentions rate limiting; a 429 that says
+ * "session limit" is not.
  */
 export function classifyResult(message) {
   const m = message || {};
@@ -117,8 +161,9 @@ export function classifyResult(message) {
   }
   if (m.is_error || m.api_error_status || m.terminal_reason === "api_error") {
     const detail = typeof m.result === "string" && m.result ? m.result : "";
-    const isQuota = /session limit|usage limit|quota|rate limit|resets?\b/i.test(detail);
-    return { ok: false, kind: "api-error", status: m.api_error_status ?? null, detail, retryable: !isQuota };
+    const status = m.api_error_status ?? null;
+    const retryable = !SESSION_LIMIT_RE.test(detail) && isRetryableStatus(status);
+    return { ok: false, kind: "api-error", status, detail, retryable };
   }
   return { ok: false, kind: "no-output", status: null, detail: `subtype=${m.subtype}`, retryable: false };
 }

@@ -161,6 +161,48 @@ test("classifyResult: distinguishes verdict / api-error / no-output at its new h
   assert.equal(none.retryable, false);
 });
 
+test("classifyResult: transport errors are retryable — the ECONNRESET regression", () => {
+  // The old quota pattern ended in `resets?\b`, which matches "ECONNRESET" at the
+  // end-of-string word boundary. Every one of these was classified NOT retryable,
+  // so withRetry gave up on the first attempt and the panel reported a false
+  // infrastructure failure for an ordinary network blip.
+  for (const detail of ["ECONNRESET", "read ECONNRESET", "connection reset by peer", "socket hang up", "fetch failed"]) {
+    const c = classifyResult({ is_error: true, result: detail });
+    assert.equal(c.retryable, true, `${detail} must be retryable`);
+  }
+});
+
+test("classifyResult: a plain 429 stays retryable even when it mentions rate limiting", () => {
+  // `rate limit` used to be in the non-retryable pattern, directly contradicting
+  // the docblock. A rate limit is the canonical retry-with-backoff case.
+  for (const detail of ["rate limit exceeded, please retry", "Too Many Requests", "rate_limit_error"]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: 429, result: detail }).retryable, true, detail);
+  }
+});
+
+test("classifyResult: a session/usage limit overrides an otherwise-retryable 429", () => {
+  // The one case that must stay non-retryable: it resets on a fixed schedule, so
+  // no amount of in-run backoff clears it. Status alone cannot decide this —
+  // both a plain rate limit and a session limit arrive as 429 — which is why the
+  // narrow text override survives.
+  for (const detail of ["You've hit your session limit · resets 3:30pm (UTC)", "usage limit reached for this month"]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: 429, result: detail }).retryable, false, detail);
+  }
+});
+
+test("classifyResult: deterministic 4xx is not retried; 5xx is", () => {
+  // Keyed on status, not prose. A bad token fails identically three times, so
+  // retrying only delays the real error.
+  for (const status of [400, 401, 403, 404, 422]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: status, result: "nope" }).retryable, false, `${status}`);
+  }
+  for (const status of [408, 429, 500, 502, 503, 529]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: status, result: "nope" }).retryable, true, `${status}`);
+  }
+  // A stringified status must not silently become non-retryable.
+  assert.equal(classifyResult({ is_error: true, api_error_status: "529", result: "overloaded" }).retryable, true);
+});
+
 test("withRetry: retries retryable errors, honors the cap, never retries non-retryable", async () => {
   const noSleep = { baseMs: 0, sleep: async () => {} };
 
