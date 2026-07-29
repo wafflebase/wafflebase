@@ -2,6 +2,7 @@ import type { TabMeta } from './worksheet-document';
 
 const SHEET_NAME_PREFIX = 'Sheet';
 const DATASOURCE_NAME_PREFIX = 'DataSource';
+const LAKEHOUSE_NAME_PREFIX = 'Lakehouse';
 
 export type TabNamePatch = {
   tabId: string;
@@ -132,7 +133,11 @@ export function buildTabNameNormalizationPatches(
     if (!tab) continue;
 
     const fallbackName =
-      tab.type === 'datasource' ? DATASOURCE_NAME_PREFIX : SHEET_NAME_PREFIX;
+      tab.type === 'datasource'
+        ? DATASOURCE_NAME_PREFIX
+        : tab.type === 'lakehouse'
+          ? LAKEHOUSE_NAME_PREFIX
+          : SHEET_NAME_PREFIX;
     const baseName = normalizeTabName(tab.name) || fallbackName;
 
     let candidate = baseName;

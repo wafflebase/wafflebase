@@ -3,11 +3,13 @@ export type {
   SheetChart,
   WorksheetFilterState,
   Worksheet,
+  TimeTravelPoint,
+  LakehouseTableRef,
   TabType,
   SheetKind,
   TabMeta,
   SpreadsheetDocument,
-} from "@wafflebase/sheets";
+} from '@wafflebase/sheets';
 
 export {
   DEFAULT_TAB_ID,
@@ -15,4 +17,4 @@ export {
   createWorksheet,
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
-} from "@wafflebase/sheets";
+} from '@wafflebase/sheets';
