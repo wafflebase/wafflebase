@@ -106,8 +106,8 @@ test("parseSeenLedger: reports corruption instead of silently looking empty", ()
   // read as "nothing seen", making every previously-rejected candidate novel again
   // — re-reporting the exact noise the ledger exists to suppress. The caller aborts
   // on parseErrors > 0, which is only possible because this is reported.
-  assert.deepEqual(parseSeenLedger(""), { seen: [], parseErrors: 0 }, "absent is not corrupt");
-  assert.deepEqual(parseSeenLedger(undefined), { seen: [], parseErrors: 0 });
+  assert.deepEqual(parseSeenLedger(""), { seen: [], parseErrors: 0, staleKeys: 0 }, "absent is not corrupt");
+  assert.deepEqual(parseSeenLedger(undefined), { seen: [], parseErrors: 0, staleKeys: 0 });
   assert.equal(parseSeenLedger("{ this is not json").parseErrors, 1);
   assert.equal(parseSeenLedger('{"not":"an array"}').parseErrors, 1);
   const mixed = parseSeenLedger(JSON.stringify([{ fp: "a", keyVersion: LEDGER_KEY_VERSION }, null, { nofp: 1 }, { fp: "" }]));

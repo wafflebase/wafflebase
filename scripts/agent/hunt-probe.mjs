@@ -353,13 +353,28 @@ export function replay(probes, claimedObserved, { attempts = 3, observedKey, run
   const results = [];
   for (let i = 0; i < attempts; i++) {
     const observations = runAttempt(probes, i);
-    const failing = observations[observations.length - 1];
-    results.push({ attempt: i, key: observedKey(failing), observation: failing });
+    // An attempt that produced NO observation (empty probe sequence, or a
+    // runAttempt that returned []) never ran anything, so it cannot be a
+    // reproduction. Fail CLOSED: without this, `observedKey(undefined)`
+    // yields the empty-shape key, every empty attempt "agrees", and a claim
+    // that is also empty-shaped (exitCode:null, no output) replays as
+    // `reproduced` without a single probe having executed. See the header:
+    // safety here fails closed, and so must this.
+    const ran = Array.isArray(observations) && observations.length > 0;
+    const failing = ran ? observations[observations.length - 1] : undefined;
+    results.push({ attempt: i, key: ran ? observedKey(failing) : null, observation: failing, ran });
   }
+  const anyEmpty = results.some((r) => !r.ran);
   const first = results[0]?.key ?? null;
   const divergedAt = results.findIndex((r) => r.key !== first);
-  const deterministic = divergedAt === -1;
-  const status = !deterministic ? "non-deterministic" : first === claimedKey ? "reproduced" : "not-reproduced";
+  const deterministic = !anyEmpty && divergedAt === -1;
+  const status = anyEmpty
+    ? "not-reproduced"
+    : !deterministic
+      ? "non-deterministic"
+      : first === claimedKey
+        ? "reproduced"
+        : "not-reproduced";
   return {
     status,
     deterministic,

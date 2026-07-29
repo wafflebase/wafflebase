@@ -210,14 +210,16 @@ export const LEDGER_KEY_VERSION = 2;
 
 export function parseSeenLedger(text) {
   const raw = typeof text === "string" ? text.trim() : "";
-  if (raw === "") return { seen: [], parseErrors: 0 };
+  // Every return carries the SAME three keys — a caller warning on `staleKeys`
+  // must not read `undefined` for an empty or corrupt ledger.
+  if (raw === "") return { seen: [], parseErrors: 0, staleKeys: 0 };
   let data;
   try {
     data = JSON.parse(raw);
   } catch {
-    return { seen: [], parseErrors: 1 };
+    return { seen: [], parseErrors: 1, staleKeys: 0 };
   }
-  if (!Array.isArray(data)) return { seen: [], parseErrors: 1 };
+  if (!Array.isArray(data)) return { seen: [], parseErrors: 1, staleKeys: 0 };
   const seen = [];
   let parseErrors = 0;
   let staleKeys = 0;

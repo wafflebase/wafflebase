@@ -243,19 +243,6 @@ export function dedupeCandidates(candidates, fingerprintOf) {
 }
 
 /**
- * INTERSECT independent explorer samples: keep only candidates that ≥2 samples
- * found. The inverse of `unionSamples`, and the cheapest precision lever here.
- *
- * The panel unions because a bug any sample spots is worth blocking on. Hunting
- * inverts that: a candidate only one sample produced is exactly the profile of a
- * one-off confabulation, and dropping it costs nothing. Fewer than 2 successful
- * samples therefore yields NOTHING — with one sample there is no agreement to
- * measure, and "no agreement" must not read as "agreed".
- *
- * Comparison is by fingerprint (the probe + observed shape), not by prose, so two
- * samples describing the same defect in different words still agree.
- */
-/**
  * The in-scope code locations a candidate blames — its evidence set.
  *
  * `file.ext:line` strings inside `codeScope` only. Doc citations are excluded on
@@ -293,7 +280,22 @@ export function sameDefect(locsA, locsB) {
   return false;
 }
 
-export function intersectSamples(sampleCandidateLists, fingerprintOf, { minAgreement = 2 } = {}) {
+/**
+ * INTERSECT independent explorer samples: keep only candidates that ≥2 samples
+ * found. The inverse of `unionSamples`, and the cheapest precision lever here.
+ *
+ * The panel unions because a bug any sample spots is worth blocking on. Hunting
+ * inverts that: a candidate only one sample produced is exactly the profile of a
+ * one-off confabulation, and dropping it costs nothing. Fewer than 2 successful
+ * samples therefore yields NOTHING — with one sample there is no agreement to
+ * measure, and "no agreement" must not read as "agreed".
+ *
+ * `locationsOf` maps a candidate to its in-scope code-location SET (see
+ * `codeLocations`) — NOT a fingerprint. Comparison is by location overlap, not
+ * by prose, so two samples describing the same defect in different words still
+ * agree.
+ */
+export function intersectSamples(sampleCandidateLists, locationsOf, { minAgreement = 2 } = {}) {
   const lists = (Array.isArray(sampleCandidateLists) ? sampleCandidateLists : []).filter(Array.isArray);
   const dropped = [];
   if (lists.length < minAgreement) {
@@ -308,12 +310,12 @@ export function intersectSamples(sampleCandidateLists, fingerprintOf, { minAgree
     }
     return { kept: [], dropped };
   }
-  // `fingerprintOf` returns the candidate's in-scope code-location SET (see
+  // `locationsOf` returns the candidate's in-scope code-location SET (see
   // codeLocations). Matching is greedy clustering by overlap: take an unclaimed
   // candidate as the anchor, then claim at most one overlapping candidate per
   // OTHER sample. One-per-sample is what stops a sample that raised three
   // near-identical candidates from satisfying the threshold by itself.
-  const pools = lists.map((list) => list.map((c) => ({ c, locs: fingerprintOf(c), taken: false })));
+  const pools = lists.map((list) => list.map((c) => ({ c, locs: locationsOf(c), taken: false })));
   const kept = [];
   for (let i = 0; i < pools.length; i++) {
     for (const anchor of pools[i]) {
@@ -494,6 +496,14 @@ export function dropReason(candidate, verdicts, charter) {
   if (!claimed || typeof claimed !== "object") return "no claimed record";
   if (!Array.isArray(charter.oracles) || !charter.oracles.includes(claimed.oracle)) {
     return `oracle ${JSON.stringify(claimed.oracle)} not in charter`;
+  }
+  // Mirror isFilingVerdict step 2, in the same order: a missing/blank evidence
+  // field drops there, so re-derive it here or the drop is misattributed to the
+  // citations check at the bottom.
+  for (const field of ["title", "expected", "observed"]) {
+    if (typeof claimed[field] !== "string" || claimed[field].trim() === "") {
+      return `claimed.${field} is missing or blank`;
+    }
   }
   const severity = huntSeverity(claimed.severity);
   if (severity === null) return `unrecognized severity ${JSON.stringify(claimed.severity)}`;

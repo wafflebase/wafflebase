@@ -152,7 +152,14 @@ export function fetchIssues(repoSlug, { runner = null, limit = 500 } = {}) {
       "--json", "number,state,title,body",
     ]);
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    // A non-array payload (e.g. `gh` emitting an error object as valid JSON) is
+    // NOT an empty corpus — reporting it as `[]` would let loadContext log
+    // "issue corpus: 0 issues" and skip the "duplicate suppression is WEAKER"
+    // warning, the same silent degradation the catch block exists to avoid.
+    if (!Array.isArray(parsed)) {
+      return { error: `gh returned non-array JSON: ${JSON.stringify(parsed).slice(0, 120)}` };
+    }
+    return parsed;
   } catch (err) {
     // Degrade to an empty corpus rather than aborting the run. The cost is a
     // hunter that might re-report a known issue — which the verifiers' own

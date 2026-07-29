@@ -903,8 +903,8 @@ budget for nothing.
 like the review panel's own execution log, so `scripts/agent/metrics.mjs` can sum
 tokens and cost over it: one `contract` run at
 `samples: 3`, `verifiers: 2` costs **~$6.20** and ~12 minutes, dominated by 3.1M
-cache-read tokens billed at 0.1×. Two verified defects were filed from it (#585,
-#586).
+cache-read tokens billed at 0.1×. Two verified defects (#585 and #586) were filed
+from it.
 
 Residual risks:
 

@@ -76,9 +76,12 @@ into the report, that is the signal to drop it.
    - `only N of M samples cited an overlapping location` — real findings die here.
      Expected; it is the precision/recall trade.
    - `verifier N produced no verdict (errored)` — **not** a judgement. Look at
-     `hunt-execution.json` for the subtype. A `limit` kind means a run ceiling, not
-     the network: raise `verifierMaxTurns` in the charter. These candidates are
-     deliberately NOT written to the ledger and will be retried next run.
+     `hunt-execution.json` for the subtype. Raise `verifierMaxTurns` in the charter
+     ONLY for `error_max_turns` (the verifier ran out of turns). Other `limit`
+     subtypes — a token-budget ceiling or a structured-output retry ceiling — are
+     NOT fixed by more turns; diagnose those from the execution log or the relevant
+     config instead. These candidates are deliberately NOT written to the ledger
+     and will be retried next run.
    - `replay: not-reproduced` / `non-deterministic` — the prediction was wrong or
      the observation is flaky. Correctly dropped.
    - A `WARNING` about stale ledger key versions means duplicate suppression is not

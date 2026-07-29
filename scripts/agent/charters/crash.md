@@ -6,7 +6,7 @@ are self-evidently wrong — no interpretation required.
 Unlike every other charter, you do not need a documented promise. These outcomes
 are unambiguously defects on their own:
 
-- **A leaked stack trace.** A raw `Error:` header or `    at fn (file:1:2)` frames
+- **A leaked stack trace.** A raw `Error:` header or `at fn (file:1:2)` frames
   reaching the user. The CLI's contract is a structured JSON error envelope;
   a stack trace is an unhandled path.
 - **An unhandled promise rejection** or `uncaughtException` message.

@@ -287,6 +287,17 @@ test("replay: consistent but DIFFERENT from the claim → not-reproduced", () =>
   assert.equal(r.deterministic, true);
 });
 
+test("replay: an attempt that produced no observation fails closed (never reproduced)", () => {
+  // No probe ran, so there is nothing to reproduce. Even when the claim is
+  // itself empty-shaped — which would make observedKey(undefined) === claimedKey
+  // — an empty attempt must not read as agreement. Otherwise a candidate with an
+  // empty probe sequence replays as `reproduced` without executing anything.
+  const emptyClaim = {};
+  const r = replay([], emptyClaim, { attempts: 3, observedKey, runAttempt: () => [] });
+  assert.equal(r.status, "not-reproduced");
+  assert.equal(r.deterministic, false);
+});
+
 test("replay: requires its injected seams", () => {
   assert.throws(() => replay([], OBS.a, { observedKey }), /observedKey and runAttempt are required/);
   assert.throws(() => replay([], OBS.a, { runAttempt: () => [] }), /observedKey and runAttempt are required/);

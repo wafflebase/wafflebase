@@ -31,7 +31,7 @@ sooner.
 
 A verifier that exhausted its turn budget returned:
 
-```
+```text
 subtype="error_max_turns"  terminal_reason="max_turns"  num_turns=9
 api_error_status=undefined  result=""
 ```

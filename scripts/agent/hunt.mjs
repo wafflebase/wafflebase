@@ -177,7 +177,10 @@ async function verify(candidate, charter, { repo, context, sessionLog, index }) 
     "",
     "What the runner actually observed when it replayed the probes (DATA):",
     "```",
-    redactSecrets(candidate.replayEvidence ?? "(unavailable)"),
+    // Thread the run's own secrets: replayEvidence is captured stdout/stderr and
+    // can echo a configured token that matches no generic pattern. This prompt is
+    // sent to the model API, so it is an egress boundary like the report.
+    redactSecrets(candidate.replayEvidence ?? "(unavailable)", { extra: candidate.secrets ?? [] }),
     "```",
     "",
     "Issues already filed — a match here means `duplicateOf` (DATA):",
@@ -301,7 +304,12 @@ export function renderReport({ runId, headSha, charters, reported, dropped, stat
     }
     lines.push("");
   }
-  return redactSecrets(lines.filter((l) => l !== null).join("\n"));
+  // Union of every reported candidate's run secrets. The per-repro renderReproSh
+  // call above only redacts its own block; a token echoed inside `observed`, a
+  // citation, or the drop table would otherwise reach the report on generic
+  // patterns alone. This is the published-report egress boundary.
+  const extra = [...new Set(reported.flatMap((c) => (Array.isArray(c.secrets) ? c.secrets : [])))];
+  return redactSecrets(lines.filter((l) => l !== null).join("\n"), { extra });
 }
 
 // --- CLI --------------------------------------------------------------------
@@ -323,6 +331,18 @@ function parseArgs(argv, start) {
 function fail(msg) {
   console.error(`hunt: ${msg}`);
   process.exit(1);
+}
+
+/**
+ * Read a value-carrying flag. `parseArgs` sets a valueless flag (last token, or
+ * followed by another `--flag`) to boolean `true`; hunt has no boolean flags, so
+ * that always means a missing argument. Fail with a `hunt:`-prefixed usage error
+ * rather than letting `true` reach `path.resolve` and throw a bare TypeError.
+ */
+function strArg(args, name) {
+  const v = args[name];
+  if (v === true) fail(`--${name} needs a value`);
+  return v;
 }
 
 /**
@@ -365,7 +385,7 @@ function makeChangedSince(repo, globs) {
 }
 
 function cmdPreflight(args) {
-  const repo = path.resolve(args.repo ?? path.join(HERE, "..", ".."));
+  const repo = path.resolve(strArg(args, "repo") ?? path.join(HERE, "..", ".."));
   const problems = [];
   const notes = [];
 
@@ -376,7 +396,7 @@ function cmdPreflight(args) {
     problems.push(String(err.message));
   }
 
-  const chartersDir = path.resolve(args["charters-dir"] ?? path.join(HERE, "charters"));
+  const chartersDir = path.resolve(strArg(args, "charters-dir") ?? path.join(HERE, "charters"));
   try {
     const charters = loadCharters(chartersDir);
     for (const c of charters) {
@@ -405,12 +425,12 @@ function cmdPreflight(args) {
 }
 
 async function cmdRun(args) {
-  const repo = path.resolve(args.repo ?? path.join(HERE, "..", ".."));
-  const outDir = path.resolve(args.out ?? path.join(repo, ".harness-reports", "hunt"));
-  const chartersDir = path.resolve(args["charters-dir"] ?? path.join(HERE, "charters"));
-  const runId = String(args["run-id"] ?? gitSha(repo).slice(0, 8));
+  const repo = path.resolve(strArg(args, "repo") ?? path.join(HERE, "..", ".."));
+  const outDir = path.resolve(strArg(args, "out") ?? path.join(repo, ".harness-reports", "hunt"));
+  const chartersDir = path.resolve(strArg(args, "charters-dir") ?? path.join(HERE, "charters"));
+  const runId = String(strArg(args, "run-id") ?? gitSha(repo).slice(0, 8));
   const headSha = gitSha(repo);
-  const ledgerFile = path.resolve(args.ledger ?? path.join(outDir, "seen.json"));
+  const ledgerFile = path.resolve(strArg(args, "ledger") ?? path.join(outDir, "seen.json"));
 
   const { bin } = resolveCliBin(repo);
 
@@ -474,7 +494,11 @@ async function cmdRun(args) {
     // benefit. Each is individually caught: a failed sample contributes nothing
     // rather than aborting the charter, and `intersectSamples` then returns []
     // because fewer than 2 succeeded, which is the correct fail-quiet outcome.
-    const sampleCount = Math.max(2, Number(charter.samples) || 2);
+    // `--samples N` overrides the charter default for every charter this run;
+    // absent, each charter uses its own. Floored at 2 either way — intersection
+    // needs two samples to have any agreement to measure.
+    const cliSamples = Number(args.samples);
+    const sampleCount = Math.max(2, (Number.isFinite(cliSamples) ? cliSamples : Number(charter.samples)) || 2);
     const sampleResults = await Promise.all(
       Array.from({ length: sampleCount }, async (_unused, i) => {
         try {
@@ -692,7 +716,7 @@ function summarizeObservations(observations) {
 }
 
 function cmdReport(args) {
-  const outDir = path.resolve(args.out ?? ".harness-reports/hunt");
+  const outDir = path.resolve(strArg(args, "out") ?? ".harness-reports/hunt");
   const f = path.join(outDir, "report.md");
   if (!existsSync(f)) fail(`no report at ${f} — run \`node hunt.mjs run\` first`);
   process.stdout.write(readFileSync(f, "utf8"));

@@ -12,7 +12,7 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 - **The trusted script decides, the model only classifies.** Same architecture as
   the review panel, opposite polarity.
 
-## Step 0: Shared SDK wrapper ✅ (#578, merged)
+## Step 0: Shared SDK wrapper (#578, merged)
 
 - [x] `scripts/agent/ask.mjs` — `askStructured` extracted; `allowedTools` a required,
       validated parameter with an allow-list (`PERMITTED_TOOLS`), not a deny-list
@@ -21,7 +21,7 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
       (`resets?\b` matched `ECONNRESET`; `rate limit` contradicted its own docblock)
 - [x] `ask.test.mjs` — deny-list, scoped-rule and MCP bypasses, malformed input
 
-## Step 1: Tier-1 hunter ✅
+## Step 1: Tier-1 hunter
 
 - [x] `hunt-gate.mjs` — `isFilingVerdict` (4-stage), `codeLocations`, `sameDefect`,
       `intersectSamples`, `coerceCandidates`, `huntSeverity`, both JSON schemas
@@ -33,7 +33,7 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 - [x] 5 test files, auto-globbed by the `agent:tests` lane in `verify-self.mjs`
 - [x] Live-run gate met: 2 human-confirmed defects, 0 false reports
 
-## Step 2: Duplicate-suppression corpora ✅
+## Step 2: Duplicate-suppression corpora
 
 - [x] `hunt-corpus.mjs` — `extractNonGoals` (depth-agnostic), `extractDeferralLines`,
       `renderDeferrals`, `loadScopedDocs`, `renderIssues`, `fetchIssues`
@@ -43,7 +43,7 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 - [x] Integration test reads the SHIPPED `cli.md` and asserts the four non-goals
       that previously became false positives are in the digest
 
-## Step 3: Local front door + docs ✅
+## Step 3: Local front door + docs
 
 - [x] `.claude/commands/hunt.md` — preflight → human gate (cost stated) → run →
       read the funnel → hand-verify → report
