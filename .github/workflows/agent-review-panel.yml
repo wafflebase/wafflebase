@@ -424,7 +424,12 @@ jobs:
                   // absence claim as an absence claim. Without it a carried
                   // finding defaults to `presence` and gets the wrong procedure
                   // (and the smaller turn budget) on every round after the first.
-                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), claimType: f.claimType === 'absence' ? 'absence' : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
+                  // `searchedFor` rides along for the same reason: the original
+                  // lens recorded what it already searched, and without carrying
+                  // it every repeat round tells the verifier to "search from
+                  // scratch", losing the complementary-search value. Advisory —
+                  // never gates (see verifyFinding), so it is safe to carry.
+                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), claimType: f.claimType === 'absence' ? 'absence' : undefined, searchedFor: Array.isArray(f.searchedFor) ? f.searchedFor.filter((s) => typeof s === 'string' && s.trim()).slice(0, 20).map((s) => trim(s, 300)) : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
                 // Keep output.text VALID JSON within the 60k limit: NEVER slice the
                 // serialized string (that yields JSON the next round can't parse).
                 // Fields are trimmed above; drop trailing findings until it fits.

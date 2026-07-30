@@ -135,6 +135,20 @@ const VERIFIER_SCHEMA = {
 // silently reject a legal ground (or accept a removed one).
 const REFUTATION_GROUNDS = new Set(VERIFIER_SCHEMA.properties.refutationGround.enum);
 
+// Which refutation grounds may DROP a finding of each claim type. The prompt
+// only *advises* this shape (buildVerifierPrompt offers `counterexample` to
+// absence claims and `not-present`/`already-guarded` to presence claims;
+// `out-of-scope` and `pre-existing` are offered to both) — `isDroppingVerdict`
+// enforces it when the claim type is known, so a model that emits the wrong
+// shape (e.g. `not-present` for an absence claim, or `counterexample` for a
+// presence claim) can no longer drop the finding. Catching that
+// instruction-following failure is precisely why the independent verifier
+// exists. `none` is never a dropping ground and is intentionally absent.
+const DROP_GROUNDS_BY_CLAIM = {
+  absence: new Set(["counterexample", "out-of-scope", "pre-existing"]),
+  presence: new Set(["not-present", "already-guarded", "out-of-scope", "pre-existing"]),
+};
+
 // --- pure helpers (exported for tests; no SDK dependency) -------------------
 
 /** Minimal glob→RegExp: `**` = any, `*` = non-slash run, `?` = one non-slash. */
@@ -247,7 +261,7 @@ const COUNTED_LANES = new Set(["blocking", "backlog"]);
  * here can lose a finding that the current gate would have kept.
  */
 export function routeFinding(finding, { verdict = null, novelty = null } = {}, opts) {
-  if (isDroppingVerdict(verdict, opts)) return "discarded";
+  if (isDroppingVerdict(verdict, { ...opts, claimType: claimTypeOf(finding) })) return "discarded";
   // ONLY `relocated` — a line this change added, carrying code that already
   // existed. Notably NOT `pre-existing`: a finding about code the change did not
   // touch is what the blast-radius lens is FOR (its rubric orders it to cite the
@@ -344,7 +358,7 @@ export function keepUnrefuted(annotated) {
  * confidence, a null (the verifier errored), an unknown ground, or a
  * `groundedIn` that cites no location.
  */
-export function isDroppingVerdict(v, { allowPreExisting = false } = {}) {
+export function isDroppingVerdict(v, { allowPreExisting = false, claimType = null } = {}) {
   return (
     !!v &&
     v.verdict === "refuted" &&
@@ -353,6 +367,12 @@ export function isDroppingVerdict(v, { allowPreExisting = false } = {}) {
     REFUTATION_GROUNDS.has(v.refutationGround) &&
     v.refutationGround !== "none" &&
     (v.refutationGround !== "pre-existing" || allowPreExisting) &&
+    // The ground must fit the claim's shape when the claim type is known. Omitted
+    // (null) preserves the prior any-ground behaviour for callers without the
+    // finding; the gate paths (routeFinding, verifierTally) always pass it. An
+    // unrecognized claimType matches no set and therefore KEEPS the finding — the
+    // conservative direction for a drop decision.
+    (claimType == null || DROP_GROUNDS_BY_CLAIM[claimType]?.has(v.refutationGround) === true) &&
     Array.isArray(v.groundedIn) &&
     v.groundedIn.some((s) => typeof s === "string" && CITATION.test(s))
   );
@@ -682,12 +702,17 @@ export function verifierTally(findings, verdicts, opts) {
     if (v && v.verdict === "refuted") {
       refuted++;
       if (v.confidence === "high") refutedHighConfidence++;
-      if (isAbsence) absenceRefuted++;
+      // ONLY counterexample-grounded refutations — the metric reports "refuted
+      // by counterexample" (metrics.mjs) and the design doc reads a low
+      // absenceRefuted as "absence claims riding through unchecked". An absence
+      // claim demoted via `out-of-scope`/`pre-existing` (both also offered for
+      // absence claims) would otherwise inflate it and mask that #578 signal.
+      if (isAbsence && v.refutationGround === "counterexample") absenceRefuted++;
     }
     if (v && v.verdict === "unresolved") unresolved++;
-    // Same `opts` as the router, so `dropped` counts what was actually dropped
-    // rather than what would have been under a different trust rule.
-    if (isDroppingVerdict(v, opts)) dropped++;
+    // Same `opts` (and claim type) as the router, so `dropped` counts what was
+    // actually dropped rather than what would have been under a different rule.
+    if (isDroppingVerdict(v, { ...opts, claimType: claimTypeOf(f) })) dropped++;
   });
   return { sentToVerifier, refuted, refutedHighConfidence, dropped, absenceRaised, absenceRefuted, unresolved };
 }

@@ -1014,6 +1014,36 @@ test("`counterexample` is a droppable ground for a refuted absence claim", () =>
   );
 });
 
+test("a refutation ground must match the claim's shape to drop", () => {
+  const cited = (ground) => ({
+    verdict: "refuted", confidence: "high", reason: "r",
+    refutationGround: ground, groundedIn: ["a.mjs:1"],
+  });
+  // Wrong shape: `not-present`/`already-guarded` describe a PRESENT thing that
+  // fails to be a defect — nonsense for an absence claim, so they must NOT drop.
+  assert.equal(isDroppingVerdict(cited("not-present"), { claimType: "absence" }), false);
+  assert.equal(isDroppingVerdict(cited("already-guarded"), { claimType: "absence" }), false);
+  // …and `counterexample` (the absence-refutation ground) must not drop a
+  // presence claim either.
+  assert.equal(isDroppingVerdict(cited("counterexample"), { claimType: "presence" }), false);
+  // Right shape still drops.
+  assert.equal(isDroppingVerdict(cited("counterexample"), { claimType: "absence" }), true);
+  assert.equal(isDroppingVerdict(cited("not-present"), { claimType: "presence" }), true);
+  // Universal grounds drop under either claim type.
+  assert.equal(isDroppingVerdict(cited("out-of-scope"), { claimType: "absence" }), true);
+  // Omitted claimType preserves the prior any-ground behaviour.
+  assert.equal(isDroppingVerdict(cited("counterexample")), true);
+  // routeFinding enforces it at the gate: a mismatched ground KEEPS the finding.
+  assert.equal(
+    routeFinding({ severity: "major", claimType: "absence" }, { verdict: cited("not-present") }),
+    "blocking",
+  );
+  assert.equal(
+    routeFinding({ severity: "major", claimType: "absence" }, { verdict: cited("counterexample") }),
+    "discarded",
+  );
+});
+
 test("annotateFindings marks an unsettled finding without changing its lane", () => {
   const out = annotateFindings(
     [{ severity: "critical", summary: "no test covers X", claimType: "absence" }],
@@ -1045,6 +1075,25 @@ test("verifierTally counts absence claims and unresolved outcomes separately", (
   assert.equal(t.absenceRefuted, 1);
   assert.equal(t.unresolved, 1);
   assert.equal(t.dropped, 1);
+});
+
+test("absenceRefuted counts ONLY counterexample-grounded refutations", () => {
+  // metrics.mjs prints this as "refuted by counterexample" and the design doc
+  // reads a low value as "absence claims riding through unchecked". An absence
+  // claim demoted via out-of-scope/pre-existing (both valid absence grounds)
+  // must NOT inflate it, or it masks exactly that #578 signal.
+  const findings = [
+    { severity: "major", claimType: "absence", summary: "no X" },
+    { severity: "major", claimType: "absence", summary: "no Y" },
+  ];
+  const verdicts = [
+    { verdict: "refuted", confidence: "high", refutationGround: "out-of-scope", groundedIn: ["a.mjs:1"] },
+    { verdict: "refuted", confidence: "high", refutationGround: "counterexample", groundedIn: ["b.mjs:2"] },
+  ];
+  const t = verifierTally(findings, verdicts, {});
+  assert.equal(t.refuted, 2); // both are refutations
+  assert.equal(t.absenceRefuted, 1); // …but only the counterexample one counts here
+  assert.equal(t.dropped, 2); // out-of-scope still drops the finding
 });
 
 test("the lens prompt explains both claim shapes, in ONE place", () => {
