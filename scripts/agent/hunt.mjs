@@ -596,7 +596,20 @@ async function cmdRun(args) {
     }
 
     // Probe the UNION of everything any sample proposed, deduped by defect.
-    const unique = dedupeCandidates(samples.flat(), keyOf);
+    //
+    // Surface unlocatable candidates FIRST. `dedupeCandidates` silently skips any
+    // element whose key is "" (an empty key cannot dedupe against anything), so
+    // probing the raw union would erase "no locatable citation" candidates from
+    // the funnel entirely — no stat, no drop-table row — which is exactly the
+    // blindness this file's raw-proposal persistence exists to prevent. Recording
+    // them here keeps that drop measured; dedupe then runs over the locatable rest.
+    const flatProposals = samples.flat();
+    for (const cand of flatProposals) {
+      if (keyOf(cand) === "") {
+        dropped.push({ title: cand.title, why: "no locatable citation — cannot be tracked in the ledger" });
+      }
+    }
+    const unique = dedupeCandidates(flatProposals, keyOf);
     stats.unique += unique.length;
 
     const changedSince = makeChangedSince(repo, charter.codeScope);
@@ -605,11 +618,9 @@ async function cmdRun(args) {
       // already resolved this?" is a question about the defect, and the defect key
       // is the only identity available before a probe has run. The precise
       // argv+observation fingerprint is recorded alongside it as `probeFp`.
+      // `dk` is non-empty for every candidate here: `dedupeCandidates` drops empty
+      // keys, and the unlocatable ones were recorded as dropped just above.
       const dk = keyOf(cand);
-      if (dk === "") {
-        dropped.push({ title: cand.title, why: "no locatable citation — cannot be tracked in the ledger" });
-        continue;
-      }
       if (!isNovel(dk, seen, { changedSince })) {
         dropped.push({ title: cand.title, why: "already seen in a previous run (ledger)" });
         continue;
