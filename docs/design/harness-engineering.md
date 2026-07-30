@@ -487,12 +487,15 @@ Components:
   `verifier.absenceRaised`/`absenceRefuted`/`unresolved`, so a high `unresolved`
   against a low `absenceRefuted` is visible as absence claims riding through
   unchecked rather than being silently discounted.
-  A **clustering** pass (`clusterFindings`) then collapses RESTATEMENTS of one
-  defect. `dedupeFindings` only catches byte-identical summaries, so #578 reported
-  the same defect three times over — two wordings of one missing file, the
-  deny-list bug as both a `critical` and a `major`, the deny-list-shape concern
-  twice — and the verifier could not help, since it judges one finding at a time
-  in isolation and bills for each copy. The similarity metric is **not** re-derived:
+  A **clustering** pass (`clusterFindings`) collapses RESTATEMENTS of one defect
+  **before the verifier runs**, so each distinct defect is verified once rather
+  than once per wording. `dedupeFindings` only catches byte-identical summaries, so
+  #578 reported the same defect three times over — two wordings of one missing
+  file, the deny-list bug as both a `critical` and a `major`, the deny-list-shape
+  concern twice — and the verifier could not help, since it judges one finding at a
+  time in isolation and re-runs a full session (and `git blame`) for each copy:
+  the #578 shape would have paid for four redundant verifier sessions. Collapsing
+  first removes that waste. The similarity metric is **not** re-derived:
   `findingSimilarity` in `scripts/agent/rounds.mjs` already owns it for the
   non-convergence detector, calibrated against real panel output with the overlap
   coefficient chosen over Jaccard for exactly this restatement pattern. It
@@ -505,6 +508,17 @@ Components:
   The only thing removed is count inflation, reported as `clusters.collapsed`. The
   stated limitation: two wordings sharing no vocabulary score 0 and stay separate,
   which leaves the count inflated — the status quo, and the conservative direction.
+  Running clustering *before* the verifier (it began *after* it, in #591) has one
+  tradeoff, stated rather than hidden: the merge now decides what the verifier
+  sees, so a wrong merge means a folded wording is judged only through its
+  representative. Two things bound it — the threshold is conservative (the #578
+  distinct pairs scored 0.000, so they stay separate) and `mergeCluster` elects the
+  strongest wording as representative (gating, then highest severity, then
+  evidence-bearing), so the verifier judges the form most likely to gate and every
+  folded wording is still rendered, making a bad merge visible rather than silent.
+  A finding can now be clustered twice (fresh pass pre-verify, then again when a
+  fresh survivor restates a carried-forward prior finding), so `mergeCluster`
+  flattens the wordings each pass folded rather than overwriting them.
   A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
   verifier structurally cannot: *did this change PUT this line here, carrying
   code that already existed?* The verifier's independence means it never sees the

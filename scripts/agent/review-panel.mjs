@@ -550,11 +550,22 @@ function mergeCluster(members) {
   // rep — never invent a lane on a finding that had none (see annotateFindings).
   if (out.lane === "backlog" && members.some((m) => findingGates(m))) out.lane = "blocking";
   if (members.some((m) => m && m.unsettled)) out.unsettled = true;
-  out.mergedFrom = others.map((m) => ({
+  // Flatten, don't overwrite. A finding can be clustered twice now — once within
+  // the fresh pass before verification, then again when a fresh survivor and a
+  // carried-forward prior finding turn out to restate one defect. Each folded
+  // member contributes ITSELF plus anything it had already folded, and the
+  // representative's own prior `mergedFrom` is kept, so no wording is lost across
+  // the two passes. (For the common single-pass case `others` carry no nested
+  // `mergedFrom` and `rep` has none, so this is exactly the old one-level list.)
+  const fold = (m) => ({
     severity: normalizeSeverity(m && m.severity),
     summary: (m && m.summary) ?? "(no summary)",
     ...(m && m.evidence ? { evidence: m.evidence } : {}),
-  }));
+  });
+  out.mergedFrom = [
+    ...others.flatMap((m) => [fold(m), ...(Array.isArray(m && m.mergedFrom) ? m.mergedFrom : [])]),
+    ...(Array.isArray(rep.mergedFrom) ? rep.mergedFrom : []),
+  ];
   return out;
 }
 
@@ -1727,15 +1738,33 @@ async function main() {
       return;
     }
 
+    // Collapse RESTATEMENTS of one defect BEFORE verifying, so the verifier runs
+    // once per distinct defect rather than once per wording — the #578 waste,
+    // where four restatement pairs meant four redundant verifier sessions (and,
+    // via noveltiesFor below, four redundant `git blame` calls). See
+    // clusterFindings for why merging loses nothing: the survivor takes the
+    // cluster's worst severity and gates if any member did, and every folded
+    // wording rides along in `mergedFrom`.
+    //
+    // TRADEOFF vs #591's original "cluster after verify" order: clustering now
+    // decides what the verifier sees, so a wrong merge means a folded wording is
+    // judged only through its representative's verdict. Two things bound that: the
+    // similarity threshold is conservative (the #578 distinct pairs scored 0.000,
+    // so they stay separate), and mergeCluster picks the STRONGEST wording as the
+    // representative (gating, then highest severity, then evidence-bearing), so
+    // the verifier judges the form most likely to survive — and every folded
+    // wording is still rendered, so a bad merge is visible rather than silent.
+    const detected = clusterFindings(findings);
+
     // Verifier refute pass over blocking findings (rubric passed so it judges by
     // the lens's own definitions; keeps the finding on any uncertainty).
-    const verdicts = await Promise.all(findings.map(async (f) => {
+    const verdicts = await Promise.all(detected.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
       catch { return null; } // error → keep the finding (fail toward blocking)
     }));
     const kept = keepUnrefuted(
-      annotateFindings(findings, verdicts, await noveltiesFor(findings), verifyOpts),
+      annotateFindings(detected, verdicts, await noveltiesFor(detected), verifyOpts),
     );
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
@@ -1761,11 +1790,12 @@ async function main() {
     );
     // Merge fresh + still-open prior findings. Two passes, narrow then loose:
     // `dedupeFindings` collapses byte-identical summaries, then `clusterFindings`
-    // collapses RESTATEMENTS of one defect — a prior finding the fresh pass
-    // re-found in different words, or one lens describing the same bug twice at
-    // two severities. Clustering runs AFTER verification on purpose: it merges
-    // only findings that already survived the gate, so it can never decide what
-    // gets verified, and every collapsed wording rides along in `mergedFrom`.
+    // collapses RESTATEMENTS ACROSS the two passes — a prior finding the fresh
+    // pass re-found in different words. (Within the fresh pass, restatements were
+    // already collapsed before verification, above; this catches only the
+    // fresh-vs-prior kind.) A finding can therefore be clustered twice now, so
+    // mergeCluster flattens the wordings each side already folded — this second
+    // pass loses none of the ones the first recorded in `mergedFrom`.
     const merged = clusterFindings(dedupeFindings([...kept, ...priorKept]));
     // What the LENS CHECK gates on: `merged` minus the demoted blockers. The
     // backlog ones stay in `merged` so the summary still reports them (with the
@@ -1776,7 +1806,10 @@ async function main() {
     // Reliability signals for this round: did the samples agree (fresh pass
     // only — prior-round re-checks aren't a sampling question), and what did
     // the verifier do across BOTH the fresh and prior-round re-check passes.
-    const freshTally = verifierTally(findings, verdicts, verifyOpts);
+    // `detected`, not `findings`: `verdicts` are index-aligned to what was
+    // actually sent to the verifier (post-cluster), so `sentToVerifier` counts
+    // distinct defects rather than wordings.
+    const freshTally = verifierTally(detected, verdicts, verifyOpts);
     const priorTally = verifierTally(priorForLens, priorVerdicts, verifyOpts);
     lensStats.push({
       id: lens.id,
