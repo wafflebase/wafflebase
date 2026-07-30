@@ -17,6 +17,7 @@ import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 
 interface BoardViewProps {
@@ -271,6 +272,11 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== "Space" || spaceDown) return;
+      // Don't hijack Space when a regular editable field has focus (the
+      // SiteHeader rename input, the Share dialog, any other
+      // input/textarea/contenteditable) — it must type a literal space
+      // there, not enter pan mode.
+      if (isEditableTarget(e.target)) return;
       // Don't hijack Space from an in-progress text edit (it must type
       // a space character there, not enter pan mode).
       if (editor.isTextEditing()) return;

@@ -24,6 +24,7 @@ import {
   applyInverseMatrix,
   applyInversePoint,
   bakeGroupScale,
+  buildElementWorldLookup,
   composeAncestorTransform,
   computeConnectorFrame,
   generateId,
@@ -1261,13 +1262,21 @@ export class YorkieBoardStore implements SlidesStore {
   // --- internal: element-tree helpers (verbatim ports, operating on
   // `root.elements` instead of a slide's `elements`) ---
 
+  /**
+   * Build an id → world-frame element lookup for connector endpoint
+   * resolution. Must be RECURSIVE (via `buildElementWorldLookup`, which
+   * descends into `group.data.children` composing group transforms) —
+   * a top-level-only lookup can't find a connector's target once that
+   * element becomes a group child, so `resolveEndpoint` would fall back
+   * to `{x:0,y:0}` and the connector would jump to the origin on any
+   * recompute (`updateConnectorEndpoint`/`Routing`/`Bend`, detach).
+   * Mirrors the same fix in `YorkieSlidesStore.setSlideHeight`.
+   */
   private elementsLookup(r: YorkieBoardRoot): ReadonlyMap<string, ModelElement> {
-    const map = new Map<string, ModelElement>();
-    for (const e of r.elements) {
-      const plain = unwrapElement(e) as unknown as ModelElement;
-      map.set(plain.id, plain);
-    }
-    return map;
+    const plainEls = r.elements.map(
+      (e) => unwrapElement(e) as unknown as ModelElement,
+    );
+    return buildElementWorldLookup(plainEls);
   }
 
   private detachConnectorsTargeting(r: YorkieBoardRoot, targetId: string): void {

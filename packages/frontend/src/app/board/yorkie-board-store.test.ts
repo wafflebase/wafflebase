@@ -45,4 +45,50 @@ describe('YorkieBoardStore', () => {
     store.undo();
     expect(store.read().slides[0].elements).toHaveLength(0);
   });
+
+  // Regression coverage for C4: `elementsLookup` must recursively
+  // resolve elements nested inside a group (not just top-level ones),
+  // otherwise a connector attached to an element that becomes a group
+  // member resolves via `resolveEndpoint`'s missing-target fallback and
+  // collapses to the origin.
+  it('connector attached to a grouped element resolves to its world frame, not the origin', () => {
+    const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+    let aId = '';
+    let connId = '';
+    store.batch(() => {
+      aId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'shape',
+        frame: { x: 300, y: 300, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      const bId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'shape',
+        frame: { x: 500, y: 500, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      // Grouping makes `aId` a group CHILD — no longer a top-level
+      // element in `root.elements`.
+      store.group(SYNTHETIC_SLIDE_ID, [aId, bId]);
+      // A connector added AFTER the group exists, attached to the now-
+      // nested `aId`. A top-level-only lookup can't find `aId` here.
+      connId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: aId, siteIndex: 0 },
+        end: { kind: 'free', x: 700, y: 700 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+    });
+
+    const conn = store
+      .read()
+      .slides[0].elements.find((e) => e.id === connId);
+    expect(conn).toBeDefined();
+    // With the origin-fallback bug, the connector's computed frame
+    // collapses to a degenerate box at (0, 0). The grouped element `aId`
+    // sits at world (300, 300)-ish, so a correctly resolved frame must
+    // not sit at the origin.
+    expect(conn!.frame.x === 0 && conn!.frame.y === 0).toBe(false);
+  });
 });
