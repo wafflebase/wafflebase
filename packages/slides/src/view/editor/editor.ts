@@ -4954,6 +4954,19 @@ class SlidesEditorImpl implements SlidesEditor {
     this.options.overlay.appendChild(rectEl);
 
     const start = this.clientToLogical(clientX, clientY);
+    // Place the zero-size rect at the start point immediately. Without
+    // this, a pointer-down (before the first move sizes it) leaves
+    // left/top unset, so the bordered rect flashes at the overlay origin
+    // (0,0) — the top-left corner, glaringly far from the cursor on a
+    // panned/zoomed board — until the first pointermove snaps it into place.
+    {
+      const scale = this.scale();
+      const { panX, panY } = this.overlayPan();
+      rectEl.style.left = `${start.x * scale + panX}px`;
+      rectEl.style.top = `${start.y * scale + panY}px`;
+      rectEl.style.width = '0px';
+      rectEl.style.height = '0px';
+    }
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
