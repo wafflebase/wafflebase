@@ -182,6 +182,39 @@ describe('slides text-box editor wiring', () => {
     expect(current()!.isEditing()).toBe(true);
   });
 
+  it('board pan is threaded into mountTextBox as panX/panY', () => {
+    // Board mode: the editing container must be offset by the viewport
+    // pan on top of `frame * scale`, otherwise the caret/glyphs land off
+    // the panned element (C2 regression coverage).
+    const { canvas, overlay, store } = makeFixture();
+    const { elementId } = addTextElement(store);
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+      viewport: { panX: 37, panY: -12, zoom: 1 },
+    });
+    dispatchDblClick(canvas, 200, 200);
+    expect(editor.getEditingElementId()).toBe(elementId);
+    expect(current()!.opts.panX).toBe(37);
+    expect(current()!.opts.panY).toBe(-12);
+  });
+
+  it('plain-slides mount (no viewport) gets panX/panY 0 — unchanged behavior', () => {
+    const { canvas, overlay, store } = makeFixture();
+    addTextElement(store);
+    const { mount, current } = makeMockMount();
+    editor = initialize({
+      canvas, overlay, store,
+      hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      mountTextBox: mount,
+    });
+    dispatchDblClick(canvas, 200, 200);
+    expect(current()!.opts.panX).toBe(0);
+    expect(current()!.opts.panY).toBe(0);
+  });
+
   it('double-click inside an already-editing text element does NOT remount', () => {
     // Regression: dblclick inside an edited text-box was bubbling to the
     // slides overlay listener, which called enterEditMode on the same

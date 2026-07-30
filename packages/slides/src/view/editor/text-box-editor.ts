@@ -195,6 +195,17 @@ export interface MountSlidesTextBoxOptions {
    * Omitted for auto-growing text elements, which never overflow.
    */
   overflowBounds?: { left: number; top: number; width: number; height: number };
+  /**
+   * Host-pixel pan offset added on top of `frame * scale` when
+   * positioning the editing container. Mirrors the slides editor's
+   * `overlayPan()` (board infinite-canvas viewport pan) so the in-place
+   * editing surface stays aligned with the committed slide render when
+   * the board is panned. Omitted / `0` ⇒ identical to pre-board slides
+   * behavior.
+   */
+  panX?: number;
+  /** See `panX`. */
+  panY?: number;
 }
 
 export interface SlidesTextBoxEditor {
@@ -277,6 +288,10 @@ export interface SlidesTextBoxEditor {
 
 export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
   const { overlay, frame, scale, blocks, onCommit, onCancel, onLinkRequest, onContentHeightChange, colorResolver, autofit, verticalAnchor, growMode, initialText, overflowBounds } = opts;
+  // Board infinite-canvas pan (host px), added on top of `frame * scale`.
+  // Absent for plain slides, where the overlay itself isn't panned.
+  const panX = opts.panX ?? 0;
+  const panY = opts.panY ?? 0;
   // Deck-level font pre-scale (from `deckFontScale(meta)`). Composed
   // ahead of shrink-autofit so the editor reads the same effective
   // font size the committed canvas paints. Defaults to `1` so existing
@@ -306,8 +321,8 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   const container = document.createElement('div');
   container.className = 'wfb-slides-text-box-editor';
   container.style.position = 'absolute';
-  container.style.left = `${frame.x * scale}px`;
-  container.style.top = `${frame.y * scale}px`;
+  container.style.left = `${frame.x * scale + panX}px`;
+  container.style.top = `${frame.y * scale + panY}px`;
   container.style.width = `${frame.w * scale}px`;
   container.style.height = `${frame.h * scale}px`;
   // Capture pointer events so clicks land on the text-box (the overlay

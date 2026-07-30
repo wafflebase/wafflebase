@@ -3824,6 +3824,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // pass the full element frame as today.
       frame: target.editFrame,
       scale: this.scale(),
+      // Board infinite-canvas pan: keeps the in-place editing container
+      // aligned with the committed slide render when panned. `0,0` on
+      // plain slides (no viewport) — identical to pre-board behavior.
+      ...this.overlayPan(),
       blocks: target.blocks,
       // Drives editor autofit: 'shrink' scales fonts to fit the fixed box,
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
