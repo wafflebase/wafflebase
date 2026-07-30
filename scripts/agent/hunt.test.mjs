@@ -169,3 +169,76 @@ test("renderReport: a pipe in a title cannot break the drop table", () => {
   const row = md.split("\n").find((l) => l.includes("a \\| b"));
   assert.ok(row, "pipes must be escaped so the markdown table survives");
 });
+
+// --- the agreement measurement -----------------------------------------------
+
+test("renderReport: shows reproduced-but-solo candidates, not just a count", () => {
+  // The whole point of applying agreement AFTER replay. A count cannot tell you
+  // whether 2-of-3 agreement is discarding real defects; four readable candidates
+  // can. If this section ever silently stops rendering, the measurement is gone
+  // and the funnel looks like agreement costs nothing.
+  const md = renderReport({
+    runId: "r1",
+    headSha: "abc1234",
+    charters: ["contract"],
+    reported: [],
+    stats: { proposed: 9, unique: 7, novel: 7, reproduced: 5, corroborated: 2, soloReproduced: 3, reported: 0 },
+    dropped: [
+      {
+        title: "--format yaml prints undefined",
+        why: "proposed by only one sample — replay: reproduced",
+        agreement: "solo",
+        reproduced: true,
+        claimed: {
+          oracle: "contract",
+          severity: "major",
+          expected: "valid YAML on stdout",
+          observed: "the literal string undefined, exit 0",
+          citations: ["packages/cli/src/output/formatter.ts:37"],
+          docCitation: "docs/design/cli.md:714",
+        },
+      },
+      { title: "flaky one", why: "proposed by only one sample — replay: diverged (nondeterministic)", agreement: "solo", reproduced: false },
+      { title: "corroborated but broken", why: "replay: not-reproduced", agreement: "corroborated", reproduced: false },
+    ],
+  });
+
+  assert.match(md, /## Reproduced but not corroborated \(1\)/, "must show the count of judgeable candidates");
+  assert.match(md, /--format yaml prints undefined/);
+  assert.match(md, /valid YAML on stdout/, "expected/observed are what makes it judgeable by hand");
+  assert.match(md, /packages\/cli\/src\/output\/formatter\.ts:37/);
+  assert.match(md, /docs\/design\/cli\.md:714/);
+  // A solo candidate that did NOT reproduce is not judgeable and must not appear
+  // in this section — it would dilute exactly the signal being measured.
+  assert.equal(/### flaky one/.test(md), false, "non-reproduced solo must not be promoted");
+  assert.equal(/### corroborated but broken/.test(md), false, "corroborated drops belong in the plain table");
+  // ...but everything still appears in the full drop table.
+  assert.match(md, /## Dropped \(3\)/);
+  assert.match(md, /\| soloReproduced \| 3 \|/, "the funnel must carry the measurement too");
+});
+
+test("renderReport: redacts secrets carried by DROPPED candidates", () => {
+  // Widening the report to show dropped candidates also widened the egress
+  // boundary: probe output from a candidate that was never reported now reaches
+  // a file destined for a public issue. Before this change `extra` was built from
+  // `reported` only, so a token echoed by a solo candidate would have survived on
+  // generic patterns alone.
+  const md = renderReport({
+    runId: "r1",
+    headSha: "abc1234",
+    charters: ["contract"],
+    reported: [],
+    stats: { proposed: 1, soloReproduced: 1 },
+    dropped: [
+      {
+        title: "leaky",
+        why: "proposed by only one sample — replay: reproduced",
+        agreement: "solo",
+        reproduced: true,
+        secrets: ["s3cr3t-workspace-key"],
+        claimed: { oracle: "contract", severity: "major", expected: "ok", observed: "sent s3cr3t-workspace-key upstream", citations: [] },
+      },
+    ],
+  });
+  assert.equal(md.includes("s3cr3t-workspace-key"), false, "a dropped candidate's secret reached the report");
+});

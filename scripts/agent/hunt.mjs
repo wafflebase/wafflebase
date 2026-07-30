@@ -297,6 +297,38 @@ export function renderReport({ runId, headSha, charters, reported, dropped, stat
       );
     }
   }
+  // The agreement measurement, SHOWN rather than merely counted. Each of these
+  // reproduced deterministically in a clean room and was dropped only because a
+  // single sample proposed it. Reading a few is how you decide whether
+  // cross-sample agreement buys precision or costs real defects — a funnel count
+  // cannot answer that. A persistently empty section means agreement is filtering
+  // nothing that replay would not have filtered for free.
+  const solo = dropped.filter((d) => d.agreement === "solo" && d.reproduced);
+  if (solo.length > 0) {
+    lines.push(
+      `## Reproduced but not corroborated (${solo.length})`,
+      "",
+      "Each REPRODUCED deterministically and was dropped only for lacking a second",
+      "sample. Judge them by hand: if most are real, cross-sample agreement is too",
+      "strict. They are deliberately absent from the ledger, so they stay eligible",
+      "for a later run.",
+      "",
+    );
+    for (const d of solo) {
+      const c = d.claimed ?? {};
+      const cites = (Array.isArray(c.citations) ? c.citations : []).map((x) => `\`${x}\``).join(", ");
+      lines.push(
+        `### ${d.title ?? "(untitled)"}`,
+        "",
+        `- oracle: \`${c.oracle ?? "?"}\` — severity: \`${c.severity ?? "?"}\``,
+        `- expected: ${c.expected ?? "(none)"}`,
+        `- observed: ${c.observed ?? "(none)"}`,
+        `- citations: ${cites || "(none)"}`,
+        c.docCitation ? `- doc: \`${c.docCitation}\`` : null,
+        "",
+      );
+    }
+  }
   if (dropped.length > 0) {
     lines.push(`## Dropped (${dropped.length})`, "", "| candidate | reason |", "| --- | --- |");
     for (const d of dropped) {
@@ -309,7 +341,11 @@ export function renderReport({ runId, headSha, charters, reported, dropped, stat
   // call above only redacts its own block; a token echoed inside `observed`, a
   // citation, or the drop table would otherwise reach the report on generic
   // patterns alone. This is the published-report egress boundary.
-  const extra = [...new Set(reported.flatMap((c) => (Array.isArray(c.secrets) ? c.secrets : [])))];
+  const extra = [
+    ...new Set(
+      [...reported, ...dropped].flatMap((c) => (Array.isArray(c.secrets) ? c.secrets : [])),
+    ),
+  ];
   return redactSecrets(lines.filter((l) => l !== null).join("\n"), { extra });
 }
 
@@ -471,7 +507,13 @@ async function cmdRun(args) {
   const sessionLog = [];
   const reported = [];
   const dropped = [];
-  const stats = { proposed: 0, agreed: 0, wellFormed: 0, novel: 0, reproduced: 0, reported: 0 };
+  // Funnel order matches the pipeline order below. `soloReproduced` is not a
+  // stage — it is the MEASUREMENT: candidates only one sample proposed that a
+  // trusted replay nevertheless reproduced deterministically. If it stays high
+  // across runs, cross-sample agreement is discarding genuine defects and the
+  // threshold needs revisiting; if it stays at zero, agreement is doing replay's
+  // job for free and belongs where it is.
+  const stats = { proposed: 0, unique: 0, novel: 0, reproduced: 0, corroborated: 0, soloReproduced: 0, reported: 0 };
   const ledgerAdds = [];
 
   // Charters run SERIALLY, unlike samples and verifiers below. This is a budget
@@ -534,14 +576,31 @@ async function cmdRun(args) {
       redactSecrets(JSON.stringify(sampleResults, null, 2), { extra: [context.cfg.apiKey].filter(Boolean) }) + "\n",
     );
 
+    // Agreement is COMPUTED here but APPLIED after replay.
+    //
+    // Replay costs no tokens — trusted code re-running recorded argv in a clean
+    // room — so filtering on agreement first threw away, for free, the only
+    // evidence of whether a single-sample candidate was real at all. The funnel
+    // could not answer "is 2-of-3 too strict?" because the candidates that would
+    // answer it were discarded before anything ran them.
+    //
+    // The REPORTED set is unchanged by this reorder: agreement still gates
+    // verification, just later. What changes is that every agreement drop now
+    // carries whether the defect reproduced, and that costs only probe wall-clock.
     const { kept: agreedRaw, dropped: notAgreed } = intersectSamples(samples, locsOf);
-    for (const d of notAgreed) dropped.push({ title: d.candidate?.title, why: d.why });
-    const agreed = dedupeCandidates(agreedRaw, keyOf);
-    stats.agreed += agreed.length;
-    stats.wellFormed += agreed.length;
+    const agreedKeys = new Set(agreedRaw.map((c) => keyOf(c)).filter((k) => k !== ""));
+    const soloWhy = new Map();
+    for (const d of notAgreed) {
+      const k = keyOf(d.candidate);
+      if (k !== "") soloWhy.set(k, d.why);
+    }
+
+    // Probe the UNION of everything any sample proposed, deduped by defect.
+    const unique = dedupeCandidates(samples.flat(), keyOf);
+    stats.unique += unique.length;
 
     const changedSince = makeChangedSince(repo, charter.codeScope);
-    for (const cand of agreed) {
+    for (const cand of unique) {
       // The ledger's primary identity is the DEFECT, not the probe. "Have we
       // already resolved this?" is a question about the defect, and the defect key
       // is the only identity available before a probe has run. The precise
@@ -583,12 +642,40 @@ async function cmdRun(args) {
         secrets: [context.cfg.apiKey].filter(Boolean),
       };
 
-      if (rep.status !== "reproduced" || !rep.deterministic) {
-        dropped.push({ title: cand.title, why: `replay: ${rep.status}` });
+      const reproduced = rep.status === "reproduced" && rep.deterministic;
+      if (reproduced) stats.reproduced++;
+
+      // ── Agreement, applied here instead of before replay ──
+      // A defect only one sample proposed is still dropped; the difference is we
+      // now know whether it was real. Deliberately NOT written to the ledger: a
+      // candidate no verifier ever judged must stay eligible next run, the same
+      // trap the unjudged-verdict case avoids below. Recording it as "seen" would
+      // permanently hide a defect this run declined to even assess.
+      if (!agreedKeys.has(dk)) {
+        const base = soloWhy.get(dk) ?? "proposed by only one sample";
+        dropped.push({
+          title: cand.title,
+          why: `${base} — replay: ${rep.status}${rep.deterministic ? "" : " (nondeterministic)"}`,
+          agreement: "solo",
+          reproduced,
+          // Carried so the report can SHOW a reproduced-but-solo candidate rather
+          // than only counting it: a count cannot tell you whether agreement is
+          // discarding real defects, but reading four of them can. `secrets` rides
+          // along because this puts probe-derived text through the report's egress
+          // boundary, which previously only saw REPORTED candidates.
+          claimed: reproduced ? { ...cand } : undefined,
+          secrets: reproduced ? [context.cfg.apiKey].filter(Boolean) : undefined,
+        });
+        if (reproduced) stats.soloReproduced++;
+        continue;
+      }
+
+      if (!reproduced) {
+        dropped.push({ title: cand.title, why: `replay: ${rep.status}`, agreement: "corroborated", reproduced: false });
         ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, probeFp: fp, charterId: charter.id, verdict: "dropped", dropReason: rep.status, runId, sha: headSha });
         continue;
       }
-      stats.reproduced++;
+      stats.corroborated++;
 
       // Verify with N independent verifiers, then let the trusted gate decide.
       // Verifiers run CONCURRENTLY. They must be INDEPENDENT to be worth having —
@@ -659,8 +746,9 @@ async function cmdRun(args) {
   writeFileSync(path.join(outDir, "hunt-execution.json"), JSON.stringify(sessionLog));
   writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
   process.stdout.write(
-    `hunt: ${stats.proposed} proposed → ${stats.agreed} agreed → ${stats.novel} novel → ` +
-      `${stats.reproduced} reproduced → ${stats.reported} reported\n` +
+    `hunt: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
+      `${stats.reproduced} reproduced → ${stats.corroborated} corroborated → ${stats.reported} reported\n` +
+      `      ${stats.soloReproduced} reproduced but proposed by only ONE sample (agreement cost)\n` +
       `hunt: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
