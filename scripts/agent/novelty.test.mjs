@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -217,13 +217,55 @@ test("noveltyOf: the cache is consulted before any git work", async () => {
 // repo with an actual refactor in it and read the actual answers, so a change
 // that renders the gate inert (or demoting) cannot ship green.
 
-/** git with a fixed identity, so the test does not depend on global config. */
+/**
+ * git with a fixed identity, so the test does not depend on global config.
+ *
+ * `GIT_DIR`/`GIT_WORK_TREE` are pinned explicitly rather than trusting `cwd`
+ * alone. A fixture that escapes its temp directory does not fail — it commits
+ * into the SURROUNDING repository, on whatever branch is checked out, replacing
+ * the developer's branch tip. `cwd` alone does not prevent that: in a directory
+ * that is not itself a repo, git walks UP and finds the real checkout. With
+ * these set, git performs no discovery at all. `GIT_CEILING_DIRECTORIES` is
+ * belt-and-braces for any subcommand that re-derives the root itself.
+ *
+ * stderr is captured rather than discarded: when one of these calls does go
+ * wrong, git's own message is the only evidence of what it actually did.
+ */
 function git(dir, ...args) {
-  return execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
-    cwd: dir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
+  try {
+    return execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_DIR: path.join(dir, ".git"),
+        GIT_WORK_TREE: dir,
+        GIT_CEILING_DIRECTORIES: dir,
+      },
+    });
+  } catch (e) {
+    const why = String(e?.stderr || e?.message || e).trim();
+    throw new Error(`fixture git failed: git ${args.join(" ")} (in ${dir}): ${why}`);
+  }
+}
+
+/**
+ * Prove the fixture's git resolves to `dir` and nothing else.
+ *
+ * The pinning above should make escape impossible, but "should" is what the
+ * previous version of this helper also had. This converts a silent commit into
+ * the real repository into a loud failure. `realpathSync` on both sides because
+ * macOS `tmpdir()` is `/var/...` while git reports the resolved `/private/var/...`,
+ * so comparing raw strings would fail every run.
+ */
+function assertIsolated(dir) {
+  const top = git(dir, "rev-parse", "--show-toplevel").trim();
+  assert.equal(
+    realpathSync(top),
+    realpathSync(dir),
+    `fixture git escaped its temp directory (resolved to ${top}) — it would commit into the real repo`,
+  );
 }
 
 /**
@@ -235,6 +277,7 @@ function git(dir, ...args) {
 function makeRepo() {
   const dir = mkdtempSync(path.join(tmpdir(), "novelty-test-"));
   git(dir, "init", "-q", "-b", "main");
+  assertIsolated(dir);
 
   const movedFn = [
     "export function classifyResult(result) {",
@@ -269,6 +312,40 @@ function makeRepo() {
 
   return { dir, base };
 }
+
+test("fixture git cannot escape into the surrounding repository", () => {
+  // THE regression test for a silent branch-clobbering incident: these fixture
+  // git calls committed into the REAL repository, replacing a developer's branch
+  // tip with the 4-file fixture tree above, and the resulting push read as
+  // deleting all 3019 files. An escaped fixture does not fail — it succeeds
+  // against the wrong repo — so nothing catches it but a check like this one.
+  //
+  // Build the fixture INSIDE the real checkout, the one place discovery would
+  // walk up and find a parent to commit into.
+  const inside = mkdtempSync(path.join(process.cwd(), "novelty-escape-"));
+  try {
+    git(inside, "init", "-q", "-b", "main");
+
+    // Ordering is load-bearing: prove isolation BEFORE writing a commit, so a
+    // broken pin fails an assertion instead of mutating the real branch.
+    assertIsolated(inside);
+    assert.equal(
+      realpathSync(git(inside, "rev-parse", "--absolute-git-dir").trim()),
+      realpathSync(path.join(inside, ".git")),
+    );
+
+    writeFileSync(path.join(inside, "f.txt"), "contained\n");
+    git(inside, "add", "-A");
+    git(inside, "commit", "-q", "-m", "fixture-only");
+
+    // A one-commit history with one file proves this is the fixture's repo and
+    // not the real one (thousands of each) — i.e. the commit was contained.
+    assert.equal(git(inside, "rev-list", "--count", "HEAD").trim(), "1");
+    assert.deepEqual(git(inside, "ls-tree", "-r", "--name-only", "HEAD").trim().split("\n"), ["f.txt"]);
+  } finally {
+    rmSync(inside, { recursive: true, force: true });
+  }
+});
 
 test("noveltyOf [real git]: verbatim-moved code is `relocated` and demotes", async () => {
   const { dir, base } = makeRepo();

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -96,12 +96,39 @@ function writeSummary(results, totalStart) {
   return summary;
 }
 
+/**
+ * The commit HEAD points at, or `null` when that cannot be read (a vendored
+ * copy or exported tarball, where the guard below simply does not apply).
+ *
+ * Read once before the lanes and again after each one. No lane may move the
+ * developer's branch. A test that shells out to git and escapes its fixture
+ * directory does not fail — it commits into THIS repository, on whatever branch
+ * is checked out, replacing the branch tip. That happened: ten commits left a
+ * branch and the resulting push read as deleting all 3019 files. The only
+ * symptom was the diff stat, and only if someone looked before pushing.
+ *
+ * Checking here catches the whole class rather than one known test, and names
+ * the lane responsible — turning a reflog excavation into one line of output.
+ */
+function readHead() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 // --- main ---
 
 mkdirSync(reportDir, { recursive: true });
 
 const results = [];
 const totalStart = Date.now();
+const headBefore = readHead();
 let failed = false;
 
 for (const { name, cmd } of LANES) {
@@ -123,6 +150,26 @@ for (const { name, cmd } of LANES) {
 
   const { exitCode, output } = await runCommand(cmd, repoRoot);
   const durationMs = Date.now() - start;
+
+  // Fail on a moved branch even when the lane itself passed — a lane that
+  // rewrites history and exits 0 is the exact case this exists to catch.
+  const headAfter = readHead();
+  if (headBefore && headAfter && headAfter !== headBefore) {
+    const report = {
+      lane: name,
+      status: "fail",
+      durationMs,
+      exitCode,
+      failureSummary: `lane moved HEAD ${headBefore.slice(0, 9)} -> ${headAfter.slice(0, 9)}`,
+    };
+    results.push(report);
+    writeLaneReport(report);
+    console.error(`\n\u2717 ${name} MOVED HEAD: ${headBefore.slice(0, 9)} -> ${headAfter.slice(0, 9)}`);
+    console.error("  This lane committed into the repository. Your branch tip was replaced.");
+    console.error(`  Recover with:  git reset --hard ${headBefore}`);
+    failed = true;
+    continue;
+  }
 
   if (exitCode === 0) {
     const report = {
