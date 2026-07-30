@@ -1248,7 +1248,20 @@ export function buildLensPrompt(lens, { rubric }) {
  * run once pays a 1.25x write nothing reads back.
  */
 export function sampleCountFor(lens) {
-  return Math.max(1, Number((lens ?? {}).samples) || 2);
+  const raw = Number((lens ?? {}).samples);
+  // Must return a non-negative INTEGER, not merely a number. A fractional value
+  // would pass through arithmetic intact and then be read two incompatible ways:
+  // `for (let i = 0; i < 2.5; i++)` runs three samples while countPrefixSessions
+  // adds 2.5 to the prefix's total. That disagreement between the count and the
+  // runs is precisely the drift this function exists to prevent, and it can turn a
+  // prefix counted as shared into one nothing reads back.
+  //
+  // Non-finite falls back to the default rather than clamping, so it lands with
+  // the other malformed-manifest values. Infinity is reachable from plain JSON —
+  // a mistyped `"samples": 1e999` parses to it — and would otherwise hang the
+  // round loop outright.
+  if (!Number.isFinite(raw) || raw === 0) return 2;
+  return Math.max(1, Math.floor(raw));
 }
 
 /**

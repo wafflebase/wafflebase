@@ -127,6 +127,21 @@ test("planSessions: a lens with an empty slice contributes NO sessions", () => {
   assert.equal(groups[0].sessions, 2);
 });
 
+test("projectCacheSavings: an empty round is shape-stable, not a special case", () => {
+  // The CLI reports a zero-session round through the normal path rather than
+  // bailing, so the empty projection has to carry the same shape every consumer
+  // already reads — otherwise suppressing it would be the only safe option.
+  const { groups, totals } = projectCacheSavings([]);
+  assert.deepEqual(groups, []);
+  assert.equal(totals.sessions, 0);
+  assert.equal(totals.before, 0);
+  assert.equal(totals.after, 0);
+  assert.equal(totals.savedPct, 0, "no division by zero");
+  assert.equal(totals.cacheHitPct, 0);
+  // And it must still render, since that is the path the CLI now takes.
+  assert.match(renderReport({ groups, totals }), /\*\*Total\*\*/);
+});
+
 test("renderReport: emits a markdown table with a total row and the caveats", () => {
   const md = renderReport(projectCacheSavings([session("a", bigPrefix), session("a", bigPrefix)]));
   assert.match(md, /\| Warm-up group/);

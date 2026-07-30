@@ -276,6 +276,33 @@ test("sampleCountFor: two by default, never below one", () => {
     assert.equal(sampleCountFor(bad), 2, `${JSON.stringify(bad)} must fall back to the default`);
   }
   assert.equal(sampleCountFor({ samples: -5 }), 1, "a negative count floors at one, not zero");
+
+  // INTEGER, not merely a number. A fraction survives arithmetic and is then read
+  // two incompatible ways: the round loop's `i < 2.5` runs 3 samples while
+  // countPrefixSessions adds 2.5 to the prefix total. A prefix can then be counted
+  // as shared while fewer sessions exist to read the write back.
+  assert.equal(sampleCountFor({ samples: 2.5 }), 2, "fractional counts truncate");
+  assert.equal(sampleCountFor({ samples: 1.9 }), 1);
+  assert.equal(sampleCountFor({ samples: 0.4 }), 1, "a positive fraction below 1 still runs one sample");
+  // Reachable from plain JSON: `"samples": 1e999` parses to Infinity, which would
+  // hang the round loop rather than fail. Treated as malformed → the default.
+  assert.equal(sampleCountFor({ samples: JSON.parse("1e999") }), 2, "Infinity must not reach the loop");
+  assert.equal(sampleCountFor({ samples: -Infinity }), 2);
+  for (const n of [1, 2, 3, 7]) assert.equal(sampleCountFor({ samples: n }), n, "integers pass through");
+});
+
+test("sampleCountFor: the count always equals the number of samples a loop runs", () => {
+  // The invariant that matters, asserted directly rather than inferred: whatever
+  // countPrefixSessions adds for a lens must equal the iterations the round loop
+  // performs for it. These were two separate expressions before, and a fractional
+  // manifest value made them disagree.
+  for (const samples of [undefined, 0, 1, 2, 2.5, 7, -5, "3", JSON.parse("1e999")]) {
+    const n = sampleCountFor({ samples });
+    let ran = 0;
+    for (let i = 0; i < n; i++) ran++;
+    assert.equal(ran, n, `samples=${JSON.stringify(samples)} → count ${n} but loop ran ${ran}`);
+    assert.ok(Number.isInteger(n) && n >= 1, `samples=${JSON.stringify(samples)} → ${n} is not a positive integer`);
+  }
 });
 
 test("countPrefixSessions: only prefixes with a SECOND session are worth caching", () => {

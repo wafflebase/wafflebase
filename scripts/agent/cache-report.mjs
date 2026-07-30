@@ -240,8 +240,15 @@ function main() {
     changedFiles, fileBlocks, issue, scopeNote,
   });
 
-  if (sessions.length === 0) {
-    console.error("every lens skipped on this diff — nothing to project");
+  // A round with no sessions is only an ERROR when every lens is out of scope —
+  // that means the wrong diff or the wrong lens dir, and there is nothing to say
+  // about it. A lens held back because nothing it reads changed is a real, correct
+  // state of this round, so it gets reported through the normal path: zero sessions
+  // is the finding, and suppressing it would hide the very lenses the reader is
+  // asking about. `projectCacheSavings([])` is shape-stable (empty groups, zeroed
+  // totals), so no caller has to special-case the empty report.
+  if (sessions.length === 0 && noNewHunks.length === 0) {
+    console.error("every lens is out of scope on this diff — nothing to project");
     process.exit(1);
   }
   const projection = projectCacheSavings(sessions);
