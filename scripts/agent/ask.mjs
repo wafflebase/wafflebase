@@ -57,7 +57,39 @@
  */
 export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
 
+/**
+ * In-process MCP tools this repo implements itself, permitted by EXACT name.
+ *
+ * Reason (2) above names `mcp__server__exec` as a deny-list bypass, so admitting
+ * an MCP name at all needs justifying rather than assuming. The distinction is
+ * ownership, not naming:
+ *
+ *   * A conventional MCP grant trusts a server the SDK connects to — another
+ *     process, whose capabilities this file cannot see or bound.
+ *   * These are `createSdkMcpServer` tools defined in THIS repo, running in THIS
+ *     process, whose handler is `scripts/agent/hunt-tool.mjs` and whose entire
+ *     reachable surface is `node <cli-bin> <argv…>` behind `assertSafeArgv`,
+ *     a replaced environment, and a probe budget.
+ *
+ * So the capability is bounded by code in this repository, reviewed alongside it,
+ * rather than by a name. The list stays SEPARATE from `PERMITTED_TOOLS` for two
+ * reasons: the two are wired to different SDK levers (built-in `tools` versus
+ * `mcpServers`), and keeping them apart preserves the meaning of the existing
+ * tests that assert no MCP name reaches a review-panel session.
+ *
+ * Matching is exact, so `mcp__wafflebase__exec`, `mcp__other__run` and every
+ * future MCP name remain refused because they are absent — the same inversion
+ * that makes the allow-list above work.
+ */
+export const PERMITTED_MCP_TOOLS = Object.freeze(["mcp__wafflebase__run"]);
+
 const PERMITTED_SET = new Set(PERMITTED_TOOLS);
+const PERMITTED_MCP_SET = new Set(PERMITTED_MCP_TOOLS);
+
+/** Is this grant one of the in-process MCP tools rather than a built-in? */
+export function isMcpTool(name) {
+  return PERMITTED_MCP_SET.has(name);
+}
 
 /**
  * Validate a caller's tool grant, throwing on anything outside PERMITTED_TOOLS.
@@ -90,12 +122,14 @@ export function assertAllowedTools(allowedTools) {
     if (typeof t !== "string" || t.trim() === "") {
       throw new Error(`askStructured: \`allowedTools\` entries must be non-empty strings (got: ${JSON.stringify(t)})`);
     }
-    if (!PERMITTED_SET.has(t)) {
+    if (!PERMITTED_SET.has(t) && !PERMITTED_MCP_SET.has(t)) {
       throw new Error(
         `askStructured: tool ${JSON.stringify(t)} is not permitted. Agents here read ` +
-          `untrusted input, so the grant is limited to read-only inspection: ` +
-          `${PERMITTED_TOOLS.join(", ")}. Scoped permission rules (e.g. "Bash(git diff:*)"), ` +
-          `MCP tool names and non-canonical spellings are refused by the same rule.`,
+          `untrusted input, so the grant is limited to read-only inspection ` +
+          `(${PERMITTED_TOOLS.join(", ")}) plus this repo's own in-process MCP tools ` +
+          `(${PERMITTED_MCP_TOOLS.join(", ")}). Scoped permission rules (e.g. ` +
+          `"Bash(git diff:*)"), other MCP tool names and non-canonical spellings are ` +
+          `refused by the same rule.`,
       );
     }
   }
@@ -300,8 +334,41 @@ export async function withRetry(fn, { retries = 2, baseMs = 2000, sleep = defaul
  * `allowedTools` is validated here, which is also what keeps the grant check
  * ahead of the lazy SDK import at the one call site below.
  */
-export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools }) {
+export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers }) {
   const sessionTools = assertAllowedTools(allowedTools);
+
+  // `tools` restricts BUILT-IN tools only ("the base set of available built-in
+  // tools", sdk.d.ts:1395). MCP tools do not come from there — they come from
+  // `mcpServers` — so passing an `mcp__…` name in `tools` would at best be
+  // ignored and at worst drop the built-in restriction. Split, deliberately.
+  const builtinTools = sessionTools.filter((t) => !isMcpTool(t));
+  const mcpTools = sessionTools.filter((t) => isMcpTool(t));
+
+  // A grant and its server must arrive together. Either half alone is a silent
+  // bug: a granted tool with no server is invisible to the model (a session that
+  // burns quota and cannot probe), and a server with no grant leaves the tool
+  // present but never pre-approved, so every call is denied by `dontAsk` with no
+  // explanation the model can act on. Fail loudly at the call site instead.
+  const hasServers = Boolean(mcpServers) && Object.keys(mcpServers).length > 0;
+  if (mcpTools.length > 0 && !hasServers) {
+    throw new Error(
+      `buildSessionOptions: granted ${mcpTools.join(", ")} but passed no \`mcpServers\`; ` +
+        "the tool would not exist in the session.",
+    );
+  }
+  if (hasServers && mcpTools.length === 0) {
+    throw new Error(
+      "buildSessionOptions: passed `mcpServers` but granted no MCP tool; every call would " +
+        "be denied by `permissionMode: 'dontAsk'`.",
+    );
+  }
+  if (builtinTools.length === 0) {
+    throw new Error(
+      "buildSessionOptions: the grant must include at least one built-in read tool " +
+        `(${PERMITTED_TOOLS.join(", ")}); an agent that can act but not read cannot cite evidence.`,
+    );
+  }
+
   return {
     // Forwarded VERBATIM, and the SDK accepts `string | string[]`. The array form
     // is load-bearing for COST, not just style: review-panel.mjs puts the shared
@@ -331,8 +398,15 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
     // the guarantee a property of one enum value rather than of the tool set,
     // and it left every dangerous tool visible to a model reading an untrusted
     // diff. `tools` closes that: same list, so the two can never disagree.
-    tools: sessionTools,
-    allowedTools: sessionTools, // pre-approve the same read-only set
+    tools: builtinTools,
+    // Pre-approve the built-ins AND any in-process MCP tool. This is the one
+    // place the two lists legitimately differ: the MCP tool must be approved
+    // here to be callable, but must NOT appear in `tools`, which is built-ins
+    // only. Anything absent from both stays denied by `dontAsk`.
+    allowedTools: sessionTools,
+    // Only attach the server(s) when one was actually wired — `askStructured`
+    // keys its MCP timeout backstop off the presence of this field.
+    ...(hasServers ? { mcpServers } : {}),
     permissionMode: "dontAsk", // deny anything not pre-approved, no prompts
     // SECURITY: do NOT load project settings/hooks/agents from cwd — cwd may be
     // an untrusted branch checkout, and a branch-supplied .claude hook would be
@@ -365,6 +439,7 @@ export async function askStructured({
   sessionLog,
   maxTurns,
   allowedTools,
+  mcpServers,
   label = "agent",
   // Optional attribution ({ lens, role }) stamped onto this call's logged result
   // message, so a consumer summing `sessionLog` can split cost by lens and by
@@ -375,8 +450,19 @@ export async function askStructured({
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad
   // grant must fail without opening a session (ask.test.mjs asserts this ordering
   // by observing that an invalid grant throws the validation error even when the
-  // SDK cannot be resolved).
-  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools });
+  // SDK cannot be resolved). It also splits any MCP grant from the built-ins and
+  // wires `mcpServers`, so the whole session shape stays observable in one place.
+  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers });
+
+  // MCP tool calls are otherwise "effectively unbounded by default"
+  // (sdk.d.ts:477). Each call already carries its own probe timeout, so this is
+  // the backstop for a call that never returns at all. A process-level env side
+  // effect, so it stays OUT of the pure `buildSessionOptions`; `options.mcpServers`
+  // is present only when the grant actually wired a server.
+  if (options.mcpServers && !process.env.MCP_TOOL_TIMEOUT) {
+    process.env.MCP_TOOL_TIMEOUT = String(60_000);
+  }
+
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // The one place the real SDK is in hand, so the one place the cache-boundary
   // mirror can be checked against it. Cheap, and it converts a silent 10x cost

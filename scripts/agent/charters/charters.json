@@ -11,7 +11,11 @@
     "needsBackend": false,
     "mutating": false,
     "codeScope": [
-      "packages/cli/src/**"
+      "packages/cli/src/**",
+      "packages/docs/src/**",
+      "packages/sheets/src/**",
+      "packages/slides/src/**",
+      "packages/backend/src/**"
     ],
     "docsScope": [
       "packages/cli/README.md",
@@ -32,7 +36,8 @@
       "perProbeTimeoutMs": 20000,
       "totalTimeoutMs": 600000
     },
-    "verifierMaxTurns": 20
+    "verifierMaxTurns": 20,
+    "explorerMaxTurns": 40
   },
   {
     "id": "crash",
@@ -46,7 +51,11 @@
     "needsBackend": false,
     "mutating": false,
     "codeScope": [
-      "packages/cli/src/**"
+      "packages/cli/src/**",
+      "packages/docs/src/**",
+      "packages/sheets/src/**",
+      "packages/slides/src/**",
+      "packages/backend/src/**"
     ],
     "docsScope": [
       "packages/cli/README.md",
@@ -65,6 +74,7 @@
       "perProbeTimeoutMs": 20000,
       "totalTimeoutMs": 600000
     },
-    "verifierMaxTurns": 20
+    "verifierMaxTurns": 20,
+    "explorerMaxTurns": 40
   }
 ]

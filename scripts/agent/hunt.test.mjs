@@ -76,10 +76,21 @@ test("charter scopes actually match the files they are meant to cover", () => {
     true,
     "the real ground-truth citation pair must pass the shipped scopes",
   );
+  // The engine packages ARE in scope on purpose: the CLI is a thin client, so a
+  // defect it surfaces often lives in docs/sheets/slides/backend rather than in
+  // `packages/cli`. Scoping citations to the CLI would have forced the hunter to
+  // blame the driver for a bug in the engine.
   assert.equal(
     isFilingVerdict(cand(["packages/sheets/src/formula/formula.ts:1", "docs/design/cli.md:691"], "docs/design/cli.md:691"), ok, contract),
+    true,
+    "an engine-package citation is in scope — the CLI drives these packages",
+  );
+  // But scope is still a scope: the frontend is unreachable from a CLI, so a
+  // citation there cannot be evidence for anything this hunter observed.
+  assert.equal(
+    isFilingVerdict(cand(["packages/frontend/src/App.tsx:1", "docs/design/cli.md:691"], "docs/design/cli.md:691"), ok, contract),
     false,
-    "a citation outside packages/cli/src must not satisfy codeScope",
+    "a citation outside every scoped package must not satisfy codeScope",
   );
 });
 
@@ -101,20 +112,29 @@ test("every charter has a rubric that states the inversion and forbids minor/nit
   }
 });
 
-test("every charter rubric states the argv contract and forbids a shell string", () => {
-  // The anti-injection design rests on the model only ever emitting argv, and the
-  // rubric is where it learns that. Asserting the ABSENCE of the word "shell"
-  // cannot work — the rubrics legitimately contain "never a shell string" — so
-  // assert the prohibition is PRESENT instead. Also pin that the rubric tells the
-  // model it does not run commands, since a rubric implying otherwise would have
-  // it emit commands the runner then refuses, wasting every probe.
+test("every charter rubric states the argv contract and the empirical loop", () => {
+  // The anti-injection design rests on commands only ever being argv ARRAYS, and
+  // the rubric is where the model learns that. Asserting the ABSENCE of the word
+  // "shell" cannot work — the rubrics legitimately say "never a shell string" — so
+  // assert the prohibition is PRESENT instead.
+  //
+  // The second half of this test INVERTED with the executing explorer. It used to
+  // require the rubric say the model does not run commands; a rubric that still
+  // said so would now be a lie that wastes the whole session, because the model
+  // would sit predicting instead of probing. So it must say the opposite, and must
+  // also warn about refusals and the finite budget — a model surprised by either
+  // burns runs rediscovering them.
   for (const c of CHARTERS) {
     assert.match(c.rubric, /argv/i, `${c.id} must describe the argv contract`);
-    // `\s+` throughout: these rubrics are hard-wrapped markdown, so any phrase
-    // can straddle a newline. A literal-space regex silently depends on where the
+    // `\s+` throughout: these rubrics are hard-wrapped markdown, so any phrase can
+    // straddle a newline. A literal-space regex silently depends on where the
     // author happened to wrap.
     assert.match(c.rubric, /never a\s+shell\s+string/i, `${c.id} must forbid a shell string outright`);
-    assert.match(c.rubric, /do \*\*not\*\*\s+run\s+commands/i, `${c.id} must say the model does not execute`);
+    assert.match(c.rubric, /You \*\*run\s+the\s+CLI\*\*/i, `${c.id} must tell the model it executes`);
+    assert.match(c.rubric, /probeRefs/, `${c.id} must explain citing runs by index`);
+    assert.match(c.rubric, /refus/i, `${c.id} must warn that some commands are refused`);
+    assert.match(c.rubric, /budget/i, `${c.id} must warn the run budget is finite`);
+    assert.doesNotMatch(c.rubric, /do \*\*not\*\*\s+run\s+commands/i, `${c.id} must not claim it cannot execute`);
   }
 });
 

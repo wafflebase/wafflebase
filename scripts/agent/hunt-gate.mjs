@@ -50,36 +50,22 @@ import { KNOWN } from "./severity.mjs";
 // schema instead of hand-copied (the same drift guard review-panel.mjs applies to
 // REFUTATION_GROUNDS).
 
-/**
- * One probe: an argv array the trusted runner will execute, never a shell string.
- *
- * This is the anti-slop mechanism and the single most important shape in the
- * pipeline. The hunter does NOT get Bash — it proposes argv and predicts the
- * outcome, and `hunt-probe.mjs` runs it. Three consequences:
- *   - No shell string is ever built from model output, so there is nothing to
- *     inject into.
- *   - The clean room is enforceable, because trusted code owns env/cwd/timeouts.
- *   - Replay is FREE and exact: re-running the same argv IS the replay, so the
- *     "repro doesn't match what the agent actually did" failure class cannot
- *     occur. `repro.sh` is rendered from the argv for humans, never authored.
- */
-const PROBE = {
-  type: "object",
-  properties: {
-    argv: { type: "array", items: { type: "string" } },
-    note: { type: "string" },
-    stdin: { type: "string" },
-    files: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { path: { type: "string" }, contentBase64: { type: "string" } },
-        required: ["path", "contentBase64"],
-      },
-    },
-  },
-  required: ["argv"],
-};
+// A probe is an argv ARRAY the trusted runner executes, never a shell string —
+// the anti-slop mechanism and the most important shape in the pipeline. Three
+// consequences, all still in force:
+//   - No shell string is ever built from model output, so there is nothing to
+//     inject into.
+//   - The clean room is enforceable, because trusted code owns env/cwd/timeouts.
+//   - Replay is exact: re-running the same argv IS the replay, so the "repro
+//     doesn't match what the agent actually did" failure class cannot occur.
+//     `repro.sh` is rendered from the argv for humans, never authored.
+//
+// The probe SCHEMA used to live here, because the hunter authored probes and
+// predicted their outcome. It now runs them itself through one bounded in-process
+// tool (`hunt-tool.mjs`) and cites journal indices instead, so the shape is owned
+// by that tool's zod input and this duplicate was deleted rather than left to
+// drift. The propose/execute split survives where it earns its keep — reporting —
+// and exploration is no longer blind, which is the only way surprise is possible.
 
 const CANDIDATE = {
   type: "object",
@@ -88,15 +74,22 @@ const CANDIDATE = {
     severity: { type: "string", enum: ["critical", "major", "minor", "nit"] },
     title: { type: "string" },
     // `expected` and `observed` are what make a candidate falsifiable: the
-    // hunter must commit to a prediction the runner can contradict.
+    // hunter must commit to a claim the runner can contradict.
     expected: { type: "string" },
     observed: { type: "string" },
-    probes: { type: "array", items: PROBE },
-    failingIndex: { type: "integer" },
+    // Evidence is CITED, not authored. These are indices into the session's probe
+    // journal — the commands this process actually ran, in order. The hunter can
+    // therefore only point at reproductions that genuinely happened; it cannot
+    // describe a command it never issued, which is what a model-authored `probes`
+    // array allowed. `resolveProbeRefs` (hunt-tool.mjs) converts them back into
+    // the `probes`/`failingIndex` shape the gate, replay and report already use,
+    // so nothing downstream had to change.
+    probeRefs: { type: "array", items: { type: "integer" } },
+    failingRef: { type: "integer" },
     citations: { type: "array", items: { type: "string" } },
     docCitation: { type: "string" },
   },
-  required: ["oracle", "severity", "title", "expected", "observed", "probes", "failingIndex", "citations"],
+  required: ["oracle", "severity", "title", "expected", "observed", "probeRefs", "failingRef", "citations"],
 };
 
 export const EXPLORER_SCHEMA = {
@@ -132,6 +125,13 @@ export const HUNT_VERIFIER_SCHEMA = {
         "relation-violated", // round-trip: a metamorphic identity broke
         "state-inconsistent", // state: a lifecycle op left the wrong state
         "value-diverges", // formula-diff: value differs from the reference
+        // Two grounds that only become available once the explorer can EXECUTE.
+        // Both are checkable from a transcript, which is what keeps them from
+        // degenerating into "this surprised me" — the one ground deliberately
+        // absent from this list, because it is the slop generator that ended
+        // curl's bug bounty.
+        "self-inconsistent", // two paths disagree about the same data
+        "schema-annotation-false", // `schema` declares a safety level the command violates
         "none",
       ],
     },
