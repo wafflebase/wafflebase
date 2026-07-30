@@ -1377,6 +1377,7 @@ async function runLens(lens, { rubric, diff, issue, repo, sessionLog, scopeNote,
     // unbounded budget there is spend with nothing to show for it.
     maxTurns: lens.maxTurns,
     label: "review",
+    logMeta: { lens: lens.id, role: "detection" },
   });
 }
 
@@ -1551,7 +1552,7 @@ export function buildVerifierPrompt(finding, { rubric }) {
   return prompt;
 }
 
-async function verifyFinding(finding, { rubric, repo, model, sessionLog }) {
+async function verifyFinding(finding, { rubric, repo, model, sessionLog, lensId }) {
   const claimType = claimTypeOf(finding);
   return askStructured({
     systemPrompt:
@@ -1576,6 +1577,7 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog }) {
     maxTurns: VERIFIER_MAX_TURNS[claimType],
     allowedTools: REVIEW_TOOLS,
     label: "review",
+    logMeta: { lens: lensId, role: "verifier" },
   });
 }
 
@@ -1815,7 +1817,7 @@ async function main() {
     // the lens's own definitions; keeps the finding on any uncertainty).
     const verifyBlocking = (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return Promise.resolve(null);
-      return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog })
+      return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id })
         .catch(() => null); // error → keep the finding (fail toward blocking)
     };
     const verdicts = await Promise.all(detected.map(async (f) => {
@@ -1849,7 +1851,7 @@ async function main() {
     const priorForLens = priorFindings.filter((p) => p.lens === lens.id);
     const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog }); }
+      try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id }); }
       catch { return null; } // error → keep (fail toward blocking)
     }));
     // Carried-forward findings are NOT routed. Their `line` was recorded against

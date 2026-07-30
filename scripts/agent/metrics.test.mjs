@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   parseExecution,
   sumExecutions,
+  attributionBreakdown,
+  aggregateAttribution,
   aggregate,
   aggregatePanelStats,
   detectFlips,
@@ -348,6 +350,88 @@ test("renderSummary: review-only (no code-fix) omits the code-fix section", () =
   assert.match(md, /- Total-cost: \$0\.80\n/);
   assert.doesNotMatch(md, /code-fix .* \+ review/);
   assert.match(md, /- Total-tokens: ~40K weighted \(~300K raw\)/);
+});
+
+// A result message tagged the way ask.mjs tags it. No cache fields, so weighted
+// tokens == raw tokens (input+output weight 1x), keeping the arithmetic obvious.
+const attrMsg = (lens, role, { inp = 0, out = 0, cost = 0, turns = 0 } = {}) => ({
+  type: "result",
+  num_turns: turns,
+  total_cost_usd: cost,
+  usage: { input_tokens: inp, output_tokens: out },
+  ...(lens || role ? { attribution: { lens, role } } : {}),
+});
+const cents = (n) => Number((n).toFixed(2));
+
+test("attributionBreakdown: buckets by lens and detection/verifier role", () => {
+  const bd = attributionBreakdown([
+    attrMsg("correctness", "detection", { inp: 100, out: 20, cost: 0.3, turns: 5 }),
+    attrMsg("correctness", "detection", { inp: 100, out: 20, cost: 0.3, turns: 5 }), // 2 samples
+    attrMsg("correctness", "verifier", { inp: 400, out: 10, cost: 0.5, turns: 8 }),
+    attrMsg("security", "detection", { inp: 80, out: 10, cost: 0.2, turns: 4 }),
+    attrMsg(null, null, { inp: 5, cost: 0.01 }),   // no attribution → unattributed/other
+    { type: "user" },                                // non-result → ignored
+    null,                                            // junk → ignored
+  ]);
+  assert.equal(bd.correctness.detection.calls, 2);
+  assert.equal(cents(bd.correctness.detection.costUsd), 0.6);
+  assert.equal(bd.correctness.detection.tokens, 240);   // (100+20) × 2
+  assert.equal(bd.correctness.detection.weightedTokens, 240);
+  assert.equal(bd.correctness.detection.turns, 10);
+  assert.equal(bd.correctness.verifier.calls, 1);
+  assert.equal(bd.correctness.verifier.tokens, 410);
+  assert.equal(bd.security.detection.calls, 1);
+  // An un-attributed message is preserved, not dropped.
+  assert.equal(bd.unattributed.other.calls, 1);
+  assert.equal(bd.unattributed.other.tokens, 5);
+  // Shape-safe on junk.
+  assert.deepEqual(attributionBreakdown(null), {});
+});
+
+test("aggregateAttribution: sums per-round breakdowns", () => {
+  const r1 = attributionBreakdown([attrMsg("correctness", "detection", { inp: 100, cost: 0.3 })]);
+  const r2 = attributionBreakdown([
+    attrMsg("correctness", "detection", { inp: 50, cost: 0.2 }),
+    attrMsg("correctness", "verifier", { inp: 200, cost: 0.4 }),
+  ]);
+  const agg = aggregateAttribution([r1, r2]);
+  assert.equal(agg.correctness.detection.calls, 2);
+  assert.equal(cents(agg.correctness.detection.costUsd), 0.5);
+  assert.equal(agg.correctness.detection.tokens, 150);
+  assert.equal(agg.correctness.verifier.calls, 1);
+  assert.deepEqual(aggregateAttribution(null), {});
+});
+
+test("renderSummary: renders the per-lens detection/verifier token table", () => {
+  const bucket = (cost, weighted) => ({ costUsd: cost, weightedTokens: weighted, tokens: weighted, turns: 1, calls: 1 });
+  const md = renderSummary({
+    agg: { agents: [], sessions: 0, attempt: 1, turns: 0, tokens: 0, weightedTokens: 0, durationMs: 0, costUsd: 0 },
+    panelAgg: { agents: ["claude-opus-5"], sessions: 1, turns: 8, tokens: 1000, weightedTokens: 1000, costUsd: 1.0, durationMs: 60000 },
+    panelStats: {},
+    panelAttribution: {
+      correctness: { detection: bucket(0.3, 120), verifier: bucket(0.5, 400) },
+      security: { detection: bucket(0.2, 90) }, // no verifier finding → "—"
+    },
+    flips: { flips: [] },
+    scope: "M",
+  });
+  assert.match(md, /#### Token attribution/);
+  assert.match(md, /\| correctness \| \$0\.30 · ~120 \| \$0\.50 · ~400 \|/);
+  assert.match(md, /\| security \| \$0\.20 · ~90 \| — \|/);         // no verifier cell
+  assert.match(md, /\| \*\*Total\*\* \| \$0\.50 · ~210 \| \$0\.50 · ~400 \|/);
+  assert.match(md, /Detection vs verifier: \$0\.50 vs \$0\.50/);
+});
+
+test("renderSummary: no attribution table when the log carries none", () => {
+  const md = renderSummary({
+    agg: { agents: ["x"], sessions: 1, attempt: 1, turns: 1, tokens: 1, weightedTokens: 1, durationMs: 1, costUsd: 0.1 },
+    panelAgg: { agents: ["claude-opus-5"], sessions: 1, turns: 8, tokens: 1000, weightedTokens: 1000, costUsd: 1.0, durationMs: 60000 },
+    panelStats: {},
+    panelAttribution: null, // pre-instrumentation round
+    flips: { flips: [] },
+    scope: "M",
+  });
+  assert.doesNotMatch(md, /Token attribution/);
 });
 
 test("metric comment round-trip: hidden, self-contained, parses back; junk → null", () => {

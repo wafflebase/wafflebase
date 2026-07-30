@@ -597,7 +597,15 @@ Components:
   `lensStats.lanes` reports `blocking`/`backlog`/`unknownOrigin` and
   `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
   beside a high `unknownOrigin` means the gate ran blind rather than that nothing
-  was relocated. The
+  was relocated.
+  **Token attribution.** Every SDK call is stamped with `{ lens, role }`
+  (`role` ∈ `detection` | `verifier`) as `scripts/agent/ask.mjs` pushes its result
+  to the shared execution log, so `scripts/agent/metrics.mjs`'s
+  `attributionBreakdown` can split the panel's spend per lens and by
+  detection-vs-verifier instead of one anonymous total — the effort summary renders
+  it as a cost · weighted-tokens table. This is what makes "which
+  lens, and is it the verifier?" answerable from the ledger rather than by guessing;
+  it is measurement only and gates nothing. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
