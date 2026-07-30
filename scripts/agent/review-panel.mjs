@@ -47,6 +47,13 @@ import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "./ask.
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
+// The similarity metric is NOT re-derived here. `rounds.mjs` already owns it for
+// the non-convergence detector, and it was calibrated against real panel output
+// (PR #564's design-fit lens emitting four wordings of one defect, measured
+// against unrelated real findings) with the overlap coefficient chosen over
+// Jaccard for exactly this restatement pattern. A second, hand-tuned copy would
+// be the drift `REFUTATION_GROUNDS` and `CITATION` both exist to avoid.
+import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -433,10 +440,9 @@ export function coerceFindings(raw) {
  * fail-toward-blocking direction the severity rule already has.
  */
 export function dedupeFindings(findings) {
-  const rank = (f) => KNOWN.indexOf(normalizeSeverity(f.severity)); // 0=critical … 3=nit
-  const gates = (f) => f?.lane !== "backlog"; // no lane = gates (see gatingFindings)
   /** Does `a` beat the finding already in the slot? Lane first, then severity. */
-  const beats = (a, b) => (gates(a) !== gates(b) ? gates(a) : rank(a) < rank(b));
+  const beats = (a, b) =>
+    findingGates(a) !== findingGates(b) ? findingGates(a) : severityRank(a) < severityRank(b);
   const byKey = new Map();
   const order = [];
   for (const f of findings) {
@@ -449,6 +455,121 @@ export function dedupeFindings(findings) {
     }
   }
   return order.map((k) => byKey.get(k));
+}
+
+/** 0=critical … 3=nit. Lower is more severe. */
+const severityRank = (f) => KNOWN.indexOf(normalizeSeverity(f && f.severity));
+/** No lane at all = gates. Only an explicit `backlog` does not (see gatingFindings). */
+const findingGates = (f) => !f || f.lane !== "backlog";
+
+/**
+ * Collapse RESTATEMENTS of one defect into a single finding.
+ *
+ * `dedupeFindings` only catches byte-identical summaries, which is why #578
+ * reported the same defect three times over: two wordings of the missing
+ * `hunt-probe.mjs`, the exact-string deny-list bug as both a `critical` and a
+ * `major`, and the deny-list-shape concern twice in design-fit. Each pair
+ * describes one thing in different words, so each gets a different key and both
+ * survive. The verifier cannot help — it judges one finding at a time, in
+ * isolation, so it structurally cannot notice it is confirming the same bug
+ * twice, and it bills for each copy.
+ *
+ * NOTHING IS LOST, which is what makes this safe to do without a model in the
+ * loop. Merging is not deletion:
+ *   - every collapsed wording rides along in `mergedFrom` and is rendered, so a
+ *     wrong merge is visible and the fixer still reads both descriptions;
+ *   - the survivor takes the cluster's HIGHEST severity, so a `critical` is never
+ *     masked by the `major` restatement of it;
+ *   - the survivor GATES if any member gated, so merging can never turn a check
+ *     green (`dedupeFindings` has the same rule, for the same reason);
+ *   - `unsettled` propagates, so doubt recorded on any wording survives.
+ * The only thing this removes is the count inflation.
+ *
+ * Single-linkage, not compare-to-representative: four wordings of one defect
+ * only collapse to one if a new wording can join on matching ANY member, not
+ * just the one that happens to be holding the slot. Membership is decided before
+ * a representative is chosen, so the result does not depend on input order.
+ *
+ * Deliberately NO model call. The metric is already calibrated for this exact
+ * pattern (see the import note), it separated all four of #578's real duplicate
+ * pairs from all four of its real distinct pairs with the distinct ones scoring
+ * 0.000, and it costs nothing. The tradeoff is stated rather than hidden: two
+ * wordings of one defect that share no vocabulary score 0 and stay separate.
+ * That leaves the count inflated, which is the status quo — the conservative
+ * direction, and the one this series keeps choosing.
+ */
+export function clusterFindings(findings, { threshold = DEFAULT_SIMILARITY } = {}) {
+  const list = Array.isArray(findings) ? findings : [];
+  const clusters = [];
+  for (const f of list) {
+    // Junk never joins anything: `findingSimilarity` would score it 0 anyway, and
+    // a malformed entry must keep travelling on its own so coerceFindings' fail
+    // -toward-blocking placeholder is not quietly folded into a real finding.
+    const usable = f && typeof f === "object";
+    // Compare on a lens-neutral copy. `findingSimilarity` scores a lens mismatch
+    // 0 outright, and within one lens's set the fresh findings carry no `lens`
+    // while carried-forward ones do — so the real twin of a prior-round finding
+    // would score 0 for a reason that has nothing to do with the wording.
+    const key = usable ? { ...f, lens: "" } : null;
+    const hit = usable
+      ? clusters.find((c) => c.keys.some((k) => findingSimilarity(k, key) >= threshold))
+      : undefined;
+    if (hit) {
+      hit.members.push(f);
+      hit.keys.push(key);
+    } else {
+      clusters.push({ members: [f], keys: [key] });
+    }
+  }
+  return clusters.map((c) => mergeCluster(c.members));
+}
+
+/**
+ * Pick a cluster's surviving finding and fold the rest into it.
+ *
+ * The representative is the most useful wording, by a TOTAL order so the result
+ * is order-independent: gating first, then severity, then having evidence at all,
+ * then the longer summary, then lexicographic as a final tiebreak. Without that
+ * last rung two equally-good wordings would resolve by input order.
+ */
+function mergeCluster(members) {
+  if (members.length === 1) return members[0];
+  const better = (a, b) =>
+    findingGates(a) !== findingGates(b) ? (findingGates(a) ? -1 : 1)
+    : severityRank(a) !== severityRank(b) ? severityRank(a) - severityRank(b)
+    : !!(a && a.evidence) !== !!(b && b.evidence) ? (a && a.evidence ? -1 : 1)
+    : String(b && b.summary || "").length - String(a && a.summary || "").length
+      || String(a && a.summary || "").localeCompare(String(b && b.summary || ""));
+  const [rep, ...others] = [...members].sort(better);
+  const out = { ...rep };
+  // The cluster's worst severity, so a `critical` is never masked by a `major`
+  // restatement that happened to win on another axis.
+  const worst = members.reduce((acc, m) => (severityRank(m) < severityRank(acc) ? m : acc), rep);
+  out.severity = normalizeSeverity(worst.severity);
+  // If ANY wording gated, the survivor must. Only promote an explicit `backlog`
+  // rep — never invent a lane on a finding that had none (see annotateFindings).
+  if (out.lane === "backlog" && members.some((m) => findingGates(m))) out.lane = "blocking";
+  if (members.some((m) => m && m.unsettled)) out.unsettled = true;
+  out.mergedFrom = others.map((m) => ({
+    severity: normalizeSeverity(m && m.severity),
+    summary: (m && m.summary) ?? "(no summary)",
+    ...(m && m.evidence ? { evidence: m.evidence } : {}),
+  }));
+  return out;
+}
+
+/**
+ * How much restatement this lens produced. `collapsed` counts wordings folded
+ * into another finding — the count inflation that used to reach the PR comment
+ * and the fixer's checklist as separate work items.
+ */
+export function clusterCounts(findings) {
+  let clustered = 0, collapsed = 0;
+  for (const f of Array.isArray(findings) ? findings : []) {
+    const n = f && Array.isArray(f.mergedFrom) ? f.mergedFrom.length : 0;
+    if (n > 0) { clustered++; collapsed += n; }
+  }
+  return { clustered, collapsed };
 }
 
 /**
@@ -1625,9 +1746,14 @@ async function main() {
     const priorKept = keepUnrefuted(
       annotateFindings(priorForLens, priorVerdicts, null, verifyOpts),
     );
-    // Merge fresh + still-open prior findings; dedupe collapses a prior finding
-    // the fresh pass also re-found (and never merges two distinct bugs).
-    const merged = dedupeFindings([...kept, ...priorKept]);
+    // Merge fresh + still-open prior findings. Two passes, narrow then loose:
+    // `dedupeFindings` collapses byte-identical summaries, then `clusterFindings`
+    // collapses RESTATEMENTS of one defect — a prior finding the fresh pass
+    // re-found in different words, or one lens describing the same bug twice at
+    // two severities. Clustering runs AFTER verification on purpose: it merges
+    // only findings that already survived the gate, so it can never decide what
+    // gets verified, and every collapsed wording rides along in `mergedFrom`.
+    const merged = clusterFindings(dedupeFindings([...kept, ...priorKept]));
     // What the LENS CHECK gates on: `merged` minus the demoted blockers. The
     // backlog ones stay in `merged` so the summary still reports them (with the
     // base location that justifies the demotion) — they simply stop failing the
@@ -1669,6 +1795,11 @@ async function main() {
       // gate is inert, and the cause (no --base-sha, a shallow clone, findings
       // with no location) is worth chasing rather than trusting the demotions.
       lanes: laneCounts(merged),
+      // Restatement collapsed this round. `collapsed` is the count inflation that
+      // used to reach the PR comment and the fixer's checklist as separate work
+      // items; a persistently high number means the lenses are re-describing the
+      // same defects rather than that the PR has that many problems.
+      clusters: clusterCounts(merged),
     });
 
     // Advisory lenses report findings but never block.

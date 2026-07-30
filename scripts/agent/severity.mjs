@@ -18,10 +18,23 @@ export function normalizeSeverity(raw) {
   return KNOWN.includes(s) ? s : "major";
 }
 
-/** Normalize a raw findings array into `[{severity,file,summary,evidence}]`. */
+/**
+ * Normalize a raw findings array: `severity` coerced to the known scale, every
+ * other field PRESERVED.
+ *
+ * It used to rebuild each finding as exactly `{severity,file,summary,evidence}`,
+ * which silently dropped everything the orchestrator annotates onto a finding
+ * after the lens produced it. That was a real bug rather than a tidy contract:
+ * `renderSummaryMd` renders from `classify()`'s output, so the
+ * "verifier could not settle this" marker added for unresolved verifications
+ * never appeared in a single check body — the field was gone by the time the
+ * renderer looked for it. Anything that reads a finding downstream of `classify`
+ * needs the whole finding, so the safe shape is additive.
+ */
 export function normalizeFindings(rawFindings) {
   const arr = Array.isArray(rawFindings) ? rawFindings : [];
   return arr.map((f) => ({
+    ...(f && typeof f === "object" ? f : {}),
     severity: normalizeSeverity(f?.severity),
     file: f?.file,
     summary: f?.summary,
@@ -55,7 +68,16 @@ function section(findings, severity, heading) {
       // and could not disprove the claim, which is NOT the same as having
       // confirmed it, and printing them identically would read as endorsement.
       const unsettled = f.unsettled ? " _(verifier could not settle this)_" : "";
-      return `- ${f.file ? `\`${f.file}\` — ` : ""}${f.summary ?? "(no summary)"}${unsettled}`;
+      // Other wordings of this same defect, folded in by the clustering pass.
+      // Printed rather than dropped: merging is a judgement, and a reader — or
+      // the fix agent — must be able to see what was merged and disagree. A
+      // collapse nobody can inspect is a silent deletion with extra steps.
+      const merged = Array.isArray(f.mergedFrom) && f.mergedFrom.length
+        ? `\n  <details><summary>also reported as (${f.mergedFrom.length})</summary>\n\n` +
+          f.mergedFrom.map((m) => `  - (${m.severity}) ${m.summary ?? "(no summary)"}`).join("\n") +
+          "\n  </details>"
+        : "";
+      return `- ${f.file ? `\`${f.file}\` — ` : ""}${f.summary ?? "(no summary)"}${unsettled}${merged}`;
     })
     .join("\n");
   return `\n### ${heading} (${rows.length})\n${body}\n`;
