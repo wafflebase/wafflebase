@@ -21,6 +21,9 @@
 // @anthropic-ai/claude-agent-sdk 0.3.217 (pinned + lockfiled): outputFormat:
 // {type:'json_schema'}, result.structured_output, permissionMode 'dontAsk',
 // settingSources:[], maxTurns all exist; the SDK reads CLAUDE_CODE_OAUTH_TOKEN.
+// `systemPrompt` also accepts `string[]` with SYSTEM_PROMPT_DYNAMIC_BOUNDARY as a
+// standalone element, which is how a caller marks the cacheable prefix — see the
+// mirrored constant below.
 
 /**
  * The COMPLETE set of tools any agent spawned through this wrapper may ever be
@@ -97,6 +100,45 @@ export function assertAllowedTools(allowedTools) {
     }
   }
   return [...allowedTools];
+}
+
+/**
+ * Mirrors `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` from the SDK (sdk.d.ts:6810 in the
+ * pinned 0.3.217). A `systemPrompt` ARRAY containing this marker as a standalone
+ * element is split in two: blocks BEFORE it are eligible for cross-session
+ * prompt caching, blocks after it are not.
+ *
+ * Kept as a local literal rather than re-exported from the SDK so the pure
+ * prompt builders — here and in review-panel.mjs — need no static SDK import.
+ * The agent test lane (`scripts/verify-self.mjs`) deliberately runs with the SDK
+ * NOT installed, which works only because the import stays lazy.
+ *
+ * A wrong marker is not an error to the SDK. It is just a prompt block that
+ * silently never caches: a pure cost regression with no failing test, no changed
+ * output, and nothing in the logs. `assertBoundaryMatchesSdk` closes that hole at
+ * the one place the real SDK is loaded, so the mirror cannot drift unnoticed.
+ */
+export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+/**
+ * Throw unless the SDK still agrees with the local mirror above.
+ *
+ * Takes the imported namespace as an ARGUMENT rather than importing it, which is
+ * what keeps this checkable without the SDK on disk — the same constraint that
+ * makes the mirror necessary at all. A missing export counts as drift: an SDK
+ * that no longer declares the marker cannot be honoring one.
+ */
+export function assertBoundaryMatchesSdk(sdk) {
+  const actual = (sdk || {}).SYSTEM_PROMPT_DYNAMIC_BOUNDARY;
+  if (actual !== SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
+    throw new Error(
+      "SYSTEM_PROMPT_DYNAMIC_BOUNDARY drifted from the SDK " +
+        `(local=${JSON.stringify(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)}, ` +
+        `sdk=${JSON.stringify(actual)}). Prompt caching would silently stop ` +
+        "working — update the mirror in ask.mjs.",
+    );
+  }
+  return actual;
 }
 
 /**
@@ -250,6 +292,60 @@ export async function withRetry(fn, { retries = 2, baseMs = 2000, sleep = defaul
 }
 
 /**
+ * Assemble the SDK `options` for one session. Pure and exported so the session's
+ * security- and cost-critical shape is observable by a test WITHOUT opening a
+ * session or having the SDK installed — `askStructured` passes the returned
+ * object straight through, so what a test asserts here is what the session gets.
+ *
+ * `allowedTools` is validated here, which is also what keeps the grant check
+ * ahead of the lazy SDK import at the one call site below.
+ */
+export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools }) {
+  const sessionTools = assertAllowedTools(allowedTools);
+  return {
+    // Forwarded VERBATIM, and the SDK accepts `string | string[]`. The array form
+    // is load-bearing for COST, not just style: review-panel.mjs puts the shared
+    // diff in a block before SYSTEM_PROMPT_DYNAMIC_BOUNDARY so a lens's later
+    // samples re-read it at ~0.1x instead of re-sending it at full price.
+    // Joining or stringifying this would leave every prompt working, every test
+    // green, and quietly restore the panel's old bill — hence the pass-through
+    // test rather than trust.
+    systemPrompt,
+    model,
+    cwd: repo,
+    // Only set when the caller asks for a ceiling; omitting it takes the SDK
+    // default. `maxTurns` exists in the pinned SDK (0.3.217), on the same
+    // Options type as allowedTools/outputFormat/permissionMode.
+    ...(Number.isFinite(maxTurns) ? { maxTurns } : {}),
+    // `tools` and `allowedTools` are DIFFERENT levers and both are needed.
+    // Per the pinned SDK's own docs (sdk.d.ts:1341-1348, :1395-1404):
+    //   tools        = "the base set of available built-in tools" — the actual
+    //                  RESTRICTION. Anything omitted is not in the model's
+    //                  context at all, so it cannot be called or injected into.
+    //   allowedTools = "auto-allowed without prompting" — a PRE-APPROVAL list,
+    //                  not a restriction. On its own it would leave Bash/Write/
+    //                  WebFetch/Agent present and merely unapproved.
+    // Setting only `allowedTools` (as this code did before) left the read-only
+    // claim resting entirely on `permissionMode: 'dontAsk'`. That does deny
+    // un-pre-approved calls, so it was not exploitable by itself — but it made
+    // the guarantee a property of one enum value rather than of the tool set,
+    // and it left every dangerous tool visible to a model reading an untrusted
+    // diff. `tools` closes that: same list, so the two can never disagree.
+    tools: sessionTools,
+    allowedTools: sessionTools, // pre-approve the same read-only set
+    permissionMode: "dontAsk", // deny anything not pre-approved, no prompts
+    // SECURITY: do NOT load project settings/hooks/agents from cwd — cwd may be
+    // an untrusted branch checkout, and a branch-supplied .claude hook would be
+    // a shell command the SDK could execute. `settingSources: []` disables that
+    // (the review workflow also strips the branch's `.claude/` as
+    // belt-and-suspenders).
+    // settingSources exists in the pinned SDK (0.3.217); [] loads no project config.
+    settingSources: [],
+    outputFormat: { type: "json_schema", schema },
+  };
+}
+
+/**
  * Open one structured-output SDK session and return the validated object.
  *
  * `allowedTools` is required and passes through `assertAllowedTools`. `label`
@@ -271,48 +367,18 @@ export async function askStructured({
   allowedTools,
   label = "agent",
 }) {
-  // Validate BEFORE the dynamic import: a bad grant must fail without opening a
-  // session (ask.test.mjs asserts this ordering by observing that an invalid
-  // grant throws the validation error even when the SDK cannot be resolved).
-  const sessionTools = assertAllowedTools(allowedTools);
-  const { query } = await import("@anthropic-ai/claude-agent-sdk");
-  for await (const message of query({
-    prompt,
-    options: {
-      systemPrompt,
-      model,
-      cwd: repo,
-      // Only set when the caller asks for a ceiling; omitting it takes the SDK
-      // default. `maxTurns` exists in the pinned SDK (0.3.217), on the same
-      // Options type as allowedTools/outputFormat/permissionMode.
-      ...(Number.isFinite(maxTurns) ? { maxTurns } : {}),
-      // `tools` and `allowedTools` are DIFFERENT levers and both are needed.
-      // Per the pinned SDK's own docs (sdk.d.ts:1341-1348, :1395-1404):
-      //   tools        = "the base set of available built-in tools" — the actual
-      //                  RESTRICTION. Anything omitted is not in the model's
-      //                  context at all, so it cannot be called or injected into.
-      //   allowedTools = "auto-allowed without prompting" — a PRE-APPROVAL list,
-      //                  not a restriction. On its own it would leave Bash/Write/
-      //                  WebFetch/Agent present and merely unapproved.
-      // Setting only `allowedTools` (as this code did before) left the read-only
-      // claim resting entirely on `permissionMode: 'dontAsk'`. That does deny
-      // un-pre-approved calls, so it was not exploitable by itself — but it made
-      // the guarantee a property of one enum value rather than of the tool set,
-      // and it left every dangerous tool visible to a model reading an untrusted
-      // diff. `tools` closes that: same list, so the two can never disagree.
-      tools: sessionTools,
-      allowedTools: sessionTools, // pre-approve the same read-only set
-      permissionMode: "dontAsk", // deny anything not pre-approved, no prompts
-      // SECURITY: do NOT load project settings/hooks/agents from cwd — cwd may be
-      // an untrusted branch checkout, and a branch-supplied .claude hook would be
-      // a shell command the SDK could execute. `settingSources: []` disables that
-      // (the review workflow also strips the branch's `.claude/` as
-      // belt-and-suspenders).
-      // settingSources exists in the pinned SDK (0.3.217); [] loads no project config.
-      settingSources: [],
-      outputFormat: { type: "json_schema", schema },
-    },
-  })) {
+  // Built BEFORE the dynamic import, because it validates the tool grant: a bad
+  // grant must fail without opening a session (ask.test.mjs asserts this ordering
+  // by observing that an invalid grant throws the validation error even when the
+  // SDK cannot be resolved).
+  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools });
+  const sdk = await import("@anthropic-ai/claude-agent-sdk");
+  // The one place the real SDK is in hand, so the one place the cache-boundary
+  // mirror can be checked against it. Cheap, and it converts a silent 10x cost
+  // regression into a loud failure.
+  assertBoundaryMatchesSdk(sdk);
+  const { query } = sdk;
+  for await (const message of query({ prompt, options })) {
     if (message.type === "result") {
       // Record cost/turns/tokens regardless of success — the call still burned
       // compute even when it didn't produce usable structured output. This is

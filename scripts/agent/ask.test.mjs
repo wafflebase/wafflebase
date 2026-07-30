@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askStructured, assertAllowedTools, PERMITTED_TOOLS, classifyResult, withRetry } from "./ask.mjs";
+import {
+  askStructured,
+  assertAllowedTools,
+  assertBoundaryMatchesSdk,
+  buildSessionOptions,
+  PERMITTED_TOOLS,
+  SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+  classifyResult,
+  withRetry,
+} from "./ask.mjs";
 import { REVIEW_TOOLS } from "./review-panel.mjs";
 
 // ask.mjs exists to make the read-only tool grant a CHECKED invariant instead of
@@ -122,6 +131,65 @@ test("askStructured: validates the grant BEFORE opening a session", async () => 
 // session by the direct `assertAllowedTools(REVIEW_TOOLS)` assertion below: a
 // valid grant returns rather than throws, so the rejections above are the gate
 // firing and not a blanket failure.
+
+// --- the session options, including the cache boundary ------------------------
+// `buildSessionOptions` is what askStructured hands the SDK verbatim, so these
+// assert the shipped session shape without opening one (or having the SDK on
+// disk, which the agent test lane does not).
+
+test("buildSessionOptions: pins the read-only session shape", () => {
+  const o = buildSessionOptions({ systemPrompt: "s", model: "m", repo: "/r", schema: {}, allowedTools: ["Read"] });
+  // Both levers, same list — `tools` is the restriction, `allowedTools` only
+  // pre-approves. Nothing observed this at the options level before.
+  assert.deepEqual(o.tools, ["Read"]);
+  assert.deepEqual(o.allowedTools, ["Read"]);
+  assert.equal(o.permissionMode, "dontAsk");
+  // cwd is an UNTRUSTED branch checkout; [] means no project hooks/agents load.
+  assert.deepEqual(o.settingSources, []);
+  assert.equal(o.cwd, "/r");
+  // Omitted rather than passed as undefined, so the SDK default applies.
+  assert.ok(!("maxTurns" in o), "an unset ceiling must not appear at all");
+  assert.equal(buildSessionOptions({ schema: {}, maxTurns: 8, allowedTools: ["Read"] }).maxTurns, 8);
+  // The gate still runs here — this is the one place it is reached.
+  assert.throws(() => buildSessionOptions({ schema: {}, allowedTools: ["Bash"] }), /is not permitted/);
+});
+
+test("buildSessionOptions: an array systemPrompt reaches the SDK VERBATIM", () => {
+  // THE cache-cost guard. review-panel.mjs puts the shared diff before the
+  // boundary marker so later sessions re-read it at ~0.1x; anything that joined,
+  // stringified or reordered this array would keep every prompt working and every
+  // other test green while quietly restoring the panel's old bill.
+  const prompt = ["cacheable prefix", SYSTEM_PROMPT_DYNAMIC_BOUNDARY];
+  const o = buildSessionOptions({ systemPrompt: prompt, schema: {}, allowedTools: ["Read"] });
+  assert.deepEqual(o.systemPrompt, prompt);
+  assert.ok(Array.isArray(o.systemPrompt), "the array form is what marks the cacheable prefix");
+  assert.equal(o.systemPrompt[1], SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
+  // The string form must keep working — the verifier call still uses it.
+  assert.equal(buildSessionOptions({ systemPrompt: "plain", schema: {}, allowedTools: ["Read"] }).systemPrompt, "plain");
+});
+
+test("SYSTEM_PROMPT_DYNAMIC_BOUNDARY: pinned literally, and drift from the SDK throws", () => {
+  // A LITERAL pin, like PERMITTED_TOOLS above: the value is a protocol constant
+  // from sdk.d.ts:6810, not something this repo gets to choose.
+  assert.equal(SYSTEM_PROMPT_DYNAMIC_BOUNDARY, "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__");
+  // Matching SDK → returns the value, no throw.
+  assert.equal(
+    assertBoundaryMatchesSdk({ SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__" }),
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+  );
+  // Every way the mirror can go stale. A wrong marker is NOT an SDK error — it is
+  // a prompt block that silently never caches, so this assertion is the only thing
+  // standing between an SDK bump and a ~10x cost regression nobody would see.
+  for (const sdk of [
+    { SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "__DYNAMIC_BOUNDARY__" }, // renamed value
+    { SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "" },
+    {}, // export removed entirely
+    null,
+    undefined,
+  ]) {
+    assert.throws(() => assertBoundaryMatchesSdk(sdk), /drifted from the SDK/, `${JSON.stringify(sdk)} must throw`);
+  }
+});
 
 test("REVIEW_TOOLS: the panel's actual grant is inside the permitted set", () => {
   // Pins what review-panel.mjs really passes at both call sites. Exported for
