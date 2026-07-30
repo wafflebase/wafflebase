@@ -33,6 +33,9 @@ import {
   lensHasScope,
   buildLensPrompt,
   resolveReviewScope,
+  claimTypeOf,
+  VERIFIER_MAX_TURNS,
+  buildVerifierPrompt,
 } from "./review-panel.mjs";
 import { classify, normalizeSeverity } from "./severity.mjs";
 
@@ -894,23 +897,27 @@ test("verifierTally: only blocking findings are sent; refuted vs high-confidence
   const verdicts = [{ verdict: "refuted", confidence: "high" }, { verdict: "refuted", confidence: "low" }, null];
   // the high-confidence refute is UNGROUNDED, so it is counted but not dropped —
   // this gap is the whole point of reporting both numbers.
-  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 0 });
+  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 });
   // the same shape WITH a ground and a citation does drop
   assert.deepEqual(
     verifierTally(findings, [GROUNDED_REFUTE, { verdict: "refuted", confidence: "low" }, null]),
-    { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 1 },
+    { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 1, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
   // confirmed / null verdicts: sent but not refuted
   assert.deepEqual(
     verifierTally(findings, [{ verdict: "confirmed", confidence: "high" }, null, null]),
-    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
+    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0, dropped: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
-  assert.deepEqual(verifierTally([], []), { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 });
+  assert.deepEqual(verifierTally([], []), {
+    sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0,
+    absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+  });
   // a dropping verdict on a NON-blocking finding is not counted: it was never
   // sent, and applyVerifications would not have acted on it either.
   assert.deepEqual(
     verifierTally([{ severity: "minor", summary: "n" }], [GROUNDED_REFUTE]),
-    { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
+    { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0,
+      absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
 });
 
@@ -1314,4 +1321,200 @@ test("laneCounts: counts lanes and how often origin could not be established", (
 test("laneCounts: tolerates junk without throwing", () => {
   assert.deepEqual(laneCounts(null), { blocking: 0, backlog: 0, unknownOrigin: 0 });
   assert.deepEqual(laneCounts([null, 42, {}, { lane: "bogus" }]), { blocking: 0, backlog: 0, unknownOrigin: 0 });
+});
+
+// --- absence claims ----------------------------------------------------------
+// Refuting "there is no X" means FINDING an X, so failing to find one is
+// indistinguishable from the thing not existing. These pin that the two claim
+// shapes are verified differently — and that neither one gains a way to fall
+// off the merge gate.
+
+test("claimTypeOf: absence only when the finding says so", () => {
+  assert.equal(claimTypeOf({ claimType: "absence" }), "absence");
+  // Everything else is `presence`, so an omitted or junk value keeps today's
+  // procedure rather than silently switching the verifier's job.
+  for (const f of [{ claimType: "presence" }, { claimType: "ABSENCE" }, { claimType: 1 }, {}, null, undefined]) {
+    assert.equal(claimTypeOf(f), "presence", JSON.stringify(f));
+  }
+});
+
+test("absence claims get a larger turn budget than presence claims", () => {
+  // #578's false "no CI workflow runs these tests" had a real counterexample
+  // three hops away (ci.yml → verify:self → verify-self.mjs → agent:tests) and
+  // confirmed because the verifier ran out of turns, not because it was right.
+  assert.ok(VERIFIER_MAX_TURNS.absence > VERIFIER_MAX_TURNS.presence);
+  assert.equal(VERIFIER_MAX_TURNS.presence, 8);
+});
+
+test("`unresolved` does NOT drop a finding", () => {
+  // The whole point: it records that the verifier could not settle the claim,
+  // and settles nothing itself. Only an explicit `refuted` may drop.
+  const unresolved = {
+    verdict: "unresolved",
+    confidence: "high",
+    reason: "searched widely, found nothing",
+    refutationGround: "none",
+    groundedIn: ["scripts/agent/ask.mjs:105"],
+  };
+  assert.equal(isDroppingVerdict(unresolved), false);
+  // …even if it names a ground and cites locations, which would drop a `refuted`.
+  assert.equal(isDroppingVerdict({ ...unresolved, refutationGround: "counterexample" }), false);
+  assert.equal(routeFinding({ severity: "major" }, { verdict: unresolved }), "blocking");
+});
+
+test("`counterexample` is a droppable ground for a refuted absence claim", () => {
+  assert.equal(
+    isDroppingVerdict({
+      verdict: "refuted",
+      confidence: "high",
+      reason: "ci.yml runs it",
+      refutationGround: "counterexample",
+      groundedIn: [".github/workflows/ci.yml:41"],
+    }),
+    true,
+  );
+});
+
+test("a refutation ground must match the claim's shape to drop", () => {
+  const cited = (ground) => ({
+    verdict: "refuted", confidence: "high", reason: "r",
+    refutationGround: ground, groundedIn: ["a.mjs:1"],
+  });
+  // Wrong shape: `not-present`/`already-guarded` describe a PRESENT thing that
+  // fails to be a defect — nonsense for an absence claim, so they must NOT drop.
+  assert.equal(isDroppingVerdict(cited("not-present"), { claimType: "absence" }), false);
+  assert.equal(isDroppingVerdict(cited("already-guarded"), { claimType: "absence" }), false);
+  // …and `counterexample` (the absence-refutation ground) must not drop a
+  // presence claim either.
+  assert.equal(isDroppingVerdict(cited("counterexample"), { claimType: "presence" }), false);
+  // Right shape still drops.
+  assert.equal(isDroppingVerdict(cited("counterexample"), { claimType: "absence" }), true);
+  assert.equal(isDroppingVerdict(cited("not-present"), { claimType: "presence" }), true);
+  // Universal grounds drop under either claim type.
+  assert.equal(isDroppingVerdict(cited("out-of-scope"), { claimType: "absence" }), true);
+  // Omitted claimType preserves the prior any-ground behaviour.
+  assert.equal(isDroppingVerdict(cited("counterexample")), true);
+  // routeFinding enforces it at the gate: a mismatched ground KEEPS the finding.
+  assert.equal(
+    routeFinding({ severity: "major", claimType: "absence" }, { verdict: cited("not-present") }),
+    "blocking",
+  );
+  assert.equal(
+    routeFinding({ severity: "major", claimType: "absence" }, { verdict: cited("counterexample") }),
+    "discarded",
+  );
+});
+
+test("annotateFindings marks an unsettled finding without changing its lane", () => {
+  const out = annotateFindings(
+    [{ severity: "critical", summary: "no test covers X", claimType: "absence" }],
+    [{ verdict: "unresolved", confidence: "low", reason: "", refutationGround: "none", groundedIn: [] }],
+    null,
+    {},
+  );
+  assert.equal(out[0].lane, "blocking"); // still gates
+  assert.equal(out[0].unsettled, true); // but says so
+  assert.equal(classify(gatingFindings(out)).conclusion, "failure");
+});
+
+test("verifierTally counts absence claims and unresolved outcomes separately", () => {
+  const findings = [
+    { severity: "critical", claimType: "absence", summary: "no test" },
+    { severity: "major", claimType: "absence", summary: "no doc" },
+    { severity: "major", claimType: "presence", summary: "bad regex" },
+    { severity: "minor", claimType: "absence", summary: "not sent to verifier" },
+  ];
+  const verdicts = [
+    { verdict: "refuted", confidence: "high", refutationGround: "counterexample", groundedIn: ["a.mjs:1"] },
+    { verdict: "unresolved", confidence: "low", refutationGround: "none", groundedIn: [] },
+    { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] },
+    null,
+  ];
+  const t = verifierTally(findings, verdicts, {});
+  assert.equal(t.sentToVerifier, 3); // the minor is never verified
+  assert.equal(t.absenceRaised, 2); // …so its absence claim is not counted either
+  assert.equal(t.absenceRefuted, 1);
+  assert.equal(t.unresolved, 1);
+  assert.equal(t.dropped, 1);
+});
+
+test("absenceRefuted counts ONLY counterexample-grounded refutations", () => {
+  // metrics.mjs prints this as "refuted by counterexample" and the design doc
+  // reads a low value as "absence claims riding through unchecked". An absence
+  // claim demoted via out-of-scope/pre-existing (both valid absence grounds)
+  // must NOT inflate it, or it masks exactly that #578 signal.
+  const findings = [
+    { severity: "major", claimType: "absence", summary: "no X" },
+    { severity: "major", claimType: "absence", summary: "no Y" },
+  ];
+  const verdicts = [
+    { verdict: "refuted", confidence: "high", refutationGround: "out-of-scope", groundedIn: ["a.mjs:1"] },
+    { verdict: "refuted", confidence: "high", refutationGround: "counterexample", groundedIn: ["b.mjs:2"] },
+  ];
+  const t = verifierTally(findings, verdicts, {});
+  assert.equal(t.refuted, 2); // both are refutations
+  assert.equal(t.absenceRefuted, 1); // …but only the counterexample one counts here
+  assert.equal(t.dropped, 2); // out-of-scope still drops the finding
+});
+
+test("the lens prompt explains both claim shapes, in ONE place", () => {
+  // Guidance belongs in the shared closing instruction, not copied into five
+  // rubric files — the drift the LENS_CLOSING_INSTRUCTION docblock exists to
+  // prevent, and a mistake this change already made once.
+  assert.match(LENS_CLOSING_INSTRUCTION, /`presence` = something is THERE/);
+  assert.match(LENS_CLOSING_INSTRUCTION, /`absence` = something/);
+  assert.match(LENS_CLOSING_INSTRUCTION, /searchedFor/);
+  for (const id of ["correctness", "security", "design-fit", "test-adequacy", "blast-radius"]) {
+    const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
+    assert.doesNotMatch(md, /claimType/, `${id}.md must not carry its own copy`);
+  }
+});
+
+test("buildVerifierPrompt: an absence claim is told to hunt a counterexample", () => {
+  // Rendered, not grepped from source — the claim is about the PROMPT, and a
+  // regex over review-panel.mjs cannot observe what the verifier actually reads.
+  const ctx = { authoritative: true, listed: ["a.mjs"], total: 1 };
+  const p = buildVerifierPrompt(
+    { severity: "major", file: "x.mjs", summary: "no CI runs these tests", claimType: "absence",
+      searchedFor: ["grep -r agent-tests .github/workflows"] },
+    { rubric: "RUBRIC", changedContext: ctx },
+  );
+  assert.match(p, /ABSENCE CLAIM/);
+  assert.match(p, /FINDING ONE COUNTEREXAMPLE/);
+  assert.match(p, /`counterexample`/);
+  assert.match(p, /two or three hops/); // the #578 failure was a 3-hop chain
+  assert.match(p, /grep -r agent-tests \.github\/workflows/); // told what was tried
+  assert.match(p, /unresolved/); // the honest third answer is offered
+  // The presence-only grounds are NOT offered — they are the wrong shape here.
+  assert.doesNotMatch(p, /not-present/);
+  assert.doesNotMatch(p, /already-guarded/);
+});
+
+test("buildVerifierPrompt: a presence claim keeps the original procedure", () => {
+  const ctx = { authoritative: true, listed: ["a.mjs"], total: 1 };
+  const p = buildVerifierPrompt(
+    { severity: "major", file: "x.mjs", summary: "regex is wrong", claimType: "presence" },
+    { rubric: "RUBRIC", changedContext: ctx },
+  );
+  assert.match(p, /PRESENCE CLAIM/);
+  assert.match(p, /not-present/);
+  assert.match(p, /already-guarded/);
+  assert.match(p, /Unsure for ANY reason -> \{verdict:"confirmed"\}/);
+  assert.doesNotMatch(p, /COUNTEREXAMPLE/);
+});
+
+test("buildVerifierPrompt: a finding with no claimType gets the presence procedure", () => {
+  // Prior-round findings and any schema drift must keep today's behaviour.
+  const ctx = { authoritative: false, listed: [], total: 0 };
+  const p = buildVerifierPrompt({ severity: "major", summary: "x" }, { rubric: "R", changedContext: ctx });
+  assert.match(p, /PRESENCE CLAIM/);
+});
+
+test("buildVerifierPrompt: an absence claim with no searchedFor says so", () => {
+  const ctx = { authoritative: true, listed: [], total: 0 };
+  const p = buildVerifierPrompt(
+    { severity: "major", summary: "no test", claimType: "absence" },
+    { rubric: "R", changedContext: ctx },
+  );
+  assert.match(p, /did not record what it searched/);
 });

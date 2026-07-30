@@ -449,6 +449,30 @@ Components:
   metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
   count of confident refutations the gate declined to act on.
+  Findings carry a **`claimType`**, because the two shapes are verified in
+  opposite directions. A `presence` claim ("this code is wrong") is refuted by
+  looking it up where the finding says it is. An `absence` claim ("no test covers
+  this", "no validation on this input") is refuted by FINDING ONE
+  COUNTEREXAMPLE — a search whose failure is indistinguishable from the thing
+  genuinely not existing. Running the presence procedure on an absence claim is
+  why a false *"no CI workflow runs these tests"* survived #578: the
+  counterexample was real and three hops away (`.github/workflows/ci.yml` →
+  `pnpm verify:self` → `scripts/verify-self.mjs` → the `agent:tests` lane) and the
+  verifier ran out of turns,
+  so bias-to-keep confirmed it. Absence claims now get a counterexample-hunting
+  prompt, the `searchedFor` list the lens recorded (so it searches where the lens
+  did *not*), a `counterexample` refutation ground, and a larger turn ceiling
+  (`VERIFIER_MAX_TURNS`, 20 vs 8). A third verdict, **`unresolved`**, exists so
+  "I searched and could not disprove this" stops being reported as "confirmed" —
+  it does **not** demote: `isDroppingVerdict` still requires an explicit
+  `refuted`, so an unsettled finding gates exactly as a confirmed one does. That
+  is deliberate. Absence claims are the entire output of test-adequacy and much
+  of security and design-fit, so routing unsettleable ones off the gate would
+  repeat the mistake the novelty gate had to correct. The finding is marked
+  *"verifier could not settle this"* in the summary and counted in
+  `verifier.absenceRaised`/`absenceRefuted`/`unresolved`, so a high `unresolved`
+  against a low `absenceRefuted` is visible as absence claims riding through
+  unchecked rather than being silently discounted.
   A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
   verifier structurally cannot: *did this change PUT this line here, carrying
   code that already existed?* The verifier's independence means it never sees the

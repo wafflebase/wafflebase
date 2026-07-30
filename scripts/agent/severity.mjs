@@ -49,7 +49,14 @@ function section(findings, severity, heading) {
   const rows = findings.filter((f) => f.severity === severity);
   if (rows.length === 0) return "";
   const body = rows
-    .map((f) => `- ${f.file ? `\`${f.file}\` — ` : ""}${f.summary ?? "(no summary)"}`)
+    .map((f) => {
+      // An `unsettled` finding blocks exactly like any other — the marker is for
+      // the human deciding how much to trust it. It means the verifier searched
+      // and could not disprove the claim, which is NOT the same as having
+      // confirmed it, and printing them identically would read as endorsement.
+      const unsettled = f.unsettled ? " _(verifier could not settle this)_" : "";
+      return `- ${f.file ? `\`${f.file}\` — ` : ""}${f.summary ?? "(no summary)"}${unsettled}`;
+    })
     .join("\n");
   return `\n### ${heading} (${rows.length})\n${body}\n`;
 }
