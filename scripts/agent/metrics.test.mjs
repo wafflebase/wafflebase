@@ -317,6 +317,39 @@ test("renderSummary: with review-panel data, renders a separate section + combin
   assert.match(md, /- Total-tokens: ~340K weighted \(~1\.4M raw\)/);
 });
 
+// On-demand `@claude review`: a review record but NO code-fix session, so the
+// code-fix aggregate is all zeros (aggregate([])). The summary must OMIT the
+// Code-fix agent section entirely rather than render it full of $0.00 / 0, and
+// the top total must collapse to the review figure (no misleading code-fix split).
+test("renderSummary: review-only (no code-fix) omits the code-fix section", () => {
+  const md = renderSummary({
+    // The exact shape aggregate([]) returns for zero code-fix records.
+    agg: { agents: [], sessions: 0, attempt: 1, turns: 0, tokens: 0, weightedTokens: 0, durationMs: 0, costUsd: 0 },
+    panelAgg: { agents: ["claude-opus-5", "claude-sonnet-5"], sessions: 1, turns: 15, tokens: 300_000, weightedTokens: 40_000, costUsd: 0.8, durationMs: 27 * 60000 },
+    panelStats: {
+      agreementCounts: { identical: 6, partial: 0, disjoint: 0, single: 0 },
+      raised: { critical: 0, major: 1, minor: 2, nit: 0 },
+      raisedConfidence: { high: 2, medium: 1, low: 0, unknown: 0 },
+      kept: { critical: 0, major: 1, minor: 2, nit: 0 },
+      verifier: { sentToVerifier: 1, refuted: 0, refutedHighConfidence: 0, dropped: 0 },
+    },
+    flips: { flips: [], byLens: {} },
+    scope: "M",
+  });
+  // No code-fix section, and none of its bullets leak in.
+  assert.doesNotMatch(md, /### Code-fix agent/);
+  assert.doesNotMatch(md, /- Scope-size:/);
+  assert.doesNotMatch(md, /- Attempt:/);
+  assert.doesNotMatch(md, /- Sessions:/);
+  // The review panel section still renders in full.
+  assert.match(md, /### Review panel/);
+  assert.match(md, /- Cost: \$0\.80/);
+  // Total collapses to the review figure — NOT the "(code-fix … + review …)" split.
+  assert.match(md, /- Total-cost: \$0\.80\n/);
+  assert.doesNotMatch(md, /code-fix .* \+ review/);
+  assert.match(md, /- Total-tokens: ~40K weighted \(~300K raw\)/);
+});
+
 test("metric comment round-trip: hidden, self-contained, parses back; junk → null", () => {
   const rec = { kind: "review-fix", models: ["claude-opus-4-8"], turns: 3, tokens: 2, durationMs: 1 };
   const body = serializeRecord(rec);

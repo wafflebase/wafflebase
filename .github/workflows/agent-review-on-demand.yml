@@ -329,7 +329,8 @@ jobs:
       # so issues.createComment 403s ("Resource not accessible by integration").
       # The App installation token is not subject to that fork restriction. Minted
       # AFTER the read-only panel ran (never shares the job with the SDK step) and
-      # scoped to issues:write only. Same pattern as the promote/fix jobs.
+      # scoped to the minimum the post + metrics steps need. Same pattern as the
+      # promote/fix jobs.
       - name: Generate GitHub App token (post-only, issues:write)
         id: app-token
         if: always()
@@ -337,7 +338,11 @@ jobs:
         with:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
-          permission-issues: write # PR conversation comments use the issues API
+          permission-issues: write # PR conversation comments (+ metric ledger) use the issues API
+          # metrics.mjs summarize reads PR additions/deletions (`gh pr view`) to
+          # size the scope; a fork-PR GITHUB_TOKEN is read-only, so this token
+          # carries the pulls read too. Read-only — no write to the PR itself.
+          permission-pull-requests: read
 
       # EDIT the "running" placeholder authorize posted (comment_id) into the
       # findings — aggregate panel.json + each lens's summary.md. No check runs;
@@ -400,3 +405,42 @@ jobs:
             // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
             if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + note;
             await publish(body);
+
+      # Record this review's cost/reliability into the PR metric ledger and post
+      # the aggregated agent-effort summary — the same ledger + renderer the
+      # autonomous panel uses, so a maintainer sees what an on-demand review cost.
+      # Only when the panel actually ran (steps.panel.outcome == 'success'): a
+      # crashed panel already stranded a fail-closed note, and there is nothing to
+      # record. Both steps run the TRUSTED main copy of metrics.mjs (never the
+      # branch's) and use the App token (a fork-PR GITHUB_TOKEN is read-only).
+      # metrics.mjs is fail-safe (exits 0 on any error) and both are
+      # continue-on-error, so metrics can never fail the review.
+      - name: Record on-demand review metrics
+        if: steps.panel.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+        run: |
+          if [ -f .agent-review/review-execution.json ]; then
+            node .trusted/scripts/agent/metrics.mjs record \
+              --execution .agent-review/review-execution.json \
+              --lens-stats .agent-review/review-lens-stats.json \
+              --kind review --pr "$PR"
+          else
+            echo "no review execution log; skipping metrics"
+          fi
+
+      # NOT --final: --final sweeps EVERY hidden agent-metric record on the PR,
+      # which on an agent-managed PR would delete the autonomous pipeline's own
+      # ledger mid-flight. On-demand review only appends its own record and
+      # reposts the summary fresh at the bottom.
+      - name: Post agent-effort summary
+        if: steps.panel.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+        run: node .trusted/scripts/agent/metrics.mjs summarize --pr "$PR"
