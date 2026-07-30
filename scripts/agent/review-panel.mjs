@@ -18,10 +18,17 @@
 //        [--repo <dir>] [--lenses-dir <dir>] [--out <dir>]
 //        [--prior-findings <f>]
 //        [--review-mode full|incremental] [--since-sha <sha>] [--base-sha <sha>]
-// `--review-mode` defaults to `full`, so a caller passing none of the last three
-// behaves exactly as before. The MODE IS NOT DECIDED HERE — this script has no
-// git or API access by design; the caller resolves it via `resolveReviewMode`
-// in review-state.mjs and passes the answer in.
+//        [--head-sha <sha>]
+// `--review-mode` defaults to `full`, so a caller passing none of these behaves
+// exactly as before. The MODE IS NOT DECIDED HERE — this script has no GitHub API
+// access by design, and the mode depends on each lens's last-reviewed pointer in
+// the checks API. `review-scope.mjs` resolves it (via `resolveReviewMode` in
+// review-state.mjs) and passes the answer in. `--head-sha` is what this run
+// stamps back as that pointer; omitted, nothing is stamped.
+//
+// It does now reach git INDIRECTLY: novelty.mjs runs `git blame`/`git grep` in
+// this process to date each finding against `--base-sha`. So "no git access" is no
+// longer the reason the mode lives elsewhere — the API is.
 // Outputs under <out> (default .agent-review):
 //   <out>/<lens>/verdict.json + summary.md   and   <out>/panel.json + panel-summary.md
 //
@@ -37,7 +44,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 import { askStructured, withRetry } from "./ask.mjs";
-import { renderScopeNote } from "./review-state.mjs";
+import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
 
@@ -669,6 +676,24 @@ export function resolveReviewScope(args, changedFiles) {
     baseSha: a["base-sha"],
     changedFiles,
   });
+  // The pointer the workflow stamps on every lens check run that produces a REAL
+  // verdict, so the next round can narrow to what this round reviewed. Serialized
+  // here rather than in the workflow's `github-script` step for two reasons: that
+  // step cannot import an ES module, and `serializeReviewState` refuses to emit
+  // junk — a guarantee worth having on the value that decides whether code gets
+  // reviewed at all.
+  //
+  // Computed ONCE (it is identical for every lens) and up front, so a malformed
+  // `--head-sha` fails before the panel spends a single token rather than after.
+  // Absent `--head-sha` means "do not stamp", which is exactly today's behaviour.
+  const stateExternalId = a["head-sha"]
+    ? serializeReviewState({
+        reviewed: a["head-sha"],
+        base: a["base-sha"],
+        since: reviewMode === "incremental" ? a["since-sha"] : "",
+        mode: reviewMode,
+      })
+    : "";
   if (reviewMode === "incremental" && scopeNote === "") {
     throw new Error(
       "--review-mode incremental requires a valid 40-hex --since-sha; refusing to " +
@@ -682,7 +707,54 @@ export function resolveReviewScope(args, changedFiles) {
         "Refusing to guess (failing closed).",
     );
   }
-  return { reviewMode, scopeNote };
+  return { reviewMode, scopeNote, stateExternalId };
+}
+
+/**
+ * One panel.json entry, and the ONE place the review-state write rule lives.
+ *
+ * A lens may hand back a pointer only if it actually produced a verdict:
+ * `valid === true` and a conclusion the workflow does not map to `neutral`. A
+ * crashed, quota-failed, skipped or inapplicable lens stamps nothing, so the next
+ * round finds a state gap for it and reviews the full diff. Coverage is proven by
+ * the presence of a pointer rather than asserted next to it.
+ *
+ * This is a FUNCTION rather than a rule the call sites are trusted to follow,
+ * because the first version of it was exactly that — three `panel.push` sites, the
+ * pointer spread into one of them, and a test that scanned the source for which
+ * push carried it. That test passed when the pointer was ALSO attached to the
+ * fail-closed path by a separate assignment: it was watching the syntax it
+ * expected, not the property. Every caller may now pass `reviewState`
+ * unconditionally and the rule still holds.
+ */
+export function panelEntry(lens, { blocking, applicable, conclusion, valid, reviewState, infraError, ranDetection }) {
+  const stamps =
+    valid === true &&
+    conclusion !== "skipped" &&
+    // `ranDetection` must be explicitly true. A lens can now produce a valid
+    // verdict having run ZERO detection samples: `lensReviewPlan` returns
+    // `{ skip: null, diff: "" }` when the PR contains files it reads but none
+    // changed in THIS round's delta, and the round then rests entirely on the
+    // prior-finding re-check. Such a lens must NOT advance its pointer, because
+    // the pointer's whole meaning is "this lens has looked at everything up to
+    // here". Letting it advance would make `scopeClasses`/`classifyFile`
+    // retroactive: widening a lens's scope later would apply only to commits
+    // after the pointer, where today it self-heals because every round re-reads
+    // the full diff. Not stamping costs one forced-full round; stamping costs a
+    // permanent, invisible hole.
+    ranDetection === true &&
+    typeof reviewState === "string" &&
+    reviewState !== "";
+  return {
+    id: lens.id,
+    title: lens.title,
+    blocking,
+    applicable,
+    conclusion,
+    valid,
+    ...(infraError ? { infraError } : {}),
+    ...(stamps ? { reviewState } : {}),
+  };
 }
 
 /**
@@ -1189,7 +1261,7 @@ async function main() {
   const changedFiles = args["changed-files"] && existsSync(args["changed-files"])
     ? readFileSync(args["changed-files"], "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
     : [];
-  const { reviewMode, scopeNote } = resolveReviewScope(args, changedFiles);
+  const { reviewMode, scopeNote, stateExternalId } = resolveReviewScope(args, changedFiles);
   if (reviewMode === "incremental") console.log(`review scope: incremental since ${args["since-sha"]}`);
   // ONE source of truth for the changed-file trust decision, shared by the
   // verifier prompt (which grounds it may offer) and the gate (which grounds it
@@ -1266,7 +1338,9 @@ async function main() {
     const plan = lensReviewPlan(lens, changedFiles, fileBlocks);
     if (plan.skip) {
       writeVerdict(lensOut, lens, [], plan.skip, { valid: true, conclusion: "skipped" });
-      panel.push({ id: lens.id, title: lens.title, blocking, applicable: false, conclusion: "skipped", valid: true });
+      panel.push(panelEntry(lens, {
+        blocking, applicable: false, conclusion: "skipped", valid: true, reviewState: stateExternalId,
+      }));
       return;
     }
     const lensDiff = plan.diff;
@@ -1331,9 +1405,10 @@ async function main() {
       // reconciling.
       const failFindings = [{ severity: "major", summary: summaryText }];
       writeVerdict(lensOut, lens, failFindings, infra ? "(review did not run — infrastructure/quota error)" : "(no valid verdict — failing closed)", { valid: false });
-      const entry = { id: lens.id, title: lens.title, blocking, applicable: true, conclusion: "failure", valid: false };
-      if (infra) entry.infraError = infra;
-      panel.push(entry);
+      panel.push(panelEntry(lens, {
+        blocking, applicable: true, conclusion: "failure", valid: false,
+        infraError: infra, reviewState: stateExternalId,
+      }));
       lensStats.push({
         id: lens.id,
         samplesRun: samples,
@@ -1433,7 +1508,19 @@ async function main() {
       advisory: !blocking,
       gating,
     });
-    panel.push({ id: lens.id, title: lens.title, blocking, applicable: true, conclusion, valid: true });
+    // Every site passes `reviewState` unconditionally; `panelEntry` decides whether
+    // it survives. This is the only site where it can, and only when this lens
+    // actually ran a detection pass.
+    //
+    // `ok.length > 0` rather than `!noNewHunks`, though the two coincide: this is
+    // the count of samples that actually returned a verdict, so it is derived from
+    // the work done rather than from a flag that could drift away from it. (An
+    // all-samples-failed round never reaches here — it throws to the fail-closed
+    // catch above, which stamps nothing either.)
+    panel.push(panelEntry(lens, {
+      blocking, applicable: true, conclusion, valid: true,
+      reviewState: stateExternalId, ranDetection: ok.length > 0,
+    }));
   }));
 
   mkdirSync(outDir, { recursive: true });

@@ -547,7 +547,8 @@ Components:
        over-merge two distinct bugs into one, reintroducing the miss.
     2. **Cross-round re-check.** Each round persists its blocking findings in the
        per-lens check run's `output.text`; the next round reads the latest prior
-       `agent-review-<lens>` findings (`--prior-findings`) and re-verifies each
+       `agent-review-<lens>` findings (`scripts/agent/prior-findings.mjs` →
+       `--prior-findings`, the same script on both panel paths) and re-verifies each
        against the *current repository* with the same biased-to-keep refute pass.
        A prior finding survives unless it is *resolved* on grounded evidence — so
        it can't vanish just because a later fresh pass missed it (only because it
@@ -581,28 +582,44 @@ Components:
     All three lower false-negative odds; none makes the panel safe to
     self-promote — the human review gate stays the backstop.
 
-  - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs`).**
-    ⚠️ **Decision logic only — NOT yet wired, and therefore not yet saving
-    anything.** Nothing stamps `external_id`, nothing calls `resolveReviewMode`,
-    and the panel still reviews the full cumulative diff every round. The workflow
-    half (stamping the pointer, computing the git facts, `-U15` on narrowed rounds,
-    and swapping in `scripts/agent/prior-findings.mjs`) is a separate change; it touches
-    `.github/workflows/**`, which the agent App cannot push, so it needs a human
-    push either way. Read the rest of this entry as the design the scripts
-    implement, not as current behaviour.
+  - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs` +
+    `scripts/agent/review-scope.mjs`).** Live in the autonomous panel; the
+    on-demand path never narrows.
 
-    The reviewed artifact is `git diff origin/main...HEAD`, recomputed every
+    The reviewed artifact was `git diff origin/main...HEAD`, recomputed every
     round, so an 8-round PR reads round-1 code eight times. Both endpoints of
     `...` also move: a human `git merge main` changed the artifact with no
     semantic change to the branch and flipped a lens verdict.
 
-    Each lens's **`external_id`** is to carry what it last reviewed —
+    Each lens's **`external_id`** carries what it last reviewed —
     `{"v":1,"reviewed":…,"base":…,"since":…,"mode":…}`. Every candidate location
     sits behind the same `checks:write` boundary (the author agent cannot forge
     any of them), so the choice was about failure modes: `output.text` is
     disqualified because the panel trims it to fit a 60k limit by *dropping
     findings* — it is designed to lose data, and a field that decides whether code
     gets reviewed must not live in a lossy channel.
+
+    **The write rule is a function, not a convention.** `panelEntry` in
+    `scripts/agent/review-panel.mjs` attaches the pointer only when a lens produced
+    a real verdict (`valid` and not skipped), so a crashed, quota-failed, skipped or
+    inapplicable lens stamps nothing and the next round finds a state gap for it.
+    Coverage is *proven by the presence of a pointer* rather than asserted
+    alongside it, which is why `resolveReviewMode` needs no separate "did this lens
+    actually review?" input. It is a function because the first version was a rule
+    the three call sites were trusted to follow, guarded by a test that scanned the
+    source for which one carried the field — and that test passed when the pointer
+    was also attached elsewhere by a separate assignment.
+
+    **Who decides what, and where.** The panel orchestrator resolves neither the
+    mode nor the diff: `scripts/agent/review-scope.mjs` reads the pointers (checks
+    API) and measures the range (git), `resolveReviewMode` decides purely, and the
+    workflow step that *rewrites the diff* is the same step that emits the
+    `--review-mode` flag — so the two cannot disagree about what the panel is
+    looking at. Their fail directions differ deliberately: the scope step only
+    computes, so it tolerates failure and costs a full review; the narrowing step
+    mutates the reviewed artifact, so any failure there fails the job. A narrowed
+    diff with no flag is the one outcome this design must not produce, and
+    `scripts/agent/review-panel.mjs` cannot detect it — it receives a file, not a range.
 
     `latestLensRuns` filters check runs on `app.slug === "github-actions"`. That
     narrows the writer to a workflow **in this repository**, not to the panel
@@ -628,8 +645,24 @@ Components:
     telling the lens it still owns defects the delta newly exposes in earlier code,
     that the full working tree is its cwd, and that the changed-file list is
     cumulative; a **forced full round** every 3 rounds plus on any of the hazards
-    above; and wider diff context (`-U15`) on narrowed rounds, which the wiring
-    supplies. The honest saving is therefore **~2x, not ~8x**.
+    above; and wider diff context (`-U15`) on narrowed rounds. The honest saving is
+    therefore **~2x, not ~8x**.
+
+    **A pointer means the lens LOOKED, not merely that it reported.** Per-lens diff
+    slicing (#582) lets a lens produce a valid verdict having run zero detection
+    samples: `lensReviewPlan` returns an empty slice when the PR contains files it
+    reads but none changed in this round's delta, and the round then rests on the
+    prior-finding re-check alone. Such a lens does **not** stamp — `panelEntry`
+    requires `ranDetection`, derived from the samples that actually returned.
+
+    Letting it stamp would make `scopeClasses`/`classifyFile` **retroactive**:
+    widening a lens's scope later would apply only to commits after the pointer,
+    where today it self-heals because every round re-reads the whole diff. Not
+    stamping costs one forced-full round; stamping costs a permanent, invisible
+    hole. If those forced rounds prove expensive, the cheaper form is a digest of
+    the lens's scope config inside the state, so changing the config invalidates
+    the pointer — the mechanism `REVIEW_STATE_VERSION` already provides for shape
+    changes.
 
     `--changed-files` stays **cumulative** in every mode. Fed the delta instead,
     `lensApplies` could mark a narrow-glob lens inapplicable in round N, the

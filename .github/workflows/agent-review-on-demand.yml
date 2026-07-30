@@ -280,45 +280,25 @@ jobs:
       # findings". Best-effort (continue-on-error) and empty when there's no prior
       # panel history (e.g. a non-agent PR). This review posts NO check runs, so it
       # only READS priors and never contributes new ones.
+      #
+      # The SAME trusted script the gating panel runs, which is the point: this was
+      # the second inline copy of that logic, and two copies of a gate input is how
+      # one of them rots. Both API contracts it depends on are non-obvious and fail
+      # silently as "carried 0 findings" — see gh-checks.mjs.
+      #
+      # This review NEVER narrows its own diff: it records no check runs, so it can
+      # never write a pointer back, and a round that reviewed only a delta with no
+      # pointer to show for it would be invisible to the gating panel. Hence no
+      # review-scope step here and no --review-mode flag below.
       - name: Read prior findings (align with the gating panel)
         continue-on-error: true
-        uses: actions/github-script@v7
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.authorize.outputs.pr }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const owner = context.repo.owner, repo = context.repo.repo;
-            const pr = Number(process.env.PR);
-            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
-            const wantNames = new Set(manifest.map((l) => `agent-review-${l.id}`));
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pr, per_page: 100 });
-            const latest = {}; // check name -> { id, t }
-            for (const c of commits) {
-              const runs = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref: c.sha, per_page: 100 });
-              for (const r of runs) {
-                if (!wantNames.has(r.name) || !r.app || r.app.slug !== 'github-actions') continue;
-                // Only COMPLETED runs carry final findings in output.text — an
-                // in-progress/queued run (e.g. a panel round running right now) has
-                // a newer started_at but no findings yet, and would otherwise shadow
-                // the last completed run. Rank by completed_at (fallback started_at).
-                if (r.status !== 'completed') continue;
-                const t = new Date(r.completed_at || r.started_at || 0).getTime();
-                if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { id: r.id, t };
-              }
-            }
-            const prior = [];
-            for (const [name, { id }] of Object.entries(latest)) {
-              const lens = name.replace(/^agent-review-/, '');
-              let text = '';
-              try { const { data } = await github.rest.checks.get({ owner, repo, check_run_id: id }); text = (data.output && data.output.text) || ''; } catch {}
-              let findings = [];
-              try { findings = JSON.parse(text); } catch {}
-              if (Array.isArray(findings)) for (const f of findings) if (f && typeof f === 'object') prior.push({ ...f, lens });
-            }
-            fs.writeFileSync('/tmp/prior-findings.json', JSON.stringify(prior));
-            core.info(`prior findings carried into on-demand review: ${prior.length}`);
+        run: >-
+          node .trusted/scripts/agent/prior-findings.mjs "$PR"
+          --lenses .trusted/scripts/agent/lenses/lenses.json
+          --out /tmp/prior-findings.json
 
       - name: Run review panel
         id: panel
