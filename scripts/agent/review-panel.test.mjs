@@ -41,6 +41,7 @@ import {
   claimTypeOf,
   clusterFindings,
   clusterCounts,
+  resolveClusterVerdict,
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
@@ -2022,4 +2023,53 @@ test("clusterCounts: reports collapsed wordings, not findings", () => {
   assert.deepEqual(clusterCounts(merged), { clustered: 1, collapsed: 1 });
   assert.deepEqual(clusterCounts([]), { clustered: 0, collapsed: 0 });
   assert.deepEqual(clusterCounts(null), { clustered: 0, collapsed: 0 });
+});
+
+test("resolveClusterVerdict: a representative refutation cannot drop a surviving fold", () => {
+  // Clustering runs before verification, so a rep refutation would drop the whole
+  // cluster. resolveClusterVerdict re-checks the folds first: the cluster is
+  // dropped ONLY when the rep AND every folded blocking wording are refuted.
+  const opts = { allowPreExisting: false };
+  const rep = { severity: "major", file: "scripts/agent/ask.mjs", summary: "rep" };
+  const fold = { severity: "major", file: "scripts/agent/ask.mjs", summary: "fold" };
+  // A valid dropping verdict for a presence claim (see isDroppingVerdict).
+  const drop = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["scripts/agent/ask.mjs:12"] };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+
+  // Rep not refuted → its own verdict stands, folds irrelevant (common path).
+  assert.equal(resolveClusterVerdict(rep, keep, [fold], [drop], opts), keep);
+  // No folds → the rep's drop stands.
+  assert.equal(resolveClusterVerdict(rep, drop, [], [], opts), drop);
+  // Rep refuted, the only blocking fold also refuted → drop stands.
+  assert.equal(resolveClusterVerdict(rep, drop, [fold], [drop], opts), drop);
+  // Rep refuted but a blocking fold SURVIVES → cluster kept, surviving verdict returned.
+  assert.equal(resolveClusterVerdict(rep, drop, [fold], [keep], opts), keep);
+  // A surviving fold whose verdict is null (unverified / errored) still keeps the cluster.
+  assert.equal(resolveClusterVerdict(rep, drop, [fold], [null], opts), null);
+  // A NON-blocking fold can never keep a cluster alive, even un-refuted.
+  const nitFold = { severity: "nit", file: "scripts/agent/ask.mjs", summary: "style" };
+  assert.equal(resolveClusterVerdict(rep, drop, [nitFold], [null], opts), drop);
+});
+
+test("clusterFindings: re-clustering a merged finding keeps every folded wording", () => {
+  // Findings are now clustered TWICE: once in the fresh pass before verification,
+  // then again when a fresh survivor restates a carried-forward prior finding. The
+  // second pass must FLATTEN what the first folded, not overwrite it — otherwise a
+  // wording collapsed in round one silently vanishes when the finding merges again.
+  const [a, b] = SAME_DEFECT[0];
+  const first = clusterFindings([asFinding(a), asFinding(b)]);
+  assert.equal(first.length, 1);
+  assert.equal(first[0].mergedFrom.length, 1); // `b` folded into `a` (or vice-versa)
+
+  // Re-cluster the survivor — which already carries `mergedFrom` — against another
+  // wording of the same defect. Pre-fix this returned mergedFrom.length 1, dropping
+  // the wording folded in `first`.
+  const second = clusterFindings([first[0], asFinding(a)]);
+  assert.equal(second.length, 1);
+  assert.equal(second[0].mergedFrom.length, 2, "the earlier fold was overwritten, not flattened");
+  // Both original wordings survive somewhere on the finding — nothing is lost.
+  const kept = new Set([second[0].summary, ...second[0].mergedFrom.map((m) => m.summary)]);
+  assert.ok(kept.has(a) && kept.has(b), "a re-cluster dropped one of the folded wordings");
+  // And the collapsed count reflects the flattened total, not just this pass.
+  assert.deepEqual(clusterCounts(second), { clustered: 1, collapsed: 2 });
 });
