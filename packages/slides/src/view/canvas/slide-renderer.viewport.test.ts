@@ -83,4 +83,20 @@ describe('drawSlide with viewport', () => {
     });
     expect(ctx.fill).toHaveBeenCalled();
   });
+
+  it('does not cull an element just past the frame edge (margin covers effect overhang)', () => {
+    const ctx = createCtxSpy();
+    // Visible world-rect is x:[0,800] y:[0,600] at pan 0/zoom 1. This
+    // frame's AABB starts 10px past the right edge — outside the bare
+    // rect, but within the CULL_MARGIN pad, so drop-shadow/stroke/
+    // arrowhead overhang from an element this close doesn't pop at the
+    // viewport edge while panning.
+    const justOffscreen = makeShape({ x: 810, y: 10, w: 10, h: 10 });
+    const slide = makeSlide([justOffscreen]);
+    drawSlide(asCtx(ctx), slide, DOC, {
+      hostWidth: 800, hostHeight: 600, dpr: 1, cull: true,
+      viewport: { panX: 0, panY: 0, zoom: 1 },
+    });
+    expect(ctx.fill).toHaveBeenCalled();
+  });
 });

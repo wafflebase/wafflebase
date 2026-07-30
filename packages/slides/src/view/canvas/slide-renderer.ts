@@ -19,6 +19,17 @@ import { screenToWorld, type Viewport } from './viewport';
  * still reading the slide content underneath. */
 export const GHOST_ALPHA = 0.4;
 
+/**
+ * World-space (slide-logical px) margin the board-mode visible-cull rect
+ * is padded by on every side. A frame's AABB doesn't cover paint that
+ * renders outside it — drop shadows, reflections, thick strokes,
+ * connector arrowheads — so culling on the bare frame pops that overhang
+ * in/out at the viewport edge while panning/zooming. 64px comfortably
+ * covers typical shadow/reflection spread and stroke/arrowhead width.
+ * See {@link SlideRendererOptions.viewport}.
+ */
+const CULL_MARGIN = 64;
+
 export interface SlideRendererOptions {
   hostWidth: number;   // CSS pixels of the SLIDE rect (excludes pasteboard)
   hostHeight: number;  // CSS pixels of the SLIDE rect (excludes pasteboard)
@@ -283,12 +294,27 @@ export function drawSlide(
   // viewport rather than the full element count.
   const visible =
     options.viewport && options.cull
-      ? {
-          x0: screenToWorld(options.viewport, { x: 0, y: 0 }).x,
-          y0: screenToWorld(options.viewport, { x: 0, y: 0 }).y,
-          x1: screenToWorld(options.viewport, { x: hostWidth, y: hostHeight }).x,
-          y1: screenToWorld(options.viewport, { x: hostWidth, y: hostHeight }).y,
-        }
+      ? (() => {
+          const topLeft = screenToWorld(options.viewport, { x: 0, y: 0 });
+          const bottomRight = screenToWorld(options.viewport, { x: hostWidth, y: hostHeight });
+          // Cull against the frame AABB, but that AABB doesn't cover
+          // paint that renders outside it — drop shadows, reflections,
+          // thick strokes, connector arrowheads. Culling on the bare
+          // frame would pop those in/out at the viewport edge as the
+          // board is panned/zoomed. Pad the visible rect outward by a
+          // fixed world-space margin so overhang stays visible slightly
+          // past the true edge; 64 logical px comfortably covers typical
+          // shadow/reflection spread and stroke/arrowhead width without
+          // meaningfully growing the culled set. Trades a few extra
+          // off-screen draws for correctness — cheaper than computing
+          // per-element effect bounds.
+          return {
+            x0: topLeft.x - CULL_MARGIN,
+            y0: topLeft.y - CULL_MARGIN,
+            x1: bottomRight.x + CULL_MARGIN,
+            y1: bottomRight.y + CULL_MARGIN,
+          };
+        })()
       : null;
 
   // Iterate elements in array order = z-order, last is front. Built
