@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectCacheSavings, estimateTokens, MIN_CACHEABLE_TOKENS, renderReport } from "./cache-report.mjs";
+import {
+  projectCacheSavings,
+  estimateTokens,
+  MIN_CACHEABLE_TOKENS,
+  renderReport,
+  planSessions,
+} from "./cache-report.mjs";
+import { sliceDiffByFile } from "./review-panel.mjs";
 import { TOKEN_WEIGHTS } from "./metrics.mjs";
 
 // This module's whole job is to state a number a human will trust when deciding
@@ -80,9 +87,44 @@ test("projectCacheSavings: a single-session group is not cached, so it is a wash
   assert.equal(groups[0].uncachedReason, "single session");
   assert.equal(projectCacheSavings([session("a", "tiny"), session("a", "tiny")]).groups[0].uncachedReason,
     "below cache minimum");
+  // Both at once must name both. Reporting only "single session" would imply that
+  // raising the lens to two samples makes the group cacheable, which it would not.
+  assert.equal(projectCacheSavings([session("a", "tiny")]).groups[0].uncachedReason,
+    "single session, below cache minimum");
   assert.equal(groups[0].readTokens, 0);
   assert.equal(groups[0].after, groups[0].before, "no write premium, no read discount — unchanged cost");
   assert.equal(totals.savedPct, 0);
+});
+
+test("planSessions: a lens with an empty slice contributes NO sessions", () => {
+  // The panel runs zero samples for a lens that is in scope but has no changed
+  // hunks it reads. If the projection counted them it would report cost that is
+  // never paid — and it would count a prefix as SHARED (2+ sessions, therefore
+  // cacheable) when only one session exists to read the write back, which is the
+  // exact 1.25x-for-nothing loss `countPrefixSessions` exists to prevent.
+  const blocks = sliceDiffByFile(
+    "diff --git a/packages/x/src/a.ts b/packages/x/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
+  );
+  const files = ["packages/x/src/a.ts", "docs/tasks/active/notes.md"];
+  const lenses = [
+    { id: "correctness", title: "Correctness", scopeClasses: ["code"], samples: 2, rubric: "r" },
+    // In scope (a prose file changed in this PR) but its slice holds no hunks,
+    // because the only file with hunks in this diff is code.
+    { id: "docs", title: "Docs", scopeClasses: ["prose"], samples: 2, rubric: "r" },
+  ];
+  const { sessions, skipped, noNewHunks } = planSessions(lenses, {
+    changedFiles: files, fileBlocks: blocks, issue: "", scopeNote: "",
+  });
+  assert.deepEqual(noNewHunks, ["docs"], "an empty slice is reported, not silently priced");
+  assert.deepEqual(skipped, [], "it was applicable — this is not the out-of-scope path");
+  assert.deepEqual(sessions.map((s) => s.lensId), ["correctness", "correctness"]);
+
+  // And it produces no cache-cost projection at all: the surviving prefix is the
+  // code lens's, and the docs lens's prefix appears nowhere.
+  const { groups } = projectCacheSavings(sessions);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].lenses, ["correctness"]);
+  assert.equal(groups[0].sessions, 2);
 });
 
 test("renderReport: emits a markdown table with a total row and the caveats", () => {

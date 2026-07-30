@@ -35,6 +35,7 @@ import {
   lensCacheKey,
   buildLensPrompt,
   resolveReviewScope,
+  sampleCountFor,
 } from "./review-panel.mjs";
 import { TOKEN_WEIGHTS } from "./metrics.mjs";
 
@@ -83,7 +84,10 @@ export function projectCacheSavings(sessions) {
     //     nothing (review-panel.mjs `countPrefixSessions`).
     // Modelling this matters: without it the report would show a phantom loss on
     // the single-sample `docs` lens that the shipped code does not actually incur.
-    const cacheable = prefixTokens >= MIN_CACHEABLE_TOKENS && g.sessions > 1;
+    const uncachedReasons = [];
+    if (g.sessions <= 1) uncachedReasons.push("single session");
+    if (prefixTokens < MIN_CACHEABLE_TOKENS) uncachedReasons.push("below cache minimum");
+    const cacheable = uncachedReasons.length === 0;
     // Every session re-sends the whole prefix at full input price. This is the
     // panel's behaviour before the change, and it is also the fallback whenever
     // the prefix is too small to cache.
@@ -102,10 +106,13 @@ export function projectCacheSavings(sessions) {
       prefixTokens,
       userTokens: g.userTokens,
       cacheable,
-      // WHY a group is not cached, since the two reasons call for different
-      // responses: "too small" is just a small PR, while "one session" means the
-      // lens is configured with a single sample and a prefix nobody shares.
-      uncachedReason: cacheable ? null : g.sessions <= 1 ? "single session" : "below cache minimum",
+      // WHY a group is not cached, since the reasons call for different responses:
+      // "too small" is just a small PR, while "one session" means the lens is
+      // configured with a single sample and a prefix nobody shares. BOTH are
+      // reported when both hold — naming only the first would imply that fixing it
+      // (say, raising the lens to two samples) would make the group cacheable,
+      // when a sub-minimum prefix still would not be.
+      uncachedReason: cacheable ? null : uncachedReasons.join(", "),
       readTokens,
       before: Math.round(before),
       after: Math.round(after),
@@ -167,6 +174,37 @@ export function renderReport({ groups, totals }) {
   return lines.join("\n");
 }
 
+/**
+ * Expand the round into one entry per SDK call the panel would actually make.
+ *
+ * Exported so the two ways a lens contributes NO sessions are testable without a
+ * CLI run: out of scope entirely (`plan.skip`), and in scope with an empty slice.
+ * Both must drop out here for the projection to mean anything — see the comments at
+ * each guard.
+ */
+export function planSessions(lenses, { changedFiles, fileBlocks, issue, scopeNote }) {
+  const sessions = [];
+  const skipped = [];
+  const noNewHunks = [];
+  for (const lens of lenses) {
+    const plan = lensReviewPlan(lens, changedFiles, fileBlocks);
+    if (plan.skip) { skipped.push(lens.id); continue; }
+    // In scope for this PR, but nothing it reads changed in THIS round. The panel
+    // runs ZERO samples in that case (`noNewHunks` in review-panel.mjs main()), and
+    // `countPrefixSessions` drops it for the same reason — so counting sessions here
+    // would both invent cost that is never paid and, worse, make a prefix look
+    // shared when only one real session will read it.
+    if (String(plan.diff).trim() === "") { noNewHunks.push(lens.id); continue; }
+    // Same default as the panel, via the panel's own helper so the two cannot drift.
+    // Sample count is what makes the per-lens reuse worth having.
+    const samples = sampleCountFor(lens);
+    const prefix = lensCacheKey(lens, { diff: plan.diff, issue, scopeNote });
+    const userPrompt = buildLensPrompt(lens, { rubric: lens.rubric });
+    for (let i = 0; i < samples; i++) sessions.push({ lensId: lens.id, prefix, userPrompt });
+  }
+  return { sessions, skipped, noNewHunks };
+}
+
 function parseArgs(argv) {
   const a = {};
   for (let i = 2; i < argv.length; i++) {
@@ -198,18 +236,9 @@ function main() {
   const fileBlocks = sliceDiffByFile(diff);
   const lenses = loadLenses(path.resolve(String(args["lenses-dir"] ?? path.join(HERE, "lenses"))));
 
-  const sessions = [];
-  const skipped = [];
-  for (const lens of lenses) {
-    const plan = lensReviewPlan(lens, changedFiles, fileBlocks);
-    if (plan.skip) { skipped.push(lens.id); continue; }
-    // Same default as the panel: 2 samples per lens unless the manifest says
-    // otherwise. Sample count is what makes the per-lens reuse worth having.
-    const samples = Math.max(1, Number(lens.samples) || 2);
-    const prefix = lensCacheKey(lens, { diff: plan.diff, issue, scopeNote });
-    const userPrompt = buildLensPrompt(lens, { rubric: lens.rubric });
-    for (let i = 0; i < samples; i++) sessions.push({ lensId: lens.id, prefix, userPrompt });
-  }
+  const { sessions, skipped, noNewHunks } = planSessions(lenses, {
+    changedFiles, fileBlocks, issue, scopeNote,
+  });
 
   if (sessions.length === 0) {
     console.error("every lens skipped on this diff — nothing to project");
@@ -217,11 +246,14 @@ function main() {
   }
   const projection = projectCacheSavings(sessions);
   if (args.json) {
-    console.log(JSON.stringify({ ...projection, skipped }, null, 2));
+    console.log(JSON.stringify({ ...projection, skipped, noNewHunks }, null, 2));
     return;
   }
   console.log(renderReport(projection));
   if (skipped.length) console.log(`\nSkipped on this diff (out of scope, no sessions): ${skipped.join(", ")}.`);
+  if (noNewHunks.length) {
+    console.log(`In scope but no changed hunks they read (zero sessions): ${noNewHunks.join(", ")}.`);
+  }
 }
 
 // Only run as a CLI, so the pure helpers above are importable by the test.

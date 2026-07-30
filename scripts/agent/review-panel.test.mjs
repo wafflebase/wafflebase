@@ -35,6 +35,7 @@ import {
   buildLensSystemPrompt,
   lensCacheKey,
   countPrefixSessions,
+  sampleCountFor,
   createWarmupGate,
   resolveReviewScope,
   claimTypeOf,
@@ -258,6 +259,21 @@ test("a prefix no second session will read is sent uncached, as a plain string",
   // Caching is the default: a caller that forgets the flag gets the cheap path on
   // every multi-sample lens, which is every lens but `docs`.
   assert.ok(Array.isArray(cached));
+});
+
+test("sampleCountFor: two by default, never below one", () => {
+  // Pinned because three call sites depend on it agreeing exactly — the round loop,
+  // countPrefixSessions, and cache-report.mjs. A drift between the count and the
+  // runs is what re-introduces a 1.25x cache write that nothing reads back.
+  assert.equal(sampleCountFor({ samples: 3 }), 3);
+  assert.equal(sampleCountFor({}), 2, "the panel's default is 2 samples per lens");
+  assert.equal(sampleCountFor({ samples: 1 }), 1);
+  // Every falsy/garbage shape must land on the default rather than on zero, which
+  // would silently run no detection at all.
+  for (const bad of [{ samples: 0 }, { samples: null }, { samples: "" }, { samples: "x" }, undefined]) {
+    assert.equal(sampleCountFor(bad), 2, `${JSON.stringify(bad)} must fall back to the default`);
+  }
+  assert.equal(sampleCountFor({ samples: -5 }), 1, "a negative count floors at one, not zero");
 });
 
 test("countPrefixSessions: only prefixes with a SECOND session are worth caching", () => {

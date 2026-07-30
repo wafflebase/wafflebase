@@ -1116,6 +1116,21 @@ export function buildLensPrompt(lens, { rubric }) {
 }
 
 /**
+ * How many detection samples one lens runs. Two by default — see the panel's
+ * sampling rationale — and never below one.
+ *
+ * A single function rather than the expression inlined at each use site, because
+ * three call sites have to agree EXACTLY: the round loop that runs the samples,
+ * `countPrefixSessions` that decides whether their shared prefix is worth caching,
+ * and `cache-report.mjs` that projects the saving. If the default drifted in one of
+ * them, the count would disagree with the runs — and a prefix counted as shared but
+ * run once pays a 1.25x write nothing reads back.
+ */
+export function sampleCountFor(lens) {
+  return Math.max(1, Number((lens ?? {}).samples) || 2);
+}
+
+/**
  * How many sessions will share each cacheable prefix this round?
  *
  * A prefix used by exactly ONE session must not be cached: the write carries a
@@ -1135,7 +1150,7 @@ export function countPrefixSessions(lenses, { changedFiles, fileBlocks, issue, s
     // prefix look shared — that would re-introduce the unread write.
     if (plan.skip || String(plan.diff).trim() === "") continue;
     const key = lensCacheKey(lens, { diff: plan.diff, issue, scopeNote });
-    counts.set(key, (counts.get(key) ?? 0) + Math.max(1, Number(lens.samples) || 2));
+    counts.set(key, (counts.get(key) ?? 0) + sampleCountFor(lens));
   }
   return counts;
 }
@@ -1475,7 +1490,7 @@ async function main() {
   await Promise.all(allLenses.map(async (lens) => {
     const lensOut = path.join(outDir, lens.id);
     const blocking = String(lens.gating ?? "blocking") === "blocking";
-    const samples = Math.max(1, Number(lens.samples) || 2);
+    const samples = sampleCountFor(lens);
 
     // Not applicable to this diff → skipped (neutral), never blocks. Distinct
     // from a crashed lens so the fail-closed loop can't turn it into a failure.
