@@ -164,5 +164,12 @@ describe('Doc.getBlock resolves freshly pasted nested-table content (#333)', () 
 
     expect(() => doc.getBlock(deepestBlockId)).not.toThrow();
     expect(doc.getBlock(deepestBlockId).id).toBe(deepestBlockId);
+
+    // #333's root cause was shared ids between the pasted copy and its source.
+    // Pin it directly: every id in the pasted tree is disjoint from the source.
+    const sourceIds = new Set(collectIds(sourceOuter));
+    for (const id of collectIds(pasted)) {
+      expect(sourceIds.has(id)).toBe(false);
+    }
   });
 });

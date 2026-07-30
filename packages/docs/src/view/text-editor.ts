@@ -4677,10 +4677,11 @@ export class TextEditor {
    * `layoutCellBlocks` in table-layout.ts). So `tableAbsY` — the already-
    * resolved, page-aware Y origin of this table — is computed once by the
    * caller for the first nesting level, and this method carries it forward
-   * with plain relative arithmetic for every level below that. `localX` is
-   * reused unchanged across levels: `layoutCellBlocks` gives a nested table
-   * the same left edge as its containing cell's content box, so no
-   * additional horizontal offset applies when descending a level.
+   * with plain relative arithmetic for every level below that. The X
+   * coordinate is re-based onto the containing cell's content box at each
+   * level: descending into a cell, the recursive call passes `cellLocalX`
+   * (the click X relative to that cell's content origin), so the child level
+   * measures against its own columns rather than the ancestor table's.
    *
    * Recurses via `line.nestedTable` when the resolved cell's target line is
    * itself a nested table, instead of stopping after one level — the #333
@@ -4719,7 +4720,7 @@ export class TextEditor {
     // Resolve a covered (merged) cell to its merge top-left.
     const dataCell0 = tableBlock.tableData!.rows[row]?.cells[col];
     if (dataCell0?.colSpan === 0) {
-      for (let r = row; r >= 0; r--) {
+      outer: for (let r = row; r >= 0; r--) {
         for (let c = col; c >= 0; c--) {
           const cand = tableBlock.tableData!.rows[r]?.cells[c];
           if (cand && cand.colSpan !== 0) {
@@ -4728,7 +4729,7 @@ export class TextEditor {
             if (r + rs > row && c + cs > col) {
               row = r;
               col = c;
-              break;
+              break outer;
             }
           }
         }

@@ -8,7 +8,7 @@ on that fix uncovered that it also addresses issue #333 (open, unclaimed):
 pasting a table that contains **nested** tables misroutes input on the pasted
 copy.
 
-#333's symptom, by nesting depth:
+Issue `#333`'s symptom, by nesting depth:
 
 - Deepest nested level: caret can't enter a cell of the pasted copy at all.
 - Every level above the deepest: caret visually enters the pasted copy's cell,
