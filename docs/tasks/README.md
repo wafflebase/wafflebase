@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| gate zone boundary (2026-07-30) | [20260730-gate-zone-boundary-todo.md](./active/20260730-gate-zone-boundary-todo.md) | [20260730-gate-zone-boundary-lessons.md](./active/20260730-gate-zone-boundary-lessons.md) |
 | absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./active/20260729-absence-claims-todo.md) | - |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
@@ -77,4 +78,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 374
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: absence claims (2026-07-29)
+Latest active task: gate zone boundary (2026-07-30)

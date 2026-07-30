@@ -32,6 +32,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderMergeEligibility } from "./gate-zone.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
@@ -335,7 +336,7 @@ export function formatUsd(n) {
  * responds to what the panel found, and review, the panel's own compute, are
  * easy to conflate by name, so their costs are rendered in separate sections
  * rather than folded into one set of totals). */
-export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
+export function renderSummary({ agg, panelAgg, panelStats, flips, scope, mergeEligibility }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
   const panelTokens = hasPanel ? panelAgg.tokens : 0;
   const panelWeighted = hasPanel ? panelAgg.weightedTokens : 0;
@@ -360,6 +361,11 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
     `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
     `- Scope-size: ${scope}`,
     `- Attempt: ${agg.attempt}`,
+    // SHADOW MODE. What an auto-merge gate WOULD have decided, recorded next to
+    // what the humans actually did, so the eventual flip from advisory to blocking
+    // is made on months of paired outcomes rather than on a good week. Nothing
+    // reads this line; see gate-zone.mjs for why it must stay advisory for now.
+    ...(mergeEligibility ? [`- Merge-eligibility (advisory, gates nothing): ${mergeEligibility}`] : []),
     `- Sessions: ${agg.sessions}`,
     `- Total-time: ${formatMinutes(agg.durationMs)}`,
     `- Turns: ${agg.turns}`,
@@ -577,12 +583,32 @@ function cmdSummarize(args) {
   // relies on that, so pass it as-is without re-sorting.
   const flips = panelRecords.length ? detectFlips(panelRecords) : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
+  // Shadow-mode auto-merge eligibility. Best-effort and INDEPENDENT of the summary:
+  // an unreadable file list must not lose the cost/reliability rows that are the
+  // point of this comment. `isMergeEligible` fails toward ineligible on missing
+  // input, so a failed fetch reads as "would not have auto-merged" rather than as a
+  // clean bill of health.
+  let changedFiles = null;
+  try {
+    changedFiles = ghJson(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/files?per_page=100`])
+      .map((f) => f && f.filename)
+      .filter((f) => typeof f === "string");
+  } catch (e) {
+    console.error(`could not read changed files for #${pr} (${e.message}); eligibility reports ineligible.`);
+  }
+  const mergeEligibility = renderMergeEligibility({
+    changedFiles,
+    lensStats: panelRecords.length
+      ? panelRecords.flatMap((r) => (Array.isArray(r.lensStats) ? r.lensStats : []))
+      : null,
+    rounds: panelAgg ? panelAgg.sessions : null,
+  });
   try {
     // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, flips, scope }));
+    postComment(pr, renderSummary({ agg, panelAgg, panelStats, flips, scope, mergeEligibility }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }

@@ -716,6 +716,45 @@ Components:
   the pipeline's *own* files, so it additionally requires an owner's review for
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
+- **Gate zone (`scripts/agent/gate-zone.mjs`) — SHADOW MODE, blocks nothing.**
+  Names the files whose contents decide whether a PR can be promoted, so that an
+  agent PR *changing the gate* can be told apart from one changing product code.
+  This is a prerequisite for auto-merge and inert before it.
+
+  The gap it closes: `.github/workflows/**` is already unpushable by the App (no
+  `workflows` scope — the restriction that rejected #564's push, and a deliberate
+  one, since `.github/workflows/ci.yml` runs on `pull_request` and a branch able to rewrite workflows
+  could pass its own CI). **Every other gate-defining file is unprotected**, and the
+  agent edits them routinely — #564 rewrote `scripts/agent/lenses/lenses.json`, #525/#526/#550 changed
+  the orchestrator and round guard. CODEOWNERS covers them for *human* review, which
+  is exactly the control that disappears when a human stops reviewing.
+
+  Safety under auto-merge comes from narrowing what is *eligible*, not from trusting
+  the reviewer more: Dependabot patch bumps are safe because their diff shape is
+  mechanically verifiable, not because something reviewed them well.
+
+  `GATE_ZONE` is hand-written, because membership is a judgement — `scripts/agent/metrics.mjs`
+  reads the gate's outcome and is deliberately outside; `scripts/agent/set-state.mjs` is in
+  `mark-ready`'s import closure but only projects a decision into a label. But a
+  hand-written list is how `DEFAULT_REVIEW_CHECKS` nearly rotted, so
+  `scripts/agent/gate-zone.test.mjs` walks the import closure of `GATE_ENTRY_POINTS` and fails if
+  anything in it is neither listed nor explicitly excluded with a reason. Adding a
+  gate dependency silently is what that test makes impossible.
+
+  Two adjacent sets, deliberately not one: `GATE_ZONE` is "a human should look at
+  this"; `UNPUSHABLE` is "no agent run can deliver this at all". `.github/workflows/agent-implement.yml`
+  runs an **advisory** pre-flight over the issue text and, on a hit, tells the
+  kickoff agent up front to deliver what it can and say which criteria need a human
+  push — the #563/#564 failure, where a doable script change was bundled with an
+  impossible workflow change and the fix loop had nothing it could do. The
+  pre-flight emits globs from this module's own constants, never text from the
+  issue, so a warning cannot relay author-controlled content into a prompt.
+
+  Rollout: `metrics.mjs summarize` renders `Merge-eligibility (advisory, gates
+  nothing)`, so the decision this *would* make accumulates next to what humans
+  actually did. 13 of 19 merged agent PRs were pipeline self-improvement; gating on
+  a gate-zone hit today would stop the pipeline improving itself overnight. Flipping
+  advisory → blocking is a one-line change, made later, on paired outcomes.
 - **Agent state (advisory single-value label)** — `scripts/agent/set-state.mjs`
   keeps **exactly one** `agent:<state>` label on the PR at a time
   (`implementing → awaiting-ci → reviewing → fixing → ready | blocked`), replacing

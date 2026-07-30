@@ -170,10 +170,43 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile # also wires .githooks via postinstall
 
+      # ADVISORY pre-flight: does this issue ask for something no agent run can
+      # deliver? The App has no `workflows` scope, so `.github/workflows/**` is
+      # unpushable — and #563 bundled a doable script change with a workflow-prompt
+      # change, which is why #564 burned every round reporting an incomplete
+      # deliverable that its fixer could do nothing about.
+      #
+      # Advisory ONLY, in both directions: acceptance criteria are prose, so the
+      # match is fuzzy and must never block a run; and what it emits is a GLOB from
+      # gate-zone.mjs's own constants, never text from the issue — so a warning
+      # cannot relay author-controlled content into the prompt below.
+      - name: Pre-flight the issue for unpushable asks
+        id: preflight
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          case "$ISSUE_NUMBER" in
+            ''|*[!0-9]*) echo "Invalid issue number; skipping pre-flight" >&2; exit 0 ;;
+          esac
+          gh issue view "$ISSUE_NUMBER" --json title,body --jq '.title + "\n" + .body' > /tmp/issue-spec.txt
+          node -e '
+            const { readFileSync } = require("node:fs");
+            import("./scripts/agent/gate-zone.mjs").then(({ unpushableAsksIn }) => {
+              const hits = unpushableAsksIn(readFileSync("/tmp/issue-spec.txt", "utf8"));
+              if (hits.length === 0) return;
+              console.log(`unpushable=${hits.join(",")}`);
+              console.error(`::warning::This issue appears to require ${hits.join(", ")}, which the agent App cannot push.`);
+            });
+          ' >> "$GITHUB_OUTPUT"
+
       - name: Build the orchestration prompt
         id: prep
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+          UNPUSHABLE: ${{ steps.preflight.outputs.unpushable }}
         run: |
           set -euo pipefail
           # Validate the issue number is a bare integer — it is the only
@@ -265,6 +298,22 @@ jobs:
           )
           TEMPLATE=${TEMPLATE//__ISSUE_NUMBER__/$ISSUE_NUMBER}
           TEMPLATE=${TEMPLATE//__TODAY__/$TODAY}
+          # Only appended when the pre-flight found something, so an ordinary issue's
+          # prompt is byte-identical to before. $UNPUSHABLE is a glob list from
+          # gate-zone.mjs's own constants, never issue text.
+          if [ -n "${UNPUSHABLE:-}" ]; then
+            TEMPLATE="$TEMPLATE
+
+          IMPORTANT — part of this issue may be undeliverable by you. Its criteria
+          appear to require $UNPUSHABLE, which your token cannot push (the App has no
+          \`workflows\` scope, and that restriction is deliberate: CI runs on
+          pull_request, so a branch able to rewrite workflows could pass its own CI).
+          Do NOT attempt it, and do not work around it. Deliver every part you CAN,
+          and state plainly in the PR body which criteria you could not meet and that
+          they need a human push. A review lens will report the deliverable as
+          incomplete — that is correct and expected, and saying so up front is what
+          stops the fix loop burning rounds on something it cannot change."
+          fi
           {
             echo "prompt<<HARNESS_EOF"
             printf '%s\n' "$TEMPLATE"
