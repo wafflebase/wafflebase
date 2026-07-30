@@ -128,6 +128,72 @@ export function sumExecutions(messages, kind = "review") {
   };
 }
 
+/** Per-message usage tally (raw + weighted tokens, turns, cost). */
+function messageUsage(m) {
+  const u = (m && m.usage) || {};
+  return {
+    tokens:
+      (u.input_tokens || 0) +
+      (u.output_tokens || 0) +
+      (u.cache_creation_input_tokens || 0) +
+      (u.cache_read_input_tokens || 0),
+    weightedTokens: weightedTokensFor(u),
+    turns: (m && m.num_turns) || 0,
+    costUsd: (m && m.total_cost_usd) || 0,
+  };
+}
+
+const emptyBucket = () => ({ costUsd: 0, weightedTokens: 0, tokens: 0, turns: 0, calls: 0 });
+function addBucket(acc, u) {
+  acc.costUsd += u.costUsd; acc.weightedTokens += u.weightedTokens;
+  acc.tokens += u.tokens; acc.turns += u.turns; acc.calls += 1;
+}
+
+/**
+ * Break a review execution log down by ATTRIBUTION — `{ lens: { role: bucket } }`,
+ * role ∈ `detection` | `verifier` (anything else → `other`). Each SDK result
+ * message carries `attribution: { lens, role }` (stamped by ask.mjs when the
+ * panel tags the call); a message without it lands under lens `"unattributed"`,
+ * role `"other"`, so a pre-instrumentation round is visible as one bucket rather
+ * than silently dropped. This is the per-lens / detection-vs-verifier split the
+ * flat `sumExecutions` total cannot give. Shape-safe: junk contributes nothing.
+ */
+export function attributionBreakdown(messages) {
+  const out = {};
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || m.type !== "result") continue;
+    const a = (m.attribution && typeof m.attribution === "object") ? m.attribution : {};
+    const lens = typeof a.lens === "string" && a.lens ? a.lens : "unattributed";
+    const role = a.role === "detection" || a.role === "verifier" ? a.role : "other";
+    out[lens] = out[lens] || {};
+    out[lens][role] = out[lens][role] || emptyBucket();
+    addBucket(out[lens][role], messageUsage(m));
+  }
+  return out;
+}
+
+/** Merge N `attributionBreakdown` objects (one per round) into one. */
+export function aggregateAttribution(breakdowns) {
+  const out = {};
+  for (const bd of Array.isArray(breakdowns) ? breakdowns : []) {
+    if (!bd || typeof bd !== "object") continue;
+    for (const [lens, roles] of Object.entries(bd)) {
+      if (!roles || typeof roles !== "object") continue;
+      out[lens] = out[lens] || {};
+      for (const [role, b] of Object.entries(roles)) {
+        out[lens][role] = out[lens][role] || emptyBucket();
+        const t = out[lens][role];
+        t.costUsd += Number(b?.costUsd) || 0;
+        t.weightedTokens += Number(b?.weightedTokens) || 0;
+        t.tokens += Number(b?.tokens) || 0;
+        t.turns += Number(b?.turns) || 0;
+        t.calls += Number(b?.calls) || 0;
+      }
+    }
+  }
+  return out;
+}
+
 /** Aggregate an array of session records into pipeline-wide totals. */
 export function aggregate(records) {
   const list = Array.isArray(records) ? records : [];
@@ -347,7 +413,51 @@ export function formatUsd(n) {
  * responds to what the panel found, and review, the panel's own compute, are
  * easy to conflate by name, so their costs are rendered in separate sections
  * rather than folded into one set of totals). */
-export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
+/** Per-lens / detection-vs-verifier token table for the review panel, or [] when
+ * the log carries no attribution (pre-instrumentation rounds, or a code-only PR).
+ * Cost leads with weighted tokens alongside — the same measure the sections above
+ * use. This is the split that answers "which lens / is it the verifier?". */
+function renderAttribution(attr) {
+  const byLens = attr && typeof attr === "object" ? attr : {};
+  const cell = (b) => (b && b.calls > 0 ? `${formatUsd(b.costUsd)} · ${formatTokens(b.weightedTokens)}` : "—");
+  const det = emptyBucket(), ver = emptyBucket(), other = emptyBucket();
+  const add = (acc, b) => {
+    if (!b) return;
+    acc.costUsd += b.costUsd; acc.weightedTokens += b.weightedTokens;
+    acc.tokens += b.tokens; acc.turns += b.turns; acc.calls += b.calls;
+  };
+  const rows = [];
+  for (const lens of Object.keys(byLens).sort()) {
+    const roles = byLens[lens] || {};
+    add(det, roles.detection); add(ver, roles.verifier); add(other, roles.other);
+    // A lens with only an `other` bucket is an un-instrumented round; fold it into
+    // the note below rather than showing an empty detection/verifier row.
+    if ((roles.detection?.calls || 0) + (roles.verifier?.calls || 0) > 0) {
+      rows.push(`| ${lens} | ${cell(roles.detection)} | ${cell(roles.verifier)} |`);
+    }
+  }
+  if (!rows.length) return []; // nothing attributed → skip the table entirely
+  const out = [
+    "",
+    "#### Token attribution — cost · weighted tokens, all rounds",
+    "",
+    "| Lens | Detection | Verifier |",
+    "| --- | --- | --- |",
+    ...rows,
+    `| **Total** | ${cell(det)} | ${cell(ver)} |`,
+    "",
+    `- Detection vs verifier: ${formatUsd(det.costUsd)} vs ${formatUsd(ver.costUsd)} ` +
+      `(${formatTokens(det.weightedTokens)} / ${formatTokens(ver.weightedTokens)} weighted).`,
+  ];
+  if (other.calls > 0) {
+    out.push(
+      `- ${formatUsd(other.costUsd)} · ${formatTokens(other.weightedTokens)} weighted from rounds recorded before attribution existed.`,
+    );
+  }
+  return out;
+}
+
+export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
   // An on-demand `@claude review` posts a review record but no code-fix session,
   // so `aggregate([])` yields an all-zero `agg`. Rendering a "Code-fix agent"
@@ -461,6 +571,9 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
       `- ⚠️ Cross-round flips (blocking→clean; advisory, review manually): ${flipList.length}` +
         (flipList.length ? ` — ${flipList.map((f) => `${f.lens} r${f.fromRound}→r${f.toRound}`).join(", ")}` : ""),
     );
+    // Per-lens / detection-vs-verifier token split (empty until rounds carry
+    // attribution, so pre-instrumentation PRs render exactly as before).
+    lines.push(...renderAttribution(panelAttribution));
   }
   return lines.join("\n");
 }
@@ -563,6 +676,10 @@ function cmdRecord(args) {
     rec = sumExecutions(messages, kind);
     if (rec.calls === 0) return bail("no result messages in the review execution log");
     delete rec.calls;
+    // Per-lens / detection-vs-verifier token split from the SAME messages. Carried
+    // on the record so `summarize` can aggregate it across rounds. Empty object on
+    // an un-instrumented log — harmless, just yields no attribution table.
+    rec.attribution = attributionBreakdown(messages);
     // Sample-agreement/verifier-outcome data is optional and best-effort: a
     // missing/malformed file must never block recording the cost that WAS
     // captured, so log and move on rather than bail.
@@ -608,6 +725,10 @@ function cmdSummarize(args) {
   const panelStats = panelRecords.length
     ? aggregatePanelStats(panelRecords.flatMap((r) => (Array.isArray(r.lensStats) ? r.lensStats : [])))
     : null;
+  // Per-lens / detection-vs-verifier token split, summed across every round.
+  const panelAttribution = panelRecords.length
+    ? aggregateAttribution(panelRecords.map((r) => r.attribution).filter(Boolean))
+    : null;
   // `panelRecords` is in ledger (chronological = round) order — detectFlips
   // relies on that, so pass it as-is without re-sorting.
   const flips = panelRecords.length ? detectFlips(panelRecords) : null;
@@ -617,7 +738,7 @@ function cmdSummarize(args) {
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, flips, scope }));
+    postComment(pr, renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }));
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }

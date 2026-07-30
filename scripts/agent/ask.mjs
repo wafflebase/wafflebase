@@ -366,6 +366,11 @@ export async function askStructured({
   maxTurns,
   allowedTools,
   label = "agent",
+  // Optional attribution ({ lens, role }) stamped onto this call's logged result
+  // message, so a consumer summing `sessionLog` can split cost by lens and by
+  // detection-vs-verifier instead of seeing one anonymous total. No behavioral
+  // effect; omitted for callers that don't attribute.
+  logMeta,
 }) {
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad
   // grant must fail without opening a session (ask.test.mjs asserts this ordering
@@ -384,7 +389,10 @@ export async function askStructured({
       // compute even when it didn't produce usable structured output. This is
       // the ONLY place an SDK call's result is observable at all; callers
       // discard everything else, so record before the throw below.
-      if (sessionLog) sessionLog.push(message);
+      // Tag the recorded entry with its attribution when given (a shallow copy so
+      // the SDK's message is not mutated). metrics.mjs reads `.attribution`; every
+      // other field is preserved, so the log stays claude-execution-output shaped.
+      if (sessionLog) sessionLog.push(logMeta ? { ...message, attribution: logMeta } : message);
       const c = classifyResult(message);
       if (c.ok) return c.output;
       const err = new Error(
