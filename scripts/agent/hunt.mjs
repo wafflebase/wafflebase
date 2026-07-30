@@ -30,6 +30,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { repoScopedEnv } from "./git-env.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -364,7 +365,10 @@ function repoSlug(repo) {
 
 function gitSha(repo) {
   try {
-    return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      env: repoScopedEnv(repo),
+    }).trim();
   } catch {
     return "unknown";
   }
@@ -375,6 +379,7 @@ function makeChangedSince(repo, globs) {
   return (sha) => {
     try {
       const out = execFileSync("git", ["-C", repo, "log", "--oneline", `${sha}..HEAD`, "--", ...globs], {
+        env: repoScopedEnv(repo),
         encoding: "utf8",
       });
       return out.trim() !== "";

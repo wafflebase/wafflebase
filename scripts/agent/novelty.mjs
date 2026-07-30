@@ -40,6 +40,7 @@
 // finding blocking. Demotion requires BOTH blames to have answered.
 
 import { execFile } from "node:child_process";
+import { repoScopedEnv } from "./git-env.mjs";
 import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -186,6 +187,7 @@ async function git(args, repo) {
   try {
     const { stdout } = await execFileAsync("git", args, {
       cwd: repo,
+      env: repoScopedEnv(repo),
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
       encoding: "utf8",
@@ -195,6 +197,7 @@ async function git(args, repo) {
     return { ok: false, status: typeof e?.code === "number" ? e.code : null, stdout: "" };
   }
 }
+
 
 /**
  * Does `baseSha` name a commit in this repo? Called ONCE by the caller so a
