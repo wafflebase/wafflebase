@@ -337,6 +337,11 @@ export function formatUsd(n) {
  * rather than folded into one set of totals). */
 export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
+  // An on-demand `@claude review` posts a review record but no code-fix session,
+  // so `aggregate([])` yields an all-zero `agg`. Rendering a "Code-fix agent"
+  // section of zeros there reads as broken, so a review-only summary omits it and
+  // collapses the total to the review figure alone.
+  const hasCodeFix = agg.sessions > 0;
   const panelTokens = hasPanel ? panelAgg.tokens : 0;
   const panelWeighted = hasPanel ? panelAgg.weightedTokens : 0;
   const panelCost = hasPanel ? panelAgg.costUsd : 0;
@@ -350,20 +355,26 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
     SUMMARY_MARKER,
     "## 🤖 Agent effort",
     "",
-    `- Total-cost: ${formatUsd(totalCost)} (code-fix ${formatUsd(agg.costUsd)} + review ${formatUsd(panelCost)})`,
+    hasCodeFix
+      ? `- Total-cost: ${formatUsd(totalCost)} (code-fix ${formatUsd(agg.costUsd)} + review ${formatUsd(panelCost)})`
+      : `- Total-cost: ${formatUsd(totalCost)}`,
     `- Total-tokens: ${formatTokens(totalWeighted)} weighted (${formatTokens(totalRaw)} raw)`,
-    "",
-    "### Code-fix agent",
-    "",
-    `- Cost: ${formatUsd(agg.costUsd)}`,
-    `- Tokens: ${formatTokens(agg.weightedTokens)} weighted (${formatTokens(agg.tokens)} raw)`,
-    `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
-    `- Scope-size: ${scope}`,
-    `- Attempt: ${agg.attempt}`,
-    `- Sessions: ${agg.sessions}`,
-    `- Total-time: ${formatMinutes(agg.durationMs)}`,
-    `- Turns: ${agg.turns}`,
   ];
+  if (hasCodeFix) {
+    lines.push(
+      "",
+      "### Code-fix agent",
+      "",
+      `- Cost: ${formatUsd(agg.costUsd)}`,
+      `- Tokens: ${formatTokens(agg.weightedTokens)} weighted (${formatTokens(agg.tokens)} raw)`,
+      `- Agents: ${agg.agents.length ? agg.agents.join(", ") : "unknown"}`,
+      `- Scope-size: ${scope}`,
+      `- Attempt: ${agg.attempt}`,
+      `- Sessions: ${agg.sessions}`,
+      `- Total-time: ${formatMinutes(agg.durationMs)}`,
+      `- Turns: ${agg.turns}`,
+    );
+  }
   if (hasPanel) {
     const ac = panelStats?.agreementCounts || {};
     const r = panelStats?.raised || {};

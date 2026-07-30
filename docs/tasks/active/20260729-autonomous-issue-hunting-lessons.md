@@ -167,3 +167,36 @@ that "is set" but may not authenticate.
 Dominated by **3.1M cache-read tokens** billed at 0.1× — without prompt caching the
 same run would be roughly an order of magnitude more. `metrics.mjs`'s existing
 `TOKEN_WEIGHTS` (`cacheRead: 0.1`) already models this correctly.
+
+## 13. A test that shells out to git can eat your branch, silently
+
+The tip of this task's branch was replaced three times by `novelty.test.mjs`'s
+4-file fixture tree, discarding ten commits from the branch pointer. One of those
+states reached PR #588, where it rendered as deleting all 3019 files.
+
+`cwd` does not confine git. In a directory that is not itself a repository, git
+walks **up** and finds the surrounding checkout — so a fixture whose `init` did not
+take effect commits into the real repo, on whatever branch is current. Work tree at
+the fixture plus git dir at the real repo yields exactly the observed shape: a
+4-file tree committed onto a live branch. Confinement needs explicit `GIT_DIR` /
+`GIT_WORK_TREE`, which disable discovery outright.
+
+Three things made it expensive rather than trivial:
+
+- **It succeeds.** An escaped fixture does not error; it commits somewhere else.
+  Tests stay green and nothing warns.
+- **`stdio: ["ignore","pipe","ignore"]` discarded stderr**, so git's own account of
+  what it did was thrown away. This became forensics — commit author identity,
+  reflog timestamps, commit-pair counts — instead of a stack trace.
+- **I diagnosed it wrong first.** All three losses coincided with `git push`, so I
+  blamed the `pre-push` → `verify:self` hook and "fixed" it with `--no-verify`. The
+  reflog then showed the commits landing ~5 minutes *before* the push. The
+  correlation was real and the causal direction was invented; `--no-verify` fixed
+  nothing and the hazard stayed live.
+
+Two habits earned: **read `git diff --stat origin/main...HEAD` before every push**
+(one second, and it is the only visible symptom), and **tag before recovering**
+(`archive/hunt-tier1-verified` is why ten commits were recoverable).
+
+And a smaller one, paid for twice: `git reset --hard` to undo a *test* also
+discards uncommitted work. Commit first, then experiment.
