@@ -5,7 +5,8 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -14,7 +15,8 @@
     "gating": "blocking",
     "needsIssueSpec": false,
     "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "scopeClasses": ["code", "code-adjacent", "policy", "design-spec", "prose"],
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -22,8 +24,9 @@
     "title": "Design-fit",
     "gating": "blocking",
     "needsIssueSpec": true,
-    "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "appliesWhen": ["packages/**", "scripts/**", "docs/design/**"],
+    "scopeClasses": ["code", "code-adjacent", "policy", "design-spec"],
+    "model": "claude-opus-5",
     "samples": 2
   },
   {
@@ -31,8 +34,39 @@
     "title": "Test-adequacy",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["**"],
-    "model": "claude-opus-4-8",
+    "appliesWhen": ["packages/**", "scripts/**"],
+    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "model": "claude-opus-5",
     "samples": 2
+  },
+  {
+    "id": "blast-radius",
+    "title": "Blast-radius",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": ["packages/**", "scripts/**"],
+    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "model": "claude-opus-5",
+    "samples": 2
+  },
+  {
+    "id": "docs",
+    "title": "Docs",
+    "gating": "blocking",
+    "needsIssueSpec": false,
+    "appliesWhen": [
+      "docs/**/*.md",
+      "docs/**/*.txt",
+      "*.md",
+      "*.txt",
+      "packages/*/README.md",
+      "packages/documentation/**/*.md",
+      "packages/documentation/**/*.mdx",
+      ".changeset/*.md"
+    ],
+    "scopeClasses": ["prose"],
+    "model": "claude-sonnet-5",
+    "samples": 1,
+    "maxTurns": 8
   }
 ]

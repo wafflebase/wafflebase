@@ -33,8 +33,21 @@ REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
          ;
 fragment SHEET_NAME: [A-Za-z][A-Za-z0-9]* ;
 fragment QUOTED_SHEET_NAME: '\'' (~['])+ '\'' ;
-REF: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? '$'? [1-9][0-9]* ;
-REFRANGE: REF ':' REF ;
+fragment COL: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? ;
+fragment ROW: '$'? [1-9][0-9]* ;
+REF: COL ROW ;
+// Ranges may omit part of an endpoint to reference whole columns (A:A, A:C),
+// whole rows (1:1, 2:5), or open-ended segments (A1:B, B2:B). These are
+// resolved to concrete bounded ranges against the sheet's data extent before
+// evaluation (see coordinates.resolveRange / formula.expandUnboundedRanges).
+REFRANGE: REF ':' REF
+        | COL ':' COL
+        | ROW ':' ROW
+        | REF ':' COL
+        | COL ':' REF
+        | REF ':' ROW
+        | ROW ':' REF
+        ;
 
 BOOL: 'TRUE' | 'FALSE' | 'true' | 'false';
 STRING: '"' ('""' | ~["])* '"' ;

@@ -92,7 +92,10 @@ export function minFunc(
     }
   }
 
-  return numNode(result);
+  // No numeric cells (e.g. an empty or all-text range, now common via
+  // whole-column refs like =MIN(A:A) that skip their blank cells): return 0,
+  // matching Google Sheets, rather than leaking the Infinity accumulator.
+  return numNode(result === Infinity ? 0 : result);
 }
 
 /**
@@ -114,7 +117,10 @@ export function maxFunc(
     }
   }
 
-  return numNode(result);
+  // No numeric cells (e.g. an empty or all-text range, now common via
+  // whole-column refs like =MAX(A:A) that skip their blank cells): return 0,
+  // matching Google Sheets, rather than leaking the -Infinity accumulator.
+  return numNode(result === -Infinity ? 0 : result);
 }
 
 /**

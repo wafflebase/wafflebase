@@ -22,6 +22,7 @@ import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js'
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
+import { findLinkRunAt } from './link-run.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -2037,7 +2038,11 @@ export function initialize(
     afterCursorRender();
   };
 
-  const textEditor = readOnly ? null : new TextEditor(
+  // The TextEditor is constructed in read-only mode too: it owns the
+  // pointer/clipboard/link machinery (drag selection, copy serialization,
+  // hyperlink opening) that viewers need. Its `readOnly` flag gates every
+  // mutating path so no edit can reach the store. See issue #482.
+  const textEditor = new TextEditor(
     container,
     doc,
     cursor,
@@ -2076,6 +2081,7 @@ export function initialize(
     invalidateLayout,
     () => headerLayout,
     () => footerLayout,
+    readOnly,
   );
   textEditorRef = textEditor;
 
@@ -2579,10 +2585,13 @@ export function initialize(
   };
   if (textEditor) {
     textEditor.onFocusChange(handleFocus, handleBlur);
-    textEditor.focus();
+    // In read-only mode don't steal focus on mount — a viewer opening the
+    // document shouldn't get a blinking caret at the start. Focus is
+    // acquired on first click (so Ctrl/Cmd+C works) via handleMouseDown.
+    if (!readOnly) textEditor.focus();
   }
 
-  return {
+  const api: EditorAPI = {
     render,
     getDoc: () => doc,
     getStore: () => docStore,
@@ -3022,9 +3031,30 @@ export function initialize(
         render();
         notifyStyleApplied();
       } else {
-        docStore.snapshot();
         const pos = cursor.position;
 
+        // Caret inside an existing link: update its href in place instead
+        // of inserting the URL as a new link at the caret (#494).
+        const block = doc.getBlock(pos.blockId);
+        const link = block ? findLinkRunAt(block, pos.offset) : undefined;
+        if (block && link) {
+          docStore.snapshot();
+          doc.applyInlineStyle(
+            {
+              anchor: { blockId: block.id, offset: link.start },
+              focus: { blockId: block.id, offset: link.end },
+            },
+            { href: url },
+          );
+          // Cell block: mark the parent table block dirty (mirrors removeLink)
+          const cellInfo = layout.blockParentMap.get(block.id);
+          markDirty(cellInfo ? cellInfo.tableBlockId : block.id);
+          render();
+          notifyStyleApplied();
+          return;
+        }
+
+        docStore.snapshot();
         doc.insertText(pos, url);
         const range = {
           anchor: { blockId: pos.blockId, offset: pos.offset },
@@ -3044,28 +3074,13 @@ export function initialize(
       const block = doc.getBlock(cursor.position.blockId);
       if (!block) return;
 
-      const inlines = block.inlines;
-
-      let cursorInlineIdx = -1;
-      const offsets: number[] = [0];
-      for (let i = 0; i < inlines.length; i++) {
-        const inlineEnd = offsets[i] + inlines[i].text.length;
-        offsets.push(inlineEnd);
-        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
-          cursorInlineIdx = i;
-        }
-      }
-      if (cursorInlineIdx < 0) return;
-      const href = inlines[cursorInlineIdx].style.href;
-      let lo = cursorInlineIdx;
-      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
-      let hi = cursorInlineIdx;
-      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
+      const link = findLinkRunAt(block, cursor.position.offset);
+      if (!link) return;
 
       docStore.snapshot();
       const range = {
-        anchor: { blockId: block.id, offset: offsets[lo] },
-        focus: { blockId: block.id, offset: offsets[hi + 1] },
+        anchor: { blockId: block.id, offset: link.start },
+        focus: { blockId: block.id, offset: link.end },
       };
       doc.applyInlineStyle(range, { href: undefined });
       // Mark the containing block (or table block for cell blocks) as dirty
@@ -3085,7 +3100,13 @@ export function initialize(
         if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
           return inline.style.href;
         }
-        if (cursor.position.offset === inlineEnd && inline.style.href) {
+        // Skip an empty-text href residue at the boundary — it must not
+        // shadow an adjacent real link, matching findLinkRunAt's tie-break.
+        if (
+          cursor.position.offset === inlineEnd &&
+          inline.text.length > 0 &&
+          inline.style.href
+        ) {
           return inline.style.href;
         }
         pos = inlineEnd;
@@ -3689,4 +3710,33 @@ export function initialize(
     },
     _getCursorForTest: () => ({ ...cursor.position }),
   };
+
+  // View-only mode: neutralize every mutating command at the public API
+  // boundary. TextEditor's per-handler guards already block pointer /
+  // keyboard / clipboard events, but the programmatic EditorAPI (e.g.
+  // paste, applyStyle, table ops) is reachable by any holder of `api`, so
+  // gate it here too. Keep this allowlist in sync when adding mutating
+  // methods. Read-only stays a client-side convenience — the store/server
+  // remains the authoritative write boundary for viewer share tokens.
+  if (readOnly) {
+    const MUTATING_METHODS = [
+      'applyStyle', 'clearInlineFormatting', 'applyBlockStyle',
+      'undo', 'redo', 'setBlockType', 'setDocStyles',
+      'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
+      'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',
+      'applySpellSuggestion', 'cut', 'paste', 'insertTable', 'deleteTable',
+      'insertTableRow', 'deleteTableRow', 'insertTableColumn',
+      'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
+      'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
+      'insertPageNumber',
+    ] as const;
+    const noop = () => {};
+    for (const name of MUTATING_METHODS) {
+      // `paste`/`insertImage` are async (Promise<void>); the rest are sync
+      // void. A bare no-op satisfies both — callers only await or ignore.
+      (api as unknown as Record<string, () => void>)[name] = noop;
+    }
+  }
+
+  return api;
 }

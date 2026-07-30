@@ -24,6 +24,7 @@ import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
 import { defaultAlign } from '../model/worksheet/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
+import { cellHyperlink } from './url-detect';
 import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
 import {
   DefaultCellWidth,
@@ -1597,6 +1598,11 @@ export class GridCanvas {
       });
       const lines = data.split('\n');
 
+      // Auto-detect a bare URL typed/pasted into a plain (non-formula) cell and
+      // render it as a clickable-looking hyperlink: link color + underline,
+      // unless the user set an explicit text color / already underlines.
+      const linkUrl = cell?.f ? null : cellHyperlink(rawData);
+
       // Build font string (needed for measuring text width)
       const fontStr = this.toCellFont(style);
 
@@ -1639,7 +1645,9 @@ export class GridCanvas {
       ctx.beginPath();
       ctx.rect(rect.left, rect.top, clipWidth, rect.height);
       ctx.clip();
-      ctx.fillStyle = style?.tc || this.getThemeColor('cellTextColor');
+      ctx.fillStyle =
+        style?.tc ||
+        this.getThemeColor(linkUrl ? 'cellLinkColor' : 'cellTextColor');
 
       ctx.font = fontStr;
       ctx.textBaseline = 'top';
@@ -1673,8 +1681,8 @@ export class GridCanvas {
         const textY = baseY + i * (CellFontSize * CellLineHeight);
         ctx.fillText(lines[i], textX, textY);
 
-        // Underline
-        if (style?.u) {
+        // Underline (explicit style, or the auto-link underline for URL cells)
+        if (style?.u || linkUrl) {
           const metrics = ctx.measureText(lines[i]);
           const lineY = textY + CellFontSize + 1;
           let lineStartX: number;
@@ -1686,7 +1694,9 @@ export class GridCanvas {
             lineStartX = textX;
           }
           ctx.beginPath();
-          ctx.strokeStyle = style?.tc || this.getThemeColor('cellTextColor');
+          ctx.strokeStyle =
+            style?.tc ||
+            this.getThemeColor(linkUrl ? 'cellLinkColor' : 'cellTextColor');
           ctx.lineWidth = 1;
           ctx.moveTo(lineStartX, lineY);
           ctx.lineTo(lineStartX + metrics.width, lineY);

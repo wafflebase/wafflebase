@@ -279,4 +279,79 @@ describe('Sheet.Calcuation', () => {
 
     expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('FALSE');
   });
+
+  describe('whole-column / whole-row / open-ended ranges', () => {
+    // Setup shared with issue #280:
+    // A1=10 A2=20 A3=30  B1=100 B2=200
+    const seed = async (sheet: Sheet) => {
+      await sheet.setData({ r: 1, c: 1 }, '10');
+      await sheet.setData({ r: 2, c: 1 }, '20');
+      await sheet.setData({ r: 3, c: 1 }, '30');
+      await sheet.setData({ r: 1, c: 2 }, '100');
+      await sheet.setData({ r: 2, c: 2 }, '200');
+    };
+
+    it('sums a whole column (A:A)', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 1, c: 4 }, '=SUM(A:A)');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('60');
+    });
+
+    it('sums a whole row (1:1)', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 2, c: 4 }, '=SUM(1:1)');
+      expect(await sheet.toDisplayString({ r: 2, c: 4 })).toBe('110');
+    });
+
+    it('averages an open-ended column range (B2:B)', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 3, c: 4 }, '=AVERAGE(B2:B)');
+      expect(await sheet.toDisplayString({ r: 3, c: 4 })).toBe('200');
+    });
+
+    it('counts across a multi-column whole range (A:B)', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 4, c: 4 }, '=COUNT(A:B)');
+      expect(await sheet.toDisplayString({ r: 4, c: 4 })).toBe('5');
+    });
+
+    it('sums a multi-row whole range (1:3)', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 5, c: 4 }, '=SUM(1:3)');
+      // A1+A2+A3+B1+B2 = 10+20+30+100+200
+      expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('360');
+    });
+
+    it('recalculates when a referenced column cell changes', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 1, c: 4 }, '=SUM(A:A)');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('60');
+
+      await sheet.setData({ r: 2, c: 1 }, '25');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('65');
+    });
+
+    it('picks up a newly added cell beyond the prior data extent', async () => {
+      const sheet = new Sheet(new MemStore());
+      await seed(sheet);
+      await sheet.setData({ r: 1, c: 4 }, '=SUM(A:A)');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('60');
+
+      // A10 is below the current used bounds; adding it must still recalc.
+      await sheet.setData({ r: 10, c: 1 }, '5');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('65');
+    });
+
+    it('evaluates a whole-column reference on an otherwise empty sheet', async () => {
+      const sheet = new Sheet(new MemStore());
+      await sheet.setData({ r: 1, c: 4 }, '=SUM(A:A)');
+      expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('0');
+    });
+  });
 });

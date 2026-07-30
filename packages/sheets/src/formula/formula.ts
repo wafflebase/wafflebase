@@ -33,7 +33,10 @@ import {
   parseRef,
   parseRange,
   isCrossSheetRef,
+  isUnboundedRange,
+  resolveRange,
   toSrefs,
+  toSrng,
 } from '../model/core/coordinates';
 
 /**
@@ -332,11 +335,67 @@ export function extractTokens(formula: string): Array<Token> {
 }
 
 /**
+ * `expandUnboundedRanges` rewrites whole-column (`A:A`), whole-row (`1:1`), and
+ * open-ended (`A1:B`) range references into concrete bounded ranges clamped to
+ * the given data `bounds` (the sheet's used extent). This lets the rest of the
+ * pipeline — reference extraction, grid fetching, and evaluation — treat them
+ * as ordinary ranges. Formulas without any unbounded reference are returned
+ * unchanged.
+ *
+ * `bounds` is `undefined` for an empty sheet, in which case unbounded ranges
+ * collapse to the top-left cell (`A1`) so they still evaluate (e.g. to `0`).
+ *
+ * Cross-sheet unbounded refs (`Sheet2!A:A`) are left untouched — the caller
+ * only knows the local sheet's bounds.
+ */
+export function expandUnboundedRanges(
+  formula: string,
+  bounds: Range | undefined,
+): string {
+  // Fast path: an unbounded range always contains ':', so a colon-free formula
+  // (the common case) never needs rewriting and skips tokenization entirely.
+  if (!formula.startsWith('=') || !formula.includes(':')) {
+    return formula;
+  }
+
+  const tokens = extractTokens(formula);
+  const shouldExpand = (token: Token): boolean =>
+    token.type === 'REFERENCE' &&
+    !isCrossSheetRef(token.text) &&
+    isUnboundedRange(token.text);
+
+  if (!tokens.some(shouldExpand)) {
+    return formula;
+  }
+
+  const resolved: Range = bounds ?? [
+    { r: 1, c: 1 },
+    { r: 1, c: 1 },
+  ];
+
+  let body = '';
+  for (const token of tokens) {
+    if (shouldExpand(token)) {
+      try {
+        body += toSrng(resolveRange(token.text.toUpperCase(), resolved));
+        continue;
+      } catch {
+        // Fall through to the original text on any parse failure.
+      }
+    }
+    body += token.text;
+  }
+
+  return '=' + body;
+}
+
+/**
  * `extractFormulaRanges` returns ranges referenced in the formula expression.
  * Each REFERENCE token is parsed into a Range (single refs become collapsed ranges).
  */
 export function extractFormulaRanges(
   formula: string,
+  bounds?: Range,
 ): Array<{ text: string; range: Range }> {
   const tokens = extractTokens(formula);
   const results: Array<{ text: string; range: Range }> = [];
@@ -350,7 +409,15 @@ export function extractFormulaRanges(
       if (isCrossSheetRef(text)) continue;
 
       if (text.includes(':')) {
-        results.push({ text, range: parseRange(text) });
+        // A:A / 1:1 / A1:B can't be parsed by the strict parseRange; resolve
+        // them against the grid `bounds`, or skip when no bounds are given.
+        if (isUnboundedRange(text)) {
+          if (bounds) {
+            results.push({ text, range: resolveRange(text, bounds) });
+          }
+        } else {
+          results.push({ text, range: parseRange(text) });
+        }
       } else {
         const ref = parseRef(text);
         results.push({ text, range: [ref, ref] });

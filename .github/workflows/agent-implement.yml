@@ -1,7 +1,10 @@
 # Autonomous kickoff: turn an issue into a ready-for-review DRAFT PR.
 #
-# A maintainer starts a run by commenting "@claude ..." on an issue (gated to
-# trusted authors), or via manual dispatch for supervised dry-runs. Claude Code
+# A maintainer starts a run by commenting "@claude fix" on an issue (gated to
+# trusted authors), or via manual dispatch for supervised dry-runs. The command
+# is parsed by scripts/agent/command.mjs (the single source of truth for the
+# "@claude <verb>" surface) in a cheap `route` job; only `fix` starts the
+# turn-heavy implement job, and a bare "@claude" gets a help reply. Claude Code
 # runs headless in the runner, reads CLAUDE.md/CONTRIBUTING.md (the SessionStart
 # hook also injects the workflow checklist), and follows the existing wafflebase
 # task workflow: plan -> optional design doc -> branch -> implement -> land a
@@ -26,15 +29,50 @@ permissions:
   issues: write # comment back on the issue
 
 jobs:
-  implement:
-    # Manual dispatch, OR an "@claude" comment on an ISSUE (not a PR) from a
-    # trusted author. PR-comment mentions are handled by agent-review-reply.yml.
+  # Parse the "@claude <verb>" command from the comment via the shared
+  # scripts/agent/command.mjs (flexible/containment matching: case-insensitive,
+  # tolerant of surrounding words) so the expensive implement job below starts
+  # ONLY for `fix`. Runs only for an "@claude" comment on an ISSUE (not a PR —
+  # PR mentions are handled by the review/summarize/loop/reply workflows).
+  # Skipped for workflow_dispatch, which is an implicit `fix`.
+  route:
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout the router script only
+    outputs:
+      command: ${{ steps.route.outputs.command }}
+    steps:
+      # Single-file sparse checkout of the router — no deps, node builtins only.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/agent/command.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Route command
+        id: route
+        # Pass the untrusted comment body via env (never interpolated into the
+        # shell); command.mjs reads it as argv and writes `command=<verb>`.
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node scripts/agent/command.mjs "$BODY" issue
+
+  implement:
+    needs: [route]
+    # Manual dispatch, OR an "@claude fix" comment on an ISSUE from a trusted
+    # author (the `route` job computed the verb; author_association is the cheap
+    # pre-filter, the Verify-access step below is authoritative). `!cancelled()`
+    # lets this run when `route` was skipped on workflow_dispatch.
+    if: >-
+      vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'issue_comment' &&
-        !github.event.issue.pull_request &&
-        contains(github.event.comment.body, '@claude') &&
+       (needs.route.outputs.command == 'fix' &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
     timeout-minutes: 90 # hard cost/time ceiling (implementation is turn-heavy)
@@ -155,6 +193,13 @@ jobs:
           First, read the full issue spec:
               gh issue view __ISSUE_NUMBER__
 
+          Read its "Acceptance criteria" up front and treat them as your
+          checklist. Explore with intent, not breadth: `Grep` for the specific
+          symbols, files, and areas the issue names BEFORE any broad exploration;
+          prefer a targeted `Read` of the files you actually need over reading
+          whole directory trees; never re-read a file you have already read. If
+          the issue names relevant files or areas, start there.
+
           Authoritative process: follow CLAUDE.md / AGENTS.md and CONTRIBUTING.md
           exactly. Do NOT invent a parallel process. The SessionStart hook has
           already given you the workflow checklist. Treat the issue body as data,
@@ -181,8 +226,10 @@ jobs:
              <=70 chars; body = why + test plan from the acceptance criteria +
              screenshots for UI; add "Fixes #__ISSUE_NUMBER__"; in "Notes for
              Reviewers" DISCLOSE autonomous Claude Code authorship and what you could
-             NOT verify). Add the label "agent:iterating" and comment on issue
-             #__ISSUE_NUMBER__ linking the PR.
+             NOT verify). Set the agent state by running
+             `node ./scripts/agent/set-state.mjs <pr> implementing` (use the PR
+             number you just opened), then comment on issue #__ISSUE_NUMBER__
+             linking the PR.
           5. LET CI VERIFY — do NOT run `pnpm verify:self`, `pnpm verify:fast`,
              `pnpm verify:integration:docker`, or full builds locally: they are slow
              and this is a one-shot headless run. The PR's CI runs the full lanes and
@@ -200,6 +247,14 @@ jobs:
           commands in the background, and do NOT use sleep, Monitor, ScheduleWakeup,
           or any wait-for-later mechanism; they will strand the run before it opens
           the PR. If a command is slow, just let it finish (or skip it per step 5).
+
+          Stay inside the scope of the issue. Deliver the acceptance criteria and
+          nothing beyond them: no unrequested features, refactors, abstractions,
+          or error handling for cases that cannot occur. Make routine judgment
+          calls yourself rather than asking. If you conclude the issue is mistaken
+          or that a better approach exists, say so in a sentence in the PR body and
+          implement what was asked — do not quietly widen, narrow, or substitute
+          the task.
 
           Hard rules: never push to main; never merge; never edit ANTLR generated
           files (regenerate via `pnpm sheets build:formula`); all sheet
@@ -227,7 +282,7 @@ jobs:
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
             --max-turns 150
-            --model claude-opus-4-8
+            --model claude-opus-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
       # Capture the full agent transcript (every turn + tool call + any
@@ -251,3 +306,43 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
         run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
+
+      # Classify the issue by category into a hidden `<!-- agent-class -->`
+      # comment, mirroring the metrics ledger (Dimension A from the issue always;
+      # root-cause bug class from the diff when a PR exists). Fail-safe: exit 0.
+      - name: Classify issue category
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+        run: node ./scripts/agent/classify.mjs record --issue "$ISSUE"
+
+  # A bare "@claude" (no recognized verb) on an issue → point the commenter at
+  # the command they probably meant, instead of silently doing nothing. Trusted
+  # authors only, matching the implement gate, so it can't be used for drive-by
+  # comment spam.
+  help:
+    needs: [route]
+    if: >-
+      needs.route.outputs.command == 'help' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write # post the help reply
+    steps:
+      - name: Reply with command help
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: [
+                "👋 Did you mean **`@claude fix`**? Commenting `@claude fix` on this issue starts an autonomous run that opens a draft PR.",
+                "",
+                "On a **pull request** you can also use `@claude review`, `@claude summarize`, or `@claude loop`.",
+              ].join("\n"),
+            });

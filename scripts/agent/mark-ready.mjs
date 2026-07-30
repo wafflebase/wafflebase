@@ -19,9 +19,10 @@
 // It is belt-and-suspenders with the commit-trailer hook:
 //   3. The PR body discloses autonomous authorship.
 //
-// It NEVER merges. After promotion it flips draft → ready, swaps the
-// `agent:iterating` label for `agent:needs-human-review`, and posts a hand-off
-// comment. The final review + merge stay human, enforced by branch protection.
+// It NEVER merges. After promotion it flips draft → ready, sets the single
+// `agent:ready` lifecycle label (via set-state's computeLabelSet), and posts a
+// hand-off comment. The final review + merge stay human, enforced by branch
+// protection.
 //
 // Usage:
 //   node ./scripts/agent/mark-ready.mjs <pr-number> [--promote] [--require-checks a,b,c]
@@ -33,7 +34,9 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
-import { allRequiredPassed } from "./checks.mjs";
+import { allRequiredPassed, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { computeLabelSet } from "./set-state.mjs";
+import { disclosesAiAuthorship } from "./disclosure.mjs";
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -44,17 +47,11 @@ if (!prNumber || !/^\d+$/.test(prNumber)) {
 }
 
 const HANDOFF_MARKER = "<!-- agent-handoff -->";
-const DEFAULT_REVIEW_CHECKS = [
-  "agent-review-correctness",
-  "agent-review-security",
-  "agent-review-design-fit",
-  "agent-review-test-adequacy",
-];
 const rcIdx = process.argv.indexOf("--require-checks");
 // Absent flag → defaults. Explicit `--require-checks ""` → empty set. Only the
 // missing flag falls back to DEFAULT; an explicitly empty value must NOT (else
-// an all-advisory / no-blocking-lens panel would be pinned against four
-// never-posted default checks and could never promote).
+// an all-advisory / no-blocking-lens panel would be pinned against default
+// checks it never posted and could never promote).
 const REQUIRED_CHECKS =
   rcIdx === -1
     ? DEFAULT_REVIEW_CHECKS
@@ -63,10 +60,14 @@ const REQUIRED_CHECKS =
 // FAIL CLOSED on an empty required-check set. `allRequiredPassed(runs, [])` is
 // vacuously true (`[].every` → true), so an empty set would satisfy gate 2 with
 // ZERO review evidence — a fail-open in a component whose whole job is to fail
-// closed. It's unreachable with today's manifest (four lenses, all blocking,
-// all appliesWhen "**", so the panel always emits ≥1 required check), but a
-// future narrow-glob lens or an empty changed-file set could produce it. Treat
-// it as a tooling error unless the caller OPTS IN explicitly.
+// closed. Treat it as a tooling error unless the caller OPTS IN explicitly.
+//
+// This used to note the case was unreachable because every lens was `**`-scoped.
+// That stopped being true when design-fit, test-adequacy, and now blast-radius
+// gained path globs. It is still unreachable — correctness and security remain
+// blocking at `**`, which `review-panel.test.mjs` asserts against the real
+// manifest — but the guarantee now rests on that invariant rather than on all
+// lenses being unscoped.
 if (REQUIRED_CHECKS.length === 0 && !process.argv.includes("--allow-no-checks")) {
   console.error(
     "Refusing to promote with an empty required-check set: gate 2 (review-panel " +
@@ -159,9 +160,7 @@ const { allPassed: reviewApproved, perCheck } = reviewChecks(pr.headRefOid);
 
 // --- gate 3: AI disclosure -------------------------------------------------
 
-const disclosure =
-  /autonomous/i.test(body) &&
-  /(claude|ai[- ]assist|ai tools)/i.test(body);
+const disclosure = disclosesAiAuthorship(body);
 
 // --- report ----------------------------------------------------------------
 
@@ -215,19 +214,29 @@ try {
   process.exit(3);
 }
 
-// Swap labels (best-effort; a missing label must not abort the promotion or
-// block the hand-off comment below). `gh` will not create an absent label.
+// Single-value state → `agent:ready` (best-effort; a label hiccup must not abort
+// the promotion or block the hand-off comment). REPLACE the whole label set so
+// exactly one lifecycle label survives and non-agent labels (and the issue-side
+// agent:candidate, if present) are preserved.
 try {
-  ghMutate(["pr", "edit", prNumber, "--remove-label", "agent:iterating"]);
-} catch {
-  /* label may not be present */
-}
-try {
-  ghMutate(["pr", "edit", prNumber, "--add-label", "agent:needs-human-review"]);
-} catch {
+  // Re-read labels immediately before the full-set PUT: the `pr.labels` fetched
+  // at the top of this run is stale by now, and a REPLACE built from it could
+  // drop a label added since. This shrinks (doesn't eliminate) that window; the
+  // advisory label + set-state reconcile remain the backstop for a lost race.
+  let current;
+  try {
+    current = ghJson(["pr", "view", prNumber, "--json", "labels"]).labels;
+  } catch {
+    current = pr.labels; // fall back to the initial snapshot
+  }
+  const labels = computeLabelSet(current || [], "ready");
+  const args = ["api", "-X", "PUT", `repos/{owner}/{repo}/issues/${prNumber}/labels`];
+  for (const l of labels) args.push("-f", `labels[]=${l}`);
+  ghMutate(args);
+} catch (err) {
   console.warn(
-    "Could not add 'agent:needs-human-review' label — create it in the repo's " +
-      "label settings so provenance stays queryable.",
+    `Could not set the 'agent:ready' label: ${err.message} — ensure the agent:* ` +
+      "state labels exist in the repo's label settings.",
   );
 }
 

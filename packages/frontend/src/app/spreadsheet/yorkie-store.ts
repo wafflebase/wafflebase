@@ -4,6 +4,7 @@ import {
   findEdgeWithIndex,
   toSref,
   parseRef,
+  expandUnboundedRanges,
   extractReferences,
   toSrefs,
   getWorksheetCell,
@@ -560,15 +561,19 @@ export class YorkieStore implements Store {
     srefs: Iterable<Sref>,
   ): Promise<Map<Sref, Set<Sref>>> {
     void srefs;
+    this.ensureIndex();
     const dependantsMap = new Map<Sref, Set<Sref>>();
     const ws = this.getSheet();
+    const bounds = this.cellIndex.bounds();
 
     if (this.batchOverlay) {
       // Iterate document cells, skipping those deleted in overlay
       for (const [sref, cell] of this.worksheetEntries(ws)) {
         if (this.batchOverlay.has(sref)) continue;
         if (!cell.f) continue;
-        for (const r of toSrefs(extractReferences(cell.f))) {
+        for (const r of toSrefs(
+          extractReferences(expandUnboundedRanges(cell.f, bounds)),
+        )) {
           if (isCrossSheetRef(r)) continue;
           if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
           dependantsMap.get(r)!.add(sref);
@@ -577,7 +582,9 @@ export class YorkieStore implements Store {
       // Iterate overlay cells (skip deleted ones)
       for (const [sref, cell] of this.batchOverlay) {
         if (cell === null || !cell.f) continue;
-        for (const r of toSrefs(extractReferences(cell.f))) {
+        for (const r of toSrefs(
+          extractReferences(expandUnboundedRanges(cell.f, bounds)),
+        )) {
           if (isCrossSheetRef(r)) continue;
           if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
           dependantsMap.get(r)!.add(sref);
@@ -591,7 +598,9 @@ export class YorkieStore implements Store {
         continue;
       }
 
-      for (const r of toSrefs(extractReferences(cell.f))) {
+      for (const r of toSrefs(
+        extractReferences(expandUnboundedRanges(cell.f, bounds)),
+      )) {
         if (isCrossSheetRef(r)) continue;
         if (!dependantsMap.has(r)) {
           dependantsMap.set(r, new Set());
@@ -600,6 +609,11 @@ export class YorkieStore implements Store {
       }
     }
     return dependantsMap;
+  }
+
+  async getUsedBounds(): Promise<Range | undefined> {
+    this.ensureIndex();
+    return this.cellIndex.bounds();
   }
 
   async setDimensionSize(

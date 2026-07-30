@@ -20,6 +20,7 @@ import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
+import { cellHyperlink } from './url-detect';
 import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
@@ -936,7 +937,7 @@ export class Worksheet {
     }
 
     if (value !== undefined && value.startsWith('=')) {
-      this.formulaRanges = extractFormulaRanges(value).map((r) => r.range);
+      this.formulaRanges = this.computeFormulaRanges(value);
       this.renderOverlay();
     } else if (value !== undefined) {
       this.formulaRanges = [];
@@ -1063,7 +1064,7 @@ export class Worksheet {
     setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
     inputEl.focus();
 
-    this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+    this.formulaRanges = this.computeFormulaRanges(newText);
     this.renderOverlay();
     this.autocomplete.hide();
     this.updateAutocomplete(newText, inputEl);
@@ -1123,26 +1124,69 @@ export class Worksheet {
   }
 
   /**
+   * `computeFormulaRanges` returns the formula's ranges to highlight; grid
+   * bounds let unbounded refs (`A:A`, `1:1`, `A1:B`) resolve to concrete ranges.
+   */
+  private computeFormulaRanges(text: string): Array<Range> {
+    return extractFormulaRanges(text, this.sheet?.dimensionRange).map(
+      (r) => r.range,
+    );
+  }
+
+  /**
    * `insertReferenceAtCursor` inserts or replaces a cell reference in the
    * active formula input at the current cursor position.
    */
   private insertReferenceAtCursor(startRef: Ref, endRef?: Ref): void {
+    // Build the reference string
+    const refStr =
+      endRef && (startRef.r !== endRef.r || startRef.c !== endRef.c)
+        ? toSref(startRef) + ':' + toSref(endRef)
+        : toSref(startRef);
+    if (!this.insertRefStringAtCursor(refStr)) return;
+
+    // Track last reference target for arrow key navigation
+    this.lastFormulaRefTarget = endRef || startRef;
+  }
+
+  /**
+   * `insertWholeColumnRef` inserts a whole-column ref (`A:A`, or `A:C` across a
+   * drag) at the cursor while editing a formula.
+   */
+  private insertWholeColumnRef(fromCol: number, toCol: number): void {
+    const lo = Math.min(fromCol, toCol);
+    const hi = Math.max(fromCol, toCol);
+    this.insertRefStringAtCursor(`${toColumnLabel(lo)}:${toColumnLabel(hi)}`);
+    // Whole refs have no single target cell for arrow-key nav.
+    this.lastFormulaRefTarget = null;
+  }
+
+  /**
+   * `insertWholeRowRef` inserts a whole-row ref (`1:1`, or `1:3` across a drag)
+   * at the cursor while editing a formula.
+   */
+  private insertWholeRowRef(fromRow: number, toRow: number): void {
+    const lo = Math.min(fromRow, toRow);
+    const hi = Math.max(fromRow, toRow);
+    this.insertRefStringAtCursor(`${lo}:${hi}`);
+    this.lastFormulaRefTarget = null;
+  }
+
+  /**
+   * `insertRefStringAtCursor` inserts or replaces a reference string at the
+   * cursor (or the drag span). Returns false when no formula input is focused.
+   */
+  private insertRefStringAtCursor(refStr: string): boolean {
     const isCellInput = this.cellInput.isFocused();
     const isFormulaBarInput = this.formulaBar.isFocused();
-    if (!isCellInput && !isFormulaBarInput) return;
+    if (!isCellInput && !isFormulaBarInput) return false;
 
     const inputEl = isCellInput
       ? this.cellInput.getInput()
       : this.formulaBar.getFormulaInput();
     const text = inputEl.innerText;
     const textRange = toTextRange(inputEl);
-    if (!textRange) return;
-
-    // Build the reference string
-    const refStr =
-      endRef && (startRef.r !== endRef.r || startRef.c !== endRef.c)
-        ? toSref(startRef) + ':' + toSref(endRef)
-        : toSref(startRef);
+    if (!textRange) return false;
 
     let newText: string;
     let newCursorPos: number;
@@ -1196,12 +1240,11 @@ export class Worksheet {
 
     // Update formula ranges overlay
     if (newText.startsWith('=')) {
-      this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+      this.formulaRanges = this.computeFormulaRanges(newText);
       this.renderOverlay();
     }
 
-    // Track last reference target for arrow key navigation
-    this.lastFormulaRefTarget = endRef || startRef;
+    return true;
   }
 
   /**
@@ -1265,7 +1308,7 @@ export class Worksheet {
     setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
 
     if (newText.startsWith('=')) {
-      this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+      this.formulaRanges = this.computeFormulaRanges(newText);
       this.renderOverlay();
     }
   }
@@ -3407,6 +3450,25 @@ export class Worksheet {
       return;
     }
 
+    // Ctrl/Cmd+Click on a cell whose plain value is a URL opens it in a new
+    // tab, matching the Docs editor's link behavior. Formula cells are
+    // excluded (their value is a computed result, not a raw URL).
+    if (
+      e.button === 0 &&
+      (e.ctrlKey || e.metaKey) &&
+      x > RowHeaderWidth &&
+      y > DefaultCellHeight
+    ) {
+      const ref = this.toRefFromMouse(x, y);
+      const cell = await this.sheet?.getCell(ref);
+      const url = cell && !cell.f ? cellHyperlink(cell.v) : null;
+      if (url) {
+        e.preventDefault();
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
     // Checkbox toggle: left-click on the checkbox glyph selects the cell and
     // flips its value. A click elsewhere in the cell falls through to normal
     // selection (so a checkbox cell can be selected without toggling).
@@ -3473,6 +3535,39 @@ export class Worksheet {
     // Handle column header click
     if (isColumnHeader) {
       e.preventDefault();
+
+      // Formula range mode: a column header inserts a whole-column ref (A:A; drag A:C)
+      if (this.isInFormulaRangeMode()) {
+        const anchorCol = this.toColFromMouse(x);
+        if (anchorCol < 1) return;
+        this.activeFormulaInput = this.cellInput.isFocused()
+          ? 'cellInput'
+          : 'formulaBar';
+        this.formulaRefInsertPos = null;
+        this.insertWholeColumnRef(anchorCol, anchorCol);
+
+        this.beginNativeSelectionBlock();
+        this.startMouseDragSession({
+          onMove: (ev: MouseEvent) => {
+            const { x: mx } = this.clampClientPointToViewport(ev.clientX, 0);
+            const c2 = this.toColFromMouse(mx);
+            if (c2 >= 1) this.insertWholeColumnRef(anchorCol, c2);
+          },
+          onComplete: () => {
+            if (this.activeFormulaInput === 'cellInput') {
+              this.cellInput.getInput().focus();
+            } else if (this.activeFormulaInput === 'formulaBar') {
+              this.formulaBar.getFormulaInput().focus();
+            }
+          },
+          onCleanup: () => {
+            this.endNativeSelectionBlock();
+            this.formulaRefInsertPos = null;
+          },
+        });
+        return;
+      }
+
       await this.finishEditing();
       const col = this.toColFromMouse(x);
       if (col < 1) return;
@@ -3596,6 +3691,39 @@ export class Worksheet {
     // Handle row header click
     if (isRowHeader) {
       e.preventDefault();
+
+      // Formula range mode: a row header inserts a whole-row ref (1:1; drag 1:3)
+      if (this.isInFormulaRangeMode()) {
+        const anchorRow = this.toRowFromMouse(y);
+        if (anchorRow < 1) return;
+        this.activeFormulaInput = this.cellInput.isFocused()
+          ? 'cellInput'
+          : 'formulaBar';
+        this.formulaRefInsertPos = null;
+        this.insertWholeRowRef(anchorRow, anchorRow);
+
+        this.beginNativeSelectionBlock();
+        this.startMouseDragSession({
+          onMove: (ev: MouseEvent) => {
+            const { y: my } = this.clampClientPointToViewport(0, ev.clientY);
+            const r2 = this.toRowFromMouse(my);
+            if (r2 >= 1) this.insertWholeRowRef(anchorRow, r2);
+          },
+          onComplete: () => {
+            if (this.activeFormulaInput === 'cellInput') {
+              this.cellInput.getInput().focus();
+            } else if (this.activeFormulaInput === 'formulaBar') {
+              this.formulaBar.getFormulaInput().focus();
+            }
+          },
+          onCleanup: () => {
+            this.endNativeSelectionBlock();
+            this.formulaRefInsertPos = null;
+          },
+        });
+        return;
+      }
+
       await this.finishEditing();
       const row = this.toRowFromMouse(y);
       if (row < 1) return;
@@ -5799,7 +5927,7 @@ export class Worksheet {
     this.cellInput.applyStyle(style);
 
     if (value.startsWith('=')) {
-      this.formulaRanges = extractFormulaRanges(value).map((r) => r.range);
+      this.formulaRanges = this.computeFormulaRanges(value);
       this.renderOverlay();
     }
   }

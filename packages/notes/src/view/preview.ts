@@ -8,6 +8,8 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js/lib/common';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
+import { detailsPlugin } from './details-plugin.js';
+import { listEmptyBulletPlugin } from './list-empty-bullet-plugin.js';
 
 const md: MarkdownIt = new MarkdownIt({
   html: false,
@@ -36,11 +38,26 @@ md.use(taskLists, { label: true, enabled: false });
 // KaTeX math (`$inline$` and `$$block$$`).
 md.use(katexPlugin);
 
+// Collapsible sections (`<details>` / `<summary>`). A narrow allowlist for
+// just these two disclosure tags — keeps the preview's `html: false` posture
+// (no arbitrary raw HTML) while supporting GitHub/MDN-style foldouts.
+md.use(detailsPlugin);
+
+// A lone empty bullet under a list item should nest as an empty child, not turn
+// the line above it into a setext `<h2>` (issue #517).
+md.use(listEmptyBulletPlugin);
+
 /**
  * Code fences: reuses markdown-it's own `highlight` option (configured
  * above) but renders the block ourselves so we can guarantee the `hljs`
  * class (for the syntax palette in notes-preview.css) and inject a copy
  * button, matching CodePair's code-block affordances.
+ *
+ * The copy button is a child of a non-scrolling outer wrapper, NOT of the
+ * `<pre>`: the `<pre>` is the horizontally-scrolling element, so anchoring
+ * the button to it would make the button drift out of view when a long line
+ * scrolls the block sideways. The wrapper is the positioning context; the
+ * `<pre>` only owns overflow.
  */
 md.renderer.rules.fence = (tokens, idx, options) => {
   const token = tokens[idx];
@@ -53,10 +70,12 @@ md.renderer.rules.fence = (tokens, idx, options) => {
   const langClass = lang ? ` language-${md.utils.escapeHtml(lang)}` : '';
 
   return (
-    `<pre class="hljs note-code">` +
+    `<div class="note-code-wrapper">` +
     `<button class="note-copy-btn" type="button" aria-label="Copy code">Copy</button>` +
+    `<pre class="hljs note-code">` +
     `<code class="hljs${langClass}">${highlighted}</code>` +
-    `</pre>\n`
+    `</pre>` +
+    `</div>\n`
   );
 };
 
@@ -120,8 +139,7 @@ export class NotePreview {
       const target = e.target;
       if (!(target instanceof Element)) return;
       const button = target.closest(COPY_BUTTON_SELECTOR);
-      if (!(button instanceof HTMLElement) || !this.el.contains(button))
-        return;
+      if (!(button instanceof HTMLElement) || !this.el.contains(button)) return;
 
       const code = button.parentElement?.querySelector('code');
       const text = code?.textContent ?? '';

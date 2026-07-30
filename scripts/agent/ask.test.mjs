@@ -1,0 +1,391 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  askStructured,
+  assertAllowedTools,
+  assertBoundaryMatchesSdk,
+  buildSessionOptions,
+  PERMITTED_TOOLS,
+  SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+  classifyResult,
+  withRetry,
+} from "./ask.mjs";
+import { REVIEW_TOOLS } from "./review-panel.mjs";
+
+// ask.mjs exists to make the read-only tool grant a CHECKED invariant instead of
+// a hardcoded array. These tests are that check, so they are deliberately mostly
+// NEGATIVE: the interesting property is what the gate refuses.
+//
+// None of them install or touch the SDK. `assertAllowedTools` runs before the
+// lazy `import()`, which is what lets the askStructured tests below assert the
+// validation happens at all without a token or a network call.
+
+// --- the allow-list itself ---------------------------------------------------
+
+test("PERMITTED_TOOLS: pinned to exactly the read-only triple", () => {
+  // A LITERAL pin, not derived from the module. The point is that widening the
+  // grant must break a test — if this asserted against PERMITTED_TOOLS itself it
+  // would pass no matter what anyone added to it.
+  assert.deepEqual([...PERMITTED_TOOLS], ["Read", "Grep", "Glob"]);
+  assert.ok(Object.isFrozen(PERMITTED_TOOLS));
+});
+
+test("assertAllowedTools: accepts the full permitted set and any subset", () => {
+  assert.deepEqual(assertAllowedTools(["Read", "Grep", "Glob"]), ["Read", "Grep", "Glob"]);
+  assert.deepEqual(assertAllowedTools(["Read"]), ["Read"]);
+  // A copy, not the caller's array — mutating the input afterwards must not
+  // retroactively change what was validated and handed to the session.
+  const input = ["Read"];
+  const validated = assertAllowedTools(input);
+  input.push("Bash");
+  assert.deepEqual(validated, ["Read"]);
+});
+
+test("assertAllowedTools: refuses execution / write / network / spawn tools", () => {
+  // Literal names, deliberately NOT looped over a list the module exports.
+  for (const tool of ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch"]) {
+    assert.throws(() => assertAllowedTools(["Read", tool]), /is not permitted/, `${tool} must be refused`);
+  }
+});
+
+test("assertAllowedTools: refuses tools an author of a deny-list would have missed", () => {
+  // The regression this allow-list exists for. Every name here is a REAL tool in
+  // pinned SDK 0.3.217 (sdk-tools.d.ts) that a hand-written deny-list of
+  // "dangerous" names did not contain. `Agent` is the worst of them: it spawns
+  // subagents that inherit the parent's tools, i.e. the exact respawn escape the
+  // module claims to prevent. An allow-list refuses all of them for free.
+  for (const tool of ["Agent", "REPL", "Workflow", "CronCreate", "RemoteTrigger", "Artifact", "Mcp", "SendFeedback"]) {
+    assert.throws(() => assertAllowedTools(["Read", tool]), /is not permitted/, `${tool} must be refused`);
+  }
+});
+
+test("assertAllowedTools: refuses scoped permission-rule syntax", () => {
+  // THE critical bypass. `allowedTools` entries are permission RULES, so these
+  // are legal SDK input — and because the list is an auto-APPROVE list, a
+  // name-based deny-list would not merely fail to catch them, it would
+  // pre-approve the shell invocation past permissionMode:'dontAsk'.
+  for (const rule of ["Bash(git diff:*)", "Bash(*)", "Bash(git log:*)", "WebFetch(domain:example.com)", "Read(/etc/**)"]) {
+    assert.throws(() => assertAllowedTools([rule]), /is not permitted/, `${rule} must be refused`);
+  }
+});
+
+test("assertAllowedTools: refuses MCP tool names", () => {
+  for (const t of ["mcp__server__exec", "mcp__workspace__bash", "mcp__*"]) {
+    assert.throws(() => assertAllowedTools([t]), /is not permitted/, `${t} must be refused`);
+  }
+});
+
+test("assertAllowedTools: refuses non-canonical spellings rather than repairing them", () => {
+  // Strictness is the design: a validator that normalizes its input is guessing
+  // at intent, and a capability gate is the last place to guess. " Bash" is the
+  // specific case a trim-then-compare-untrimmed bug would have let through.
+  for (const t of [" Bash", "Bash ", "bash", "READ", " Read", "Read\t"]) {
+    assert.throws(() => assertAllowedTools([t]), /is not permitted/, `${JSON.stringify(t)} must be refused`);
+  }
+});
+
+test("assertAllowedTools: missing / empty / malformed input fails closed", () => {
+  // Required, not defaulted — a default would let a new caller inherit read-only
+  // access silently and then widen it with no visible signal.
+  assert.throws(() => assertAllowedTools(undefined), /required and must be a non-empty array/);
+  assert.throws(() => assertAllowedTools(null), /required and must be a non-empty array/);
+  assert.throws(() => assertAllowedTools("Read"), /required and must be a non-empty array/);
+  // Empty is rejected rather than read as "no tools": the SDK would run an agent
+  // that cannot read anything, burning a paid session to return nothing.
+  assert.throws(() => assertAllowedTools([]), /required and must be a non-empty array/);
+  assert.throws(() => assertAllowedTools(["Read", ""]), /must be non-empty strings/);
+  assert.throws(() => assertAllowedTools(["Read", "   "]), /must be non-empty strings/);
+  assert.throws(() => assertAllowedTools(["Read", 42]), /must be non-empty strings/);
+  assert.throws(() => assertAllowedTools(["Read", null]), /must be non-empty strings/);
+});
+
+// --- askStructured actually enforces it --------------------------------------
+// Without these, deleting the assertAllowedTools call from askStructured — the
+// one line that makes any of the above load-bearing — leaves the suite green.
+
+test("askStructured: validates the grant BEFORE opening a session", async () => {
+  // The SDK is never reached: these reject with the VALIDATION error, and the
+  // assertion on the message is what proves the ordering. If the import ran
+  // first, an unresolvable/unauthenticated SDK would produce a different error.
+  await assert.rejects(
+    () => askStructured({ prompt: "x", schema: {}, allowedTools: ["Bash"] }),
+    /is not permitted/,
+    "a forbidden grant must fail before any session is opened",
+  );
+  await assert.rejects(
+    () => askStructured({ prompt: "x", schema: {}, allowedTools: ["Bash(git diff:*)"] }),
+    /is not permitted/,
+    "a scoped rule must fail before any session is opened",
+  );
+  await assert.rejects(
+    () => askStructured({ prompt: "x", schema: {} }),
+    /required and must be a non-empty array/,
+    "an omitted grant must fail before any session is opened",
+  );
+});
+
+// There is deliberately NO "valid grant reaches the SDK" test here. Asserting
+// that would mean letting askStructured past the validation gate, which opens a
+// real model session — slow, and on any runner that has credentials it would
+// burn a paid session from a unit suite. The complement is covered without a
+// session by the direct `assertAllowedTools(REVIEW_TOOLS)` assertion below: a
+// valid grant returns rather than throws, so the rejections above are the gate
+// firing and not a blanket failure.
+
+// --- the session options, including the cache boundary ------------------------
+// `buildSessionOptions` is what askStructured hands the SDK verbatim, so these
+// assert the shipped session shape without opening one (or having the SDK on
+// disk, which the agent test lane does not).
+
+test("buildSessionOptions: pins the read-only session shape", () => {
+  const o = buildSessionOptions({ systemPrompt: "s", model: "m", repo: "/r", schema: {}, allowedTools: ["Read"] });
+  // Both levers, same list — `tools` is the restriction, `allowedTools` only
+  // pre-approves. Nothing observed this at the options level before.
+  assert.deepEqual(o.tools, ["Read"]);
+  assert.deepEqual(o.allowedTools, ["Read"]);
+  assert.equal(o.permissionMode, "dontAsk");
+  // cwd is an UNTRUSTED branch checkout; [] means no project hooks/agents load.
+  assert.deepEqual(o.settingSources, []);
+  assert.equal(o.cwd, "/r");
+  // Omitted rather than passed as undefined, so the SDK default applies.
+  assert.ok(!("maxTurns" in o), "an unset ceiling must not appear at all");
+  assert.equal(buildSessionOptions({ schema: {}, maxTurns: 8, allowedTools: ["Read"] }).maxTurns, 8);
+  // The gate still runs here — this is the one place it is reached.
+  assert.throws(() => buildSessionOptions({ schema: {}, allowedTools: ["Bash"] }), /is not permitted/);
+});
+
+test("buildSessionOptions: an array systemPrompt reaches the SDK VERBATIM", () => {
+  // THE cache-cost guard. review-panel.mjs puts the shared diff before the
+  // boundary marker so later sessions re-read it at ~0.1x; anything that joined,
+  // stringified or reordered this array would keep every prompt working and every
+  // other test green while quietly restoring the panel's old bill.
+  const prompt = ["cacheable prefix", SYSTEM_PROMPT_DYNAMIC_BOUNDARY];
+  const o = buildSessionOptions({ systemPrompt: prompt, schema: {}, allowedTools: ["Read"] });
+  assert.deepEqual(o.systemPrompt, prompt);
+  assert.ok(Array.isArray(o.systemPrompt), "the array form is what marks the cacheable prefix");
+  assert.equal(o.systemPrompt[1], SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
+  // The string form must keep working — the verifier call still uses it.
+  assert.equal(buildSessionOptions({ systemPrompt: "plain", schema: {}, allowedTools: ["Read"] }).systemPrompt, "plain");
+});
+
+test("SYSTEM_PROMPT_DYNAMIC_BOUNDARY: pinned literally, and drift from the SDK throws", () => {
+  // A LITERAL pin, like PERMITTED_TOOLS above: the value is a protocol constant
+  // from sdk.d.ts:6810, not something this repo gets to choose.
+  assert.equal(SYSTEM_PROMPT_DYNAMIC_BOUNDARY, "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__");
+  // Matching SDK → returns the value, no throw.
+  assert.equal(
+    assertBoundaryMatchesSdk({ SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__" }),
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+  );
+  // Every way the mirror can go stale. A wrong marker is NOT an SDK error — it is
+  // a prompt block that silently never caches, so this assertion is the only thing
+  // standing between an SDK bump and a ~10x cost regression nobody would see.
+  for (const sdk of [
+    { SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "__DYNAMIC_BOUNDARY__" }, // renamed value
+    { SYSTEM_PROMPT_DYNAMIC_BOUNDARY: "" },
+    {}, // export removed entirely
+    null,
+    undefined,
+  ]) {
+    assert.throws(() => assertBoundaryMatchesSdk(sdk), /drifted from the SDK/, `${JSON.stringify(sdk)} must throw`);
+  }
+});
+
+test("REVIEW_TOOLS: the panel's actual grant is inside the permitted set", () => {
+  // Pins what review-panel.mjs really passes at both call sites. Exported for
+  // exactly this: previously nothing could observe the panel's grant at all.
+  assert.deepEqual(REVIEW_TOOLS, ["Read", "Grep", "Glob"]);
+  assert.deepEqual(assertAllowedTools(REVIEW_TOOLS), REVIEW_TOOLS, "the panel's own grant must pass its own gate");
+});
+
+// --- moved-from-review-panel behavior, asserted at its new home ---------------
+// review-panel.test.mjs still covers these through the re-export and is untouched
+// by this refactor (that is the evidence behavior did not change). These assert
+// the same contract against ask.mjs directly, so deleting the re-export later
+// cannot silently drop the coverage. Kept at parity with the originals, not
+// weaker: retry-cap, terminal_reason and the returned value are all covered.
+
+test("classifyResult: distinguishes verdict / api-error / no-output at its new home", () => {
+  const ok = classifyResult({ subtype: "success", structured_output: { findings: [], summary: "s" } });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.output, { findings: [], summary: "s" });
+
+  const quota = classifyResult({
+    subtype: "success",
+    is_error: true,
+    api_error_status: 429,
+    result: "You've hit your session limit · resets 3:30pm (UTC)",
+  });
+  assert.equal(quota.kind, "api-error");
+  assert.equal(quota.status, 429);
+  assert.equal(quota.retryable, false, "a session limit cannot clear in-run, so it must not be retried");
+
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
+  assert.equal(classifyResult({ subtype: "error", is_error: true, api_error_status: 500, result: "internal error" }).retryable, true);
+  assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+
+  const none = classifyResult({ subtype: "success" });
+  assert.equal(none.kind, "no-output");
+  assert.equal(none.retryable, false);
+});
+
+test("classifyResult: transport errors are retryable — the ECONNRESET regression", () => {
+  // The old quota pattern ended in `resets?\b`, which matches "ECONNRESET" at the
+  // end-of-string word boundary. Every one of these was classified NOT retryable,
+  // so withRetry gave up on the first attempt and the panel reported a false
+  // infrastructure failure for an ordinary network blip.
+  for (const detail of ["ECONNRESET", "read ECONNRESET", "connection reset by peer", "socket hang up", "fetch failed"]) {
+    const c = classifyResult({ is_error: true, result: detail });
+    assert.equal(c.retryable, true, `${detail} must be retryable`);
+  }
+});
+
+test("classifyResult: a plain 429 stays retryable even when it mentions rate limiting", () => {
+  // `rate limit` used to be in the non-retryable pattern, directly contradicting
+  // the docblock. A rate limit is the canonical retry-with-backoff case.
+  for (const detail of ["rate limit exceeded, please retry", "Too Many Requests", "rate_limit_error"]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: 429, result: detail }).retryable, true, detail);
+  }
+});
+
+test("classifyResult: a session/usage limit overrides an otherwise-retryable 429", () => {
+  // The one case that must stay non-retryable: it resets on a fixed schedule, so
+  // no amount of in-run backoff clears it. Status alone cannot decide this —
+  // both a plain rate limit and a session limit arrive as 429 — which is why the
+  // narrow text override survives.
+  for (const detail of ["You've hit your session limit · resets 3:30pm (UTC)", "usage limit reached for this month"]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: 429, result: detail }).retryable, false, detail);
+  }
+});
+
+test("classifyResult: deterministic 4xx is not retried; 5xx is", () => {
+  // Keyed on status, not prose. A bad token fails identically three times, so
+  // retrying only delays the real error.
+  for (const status of [400, 401, 403, 404, 422]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: status, result: "nope" }).retryable, false, `${status}`);
+  }
+  for (const status of [408, 429, 500, 502, 503, 529]) {
+    assert.equal(classifyResult({ is_error: true, api_error_status: status, result: "nope" }).retryable, true, `${status}`);
+  }
+  // A stringified status must not silently become non-retryable.
+  assert.equal(classifyResult({ is_error: true, api_error_status: "529", result: "overloaded" }).retryable, true);
+});
+
+test("withRetry: retries retryable errors, honors the cap, never retries non-retryable", async () => {
+  const noSleep = { baseMs: 0, sleep: async () => {} };
+
+  let calls = 0;
+  const out = await withRetry(async () => {
+    calls++;
+    if (calls < 3) { const e = new Error("transient"); e.retryable = true; throw e; }
+    return "ok";
+  }, noSleep);
+  assert.equal(out, "ok");
+  assert.equal(calls, 3);
+
+  let capped = 0;
+  await assert.rejects(withRetry(async () => { capped++; const e = new Error("x"); e.retryable = true; throw e; }, { ...noSleep, retries: 2 }));
+  assert.equal(capped, 3, "retries:2 means 3 total attempts, then give up");
+
+  let once = 0;
+  await assert.rejects(withRetry(async () => { once++; const e = new Error("quota"); e.retryable = false; throw e; }, noSleep));
+  assert.equal(once, 1, "a non-retryable error must not be attempted twice");
+});
+
+test("withRetry: backoff grows exponentially from baseMs", async () => {
+  // The delay argument was previously unobserved — both suites stubbed sleep with
+  // a zero-arg no-op, so a backoff of 0 would have passed.
+  const delays = [];
+  await assert.rejects(
+    withRetry(async () => { const e = new Error("x"); e.retryable = true; throw e; },
+      { retries: 3, baseMs: 100, sleep: async (ms) => { delays.push(ms); }, jitter: () => 0 }),
+  );
+  assert.deepEqual(delays, [100, 200, 400]);
+});
+
+test("REGRESSION: a run-limit failure is NOT a retryable API error", () => {
+  // Captured verbatim from a live hunt run. This shape cost two already-reproduced
+  // findings: `is_error` is set but there is no `api_error_status` and no `result`
+  // text, so the old rule filed it under api-error with detail "" -> "unknown" and
+  // marked it retryable. Retrying a turn ceiling burns 3x the cost to fail
+  // identically, and the log blamed the network for a config problem.
+  const maxTurns = {
+    type: "result",
+    subtype: "error_max_turns",
+    is_error: true,
+    api_error_status: undefined,
+    terminal_reason: "max_turns",
+    num_turns: 9,
+    result: "",
+    errors: [],
+  };
+  const c = classifyResult(maxTurns);
+  assert.equal(c.kind, "limit", "must NOT be classified as api-error");
+  assert.equal(c.retryable, false, "retrying a ceiling cannot help");
+  assert.equal(c.turns, 9);
+  assert.match(c.detail, /error_max_turns/, "the detail must name the real cause, not 'unknown'");
+  assert.match(c.detail, /9 turns/, "and say how many turns were spent");
+});
+
+test("classifyResult: every deterministic ceiling subtype is non-retryable", () => {
+  for (const subtype of ["error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries"]) {
+    const c = classifyResult({ subtype, is_error: true });
+    assert.equal(c.kind, "limit", subtype);
+    assert.equal(c.retryable, false, subtype);
+  }
+  // `terminal_reason` alone is enough, even if the subtype is unfamiliar.
+  assert.equal(classifyResult({ subtype: "error_something_new", is_error: true, terminal_reason: "max_turns" }).kind, "limit");
+});
+
+test("classifyResult: a run limit does NOT shadow a genuine API error", () => {
+  // The ordering change must not swallow real transient failures — those still
+  // need to be retryable, which is the counterweight to the test above.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).kind, "api-error");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
+  assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+  // ...and a session limit stays non-retryable for its own separate reason.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "You've hit your session limit" }).retryable, false);
+});
+
+test("classifyResult: a limit surfaces the SDK's own errors[] when present", () => {
+  const c = classifyResult({
+    subtype: "error_max_turns", is_error: true, num_turns: 20,
+    errors: [{ type: "turn_limit", message: "reached the configured turn ceiling" }],
+  });
+  assert.match(c.detail, /reached the configured turn ceiling/);
+});
+
+test("REGRESSION: structured output from a FAILED session is not a verdict", () => {
+  // The fail-open. Testing `subtype === "success" && structured_output` alone
+  // accepted output from a session the SDK had flagged as failed — and
+  // `subtype: "success"` with `is_error: true` is precisely how this SDK reports an
+  // API failure, which is the whole reason classifyResult exists.
+  //
+  // In review-panel that means a lens's findings from a failed session reach the
+  // merge gate. In the issue hunter it means a verifier's "confirmed" from a failed
+  // session can cause a report to a real maintainer. A fail-open path is the one
+  // thing a fail-quiet gate cannot tolerate.
+  const output = { verdict: "confirmed", confidence: "high" };
+
+  const apiErrored = classifyResult({ subtype: "success", structured_output: output, is_error: true, api_error_status: 529, result: "overloaded_error" });
+  assert.equal(apiErrored.ok, false, "an api-errored session's output is not a verdict");
+  assert.equal(apiErrored.kind, "api-error");
+
+  const statusOnly = classifyResult({ subtype: "success", structured_output: output, api_error_status: 500 });
+  assert.equal(statusOnly.ok, false, "an api_error_status alone disqualifies the output");
+
+  const terminal = classifyResult({ subtype: "success", structured_output: output, terminal_reason: "api_error" });
+  assert.equal(terminal.ok, false, "terminal_reason api_error disqualifies the output");
+
+  const ceilinged = classifyResult({ subtype: "error_max_turns", structured_output: output, is_error: true, num_turns: 20 });
+  assert.equal(ceilinged.ok, false, "partial output from a run that hit its ceiling is not a verdict");
+  assert.equal(ceilinged.kind, "limit");
+});
+
+test("classifyResult: the fix is strictly tightening — clean successes still pass", () => {
+  // The counterweight. A genuinely successful result sets none of the error flags,
+  // so no previously-accepted verdict is now rejected.
+  const clean = classifyResult({ type: "result", subtype: "success", structured_output: { findings: [] }, is_error: false, terminal_reason: "completed", num_turns: 14 });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.output, { findings: [] });
+});

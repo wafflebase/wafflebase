@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Theme } from "@wafflebase/sheets";
 import { useEffect } from "react";
 import { ChartVisualScenarios } from "./chart-scenarios";
+import { DocsVisualScenarios } from "./docs-scenarios";
 import { FormatVisualScenarios } from "./format-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
 import { SlidesVisualScenarios } from "./slides-scenarios";
@@ -36,6 +37,37 @@ function useThemeFromSearchParams(): Theme {
     return params.get("theme") === "dark" ? "dark" : "light";
   } catch {
     return "light";
+  }
+}
+
+type HarnessSection = "all" | "sheet" | "format" | "docs" | "chart" | "slides";
+
+/**
+ * Read the section query-param the same way. Isolating each section onto
+ * its own capture page (instead of one shared page) keeps one section's
+ * mount cost from perturbing another's rendering during a shared capture
+ * pass — e.g. the docs editor canvases mounting alongside recharts'
+ * JS-driven (non-CSS) chart entrance animation used to shift which frame
+ * of that animation the chart screenshot landed on. "all" (the default)
+ * keeps today's full assembled page for manual browsing and for the one
+ * `harness-root` full-page baseline.
+ */
+function useSectionFromSearchParams(): HarnessSection {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const section = params.get("section");
+    if (
+      section === "sheet" ||
+      section === "format" ||
+      section === "docs" ||
+      section === "chart" ||
+      section === "slides"
+    ) {
+      return section;
+    }
+    return "all";
+  } catch {
+    return "all";
   }
 }
 
@@ -69,6 +101,7 @@ function statusBadgeVariant(status: string): "default" | "secondary" {
 
 export default function VisualHarnessPage() {
   const theme: Theme = useThemeFromSearchParams();
+  const section = useSectionFromSearchParams();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -82,98 +115,109 @@ export default function VisualHarnessPage() {
   return (
     <main className="min-h-screen bg-muted/20 p-6 md:p-10" data-testid="visual-harness-root">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <header className="rounded-xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Wafflebase Harness</p>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Frontend Visual Regression Baseline
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline">Export</Button>
-              <Button>Create Document</Button>
-            </div>
-          </div>
-        </header>
-
-        <Tabs className="gap-4" defaultValue="documents">
-          <TabsList>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="documents">
-            <Card>
-              <CardHeader>
-                <CardTitle>Document Overview</CardTitle>
-                <CardDescription>
-                  Stable sample data used to detect visual regressions.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead>Updated</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {documents.map((doc) => (
-                      <TableRow key={doc.id}>
-                        <TableCell className="font-medium">{doc.title}</TableCell>
-                        <TableCell>{doc.owner}</TableCell>
-                        <TableCell>{doc.updatedAt}</TableCell>
-                        <TableCell>
-                          <Badge variant={statusBadgeVariant(doc.status)}>
-                            {doc.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Workspace Preferences</CardTitle>
-                <CardDescription>
-                  Input controls are included for style and spacing coverage.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-2">
+        {section === "all" && (
+          <>
+            <header className="rounded-xl border bg-card p-5 shadow-sm">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-2">
-                  <Label htmlFor="workspace-name">Workspace Name</Label>
-                  <Input defaultValue="Wafflebase Team" id="workspace-name" />
+                  <p className="text-sm text-muted-foreground">Wafflebase Harness</p>
+                  <h1 className="text-2xl font-semibold tracking-tight">
+                    Frontend Visual Regression Baseline
+                  </h1>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Time Zone</Label>
-                  <Input defaultValue="UTC+09:00 (Asia/Seoul)" id="timezone" />
+                <div className="flex items-center gap-2">
+                  <Button variant="outline">Export</Button>
+                  <Button>Create Document</Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Default Currency</Label>
-                  <Input defaultValue="USD" id="currency" />
-                </div>
-                <div className="flex items-end gap-2">
-                  <Button variant="outline">Discard</Button>
-                  <Button>Save Changes</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </div>
+            </header>
 
-        <SheetVisualScenarios theme={theme} />
-        <FormatVisualScenarios theme={theme} />
-        <ChartVisualScenarios />
-        <SlidesVisualScenarios />
+            <Tabs className="gap-4" defaultValue="documents">
+              <TabsList>
+                <TabsTrigger value="documents">Documents</TabsTrigger>
+                <TabsTrigger value="settings">Settings</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="documents">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Document Overview</CardTitle>
+                    <CardDescription>
+                      Stable sample data used to detect visual regressions.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Owner</TableHead>
+                          <TableHead>Updated</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {documents.map((doc) => (
+                          <TableRow key={doc.id}>
+                            <TableCell className="font-medium">{doc.title}</TableCell>
+                            <TableCell>{doc.owner}</TableCell>
+                            <TableCell>{doc.updatedAt}</TableCell>
+                            <TableCell>
+                              <Badge variant={statusBadgeVariant(doc.status)}>
+                                {doc.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="settings">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Workspace Preferences</CardTitle>
+                    <CardDescription>
+                      Input controls are included for style and spacing coverage.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="workspace-name">Workspace Name</Label>
+                      <Input defaultValue="Wafflebase Team" id="workspace-name" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="timezone">Time Zone</Label>
+                      <Input defaultValue="UTC+09:00 (Asia/Seoul)" id="timezone" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="currency">Default Currency</Label>
+                      <Input defaultValue="USD" id="currency" />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Button variant="outline">Discard</Button>
+                      <Button>Save Changes</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+
+        {(section === "all" || section === "sheet") && (
+          <SheetVisualScenarios theme={theme} />
+        )}
+        {(section === "all" || section === "format") && (
+          <FormatVisualScenarios theme={theme} />
+        )}
+        {(section === "all" || section === "docs") && (
+          <DocsVisualScenarios theme={theme} />
+        )}
+        {(section === "all" || section === "chart") && <ChartVisualScenarios />}
+        {(section === "all" || section === "slides") && <SlidesVisualScenarios />}
       </div>
     </main>
   );

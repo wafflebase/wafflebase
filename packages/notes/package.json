@@ -64,6 +64,6 @@
     "markdown-it-task-lists": "^2.1.1"
   },
   "peerDependencies": {
-    "@yorkie-js/sdk": "0.7.8"
+    "@yorkie-js/sdk": "0.7.13"
   }
 }

@@ -4,7 +4,7 @@ import { renderRun } from '../../src/view/paint-layout';
 import { computeLayout } from '../../src/view/layout';
 import type { LayoutLine } from '../../src/view/layout';
 import { createBlock } from '../../src/model/types';
-import { ptToPx } from '../../src/view/theme';
+import { ptToPx, Theme } from '../../src/view/theme';
 import { stubMeasurer } from './_stub-measurer';
 
 /**
@@ -60,6 +60,91 @@ function singleLine(inlines: Array<{ text: string; fontSize: number }>): LayoutL
   const { layout } = computeLayout([block], stubMeasurer(), 600);
   return layout.blocks[0].lines[0];
 }
+
+/**
+ * Records each stroked line segment so composing-underline geometry can be
+ * asserted. Captures the current `strokeStyle` / `lineWidth` at `stroke()`
+ * time along with the last `moveTo` → `lineTo` pair.
+ */
+function makeStrokeCtx(): {
+  ctx: CanvasRenderingContext2D;
+  strokes: Array<{ x0: number; y0: number; x1: number; y1: number; color: string; width: number }>;
+} {
+  const strokes: Array<{ x0: number; y0: number; x1: number; y1: number; color: string; width: number }> = [];
+  let from = { x: 0, y: 0 };
+  let to = { x: 0, y: 0 };
+  let strokeStyle = '';
+  let lineWidth = 1;
+  const noop = () => {};
+  const ctx = {
+    font: '',
+    fillStyle: '',
+    get strokeStyle() { return strokeStyle; },
+    set strokeStyle(v: string) { strokeStyle = v; },
+    get lineWidth() { return lineWidth; },
+    set lineWidth(v: number) { lineWidth = v; },
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    fillText: noop,
+    save: noop,
+    restore: noop,
+    beginPath: noop,
+    moveTo(x: number, y: number) {
+      from = { x, y };
+    },
+    lineTo(x: number, y: number) {
+      to = { x, y };
+    },
+    stroke() {
+      strokes.push({ x0: from.x, y0: from.y, x1: to.x, y1: to.y, color: strokeStyle, width: lineWidth });
+    },
+    setLineDash: noop,
+    fillRect: noop,
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, strokes };
+}
+
+/** Lay out a single composing run (IME preview) and its plain neighbour. */
+function composingLine(): LayoutLine {
+  const block = createBlock('paragraph');
+  block.id = 'a';
+  block.inlines = [{ text: 'ABCD', style: {} }];
+  const { layout } = computeLayout(
+    [block], stubMeasurer(), 600, undefined, undefined,
+    { blockId: 'a', offset: 2, text: 'oo' },
+  );
+  return layout.blocks[0].lines[0];
+}
+
+describe('renderRun composing underline', () => {
+  it('strokes a 2px solid underline in the text color under a composing run', () => {
+    const line = composingLine();
+    const run = line.runs.find((r) => r.composing);
+    expect(run).toBeDefined();
+
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run!, 0, 0, line.height, line.maxFontSizePx, {});
+
+    // Exactly one underline stroke, spanning the run width, 2px solid.
+    expect(strokes.length).toBe(1);
+    const s = strokes[0];
+    expect(s.width).toBe(2);
+    expect(s.y0).toBe(s.y1); // horizontal
+    expect(s.x0).toBe(Math.round(run!.x));
+    expect(s.x1).toBe(Math.round(run!.x) + run!.width);
+    // Default theme text color (no explicit color on the run).
+    expect(s.color).toBe(Theme.defaultColor);
+  });
+
+  it('does not stroke an underline under a plain (non-composing) run', () => {
+    const line = composingLine();
+    const plain = line.runs.find((r) => !r.composing && r.text !== '\n');
+    expect(plain).toBeDefined();
+
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, plain!, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes.length).toBe(0);
+  });
+});
 
 describe('renderRun shared baseline', () => {
   it('places different-size runs on one common baseline', () => {

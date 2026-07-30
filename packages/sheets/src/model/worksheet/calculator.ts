@@ -1,4 +1,10 @@
-import { ErrValue, evaluateWithSpill, SpillResult, extractReferences } from '../../formula/formula';
+import {
+  ErrValue,
+  evaluateWithSpill,
+  SpillResult,
+  expandUnboundedRanges,
+  extractReferences,
+} from '../../formula/formula';
 import { parseRef, toSref } from '../core/coordinates';
 import { inferInput, applyInferredFormat } from './input';
 import { Sheet } from './sheet';
@@ -78,9 +84,16 @@ export async function calculate(
       }
     }
 
-    const references = extractReferences(cell.f!);
+    // Rewrite whole-column / whole-row / open-ended ranges (e.g. A:A, 1:1,
+    // A1:B) into concrete ranges clamped to the sheet's data extent so the
+    // reference extraction, grid fetch, and evaluation all agree.
+    const formula = expandUnboundedRanges(
+      cell.f!,
+      await sheet.getUsedBounds(),
+    );
+    const references = extractReferences(formula);
     const grid = await sheet.fetchGridByReferences(references);
-    const result = evaluateWithSpill(cell.f!, grid);
+    const result = evaluateWithSpill(formula, grid);
 
     if (typeof result !== 'string') {
       const { values, rows, cols } = result as SpillResult;

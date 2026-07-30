@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchWithAuth } from "@/api/auth";
 import { fetchDocument, fetchDocuments } from "@/api/documents";
@@ -113,14 +107,6 @@ export function ImageViewer({ documentId }: { documentId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [go, prevId, nextId]);
 
-  const download = useCallback(() => {
-    if (!src) return;
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = downloadName.current;
-    a.click();
-  }, [src]);
-
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-auto bg-muted/30">
       {error ? (
@@ -178,14 +164,6 @@ export function ImageViewer({ documentId }: { documentId: string }) {
           onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP))}
         >
           <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Download image"
-          onClick={download}
-        >
-          <Download className="h-4 w-4" />
         </Button>
       </div>
     </div>

@@ -2598,6 +2598,14 @@ export class Sheet {
   }
 
   /**
+   * `getUsedBounds` returns the bounding range of all populated cells, used to
+   * clamp unbounded range references (`A:A`, `1:1`, `A1:B`) during calculation.
+   */
+  async getUsedBounds(): Promise<Range | undefined> {
+    return this.store.getUsedBounds();
+  }
+
+  /**
    * `fetchGridByReferences` fetches the grid by the given references.
    */
   async fetchGridByReferences(references: Set<Sref>): Promise<Grid> {

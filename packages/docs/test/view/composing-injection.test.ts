@@ -5,7 +5,7 @@ import {
   type ComposingContext,
 } from '../../src/view/layout.js';
 import { createBlock } from '../../src/model/types.js';
-import type { LayoutBlock } from '../../src/view/layout.js';
+import type { LayoutBlock, LayoutRun } from '../../src/view/layout.js';
 import type { Inline } from '../../src/model/types.js';
 import { stubMeasurer } from './_stub-measurer.js';
 
@@ -14,11 +14,17 @@ function blockText(lb: LayoutBlock): string {
   return lb.lines.flatMap((l) => l.runs.map((r) => r.text)).join('');
 }
 
+/** All runs across a laid-out block, in visual order. */
+function blockRuns(lb: LayoutBlock): LayoutRun[] {
+  return lb.lines.flatMap((l) => l.runs);
+}
+
 describe('injectComposingInline', () => {
   it('splices composing text mid-inline, splitting the inline', () => {
     const inlines: Inline[] = [{ text: 'ABCD', style: {} }];
-    const result = injectComposingInline(inlines, 2, 'X');
-    expect(result.map((i) => i.text)).toEqual(['AB', 'X', 'CD']);
+    const { inlines: out, composingIndex } = injectComposingInline(inlines, 2, 'X');
+    expect(out.map((i) => i.text)).toEqual(['AB', 'X', 'CD']);
+    expect(composingIndex).toBe(1); // 'X' sits at index 1
   });
 
   it('inherits the style at the insertion point (left-biased at a boundary)', () => {
@@ -28,26 +34,31 @@ describe('injectComposingInline', () => {
     ];
     // Offset 2 is the boundary; left bias means the composing text inherits
     // the preceding bold inline's style.
-    const result = injectComposingInline(inlines, 2, 'X');
-    const composing = result.find((i) => i.text === 'X');
-    expect(composing?.style).toEqual({ bold: true });
+    const { inlines: out, composingIndex } = injectComposingInline(inlines, 2, 'X');
+    expect(out[composingIndex].text).toBe('X');
+    expect(out[composingIndex].style).toEqual({ bold: true });
+    expect(composingIndex).toBe(1); // 'AB' | 'X' | 'CD'
   });
 
   it('appends at end-of-block, inheriting the trailing style', () => {
     const inlines: Inline[] = [{ text: 'AB', style: { bold: true } }];
-    const result = injectComposingInline(inlines, 2, 'Z');
-    expect(result.map((i) => i.text)).toEqual(['AB', 'Z']);
-    expect(result[1].style).toEqual({ bold: true });
+    const { inlines: out, composingIndex } = injectComposingInline(inlines, 2, 'Z');
+    expect(out.map((i) => i.text)).toEqual(['AB', 'Z']);
+    expect(composingIndex).toBe(1);
+    expect(out[1].style).toEqual({ bold: true });
   });
 
   it('injects into an empty block', () => {
-    const result = injectComposingInline([], 0, 'Q');
-    expect(result.map((i) => i.text)).toEqual(['Q']);
+    const { inlines: out, composingIndex } = injectComposingInline([], 0, 'Q');
+    expect(out.map((i) => i.text)).toEqual(['Q']);
+    expect(composingIndex).toBe(0);
   });
 
-  it('returns the input unchanged for empty composing text', () => {
+  it('returns the input unchanged with index -1 for empty composing text', () => {
     const inlines: Inline[] = [{ text: 'AB', style: {} }];
-    expect(injectComposingInline(inlines, 1, '')).toBe(inlines);
+    const result = injectComposingInline(inlines, 1, '');
+    expect(result.inlines).toBe(inlines);
+    expect(result.composingIndex).toBe(-1);
   });
 
   it('does not mutate the input inlines', () => {
@@ -62,19 +73,22 @@ describe('injectComposingInline', () => {
     const inlines: Inline[] = [
       { text: '￼', style: { image: { src: 'x', width: 10, height: 10 } } as Inline['style'] },
     ];
-    const result = injectComposingInline(inlines, 1, '가');
-    const composing = result.find((i) => i.text === '가');
-    expect(composing?.style.image).toBeUndefined();
-    expect(composing?.style.pageNumber).toBeUndefined();
+    const { inlines: out, composingIndex } = injectComposingInline(inlines, 1, '가');
+    const composing = out[composingIndex];
+    expect(composing.text).toBe('가');
+    expect(composing.style.image).toBeUndefined();
+    expect(composing.style.pageNumber).toBeUndefined();
   });
 
   it('keeps visual style (bold) while dropping structural metadata', () => {
     const inlines: Inline[] = [
       { text: 'A', style: { bold: true, pageNumber: true } as Inline['style'] },
     ];
-    const composing = injectComposingInline(inlines, 1, 'X').find((i) => i.text === 'X');
-    expect(composing?.style.bold).toBe(true);
-    expect(composing?.style.pageNumber).toBeUndefined();
+    const { inlines: out, composingIndex } = injectComposingInline(inlines, 1, 'X');
+    const composing = out[composingIndex];
+    expect(composing.text).toBe('X');
+    expect(composing.style.bold).toBe(true);
+    expect(composing.style.pageNumber).toBeUndefined();
   });
 });
 
@@ -132,5 +146,51 @@ describe('computeLayout with composingContext', () => {
     const composing: ComposingContext = { blockId: 'ghost', offset: 0, text: 'oo' };
     const { layout } = computeLayout([a], measurer, 600, undefined, undefined, composing);
     expect(blockText(layout.blocks[0])).toBe('ABCD');
+  });
+});
+
+describe('computeLayout tags composing runs (view-local marker)', () => {
+  const measurer = stubMeasurer(8);
+
+  function paragraph(id: string, text: string) {
+    const block = createBlock('paragraph');
+    block.id = id;
+    block.inlines = [{ text, style: {} }];
+    return block;
+  }
+
+  it('tags exactly the composing run, leaving surrounding runs untagged', () => {
+    const a = paragraph('a', 'ABCD');
+    const composing: ComposingContext = { blockId: 'a', offset: 2, text: 'oo' };
+    const { layout } = computeLayout([a], measurer, 600, undefined, undefined, composing);
+    const runs = blockRuns(layout.blocks[0]);
+    const composingRuns = runs.filter((r) => r.composing);
+    expect(composingRuns.map((r) => r.text)).toEqual(['oo']);
+    // Surrounding text is not tagged.
+    for (const r of runs.filter((r) => r.text !== 'oo')) {
+      expect(r.composing).toBeFalsy();
+    }
+  });
+
+  it('tags every sub-run when the composing text wraps across lines', () => {
+    // Width fits 5 chars (40px). Injecting "XXXX" at offset 2 of "ABCD"
+    // makes "ABXXXXCD" (8 chars) which wraps; the composing run itself is
+    // split across the wrap and every piece must stay tagged.
+    const a = paragraph('a', 'ABCD');
+    const composing: ComposingContext = { blockId: 'a', offset: 2, text: 'XXXX' };
+    const { layout } = computeLayout([a], measurer, 40, undefined, undefined, composing);
+    const composingText = blockRuns(layout.blocks[0])
+      .filter((r) => r.composing)
+      .map((r) => r.text)
+      .join('');
+    expect(composingText).toBe('XXXX');
+  });
+
+  it('tags no run when there is no composing context', () => {
+    const a = paragraph('a', 'ABCD');
+    const { layout } = computeLayout([a], measurer, 600);
+    for (const r of blockRuns(layout.blocks[0])) {
+      expect(r.composing).toBeFalsy();
+    }
   });
 });

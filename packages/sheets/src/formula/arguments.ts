@@ -108,7 +108,19 @@ class Arguments<T extends EvalNode> {
     for (const expr of args.expr()) {
       const node = visit(expr);
       if (node.t === 'ref' && grid && this.ref) {
+        // Blank cells inside a range contribute nothing to aggregations
+        // (SUM/AVERAGE/MIN/MAX/…), matching Excel / Google Sheets. This is
+        // essential for whole-column / whole-row / open-ended ranges (A:A,
+        // 1:1, B2:B), which span many empty cells. A single-cell reference is
+        // still yielded as-is so `=SUM(A1)` on a blank A1 stays 0.
+        const isRange = isSrng(node.v);
         for (const ref of toSrefs([node.v])) {
+          if (isRange) {
+            const cell = grid.get(ref);
+            if (!cell || cell.v === undefined || cell.v === '') {
+              continue;
+            }
+          }
           yield this.ref({ t: 'ref', v: ref }, grid);
         }
       } else if (node.t === 'arr') {

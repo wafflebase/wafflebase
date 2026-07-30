@@ -1,6 +1,7 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
+import { cloneBlockWithFreshIds } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
@@ -98,6 +99,19 @@ export class TextEditor {
   private editContext: EditContext = 'body';
   /** Which page the header/footer editing is active on. */
   private hfActivePageIndex = 0;
+  /**
+   * View-only mode (viewer / read-only share links). All mutating paths
+   * (typing, IME, paste, cut, border resize, header/footer edit-context
+   * switching) are gated off; drag selection, copy, and hyperlink opening
+   * stay enabled so readers can review the document. See issue #482.
+   */
+  private readOnly = false;
+  /**
+   * Link href under the pointer at read-only `mousedown`, resolved back on
+   * `mouseup` to open the link on a pure click (no drag). `null` when the
+   * press did not land on a link.
+   */
+  private readOnlyPendingLinkHref: string | null = null;
 
   private container: HTMLElement;
   private doc: Doc;
@@ -378,7 +392,9 @@ export class TextEditor {
     invalidateLayout: () => void,
     getHeaderLayout?: () => DocumentLayout | null,
     getFooterLayout?: () => DocumentLayout | null,
+    readOnly: boolean = false,
   ) {
+    this.readOnly = readOnly;
     this.container = container;
     this.doc = doc;
     this.cursor = cursor;
@@ -476,6 +492,8 @@ export class TextEditor {
    */
   insertText(text: string): void {
     if (text === '') return;
+    // View-only mode: block programmatic text injection, mirroring handleInput.
+    if (this.readOnly) return;
     this.flushHangul();
     this.saveSnapshot();
     this.deleteSelection();
@@ -526,6 +544,9 @@ export class TextEditor {
   }
 
   private handleCompositionStart = (): void => {
+    // View-only mode: never begin a composition so no IME text is committed
+    // on compositionend (its `active` guard then makes the end a no-op).
+    if (this.readOnly) return;
     // Cancel any pending post-compositionend ignore — a new composition is
     // starting (e.g. syllable boundary in Korean: compositionend → compositionstart).
     this.ignoreInputUntilNextTick = false;
@@ -591,6 +612,13 @@ export class TextEditor {
   // --- Event handlers ---
 
   private handleInput = (): void => {
+    // View-only mode: never write to the model. Drop whatever the browser
+    // put in the hidden textarea (e.g. a stray keystroke while focused for
+    // copy) so nothing is inserted.
+    if (this.readOnly) {
+      this.textarea.value = '';
+      return;
+    }
     // Ignore all input events fired synchronously after compositionend
     if (this.ignoreInputUntilNextTick) return;
 
@@ -697,6 +725,30 @@ export class TextEditor {
     const mod = isMac ? metaKey : ctrlKey;
     // Word-level modifier: Option on Mac, Ctrl on Windows/Linux
     const wordMod = isMac ? altKey : ctrlKey;
+
+    // View-only mode: permit caret navigation, select-all, and find; let
+    // plain Cmd/Ctrl+C fall through to the browser `copy` event (handleCopy
+    // stays enabled). Everything else — typing, deletion, formatting,
+    // undo/redo, paste — is a no-op so the document can't be mutated.
+    if (this.readOnly) {
+      const isNav =
+        key === 'ArrowLeft' || key === 'ArrowRight' ||
+        key === 'ArrowUp' || key === 'ArrowDown' ||
+        key === 'Home' || key === 'End';
+      if (!isNav) {
+        if (mod && key === 'a') {
+          e.preventDefault();
+          this.selectAll();
+        } else if (mod && key === 'f') {
+          e.preventDefault();
+          this.onFindRequest?.();
+        }
+        // Plain Cmd/Ctrl+C is intentionally not preventDefault-ed here so
+        // the browser fires the `copy` event handled by handleCopy.
+        return;
+      }
+      // Navigation keys fall through to the shared switch below.
+    }
 
     // Flush software Hangul composition before processing special keys
     if (this.hangulAssembler.isComposing) {
@@ -1010,6 +1062,12 @@ export class TextEditor {
   };
 
   private handleCut = (e: ClipboardEvent): void => {
+    // View-only mode: cutting would delete content — block it. (Copy is
+    // still available via the separate `copy` event / Cmd/Ctrl+C.)
+    if (this.readOnly) {
+      e.preventDefault();
+      return;
+    }
     this.pending?.clear();
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
@@ -1113,11 +1171,18 @@ export class TextEditor {
    * keyboard state to respect the "paste as plain text" modifier.
    */
   pasteContent(opts: { html?: string; text?: string }): void {
+    // View-only mode: block programmatic paste, mirroring handlePaste.
+    if (this.readOnly) return;
     this.pending?.clear();
     this.pasteFromParts(opts);
   }
 
   private handlePaste = (e: ClipboardEvent): void => {
+    // View-only mode: pasting would insert content — block it.
+    if (this.readOnly) {
+      e.preventDefault();
+      return;
+    }
     this.pending?.clear();
     e.preventDefault();
 
@@ -1278,10 +1343,18 @@ export class TextEditor {
       }
     }
 
+    // View-only mode: remember the link under the pointer so a pure click
+    // (no drag) opens it on mouseup — Google-Docs viewer behavior, where a
+    // plain click follows the link rather than placing an editing caret.
+    if (this.readOnly) {
+      this.readOnlyPendingLinkHref = this.getLinkHrefAtMouse(e) ?? null;
+    }
+
     e.preventDefault();
 
+    // Table border resize is an edit — skip it in view-only mode.
     // Check for border resize drag
-    const tableInfo = this.resolveTableFromMouse(e);
+    const tableInfo = this.readOnly ? null : this.resolveTableFromMouse(e);
     if (tableInfo) {
       const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
       const hit = detectTableBorder(
@@ -1330,8 +1403,11 @@ export class TextEditor {
     this.lastClickX = e.clientX;
     this.lastClickY = e.clientY;
 
-    // Header/footer context switching via click target detection
-    {
+    // Header/footer context switching via click target detection.
+    // Entering a header/footer is an edit-context change (and can create
+    // the region via ensureHeader/ensureFooter), so it is view-only-gated;
+    // in read-only the body stays the sole selectable/copyable context.
+    if (!this.readOnly) {
       const rect = this.container.getBoundingClientRect();
       const s = this.getScaleFactor();
       const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
@@ -1497,6 +1573,19 @@ export class TextEditor {
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
+    // View-only mode: no border-resize cursor (resize is disabled). Show a
+    // pointer over links, a text I-beam elsewhere, and keep drag selection.
+    if (this.readOnly) {
+      const href = this.getLinkHrefAtMouse(e);
+      this.setCanvasCursor(href ? 'pointer' : 'text');
+      if (this.isMouseDown && this.selection.range) {
+        this.lastMouseClientY = e.clientY;
+        this.updateDragSelection(e.clientX, e.clientY);
+        this.startDragScroll();
+      }
+      return;
+    }
+
     // During border drag: update drag position and guideline
     if (this.borderDragState) {
       const rect = this.container.getBoundingClientRect();
@@ -1562,6 +1651,22 @@ export class TextEditor {
     }
     this.isMouseDown = false;
     this.stopDragScroll();
+
+    // View-only mode: a pure click (no drag → collapsed selection) on a
+    // link follows it. A drag creates a non-collapsed range, so text
+    // selection over/around links still works.
+    if (this.readOnly && this.readOnlyPendingLinkHref) {
+      const href = this.readOnlyPendingLinkHref;
+      this.readOnlyPendingLinkHref = null;
+      const range = this.selection.range;
+      const collapsed =
+        !range ||
+        (range.anchor.blockId === range.focus.blockId &&
+          range.anchor.offset === range.focus.offset);
+      if (collapsed && isSafeUrl(href)) {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      }
+    }
   };
 
   private applyBorderDrag(): void {
@@ -3410,11 +3515,21 @@ export class TextEditor {
     this.ensureEditableBlock();
     const pos = this.cursor.position;
     if (blocks.length === 1 && blocks[0].type === 'table') {
-      // Single table block: insert as a new block (cannot merge into current)
+      // Single table block: insert as a new block (cannot merge into current).
       this.invalidateLayout();
-      const blockIdx = this.doc.getBlockIndex(pos.blockId);
-      const newBlock: Block = { ...blocks[0], id: generateBlockId() };
-      this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      // Fresh ids for the whole (possibly nested) table so the paste is
+      // independent of its source — no shared cell ids.
+      const newBlock = cloneBlockWithFreshIds(blocks[0]);
+      if (this.isInCell(pos.blockId)) {
+        // Caret is inside a table cell: nest the pasted table into that cell.
+        // `getBlockIndex`/`insertBlockAt` are body-index based and can't reach
+        // a cell, so use the cell-aware `insertBlockAfter` (same primitive the
+        // Insert Table command uses via `insertTableInCell`).
+        this.doc.insertBlockAfter(pos.blockId, newBlock);
+      } else {
+        const blockIdx = this.doc.getBlockIndex(pos.blockId);
+        this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      }
       const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
       if (firstCellBlock) {
         this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');

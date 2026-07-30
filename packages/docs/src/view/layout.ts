@@ -175,6 +175,14 @@ export interface LayoutRun {
    * Line height must grow to accommodate this. Undefined for text runs.
    */
   imageHeight?: number;
+  /**
+   * True for runs produced by the IME composing-text injection
+   * (`injectComposingInline`). Painted with a composing underline. View-only —
+   * this marker lives on the layout run, never on the persisted
+   * `Inline` / `InlineStyle`, so it cannot leak into the model, clipboard,
+   * clone, or DOCX/PDF export.
+   */
+  composing?: boolean;
 }
 
 /**
@@ -267,37 +275,38 @@ export function injectComposingInline(
   inlines: Inline[],
   offset: number,
   text: string,
-): Inline[] {
-  if (text.length === 0) return inlines;
+): { inlines: Inline[]; composingIndex: number } {
+  if (text.length === 0) return { inlines, composingIndex: -1 };
 
   const result: Inline[] = [];
   let pos = 0;
-  let inserted = false;
+  let composingIndex = -1;
 
   for (const inline of inlines) {
     const len = inline.text.length;
-    if (!inserted && offset <= pos + len) {
+    if (composingIndex === -1 && offset <= pos + len) {
       const localOffset = offset - pos;
       const before = inline.text.slice(0, localOffset);
       const after = inline.text.slice(localOffset);
       if (before.length > 0) result.push({ ...inline, text: before });
+      composingIndex = result.length;
       result.push({ text, style: composingStyleFrom(inline.style) });
       if (after.length > 0) result.push({ ...inline, text: after });
-      inserted = true;
     } else {
       result.push(inline);
     }
     pos += len;
   }
 
-  if (!inserted) {
+  if (composingIndex === -1) {
     // Offset at/after the end, or an empty block: append, inheriting the
     // trailing inline's style when there is one.
     const style = inlines.length > 0 ? inlines[inlines.length - 1].style : {};
+    composingIndex = result.length;
     result.push({ text, style: composingStyleFrom(style) });
   }
 
-  return result;
+  return { inlines: result, composingIndex };
 }
 
 /**
@@ -523,9 +532,17 @@ export function layoutBlock(
   const resolved = resolveBlockInlines(block, docStyles);
   // Splice in view-local IME composing text for this block, if any, so it
   // reflows like real text without being written to the document model.
-  const inlines = composingContext?.blockId === block.id
-    ? injectComposingInline(resolved, composingContext.offset, composingContext.text)
-    : resolved;
+  // `composingIndex` is the index of the injected inline within `inlines`;
+  // runs derived from it are tagged `composing` below (-1 when none).
+  let inlines = resolved;
+  let composingIndex = -1;
+  if (composingContext?.blockId === block.id) {
+    const injected = injectComposingInline(
+      resolved, composingContext.offset, composingContext.text,
+    );
+    inlines = injected.inlines;
+    composingIndex = injected.composingIndex;
+  }
   // Measure all segments (word-level)
   const segments = measureSegments(inlines, measurer);
 
@@ -692,6 +709,18 @@ export function layoutBlock(
     });
   } else if (lastWasSoftBreak) {
     lines.push({ runs: [], y: 0, height: 0, width: 0 });
+  }
+
+  // Tag every run derived from the injected composing inline (view-local).
+  // A composing string that wraps produces several runs, all sharing the
+  // same `inlineIndex`, so each piece stays tagged and painted with the
+  // composing underline.
+  if (composingIndex >= 0) {
+    for (const line of lines) {
+      for (const run of line.runs) {
+        if (run.inlineIndex === composingIndex) run.composing = true;
+      }
+    }
   }
 
   return lines;

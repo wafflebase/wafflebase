@@ -158,7 +158,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-visual-actual
-          path: packages/frontend/tests/visual/baselines/*.actual.png
+          path: |
+            packages/frontend/tests/visual/baselines/*.actual.png
+            packages/frontend/tests/visual/baselines/*.diff.png
           retention-days: 14
 
   verify-integration:

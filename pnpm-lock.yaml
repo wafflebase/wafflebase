@@ -103,8 +103,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/sdk':
-        specifier: 0.7.8
-        version: 0.7.8
+        specifier: 0.7.13
+        version: 0.7.13
       body-parser:
         specifier: ^1.20.3
         version: 1.20.5
@@ -515,8 +515,8 @@ importers:
         specifier: workspace:*
         version: link:../slides
       '@yorkie-js/react':
-        specifier: 0.7.8
-        version: 0.7.8(react@19.1.0)
+        specifier: 0.7.13
+        version: 0.7.13(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -597,8 +597,8 @@ importers:
         specifier: 0.9.10
         version: 0.9.10
       '@yorkie-js/sdk':
-        specifier: 0.7.8
-        version: 0.7.8
+        specifier: 0.7.13
+        version: 0.7.13
       eslint:
         specifier: ^9.21.0
         version: 9.24.0(jiti@2.6.1)
@@ -614,9 +614,15 @@ importers:
       jsdom:
         specifier: ^28.0.0
         version: 28.0.0(@noble/hashes@1.8.0)
+      pixelmatch:
+        specifier: ^7.2.0
+        version: 7.2.0
       playwright:
         specifier: ^1.58.2
         version: 1.58.2
+      pngjs:
+        specifier: ^7.0.0
+        version: 7.0.0
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -663,8 +669,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.2
       '@yorkie-js/sdk':
-        specifier: 0.7.8
-        version: 0.7.8
+        specifier: 0.7.13
+        version: 0.7.13
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -4983,16 +4989,16 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@yorkie-js/react@0.7.8':
-    resolution: {integrity: sha512-eXJDG9UQy7NHzjMOnM5Ez5MQOQRcktgmXqoT2J37O1lLo0Xyz9dkoDs+w0qmJBoEBEN4oXn+EdC4ARB9DryVbA==}
+  '@yorkie-js/react@0.7.13':
+    resolution: {integrity: sha512-7YujLKJDyEdpdIVMPoyWwZIj6wZwxjCBRVSGLvM9Tad9njpGPXvk0/vOOqLPaNhtbyHBAw2MRsbjqz3Z5nPgQg==}
     peerDependencies:
       react: ^18 || ^19
 
-  '@yorkie-js/schema@0.7.8':
-    resolution: {integrity: sha512-KcEt3VBM5Pax8w3xs8/uFBttCknkpGeRBoB9NN+f0+2PEmXfB9NdGRAxpMXqe3Nq+P0+bDrTId32T3fc5WdxJg==}
+  '@yorkie-js/schema@0.7.13':
+    resolution: {integrity: sha512-P7QdEqL4e+jTVIMCyf3NZt1i0OOK2v8wMuby2duz7HgfmJ1HAHc4baZX93dpTIv38sGrMf4OKB9uZ12kCfLdeA==}
 
-  '@yorkie-js/sdk@0.7.8':
-    resolution: {integrity: sha512-Ptaog0agLLgpWQCudiUMFYBYnLG45hVwXM1OOTO4K14j/uUPbamJ40j7h2LkMEqRqtRECIlR7b65yLUc9KH0hA==}
+  '@yorkie-js/sdk@0.7.13':
+    resolution: {integrity: sha512-Ql3IrKc2ym9pCoArJiQGZ9HG1ilnmO765Hg8oj11KqlvP4gXTiSaD3QmhZafMadp0ISAwXaQuNnPBbfdamfvXg==}
     engines: {node: ^20.19.0 || >=22.12.0, npm: '>=7.1.0', pnpm: '>=9.6.0'}
 
   accepts@2.0.0:
@@ -7597,6 +7603,10 @@ packages:
   piscina@4.9.3:
     resolution: {integrity: sha512-3e3ka9QCE8RJ5I9uszdAADZnkcYi21cqmF3gxox3u884N72qpFHCsIVhHt8cEQ9t3Auq/NqoiCEuhxlxxQuDWA==}
 
+  pixelmatch@7.2.0:
+    resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
+    hasBin: true
+
   pkg-dir@4.2.0:
     resolution: {integrity: sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==}
     engines: {node: '>=8'}
@@ -7620,6 +7630,10 @@ packages:
   pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
+
+  pngjs@7.0.0:
+    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
+    engines: {node: '>=14.19.0'}
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -13673,19 +13687,19 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@yorkie-js/react@0.7.8(react@19.1.0)':
+  '@yorkie-js/react@0.7.13(react@19.1.0)':
     dependencies:
-      '@yorkie-js/sdk': 0.7.8
+      '@yorkie-js/sdk': 0.7.13
       react: 19.1.0
 
-  '@yorkie-js/schema@0.7.8': {}
+  '@yorkie-js/schema@0.7.13': {}
 
-  '@yorkie-js/sdk@0.7.8':
+  '@yorkie-js/sdk@0.7.13':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
       '@connectrpc/connect-web': 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
-      '@yorkie-js/schema': 0.7.8
+      '@yorkie-js/schema': 0.7.13
 
   accepts@2.0.0:
     dependencies:
@@ -16565,6 +16579,10 @@ snapshots:
     optionalDependencies:
       '@napi-rs/nice': 1.0.1
 
+  pixelmatch@7.2.0:
+    dependencies:
+      pngjs: 7.0.0
+
   pkg-dir@4.2.0:
     dependencies:
       find-up: 4.1.0
@@ -16590,6 +16608,8 @@ snapshots:
       fsevents: 2.3.2
 
   pluralize@8.0.0: {}
+
+  pngjs@7.0.0: {}
 
   possible-typed-array-names@1.1.0: {}
 

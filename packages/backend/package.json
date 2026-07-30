@@ -39,7 +39,7 @@
     "@wafflebase/docs": "workspace:^",
     "@wafflebase/sheets": "workspace:^",
     "@wafflebase/slides": "workspace:*",
-    "@yorkie-js/sdk": "0.7.8",
+    "@yorkie-js/sdk": "0.7.13",
     "body-parser": "^1.20.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",

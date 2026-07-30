@@ -2,13 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
   evaluateWithSpill,
+  expandUnboundedRanges,
+  extractFormulaRanges,
   extractReferences,
   extractTokens,
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
   normalizeFormulaOnCommit,
 } from '../../src/formula/formula';
-import { Grid, Cell } from '../../src/model/core/types';
+import { Grid, Cell, Range } from '../../src/model/core/types';
 
 describe('Formula', () => {
   it('should correctly evaluate addition', () => {
@@ -3935,6 +3937,56 @@ describe('Formula.findReferenceTokenAtCursor', () => {
   });
 });
 
+describe('Formula.extractFormulaRanges', () => {
+  // Grid bounds used to resolve unbounded refs: rows 1..1000, cols A..Z.
+  const bounds: Range = [
+    { r: 1, c: 1 },
+    { r: 1000, c: 26 },
+  ];
+
+  it('extracts a single-cell reference as a collapsed range', () => {
+    expect(extractFormulaRanges('=A1')).toEqual([
+      { text: 'A1', range: [{ r: 1, c: 1 }, { r: 1, c: 1 }] },
+    ]);
+  });
+
+  it('extracts a bounded range without needing bounds', () => {
+    expect(extractFormulaRanges('=SUM(A1:B2)')).toEqual([
+      { text: 'A1:B2', range: [{ r: 1, c: 1 }, { r: 2, c: 2 }] },
+    ]);
+  });
+
+  it('skips whole-column/row refs when no bounds are given', () => {
+    expect(extractFormulaRanges('=SUM(A:A)')).toEqual([]);
+    expect(extractFormulaRanges('=SUM(1:1)')).toEqual([]);
+    expect(extractFormulaRanges('=AVERAGE(B2:B)')).toEqual([]);
+  });
+
+  it('resolves a whole-column ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(A:A)', bounds)).toEqual([
+      { text: 'A:A', range: [{ r: 1, c: 1 }, { r: 1000, c: 1 }] },
+    ]);
+  });
+
+  it('resolves a whole-row ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(1:1)', bounds)).toEqual([
+      { text: '1:1', range: [{ r: 1, c: 1 }, { r: 1, c: 26 }] },
+    ]);
+  });
+
+  it('resolves an open-ended ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=AVERAGE(B2:B)', bounds)).toEqual([
+      { text: 'B2:B', range: [{ r: 2, c: 2 }, { r: 1000, c: 2 }] },
+    ]);
+  });
+
+  it('resolves a multi-column whole ref against the grid bounds', () => {
+    expect(extractFormulaRanges('=SUM(A:C)', bounds)).toEqual([
+      { text: 'A:C', range: [{ r: 1, c: 1 }, { r: 1000, c: 3 }] },
+    ]);
+  });
+});
+
 describe('Formula.extractTokens', () => {
   it('should correctly extract tokens from formulas', () => {
     expect(extractTokens('=1+2')).toEqual([
@@ -4291,5 +4343,96 @@ describe('Formula.extractTokens', () => {
       expect(evaluate('=ISBETWEEN(10,1,10,FALSE,FALSE)')).toBe('FALSE');
       expect(evaluate('=ISBETWEEN(5,1,10,FALSE,FALSE)')).toBe('TRUE');
     });
+  });
+});
+
+describe('Unbounded ranges', () => {
+  const bounds: Range = [
+    { r: 1, c: 1 },
+    { r: 3, c: 2 },
+  ]; // maxR=3, maxC=2
+
+  it('lexes whole-column / whole-row / open-ended references', () => {
+    expect(extractReferences('=SUM(A:A)')).toEqual(new Set(['A:A']));
+    expect(extractReferences('=SUM(1:1)')).toEqual(new Set(['1:1']));
+    expect(extractReferences('=AVERAGE(B2:B)')).toEqual(new Set(['B2:B']));
+    expect(extractReferences('=COUNT(A:B)')).toEqual(new Set(['A:B']));
+    expect(extractReferences('=SUM(1:3)')).toEqual(new Set(['1:3']));
+  });
+
+  it('rewrites unbounded refs to concrete ranges clamped to bounds', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)', bounds)).toBe('=SUM(A1:A3)');
+    expect(expandUnboundedRanges('=SUM(1:1)', bounds)).toBe('=SUM(A1:B1)');
+    expect(expandUnboundedRanges('=AVERAGE(B2:B)', bounds)).toBe(
+      '=AVERAGE(B2:B3)',
+    );
+    expect(expandUnboundedRanges('=COUNT(A:B)', bounds)).toBe('=COUNT(A1:B3)');
+    expect(expandUnboundedRanges('=SUM(1:3)', bounds)).toBe('=SUM(A1:B3)');
+  });
+
+  it('leaves bounded formulas untouched', () => {
+    expect(expandUnboundedRanges('=SUM(A1:B2)', bounds)).toBe('=SUM(A1:B2)');
+    expect(expandUnboundedRanges('=A1+B2', bounds)).toBe('=A1+B2');
+    expect(expandUnboundedRanges('hello', bounds)).toBe('hello');
+  });
+
+  it('rewrites only the unbounded refs in a mixed formula', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)+B1*2', bounds)).toBe(
+      '=SUM(A1:A3)+B1*2',
+    );
+    expect(expandUnboundedRanges('=SUM(A:A)+SUM(C1:C2)', bounds)).toBe(
+      '=SUM(A1:A3)+SUM(C1:C2)',
+    );
+    expect(expandUnboundedRanges('=COUNT(1:1)&" rows"', bounds)).toBe(
+      '=COUNT(A1:B1)&" rows"',
+    );
+  });
+
+  it('collapses unbounded refs to A1 on an empty sheet', () => {
+    expect(expandUnboundedRanges('=SUM(A:A)', undefined)).toBe('=SUM(A1:A1)');
+  });
+
+  it('does not touch cross-sheet unbounded refs', () => {
+    expect(expandUnboundedRanges('=SUM(Sheet2!A:A)', bounds)).toBe(
+      '=SUM(Sheet2!A:A)',
+    );
+  });
+
+  it('evaluates against a supplied grid after expansion', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    expect(evaluate(expandUnboundedRanges('=SUM(A:A)', bounds), grid)).toBe(
+      '60',
+    );
+  });
+});
+
+describe('Aggregations over ranges with no numeric cells', () => {
+  // With blank cells skipped inside ranges (essential for whole-column refs
+  // like =MAX(A:A) that span many empty cells), MIN/MAX must not leak their
+  // ±Infinity accumulator when the range yields no numbers — Google Sheets
+  // returns 0 for MIN/MAX over an empty or all-text range.
+  it('returns 0 for MIN/MAX over an all-blank range', () => {
+    const grid: Grid = new Map<string, Cell>();
+    expect(evaluate('=MAX(A1:A3)', grid)).toBe('0');
+    expect(evaluate('=MIN(A1:A3)', grid)).toBe('0');
+  });
+
+  it('returns 0 for MIN/MAX over a range with only text cells', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'foo' });
+    grid.set('A2', { v: 'bar' });
+    expect(evaluate('=MAX(A1:A2)', grid)).toBe('0');
+    expect(evaluate('=MIN(A1:A2)', grid)).toBe('0');
+  });
+
+  it('still ignores blanks but honors numeric cells for MIN/MAX', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '5' });
+    grid.set('A3', { v: '10' });
+    expect(evaluate('=MAX(A1:A3)', grid)).toBe('10');
+    expect(evaluate('=MIN(A1:A3)', grid)).toBe('5');
   });
 });

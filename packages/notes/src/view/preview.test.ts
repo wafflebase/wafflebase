@@ -17,6 +17,23 @@ describe('NotePreview', () => {
     expect(preview.el.querySelector('.note-copy-btn')).toBeTruthy();
   });
 
+  it('places the copy button in the wrapper, outside the scrolling <pre>', () => {
+    const preview = new NotePreview();
+    preview.render('```\ncode\n```');
+
+    const wrapper = preview.el.querySelector('.note-code-wrapper');
+    const button = preview.el.querySelector('.note-copy-btn');
+    const pre = preview.el.querySelector('pre.note-code');
+
+    // The button anchors to the non-scrolling wrapper so it stays pinned when
+    // a long line scrolls the <pre> horizontally, rather than drifting inside
+    // the scrolled content.
+    expect(wrapper).toBeTruthy();
+    expect(button?.parentElement).toBe(wrapper);
+    expect(pre?.parentElement).toBe(wrapper);
+    expect(pre?.contains(button)).toBe(false);
+  });
+
   it('renders a disabled checkbox for task-list items', () => {
     const preview = new NotePreview();
     preview.render('- [x] done\n- [ ] todo');
@@ -54,6 +71,129 @@ describe('NotePreview', () => {
     expect(img?.getAttribute('decoding')).toBe('async');
   });
 
+  it('renders a collapsed <details>/<summary> disclosure by default', () => {
+    const preview = new NotePreview();
+    preview.render(
+      '<details>\n<summary>More</summary>\n\nHidden body\n\n</details>',
+    );
+
+    const details = preview.el.querySelector('details.note-details');
+    const summary = details?.querySelector('summary.note-summary');
+    expect(details).toBeTruthy();
+    expect(summary?.textContent).toBe('More');
+    // Collapsed by default: no `open` attribute.
+    expect(details?.hasAttribute('open')).toBe(false);
+    // Body markdown is rendered inside the disclosure.
+    expect(details?.textContent).toContain('Hidden body');
+  });
+
+  it('renders <details open> expanded by default', () => {
+    const preview = new NotePreview();
+    preview.render(
+      '<details open>\n<summary>Peek</summary>\n\nShown\n\n</details>',
+    );
+
+    const details = preview.el.querySelector('details.note-details');
+    expect(details).toBeTruthy();
+    expect(details?.hasAttribute('open')).toBe(true);
+  });
+
+  it('renders markdown inside the summary label and the body', () => {
+    const preview = new NotePreview();
+    preview.render(
+      '<details>\n<summary>**bold** label</summary>\n\n- one\n- two\n\n</details>',
+    );
+
+    const summary = preview.el.querySelector('summary.note-summary');
+    expect(summary?.querySelector('strong')?.textContent).toBe('bold');
+
+    const items = preview.el.querySelectorAll('details.note-details li');
+    expect(items.length).toBe(2);
+  });
+
+  it('supports nested <details> disclosures', () => {
+    const preview = new NotePreview();
+    preview.render(
+      [
+        '<details>',
+        '<summary>Outer</summary>',
+        '',
+        '<details>',
+        '<summary>Inner</summary>',
+        '',
+        'deep',
+        '',
+        '</details>',
+        '',
+        '</details>',
+      ].join('\n'),
+    );
+
+    const outer = preview.el.querySelector('details.note-details');
+    const inner = outer?.querySelector('details.note-details');
+    expect(outer).toBeTruthy();
+    expect(inner).toBeTruthy();
+    expect(inner?.textContent).toContain('deep');
+  });
+
+  it('does not emit raw HTML for a stray </details> or embedded tags', () => {
+    const preview = new NotePreview();
+    // No opening <details>: the close must not become an orphan element, and
+    // the script tag must never be rendered as executable HTML.
+    preview.render('</details>\n\n<script>alert(1)</script>');
+
+    expect(preview.el.querySelector('details')).toBeNull();
+    expect(preview.el.querySelector('script')).toBeNull();
+    // The literal text is preserved (escaped), proving html:false still holds.
+    expect(preview.el.textContent).toContain('<script>alert(1)</script>');
+  });
+
+  // Issue #517: a list item followed by an empty nested bullet used to render
+  // the parent's text as a setext `<h2>` (the lone `-` was read as an underline).
+  it('nests an empty bullet instead of turning the parent into an <h2>', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  -');
+
+    // No accidental heading.
+    expect(preview.el.querySelector('h2')).toBeNull();
+
+    // Parent keeps body text and gains an empty nested child item.
+    const outer = preview.el.querySelector('ul > li');
+    expect(outer?.textContent?.trim().startsWith('1')).toBe(true);
+    const nested = outer?.querySelector('ul > li');
+    expect(nested).toBeTruthy();
+    expect(nested?.textContent?.trim()).toBe('');
+  });
+
+  it('nests an empty bullet with a trailing space too', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  - ');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    expect(preview.el.querySelector('ul > li > ul > li')).toBeTruthy();
+  });
+
+  it('still renders the blank-line workaround correctly', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n\n  - ');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    expect(preview.el.querySelector('ul > li > ul > li')).toBeTruthy();
+  });
+
+  it('preserves multi-dash setext headings', () => {
+    const preview = new NotePreview();
+    preview.render('Heading\n---');
+    const h2 = preview.el.querySelector('h2');
+    expect(h2?.textContent).toBe('Heading');
+  });
+
+  it('leaves a non-empty nested list unchanged', () => {
+    const preview = new NotePreview();
+    preview.render('- 1\n  - 2');
+    expect(preview.el.querySelector('h2')).toBeNull();
+    const nested = preview.el.querySelector('ul > li > ul > li');
+    expect(nested?.textContent?.trim()).toBe('2');
+  });
+
   it('copies code to the clipboard when the copy button is clicked', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
@@ -62,9 +202,8 @@ describe('NotePreview', () => {
     document.body.appendChild(preview.el);
     preview.render('```\nhello world\n```');
 
-    const button = preview.el.querySelector<HTMLButtonElement>(
-      '.note-copy-btn',
-    );
+    const button =
+      preview.el.querySelector<HTMLButtonElement>('.note-copy-btn');
     expect(button).toBeTruthy();
     button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
