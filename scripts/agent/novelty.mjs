@@ -186,6 +186,7 @@ async function git(args, repo) {
   try {
     const { stdout } = await execFileAsync("git", args, {
       cwd: repo,
+      env: repoScopedEnv(),
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
       encoding: "utf8",
@@ -194,6 +195,40 @@ async function git(args, repo) {
   } catch (e) {
     return { ok: false, status: typeof e?.code === "number" ? e.code : null, stdout: "" };
   }
+}
+
+/**
+ * `process.env` with every git-location variable removed, so `cwd` alone
+ * decides which repository these commands read.
+ *
+ * `cwd` does NOT win against an inherited `GIT_DIR` — the environment does.
+ * That matters because **git exports `GIT_DIR` into every hook it runs**, and
+ * this repo's `pre-push` hook runs `pnpm verify:self`, which reaches this
+ * module. Without this, a novelty lookup performed under any hook silently
+ * blames the WRONG repository: `cwd` says fixture, `GIT_DIR` says the real
+ * checkout, and git obeys `GIT_DIR`. The answers still look well-formed, so a
+ * finding gets demoted or kept on evidence from an unrelated tree.
+ *
+ * Deleting rather than pinning is deliberate: `repo` may be a linked worktree,
+ * where `.git` is a FILE containing a `gitdir:` pointer, so a computed
+ * `GIT_DIR: repo/.git` would be wrong exactly where it matters most. Letting
+ * discovery run from a clean environment handles worktrees, bare repos, and
+ * ordinary checkouts alike.
+ */
+function repoScopedEnv() {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+  ]) {
+    delete env[key];
+  }
+  return env;
 }
 
 /**

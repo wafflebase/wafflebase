@@ -313,6 +313,33 @@ function makeRepo() {
   return { dir, base };
 }
 
+test("noveltyOf answers about `repo`, not an inherited GIT_DIR", async () => {
+  // THE regression test for the root cause of the branch-clobbering incident.
+  //
+  // git exports GIT_DIR into every hook it runs, and this repo's pre-push hook
+  // runs `pnpm verify:self`, which reaches this module. `cwd` does not win
+  // against GIT_DIR — the environment does. So under any hook, a novelty lookup
+  // would silently blame whatever repository GIT_DIR names instead of `repo`,
+  // and the answers still look well-formed: a finding is demoted or kept on
+  // evidence from an unrelated tree.
+  //
+  // Point GIT_DIR at a DIFFERENT repo and assert the answer is unchanged.
+  const { dir, base } = makeRepo();
+  const foreign = makeRepo();
+  const saved = process.env.GIT_DIR;
+  try {
+    process.env.GIT_DIR = path.join(foreign.dir, ".git");
+    const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 2, baseSha: base });
+    assert.equal(r.origin, "relocated");
+    assert.match(String(r.alsoAt), /old\.mjs:\d+$/);
+  } finally {
+    if (saved === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(foreign.dir, { recursive: true, force: true });
+  }
+});
+
 test("fixture git cannot escape into the surrounding repository", () => {
   // THE regression test for a silent branch-clobbering incident: these fixture
   // git calls committed into the REAL repository, replacing a developer's branch
