@@ -733,6 +733,38 @@ export function isDroppingVerdict(v, { allowPreExisting = false, claimType = nul
 }
 
 /**
+ * The effective verdict for a CLUSTERED finding, guarding its drop decision.
+ *
+ * Clustering runs before verification so each defect is verified once, not once
+ * per wording — but a merge is conservative, not infallible. If the representative
+ * is confidently refuted, its verdict would drop the WHOLE cluster, including any
+ * genuinely distinct wording that merged in and was never verified on its own.
+ * So a representative refutation is honoured only when every folded BLOCKING
+ * wording is ALSO confidently refuted (`isDroppingVerdict`). If any survives, the
+ * cluster is KEPT and that surviving verdict is returned, so an `unresolved` fold
+ * still marks the finding unsettled downstream.
+ *
+ * Non-blocking folds never reached the gate, so they cannot keep a cluster alive.
+ * A fold whose verdict is null — unverified, or the verifier errored — counts as
+ * surviving: the fail-toward-keep direction the rest of this path takes. When the
+ * representative is not a dropping verdict, or has no folds, its own verdict
+ * stands unchanged (the common path, where no fold was re-verified at all).
+ *
+ * `foldFindings[i]`/`foldVerdicts[i]` are index-aligned; `opts` is the same
+ * `{ allowPreExisting }` threaded to `isDroppingVerdict` everywhere else.
+ */
+export function resolveClusterVerdict(rep, repVerdict, foldFindings, foldVerdicts, opts) {
+  const drops = (v, f) => isDroppingVerdict(v, { ...opts, claimType: claimTypeOf(f) });
+  if (!drops(repVerdict, rep)) return repVerdict; // rep kept → nothing to guard
+  const folds = Array.isArray(foldFindings) ? foldFindings : [];
+  for (let i = 0; i < folds.length; i++) {
+    if (!BLOCKING.has(normalizeSeverity(folds[i] && folds[i].severity))) continue; // never gated
+    if (!drops(foldVerdicts?.[i], folds[i])) return foldVerdicts?.[i] ?? null; // a fold survives → keep
+  }
+  return repVerdict; // every blocking fold also refuted (or none gated) → drop stands
+}
+
+/**
  * The changed-file list is re-sent with EVERY verification (one per blocking
  * finding, per lens, per round), so an unbounded list on a sweeping PR
  * multiplies across the whole panel. Cap what is listed.
@@ -1747,21 +1779,39 @@ async function main() {
     // wording rides along in `mergedFrom`.
     //
     // TRADEOFF vs #591's original "cluster after verify" order: clustering now
-    // decides what the verifier sees, so a wrong merge means a folded wording is
-    // judged only through its representative's verdict. Two things bound that: the
-    // similarity threshold is conservative (the #578 distinct pairs scored 0.000,
-    // so they stay separate), and mergeCluster picks the STRONGEST wording as the
-    // representative (gating, then highest severity, then evidence-bearing), so
-    // the verifier judges the form most likely to survive — and every folded
-    // wording is still rendered, so a bad merge is visible rather than silent.
+    // decides what the verifier sees. The bound below (`resolveClusterVerdict`)
+    // keeps that from dropping a distinct finding: a representative refutation is
+    // honoured only if every folded wording is ALSO refuted. Merges are already
+    // conservative (the #578 distinct pairs scored 0.000, staying separate) and
+    // the STRONGEST wording is elected representative (gating, then highest
+    // severity, then evidence-bearing), so the verifier judges the form most
+    // likely to gate and every folded wording is still rendered.
     const detected = clusterFindings(findings);
 
     // Verifier refute pass over blocking findings (rubric passed so it judges by
     // the lens's own definitions; keeps the finding on any uncertainty).
+    const verifyBlocking = (f) => {
+      if (!BLOCKING.has(normalizeSeverity(f.severity))) return Promise.resolve(null);
+      return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext })
+        .catch(() => null); // error → keep the finding (fail toward blocking)
+    };
     const verdicts = await Promise.all(detected.map(async (f) => {
-      if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
-      catch { return null; } // error → keep the finding (fail toward blocking)
+      const repVerdict = await verifyBlocking(f);
+      // Reconstruct the folded wordings as findings. Clustering only merges within
+      // one file, so the representative's `file` is theirs too, and `mergedFrom`
+      // carries the severity/summary/evidence verifyFinding reads.
+      const folds = (Array.isArray(f.mergedFrom) ? f.mergedFrom : []).map((m) => ({
+        severity: m.severity, summary: m.summary, evidence: m.evidence, file: f.file,
+      }));
+      // Only pay for the extra verifier calls when the representative would
+      // actually drop the cluster (refutations are the minority, so the common
+      // confirmed path stays one session per cluster). Then keep the cluster
+      // unless every folded blocking wording is also confidently refuted.
+      if (!folds.length || !isDroppingVerdict(repVerdict, { ...verifyOpts, claimType: claimTypeOf(f) })) {
+        return repVerdict;
+      }
+      const foldVerdicts = await Promise.all(folds.map(verifyBlocking));
+      return resolveClusterVerdict(f, repVerdict, folds, foldVerdicts, verifyOpts);
     }));
     const kept = keepUnrefuted(
       annotateFindings(detected, verdicts, await noveltiesFor(detected), verifyOpts),

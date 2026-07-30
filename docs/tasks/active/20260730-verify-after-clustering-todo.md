@@ -40,12 +40,18 @@ similarity threshold (the #578 distinct pairs score 0.000, staying separate), an
 evidence-bearing) as representative, with every folded wording still rendered so a
 bad merge is visible rather than silent.
 
+## Guarding the drop decision (added after CodeRabbit review of #601)
+
+- [x] Re-verify a refuted cluster's folded members individually before dropping
+      them (`resolveClusterVerdict`), so a wrong merge cannot drop a
+      genuinely-distinct finding on a shared refutation. A representative refutation
+      is honoured only when every folded BLOCKING wording is also confidently
+      refuted; otherwise the cluster is kept, carrying the surviving verdict. The
+      re-verification runs only on the rare dropping verdict of a multi-member
+      cluster, so the confirmed common path stays one session per cluster.
+
 ## Not done here (candidate follow-up)
 
-- Re-verify a refuted cluster's folded members individually before dropping them,
-  so a wrong merge cannot drop a genuinely-distinct finding on a shared
-  refutation. Preserves safety in the only dangerous direction (dropping) while
-  keeping the savings in the common confirmed case.
 - The prior-round re-check still verifies each `priorForLens` entry; those were
   already collapsed when persisted last round, so the waste there is minimal —
   left as-is to keep this change focused.

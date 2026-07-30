@@ -508,14 +508,19 @@ Components:
   The only thing removed is count inflation, reported as `clusters.collapsed`. The
   stated limitation: two wordings sharing no vocabulary score 0 and stay separate,
   which leaves the count inflated — the status quo, and the conservative direction.
-  Running clustering *before* the verifier (it began *after* it, in #591) has one
-  tradeoff, stated rather than hidden: the merge now decides what the verifier
-  sees, so a wrong merge means a folded wording is judged only through its
-  representative. Two things bound it — the threshold is conservative (the #578
-  distinct pairs scored 0.000, so they stay separate) and `mergeCluster` elects the
-  strongest wording as representative (gating, then highest severity, then
-  evidence-bearing), so the verifier judges the form most likely to gate and every
-  folded wording is still rendered, making a bad merge visible rather than silent.
+  Running clustering *before* the verifier (it began *after* it, in #591) means
+  the merge now decides what the verifier sees, so a wrong merge could let a
+  representative's refutation drop a genuinely distinct wording that merged in and
+  was never checked on its own. `resolveClusterVerdict` closes that: a
+  representative refutation is honoured only when every folded BLOCKING wording is
+  ALSO confidently refuted — otherwise the cluster is kept, carrying the surviving
+  verdict. That re-verification runs only on the rare dropping verdict of a
+  multi-member cluster, so the common confirmed path still pays for exactly one
+  verifier session per cluster. Two further bounds: the threshold is conservative
+  (the #578 distinct pairs scored 0.000, so they stay separate) and `mergeCluster`
+  elects the strongest wording as representative (gating, then highest severity,
+  then evidence-bearing), so the verifier judges the form most likely to gate and
+  every folded wording is still rendered.
   A finding can now be clustered twice (fresh pass pre-verify, then again when a
   fresh survivor restates a carried-forward prior finding), so `mergeCluster`
   flattens the wordings each pass folded rather than overwriting them.
