@@ -487,6 +487,24 @@ Components:
   `verifier.absenceRaised`/`absenceRefuted`/`unresolved`, so a high `unresolved`
   against a low `absenceRefuted` is visible as absence claims riding through
   unchecked rather than being silently discounted.
+  A **clustering** pass (`clusterFindings`) then collapses RESTATEMENTS of one
+  defect. `dedupeFindings` only catches byte-identical summaries, so #578 reported
+  the same defect three times over — two wordings of one missing file, the
+  deny-list bug as both a `critical` and a `major`, the deny-list-shape concern
+  twice — and the verifier could not help, since it judges one finding at a time
+  in isolation and bills for each copy. The similarity metric is **not** re-derived:
+  `findingSimilarity` in `scripts/agent/rounds.mjs` already owns it for the
+  non-convergence detector, calibrated against real panel output with the overlap
+  coefficient chosen over Jaccard for exactly this restatement pattern. It
+  separated all four of #578's real duplicate pairs from all four of its real
+  distinct pairs, with the distinct ones scoring 0.000 — so this needs **no model
+  call**. Merging is not deletion, which is what makes that safe: every collapsed
+  wording rides along in `mergedFrom` and is rendered (and reaches the fixer), the
+  survivor takes the cluster's highest severity so a `critical` is never masked by
+  a `major` restatement, it gates if any member gated, and `unsettled` propagates.
+  The only thing removed is count inflation, reported as `clusters.collapsed`. The
+  stated limitation: two wordings sharing no vocabulary score 0 and stay separate,
+  which leaves the count inflated — the status quo, and the conservative direction.
   A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
   verifier structurally cannot: *did this change PUT this line here, carrying
   code that already existed?* The verifier's independence means it never sees the

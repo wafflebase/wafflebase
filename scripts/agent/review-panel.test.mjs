@@ -34,6 +34,8 @@ import {
   buildLensPrompt,
   resolveReviewScope,
   claimTypeOf,
+  clusterFindings,
+  clusterCounts,
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
@@ -721,8 +723,14 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   // `keepUnrefuted(annotateFindings(...))`; the region was intact but the regex
   // stopped matching, and this test failed claiming the re-check was "gone".
   // A guard over an implementation detail reports refactors as breakage.
+  //
+  // It happened a second time for the same reason: this pinned
+  // `const merged = dedupeFindings`, and the clustering pass legitimately made it
+  // `const merged = clusterFindings(dedupeFindings(...))`. Anchor on the BINDING,
+  // which is the landmark this test actually cares about, not on which functions
+  // produce it — that is free to change and has now changed twice.
   const priorStart = src.indexOf("const priorForLens = priorFindings.filter");
-  const mergeAt = src.indexOf("const merged = dedupeFindings", priorStart);
+  const mergeAt = src.indexOf("const merged =", priorStart);
   assert.ok(priorStart > 0, "the prior-round re-check is gone");
   assert.ok(mergeAt > priorStart, "the fresh + prior merge no longer follows the re-check");
   assert.ok(!src.slice(priorStart, mergeAt).includes("noNewHunks"),
@@ -1618,4 +1626,144 @@ test("buildVerifierPrompt: an absence claim with no searchedFor says so", () => 
     { rubric: "R", changedContext: ctx },
   );
   assert.match(p, /did not record what it searched/);
+});
+
+// --- clustering restatements -------------------------------------------------
+// dedupeFindings only catches byte-identical summaries. These pin that
+// RESTATEMENTS of one defect collapse, that genuinely distinct findings in the
+// same file do NOT, and that collapsing can never weaken the gate.
+//
+// The pairs are verbatim from #578's check-run output — the same-defect ones are
+// the three double-reports its disposition comment called out, plus the CITATION
+// pair. Real data, not invented strings, because the threshold is calibrated
+// against real panel wording and a synthetic test would not exercise that.
+
+const SAME_DEFECT = [
+  ["The header comment points readers at `hunt-probe.mjs` as the worked example of the trusted-execution pattern, but no such file exists in the repo.",
+   "The header comment points readers at `hunt-probe.mjs` as the worked example of the trusted-execution pattern, but that file does not exist in the repo."],
+  ['The deny-list is an exact string match, but the SDK’s `allowedTools` entries are permission *rules* — "Bash(git *)", " Bash", and mcp__workspace__bash all pass validation and grant shell.',
+   "assertAllowedTools' deny-list only does exact string equality, so the documented SDK permission-rule forms of the same tools (`Bash(git diff:*)`, `WebFetch(domain:x.com)`, `mcp__server__exec`) pass validation and grant the exact capability the module exists to refuse."],
+  ["Deny-list of forbidden tool names is the wrong mechanism for the stated invariant; an allow-list is what the repo already uses and what the claim requires.",
+   "Capability boundary is an exact-name deny-list, so it fails open on tool names it does not enumerate (approach fit)"],
+  ["`CITATION` is newly exported (plus a test) solely for a “hunt gate” that does not exist — unused public surface added outside the stated refactor.",
+   "`CITATION` is exported for a consumer that does not exist in the tree — speculative scope beyond the extraction"],
+];
+
+const DISTINCT_DEFECTS = [
+  ["The quota-detection regex's `resets?\\b` alternative matches ordinary transient network errors (ECONNRESET / connection reset by peer), flipping them to retryable:false so withRetry gives up on the first attempt.",
+   "askStructured has no timeout or abort signal, so a query that stalls without emitting a result message hangs the caller forever; in review-panel every lens sample is inside a Promise.all."],
+  ["classifyResult returns `ok:true` for a result that carries both `structured_output` and `is_error: true`, so a failed session can be written out as a real verdict.",
+   "`label` is applied only to the api-error message, so the no-output error is unattributable now that two consumers share the wrapper."],
+  ["`maxTurns` is silently dropped whenever it is not already a number, so a caller passing a stringified value gets no turn ceiling at all rather than an error.",
+   "`schema` is unvalidated, so a caller that omits it burns a full paid session before failing with a misleading “structured output not produced”."],
+  ["FORBIDDEN_TOOLS misses the execution, respawn and exfiltration tools that actually exist in pinned SDK 0.3.217 — including `Agent`, `REPL`, `Workflow`, `CronCreate`, `RemoteTrigger`.",
+   "The validated array is frozen and then handed directly to the SDK; if the SDK's option normalization mutates `allowedTools`, the frozen array throws a TypeError."],
+];
+
+const asFinding = (summary, over = {}) =>
+  ({ severity: "major", file: "scripts/agent/ask.mjs", summary, ...over });
+
+test("clusterFindings: real #578 restatements of one defect collapse to one", () => {
+  SAME_DEFECT.forEach(([a, b], i) => {
+    const out = clusterFindings([asFinding(a), asFinding(b)]);
+    assert.equal(out.length, 1, `pair ${i + 1} should have merged`);
+    assert.equal(out[0].mergedFrom.length, 1);
+    // The other wording is retained, never dropped.
+    assert.ok([a, b].includes(out[0].summary));
+    assert.ok([a, b].includes(out[0].mergedFrom[0].summary));
+    assert.notEqual(out[0].summary, out[0].mergedFrom[0].summary);
+  });
+});
+
+test("clusterFindings: real #578 DISTINCT findings in the same file never merge", () => {
+  DISTINCT_DEFECTS.forEach(([a, b], i) => {
+    const out = clusterFindings([asFinding(a), asFinding(b)]);
+    assert.equal(out.length, 2, `pair ${i + 1} must NOT have merged`);
+    for (const f of out) assert.equal(f.mergedFrom, undefined);
+  });
+});
+
+test("clusterFindings: a different file never merges, however alike the wording", () => {
+  const [a] = SAME_DEFECT[0];
+  const out = clusterFindings([
+    asFinding(a, { file: "scripts/agent/ask.mjs" }),
+    asFinding(a, { file: "scripts/agent/other.mjs" }),
+  ]);
+  assert.equal(out.length, 2);
+});
+
+test("clusterFindings: the cluster keeps the HIGHEST severity", () => {
+  // #578 reported the exact-string deny-list bug as both a critical and a major.
+  // Merging must not let the major mask the critical.
+  const [a, b] = SAME_DEFECT[1];
+  const out = clusterFindings([asFinding(a, { severity: "major" }), asFinding(b, { severity: "critical" })]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "critical");
+  assert.equal(classify(out).conclusion, "failure");
+});
+
+test("clusterFindings: a gating member keeps the whole cluster gating", () => {
+  // Merging must never be able to turn a check green — the same rule
+  // dedupeFindings has, for the same reason.
+  const [a, b] = SAME_DEFECT[0];
+  const out = clusterFindings([
+    asFinding(a, { severity: "critical", lane: "backlog" }),
+    asFinding(b, { severity: "critical", lane: "blocking" }),
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].lane, "blocking");
+  assert.equal(classify(gatingFindings(out)).conclusion, "failure");
+});
+
+test("clusterFindings: an all-backlog cluster stays demoted", () => {
+  const [a, b] = SAME_DEFECT[0];
+  const out = clusterFindings([
+    asFinding(a, { lane: "backlog" }),
+    asFinding(b, { lane: "backlog" }),
+  ]);
+  assert.equal(out[0].lane, "backlog");
+});
+
+test("clusterFindings: never invents a lane on a finding that had none", () => {
+  // minor/nit findings carry no lane; giving them one would build the second,
+  // redundant gate axis annotateFindings deliberately avoids.
+  const [a, b] = SAME_DEFECT[0];
+  const out = clusterFindings([asFinding(a, { severity: "nit" }), asFinding(b, { severity: "nit" })]);
+  assert.equal(out.length, 1);
+  assert.equal("lane" in out[0], false);
+});
+
+test("clusterFindings: `unsettled` propagates from any member", () => {
+  const [a, b] = SAME_DEFECT[0];
+  const out = clusterFindings([asFinding(a), asFinding(b, { unsettled: true })]);
+  assert.equal(out[0].unsettled, true);
+});
+
+test("clusterFindings: order-independent, and transitive via single linkage", () => {
+  // Four wordings of one defect must collapse to ONE regardless of the order they
+  // arrive in — which only holds if a wording can join on matching ANY member,
+  // not just whichever one currently holds the slot.
+  const wordings = [SAME_DEFECT[0][0], SAME_DEFECT[0][1], SAME_DEFECT[1][0], SAME_DEFECT[1][1]];
+  const forward = clusterFindings(wordings.map((s) => asFinding(s)));
+  const reverse = clusterFindings([...wordings].reverse().map((s) => asFinding(s)));
+  assert.deepEqual(forward.map((f) => f.summary).sort(), reverse.map((f) => f.summary).sort());
+  // Total finding count is conserved: survivors + everything folded into them.
+  const accounted = (out) => out.length + out.reduce((n, f) => n + (f.mergedFrom?.length ?? 0), 0);
+  assert.equal(accounted(forward), 4);
+  assert.equal(accounted(reverse), 4);
+});
+
+test("clusterFindings: tolerates junk and never folds a malformed entry into a real one", () => {
+  assert.deepEqual(clusterFindings(null), []);
+  assert.deepEqual(clusterFindings([]), []);
+  const out = clusterFindings([null, 42, asFinding("a real distinctive finding about tokens")]);
+  assert.equal(out.length, 3); // each travels alone
+});
+
+test("clusterCounts: reports collapsed wordings, not findings", () => {
+  const [a, b] = SAME_DEFECT[0];
+  const merged = clusterFindings([asFinding(a), asFinding(b), asFinding(SAME_DEFECT[2][0])]);
+  assert.deepEqual(clusterCounts(merged), { clustered: 1, collapsed: 1 });
+  assert.deepEqual(clusterCounts([]), { clustered: 0, collapsed: 0 });
+  assert.deepEqual(clusterCounts(null), { clustered: 0, collapsed: 0 });
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSeverity, classify, renderSummaryMd } from "./severity.mjs";
+import { normalizeSeverity, classify, renderSummaryMd, normalizeFindings } from "./severity.mjs";
 
 test("normalizeSeverity: known values pass through, unknown → major (fail-safe)", () => {
   for (const s of ["critical", "major", "minor", "nit"]) assert.equal(normalizeSeverity(s), s);
@@ -85,4 +85,39 @@ test("renderSummaryMd: no demoted findings renders no demoted section at all", (
   assert.doesNotMatch(renderSummaryMd("R", [], "", { demoted: [] }), /Relocated code/);
   // Junk entries are ignored rather than rendered as empty bullets.
   assert.doesNotMatch(renderSummaryMd("R", [], "", { demoted: [null, 42] }), /Relocated code/);
+});
+
+test("normalizeFindings: preserves orchestrator-added fields, not just the four it names", () => {
+  // Regression. This used to rebuild each finding as exactly
+  // {severity,file,summary,evidence}, which silently dropped everything the
+  // orchestrator annotates AFTER the lens produced it. renderSummaryMd renders
+  // from classify()'s output, so the "verifier could not settle this" marker
+  // shipped in the absence-claims change never appeared in a single check body —
+  // the field was gone before the renderer looked for it.
+  const [out] = normalizeFindings([
+    { severity: "weird", file: "a.mjs", summary: "s", evidence: "e",
+      unsettled: true, lane: "blocking", claimType: "absence",
+      novelty: { origin: "introduced" }, mergedFrom: [{ severity: "major", summary: "other wording" }] },
+  ]);
+  assert.equal(out.severity, "major"); // still coerced
+  assert.equal(out.unsettled, true);
+  assert.equal(out.lane, "blocking");
+  assert.equal(out.claimType, "absence");
+  assert.deepEqual(out.novelty, { origin: "introduced" });
+  assert.equal(out.mergedFrom.length, 1);
+  // Junk entries still normalize to a blocking placeholder rather than throwing.
+  assert.equal(normalizeFindings([null, 42])[0].severity, "major");
+});
+
+test("renderSummaryMd: an unsettled finding is marked, and merged wordings are shown", () => {
+  // The end-to-end version of the above: both annotations must survive
+  // classify() and reach the rendered body.
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "unsettled one", unsettled: true },
+    { severity: "major", file: "b.mjs", summary: "kept wording",
+      mergedFrom: [{ severity: "major", summary: "folded wording" }] },
+  ], "");
+  assert.match(md, /verifier could not settle this/);
+  assert.match(md, /also reported as \(1\)/);
+  assert.match(md, /folded wording/);
 });
