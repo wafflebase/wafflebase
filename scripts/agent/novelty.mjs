@@ -40,6 +40,7 @@
 // finding blocking. Demotion requires BOTH blames to have answered.
 
 import { execFile } from "node:child_process";
+import { repoScopedEnv } from "./git-env.mjs";
 import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -186,7 +187,7 @@ async function git(args, repo) {
   try {
     const { stdout } = await execFileAsync("git", args, {
       cwd: repo,
-      env: repoScopedEnv(),
+      env: repoScopedEnv(repo),
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
       encoding: "utf8",
@@ -197,39 +198,6 @@ async function git(args, repo) {
   }
 }
 
-/**
- * `process.env` with every git-location variable removed, so `cwd` alone
- * decides which repository these commands read.
- *
- * `cwd` does NOT win against an inherited `GIT_DIR` — the environment does.
- * That matters because **git exports `GIT_DIR` into every hook it runs**, and
- * this repo's `pre-push` hook runs `pnpm verify:self`, which reaches this
- * module. Without this, a novelty lookup performed under any hook silently
- * blames the WRONG repository: `cwd` says fixture, `GIT_DIR` says the real
- * checkout, and git obeys `GIT_DIR`. The answers still look well-formed, so a
- * finding gets demoted or kept on evidence from an unrelated tree.
- *
- * Deleting rather than pinning is deliberate: `repo` may be a linked worktree,
- * where `.git` is a FILE containing a `gitdir:` pointer, so a computed
- * `GIT_DIR: repo/.git` would be wrong exactly where it matters most. Letting
- * discovery run from a clean environment handles worktrees, bare repos, and
- * ordinary checkouts alike.
- */
-function repoScopedEnv() {
-  const env = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES",
-  ]) {
-    delete env[key];
-  }
-  return env;
-}
 
 /**
  * Does `baseSha` name a commit in this repo? Called ONCE by the caller so a

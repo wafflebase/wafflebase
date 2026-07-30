@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { fixtureGitEnv } from "./git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -217,19 +220,21 @@ test("noveltyOf: the cache is consulted before any git work", async () => {
 // repo with an actual refactor in it and read the actual answers, so a change
 // that renders the gate inert (or demoting) cannot ship green.
 
+/** The checkout this test file lives in. */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 /**
- * git with a fixed identity, so the test does not depend on global config.
+ * git with a fixed identity, in an environment that cannot reach any repository
+ * but `dir`.
  *
- * `GIT_DIR`/`GIT_WORK_TREE` are pinned explicitly rather than trusting `cwd`
- * alone. A fixture that escapes its temp directory does not fail — it commits
- * into the SURROUNDING repository, on whatever branch is checked out, replacing
- * the developer's branch tip. `cwd` alone does not prevent that: in a directory
- * that is not itself a repo, git walks UP and finds the real checkout. With
- * these set, git performs no discovery at all. `GIT_CEILING_DIRECTORIES` is
- * belt-and-braces for any subcommand that re-derives the root itself.
+ * `fixtureGitEnv` removes every git-steering variable AND pins
+ * `GIT_DIR`/`GIT_WORK_TREE`. Pinning `GIT_DIR` alone is NOT enough: an inherited
+ * `GIT_INDEX_FILE` still makes `git add` write another repository's index, and
+ * because the objects it records live in this fixture's store, that index is left
+ * CORRUPT rather than merely modified. The escape test below pins that.
  *
- * stderr is captured rather than discarded: when one of these calls does go
- * wrong, git's own message is the only evidence of what it actually did.
+ * stderr is captured rather than discarded: when one of these calls goes wrong,
+ * git's own message is the only evidence of what it actually did.
  */
 function git(dir, ...args) {
   try {
@@ -237,12 +242,7 @@ function git(dir, ...args) {
       cwd: dir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        GIT_DIR: path.join(dir, ".git"),
-        GIT_WORK_TREE: dir,
-        GIT_CEILING_DIRECTORIES: dir,
-      },
+      env: fixtureGitEnv(dir),
     });
   } catch (e) {
     const why = String(e?.stderr || e?.message || e).trim();
@@ -251,22 +251,35 @@ function git(dir, ...args) {
 }
 
 /**
- * Prove the fixture's git resolves to `dir` and nothing else.
+ * Prove the fixture's git resolves to `dir`'s own repository.
  *
- * The pinning above should make escape impossible, but "should" is what the
- * previous version of this helper also had. This converts a silent commit into
- * the real repository into a loud failure. `realpathSync` on both sides because
- * macOS `tmpdir()` is `/var/...` while git reports the resolved `/private/var/...`,
- * so comparing raw strings would fail every run.
+ * `--absolute-git-dir` is the load-bearing assertion. `--show-toplevel` merely
+ * echoes whatever `GIT_WORK_TREE` was pinned to, so on its own it CANNOT detect a
+ * `GIT_DIR` escape — the exact incident shape — and asserting it alone would be
+ * tautological. The git dir is what decides where commits and refs land.
  */
 function assertIsolated(dir) {
-  const top = git(dir, "rev-parse", "--show-toplevel").trim();
+  const gitDir = git(dir, "rev-parse", "--absolute-git-dir").trim();
   assert.equal(
-    realpathSync(top),
-    realpathSync(dir),
-    `fixture git escaped its temp directory (resolved to ${top}) — it would commit into the real repo`,
+    realpathSync(gitDir),
+    realpathSync(path.join(dir, ".git")),
+    `fixture git dir escaped to ${gitDir} — commits would land in another repository`,
   );
+  const top = git(dir, "rev-parse", "--show-toplevel").trim();
+  assert.equal(realpathSync(top), realpathSync(dir), `fixture work tree escaped to ${top}`);
 }
+
+/** A repo with one commit, used as the thing a leak would damage. */
+function makeVictim() {
+  const dir = mkdtempSync(path.join(tmpdir(), "novelty-victim-"));
+  git(dir, "init", "-q", "-b", "main");
+  writeFileSync(path.join(dir, "victim.mjs"), "export const VICTIM = 1;\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "victim base");
+  return dir;
+}
+
+const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
 /**
  * A repo whose HEAD commit performs the #578 refactor:
@@ -314,63 +327,85 @@ function makeRepo() {
 }
 
 test("noveltyOf answers about `repo`, not an inherited GIT_DIR", async () => {
-  // THE regression test for the root cause of the branch-clobbering incident.
+  // THE regression test for the root cause. git exports GIT_DIR into every hook
+  // it runs, and this repo's pre-push hook runs `pnpm verify:self`, which reaches
+  // this module. `cwd` does not win against GIT_DIR — the environment does.
   //
-  // git exports GIT_DIR into every hook it runs, and this repo's pre-push hook
-  // runs `pnpm verify:self`, which reaches this module. `cwd` does not win
-  // against GIT_DIR — the environment does. So under any hook, a novelty lookup
-  // would silently blame whatever repository GIT_DIR names instead of `repo`,
-  // and the answers still look well-formed: a finding is demoted or kept on
-  // evidence from an unrelated tree.
-  //
-  // Point GIT_DIR at a DIFFERENT repo and assert the answer is unchanged.
+  // The foreign repo must be DISTINGUISHABLE, or this proves nothing: two copies
+  // of makeRepo() are byte-identical and commit within the same whole second, so
+  // their shas collide and a leaked read returns the same answers. So point
+  // GIT_DIR at an EMPTY repo, where `baseSha` cannot resolve at all: scoped it
+  // answers `relocated`, leaked it can only answer `unknown`.
   const { dir, base } = makeRepo();
-  const foreign = makeRepo();
+  const empty = mkdtempSync(path.join(tmpdir(), "novelty-empty-"));
   const saved = process.env.GIT_DIR;
   try {
-    process.env.GIT_DIR = path.join(foreign.dir, ".git");
+    git(empty, "init", "-q", "-b", "main");
+    process.env.GIT_DIR = path.join(empty, ".git");
     const r = await noveltyOf({ repo: dir, file: "moved.mjs", line: 2, baseSha: base });
-    assert.equal(r.origin, "relocated");
+    assert.equal(r.origin, "relocated", "answered about GIT_DIR's repo, not `repo`");
     assert.match(String(r.alsoAt), /old\.mjs:\d+$/);
   } finally {
     if (saved === undefined) delete process.env.GIT_DIR;
     else process.env.GIT_DIR = saved;
     rmSync(dir, { recursive: true, force: true });
-    rmSync(foreign.dir, { recursive: true, force: true });
+    rmSync(empty, { recursive: true, force: true });
   }
 });
 
-test("fixture git cannot escape into the surrounding repository", () => {
-  // THE regression test for a silent branch-clobbering incident: these fixture
-  // git calls committed into the REAL repository, replacing a developer's branch
-  // tip with the 4-file fixture tree above, and the resulting push read as
-  // deleting all 3019 files. An escaped fixture does not fail — it succeeds
-  // against the wrong repo — so nothing catches it but a check like this one.
+test("fixture git cannot escape, even with a hostile inherited environment", () => {
+  // THE regression test for the write half of the incident, where fixture commits
+  // replaced a branch tip and the resulting push read as deleting every file.
   //
-  // Build the fixture INSIDE the real checkout, the one place discovery would
-  // walk up and find a parent to commit into.
-  const inside = mkdtempSync(path.join(process.cwd(), "novelty-escape-"));
-  try {
-    git(inside, "init", "-q", "-b", "main");
+  // A hostile ambient environment is the whole point: without one, the assertions
+  // below hold whether or not the helper scopes anything, and the test is
+  // decoration. GIT_INDEX_FILE is the sharp one — pinning GIT_DIR does NOT stop
+  // it, and `git add` through it leaves the victim's index corrupt.
+  //
+  // The fixture lives under .harness-reports/ (gitignored) rather than the
+  // working tree proper, so it is still INSIDE a checkout — the condition that
+  // makes discovery dangerous — without an interrupted run leaving a nested .git
+  // that `git add -A` would commit as a gitlink.
+  const scratch = path.join(REPO_ROOT, ".harness-reports");
+  mkdirSync(scratch, { recursive: true });
+  const inside = mkdtempSync(path.join(scratch, "novelty-escape-"));
+  const victim = makeVictim();
+  const victimHead = git(victim, "rev-parse", "HEAD").trim();
+  const victimIndex = sha256(path.join(victim, ".git", "index"));
 
-    // Ordering is load-bearing: prove isolation BEFORE writing a commit, so a
-    // broken pin fails an assertion instead of mutating the real branch.
+  const saved = { ...process.env };
+  try {
+    process.env.GIT_DIR = path.join(victim, ".git");
+    process.env.GIT_WORK_TREE = victim;
+    process.env.GIT_INDEX_FILE = path.join(victim, ".git", "index");
+
+    git(inside, "init", "-q", "-b", "main");
+    // Ordering is load-bearing: prove isolation BEFORE writing, so a broken pin
+    // trips an assertion instead of mutating the victim.
     assertIsolated(inside);
-    assert.equal(
-      realpathSync(git(inside, "rev-parse", "--absolute-git-dir").trim()),
-      realpathSync(path.join(inside, ".git")),
-    );
 
     writeFileSync(path.join(inside, "f.txt"), "contained\n");
     git(inside, "add", "-A");
     git(inside, "commit", "-q", "-m", "fixture-only");
 
-    // A one-commit history with one file proves this is the fixture's repo and
-    // not the real one (thousands of each) — i.e. the commit was contained.
+    // The write landed in the fixture...
     assert.equal(git(inside, "rev-list", "--count", "HEAD").trim(), "1");
     assert.deepEqual(git(inside, "ls-tree", "-r", "--name-only", "HEAD").trim().split("\n"), ["f.txt"]);
   } finally {
-    rmSync(inside, { recursive: true, force: true });
+    for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    // ...and the victim is untouched: same tip, same index, and an index that
+    // still reads (a leaked `git add` leaves one referencing absent objects).
+    try {
+      assert.equal(git(victim, "rev-parse", "HEAD").trim(), victimHead, "victim HEAD moved");
+      assert.equal(sha256(path.join(victim, ".git", "index")), victimIndex, "victim index rewritten");
+      git(victim, "status", "--short");
+    } finally {
+      rmSync(inside, { recursive: true, force: true });
+      rmSync(victim, { recursive: true, force: true });
+    }
   }
 });
 

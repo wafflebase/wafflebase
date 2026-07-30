@@ -190,6 +190,20 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
 | `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
 
+**Branch-integrity gate.** `verify:self` records `HEAD` before the lanes and
+re-reads it after each one. A lane that moves `HEAD`, or leaves it unreadable,
+fails **even if it exited 0** — a lane can corrupt the repository and still
+report success. The lane report carries `status: "fail"` with a non-zero
+`exitCode` even when the lane's own exit code was 0, so no consumer is handed a
+report that reads as both failed and successful.
+
+The gate detects *net* movement of `HEAD` only. A lane that commits and resets
+back, rewrites another ref, or mutates the index or stash is **not** covered;
+the narrow guarantee is stated deliberately, because overclaiming invites
+trusting a green run. It exists because a test fixture escaping its temp
+directory replaced a working branch's tip three times, and one of those states
+reached a public PR as a diff appearing to delete every file in the repo.
+
 ### Integration Lanes (require database)
 
 | Command | Purpose |
@@ -497,7 +511,17 @@ Components:
   `git grep` against the base tree is a fallback for the second question only
   when move-aware blame cannot answer (shallow clone) — never an override of it.
   All probes run in the trusted script via async `execFile` (array args, no
-  shell, timeout); no capability is granted to a model. The result routes each
+  shell, timeout); no capability is granted to a model. Every git invocation is
+  built by `scripts/agent/git-env.mjs`, because **`cwd` and `-C` do not decide which repository
+  git operates on — the environment does, and it wins.** git exports its location
+  variables into every hook it runs, and `pre-push` runs `verify:self`, which
+  reaches this module; unscoped, a probe under a hook answers about whatever
+  `GIT_DIR` names. `repoScopedEnv` (reads) strips every location and behaviour
+  variable and caps discovery at the repo's parent, so a non-repo path fails
+  loudly instead of answering about an ancestor. `fixtureGitEnv` (writes, tests
+  only) additionally pins `GIT_DIR`/`GIT_WORK_TREE`; pinning `GIT_DIR` alone is
+  insufficient, because an inherited `GIT_INDEX_FILE` still makes `git add`
+  rewrite another repository's index and leaves it corrupt. The result routes each
   blocking finding to a **lane** (`routeFinding`): `blocking` gates as before,
   `backlog` is reported with the base location that proves the code already
   existed but does not gate, is **filtered out of the fixer's checklist**, and is

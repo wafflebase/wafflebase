@@ -1,4 +1,5 @@
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { readHeadSha } from "./agent/git-env.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,28 +99,27 @@ function writeSummary(results, totalStart) {
 
 /**
  * The commit HEAD points at, or `null` when that cannot be read (a vendored
- * copy or exported tarball, where the guard below simply does not apply).
+ * copy or exported tarball, where the guard below does not apply).
  *
  * Read once before the lanes and again after each one. No lane may move the
- * developer's branch. A test that shells out to git and escapes its fixture
- * directory does not fail — it commits into THIS repository, on whatever branch
- * is checked out, replacing the branch tip. That happened: ten commits left a
- * branch and the resulting push read as deleting all 3019 files. The only
- * symptom was the diff stat, and only if someone looked before pushing.
+ * developer's branch: a test that shells out to git and escapes its fixture
+ * commits into THIS repository instead, on whatever branch is checked out,
+ * replacing the branch tip. That happened — ten commits left a branch and the
+ * resulting push read as deleting every file — and the only symptom was the
+ * diff stat.
  *
- * Checking here catches the whole class rather than one known test, and names
- * the lane responsible — turning a reflog excavation into one line of output.
+ * Scoped via `readHeadSha` rather than trusting `cwd`, because this runner IS
+ * the `pre-push` hook's entry point, and a hook is exactly where git exports
+ * `GIT_DIR`. Reading `HEAD` with an inherited environment would let the guard
+ * watch a different repository than the lanes can damage.
+ *
+ * Detects *net* movement of `HEAD` only. A lane that commits and resets back,
+ * rewrites another ref, or mutates the index or stash is NOT covered; claiming
+ * otherwise would be worse than the narrow guarantee, because it invites
+ * trusting a green run.
  */
 function readHead() {
-  try {
-    return execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return null;
-  }
+  return readHeadSha(repoRoot);
 }
 
 // --- main ---
@@ -151,22 +151,38 @@ for (const { name, cmd } of LANES) {
   const { exitCode, output } = await runCommand(cmd, repoRoot);
   const durationMs = Date.now() - start;
 
-  // Fail on a moved branch even when the lane itself passed — a lane that
-  // rewrites history and exits 0 is the exact case this exists to catch.
+  // Checked after the exitCode split so a lane that genuinely failed keeps its
+  // own diagnosis; a moved HEAD is then reported on top of it rather than
+  // instead of it. `headAfter == null` while `headBefore` was readable means
+  // the repository stopped answering during the lane, which is a worse outcome
+  // than movement and must not pass as "unchanged".
   const headAfter = readHead();
-  if (headBefore && headAfter && headAfter !== headBefore) {
+  const headLost = Boolean(headBefore) && headAfter === null;
+  const headMoved = Boolean(headBefore) && Boolean(headAfter) && headAfter !== headBefore;
+
+  if (headMoved || headLost) {
+    const detail = headMoved
+      ? `moved HEAD ${headBefore.slice(0, 9)} -> ${headAfter.slice(0, 9)}`
+      : "left HEAD unreadable";
     const report = {
       lane: name,
       status: "fail",
       durationMs,
-      exitCode,
-      failureSummary: `lane moved HEAD ${headBefore.slice(0, 9)} -> ${headAfter.slice(0, 9)}`,
+      // Deliberately not the lane's own exit code: a lane can corrupt the
+      // repository and still exit 0, and a report saying `fail` alongside
+      // `exitCode: 0` reads as a contradiction to downstream consumers.
+      exitCode: exitCode === 0 ? 1 : exitCode,
+      failureSummary: `lane ${detail}${exitCode === 0 ? "" : ` (lane also exited ${exitCode})`}`,
     };
     results.push(report);
     writeLaneReport(report);
-    console.error(`\n\u2717 ${name} MOVED HEAD: ${headBefore.slice(0, 9)} -> ${headAfter.slice(0, 9)}`);
-    console.error("  This lane committed into the repository. Your branch tip was replaced.");
-    console.error(`  Recover with:  git reset --hard ${headBefore}`);
+    console.error(`\n\u2717 ${name} ${detail}`);
+    console.error("  This lane wrote to the repository. Inspect before doing anything else:");
+    console.error("    git status && git reflog -n 20");
+    if (headMoved) {
+      console.error(`  The prior tip was ${headBefore}. Resetting to it DISCARDS uncommitted work,`);
+      console.error("  so tag the current state first:  git tag rescue/$(date +%s) HEAD");
+    }
     failed = true;
     continue;
   }
