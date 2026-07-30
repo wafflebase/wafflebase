@@ -6,7 +6,6 @@ import {
 import {
   DEFAULT_VIEWPORT,
   SYNTHETIC_SLIDE_ID,
-  screenToWorld,
   type Viewport,
 } from "@wafflebase/board";
 import { getPeerCursorColor } from "@wafflebase/sheets";
@@ -90,10 +89,10 @@ function mapBoardPeers(
  * `updatePresence` — those are `YorkieSlidesStore`-only conveniences,
  * not part of the shared `SlidesStore` interface) using the same
  * `getOthersPresences()` / `subscribe('others', ...)` / `doc.update`
- * primitives `YorkieSlidesStore` wraps. Each client publishes its
- * cursor in WORLD coordinates (via `screenToWorld`) on pointer move,
- * rAF-throttled to one `doc.update` per frame so a fast mouse doesn't
- * flood the CRDT with presence churn.
+ * primitives `YorkieSlidesStore` wraps. Peer cursor DOTS are not
+ * rendered yet (`mapBoardPeers` has no cursor field) — that's a
+ * deferred follow-up, so this client does not publish `cursor` into
+ * presence (would be pure CRDT churn with nothing reading it).
  */
 export function BoardView({ documentId, readOnly }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -199,15 +198,26 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
     editorRef.current = editor;
     setEditor(editor);
 
+    // Cached canvas rect for the pointer/wheel hot paths below — a bare
+    // `canvas.getBoundingClientRect()` forces a synchronous layout
+    // reflow, and onWheel fires on every wheel tick. Refreshed here on
+    // every ResizeObserver callback (which also covers the "no size
+    // change but position shifted" case since the callback always
+    // re-reads it, not just on the early-return branch below); the host
+    // fills its flex parent edge-to-edge with no page-level scroll, so
+    // resize is the only geometry change that matters.
+    let canvasRect = canvas.getBoundingClientRect();
     const resizeObserver = new ResizeObserver(() => {
       const rect = container.getBoundingClientRect();
       const w = Math.max(1, Math.round(rect.width));
       const h = Math.max(1, Math.round(rect.height));
-      if (w === hostW && h === hostH) return;
-      hostW = w;
-      hostH = h;
-      sizeCanvas(hostW, hostH);
-      editor.setHostSize(hostW, hostH);
+      if (w !== hostW || h !== hostH) {
+        hostW = w;
+        hostH = h;
+        sizeCanvas(hostW, hostH);
+        editor.setHostSize(hostW, hostH);
+      }
+      canvasRect = canvas.getBoundingClientRect();
     });
     resizeObserver.observe(container);
 
@@ -250,14 +260,13 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
     // --- wheel: ctrl/cmd zoom-at-cursor, plain pan ---
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
       vp.current = applyWheelToViewport(vp.current, {
         ctrlKey: e.ctrlKey,
         metaKey: e.metaKey,
         deltaX: e.deltaX,
         deltaY: e.deltaY,
-        offsetX: e.clientX - rect.left,
-        offsetY: e.clientY - rect.top,
+        offsetX: e.clientX - canvasRect.left,
+        offsetY: e.clientY - canvasRect.top,
       });
       editor.setViewport(vp.current);
     };
@@ -292,19 +301,6 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
 
-    // rAF-throttled cursor presence: coalesce every pointermove within a
-    // frame into a single `doc.update`, so a fast mouse doesn't flood
-    // the CRDT with a presence write per native mousemove event.
-    let pendingCursor: { x: number; y: number } | null = null;
-    let cursorRaf = 0;
-    const flushCursor = () => {
-      cursorRaf = 0;
-      if (!pendingCursor) return;
-      const cursor = pendingCursor;
-      pendingCursor = null;
-      doc.update((_, p) => p.set({ cursor }));
-    };
-
     const onPointerDown = (e: PointerEvent) => {
       const isMiddleButton = e.button === 1;
       const isSpaceDrag = spaceDown && e.button === 0;
@@ -332,21 +328,13 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       canvas.style.cursor = "grabbing";
     };
     const onPointerMove = (e: PointerEvent) => {
-      if (panning && e.pointerId === panPointerId) {
-        const dx = e.clientX - panLastX;
-        const dy = e.clientY - panLastY;
-        panLastX = e.clientX;
-        panLastY = e.clientY;
-        vp.current = { ...vp.current, panX: vp.current.panX + dx, panY: vp.current.panY + dy };
-        editor.setViewport(vp.current);
-        return;
-      }
-      const rect = canvas.getBoundingClientRect();
-      pendingCursor = screenToWorld(vp.current, {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-      if (!cursorRaf) cursorRaf = requestAnimationFrame(flushCursor);
+      if (!panning || e.pointerId !== panPointerId) return;
+      const dx = e.clientX - panLastX;
+      const dy = e.clientY - panLastY;
+      panLastX = e.clientX;
+      panLastY = e.clientY;
+      vp.current = { ...vp.current, panX: vp.current.panX + dx, panY: vp.current.panY + dy };
+      editor.setViewport(vp.current);
     };
     const onPointerUp = (e: PointerEvent) => {
       if (!panning || e.pointerId !== panPointerId) return;
@@ -379,7 +367,6 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       canvas.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
-      if (cursorRaf) cancelAnimationFrame(cursorRaf);
       cancelAnimationFrame(raf);
       offSelection();
       offChange();

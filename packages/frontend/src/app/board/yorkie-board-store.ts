@@ -9,7 +9,6 @@ import {
   type Frame,
   type GroupElement,
   type GroupTransform,
-  type GuideAxis,
   type Meta,
   type PlaceholderRef,
   type SlidesDocument,
@@ -49,10 +48,6 @@ import type { YorkieElement, YorkieGroupElement } from '@/types/slides-document'
  */
 type ProxyArray = { id: string; type: string; data?: unknown; [k: string]: unknown }[];
 
-/** A guide persisted on the board root (lazily initialized — see addGuide). */
-type YorkieBoardGuide = { id: string; axis: GuideAxis; position: number };
-type BoardRootWithGuides = YorkieBoardRoot & { guides?: YorkieBoardGuide[] };
-
 /**
  * Plain-value deep clone via JSON. Use for snapshot values, init payloads,
  * and any other plain-JS objects. Do NOT pass a Yorkie proxy directly: its
@@ -62,16 +57,6 @@ type BoardRootWithGuides = YorkieBoardRoot & { guides?: YorkieBoardGuide[] };
  */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
-}
-
-/**
- * Reject `NaN` / `Infinity` before they reach the Yorkie root. Verbatim
- * port of the helper in `yorkie-slides-store.ts`.
- */
-function assertFiniteGuidePosition(op: string, position: number): void {
-  if (!Number.isFinite(position)) {
-    throw new Error(`${op}: position must be a finite number, got ${position}`);
-  }
 }
 
 /**
@@ -263,10 +248,27 @@ export class YorkieBoardStore implements SlidesStore {
   }
 
   readMeta(): Meta {
-    // Board decks have no layouts/masters/themes to migrate, so unlike
-    // YorkieSlidesStore.readMeta (which skips the whole slide walk),
-    // read().meta is already cheap here — no separate fast path needed.
-    return this.read().meta;
+    // Skip `read()`'s full walk (which recursively unwraps every
+    // element via `readElement` — expensive when called per overlay
+    // render, e.g. once per drag frame). `boardToSlidesDocument`'s
+    // synthesized `meta` (title/themeId/masterId/unit/recentColors)
+    // never depends on `elements`, so an empty array is enough to get
+    // the same `Meta` shape cheaply. Mirrors YorkieSlidesStore.readMeta,
+    // which likewise skips the slide/element walk.
+    const root = this.doc.getRoot();
+    const meta = yorkieToPlain<{
+      title?: string;
+      unit?: 'in' | 'cm';
+      recentColors?: string[];
+    }>(root.meta) ?? {};
+    return boardToSlidesDocument({
+      meta: {
+        title: meta.title ?? 'Untitled board',
+        unit: meta.unit,
+        recentColors: meta.recentColors,
+      },
+      elements: [],
+    }).meta;
   }
 
   /**
@@ -1152,48 +1154,28 @@ export class YorkieBoardStore implements SlidesStore {
     });
   }
 
-  // --- guides (board-wide) ---
+  // --- guides: unsupported ---
   //
-  // NOTE: `YorkieBoardRoot` (types/board-document.ts, Task 7) does not
-  // yet declare a `guides` field, and `boardToSlidesDocument` (Task 6)
-  // hardcodes `guides: []` on every read. These ops persist real guides
-  // on the Yorkie root (lazily initialized, same pattern as
-  // YorkieSlidesStore.addGuide predating the ruler feature), but `read()`
-  // cannot surface them until a follow-up task plumbs `guides` through
-  // `BoardModel`/`boardToSlidesDocument`. Tracked as a known gap — not
-  // exercised by this task's test contract.
+  // A board has no ruler UI (`initializeEditor` in `board-view.tsx`
+  // passes neither `hRulerCanvas`/`vRulerCanvas`/`rulerCorner`), and the
+  // slides editor only ever calls `addGuide`/`moveGuide`/`removeGuide`
+  // from its ruler drag-out interaction (`guideDragHost()` in
+  // `editor.ts`) — so these are unreachable in normal board use. Follow
+  // `notSupported` like every other slide-scoped op this store doesn't
+  // implement, rather than persisting orphan `root.guides` CRDT state
+  // that `boardToSlidesDocument` always drops (`guides: []`) and no UI
+  // ever reads.
 
-  addGuide(axis: GuideAxis, position: number): string {
-    this.requireBatch();
-    assertFiniteGuidePosition('addGuide', position);
-    const id = generateId();
-    this.withUpdate((r) => {
-      const rootAny = r as BoardRootWithGuides;
-      if (rootAny.guides == null) rootAny.guides = [];
-      rootAny.guides.push({ id, axis, position });
-    });
-    return id;
+  addGuide(): string {
+    return notSupported('addGuide');
   }
 
-  moveGuide(id: string, position: number): void {
-    this.requireBatch();
-    assertFiniteGuidePosition('moveGuide', position);
-    this.withUpdate((r) => {
-      const rootAny = r as BoardRootWithGuides;
-      const guide = rootAny.guides?.find((g) => g.id === id);
-      if (!guide) throw new Error(`Guide not found: ${id}`);
-      guide.position = position;
-    });
+  moveGuide(): void {
+    notSupported('moveGuide');
   }
 
-  removeGuide(id: string): void {
-    this.requireBatch();
-    this.withUpdate((r) => {
-      const rootAny = r as BoardRootWithGuides;
-      const idx = rootAny.guides?.findIndex((g) => g.id === id) ?? -1;
-      if (idx === -1) throw new Error(`Guide not found: ${id}`);
-      rootAny.guides!.splice(idx, 1);
-    });
+  removeGuide(): void {
+    notSupported('removeGuide');
   }
 
   // --- text bridges ---
