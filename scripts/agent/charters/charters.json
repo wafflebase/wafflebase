@@ -76,5 +76,85 @@
     },
     "verifierMaxTurns": 20,
     "explorerMaxTurns": 55
+  },
+  {
+    "id": "round-trip",
+    "title": "Round-trip and metamorphic relations",
+    "model": "claude-opus-5",
+    "samples": 3,
+    "verifiers": 2,
+    "oracles": [
+      "round-trip"
+    ],
+    "surface": "cli",
+    "needsBackend": true,
+    "mutating": true,
+    "codeScope": [
+      "packages/cli/src/**",
+      "packages/docs/src/**",
+      "packages/sheets/src/**",
+      "packages/slides/src/**",
+      "packages/backend/src/**"
+    ],
+    "docsScope": [
+      "packages/cli/README.md",
+      "docs/design/cli.md",
+      "docs/design/rest-api.md",
+      "packages/cli/skills/**"
+    ],
+    "requiresDocCitation": false,
+    "minCitations": 1,
+    "explorerMaxTurns": 75,
+    "verifierMaxTurns": 20,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "maxCandidates": 6,
+    "probeBudget": {
+      "maxProbes": 60,
+      "perProbeTimeoutMs": 20000,
+      "totalTimeoutMs": 900000
+    }
+  },
+  {
+    "id": "state",
+    "title": "Lifecycle and state consistency",
+    "model": "claude-opus-5",
+    "samples": 3,
+    "verifiers": 2,
+    "oracles": [
+      "state"
+    ],
+    "surface": "cli",
+    "needsBackend": true,
+    "mutating": true,
+    "codeScope": [
+      "packages/cli/src/**",
+      "packages/docs/src/**",
+      "packages/sheets/src/**",
+      "packages/slides/src/**",
+      "packages/backend/src/**"
+    ],
+    "docsScope": [
+      "packages/cli/README.md",
+      "docs/design/cli.md",
+      "docs/design/rest-api.md",
+      "packages/cli/skills/**"
+    ],
+    "requiresDocCitation": false,
+    "minCitations": 1,
+    "explorerMaxTurns": 75,
+    "verifierMaxTurns": 20,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "maxCandidates": 6,
+    "probeBudget": {
+      "maxProbes": 60,
+      "perProbeTimeoutMs": 20000,
+      "totalTimeoutMs": 900000
+    }
   }
 ]

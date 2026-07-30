@@ -172,8 +172,8 @@ function newestMtime(dir) {
 // --- argv safety ------------------------------------------------------------
 
 /**
- * Commands refused outright for a non-mutating charter, independent of any
- * schema.
+ * Commands refused outright for EVERY charter, mutating or not, independent of
+ * any schema.
  *
  * A floor, not the whole rule, and the reason is specific: the CLI's own
  * `src/schema/registry.ts` is hand-maintained with no drift guard against
@@ -196,8 +196,8 @@ export const HARD_DENIED_COMMANDS = Object.freeze([
  * Deliberately over-inclusive: a document literally titled "logout" would make
  * `docs create logout` look denied. That is the correct failure direction for a
  * SAFETY check — over-refusing costs one skipped probe, under-refusing can revoke
- * a credential — and a charter that genuinely needs such a command sets
- * `mutating: true`.
+ * a credential. No charter, mutating or not, is exempt: these commands are never
+ * part of a charter's job, so there is no `mutating: true` escape hatch.
  */
 function containsSequence(words, needle) {
   if (needle.length === 0) return false;
@@ -227,26 +227,33 @@ export function assertSafeArgv(argv, { mutating = false, safetyOf = null } = {})
   // rather than anchored at position 0 — an anchored match let
   // `--format json api-keys revoke x` through, because `words[0]` was `json`.
   const words = argv.filter((a) => !a.startsWith("-"));
-  if (!mutating) {
-    for (const denied of HARD_DENIED_COMMANDS) {
-      if (containsSequence(words, denied)) {
-        throw new Error(
-          `hunt-probe: refusing \`${denied.join(" ")}\` under a non-mutating charter ` +
-            `(hard-denied regardless of the CLI's declared safety level).`,
-        );
-      }
+  // Hard denials are UNCONDITIONAL — they hold for mutating charters too. A
+  // mutating charter is licensed to create/rename/delete DOCUMENTS in the vetted
+  // hunt workspace; it is never licensed to touch credentials or the session. In
+  // particular `ctx switch` rewrites the active workspace and would move probes
+  // OFF the hunt workspace the refusal in hunt-workspace.mjs worked to isolate,
+  // and `login`/`logout`/`api-keys` act on the developer's real session. None of
+  // those is part of any charter's job, so `mutating` must not relax them.
+  for (const denied of HARD_DENIED_COMMANDS) {
+    if (containsSequence(words, denied)) {
+      throw new Error(
+        `hunt-probe: refusing \`${denied.join(" ")}\` — credential and session commands are ` +
+          `hard-denied for every charter, mutating or not.`,
+      );
     }
-    if (typeof safetyOf === "function") {
-      const level = safetyOf(words);
-      if (level === "destructive" || level === "write") {
-        throw new Error(`hunt-probe: refusing \`${words.join(" ")}\` (declared ${level}) under a non-mutating charter.`);
-      }
-      if (level == null) {
-        throw new Error(
-          `hunt-probe: \`${words.join(" ")}\` has no declared safety level — refusing under a ` +
-            `non-mutating charter (fail closed: an unknown command is not assumed read-only).`,
-        );
-      }
+  }
+  // The schema-level destructive/write verdict is the ONE check a mutating charter
+  // relaxes: mutating the hunt workspace is exactly what it is here to do.
+  if (!mutating && typeof safetyOf === "function") {
+    const level = safetyOf(words);
+    if (level === "destructive" || level === "write") {
+      throw new Error(`hunt-probe: refusing \`${words.join(" ")}\` (declared ${level}) under a non-mutating charter.`);
+    }
+    if (level == null) {
+      throw new Error(
+        `hunt-probe: \`${words.join(" ")}\` has no declared safety level — refusing under a ` +
+          `non-mutating charter (fail closed: an unknown command is not assumed read-only).`,
+      );
     }
   }
   return true;

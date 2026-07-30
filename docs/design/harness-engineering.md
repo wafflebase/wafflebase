@@ -1116,10 +1116,11 @@ Done criteria for Tier 1 (met): a local run reports at least one defect that a
 human independently confirms, with **zero** reports a human judges wrong, and the
 funnel explains every dropped candidate.
 
-Not yet built: `round-trip` and `state` charters (need the backend tier and a
-`WAFFLEBASE_HUNT_WORKSPACE` safety rail), the rolling GitHub-issue report,
-autonomous filing behind `HUNT_FILING_ENABLED` with a mechanical accept-rate kill
-switch, and the formula differential oracle.
+Not yet built: the rolling GitHub-issue report, autonomous filing behind
+`HUNT_FILING_ENABLED` with a mechanical accept-rate kill switch, and the formula
+differential oracle. (The `round-trip`/`state` backend charters and the
+`WAFFLEBASE_HUNT_WORKSPACE` safety rail shipped — see the backend-tier section
+below.)
 
 **The explorer EXECUTES.** The first cut could not: its grant was Read/Grep/Glob and
 its prompt said *"you never run commands yourself"*, so it read the source,
@@ -1149,6 +1150,44 @@ violates its own declared safety level). Both are checkable from a transcript, w
 is what stops them collapsing into *"this surprised me"* — the ground deliberately
 absent, because it is the slop generator that ended curl's bug bounty.
 
+**Backend tier, and the refusal that gates it.** `round-trip` (metamorphic
+identities: import→export, batch ≡ N×set, `--pages` partitions, `--dry-run` mutates
+nothing) and `state` (create→delete→list, rename twice, delete twice) are
+`needsBackend: true` and `mutating: true`. Their oracles are self-evidencing — a
+broken relation needs no written promise — so they set `requiresDocCitation: false`
+while still demanding a code citation, or a finding would be unactionable.
+
+Two preconditions run before a token is spent, and they fail differently on purpose.
+A missing stack (`checkStack`, `GET /health`, 2s) SKIPS the charter, mirroring the
+review panel's treatment of its own missing preconditions. A refused workspace also
+skips, but is a configuration error rather than an environmental one. Neither is
+silent: the report renders **Charters that did NOT run** immediately after the
+funnel, because "found nothing" and "never executed" are otherwise the same zero and
+only one of them means the code is fine.
+
+`scripts/agent/hunt-workspace.mjs` is the whole guarantee. `WAFFLEBASE_HUNT_WORKSPACE`
+must be set explicitly — there is no default and no inference from the developer's
+config, because a workspace a mutating run may destroy has to be something a human
+typed. It is refused if it is an obviously-real name, if it equals
+`WAFFLEBASE_WORKSPACE`, if it appears anywhere in the resolved config.yaml or
+session.json, or if either file exists but cannot be read. Absence of proof is
+refusal, since a deleted document does not come back from a reflog. The collision
+check is a deliberately crude substring scan honouring `WAFFLEBASE_CONFIG` /
+`WAFFLEBASE_SESSION` overrides: parsing YAML would mean a new dependency or a
+hand-rolled parser whose bugs are silent, and a missed collision is unrecoverable
+while a false one costs one renamed variable.
+
+Asking the CLI for its resolved workspace would be more authoritative and does not
+work: `status` ignores `--format json` and prints prose. That is ground-truth defect
+\#9 — the one command that would answer the question is one of the things this
+hunter exists to find.
+
+Every seeded document is named `hunt-<runId>-<n>`, and `hunt.mjs cleanup --run <id>`
+deletes by that exact prefix and nothing else, printing every decision including what
+it left alone. `--run` is mandatory so there is no "delete everything that looks like
+a fixture" mode to reach by accident, and the run id is in the prefix so concurrent
+runs cannot delete each other's fixtures. Docker lifecycle is NOT reimplemented —
+`scripts/verify-integration-docker.mjs` owns it, and `preflight` reports what is missing.
 ### Phase 27: Panel Feedback Corpus
 
 **Principle:** Entropy Management — the panel has been tuned repeatedly with no
