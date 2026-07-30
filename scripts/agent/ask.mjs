@@ -154,12 +154,71 @@ function isRetryableStatus(status) {
  * IS retryable even when its message mentions rate limiting; a 429 that says
  * "session limit" is not.
  */
+/**
+ * SDK result subtypes for a DETERMINISTIC run-limit failure: the model ran fine
+ * and hit a ceiling we set. Retrying one is pure waste — the same ceiling applies
+ * to the retry, so it burns 3× the cost to fail identically.
+ *
+ * These MUST be recognised before the api-error branch below, because they look
+ * like an API error to a naive check: `is_error: true` with no `api_error_status`
+ * and no `result` text. Observed live — a verifier at `maxTurns: 8` returned
+ * `{subtype:"error_max_turns", terminal_reason:"max_turns", num_turns:9,
+ * result:""}`, which the old rule reported as a retryable
+ * "API error: unknown" and which silently cost two already-reproduced findings.
+ */
+const LIMIT_SUBTYPES = new Set([
+  "error_max_turns",
+  "error_max_budget_usd",
+  "error_max_structured_output_retries",
+]);
+
+/** Human-readable detail from the SDK's `errors` array, when it carries one. */
+function describeErrors(m) {
+  const errs = Array.isArray(m.errors) ? m.errors : [];
+  const parts = errs
+    .map((e) => (typeof e === "string" ? e : e && typeof e === "object" ? e.message || e.type || "" : ""))
+    .filter(Boolean);
+  return parts.join("; ");
+}
+
 export function classifyResult(message) {
   const m = message || {};
-  if (m.subtype === "success" && m.structured_output) {
+  const isLimit = LIMIT_SUBTYPES.has(m.subtype) || m.terminal_reason === "max_turns";
+  const isApiError = Boolean(m.is_error || m.api_error_status || m.terminal_reason === "api_error");
+
+  // A verdict is trustworthy only when NOTHING flags the session as failed.
+  //
+  // The `!isLimit && !isApiError` guard is the point. Testing
+  // `subtype === "success" && structured_output` alone was a FAIL-OPEN: the SDK
+  // reports API failures as `subtype: "success"` with `is_error: true` (the whole
+  // reason this function exists), so a failed session that happened to carry
+  // partial structured output was returned as a real verdict. In the review panel
+  // that means a lens's findings from a failed session reach the merge gate; in the
+  // issue hunter it means a verifier's "confirmed" from a failed session can cause
+  // a report. Both directions are wrong, and in a fail-quiet gate a fail-open path
+  // is the one thing that cannot be tolerated.
+  //
+  // Strictly tightening: a genuinely successful result sets none of these flags, so
+  // no previously-accepted verdict is now rejected.
+  if (m.subtype === "success" && m.structured_output && !isLimit && !isApiError) {
     return { ok: true, output: m.structured_output };
   }
-  if (m.is_error || m.api_error_status || m.terminal_reason === "api_error") {
+  // Deterministic ceilings BEFORE the api-error branch, which would otherwise
+  // claim them and mark them retryable.
+  if (isLimit) {
+    const reason = String(m.subtype ?? m.terminal_reason ?? "limit");
+    const extra = describeErrors(m);
+    const turns = Number.isFinite(m.num_turns) ? ` after ${m.num_turns} turns` : "";
+    return {
+      ok: false,
+      kind: "limit",
+      status: null,
+      detail: `${reason}${turns}${extra ? ` — ${extra}` : ""}`,
+      retryable: false,
+      turns: Number.isFinite(m.num_turns) ? m.num_turns : null,
+    };
+  }
+  if (isApiError) {
     const detail = typeof m.result === "string" && m.result ? m.result : "";
     const status = m.api_error_status ?? null;
     const retryable = !SESSION_LIMIT_RE.test(detail) && isRetryableStatus(status);
@@ -265,10 +324,15 @@ export async function askStructured({
       const err = new Error(
         c.kind === "api-error"
           ? `${label} query API error${c.status ? ` (${c.status})` : ""}: ${c.detail || "unknown"}`
-          : // `label` here too: with two consumers sharing the wrapper, an
-            // unattributed "structured output not produced" is exactly the
-            // ambiguity `label` exists to remove.
-            `${label} query: structured output not produced (${c.detail})`,
+          : c.kind === "limit"
+            ? // Names the actual ceiling and the turns spent, so the log says
+              // "hit its turn ceiling" rather than the old, misleading
+              // "API error: unknown" — which sent us looking at the network.
+              `${label} query hit a run limit: ${c.detail} (raise the ceiling or simplify the task; retrying will not help)`
+            : // `label` here too: with two consumers sharing the wrapper, an
+              // unattributed "structured output not produced" is exactly the
+              // ambiguity `label` exists to remove.
+              `${label} query: structured output not produced (${c.detail})`,
       );
       err.kind = c.kind;
       err.status = c.status;

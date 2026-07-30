@@ -234,3 +234,90 @@ test("withRetry: backoff grows exponentially from baseMs", async () => {
   );
   assert.deepEqual(delays, [100, 200, 400]);
 });
+
+test("REGRESSION: a run-limit failure is NOT a retryable API error", () => {
+  // Captured verbatim from a live hunt run. This shape cost two already-reproduced
+  // findings: `is_error` is set but there is no `api_error_status` and no `result`
+  // text, so the old rule filed it under api-error with detail "" -> "unknown" and
+  // marked it retryable. Retrying a turn ceiling burns 3x the cost to fail
+  // identically, and the log blamed the network for a config problem.
+  const maxTurns = {
+    type: "result",
+    subtype: "error_max_turns",
+    is_error: true,
+    api_error_status: undefined,
+    terminal_reason: "max_turns",
+    num_turns: 9,
+    result: "",
+    errors: [],
+  };
+  const c = classifyResult(maxTurns);
+  assert.equal(c.kind, "limit", "must NOT be classified as api-error");
+  assert.equal(c.retryable, false, "retrying a ceiling cannot help");
+  assert.equal(c.turns, 9);
+  assert.match(c.detail, /error_max_turns/, "the detail must name the real cause, not 'unknown'");
+  assert.match(c.detail, /9 turns/, "and say how many turns were spent");
+});
+
+test("classifyResult: every deterministic ceiling subtype is non-retryable", () => {
+  for (const subtype of ["error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries"]) {
+    const c = classifyResult({ subtype, is_error: true });
+    assert.equal(c.kind, "limit", subtype);
+    assert.equal(c.retryable, false, subtype);
+  }
+  // `terminal_reason` alone is enough, even if the subtype is unfamiliar.
+  assert.equal(classifyResult({ subtype: "error_something_new", is_error: true, terminal_reason: "max_turns" }).kind, "limit");
+});
+
+test("classifyResult: a run limit does NOT shadow a genuine API error", () => {
+  // The ordering change must not swallow real transient failures — those still
+  // need to be retryable, which is the counterweight to the test above.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).kind, "api-error");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 529, result: "overloaded_error" }).retryable, true);
+  assert.equal(classifyResult({ terminal_reason: "api_error", result: "fetch failed" }).retryable, true);
+  // ...and a session limit stays non-retryable for its own separate reason.
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "You've hit your session limit" }).retryable, false);
+});
+
+test("classifyResult: a limit surfaces the SDK's own errors[] when present", () => {
+  const c = classifyResult({
+    subtype: "error_max_turns", is_error: true, num_turns: 20,
+    errors: [{ type: "turn_limit", message: "reached the configured turn ceiling" }],
+  });
+  assert.match(c.detail, /reached the configured turn ceiling/);
+});
+
+test("REGRESSION: structured output from a FAILED session is not a verdict", () => {
+  // The fail-open. Testing `subtype === "success" && structured_output` alone
+  // accepted output from a session the SDK had flagged as failed — and
+  // `subtype: "success"` with `is_error: true` is precisely how this SDK reports an
+  // API failure, which is the whole reason classifyResult exists.
+  //
+  // In review-panel that means a lens's findings from a failed session reach the
+  // merge gate. In the issue hunter it means a verifier's "confirmed" from a failed
+  // session can cause a report to a real maintainer. A fail-open path is the one
+  // thing a fail-quiet gate cannot tolerate.
+  const output = { verdict: "confirmed", confidence: "high" };
+
+  const apiErrored = classifyResult({ subtype: "success", structured_output: output, is_error: true, api_error_status: 529, result: "overloaded_error" });
+  assert.equal(apiErrored.ok, false, "an api-errored session's output is not a verdict");
+  assert.equal(apiErrored.kind, "api-error");
+
+  const statusOnly = classifyResult({ subtype: "success", structured_output: output, api_error_status: 500 });
+  assert.equal(statusOnly.ok, false, "an api_error_status alone disqualifies the output");
+
+  const terminal = classifyResult({ subtype: "success", structured_output: output, terminal_reason: "api_error" });
+  assert.equal(terminal.ok, false, "terminal_reason api_error disqualifies the output");
+
+  const ceilinged = classifyResult({ subtype: "error_max_turns", structured_output: output, is_error: true, num_turns: 20 });
+  assert.equal(ceilinged.ok, false, "partial output from a run that hit its ceiling is not a verdict");
+  assert.equal(ceilinged.kind, "limit");
+});
+
+test("classifyResult: the fix is strictly tightening — clean successes still pass", () => {
+  // The counterweight. A genuinely successful result sets none of the error flags,
+  // so no previously-accepted verdict is now rejected.
+  const clean = classifyResult({ type: "result", subtype: "success", structured_output: { findings: [] }, is_error: false, terminal_reason: "completed", num_turns: 14 });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.output, { findings: [] });
+});
