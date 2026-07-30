@@ -3569,21 +3569,19 @@ export class TextEditor {
       headBlock.marker = firstPasted.marker ? { ...firstPasted.marker } : undefined;
       this.doc.updateBlockDirect(pos.blockId, headBlock);
 
-      // Insert middle blocks (blocks[1..n-2]) after head block
-      let insertAfterIdx = this.doc.getBlockIndex(pos.blockId);
+      // Insert middle blocks (blocks[1..n-2]) after the head block, threaded
+      // before the split tail. `insertBlockAfter` is cell-aware (it resolves
+      // the sibling's containing array via the store), so this works whether
+      // the caret is in the body or inside a table cell — unlike the body-index
+      // `insertBlockAt`, which returns -1 in a cell and dropped the blocks into
+      // the document body (and then crashed on the stale tail lookup).
+      // `cloneBlockWithFreshIds` regenerates every id, recursively for nested
+      // tables, so the paste shares no ids with its source.
+      let prevBlockId = pos.blockId;
       for (let i = 1; i < blocks.length - 1; i++) {
-        const newBlock: Block = {
-          ...blocks[i],
-          id: generateBlockId(),
-          inlines: blocks[i].inlines.map((il) => ({ text: il.text, style: { ...il.style } })),
-          style: { ...blocks[i].style },
-          // Deep-copy marker so middle-block mutation (e.g. clearFormatting)
-          // can't leak back into the source clipboard payload. Symmetric
-          // with the head/tail block treatment above.
-          ...(blocks[i].marker ? { marker: { ...blocks[i].marker } } : {}),
-        };
-        insertAfterIdx++;
-        this.doc.insertBlockAt(insertAfterIdx, newBlock);
+        const newBlock = cloneBlockWithFreshIds(blocks[i]);
+        this.doc.insertBlockAfter(prevBlockId, newBlock);
+        prevBlockId = newBlock.id;
       }
 
       // Prepend last pasted block's inlines to the tail block, preserving block metadata
