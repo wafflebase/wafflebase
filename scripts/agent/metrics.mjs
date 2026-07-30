@@ -183,6 +183,10 @@ export function aggregatePanelStats(entries) {
   // counterexample rather than by failing to find the code. Absent from entries
   // written before the split existed, which coerce to 0.
   let absenceRaised = 0, absenceRefuted = 0, unresolved = 0;
+  // Verifier sessions that THREW. Absent from pre-instrumentation entries, so
+  // they coerce to 0 — but a non-zero value means those findings were never
+  // filtered at all, which is the difference between a review and a raw dump.
+  let errored = 0;
   // Novelty gate. Absent from entries written before it existed, which coerce to
   // 0 — an all-zero row reads as "the gate never fired", the honest reading for
   // both a pre-instrumentation round and a round where it ran inert.
@@ -212,6 +216,7 @@ export function aggregatePanelStats(entries) {
     absenceRaised += Number(e.verifier && e.verifier.absenceRaised) || 0;
     absenceRefuted += Number(e.verifier && e.verifier.absenceRefuted) || 0;
     unresolved += Number(e.verifier && e.verifier.unresolved) || 0;
+    errored += Number(e.verifier && e.verifier.errored) || 0;
     laneBlocking += Number(e.lanes && e.lanes.blocking) || 0;
     laneBacklog += Number(e.lanes && e.lanes.backlog) || 0;
     laneUnknownOrigin += Number(e.lanes && e.lanes.unknownOrigin) || 0;
@@ -220,7 +225,7 @@ export function aggregatePanelStats(entries) {
   }
   return {
     agreementCounts, raised, raisedConfidence, kept,
-    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, absenceRaised, absenceRefuted, unresolved },
+    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved },
     lanes: { blocking: laneBlocking, backlog: laneBacklog, unknownOrigin: laneUnknownOrigin },
     clusters: { clustered, collapsed },
   };
@@ -417,6 +422,13 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
       // proxy, not recall (no ground truth here). Shown alongside, not instead.
       `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
+      // Read this BEFORE the refute counts. A verifier session that threw keeps
+      // its finding, so an outage looks identical in the output to a verifier
+      // that confirmed everything — this line is the only thing that tells them
+      // apart, and a large value invalidates every number under it.
+      ...(v.errored
+        ? [`- ⚠️ Verifier ERRORED on ${v.errored} of ${v.sentToVerifier || 0} — those findings are UNFILTERED, not confirmed`]
+        : []),
       // `dropped` ≤ `refutedHighConfidence`: a confident refutation only drops
       // the finding when it names a ground and cites what it read. The GAP is
       // the signal — it counts refutations the gate declined to act on.

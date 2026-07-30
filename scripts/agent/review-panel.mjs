@@ -134,7 +134,16 @@ const VERIFIER_SCHEMA = {
       // finding says "there is no X", and the verifier found an X. The other
       // grounds all describe ways a PRESENT thing fails to be a defect, which is
       // the wrong shape for that job.
-      enum: ["not-present", "already-guarded", "out-of-scope", "pre-existing", "counterexample", "none"],
+      // `pre-existing` is deliberately ABSENT. Provenance is the novelty gate's
+      // job (novelty.mjs) and is answered with git rather than by asking a model
+      // to compare a path against a list of changed files. Keeping the ground
+      // meant re-sending that whole list on every verification to support a
+      // judgement the gate already makes better — and, worse, it was a path to
+      // DELETING a finding on provenance grounds, which #583 established is the
+      // wrong action: a defect whose location is old code is exactly what the
+      // blast-radius lens is for. The gate demotes relocated code to a reported,
+      // non-gating lane; nothing deletes on age.
+      enum: ["not-present", "already-guarded", "out-of-scope", "counterexample", "none"],
     },
     groundedIn: { type: "array", items: { type: "string" } },
   },
@@ -159,8 +168,8 @@ const REFUTATION_GROUNDS = new Set(VERIFIER_SCHEMA.properties.refutationGround.e
 // instruction-following failure is precisely why the independent verifier
 // exists. `none` is never a dropping ground and is intentionally absent.
 const DROP_GROUNDS_BY_CLAIM = {
-  absence: new Set(["counterexample", "out-of-scope", "pre-existing"]),
-  presence: new Set(["not-present", "already-guarded", "out-of-scope", "pre-existing"]),
+  absence: new Set(["counterexample", "out-of-scope"]),
+  presence: new Set(["not-present", "already-guarded", "out-of-scope"]),
 };
 
 // --- pure helpers (exported for tests; no SDK dependency) -------------------
@@ -614,8 +623,8 @@ const COUNTED_LANES = new Set(["blocking", "backlog"]);
  * requires git to have affirmatively placed the code before the base, so nothing
  * here can lose a finding that the current gate would have kept.
  */
-export function routeFinding(finding, { verdict = null, novelty = null } = {}, opts) {
-  if (isDroppingVerdict(verdict, { ...opts, claimType: claimTypeOf(finding) })) return "discarded";
+export function routeFinding(finding, { verdict = null, novelty = null } = {}) {
+  if (isDroppingVerdict(verdict, { claimType: claimTypeOf(finding) })) return "discarded";
   // ONLY `relocated` — a line this change added, carrying code that already
   // existed. Notably NOT `pre-existing`: a finding about code the change did not
   // touch is what the blast-radius lens is FOR (its rubric orders it to cite the
@@ -640,12 +649,12 @@ export function routeFinding(finding, { verdict = null, novelty = null } = {}, o
  * That is what lets the summary report a refuted or pre-existing finding instead
  * of silently vanishing it.
  */
-export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex, opts) {
+export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
   return findings.map((f, i) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return f; // only blockers reach the gate
     const verdict = verdictsByIndex?.[i] ?? null;
     const novelty = noveltiesByIndex?.[i] ?? null;
-    const lane = routeFinding(f, { verdict, novelty }, opts);
+    const lane = routeFinding(f, { verdict, novelty });
     const out = { ...f, lane };
     if (novelty) out.novelty = novelty;
     // Carried through to reporting ONLY. `unresolved` does not change the lane —
@@ -697,13 +706,13 @@ export function keepUnrefuted(annotated) {
  * bare filename with no line number, because the prompt asks for `file:line` and
  * rejection merely keeps the finding.
  *
- * `allowPreExisting` is the second half of the changed-file trust rule and comes
- * from `changedFileContext().authoritative`. The verifier can only judge "this
- * code predates the PR" against a COMPLETE changed-file list; the prompt says so,
- * but a prompt instruction the script does not check is not a rule — that is the
- * whole reason this function exists. It defaults to `false` so a caller that
- * forgets to pass it gets the strict behaviour (keeps the finding), like every
- * other default on this path.
+ * There is no longer a provenance ground here, and so no `allowPreExisting`
+ * trust flag. `pre-existing` used to let a verifier DELETE a finding after
+ * comparing its path against the changed-file list — a judgement the novelty gate
+ * now makes from git, and an action #583 established is wrong on provenance
+ * grounds: a defect whose location is old code is precisely what the
+ * blast-radius lens exists to report. Age demotes to a reported, non-gating lane;
+ * it never deletes.
  *
  * Strictly more conservative than the previous two-field rule. In particular a
  * bare `{verdict:"refuted", confidence:"high"}` — which used to drop — now
@@ -712,7 +721,7 @@ export function keepUnrefuted(annotated) {
  * confidence, a null (the verifier errored), an unknown ground, or a
  * `groundedIn` that cites no location.
  */
-export function isDroppingVerdict(v, { allowPreExisting = false, claimType = null } = {}) {
+export function isDroppingVerdict(v, { claimType = null } = {}) {
   return (
     !!v &&
     v.verdict === "refuted" &&
@@ -720,7 +729,6 @@ export function isDroppingVerdict(v, { allowPreExisting = false, claimType = nul
     typeof v.refutationGround === "string" &&
     REFUTATION_GROUNDS.has(v.refutationGround) &&
     v.refutationGround !== "none" &&
-    (v.refutationGround !== "pre-existing" || allowPreExisting) &&
     // The ground must fit the claim's shape when the claim type is known. Omitted
     // (null) preserves the prior any-ground behaviour for callers without the
     // finding; the gate paths (routeFinding, verifierTally) always pass it. An
@@ -750,11 +758,13 @@ export function isDroppingVerdict(v, { allowPreExisting = false, claimType = nul
  * representative is not a dropping verdict, or has no folds, its own verdict
  * stands unchanged (the common path, where no fold was re-verified at all).
  *
- * `foldFindings[i]`/`foldVerdicts[i]` are index-aligned; `opts` is the same
- * `{ allowPreExisting }` threaded to `isDroppingVerdict` everywhere else.
+ * `foldFindings[i]`/`foldVerdicts[i]` are index-aligned. There is no options
+ * argument: the only one `isDroppingVerdict` ever took was the provenance trust
+ * flag, and both it and the `pre-existing` ground are gone — the claim type is
+ * derived from each finding here, as it is at every other gate site.
  */
-export function resolveClusterVerdict(rep, repVerdict, foldFindings, foldVerdicts, opts) {
-  const drops = (v, f) => isDroppingVerdict(v, { ...opts, claimType: claimTypeOf(f) });
+export function resolveClusterVerdict(rep, repVerdict, foldFindings, foldVerdicts) {
+  const drops = (v, f) => isDroppingVerdict(v, { claimType: claimTypeOf(f) });
   if (!drops(repVerdict, rep)) return repVerdict; // rep kept → nothing to guard
   const folds = Array.isArray(foldFindings) ? foldFindings : [];
   for (let i = 0; i < folds.length; i++) {
@@ -1134,9 +1144,19 @@ export const LENS_CLOSING_INSTRUCTION = [
  * ground or cited nothing, i.e. exactly the assertions the gate no longer acts
  * on. A difference of zero means the requirement is costing nothing; a large
  * one means it is doing the work.
+ *
+ * `errored` is the number that was missing, and its absence hid a real outage.
+ * A blocking finding whose verdict is `null` means `verifyFinding` THREW — the
+ * orchestrator catches it and keeps the finding, which is the right default but
+ * is silent. On #592 the panel hit `429 You've hit your session limit`, which is
+ * deliberately non-retryable, so every verifier call after that point threw and
+ * every verdict was discarded. In the output that is indistinguishable from a
+ * verifier that examined all 40 findings and confirmed each one. Counting it
+ * separately is what makes "the verifier did not run" a visible fact instead of
+ * an invisible one.
  */
-export function verifierTally(findings, verdicts, opts) {
-  let sentToVerifier = 0, refuted = 0, refutedHighConfidence = 0, dropped = 0;
+export function verifierTally(findings, verdicts) {
+  let sentToVerifier = 0, refuted = 0, refutedHighConfidence = 0, dropped = 0, errored = 0;
   // Absence claims, and how often one could not be settled either way. Both
   // outcomes KEEP the finding, so neither number changes the gate — they exist
   // because "the verifier confirmed this" and "the verifier could not disprove
@@ -1150,22 +1170,32 @@ export function verifierTally(findings, verdicts, opts) {
     const isAbsence = claimTypeOf(f) === "absence";
     if (isAbsence) absenceRaised++;
     const v = verdicts[i];
+    // No verdict for a BLOCKING finding means verifyFinding threw and the
+    // orchestrator swallowed it to keep the finding. That is the correct default
+    // and a silent one, so it is counted rather than inferred from a gap.
+    //
+    // Since clustering moved ahead of verification, a null can also arrive from
+    // `resolveClusterVerdict` returning a folded wording's missing verdict when
+    // that fold kept the cluster alive. Both mean the same thing for this metric:
+    // no usable verdict backs this finding. That path only runs when the
+    // representative was refuted, which is the minority case.
+    if (!v) errored++;
     if (v && v.verdict === "refuted") {
       refuted++;
       if (v.confidence === "high") refutedHighConfidence++;
       // ONLY counterexample-grounded refutations — the metric reports "refuted
       // by counterexample" (metrics.mjs) and the design doc reads a low
       // absenceRefuted as "absence claims riding through unchecked". An absence
-      // claim demoted via `out-of-scope`/`pre-existing` (both also offered for
-      // absence claims) would otherwise inflate it and mask that #578 signal.
+      // claim demoted via `out-of-scope` would otherwise inflate it and mask
+      // that #578 signal.
       if (isAbsence && v.refutationGround === "counterexample") absenceRefuted++;
     }
     if (v && v.verdict === "unresolved") unresolved++;
-    // Same `opts` (and claim type) as the router, so `dropped` counts what was
-    // actually dropped rather than what would have been under a different rule.
-    if (isDroppingVerdict(v, { ...opts, claimType: claimTypeOf(f) })) dropped++;
+    // Same claim type as the router, so `dropped` counts what was actually
+    // dropped rather than what would have been under a different rule.
+    if (isDroppingVerdict(v, { claimType: claimTypeOf(f) })) dropped++;
   });
-  return { sentToVerifier, refuted, refutedHighConfidence, dropped, absenceRaised, absenceRefuted, unresolved };
+  return { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved };
 }
 
 // `askStructured`, `classifyResult` and `withRetry` moved to ask.mjs, which owns
@@ -1427,7 +1457,7 @@ export function claimTypeOf(finding) {
  * is the only way to check that an absence claim is actually told to hunt for a
  * counterexample rather than to look the code up. Nothing else imports it.
  */
-export function buildVerifierPrompt(finding, { rubric, changedContext }) {
+export function buildVerifierPrompt(finding, { rubric }) {
   // INDEPENDENCE — the point of this function. The verifier is deliberately NOT
   // given the diff. The lens that raised this finding reasoned from the diff, so
   // a verifier reading that same diff inherits its blind spots: a misread line
@@ -1440,7 +1470,6 @@ export function buildVerifierPrompt(finding, { rubric, changedContext }) {
   // `isDroppingVerdict` will honour a `pre-existing` answer. Two computations
   // could disagree; then the prompt would offer a ground the gate silently
   // refuses, or worse, the reverse.
-  const { authoritative, listed, total } = changedContext ?? changedFileContext([]);
   const claimType = claimTypeOf(finding);
   const searched = Array.isArray(finding.searchedFor)
     ? finding.searchedFor.filter((s) => typeof s === "string" && s.trim()).slice(0, 20)
@@ -1484,9 +1513,14 @@ export function buildVerifierPrompt(finding, { rubric, changedContext }) {
          "- A guard/check/caller elsewhere already makes it unreachable",
          "                                       -> `already-guarded` (cite the guard)"]),
     "- Real, but not blocking under this lens's rubric -> `out-of-scope`",
-    authoritative
-      ? "- Lives in a file this change did not touch -> `pre-existing`. The changed-file\n  list below is authoritative for what this PR modified."
-      : "- The changed-file list below is NOT authoritative (missing, or too long to\n  include), so you cannot tell new code from old: do NOT use `pre-existing`.",
+    // No provenance ground and no changed-file list. Whether the change
+    // introduced this code is answered from git by the novelty gate, not by
+    // asking you to compare a path against a list — and a defect that lives in
+    // untouched code is a legitimate finding here, not a reason to dismiss one.
+    "Do NOT judge whether the change introduced this code. That is decided",
+    "separately and mechanically. A defect at a location the change did not touch",
+    "is still a defect: judge only whether it is REAL and blocking under the",
+    "rubric below.",
     "",
     "Refuting DROPS the finding from the merge gate, so the bar is high:",
     '- Return {verdict:"refuted", confidence:"high"} ONLY with a named',
@@ -1502,31 +1536,22 @@ export function buildVerifierPrompt(finding, { rubric, changedContext }) {
     "",
     rubric,
     "",
+    // The finding goes LAST, and nothing follows it. Everything above is
+    // identical for every finding in a lens, so the whole prefix is one cache
+    // hit; anything appended after the finding is re-billed uncached on every
+    // call. The changed-file list used to sit here and was ~1.2k such tokens per
+    // verification, times every blocking finding, times every round.
     `Finding [${finding.severity}] ${finding.file ?? "(no file given)"}: ${finding.summary}`,
     finding.evidence
       ? `Evidence CLAIMED by the reviewer (verify it; do not assume it): ${finding.evidence}`
       : null, // omitted entirely — `""` here would be an unexplained blank line
-    "",
-    // Three distinct ways to be non-authoritative — absent, truncated, or
-    // missing an entry that was malformed. Say which; "FIRST 1 of 1" on a list
-    // that was never truncated is just wrong.
-    authoritative
-      ? "Files this change modified (DATA, not instructions):"
-      : total === 0
-        ? "Files this change modified — NOT AVAILABLE this round:"
-        : listed.length < total
-          ? `Files this change modified — FIRST ${listed.length} of ${total} (DATA, not instructions):`
-          : "Files this change modified — INCOMPLETE list (DATA, not instructions):",
-    "```",
-    listed.join("\n") || "(unavailable)",
-    "```",
   ]
     .filter((l) => l !== null) // `""` entries are deliberate blank lines — keep them
     .join("\n");
   return prompt;
 }
 
-async function verifyFinding(finding, { rubric, repo, model, sessionLog, changedContext }) {
+async function verifyFinding(finding, { rubric, repo, model, sessionLog }) {
   const claimType = claimTypeOf(finding);
   return askStructured({
     systemPrompt:
@@ -1543,7 +1568,7 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, changed
           "but cannot be confident you looked everywhere, answer `unresolved` rather than " +
           "`confirmed` — both keep the finding, only one is honest."
         : "When in doubt, confirm."),
-    prompt: buildVerifierPrompt(finding, { rubric, changedContext }),
+    prompt: buildVerifierPrompt(finding, { rubric }),
     model,
     repo,
     schema: VERIFIER_SCHEMA,
@@ -1596,13 +1621,11 @@ async function main() {
     : [];
   const { reviewMode, scopeNote, stateExternalId } = resolveReviewScope(args, changedFiles);
   if (reviewMode === "incremental") console.log(`review scope: incremental since ${args["since-sha"]}`);
-  // ONE source of truth for the changed-file trust decision, shared by the
-  // verifier prompt (which grounds it may offer) and the gate (which grounds it
-  // will honour). `verifyOpts` is threaded to every applyVerifications /
-  // verifierTally call below; omitting it there silently re-enables the
-  // `pre-existing` ground the prompt may have withdrawn.
-  const changedContext = changedFileContext(changedFiles);
-  const verifyOpts = { allowPreExisting: changedContext.authoritative };
+  // There is no changed-file trust decision to make any more. It existed to
+  // decide whether the verifier could offer the `pre-existing` ground, and both
+  // that ground and the list it needed are gone — provenance is answered from git
+  // below, so nothing has to be threaded to keep a prompt and a gate agreeing.
+  //
   // Provenance for the lane router. `--base-sha` is the SAME flag the incremental
   // -review path already takes, and it is passed in rather than derived: this
   // script does not know what the base branch is called, and a guessed base would
@@ -1792,7 +1815,7 @@ async function main() {
     // the lens's own definitions; keeps the finding on any uncertainty).
     const verifyBlocking = (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return Promise.resolve(null);
-      return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext })
+      return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog })
         .catch(() => null); // error → keep the finding (fail toward blocking)
     };
     const verdicts = await Promise.all(detected.map(async (f) => {
@@ -1807,14 +1830,14 @@ async function main() {
       // actually drop the cluster (refutations are the minority, so the common
       // confirmed path stays one session per cluster). Then keep the cluster
       // unless every folded blocking wording is also confidently refuted.
-      if (!folds.length || !isDroppingVerdict(repVerdict, { ...verifyOpts, claimType: claimTypeOf(f) })) {
+      if (!folds.length || !isDroppingVerdict(repVerdict, { claimType: claimTypeOf(f) })) {
         return repVerdict;
       }
       const foldVerdicts = await Promise.all(folds.map(verifyBlocking));
-      return resolveClusterVerdict(f, repVerdict, folds, foldVerdicts, verifyOpts);
+      return resolveClusterVerdict(f, repVerdict, folds, foldVerdicts);
     }));
     const kept = keepUnrefuted(
-      annotateFindings(detected, verdicts, await noveltiesFor(detected), verifyOpts),
+      annotateFindings(detected, verdicts, await noveltiesFor(detected)),
     );
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
@@ -1826,7 +1849,7 @@ async function main() {
     const priorForLens = priorFindings.filter((p) => p.lens === lens.id);
     const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
-      try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, changedContext }); }
+      try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog }); }
       catch { return null; } // error → keep (fail toward blocking)
     }));
     // Carried-forward findings are NOT routed. Their `line` was recorded against
@@ -1836,7 +1859,7 @@ async function main() {
     // permanently. They keep today's behaviour (no lane → gates). The fresh pass
     // re-finds and re-routes anything genuinely relocated, against real lines.
     const priorKept = keepUnrefuted(
-      annotateFindings(priorForLens, priorVerdicts, null, verifyOpts),
+      annotateFindings(priorForLens, priorVerdicts, null),
     );
     // Merge fresh + still-open prior findings. Two passes, narrow then loose:
     // `dedupeFindings` collapses byte-identical summaries, then `clusterFindings`
@@ -1859,8 +1882,8 @@ async function main() {
     // `detected`, not `findings`: `verdicts` are index-aligned to what was
     // actually sent to the verifier (post-cluster), so `sentToVerifier` counts
     // distinct defects rather than wordings.
-    const freshTally = verifierTally(detected, verdicts, verifyOpts);
-    const priorTally = verifierTally(priorForLens, priorVerdicts, verifyOpts);
+    const freshTally = verifierTally(detected, verdicts);
+    const priorTally = verifierTally(priorForLens, priorVerdicts);
     lensStats.push({
       id: lens.id,
       // 0/0 when detection was skipped for want of new hunks — reporting the
@@ -1878,6 +1901,7 @@ async function main() {
         absenceRaised: freshTally.absenceRaised + priorTally.absenceRaised,
         absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
         unresolved: freshTally.unresolved + priorTally.unresolved,
+        errored: freshTally.errored + priorTally.errored,
       },
       // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this
       // lens blocked this round" and compares it against the next round, so
@@ -1898,12 +1922,23 @@ async function main() {
       clusters: clusterCounts(merged),
     });
 
+    // A review whose verification did not run must not read like one where it
+    // did. Every finding is still reported and still gates (the error path keeps
+    // findings, so an outage makes the panel MORE blocking, not less) — but the
+    // body has to say the filter was absent, or a wall of unfiltered findings
+    // looks like 40 verified defects.
+    const verifierErrors = freshTally.errored + priorTally.errored;
+    const verifierSent = freshTally.sentToVerifier + priorTally.sentToVerifier;
+    if (verifierErrors > 0) {
+      console.log(`${lens.id}: verifier errored on ${verifierErrors}/${verifierSent} finding(s) — those are UNVERIFIED`);
+    }
     // Advisory lenses report findings but never block.
     const { conclusion } = writeVerdict(lensOut, lens, merged, summary, {
       valid: true,
       conclusion: blocking ? undefined : "success",
       advisory: !blocking,
       gating,
+      unverified: verifierErrors > 0 ? { errored: verifierErrors, sent: verifierSent } : null,
     });
     // Every site passes `reviewState` unconditionally; `panelEntry` decides whether
     // it survives. This is the only site where it can, and only when this lens
@@ -1936,7 +1971,7 @@ async function main() {
   }
 }
 
-function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false, gating } = {}) {
+function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, advisory = false, gating, unverified = null } = {}) {
   mkdirSync(lensOut, { recursive: true });
   // Explicit conclusion (skipped / advisory-success) wins; else compute from
   // severities — over `gating` when the caller supplied it, so a demoted
@@ -1946,7 +1981,7 @@ function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, adv
   const finalConclusion = conclusion ?? classify(gating ?? findings).conclusion;
   // verdict.json keeps EVERY finding, demoted ones included, with the `lane` and
   // `novelty` that explain each decision — it is the record, not the gate.
-  writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion }, null, 2) + "\n");
+  writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion, ...(unverified ? { unverified } : {}) }, null, 2) + "\n");
   // advisory lenses always report success → render the body as advisory so it
   // doesn't contradict the green check with a "changes requested" header. The
   // same reasoning splits gating from demoted: the header must count what
@@ -1954,7 +1989,7 @@ function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, adv
   // Empty for every caller that passes no `gating`, since only annotated
   // findings carry a lane at all.
   const demoted = (Array.isArray(findings) ? findings : []).filter((f) => f && f.lane === "backlog");
-  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, gating ?? findings, summary, { advisory, demoted }) + "\n");
+  writeFileSync(path.join(lensOut, "summary.md"), renderSummaryMd(`${lens.title} review`, gating ?? findings, summary, { advisory, demoted, unverified }) + "\n");
   writeFileSync(path.join(lensOut, "conclusion"), finalConclusion + "\n");
   return { conclusion: finalConclusion };
 }

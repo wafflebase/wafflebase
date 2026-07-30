@@ -136,7 +136,7 @@ function demotedSection(demoted) {
  * them inside `rawFindings` instead would print "❌ 3 blocking" above a green
  * check — the exact contradiction `advisory` exists to prevent.
  */
-export function renderSummaryMd(label, rawFindings, summaryText, { advisory = false, demoted = [] } = {}) {
+export function renderSummaryMd(label, rawFindings, summaryText, { advisory = false, demoted = [], unverified = null } = {}) {
   // Render from the NORMALIZED findings so an unknown severity (→ major) is
   // counted and shown as a blocking finding, not omitted or counted as zero.
   const { approved, blockingCount, findings } = classify(rawFindings);
@@ -145,8 +145,19 @@ export function renderSummaryMd(label, rawFindings, summaryText, { advisory = fa
     : approved
       ? `✅ ${label}: **approved** — no critical or major findings (${countsStr(findings)}).`
       : `❌ ${label}: **changes requested** — ${blockingCount} blocking (critical/major) finding(s) (${countsStr(findings)}).`;
+  // Stated immediately under the header, before any finding, because it changes
+  // how every finding below should be read. An outage makes the panel MORE
+  // blocking (the error path keeps findings), so this is not a safety warning —
+  // it is a trust one: without it, a wall of unfiltered findings is
+  // indistinguishable from a wall of verified defects.
+  const unverifiedNote = unverified && unverified.errored > 0
+    ? `\n> ⚠️ **The verifier did not run on ${unverified.errored} of ${unverified.sent} blocking finding(s)**` +
+      " — those sessions errored (commonly an API/session-limit 429), so those findings are" +
+      " UNFILTERED rather than confirmed. Findings are kept when verification fails, which is" +
+      " why this reads as a full review. Treat the unverified ones as unreviewed claims.\n"
+    : "";
   return (
-    `${header}\n\n${summaryText ?? ""}` +
+    `${header}\n${unverifiedNote}\n${summaryText ?? ""}` +
     section(findings, "critical", "Critical") +
     section(findings, "major", "Major") +
     section(findings, "minor", "Minor (non-blocking)") +

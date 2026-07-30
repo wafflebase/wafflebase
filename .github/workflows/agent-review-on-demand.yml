@@ -400,10 +400,32 @@ jobs:
               try { md = fs.readFileSync(`.agent-review/${lens.id}/summary.md`, 'utf8'); } catch {}
               return md.trim();
             });
+            // One line of verifier accounting, from the stats the panel already
+            // writes. Without it this path reported NOTHING about the filter —
+            // no check runs, no artifact, no metrics comment — which is why a
+            // session-limit outage that discarded every verdict on #592 was
+            // indistinguishable from a clean full review. `errored` leads
+            // because a non-zero value invalidates every number after it.
+            let tally = '';
+            try {
+              const stats = JSON.parse(fs.readFileSync('.agent-review/review-lens-stats.json', 'utf8'));
+              const sum = (f) => stats.reduce((n, s) => n + (Number(s?.verifier?.[f]) || 0), 0);
+              const sent = sum('sentToVerifier'), errored = sum('errored'), dropped = sum('dropped');
+              const lanes = (f) => stats.reduce((n, s) => n + (Number(s?.lanes?.[f]) || 0), 0);
+              if (sent > 0 || errored > 0) {
+                tally = '\n\n<sub>Verifier: ' + sent + ' sent, ' + dropped + ' dropped, '
+                  + sum('unresolved') + ' unresolved'
+                  + (errored ? ', **' + errored + ' ERRORED (unfiltered)**' : '')
+                  + ' · novelty: ' + lanes('backlog') + ' relocated, ' + lanes('unknownOrigin') + ' unplaceable</sub>';
+              }
+            } catch { /* stats absent (crash before write) — say nothing rather than guess */ }
             const note = '\n\n_Advisory only — this on-demand review records no status checks and does not gate merge; a human approval is still required._';
-            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${note}`;
+            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${tally}${note}`;
             // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
-            if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + note;
+            // `tally` is re-appended after the cut, like `note`: a body long
+            // enough to truncate is one with many findings, which is exactly when
+            // "were these actually verified?" matters most.
+            if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + tally + note;
             await publish(body);
 
       # Record this review's cost/reliability into the PR metric ledger and post
