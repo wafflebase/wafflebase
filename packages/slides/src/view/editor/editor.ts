@@ -4954,8 +4954,11 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
       const scale = this.scale();
-      rectEl.style.left = `${rect.x * scale}px`;
-      rectEl.style.top = `${rect.y * scale}px`;
+      // The lasso rect lives on the overlay, so it must honor the same
+      // pan offset as every other overlay position (0 outside board mode).
+      const { panX, panY } = this.overlayPan();
+      rectEl.style.left = `${rect.x * scale + panX}px`;
+      rectEl.style.top = `${rect.y * scale + panY}px`;
       rectEl.style.width = `${rect.w * scale}px`;
       rectEl.style.height = `${rect.h * scale}px`;
     };
