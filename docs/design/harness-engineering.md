@@ -463,6 +463,26 @@ Components:
   metrics comment reports
   `refutedHighConfidence` and `dropped` separately; the gap between them is the
   count of confident refutations the gate declined to act on.
+  It also reports **`errored`**, and that one is read FIRST because a non-zero
+  value invalidates every number after it. A blocking finding whose verdict is
+  `null` means the verifier session THREW; the orchestrator catches it and keeps
+  the finding, which is the right default and a silent one. On #592 the panel hit
+  `429 You've hit your session limit`, which is deliberately non-retryable, so
+  every verifier call after that point threw and every verdict was discarded —
+  output indistinguishable from a verifier that examined all 40 findings and
+  confirmed each. A verifier outage makes the panel MORE blocking, not less (kept
+  findings still gate), so this is a trust signal rather than a safety one: the
+  check body now says *"the verifier did not run on N of M findings"* above the
+  findings, because it changes how all of them should be read. The verifier is
+  also given NO changed-file list and has no provenance ground: whether the change
+  introduced the code is answered from git by the novelty gate, and deleting a
+  finding because its location is old code is the action #583 established is
+  wrong. Age demotes to a reported, non-gating lane; it never deletes. Dropping
+  the block also bounds the verifier prompt's uncached tail to the finding itself
+  — the list sat AFTER the finding, so it was re-billed on every verification.
+  Both panel workflows now keep the panel's lens-stats artifact, and the on-demand
+  review carries a one-line verifier/novelty tally in its comment; previously
+  that path recorded nothing at all, which is why none of this was measurable.
   Findings carry a **`claimType`**, because the two shapes are verified in
   opposite directions. A `presence` claim ("this code is wrong") is refuted by
   looking it up where the finding says it is. An `absence` claim ("no test covers

@@ -1263,26 +1263,35 @@ test("verifierTally: only blocking findings are sent; refuted vs high-confidence
   const verdicts = [{ verdict: "refuted", confidence: "high" }, { verdict: "refuted", confidence: "low" }, null];
   // the high-confidence refute is UNGROUNDED, so it is counted but not dropped —
   // this gap is the whole point of reporting both numbers.
-  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 });
+  assert.deepEqual(verifierTally(findings, verdicts), { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 0, errored: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 });
   // the same shape WITH a ground and a citation does drop
   assert.deepEqual(
     verifierTally(findings, [GROUNDED_REFUTE, { verdict: "refuted", confidence: "low" }, null]),
-    { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 1, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
+    { sentToVerifier: 2, refuted: 2, refutedHighConfidence: 1, dropped: 1, errored: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
-  // confirmed / null verdicts: sent but not refuted
+  // A `confirmed` and a NULL used to be indistinguishable here — both merely
+  // "sent but not refuted". They are very different: one is a verifier that
+  // examined the finding, the other is one that threw and had its verdict
+  // discarded. `errored` separates them, which is what makes a session-limit
+  // outage visible instead of reading as a clean full review.
   assert.deepEqual(
     verifierTally(findings, [{ verdict: "confirmed", confidence: "high" }, null, null]),
-    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0, dropped: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
+    { sentToVerifier: 2, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 1, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
+  // The #592 shape: every verifier session threw, so nothing was filtered.
+  const allErrored = verifierTally(findings, [null, null, null]);
+  assert.equal(allErrored.sentToVerifier, 2);
+  assert.equal(allErrored.errored, 2, "a total outage must be fully visible");
+  assert.equal(allErrored.dropped, 0);
   assert.deepEqual(verifierTally([], []), {
-    sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0,
+    sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 0,
     absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
   });
   // a dropping verdict on a NON-blocking finding is not counted: it was never
   // sent, and applyVerifications would not have acted on it either.
   assert.deepEqual(
     verifierTally([{ severity: "minor", summary: "n" }], [GROUNDED_REFUTE]),
-    { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0,
+    { sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 0,
       absenceRaised: 0, absenceRefuted: 0, unresolved: 0 },
   );
 });
@@ -1347,41 +1356,36 @@ test("isDroppingVerdict: a citation must locate something, not just be non-empty
   }
 });
 
-test("isDroppingVerdict: `pre-existing` needs an authoritative changed-file list", () => {
+test("isDroppingVerdict: provenance is no longer a ground — `pre-existing` cannot drop", () => {
+  // The ground was removed with the changed-file block. Provenance is answered
+  // from git by the novelty gate, and #583 established that DELETING a finding
+  // because its location is old code is the wrong action — that is exactly what
+  // the blast-radius lens reports. Age demotes to a reported, non-gating lane;
+  // it never deletes. An unknown ground keeps the finding, so this is fail-safe
+  // by construction rather than by a special case.
   const preExisting = { ...GROUNDED_REFUTE, refutationGround: "pre-existing" };
-  // The prompt withdraws this ground when the list is not authoritative, but a
-  // prompt instruction the script does not check is not a rule — so the trusted
-  // code refuses it too. Without this the whole changed-file trust story is
-  // advisory, and a model ignoring the instruction drops a real finding.
-  assert.equal(isDroppingVerdict(preExisting, { allowPreExisting: false }), false);
-  assert.ok(isDroppingVerdict(preExisting, { allowPreExisting: true }));
-  // DEFAULT is the strict one: a caller that forgets to thread the flag gets the
-  // keep-the-finding behaviour, like every other default on this path.
   assert.equal(isDroppingVerdict(preExisting), false);
   assert.equal(isDroppingVerdict(preExisting, {}), false);
-  // the flag is scoped to `pre-existing` — it must not gate the other grounds
+  assert.equal(isDroppingVerdict(preExisting, { claimType: "presence" }), false);
+  assert.equal(isDroppingVerdict(preExisting, { claimType: "absence" }), false);
+  // A stale caller passing the removed flag cannot resurrect it.
+  assert.equal(isDroppingVerdict(preExisting, { allowPreExisting: true }), false);
+  // The surviving grounds still drop.
   for (const g of ["not-present", "already-guarded", "out-of-scope"]) {
-    assert.ok(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: g }, { allowPreExisting: false }));
+    assert.ok(isDroppingVerdict({ ...GROUNDED_REFUTE, refutationGround: g }), g);
   }
-  // ...and it never RELAXES anything else: an ungrounded pre-existing still keeps
-  assert.equal(
-    isDroppingVerdict({ verdict: "refuted", confidence: "high", refutationGround: "pre-existing" },
-      { allowPreExisting: true }),
-    false,
-  );
 });
 
-test("applyVerifications / verifierTally thread the pre-existing trust flag", () => {
+test("verifierTally: a provenance-grounded refute is counted as refuted but NOT dropped", () => {
+  // The gap between `refuted` and `dropped` is the measurement — here it records
+  // a verifier that tried to dismiss a finding on provenance and was refused.
   const F = [{ severity: "major", summary: "m" }];
   const V = [{ ...GROUNDED_REFUTE, refutationGround: "pre-existing" }];
-  assert.equal(applyVerifications(F, V, { allowPreExisting: true }).length, 0, "dropped when trusted");
-  assert.equal(applyVerifications(F, V, { allowPreExisting: false }).length, 1, "kept when not");
-  assert.equal(applyVerifications(F, V).length, 1, "kept by default");
-  // the tally must agree with the gate, or `dropped` reports a decision that
-  // was never made
-  assert.equal(verifierTally(F, V, { allowPreExisting: true }).dropped, 1);
-  assert.equal(verifierTally(F, V, { allowPreExisting: false }).dropped, 0);
-  assert.equal(verifierTally(F, V).dropped, 0);
+  assert.equal(applyVerifications(F, V).length, 1, "kept — provenance cannot delete");
+  const tally = verifierTally(F, V);
+  assert.equal(tally.refuted, 1);
+  assert.equal(tally.dropped, 0);
+  assert.equal(tally.errored, 0);
 });
 
 test("changedFileContext: only a complete list is authoritative", () => {
@@ -1530,11 +1534,11 @@ test("routeFinding: a refutation outranks provenance", () => {
   );
 });
 
-test("routeFinding: honours allowPreExisting the same way isDroppingVerdict does", () => {
+test("routeFinding: a provenance-grounded refute keeps the finding on the gate", () => {
   const v = { ...DROPPING, refutationGround: "pre-existing" };
-  // Without an authoritative changed-file list the ground is withdrawn → kept.
-  assert.equal(routeFinding({ severity: "major" }, { verdict: v }, { allowPreExisting: false }), "blocking");
-  assert.equal(routeFinding({ severity: "major" }, { verdict: v }, { allowPreExisting: true }), "discarded");
+  assert.equal(routeFinding({ severity: "major" }, { verdict: v }), "blocking");
+  // Not even a stale caller threading the removed flag can drop it.
+  assert.equal(routeFinding({ severity: "major" }, { verdict: v }, { allowPreExisting: true }), "blocking");
 });
 
 test("routeFinding: only ever returns a declared lane", () => {

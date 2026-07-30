@@ -121,3 +121,29 @@ test("renderSummaryMd: an unsettled finding is marked, and merged wordings are s
   assert.match(md, /also reported as \(1\)/);
   assert.match(md, /folded wording/);
 });
+
+test("renderSummaryMd: a verifier outage is stated above the findings", () => {
+  // On #592 a 429 session limit made every verifier session throw. Findings are
+  // kept when verification fails, so the body read as a full 40-finding review
+  // with nothing indicating the filter never ran. The note goes ABOVE the
+  // findings because it changes how all of them should be read.
+  const findings = [{ severity: "critical", file: "a.mjs", summary: "looks real" }];
+  const md = renderSummaryMd("R", findings, "body text", { unverified: { errored: 40, sent: 40 } });
+  assert.match(md, /verifier did not run on 40 of 40/);
+  assert.match(md, /UNFILTERED rather than confirmed/);
+  // Ordering: the warning precedes the summary text and the first finding.
+  assert.ok(md.indexOf("verifier did not run") < md.indexOf("body text"));
+  assert.ok(md.indexOf("verifier did not run") < md.indexOf("looks real"));
+  // The conclusion is untouched — an outage keeps findings, so it still blocks.
+  assert.match(md, /changes requested/);
+});
+
+test("renderSummaryMd: no note when verification ran, or when the count is zero", () => {
+  const findings = [{ severity: "major", file: "a.mjs", summary: "s" }];
+  for (const unverified of [null, undefined, { errored: 0, sent: 12 }]) {
+    const md = renderSummaryMd("R", findings, "b", { unverified });
+    assert.doesNotMatch(md, /verifier did not run/, JSON.stringify(unverified));
+  }
+  // Byte-identical to the no-option call, so the common path is unchanged.
+  assert.equal(renderSummaryMd("R", findings, "b", { unverified: null }), renderSummaryMd("R", findings, "b"));
+});
