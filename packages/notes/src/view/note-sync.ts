@@ -53,17 +53,28 @@ class NoteSyncPluginValue implements cmView.PluginValue {
 
   update(update: cmView.ViewUpdate): void {
     if (!update.docChanged) return;
-    for (const tr of update.transactions) {
-      if (tr.annotation(cmState.Transaction.remote)) continue;
-      const events = ['input', 'delete', 'move', 'undo', 'redo'];
-      if (!events.some((e) => tr.isUserEvent(e))) continue;
-      let adj = 0;
-      tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
-        const insertText = inserted.toJSON().join('\n');
-        this.store.editText(fromA + adj, toA + adj, insertText);
-        adj += insertText.length - (toA - fromA);
-      });
-    }
+    // One ViewUpdate = one undo unit. `batch()` collapses every edit below
+    // into a single store change, so a multi-change transaction (or a command
+    // that dispatches several, e.g. insertTable) undoes in one step instead of
+    // unwinding change by change. An update whose transactions are all
+    // filtered out below leaves the batch empty, which records nothing.
+    this.store.batch(() => {
+      for (const tr of update.transactions) {
+        if (tr.annotation(cmState.Transaction.remote)) continue;
+        // 'undo'/'redo' stay in the list purely as a safety net: CodeMirror's
+        // own history is disabled (Yorkie owns undo), so nothing should emit
+        // them — but if something did, the edit must still reach the store
+        // rather than silently desync the view from the model.
+        const events = ['input', 'delete', 'move', 'undo', 'redo'];
+        if (!events.some((e) => tr.isUserEvent(e))) continue;
+        let adj = 0;
+        tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+          const insertText = inserted.toJSON().join('\n');
+          this.store.editText(fromA + adj, toA + adj, insertText);
+          adj += insertText.length - (toA - fromA);
+        });
+      }
+    });
   }
 
   destroy(): void {
