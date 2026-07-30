@@ -85,10 +85,17 @@ describe('YorkieBoardStore', () => {
       .read()
       .slides[0].elements.find((e) => e.id === connId);
     expect(conn).toBeDefined();
-    // With the origin-fallback bug, the connector's computed frame
-    // collapses to a degenerate box at (0, 0). The grouped element `aId`
-    // sits at world (300, 300)-ish, so a correctly resolved frame must
-    // not sit at the origin.
-    expect(conn!.frame.x === 0 && conn!.frame.y === 0).toBe(false);
+    // The connector's other endpoint is free at (700, 700), so its
+    // bbox always includes that point regardless of the bug — a naive
+    // "is the frame exactly (0, 0)" check would not actually
+    // distinguish the two cases (a degenerate attach at the origin
+    // still produces a small negative x/y from the stroke padding, not
+    // literally 0). Assert on magnitude instead: `aId` sits at world
+    // (300, 300)-(350, 350), so a correctly resolved frame's x must sit
+    // well above 250. With the origin-fallback bug (top-level-only
+    // lookup can't find the now-grouped `aId`), `resolveEndpoint` falls
+    // back to (0, 0) and frame.x collapses to roughly -0.5 (just the
+    // stroke pad), which fails this assertion.
+    expect(conn!.frame.x).toBeGreaterThan(250);
   });
 });
