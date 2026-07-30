@@ -191,6 +191,10 @@ export function aggregatePanelStats(entries) {
   // blind (no --base-sha, a shallow clone, findings with no line) rather than
   // that nothing was relocated.
   let laneBlocking = 0, laneBacklog = 0, laneUnknownOrigin = 0;
+  // Restatement collapsed by the clustering pass. `collapsed` is pure count
+  // inflation removed — wordings of a defect already reported under another
+  // finding. Absent from pre-clustering entries, which coerce to 0.
+  let clustered = 0, collapsed = 0;
   for (const e of list) {
     if (!e || typeof e !== "object") continue;
     if (Object.prototype.hasOwnProperty.call(agreementCounts, e.agreement)) agreementCounts[e.agreement]++;
@@ -211,11 +215,14 @@ export function aggregatePanelStats(entries) {
     laneBlocking += Number(e.lanes && e.lanes.blocking) || 0;
     laneBacklog += Number(e.lanes && e.lanes.backlog) || 0;
     laneUnknownOrigin += Number(e.lanes && e.lanes.unknownOrigin) || 0;
+    clustered += Number(e.clusters && e.clusters.clustered) || 0;
+    collapsed += Number(e.clusters && e.clusters.collapsed) || 0;
   }
   return {
     agreementCounts, raised, raisedConfidence, kept,
     verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, absenceRaised, absenceRefuted, unresolved },
     lanes: { blocking: laneBlocking, backlog: laneBacklog, unknownOrigin: laneUnknownOrigin },
+    clusters: { clustered, collapsed },
   };
 }
 
@@ -382,6 +389,7 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
     const k = panelStats?.kept || {};
     const v = panelStats?.verifier || {};
     const l = panelStats?.lanes || {};
+    const c = panelStats?.clusters || {};
     const sampledRounds = (ac.identical || 0) + (ac.partial || 0) + (ac.disjoint || 0);
     lines.push(
       "",
@@ -428,6 +436,10 @@ export function renderSummary({ agg, panelAgg, panelStats, flips, scope }) {
       // the gate ran blind (no --base-sha, a shallow clone, findings with no
       // line), not that nothing was moved. Only `relocated` demotes.
       `- Novelty gate: ${l.backlog || 0} relocated (demoted), ${l.blocking || 0} gating, ${l.unknownOrigin || 0} unplaceable`,
+      // Restatement, not defects. A persistently high `collapsed` means the
+      // lenses are re-describing the same problems rather than that the PR has
+      // that many — the count inflation #578's disposition called out.
+      `- Restatement collapsed: ${c.collapsed || 0} wording(s) folded into ${c.clustered || 0} finding(s)`,
     );
     // Advisory heads-up (NOT a verdict): a lens that blocked then approved across
     // rounds — the PR #521 pattern. Can't distinguish a genuine fix from judge
