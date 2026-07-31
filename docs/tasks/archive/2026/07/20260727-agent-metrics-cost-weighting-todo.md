@@ -66,7 +66,7 @@ The weighting rationale lives in the PR description, not the rendered comment
 - [x] Update `metrics.test.mjs`.
 - [x] Update `.claude/skills/maintainer-merge/SKILL.md` (it documented that cost
       is never rendered — no longer true).
-- [ ] `pnpm verify:fast` green; open follow-up PR.
+- [x] `pnpm verify:fast` green; open follow-up PR.
 
 ## Notes / non-goals
 

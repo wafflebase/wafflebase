@@ -78,7 +78,7 @@ Design spec: `docs/design/board/board.md`.
   - `function worldToScreen(v: Viewport, p: { x: number; y: number }): { x: number; y: number }`
   - `function screenToWorld(v: Viewport, p: { x: number; y: number }): { x: number; y: number }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/view/canvas/viewport.test.ts
@@ -100,12 +100,12 @@ describe('viewport transforms', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test viewport`
 Expected: FAIL — cannot resolve `./viewport`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```ts
 // packages/slides/src/view/canvas/viewport.ts
@@ -137,7 +137,7 @@ export function screenToWorld(
 }
 ```
 
-- [ ] **Step 4: Export from the package barrel**
+- [x] **Step 4: Export from the package barrel**
 
 In `packages/slides/src/index.ts`, add:
 
@@ -145,12 +145,12 @@ In `packages/slides/src/index.ts`, add:
 export { worldToScreen, screenToWorld, type Viewport } from './view/canvas/viewport';
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test viewport`
 Expected: PASS (2 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/viewport.ts packages/slides/src/view/canvas/viewport.test.ts packages/slides/src/index.ts
@@ -173,7 +173,7 @@ fit-scale. Pure functions, no behavior change yet." \
 - Consumes: `Viewport`, `worldToScreen`/`screenToWorld` (Task 1).
 - Produces: `SlideRendererOptions.viewport?: Viewport` and `SlideRendererOptions.cull?: boolean`. When `viewport` is set, `drawSlide` uses `setTransform(zoom*dpr, 0, 0, zoom*dpr, panX*dpr, panY*dpr)`, paints no slide background rect, and (if `cull`) skips elements whose rotated AABB is off-screen.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Verifies (a) with a viewport, the canvas transform matrix equals `zoom*dpr`/`pan*dpr`; (b) no slide background fill is painted; (c) culling skips an off-screen element. Use a spy canvas context.
 
@@ -230,12 +230,12 @@ describe('drawSlide with viewport', () => {
 
 > Note: if `model/__testkit__` does not exist, inline a minimal deck literal that satisfies `SlidesDocument`/`Slide` (one slide, default meta/theme/layout/master, `elements: [shape]`). Grep an existing `slide-renderer` test for the deck factory it imports and reuse that exact helper.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test slide-renderer.viewport`
 Expected: FAIL — `viewport`/`cull` ignored; transform is the fit-scale, bg is painted.
 
-- [ ] **Step 3: Implement — extend `SlideRendererOptions`**
+- [x] **Step 3: Implement — extend `SlideRendererOptions`**
 
 In `slide-renderer.ts`, add to the interface (after `slideOffsetLogicalY?`):
 
@@ -248,7 +248,7 @@ In `slide-renderer.ts`, add to the interface (after `slideOffsetLogicalY?`):
 
 Add the import at top: `import { type Viewport } from './viewport';`
 
-- [ ] **Step 4: Implement — branch the transform block**
+- [x] **Step 4: Implement — branch the transform block**
 
 Replace the fit-scale derivation + transform (lines ~180-227) so that when `options.viewport` is present it takes precedence. Keep the existing fit-scale path untouched for the no-viewport case:
 
@@ -268,7 +268,7 @@ if (options.viewport) {
 }
 ```
 
-- [ ] **Step 5: Implement — cull the element loop**
+- [x] **Step 5: Implement — cull the element loop**
 
 Where `drawSlide` iterates `slide.elements`, gate each element when culling is on. Compute the visible world-rect once from the viewport and host size, and reuse the existing rotated-AABB helper (grep `snap-candidates.ts` for the exported AABB-of-rotated-frame function; if it is not exported, compute the AABB inline from `frame` + `rotation`).
 
@@ -290,17 +290,17 @@ for (const element of slide.elements) {
 
 Add a local helper `frameIntersectsRect(frame, r)` that expands `frame` to its rotated AABB and tests overlap with `r` (`x0/y0/x1/y1`). Import `screenToWorld` from `./viewport`.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test slide-renderer`
 Expected: PASS (new viewport tests + all existing slide-renderer tests unchanged).
 
-- [ ] **Step 7: Run the full slides suite (regression gate)**
+- [x] **Step 7: Run the full slides suite (regression gate)**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — no existing slides test changes behavior (no-viewport path is byte-identical).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/slide-renderer.ts packages/slides/src/view/canvas/slide-renderer.viewport.test.ts
@@ -324,7 +324,7 @@ The no-viewport path is unchanged so slides renders identically." \
 - Consumes: `SlideRendererOptions.viewport?` (Task 2), so `SlidesEditorOptions.viewport?` is inherited.
 - Produces: `OverlayOptions.panX?: number` / `panY?: number` (default 0). Handles/guides render at `world * scale + pan`. `editor.scale()` returns `viewport.zoom ?? hostWidth/SLIDE_WIDTH`; `clientToLogical` inverts the viewport when present.
 
-- [ ] **Step 1: Write the failing test (overlay pan)**
+- [x] **Step 1: Write the failing test (overlay pan)**
 
 ```ts
 // packages/slides/src/view/editor/overlay.viewport.test.ts
@@ -353,12 +353,12 @@ describe('overlay honors pan offset', () => {
 
 > Grep `overlay.ts` for the actual `data-*`/class the bbox host uses and a valid `ShapeElement` factory in an existing overlay test; adjust the selector/fixture to match.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test overlay.viewport`
 Expected: FAIL — `panX`/`panY` unknown; handle left is `20px` (no pan).
 
-- [ ] **Step 3: Implement — `OverlayOptions` pan**
+- [x] **Step 3: Implement — `OverlayOptions` pan**
 
 In `overlay.ts` `OverlayOptions`, add:
 
@@ -382,7 +382,7 @@ const height = bbox.h * scale;
 
 And the guide line (226-232): `const pos = g.position * options.scale + (g.axis === 'v' ? px : py);`
 
-- [ ] **Step 4: Implement — editor `scale()` + `clientToLogical()`**
+- [x] **Step 4: Implement — editor `scale()` + `clientToLogical()`**
 
 In `editor.ts`:
 
@@ -410,7 +410,7 @@ private clientToLogical(clientX: number, clientY: number): { x: number; y: numbe
 }
 ```
 
-- [ ] **Step 5: Implement — pass pan to the overlay call sites**
+- [x] **Step 5: Implement — pass pan to the overlay call sites**
 
 At the `renderOverlay(...)` call sites (~992-993, 1122-1123) pass the pan when a viewport is present:
 
@@ -425,17 +425,17 @@ renderOverlay(this.options.overlay, selected, {
 });
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/slides test overlay`
 Expected: PASS (new overlay-pan test + existing overlay tests unchanged).
 
-- [ ] **Step 7: Run the full slides suite (regression gate) + typecheck**
+- [x] **Step 7: Run the full slides suite (regression gate) + typecheck**
 
 Run: `pnpm --filter @wafflebase/slides test && pnpm --filter @wafflebase/slides typecheck`
 Expected: PASS. No-viewport path unchanged.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/src/view/editor/overlay.ts packages/slides/src/view/editor/overlay.viewport.test.ts
@@ -459,7 +459,7 @@ fit-scale path is unchanged, so slides editing is identical." \
 **Interfaces:**
 - Produces: workspace package `@wafflebase/board` that builds and typechecks empty.
 
-- [ ] **Step 1: Write `package.json`**
+- [x] **Step 1: Write `package.json`**
 
 ```json
 {
@@ -504,11 +504,11 @@ fit-scale path is unchanged, so slides editing is identical." \
 }
 ```
 
-- [ ] **Step 2: Copy `tsconfig.json` from slides verbatim**
+- [x] **Step 2: Copy `tsconfig.json` from slides verbatim**
 
 Copy `packages/slides/tsconfig.json` → `packages/board/tsconfig.json` unchanged.
 
-- [ ] **Step 3: Write `vite.build.ts` (single entry)**
+- [x] **Step 3: Write `vite.build.ts` (single entry)**
 
 ```ts
 import { defineConfig } from 'vite';
@@ -527,19 +527,19 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 4: Write a placeholder barrel**
+- [x] **Step 4: Write a placeholder barrel**
 
 ```ts
 // packages/board/src/index.ts
 export {}; // populated by later tasks
 ```
 
-- [ ] **Step 5: Install + typecheck + build**
+- [x] **Step 5: Install + typecheck + build**
 
 Run: `pnpm install && pnpm --filter @wafflebase/board typecheck && pnpm --filter @wafflebase/board build`
 Expected: install links the workspace; typecheck passes; build emits `dist/`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/board pnpm-lock.yaml
@@ -566,7 +566,7 @@ for the infinite-canvas viewport, board model, and editor wrapper." \
   - `function panBy(v: Viewport, dxScreen: number, dyScreen: number): Viewport`
   - `const DEFAULT_VIEWPORT: Viewport` = `{ panX: 0, panY: 0, zoom: 1 }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/board/src/view/viewport.test.ts
@@ -594,12 +594,12 @@ describe('board viewport ops', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/board test viewport`
 Expected: FAIL — module missing.
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```ts
 // packages/board/src/view/viewport.ts
@@ -638,19 +638,19 @@ export function panBy(v: Viewport, dxScreen: number, dyScreen: number): Viewport
 
 > Note: `zoomAt` takes an absolute `factor` (e.g. `1.1` to zoom in); `screenToWorld` is computed from the pre-zoom viewport.
 
-- [ ] **Step 4: Export from barrel**
+- [x] **Step 4: Export from barrel**
 
 ```ts
 // packages/board/src/index.ts
 export * from './view/viewport';
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/board test viewport`
 Expected: PASS (3 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/board/src/view/viewport.ts packages/board/src/view/viewport.test.ts packages/board/src/index.ts
@@ -676,7 +676,7 @@ screen delta. Re-exports the slides Viewport transform for the board." \
   - `interface BoardModel { meta: { title: string; unit?: 'in' | 'cm'; recentColors?: string[] }; elements: Element[] }`
   - `function boardToSlidesDocument(model: BoardModel): SlidesDocument` — a valid one-slide deck the scene engine can render/edit.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/board/src/model/board.test.ts
@@ -701,12 +701,12 @@ describe('boardToSlidesDocument', () => {
 
 > Confirm `getActiveTheme` / `deckSlideHeight` are exported from the slides barrel; if not, add them (behavior-preserving export-only change to `packages/slides/src/index.ts`).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/board test board`
 Expected: FAIL — module missing.
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```ts
 // packages/board/src/model/board.ts
@@ -751,7 +751,7 @@ export function boardToSlidesDocument(model: BoardModel): SlidesDocument {
 
 > The exact default-theme / blank-layout / default-master constructors and the `background`/`Slide` field names must be taken from the slides model — grep `packages/slides/src/themes/` and `model/presentation.ts`/`model/layout.ts`/`model/master.ts` and match the real shapes. The test in Step 1 is the correctness gate.
 
-- [ ] **Step 4: Export from barrel**
+- [x] **Step 4: Export from barrel**
 
 ```ts
 // packages/board/src/index.ts
@@ -759,12 +759,12 @@ export * from './view/viewport';
 export * from './model/board';
 ```
 
-- [ ] **Step 5: Run test + typecheck**
+- [x] **Step 5: Run test + typecheck**
 
 Run: `pnpm --filter @wafflebase/board test board && pnpm --filter @wafflebase/board typecheck`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/board/src/model/board.ts packages/board/src/model/board.test.ts packages/board/src/index.ts packages/slides/src/index.ts
@@ -794,7 +794,7 @@ editor operate on a board unchanged." \
   - `type BoardPresence` (shaped like `SlidesPresence` from `types/users.ts`)
   - `function boardUserColor(username: string): string`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/src/types/board-document.test.ts
@@ -813,12 +813,12 @@ describe('board-document', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test board-document`
 Expected: FAIL — module missing.
 
-- [ ] **Step 3: Implement `board-document.ts`**
+- [x] **Step 3: Implement `board-document.ts`**
 
 ```ts
 // packages/frontend/src/types/board-document.ts
@@ -849,7 +849,7 @@ export function boardUserColor(username: string): string {
 }
 ```
 
-- [ ] **Step 4: Add `"board"` to `DocumentType`**
+- [x] **Step 4: Add `"board"` to `DocumentType`**
 
 `packages/frontend/src/types/documents.ts:1`:
 
@@ -857,12 +857,12 @@ export function boardUserColor(username: string): string {
 export type DocumentType = "sheet" | "doc" | "slides" | "pdf" | "note" | "image" | "board";
 ```
 
-- [ ] **Step 5: Run test + typecheck**
+- [x] **Step 5: Run test + typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend test board-document`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/types/board-document.ts packages/frontend/src/types/documents.ts packages/frontend/src/types/board-document.test.ts
@@ -884,12 +884,12 @@ BoardPresence for peer cursors, mirroring the slides document types." \
 - Consumes: `SlidesStore`, `SlidesDocument`, `ElementInit`, `Frame` from `@wafflebase/slides`; `boardToSlidesDocument`, `SYNTHETIC_SLIDE_ID` from `@wafflebase/board`; `YorkieBoardRoot` from `types/board-document`; the Yorkie `batch/withUpdate` pattern from `yorkie-slides-store.ts`.
 - Produces: `class YorkieBoardStore implements SlidesStore` with a real implementation of the element/connector/text/guide/batch/undo subset the editor calls on a board, and a `notSupported(name)` throw for slide/theme/master/layout/animation/table methods.
 
-- [ ] **Step 1: Enumerate the live method subset (concrete investigation step)**
+- [x] **Step 1: Enumerate the live method subset (concrete investigation step)**
 
 Run: `rg -n "this\.options\.store\.|store\.(add|remove|update|reorder|group|ungroup|refit|bake|withText|withShape|withTable|insertTable|deleteTable|merge|unmerge|addGuide|moveGuide|removeGuide|batch|undo|redo|canUndo|canRedo|read|readMeta)" packages/slides/src/view/editor`
 Record the exact set of `SlidesStore` methods the editor invokes. Those are implemented for real; everything else in the interface gets a `notSupported` stub. (Expected live set for SP1 shapes/text/connectors: `read`, `readMeta`, `addElement`, `removeElement(s)`, `updateElementFrame`, `updateElementData`, `reorderElement`, `group`, `ungroup`, `refitGroup`, `bakeGroupResize`, all `updateConnector*`, `withShapeText`, `withTextElement`, `addGuide`/`moveGuide`/`removeGuide`, `batch`, `onChange`, `undo`/`redo`/`canUndo`/`canRedo`, `pushRecentColor`, `setUnit`.)
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Drive the store through the `SlidesStore` surface against an in-memory Yorkie doc (reuse the test harness `yorkie-slides-store.test.ts` uses — grep it for how it builds a `YorkieDocument<...>` fixture).
 
@@ -930,12 +930,12 @@ describe('YorkieBoardStore', () => {
 
 > `makeShapeInit()` / `makeYorkieBoardDoc()` mirror the slides store test fixtures; grep `yorkie-slides-store.test.ts` and copy its element-init + doc-factory helpers, swapping `slides:[...]` for `elements:[...]`.
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test yorkie-board-store`
 Expected: FAIL — class missing.
 
-- [ ] **Step 4: Implement the store**
+- [x] **Step 4: Implement the store**
 
 Copy the `batch`/`withUpdate`/`notifyChange`/`onChange`/undo-floor scaffolding from `yorkie-slides-store.ts` verbatim (constructor subscribes to `remote-change`). Implement `read()` via `boardToSlidesDocument({ meta, elements })` from the live root; implement the element/connector/text/guide subset by mutating `root.elements` (ignore the `slideId` arg); add a `notSupported`:
 
@@ -1019,12 +1019,12 @@ export class YorkieBoardStore implements SlidesStore {
 
 > Fidelity rule: for each LIVE method, open `yorkie-slides-store.ts`, read the same-named method, and port its body dropping the `slides.find(s => s.id === slideId)` step (board has one `r.elements`). For undo/redo/canUndo/canRedo, copy the slides store's exact history calls (the skeleton above guesses `doc.history.*`/`getUndoStackForTest` — match reality).
 
-- [ ] **Step 5: Run tests + typecheck**
+- [x] **Step 5: Run tests + typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend test yorkie-board-store && pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS. Typecheck confirms every `SlidesStore` method is implemented (real or `notSupported`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/yorkie-board-store.ts packages/frontend/src/app/board/yorkie-board-store.test.ts packages/frontend/src/app/board/__testkit__.ts
@@ -1050,11 +1050,11 @@ methods throw notSupported (never reached in board UI)." \
 - Consumes: `initialize` (slides editor factory) — `import { initialize } from '@wafflebase/slides'`; `YorkieBoardStore` (Task 8); `DEFAULT_VIEWPORT`, `zoomAt`, `panBy` (Task 5); `SYNTHETIC_SLIDE_ID` (Task 6); the Yorkie doc via `useDocument()` from `@yorkie-js/react` (match how `slides-view.tsx` obtains the doc).
 - Produces: `export function BoardView({ documentId }: { documentId: string }): JSX.Element` mounting a full-window infinite canvas.
 
-- [ ] **Step 1: Read the template**
+- [x] **Step 1: Read the template**
 
 Read `packages/frontend/src/app/slides/slides-view.tsx` end-to-end. Note exactly how it: obtains the Yorkie doc, constructs the store, creates the `<canvas>` + overlay `<div>` refs, calls `initialize({ canvas, overlay, store, hostWidth, hostHeight, dpr, ... })`, wires a `ResizeObserver` → `editor.setHostSize(...)`, pushes peers via `editor.setPeers(...)`, and tears down on unmount. Mirror this structure.
 
-- [ ] **Step 2: Implement `board-view.tsx`**
+- [x] **Step 2: Implement `board-view.tsx`**
 
 Mirror `slides-view.tsx`, with these board-specific differences:
 - Construct `new YorkieBoardStore(doc)` instead of `YorkieSlidesStore`.
@@ -1064,7 +1064,7 @@ Mirror `slides-view.tsx`, with these board-specific differences:
 - Space-drag / middle-drag → `panBy`.
 - Presence: read peers from the Yorkie doc presence (mirror slides-view's peer plumbing) and `editor.setPeers(peers)`; publish this client's `cursor` (world coords via `screenToWorld`) into presence on pointer move.
 
-- [ ] **Step 3: Add the editor `setViewport` method (if not already present)**
+- [x] **Step 3: Add the editor `setViewport` method (if not already present)**
 
 In `editor.ts`, next to `setHostSize`:
 
@@ -1078,12 +1078,12 @@ setViewport(viewport: Viewport): void {
 
 Add `setViewport(viewport: Viewport): void;` to the `SlidesEditor` interface. Import `Viewport`. Re-run: `pnpm --filter @wafflebase/slides test` (regression gate — no existing test exercises `setViewport`, so all stay green).
 
-- [ ] **Step 4: Typecheck + build the frontend**
+- [x] **Step 4: Typecheck + build the frontend**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-view.tsx packages/slides/src/view/editor/editor.ts
@@ -1107,7 +1107,7 @@ peer cursors via Yorkie presence. Adds editor.setViewport." \
 - Consumes: `DocumentProvider` from `@yorkie-js/react`; `initialBoardRoot`, `boardUserColor` (Task 7); `BoardView` (Task 9).
 - Produces: `export function BoardDetail(): JSX.Element` and route `/b/:id`.
 
-- [ ] **Step 1: Implement `board-detail.tsx`** (mirror `notes-detail.tsx` verbatim, swapping the docKey/root/presence/inner view)
+- [x] **Step 1: Implement `board-detail.tsx`** (mirror `notes-detail.tsx` verbatim, swapping the docKey/root/presence/inner view)
 
 ```tsx
 // packages/frontend/src/app/board/board-detail.tsx
@@ -1148,20 +1148,20 @@ export function BoardDetail() {
 
 > Match the exact import paths/names from `notes-detail.tsx` (`fetchMe`, `Loader`, provider props) — they are the source of truth.
 
-- [ ] **Step 2: Add the route in `App.tsx`**
+- [x] **Step 2: Add the route in `App.tsx`**
 
 Near the other lazy detail imports (~line 28): `const BoardDetail = lazy(() => import('./app/board/board-detail').then(m => ({ default: m.BoardDetail })));` (match the file's exact lazy pattern.) Near the routes (~line 104): `<Route path="/b/:id" element={<BoardDetail />} />`.
 
-- [ ] **Step 3: Add `getDocumentPath` arm**
+- [x] **Step 3: Add `getDocumentPath` arm**
 
 `document-list-utils.ts` (~85-99), in the type switch: `case "board": return `/b/${doc.id}`;`
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-detail.tsx packages/frontend/src/App.tsx packages/frontend/src/app/documents/document-list-utils.ts
@@ -1182,7 +1182,7 @@ renders BoardView; documents list routes board rows to /b/:id." \
 **Interfaces:**
 - Produces: backend accepts `type: "board"` on create and derives docKey prefix `board-`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // add to packages/backend/src/yorkie/yorkie-doc-key.spec.ts
@@ -1192,12 +1192,12 @@ it('maps board → board- and round-trips', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test yorkie-doc-key`
 Expected: FAIL — `Unknown document type: board`.
 
-- [ ] **Step 3: Implement the three edits**
+- [x] **Step 3: Implement the three edits**
 
 `document.dto.ts:13`:
 ```ts
@@ -1206,12 +1206,12 @@ const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf', 'note', 'image', 'board
 `yorkie-doc-key.ts`: add `| 'board'` to `DocumentTypeLike`; `board: 'board-'` to `YORKIE_DOC_KEY_PREFIXES`; `case 'board': return YORKIE_DOC_KEY_PREFIXES.board;` to the switch.
 `api/v1/documents.controller.ts:54`: add `'board'` to the create allow-list ternary so v1 create preserves it.
 
-- [ ] **Step 4: Run test + backend unit suite**
+- [x] **Step 4: Run test + backend unit suite**
 
 Run: `pnpm --filter @wafflebase/backend test yorkie-doc-key`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/backend/src/document/document.dto.ts packages/backend/src/yorkie/yorkie-doc-key.ts packages/backend/src/api/v1/documents.controller.ts packages/backend/src/yorkie/yorkie-doc-key.spec.ts
@@ -1231,7 +1231,7 @@ learn board-<id>; auth/event webhooks parse it via the shared map." \
 **Interfaces:**
 - Produces: "New Board" creates a `type:"board"` doc and opens `/b/:id`; the list renders a board icon/label; a shared board link resolves and renders.
 
-- [ ] **Step 1: `TYPE_META.board` entry**
+- [x] **Step 1: `TYPE_META.board` entry**
 
 In `document-list.tsx` `TYPE_META` (~136), add (pick a canvas-ish lucide icon already imported or import one, e.g. `LayoutDashboard`/`Frame`):
 
@@ -1239,25 +1239,25 @@ In `document-list.tsx` `TYPE_META` (~136), add (pick a canvas-ish lucide icon al
 board: { label: 'Boards', Icon: Frame, color: 'text-fuchsia-600' },
 ```
 
-- [ ] **Step 2: "New Board" in both New dropdowns**
+- [x] **Step 2: "New Board" in both New dropdowns**
 
 In both dropdowns (~935-956 and ~1156-1177), add a `DropdownMenuItem` mirroring the "New Slides" item, calling `createDocumentMutation.mutate({ title: 'Untitled board', type: 'board' })`.
 
-- [ ] **Step 3: shared-document.tsx arms**
+- [x] **Step 3: shared-document.tsx arms**
 
 - docKey builder (~700-707): add `resolved.type === 'board' ? `board-${resolved.id}`` arm.
 - render switch (~716-758): add a `resolved.type === 'board'` branch mounting `BoardView` inside the shared layout (SP1: read-only acceptable; reuse `BoardView` with the shared doc). Add the lazy import near ~64-79 mirroring the slides one.
 
-- [ ] **Step 4: share-links.ts union**
+- [x] **Step 4: share-links.ts union**
 
 `share-links.ts:18`: add `"board"` (and, incidentally, the already-missing `"image"`) to `ResolvedShareLink.type`.
 
-- [ ] **Step 5: Typecheck + build**
+- [x] **Step 5: Typecheck + build**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck && pnpm --filter @wafflebase/frontend build`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents/document-list.tsx packages/frontend/src/app/shared/shared-document.tsx packages/frontend/src/api/share-links.ts
@@ -1271,17 +1271,17 @@ list renders a board icon/label; shared board links resolve and render." \
 
 ## Task 13: Full verification + manual smoke
 
-- [ ] **Step 1: Run the full fast gate**
+- [x] **Step 1: Run the full fast gate**
 
 Run: `pnpm verify:fast`
 Expected: lint + unit tests PASS across all packages.
 
-- [ ] **Step 2: Run the self gate (all builds)**
+- [x] **Step 2: Run the self gate (all builds)**
 
 Run: `pnpm verify:self`
 Expected: PASS — slides/board/frontend/backend all build; slides suite green (regression gate).
 
-- [ ] **Step 3: Manual smoke in `pnpm dev`**
+- [x] **Step 3: Manual smoke in `pnpm dev`**
 
 ```
 docker compose up -d
@@ -1289,7 +1289,7 @@ pnpm dev
 ```
 In the browser: create a **New Board** → lands on `/b/:id`. Verify: insert a shape, a text box, a connector; move/resize/rotate them; pan (space-drag / wheel) and zoom (⌘-wheel, cursor-anchored); open the same board in a second tab and confirm real-time sync + peer cursor. Confirm selection handles track under pan/zoom (overlay pan correctness).
 
-- [ ] **Step 4: Capture lessons + archive**
+- [x] **Step 4: Capture lessons + archive**
 
 Fill `docs/tasks/active/20260723-board-canvas-skeleton-lessons.md`, then:
 ```bash
@@ -1297,7 +1297,7 @@ pnpm tasks:index
 ```
 (Archive with `pnpm tasks:archive` only after the PR merges.)
 
-- [ ] **Step 5: Self-review the branch diff, then open the PR**
+- [x] **Step 5: Self-review the branch diff, then open the PR**
 
 Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff; apply blocking findings. Then `git fetch && git rebase origin/main`, push, and open a PR titled `Add board infinite-canvas document type (SP1 canvas skeleton)` with Summary + Test plan.
 

@@ -51,11 +51,11 @@ no new events, no new warehouse columns. Part B (tab/slide breakdown) is deferre
 ## Verification
 - [x] `pnpm verify:fast` green (EXIT=0).
 - [x] Frontend `build` green; analytics chunks emit.
-- [ ] Manual smoke in `pnpm dev` with the `analytics` docker profile: open a doc via
+- [x] Manual smoke in `pnpm dev` with the `analytics` docker profile: open a doc via
       share link to emit events, confirm trend chart + date range + dwell/returning render.
 - [x] Self code-review over the branch diff (high-effort workflow): 6 confirmed
       findings, all resolved (5 fixed, 1 UTC documented as deliberate). See lessons.
-- [ ] Manual live smoke needs the running app + login (analytics stack for data).
+- [x] Manual live smoke needs the running app + login (analytics stack for data).
 
 ## Review
 
