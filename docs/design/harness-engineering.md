@@ -1089,6 +1089,34 @@ Not yet built: `round-trip` and `state` charters (need the backend tier and a
 autonomous filing behind `HUNT_FILING_ENABLED` with a mechanical accept-rate kill
 switch, and the formula differential oracle.
 
+**The explorer EXECUTES.** The first cut could not: its grant was Read/Grep/Glob and
+its prompt said *"you never run commands yourself"*, so it read the source,
+predicted a contradiction, and a trusted runner tested the prediction afterwards.
+That removed the only reason to target a CLI — a CLI's unique value is being an
+executable interface — and made surprise impossible, which is the product.
+
+The propose/execute split survives where it earns its keep. It is correct for
+**reporting** (exact replay, no shell injection) and wrong for **exploration**
+(blindness is the problem). So exploration now runs through one in-process MCP tool
+(`scripts/agent/hunt-tool.mjs`): `argv` arrays only, no shell, `assertSafeArgv` plus
+the CLI's own `schema` safety annotations, an environment `buildProbeEnv`
+**replaces**, and an enforced probe budget. Verifiers keep the read-only grant —
+handing them execution would let a verifier confirm a finding with evidence of its
+own making.
+
+Evidence is **cited, not authored**. Every tool call is journalled, and a candidate
+names `probeRefs`/`failingRef` — indices into that journal. A model therefore cannot
+describe a reproduction it never performed, which a model-authored `probes` array
+allowed; `resolveProbeRefs` converts the indices back into the shape the gate,
+replay and report already speak, and drops any candidate whose references do not
+resolve. The repro is a transcript rather than a claim.
+
+Two grounds exist only because the explorer can now act: `self-inconsistent` (two
+paths disagree about the same data) and `schema-annotation-false` (a command
+violates its own declared safety level). Both are checkable from a transcript, which
+is what stops them collapsing into *"this surprised me"* — the ground deliberately
+absent, because it is the slop generator that ended curl's bug bounty.
+
 ### Phase 27: Panel Feedback Corpus
 
 **Principle:** Entropy Management — the panel has been tuned repeatedly with no

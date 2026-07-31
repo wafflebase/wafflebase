@@ -343,18 +343,24 @@ test("HUNT_GROUNDS is derived from the schema, not hand-copied", () => {
   assert.ok(HUNT_GROUNDS.has("none"), "'none' is a legal value the gate then refuses to act on");
 });
 
-test("EXPLORER_SCHEMA: probes are argv arrays, and the falsifiable fields are required", () => {
+test("EXPLORER_SCHEMA: evidence is CITED as journal indices, never authored", () => {
   const cand = EXPLORER_SCHEMA.properties.candidates.items;
-  for (const f of ["oracle", "severity", "title", "expected", "observed", "probes", "failingIndex", "citations"]) {
+  for (const f of ["oracle", "severity", "title", "expected", "observed", "probeRefs", "failingRef", "citations"]) {
     assert.ok(cand.required.includes(f), `${f} must be required`);
   }
-  const probe = cand.properties.probes.items;
-  assert.deepEqual(probe.properties.argv, { type: "array", items: { type: "string" } });
-  assert.deepEqual(probe.required, ["argv"]);
-  // There must be NO way to express a shell command in the schema — the whole
-  // anti-injection design rests on the model only ever emitting argv.
+  // Indices into the session journal, so the only reproductions a candidate can
+  // cite are runs this process actually performed and recorded.
+  assert.deepEqual(cand.properties.probeRefs, { type: "array", items: { type: "integer" } });
+  assert.deepEqual(cand.properties.failingRef, { type: "integer" });
+
+  // The model must have NO way to hand back a command at all — not a shell string,
+  // and no longer even an argv array. Commands reach the CLI only through the
+  // bounded `run` tool, so a candidate cannot describe a reproduction that never
+  // happened. This is strictly stronger than the argv-array rule it replaces.
+  assert.equal(cand.properties.probes, undefined, "candidates must not author probes");
+  assert.equal(cand.properties.argv, undefined);
   const json = JSON.stringify(EXPLORER_SCHEMA);
-  for (const forbidden of ["command", "shell", "script", "bash"]) {
+  for (const forbidden of ["command", "shell", "script", "bash", "argv"]) {
     assert.doesNotMatch(json, new RegExp(`"${forbidden}"`, "i"), `schema must not offer a "${forbidden}" field`);
   }
 });

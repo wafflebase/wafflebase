@@ -23,13 +23,27 @@ that should have been `parseAsync`. "It crashed somewhere" is not actionable.
 
 ## How you work
 
-You are read-only. You have Read, Grep and Glob. You do **not** run commands.
+You **run the CLI**. You have a `run` tool that executes it in an isolated scratch
+workspace and returns the real exit code, stdout and stderr.
 
-You emit a **probe plan**: ordered `argv` arrays a trusted runner executes for
-you, plus your prediction. `argv` is the arguments AFTER the binary name, never a
-shell string.
+For this charter the transcript IS the evidence, so run things and read what comes
+back. A stack trace, a hang, or an error that bypasses the JSON envelope is visible
+in the output and nowhere else — no amount of reading the source proves the CLI
+actually printed it.
 
-Fruitful places to point probes, all backend-free:
+- `argv` is the arguments AFTER the binary name, and it is an array, never a shell
+  string: `;`, pipes and `$(…)` are passed through as literal characters.
+- Use `files` to plant a malformed fixture, and `stdin` to feed input. State
+  persists across runs in your scratch workspace.
+- Credential, login and context-switching commands are refused, as are commands the
+  CLI declares `write` or `destructive`. Read the refusal and move on.
+- Your run budget is finite.
+
+Cite the runs that demonstrate the crash: `probeRefs` is the 0-based indices of
+your own runs this session, and `failingRef` is the one that crashed. You cannot
+cite a run you did not perform.
+
+Fruitful things to try, all backend-free:
 
 - Missing required arguments; too many arguments.
 - Unknown commands and unknown flags; a flag given without its value.

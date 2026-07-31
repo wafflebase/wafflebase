@@ -54,6 +54,13 @@ import {
 } from "./hunt-fingerprint.mjs";
 import { renderDeferrals, loadScopedDocs, renderIssues, fetchIssues } from "./hunt-corpus.mjs";
 import {
+  createProbeBudget,
+  createProbeServer,
+  openSessionScratch,
+  resolveProbeRefs,
+  PROBE_TOOL_NAME,
+} from "./hunt-tool.mjs";
+import {
   buildProbeEnv,
   resolveCliBin,
   assertSafeArgv,
@@ -67,10 +74,19 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-// The read-only grant. ask.mjs validates this against its own allow-list and
-// refuses anything else, so the hunter cannot hold a shell — probes run in
-// hunt-probe.mjs instead, from argv the model returned as data.
+// The read grant. `ask.mjs` validates this against its own allow-list and refuses
+// anything else, so the hunter still cannot hold a shell.
 const HUNT_TOOLS = ["Read", "Grep", "Glob"];
+
+// The EXPLORER's grant: the same reads, plus the one in-process tool that runs the
+// CLI in a replaced environment behind `assertSafeArgv` and a probe budget
+// (`hunt-tool.mjs`). This is what makes exploration empirical rather than
+// predictive — the hunter observes real behaviour instead of guessing at it from
+// the source, which is the only way it can be surprised by something nobody wrote
+// down. Verifiers deliberately keep the read-only grant: their job is to check a
+// claim against the code, and handing them execution would let a verifier
+// "confirm" a finding by producing new evidence of its own.
+const EXPLORER_TOOLS = [...HUNT_TOOLS, PROBE_TOOL_NAME];
 
 // --- charters ---------------------------------------------------------------
 
@@ -109,8 +125,72 @@ export function validateCharter(c) {
 
 // --- exploration ------------------------------------------------------------
 
-async function explore(charter, { repo, context, sessionLog }) {
+/**
+ * Build a `safetyOf` lookup from the CLI's own `schema` output.
+ *
+ * `assertSafeArgv` has always accepted this and nothing ever passed it, so the 39
+ * `read-only`/`write`/`destructive` annotations gated nothing. That was tolerable
+ * while the model only proposed argv for later execution; now that it executes
+ * directly, the annotations become a live second line of defence behind the hard
+ * denials.
+ *
+ * Note the annotations are hand-maintained and their WRONGNESS is itself one of
+ * the things this hunter looks for (`docs export` is marked `read-only` while
+ * writing a file). So this is defence in depth, never the primary gate: returning
+ * `null` on any failure degrades to the hard-denial list rather than opening up.
+ */
+function buildSafetyOf(bin, cfg) {
+  try {
+    const out = withScratch((dir) =>
+      runProbe(
+        { argv: ["schema", "--format", "json"] },
+        { bin, env: buildProbeEnv(dir, cfg), cwd: dir, timeoutMs: 10_000 },
+      ),
+    );
+    if (out.exitCode !== 0) return null;
+    const parsed = JSON.parse(out.stdout);
+    const list = Array.isArray(parsed) ? parsed : (parsed.commands ?? []);
+    const table = new Map();
+    for (const c of Array.isArray(list) ? list : Object.values(list)) {
+      const name = c?.name ?? c?.command;
+      if (typeof name === "string" && typeof c?.safety === "string") table.set(name, c.safety);
+    }
+    if (table.size === 0) return null;
+    // `assertSafeArgv` calls this with the WORDS ARRAY (flags stripped), not a
+    // dotted name — and that array still contains flag VALUES, so
+    // `docs list --format json` arrives as ["docs","list","json"]. Match the
+    // LONGEST prefix that names a real command, or the annotation would never
+    // resolve and every command would fail closed.
+    return (words) => {
+      const w = Array.isArray(words) ? words : [String(words)];
+      for (let n = w.length; n >= 1; n--) {
+        const key = w.slice(0, n).join(".");
+        if (table.has(key)) return table.get(key);
+      }
+      return null;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One exploration session: the model drives the CLI and reports what it found.
+ *
+ * The session owns a scratch directory and a probe budget for its whole lifetime.
+ * Scratch is per SESSION, not per probe, so a multi-step behaviour is reachable —
+ * write a fixture, import it, export it back. Isolation does not come from
+ * discarding the directory but from `buildProbeEnv` replacing the environment, so
+ * accumulated state can never address the developer's real workspace.
+ *
+ * `probes` are NOT taken from the model. It cites journal indices, and trusted
+ * code resolves them, so a reported reproduction is necessarily one this process
+ * actually ran.
+ */
+async function explore(charter, { repo, context, sessionLog, bin, safetyOf }) {
   const { askStructured, withRetry } = await import("./ask.mjs");
+  const budgetCfg = charter.probeBudget ?? {};
+
   const prompt = [
     charter.rubric,
     "",
@@ -124,26 +204,68 @@ async function explore(charter, { repo, context, sessionLog }) {
     context.issues || "(none supplied)",
     "```",
     "",
+    `You have at most ${budgetCfg.maxProbes ?? 40} CLI runs this session.`,
+    "Spend them: run commands, read the real output, and let what you see decide",
+    "what to try next. A hypothesis you have not executed is not a finding.",
+    "",
     `Return at most ${charter.maxCandidates ?? 8} candidates. Returning zero is a`,
-    "valid and often correct result. Every candidate needs a probe plan whose",
-    "`failingIndex` probe demonstrates the defect, and citations that locate a line.",
+    "valid and often correct result. Every candidate must cite `probeRefs`: the",
+    "0-based indices of the runs that demonstrate it, in order, with `failingRef`",
+    "naming the one that shows the defect. Indices refer to your own runs this",
+    "session, counted from 0. Also cite `citations` that locate a line in the code.",
   ].join("\n");
-  // Retry genuinely-transient API errors, exactly as review-panel.mjs does for its
-  // lens samples. classifyResult marks a quota/session-limit non-retryable so it
-  // fails through immediately rather than burning attempts on a limit that cannot
-  // clear in-run.
-  return withRetry(() => askStructured({
-    systemPrompt:
-      `You are the ${charter.title} hunter. Stay strictly in your lane. You propose probes ` +
-      `as argv arrays for a trusted runner to execute; you never run commands yourself.`,
-    prompt,
-    model: charter.model,
-    repo,
-    schema: EXPLORER_SCHEMA,
-    sessionLog,
-    allowedTools: HUNT_TOOLS,
-    label: "hunt",
-  }));
+
+  // Each ATTEMPT gets its OWN journal, budget and scratch.
+  //
+  // `withRetry` re-invokes this closure on a transient API error, and sharing that
+  // state across attempts would be a correctness bug rather than mere waste: the
+  // model in a second attempt counts its runs from 0, so `probeRefs: [0]` would
+  // resolve to the ABANDONED attempt's first command and the candidate would ship
+  // a reproduction of something else. The honesty property depends on the journal
+  // describing exactly one session, so it is rebuilt per attempt.
+  let live = null;
+  try {
+    const out = await withRetry(async () => {
+      live?.scratch.dispose(); // close the previous attempt's room first
+      const journal = [];
+      const budget = createProbeBudget({
+        maxProbes: budgetCfg.maxProbes ?? 40,
+        totalTimeoutMs: budgetCfg.totalTimeoutMs ?? 600_000,
+      });
+      const scratch = openSessionScratch();
+      live = { journal, budget, scratch };
+      return askStructured({
+        systemPrompt:
+          `You are the ${charter.title} hunter. Stay strictly in your lane. Use the ` +
+          `wafflebase run tool to execute CLI commands and observe what actually ` +
+          `happens; report only what you have demonstrated.`,
+        prompt,
+        model: charter.model,
+        repo,
+        schema: EXPLORER_SCHEMA,
+        sessionLog,
+        maxTurns: Number.isFinite(charter.explorerMaxTurns) ? charter.explorerMaxTurns : 40,
+        allowedTools: EXPLORER_TOOLS,
+        mcpServers: {
+          wafflebase: await createProbeServer({
+            charter,
+            bin,
+            cfg: context.cfg,
+            scratch: scratch.dir,
+            budget,
+            journal,
+            safetyOf,
+          }),
+        },
+        label: "hunt",
+      });
+    });
+    return { out, journal: live.journal, probeCount: live.budget.used, refusals: live.budget.refusals };
+  } finally {
+    // Always disposed, including when every attempt threw — a scratch dir per
+    // sample would otherwise accumulate across a multi-charter run.
+    live?.scratch.dispose();
+  }
 }
 
 // --- verification -----------------------------------------------------------
@@ -504,16 +626,37 @@ async function cmdRun(args) {
   }
 
   const context = loadContext(repo, args, charters);
+  // Built once per run: one CLI invocation, shared by every session. Degrades to
+  // `null` (hard denials only) rather than failing the run — the annotations are
+  // defence in depth, and their wrongness is itself something this hunter reports.
+  const safetyOf = buildSafetyOf(bin, context.cfg);
+  if (!safetyOf) {
+    console.error("hunt: could not read `schema --format json`; falling back to hard denials only");
+  }
   const sessionLog = [];
   const reported = [];
   const dropped = [];
-  // Funnel order matches the pipeline order below. `soloReproduced` is not a
-  // stage — it is the MEASUREMENT: candidates only one sample proposed that a
-  // trusted replay nevertheless reproduced deterministically. If it stays high
-  // across runs, cross-sample agreement is discarding genuine defects and the
+  // `probesRun` and `probeRefusals` make the empirical loop visible: a session
+  // that ran two commands and reported nothing is a very different failure from
+  // one that ran forty, and before this the funnel could not tell them apart.
+  //
+  // The rest of the funnel order matches the pipeline order below. `soloReproduced`
+  // is not a stage — it is the MEASUREMENT: candidates only one sample proposed
+  // that a trusted replay nevertheless reproduced deterministically. If it stays
+  // high across runs, cross-sample agreement is discarding genuine defects and the
   // threshold needs revisiting; if it stays at zero, agreement is doing replay's
   // job for free and belongs where it is.
-  const stats = { proposed: 0, unique: 0, novel: 0, reproduced: 0, corroborated: 0, soloReproduced: 0, reported: 0 };
+  const stats = {
+    probesRun: 0,
+    probeRefusals: 0,
+    proposed: 0,
+    unique: 0,
+    novel: 0,
+    reproduced: 0,
+    corroborated: 0,
+    soloReproduced: 0,
+    reported: 0,
+  };
   const ledgerAdds = [];
 
   // Charters run SERIALLY, unlike samples and verifiers below. This is a budget
@@ -549,7 +692,7 @@ async function cmdRun(args) {
     const sampleResults = await Promise.all(
       Array.from({ length: sampleCount }, async (_unused, i) => {
         try {
-          return await explore(charter, { repo, context, sessionLog });
+          return await explore(charter, { repo, context, sessionLog, bin, safetyOf });
         } catch (err) {
           console.error(`hunt: ${charter.id} sample ${i} failed: ${err.message}`);
           return null;
@@ -557,10 +700,35 @@ async function cmdRun(args) {
       }),
     );
     const samples = [];
-    for (const out of sampleResults) {
-      if (!out) continue;
-      const { kept, dropped: bad } = coerceCandidates(out.candidates);
-      stats.proposed += Array.isArray(out.candidates) ? out.candidates.length : 0;
+    for (const sample of sampleResults) {
+      if (!sample) continue;
+      const { out, journal, probeCount, refusals } = sample;
+      stats.probesRun += probeCount;
+      stats.probeRefusals += refusals.length;
+
+      // Resolve each candidate's journal REFERENCES into the `probes` shape the
+      // rest of the pipeline speaks, BEFORE coercion — `coerceCandidates` requires
+      // a non-empty `probes` and would otherwise reject every candidate.
+      //
+      // A candidate citing a run that does not exist is DROPPED, not repaired. It
+      // is the signature of a model describing a reproduction it never performed,
+      // which is precisely what citing the journal exists to make impossible.
+      const raw = Array.isArray(out.candidates) ? out.candidates : [];
+      stats.proposed += raw.length;
+      const resolved = [];
+      for (const c of raw) {
+        const refs = resolveProbeRefs(c, journal);
+        if (!refs) {
+          dropped.push({
+            title: c?.title,
+            why: `cited runs that did not happen (probeRefs ${JSON.stringify(c?.probeRefs)}, failingRef ${JSON.stringify(c?.failingRef)}, journal has ${journal.length})`,
+          });
+          continue;
+        }
+        resolved.push({ ...c, ...refs });
+      }
+
+      const { kept, dropped: bad } = coerceCandidates(resolved);
       for (const b of bad) dropped.push({ title: b.candidate?.title, why: `malformed: ${b.why}` });
       samples.push(kept);
     }
@@ -573,7 +741,17 @@ async function cmdRun(args) {
     mkdirSync(charterDir, { recursive: true });
     writeFileSync(
       path.join(charterDir, "explore-raw.json"),
-      redactSecrets(JSON.stringify(sampleResults, null, 2), { extra: [context.cfg.apiKey].filter(Boolean) }) + "\n",
+      redactSecrets(
+        JSON.stringify(
+          // The journal rides along: for a run that reports nothing, WHAT THE MODEL
+          // RAN is the only thing that explains why, and it is not recoverable from
+          // the candidates it chose not to return.
+          sampleResults.map((r) => (r ? { summary: r.out?.summary, candidates: r.out?.candidates, journal: r.journal, probeCount: r.probeCount, refusals: r.refusals } : null)),
+          null,
+          2,
+        ),
+        { extra: [context.cfg.apiKey].filter(Boolean) },
+      ) + "\n",
     );
 
     // Agreement is COMPUTED here but APPLIED after replay.
