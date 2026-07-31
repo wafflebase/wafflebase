@@ -5,7 +5,11 @@
 // that passes either way is worse than none, because it certifies nothing while
 // looking like it does.
 //
-// No CLI and no network: `runner` is injected, exactly as hunt-probe.test.mjs does.
+// No CLI, no network, and NO SDK: these exercise `createProbeTool`, the handler
+// factory, which has no third-party imports. That is deliberate — the `agent:tests`
+// lane runs with `scripts/agent/node_modules` absent, so a test that reached through
+// the real MCP server object would fail in CI with ERR_MODULE_NOT_FOUND. The server
+// wrapper is covered by one self-skipping smoke test at the bottom.
 // The exception is the two tests about file handling, which pass `real: true` —
 // `runProbe` returns before materializing fixtures when a runner is present, so
 // injecting one there would skip the very guard under test.
@@ -16,18 +20,11 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   createProbeBudget,
-  createProbeServer,
+  createProbeTool,
   openSessionScratch,
   resolveProbeRefs,
   PROBE_TOOL_NAME,
 } from "./hunt-tool.mjs";
-
-/** Reach the tool's handler the way the SDK will call it. */
-function handlerOf(server) {
-  const t = server.instance._registeredTools.run;
-  assert.ok(typeof t?.handler === "function", "the `run` tool must be registered");
-  return (args) => t.handler(args, {});
-}
 
 // `real: true` uses the genuine runProbe path instead of an injected runner.
 // runProbe returns EARLY when a runner is present, before materializing fixtures,
@@ -35,7 +32,7 @@ function handlerOf(server) {
 // runProbe records a spawn failure rather than throwing.
 function makeServer({ charter = { mutating: false }, cfg = {}, budget, journal = [], safetyOf = null, runner, real = false } = {}) {
   const scratch = openSessionScratch();
-  const server = createProbeServer({
+  const call = createProbeTool({
     charter,
     bin: "/nonexistent/bin.js",
     cfg,
@@ -48,7 +45,7 @@ function makeServer({ charter = { mutating: false }, cfg = {}, budget, journal =
       : (runner ??
         ((argv) => ({ argv, exitCode: 0, signal: null, stdout: "ok", stderr: "", timedOut: false, spawnError: null }))),
   });
-  return { call: handlerOf(server), journal, scratch };
+  return { call, journal, scratch };
 }
 
 const textOf = (r) => r.content.map((c) => c.text).join("\n");
@@ -311,4 +308,43 @@ test("resolveProbeRefs DROPS a candidate citing runs that never happened", () =>
     assert.equal(resolveProbeRefs(bad, journal), null, `must drop: ${JSON.stringify(bad)}`);
   }
   assert.equal(resolveProbeRefs({ probeRefs: [0], failingRef: 0 }, []), null, "empty journal cites nothing");
+});
+
+
+// --- the SDK wrapper -----------------------------------------------------------
+
+test("createProbeServer registers the `run` tool (skipped without the SDK)", async (t) => {
+  // The one thing `createProbeTool` cannot cover: that the tool is actually wired
+  // into an MCP server under the exact name ask.mjs pre-approves. It needs the SDK,
+  // which the agent:tests lane deliberately runs without — so it SKIPS there rather
+  // than failing, and still runs locally where the dependency exists.
+  let mod;
+  try {
+    mod = await import("@anthropic-ai/claude-agent-sdk");
+  } catch {
+    t.skip("Agent SDK not installed (expected in the agent:tests lane)");
+    return;
+  }
+  assert.ok(mod, "sdk import should have produced a namespace");
+
+  const { createProbeServer } = await import("./hunt-tool.mjs");
+  const scratch = openSessionScratch();
+  try {
+    const server = await createProbeServer({
+      charter: { mutating: false },
+      bin: "/nonexistent/bin.js",
+      scratch: scratch.dir,
+      budget: createProbeBudget({ maxProbes: 1 }),
+      journal: [],
+      runner: (argv) => ({ argv, exitCode: 0, signal: null, stdout: "", stderr: "", timedOut: false, spawnError: null }),
+    });
+    assert.equal(server.name, "wafflebase");
+    const registered = Object.keys(server.instance._registeredTools ?? {});
+    assert.deepEqual(registered, ["run"]);
+    // The registered name must compose to exactly what ask.mjs permits, or the
+    // session grants a tool that does not exist.
+    assert.equal(`mcp__${server.name}__${registered[0]}`, PROBE_TOOL_NAME);
+  } finally {
+    scratch.dispose();
+  }
 });

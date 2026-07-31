@@ -225,7 +225,7 @@ async function explore(charter, { repo, context, sessionLog, bin, safetyOf }) {
   // describing exactly one session, so it is rebuilt per attempt.
   let live = null;
   try {
-    const out = await withRetry(() => {
+    const out = await withRetry(async () => {
       live?.scratch.dispose(); // close the previous attempt's room first
       const journal = [];
       const budget = createProbeBudget({
@@ -247,7 +247,7 @@ async function explore(charter, { repo, context, sessionLog, bin, safetyOf }) {
         maxTurns: Number.isFinite(charter.explorerMaxTurns) ? charter.explorerMaxTurns : 40,
         allowedTools: EXPLORER_TOOLS,
         mcpServers: {
-          wafflebase: createProbeServer({
+          wafflebase: await createProbeServer({
             charter,
             bin,
             cfg: context.cfg,

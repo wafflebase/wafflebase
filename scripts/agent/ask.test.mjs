@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import {
   askStructured,
   assertAllowedTools,
@@ -388,4 +391,44 @@ test("classifyResult: the fix is strictly tightening — clean successes still p
   const clean = classifyResult({ type: "result", subtype: "success", structured_output: { findings: [] }, is_error: false, terminal_reason: "completed", num_turns: 14 });
   assert.equal(clean.ok, true);
   assert.deepEqual(clean.output, { findings: [] });
+});
+
+// --- the invariant that CI depends on ----------------------------------------
+
+test("no module under scripts/agent statically imports a third-party package", () => {
+  // `verify-self.mjs`'s `agent:tests` lane runs with `scripts/agent/node_modules`
+  // ABSENT — CI never installs it, which is what keeps the lane fast and makes the
+  // pure helpers here testable without the SDK. A single static third-party import
+  // breaks every test in its file AND every file importing it, with
+  // ERR_MODULE_NOT_FOUND rather than an assertion.
+  //
+  // That invariant was documented in prose at the top of ask.mjs and nothing
+  // enforced it, so hunt-tool.mjs was written with `import … from
+  // "@anthropic-ai/claude-agent-sdk"` and `import { z } from "zod"`, and CI failed
+  // with 377/379 while every local run was green. Prose invariants get broken;
+  // tested ones do not. Hence this.
+  //
+  // The rule: a top-level `import`/`export … from` specifier must be relative
+  // (`./`, `../`) or a builtin (`node:`). Third-party dependencies are reachable
+  // only through `await import(...)` inside the function that needs them.
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith(".mjs"));
+  assert.ok(files.length > 10, "expected to find the agent modules");
+
+  const STATIC_FROM = /^\s*(?:import|export)\b[^;]*?\sfrom\s+["']([^"']+)["']/gm;
+  const offenders = [];
+  for (const file of files) {
+    const src = readFileSync(path.join(dir, file), "utf8");
+    for (const m of src.matchAll(STATIC_FROM)) {
+      const spec = m[1];
+      if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("node:")) continue;
+      offenders.push(`${file} → ${spec}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "static third-party import(s) found; use `await import(...)` inside the function instead:\n  " +
+      offenders.join("\n  "),
+  );
 });

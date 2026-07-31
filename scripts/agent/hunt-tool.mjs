@@ -39,8 +39,17 @@
 // charter is non-mutating") lets it adapt and keep exploring, which is the
 // difference between a bounded agent and a stuck one.
 
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
+// The SDK and zod are imported LAZILY, inside `createProbeServer` only.
+//
+// This is not style. `scripts/verify-self.mjs`'s `agent:tests` lane runs with
+// `scripts/agent/node_modules` ABSENT — CI never installs it — so a static import
+// here makes every test in this file, and every file importing it, fail with
+// ERR_MODULE_NOT_FOUND. `ask.mjs` states the same invariant and it still caught me
+// out in a new file: CI failed with
+//   Cannot find package '@anthropic-ai/claude-agent-sdk' imported from … hunt-tool.mjs
+//
+// So everything testable lives in `createProbeTool`, which has no third-party
+// imports at all, and `createProbeServer` is a thin async wrapper that needs them.
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -240,7 +249,16 @@ function renderObservation(obs, secrets) {
  * exercise refusal, budgeting, journalling and redaction without spawning a CLI
  * or touching a network.
  */
-export function createProbeServer({
+/**
+ * The tool's behaviour, with NO third-party dependency.
+ *
+ * Returns the handler `createProbeServer` will register. Split out so the tests can
+ * exercise budgeting, refusal, journalling and redaction without the SDK installed
+ * — which is the environment CI actually runs.
+ *
+ * `runner` is injectable for the same reason `runProbe`'s is: no CLI, no network.
+ */
+export function createProbeTool({
   charter,
   bin,
   cfg = {},
@@ -252,6 +270,69 @@ export function createProbeServer({
 } = {}) {
   const secrets = [cfg.apiKey].filter(Boolean);
   const timeoutMs = charter?.probeBudget?.perProbeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+
+  return async function runTool({ argv, note, stdin, files } = {}) {
+    // 1. BUDGET FIRST. Checked before validation so an exhausted session cannot be
+    //    kept alive by a stream of malformed calls.
+    const charged = budget.charge();
+    if (!charged.ok) return say(charged.why, { isError: true });
+
+    // 2. SAFETY. Independent of the CLI's own schema for the hard denials, and
+    //    additionally consulting that schema, whose wrongness is itself one of the
+    //    things this hunter looks for.
+    try {
+      assertSafeArgv(argv, {
+        mutating: charter?.mutating === true,
+        safetyOf: isReadOnlyByConstruction(argv) ? () => "read-only" : safetyOf,
+      });
+    } catch (err) {
+      return say(
+        `Refused: ${err.message}\n\n` +
+          "This is a hard limit, not a suggestion. Choose a different command; do not " +
+          "retry this one.",
+        { isError: true },
+      );
+    }
+
+    // 3. RUN in the replaced environment, inside the session scratch.
+    let obs;
+    try {
+      obs = runProbe(
+        { argv, stdin, files },
+        { bin, env: buildProbeEnv(scratch, cfg), cwd: scratch, timeoutMs, runner },
+      );
+    } catch (err) {
+      // A fixture path escaping the scratch lands here. Still a readable refusal,
+      // not a thrown tool call.
+      return say(`Refused: ${err.message}`, { isError: true });
+    }
+
+    // 4. JOURNAL. This, not any model-authored field, is what the trusted runner
+    //    replays and what the report's repro is rendered from.
+    journal.push({
+      argv: [...argv],
+      note: typeof note === "string" ? note : undefined,
+      stdin: typeof stdin === "string" ? stdin : undefined,
+      files: Array.isArray(files) ? files : undefined,
+      observed: obs,
+    });
+
+    // 5. REDACT on the way out.
+    return say(renderObservation(obs, secrets));
+  };
+}
+
+/**
+ * The in-process MCP server exposing the single `run` tool.
+ *
+ * ASYNC and lazy on purpose: this is the only function here that touches the SDK or
+ * zod, so it is the only one that cannot run in the `agent:tests` lane. Everything
+ * worth testing is in `createProbeTool`, which this merely wraps in a tool schema.
+ */
+export async function createProbeServer(opts = {}) {
+  const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
+  const { z } = await import("zod");
+  const runTool = createProbeTool(opts);
 
   return createSdkMcpServer({
     name: "wafflebase",
@@ -287,55 +368,7 @@ export function createProbeServer({
             .optional()
             .describe("Fixture files to create before running, e.g. a document to import."),
         },
-        async ({ argv, note, stdin, files }) => {
-          // 1. BUDGET FIRST. Checked before validation so an exhausted session
-          //    cannot be kept alive by a stream of malformed calls.
-          const charged = budget.charge();
-          if (!charged.ok) return say(charged.why, { isError: true });
-
-          // 2. SAFETY. Independent of the CLI's own schema for the hard denials,
-          //    and additionally consulting that schema, whose wrongness is itself
-          //    one of the things this hunter looks for.
-          try {
-            assertSafeArgv(argv, {
-              mutating: charter?.mutating === true,
-              safetyOf: isReadOnlyByConstruction(argv) ? () => "read-only" : safetyOf,
-            });
-          } catch (err) {
-            return say(
-              `Refused: ${err.message}\n\n` +
-                "This is a hard limit, not a suggestion. Choose a different command; " +
-                "do not retry this one.",
-              { isError: true },
-            );
-          }
-
-          // 3. RUN in the replaced environment, inside the session scratch.
-          let obs;
-          try {
-            obs = runProbe(
-              { argv, stdin, files },
-              { bin, env: buildProbeEnv(scratch, cfg), cwd: scratch, timeoutMs, runner },
-            );
-          } catch (err) {
-            // A fixture path escaping the scratch lands here. Still a readable
-            // refusal, not a thrown tool call.
-            return say(`Refused: ${err.message}`, { isError: true });
-          }
-
-          // 4. JOURNAL. This, not any model-authored field, is what the trusted
-          //    runner replays and what the report's repro is rendered from.
-          journal.push({
-            argv: [...argv],
-            note: typeof note === "string" ? note : undefined,
-            stdin: typeof stdin === "string" ? stdin : undefined,
-            files: Array.isArray(files) ? files : undefined,
-            observed: obs,
-          });
-
-          // 5. REDACT on the way out.
-          return say(renderObservation(obs, secrets));
-        },
+        (args) => runTool(args),
       ),
     ],
   });
