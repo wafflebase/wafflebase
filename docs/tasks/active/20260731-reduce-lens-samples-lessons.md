@@ -11,7 +11,9 @@
       `samples: 1` is honored (`Math.max(1, floor)`), so this was a data-only change —
       no code, no test churn (388/388 still green).
 
-- [x] **Recall vs cost is a per-lens call, not a global one.** Uniformly dropping to
-      1 would have weakened the injection/secret gate, which has no verifier/test/CI
-      backstop. Keeping `security` at 2 while cutting the code lenses preserves the
-      one place non-determinism is unrecoverable, for little cost.
+- [x] **Recall vs cost is a per-lens call.** The code lenses have a
+      verifier/test/CI backstop for a missed finding; `security` does not, so its
+      second sample was the one worth keeping on cost/safety grounds. It was
+      ultimately dropped too, on request — a deliberate, documented acceptance of
+      that risk, not an oversight — and the per-lens knob makes it reversible the
+      moment a missed injection/secret says otherwise.
