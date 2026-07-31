@@ -1,14 +1,8 @@
-import {
-  indentWithTab,
-  redo,
-  redoDepth,
-  undo,
-  undoDepth,
-} from '@codemirror/commands';
+import { indentWithTab } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { vim } from '@replit/codemirror-vim';
+import { CodeMirror, vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
 import type { NoteStore } from '../store/store.js';
@@ -29,6 +23,41 @@ import {
 } from './commands.js';
 
 export type ThemeMode = 'light' | 'dark';
+
+/**
+ * Route vim's `u` / `<C-r>` to the note store's Yorkie-native history.
+ *
+ * CodeMirror's own history extension is disabled (see `buildExtensions`), and
+ * `@replit/codemirror-vim` implements those keys by calling
+ * `CodeMirror.commands.undo/redo`, which delegate to `@codemirror/commands`'
+ * `undo(view)` — a no-op without the history extension. The vim action reads
+ * `CodeMirror.commands` at call time, so replacing the entry here is enough.
+ * The store is resolved from the view's own facet, so editors that are not
+ * notes (none today) fall through to the original command.
+ */
+const defaultVimHistory = {
+  undo: CodeMirror.commands.undo,
+  redo: CodeMirror.commands.redo,
+};
+let vimHistoryRouted = false;
+function routeVimHistoryToStore(): void {
+  if (vimHistoryRouted) return;
+  vimHistoryRouted = true;
+  const route =
+    (kind: 'undo' | 'redo') =>
+    (cm: CodeMirror): void => {
+      const store: NoteStore | undefined = cm.cm6.state.facet(noteStoreFacet);
+      // A read-only mount has nothing local to revert (and no write
+      // permission), so it falls through with the rest.
+      if (store && cm.cm6.state.facet(EditorView.editable)) {
+        store[kind]();
+        return;
+      }
+      defaultVimHistory[kind](cm);
+    };
+  CodeMirror.commands.undo = route('undo');
+  CodeMirror.commands.redo = route('redo');
+}
 
 /**
  * Pane layout mode (mirrors CodePair's editor modes):
@@ -65,7 +94,10 @@ export interface NoteEditorAPI {
   toggleLink(): void;
   /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
   insertTable(rows: number, cols: number): void;
-  /** Undo the last local edit. */
+  /**
+   * Undo this client's last edit through the store's history. In a
+   * collaborative session a peer's concurrent edit is preserved.
+   */
   undo(): void;
   /** Redo the last undone local edit. */
   redo(): void;
@@ -102,6 +134,7 @@ export function initialize(
   readOnly = false,
   viewMode: NoteViewMode = 'both',
 ): NoteEditorAPI {
+  routeVimHistoryToStore();
   container.style.display = 'flex';
   container.style.alignItems = 'stretch';
   container.style.height = '100%';
@@ -158,10 +191,51 @@ export function initialize(
   let currentKeymap: NoteKeymap = 'default';
 
   // Compartments so theme / keymap switches reconfigure in place instead of
-  // rebuilding the whole EditorState — a full rebuild would drop the undo
-  // history (basicSetup's history()), silently disabling undo after a toggle.
+  // rebuilding the whole EditorState — a full rebuild would drop the editor's
+  // view state (selection, scroll, plugin state) on every toggle.
   const themeCompartment = new Compartment();
   const keymapCompartment = new Compartment();
+
+  // Undo/redo live in the store (Yorkie `doc.history`), not in CodeMirror, so
+  // that undo reverts only this client's ops and leaves a peer's concurrent
+  // edit intact. The reverted text arrives back through the store's remote
+  // subscription, which `noteSync` applies. Refresh the toolbar afterwards:
+  // the store's depth changed, and the resulting transaction may land before
+  // the pop is visible, so we don't rely on the docChanged listener alone.
+  const runHistory = (kind: 'undo' | 'redo') => {
+    store[kind]();
+    selectionCb?.(computeActiveFormats(view.state));
+  };
+  // Mirrors @codemirror/commands' historyKeymap, minus the selection-undo
+  // entries (Yorkie has no selection history). Read-only mounts get no
+  // binding at all — the document is not writable, so there is nothing local
+  // to revert.
+  const historyKeymap: Extension = readOnly
+    ? []
+    : keymap.of([
+        {
+          key: 'Mod-z',
+          run: () => {
+            runHistory('undo');
+            return true;
+          },
+        },
+        {
+          key: 'Mod-y',
+          mac: 'Mod-Shift-z',
+          run: () => {
+            runHistory('redo');
+            return true;
+          },
+        },
+        {
+          key: 'Mod-Shift-z',
+          run: () => {
+            runHistory('redo');
+            return true;
+          },
+        },
+      ]);
 
   const keymapExt = (): Extension => {
     // CodeMirror deliberately leaves Tab out of the default keymap (so keyboard
@@ -196,7 +270,17 @@ export function initialize(
 
   const buildExtensions = (mode: ThemeMode): Extension[] => [
     keymapCompartment.of(keymapExt()),
-    basicSetup({ highlightSelectionMatches: false }),
+    // After the keymap compartment so vim keeps its own history keys (`u`,
+    // `<C-r>`), which route to the store via `routeVimHistoryToStore`.
+    historyKeymap,
+    // CodeMirror's history is off: it can only restore a local snapshot, which
+    // in a collaborative session overwrites whatever a peer typed in the
+    // meantime. Yorkie's reverse-op undo is used instead.
+    basicSetup({
+      highlightSelectionMatches: false,
+      history: false,
+      historyKeymap: false,
+    }),
     markdown(),
     themeCompartment.of(themeExt(mode)),
     EditorView.lineWrapping,
@@ -318,7 +402,7 @@ export function initialize(
       if (mode === currentTheme) return;
       currentTheme = mode;
       // Reconfigure the theme compartment in place; a full state rebuild would
-      // discard the undo history (see the compartment comment above).
+      // reset the view state (see the compartment comment above).
       view.dispatch({
         effects: themeCompartment.reconfigure(themeExt(mode)),
       });
@@ -331,8 +415,8 @@ export function initialize(
     setKeymap: (mode: NoteKeymap) => {
       if (mode === currentKeymap) return;
       currentKeymap = mode;
-      // Reconfigure the keymap compartment in place so the undo history (and
-      // the current selection) survive a Default <-> Vim switch.
+      // Reconfigure the keymap compartment in place so the current selection
+      // survives a Default <-> Vim switch.
       view.dispatch({
         effects: keymapCompartment.reconfigure(keymapExt()),
       });
@@ -345,15 +429,15 @@ export function initialize(
     toggleLink: () => toggleLink(view),
     insertTable: (rows, cols) => insertTable(view, rows, cols),
     undo: () => {
-      undo(view);
+      runHistory('undo');
       view.focus();
     },
     redo: () => {
-      redo(view);
+      runHistory('redo');
       view.focus();
     },
-    canUndo: () => undoDepth(view.state) > 0,
-    canRedo: () => redoDepth(view.state) > 0,
+    canUndo: () => store.canUndo(),
+    canRedo: () => store.canRedo(),
     getActiveFormats: () => computeActiveFormats(view.state),
     onSelectionChange: (cb) => {
       selectionCb = cb;

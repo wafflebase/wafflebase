@@ -258,6 +258,54 @@ tree readers/writers). The v1 `POST /documents` create path also learned to
 accept `type: 'note'` (it previously downgraded unknown types to `sheet`).
 See [cli.md](../cli.md).
 
+#### Undo/redo — Yorkie-native (`doc.history`) — shipped (issue #604)
+
+P1 undo/redo ran through CodeMirror's own history: local edits were the only
+thing in it (remote changes were excluded with
+`Transaction.addToHistory.of(false)`), so undo restored a **local snapshot**
+and then pushed that snapshot forward into Yorkie as a fresh edit. In a
+collaborative session that clobbers whatever a peer typed between the edit
+and the undo — there was no guarantee undo reverted "only what I just did".
+
+Notes now uses the same Yorkie-native pattern as Slides
+([slides-native-undo.md](../slides/slides-native-undo.md)) and Docs:
+
+- **1 batch = 1 Yorkie change = 1 undo unit.** `NoteStore` gained
+  `batch(fn)`; `YorkieNoteStore` keeps an **ambient root** — a top-level
+  `batch()` opens ONE `doc.update()` and every `editText` runs against that
+  root via `withUpdate()`. Nested batches short-circuit into the outermost
+  one. `note-sync` wraps one CodeMirror `ViewUpdate` in one batch, so a
+  command that dispatches several changes (e.g. `insertTable`) undoes in a
+  single step. A batch that mutates nothing records no undo unit (an empty
+  `doc.update` pushes nothing).
+- **Reverse ops, not snapshots.** `undo()/redo()` delegate to
+  `doc.history`, which applies the reverse of that change's ops — a peer's
+  concurrent edit survives. Verified against `@yorkie-js/sdk` 0.7.13: the
+  `Tree.editByPath` merge non-reversibility that affects Docs does not apply
+  here, since a note's whole content is one `Text`.
+- **Undo floor.** `YorkieNoteStore` captures the undo-stack depth at
+  construction (i.e. after `notes-view.tsx`'s `ensureText()` seed) and
+  `canUndo()` refuses to drop below it, so the seed itself can't be undone
+  away — mirrors `YorkieDocStore.undoFloor`.
+- **The undo result re-enters the editor as a remote change.** Yorkie emits
+  the reverse ops as a `local-change` with `source === 'undoredo'`; the
+  formerly dormant `isUndoRedo` branch of `subscribeRemote` now forwards it
+  to `noteSync`, which applies it as a `remote`-annotated transaction — so
+  it never echoes back as a new forward edit.
+- **Keybindings.** `basicSetup` runs with `history: false` /
+  `historyKeymap: false`; `Mod-z` / `Mod-Shift-z` / `Mod-y` are bound to the
+  store (and left unbound entirely on a read-only mount). Vim's `u` /
+  `<C-r>` reach the same place: `@replit/codemirror-vim` resolves them
+  through `CodeMirror.commands.undo/redo` at call time, which the engine
+  re-points at the store from the view's `noteStoreFacet`. (Its `:undo` /
+  `:redo` ex-commands snapshot the original handlers at module load and
+  cannot be re-routed; they are inert.)
+
+One behavior change: CodeMirror grouped keystrokes into a time window
+(`newGroupDelay`), while Yorkie's unit is the change — so undo now steps per
+CodeMirror transaction. Docs and Slides behave the same way after their
+migrations.
+
 #### Collapsible sections (`<details>` / `<summary>`) — shipped (issue #542)
 
 The preview runs `markdown-it` with `html: false` (raw HTML in a

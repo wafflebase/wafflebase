@@ -10,6 +10,11 @@ function storeWithPeers(peers: NotePeerSelection[]): NoteStore & { setLocal: Ret
   return {
     getText: () => 'hello world',
     editText: () => {},
+    batch: (fn: () => void) => fn(),
+    undo: () => {},
+    redo: () => {},
+    canUndo: () => false,
+    canRedo: () => false,
     subscribeRemote: () => () => {},
     setLocalSelection: setLocal,
     getPeerSelections: () => peers,
