@@ -198,17 +198,23 @@ Docs. This addresses issue #343.
 
 The picker gains an optional `onStepMixed?: (delta: number) => void` prop,
 called by `±` only in the mixed case (`value === undefined && draft ===
-""`); `onChange` is unchanged. Callers wire it to the new
-`editor.stepSelectionFontSize(delta, clamp)` (see below), which does the
-per-run work: it walks the inline runs intersecting the selection
+""`); `onChange` is unchanged. `value === undefined` reaching the picker
+means a true mixed selection ONLY, never "unset": callers
+(`useResolvedFontSize`, and `docs-formatting-toolbar.tsx`'s `sizeValue`)
+already resolve an *unset* run's `fontSize` to the docs default
+(`summary.fontSize === 'mixed' ? undefined : (summary.fontSize ??
+DEFAULT_INLINE_STYLE.fontSize)`) before it reaches the picker. So a
+collapsed caret with no explicit size is always a concrete number here
+and never trips `onStepMixed` — it keeps stepping that resolved default
+through the existing single-value path. Callers wire the mixed case to
+the new `editor.stepSelectionFontSize(delta, clamp)` (see below), which
+does the per-run work: it walks the inline runs intersecting the selection
 (single-block, cross-block, and table cell-range, mirroring
 `getRangeStyleSummary`'s traversal and its style-defaults resolution) and
 applies `clamp(effectiveSize + delta)` to each run's own sub-range via
 `store.applyStyle`. `clamp` stays a caller-supplied function (`FONT_SIZE_MIN`
 / `FONT_SIZE_MAX` live in the frontend's `font-catalog.ts`, not in the docs
 engine package) — the docs package has no opinion on legal size bounds.
-A collapsed caret is unaffected: there is only one "current" value, so it
-keeps the existing single-value step path.
 
 ### Line spacing control
 
@@ -365,8 +371,13 @@ blocks render the dropdown trigger with an em dash.
     and across table cells.
   - `stepSelectionFontSize` applies `clamp(effectiveSize + delta)` per
     run across a mixed-size single-block selection, a cross-block
-    selection, and a table cell-range; clamps at `FONT_SIZE_MIN`/`MAX`;
-    leaves runs outside the selection untouched.
+    selection, and a table cell-range; clamps at the bounds; leaves
+    runs outside the selection untouched. `clamp` is a small test-local
+    function here (mirroring `FONT_SIZE_MIN`/`MAX`'s values) — these
+    tests live in `packages/docs/src/`, which has no dependency on the
+    frontend package, so they must not import `font-catalog.ts`.
+    `FONT_SIZE_MIN`/`MAX` wiring itself is a frontend-test concern (see
+    the Unit bullet above).
   - `clearInlineFormatting()` removes every inline attribute on the range,
     leaves block-level style untouched, and rebuilds the rendered
     layout (no stale style on remeasure).
@@ -382,7 +393,7 @@ blocks render the dropdown trigger with an em dash.
 | Risk                                                                                                          | Mitigation                                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Lazy web-font load causes layout shift on first paint of a Noto/Roboto run.                                   | `FontRegistry` already triggers a re-render on load; pagination recomputes only the affected blocks via `markDirty`. The picker also prefetches the family on hover so most picks are ready before commit. |
-| Mixed selections silently apply the new family/size to runs that already had a different value.               | Match Google Docs: a typed value / Enter / preset pick writes that value to every run in the selection. The `±` spinner is the exception — it steps each run relative to its own size instead (see "`±` on a mixed-size selection" above; issue #343). Mixed state shows an empty input until the user types a draft value, regardless of which path is used.                                             |
+| Mixed selections silently apply the new family/size to runs that already had a different value.               | Match Google Docs: a typed value / Enter / preset pick writes that value to every run in the selection. The `±` spinner is the exception — it steps each run relative to its own size instead (see "`±` on a mixed-size selection" above; issue #343). Mixed state renders an empty input only while the local draft is empty (`draft === ""`); once the user starts typing an absolute value, that draft stays visible until commit, regardless of which path (`±` or typed value) the input is headed toward.                                             |
 | `clearInlineFormatting` accidentally collapses headings to paragraphs (regression vs. Google Docs).           | Restrict the new method to `InlineStyle` keys only; block-type and block-style updates go through unrelated APIs and are not touched.                                                                       |
 | Size input causes runaway CRDT writes if `onChange` fires on every keystroke.                                 | Commit only on Enter / blur / spinner / preset pick (specified above).                                                                                                                                      |
 | 14 fonts is too small for some users; a future "More fonts" dialog would change the picker contract.          | Picker's `value` and `onChange` are already typed as `string`, not a closed union — the dialog can extend the catalog without breaking the contract.                                                        |
