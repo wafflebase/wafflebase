@@ -137,6 +137,36 @@ single Undo removes it cleanly, matching English typing and Google Docs/Notion.
   routes its `composing` vs `commit` split through the same transient-render /
   single-insert paths.
 
+### Caret Restoration on Undo Races Against the Live-Cursor Publisher
+
+Undo restores the caret from Yorkie presence, not from the Tree edit itself:
+`saveSnapshot()` → `YorkieDocStore.setCursorForHistory()` stages the pre-edit
+caret into `pendingCursorPos` immediately before an edit; the edit's own
+`doc.update()` then writes that staged position into presence
+(`activeCursorPos`) with `addToHistory: true`. Yorkie's undo restores whatever
+was live in presence at the moment that `doc.update()` began — so the value
+staged by `setCursorForHistory()` is exactly what a later Undo needs to land
+on.
+
+This assumes nothing else writes `activeCursorPos` in the gap between
+`setCursorForHistory()` staging it and the edit's own write. That assumption
+breaks under IME composition: `docs-view.tsx`'s `onCursorMove` listener
+republishes the live cursor to presence on a 100ms throttle
+(`YorkieDocStore.updateCursorPos()`, no `addToHistory`) on *every* interim
+composition render — i.e. while the composing text is still view-local (see
+above), before the syllable's single commit `doc.update()` runs. If that
+throttled write lands in the gap, it overwrites the correctly-staged pre-edit
+position with the in-progress (uncommitted) composing position, and undo
+restores the wrong caret.
+
+`updateCursorPos` clamps to the block's current text length
+(`clampPosToModel`), which incidentally masks this for composing at the end
+of a block — the interim offset is always past the not-yet-updated block
+length, so it clamps back to the correct pre-edit position. It does **not**
+mask it when there is content after the caret (e.g. composing between two
+existing characters): the block is long enough that the interim offset isn't
+clamped, so the corrupted value survives. See issue #609.
+
 ## Phases
 
 | Phase | Scope | Status |
@@ -293,6 +323,11 @@ deleting.
    integration tests (inline `splitLevel=1` + block `splitLevel=2`) converge
    correctly in SDK 0.7.6, but edge cases cannot be fully ruled out until
    resolved upstream.
+
+3. **Caret restoration races the live-cursor publisher during IME composition**
+   — see "Caret Restoration on Undo Races Against the Live-Cursor Publisher"
+   above and issue #609. Reproduces when composing Hangul with content on both
+   sides of the caret; masked (accidentally) when composing at end-of-block.
 
 ## Risks and Mitigation
 
