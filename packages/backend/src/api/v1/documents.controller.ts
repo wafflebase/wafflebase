@@ -51,7 +51,10 @@ export class ApiV1DocumentsController {
     return this.documentService.createDocument({
       title: body.title,
       type:
-        body.type === 'doc' || body.type === 'slides' || body.type === 'note'
+        body.type === 'doc' ||
+        body.type === 'slides' ||
+        body.type === 'note' ||
+        body.type === 'board'
           ? body.type
           : 'sheet',
       workspace: { connect: { id: workspaceId } },
@@ -100,9 +103,7 @@ export class ApiV1DocumentsController {
       // API keys are workspace-scoped credentials minted by an owner; they act
       // with workspace authority but must carry the `write` scope to mutate.
       if (!req.user.scopes?.includes('write')) {
-        throw new ForbiddenException(
-          'This API key does not have write access',
-        );
+        throw new ForbiddenException('This API key does not have write access');
       }
     } else {
       // A human (JWT) caller may only delete a document they manage — as the

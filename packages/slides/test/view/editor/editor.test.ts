@@ -1852,6 +1852,31 @@ describe('Editor canvas context menu — Change layout', () => {
     expect(store.read().slides.find((s) => s.id === slideId)!.layoutId).toBe('title-body');
     ed.detach();
   });
+
+  // `suppressSlideChrome` is how the board package (which reuses this
+  // editor via `initializeEditor` over a `SlidesStore` whose
+  // `applyLayout` is a `notSupported()` throw) drops slide-scoped
+  // context-menu items so right-clicking the empty board canvas can't
+  // crash. See docs/design/board/board.md.
+  it('suppressSlideChrome omits "Change layout…" but keeps the rest of the empty-canvas menu', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const ed = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      suppressSlideChrome: true,
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    expect(menu).toBeTruthy();
+    const labels = [...menu.querySelectorAll('li')].map((li) => li.textContent);
+    expect(labels).not.toContain('Change layout…');
+    expect(labels).toContain('Paste');
+    expect(labels).toContain('Insert rectangle');
+    expect(labels).toContain('Insert ellipse');
+    expect(labels).toContain('Insert text');
+    ed.detach();
+  });
 });
 
 // ---------------------------------------------------------------------------

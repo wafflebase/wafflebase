@@ -19,6 +19,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | restatement clustering (2026-07-30) | [20260730-restatement-clustering-todo.md](./active/20260730-restatement-clustering-todo.md) | - |
+| token attribution (2026-07-30) | [20260730-token-attribution-todo.md](./active/20260730-token-attribution-todo.md) | [20260730-token-attribution-lessons.md](./active/20260730-token-attribution-lessons.md) |
+| verify after clustering (2026-07-30) | [20260730-verify-after-clustering-todo.md](./active/20260730-verify-after-clustering-todo.md) | [20260730-verify-after-clustering-lessons.md](./active/20260730-verify-after-clustering-lessons.md) |
 | absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./active/20260729-absence-claims-todo.md) | - |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./active/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./active/20260729-incremental-review-lessons.md) |
@@ -42,6 +44,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | review panel metrics (2026-07-24) | [20260724-review-panel-metrics-todo.md](./active/20260724-review-panel-metrics-todo.md) | - |
 | sheets cell hyperlink (2026-07-24) | [20260724-sheets-cell-hyperlink-todo.md](./active/20260724-sheets-cell-hyperlink-todo.md) | [20260724-sheets-cell-hyperlink-lessons.md](./active/20260724-sheets-cell-hyperlink-lessons.md) |
 | visual harness pixel tolerance (2026-07-24) | [20260724-visual-harness-pixel-tolerance-todo.md](./active/20260724-visual-harness-pixel-tolerance-todo.md) | [20260724-visual-harness-pixel-tolerance-lessons.md](./active/20260724-visual-harness-pixel-tolerance-lessons.md) |
+| board canvas skeleton (2026-07-23) | [20260723-board-canvas-skeleton-todo.md](./active/20260723-board-canvas-skeleton-todo.md) | [20260723-board-canvas-skeleton-lessons.md](./active/20260723-board-canvas-skeleton-lessons.md) |
 | hyperlink tables consistency (2026-07-23) | [20260723-hyperlink-tables-consistency-todo.md](./active/20260723-hyperlink-tables-consistency-todo.md) | [20260723-hyperlink-tables-consistency-lessons.md](./active/20260723-hyperlink-tables-consistency-lessons.md) |
 | maintainer merge skill (2026-07-23) | [20260723-maintainer-merge-skill-todo.md](./active/20260723-maintainer-merge-skill-todo.md) | [20260723-maintainer-merge-skill-lessons.md](./active/20260723-maintainer-merge-skill-lessons.md) |
 | note code block style (2026-07-23) | [20260723-note-code-block-style-todo.md](./active/20260723-note-code-block-style-todo.md) | [20260723-note-code-block-style-lessons.md](./active/20260723-note-code-block-style-lessons.md) |

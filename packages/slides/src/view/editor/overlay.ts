@@ -39,6 +39,14 @@ export interface OverlayOptions {
   slideWidth: number;
   /** Logical slide height — used to span full-slide guide lines. */
   slideHeight: number;
+  /**
+   * Screen-px pan offset applied after `scale` (board / infinite-canvas
+   * mode). Every world→CSS *position* (left/top) the overlay paints adds
+   * this offset; sizes (width/height) are pan-invariant. Default 0, so
+   * the pre-viewport call sites render byte-identical to before.
+   */
+  panX?: number;
+  panY?: number;
   /** Snap guides to render under the selection handles. Empty/omitted = none. */
   guides?: readonly (SnapGuide | SmartGuide)[];
   /**
@@ -182,10 +190,15 @@ export function renderOverlay(
 ): void {
   overlay.innerHTML = '';
 
+  // Board-mode pan offset (screen px, applied after scale). Default 0
+  // keeps every position identical to the pre-viewport call sites.
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
+
   // Crop session owns the overlay entirely: paint the crop window +
   // black handles and skip all other chrome.
   if (options.cropWindow) {
-    renderCropHandles(overlay, options.cropWindow, options.scale);
+    renderCropHandles(overlay, options.cropWindow, options.scale, px, py);
     return;
   }
 
@@ -223,7 +236,7 @@ export function renderOverlay(
         // `left` / `top` by -0.5 so the centre of the 2-px line stays
         // anchored on the snap coordinate.
         el.style.background = '#be123c';
-        const pos = g.position * options.scale;
+        const pos = g.position * options.scale + (g.axis === 'x' ? px : py);
         if (g.axis === 'x') {
           el.style.width = '2px';
           el.style.left = `${pos - 0.5}px`;
@@ -270,12 +283,21 @@ export function renderOverlay(
       overlay,
       options.contextBox,
       options.scale,
+      px,
+      py,
       'wfb-slides-context-box',
     );
   }
   if (options.memberOutlines) {
     for (const frame of options.memberOutlines) {
-      appendOutline(overlay, frame, options.scale, 'wfb-slides-member-outline');
+      appendOutline(
+        overlay,
+        frame,
+        options.scale,
+        px,
+        py,
+        'wfb-slides-member-outline',
+      );
     }
   }
 
@@ -291,6 +313,8 @@ export function renderOverlay(
         options.hoverHighlightFrame.id,
         options.hoverHighlightFrame.frame,
         options.scale,
+        px,
+        py,
       ),
     );
   }
@@ -302,7 +326,7 @@ export function renderOverlay(
   // pointer-priority. Anchor rotation maps to the rect's CSS rotate.
   if (options.cellRangeRects && options.cellRangeRects.length > 0) {
     for (const r of options.cellRangeRects) {
-      overlay.appendChild(makeCellRangeRect(r, options.scale));
+      overlay.appendChild(makeCellRangeRect(r, options.scale, px, py));
     }
   }
 
@@ -312,7 +336,7 @@ export function renderOverlay(
   // unsets `pendingTableResize` on pointerup.
   if (options.tableResizePreview) {
     overlay.appendChild(
-      makeTableResizePreview(options.tableResizePreview, options.scale),
+      makeTableResizePreview(options.tableResizePreview, options.scale, px, py),
     );
   }
 
@@ -384,7 +408,7 @@ export function renderOverlay(
       const positions = options.animationOrder.get(el.id);
       if (!positions || positions.length === 0) continue;
       overlay.appendChild(
-        makeAnimationBadge(el.frame, positions, options.scale),
+        makeAnimationBadge(el.frame, positions, options.scale, px, py),
       );
     }
   }
@@ -427,14 +451,21 @@ function renderConnectorEndpointHandles(
   options: OverlayOptions,
 ): void {
   const { scale, allElements } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const map = buildElementWorldLookup(allElements ?? []);
   const a = resolveEndpoint(connector.start, map);
   const b = resolveEndpoint(connector.end, map);
   overlay.appendChild(
-    makeEndpointHandle('start', connector.start, a.x * scale, a.y * scale),
+    makeEndpointHandle(
+      'start',
+      connector.start,
+      a.x * scale + px,
+      a.y * scale + py,
+    ),
   );
   overlay.appendChild(
-    makeEndpointHandle('end', connector.end, b.x * scale, b.y * scale),
+    makeEndpointHandle('end', connector.end, b.x * scale + px, b.y * scale + py),
   );
 
   // Yellow-diamond bend handle for routings that expose an adjustable
@@ -444,7 +475,7 @@ function renderConnectorEndpointHandles(
   const bend = bendHandlePosition(connector, map);
   if (bend) {
     overlay.appendChild(
-      makeBendHandle(bend.x * scale, bend.y * scale),
+      makeBendHandle(bend.x * scale + px, bend.y * scale + py),
     );
   }
 }
@@ -504,8 +535,10 @@ function renderAxisAlignedHandles(
   if (!bbox) return;
 
   const { scale } = options;
-  const left = bbox.x * scale;
-  const top = bbox.y * scale;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
+  const left = bbox.x * scale + px;
+  const top = bbox.y * scale + py;
   const width = bbox.w * scale;
   const height = bbox.h * scale;
 
@@ -590,6 +623,8 @@ function renderCropHandles(
   overlay: HTMLDivElement,
   frame: Frame,
   scale: number,
+  panX = 0,
+  panY = 0,
 ): void {
   const localToWorld = frameLocalToWorld(frame);
 
@@ -597,8 +632,8 @@ function renderCropHandles(
   const border = document.createElement('div');
   border.className = 'wfb-slides-crop-frame';
   border.style.position = 'absolute';
-  border.style.left = `${frame.x * scale}px`;
-  border.style.top = `${frame.y * scale}px`;
+  border.style.left = `${frame.x * scale + panX}px`;
+  border.style.top = `${frame.y * scale + panY}px`;
   border.style.width = `${frame.w * scale}px`;
   border.style.height = `${frame.h * scale}px`;
   if (frame.rotation !== 0) {
@@ -614,7 +649,12 @@ function renderCropHandles(
   for (const [kind, lx, ly] of handleLocalPositions(frame)) {
     const w = localToWorld(lx, ly);
     overlay.appendChild(
-      makeCropHandle(kind, w.x * scale, w.y * scale, frame.rotation),
+      makeCropHandle(
+        kind,
+        w.x * scale + panX,
+        w.y * scale + panY,
+        frame.rotation,
+      ),
     );
   }
 }
@@ -650,6 +690,8 @@ function renderRotatedHandles(
   options: OverlayOptions,
 ): void {
   const { scale } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const cos = Math.cos(frame.rotation);
   const sin = Math.sin(frame.rotation);
   const localToWorld = frameLocalToWorld(frame);
@@ -659,8 +701,8 @@ function renderRotatedHandles(
   const outline = document.createElement('div');
   outline.className = 'wfb-slides-selection-frame';
   outline.style.position = 'absolute';
-  outline.style.left = `${frame.x * scale}px`;
-  outline.style.top = `${frame.y * scale}px`;
+  outline.style.left = `${frame.x * scale + px}px`;
+  outline.style.top = `${frame.y * scale + py}px`;
   outline.style.width = `${frame.w * scale}px`;
   outline.style.height = `${frame.h * scale}px`;
   outline.style.transform = `rotate(${frame.rotation}rad)`;
@@ -674,15 +716,17 @@ function renderRotatedHandles(
   // cursor rotates with the frame so it matches the handle's real axis.
   for (const [kind, lx, ly] of handleLocalPositions(frame)) {
     const w = localToWorld(lx, ly);
-    overlay.appendChild(makeHandle(kind, w.x * scale, w.y * scale, frame.rotation));
+    overlay.appendChild(
+      makeHandle(kind, w.x * scale + px, w.y * scale + py, frame.rotation),
+    );
   }
 
   // Rotate handle: ROTATE_HANDLE_OFFSET (host px) above the rotated
   // top-centre, in the frame's local "up" direction.
   // Local "up" = R(rot) * (0, -1) = (sin(rot), -cos(rot)).
   const topCenter = localToWorld(frame.w / 2, 0);
-  const rotateScreenX = topCenter.x * scale + sin * ROTATE_HANDLE_OFFSET;
-  const rotateScreenY = topCenter.y * scale - cos * ROTATE_HANDLE_OFFSET;
+  const rotateScreenX = topCenter.x * scale + px + sin * ROTATE_HANDLE_OFFSET;
+  const rotateScreenY = topCenter.y * scale + py - cos * ROTATE_HANDLE_OFFSET;
   overlay.appendChild(makeHandle('rotate', rotateScreenX, rotateScreenY));
 }
 
@@ -696,11 +740,17 @@ function renderRotatedHandles(
  * `data-slides-hover-highlight` carries the element id for the
  * browser-test harness (Task A6).
  */
-function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivElement {
+function makeHoverHighlight(
+  id: string,
+  frame: Frame,
+  scale: number,
+  panX = 0,
+  panY = 0,
+): HTMLDivElement {
   const div = document.createElement('div');
   div.style.position = 'absolute';
-  div.style.left = `${frame.x * scale}px`;
-  div.style.top = `${frame.y * scale}px`;
+  div.style.left = `${frame.x * scale + panX}px`;
+  div.style.top = `${frame.y * scale + panY}px`;
   div.style.width = `${frame.w * scale}px`;
   div.style.height = `${frame.h * scale}px`;
   div.style.border = '1px solid rgba(26, 115, 232, 0.5)';
@@ -723,6 +773,8 @@ function makeHoverHighlight(id: string, frame: Frame, scale: number): HTMLDivEle
 function makeTableResizePreview(
   segment: { kind: 'col' | 'row'; x0: number; y0: number; x1: number; y1: number },
   scale: number,
+  panX = 0,
+  panY = 0,
 ): HTMLDivElement {
   const div = document.createElement('div');
   div.style.position = 'absolute';
@@ -733,13 +785,13 @@ function makeTableResizePreview(
     // Vertical line — width 1, height spans the table's vertical
     // extent. Center the 1-px stroke on the proposed boundary so the
     // user sees the guide aligned to where the column edge will land.
-    div.style.left = `${segment.x0 * scale - 0.5}px`;
-    div.style.top = `${segment.y0 * scale}px`;
+    div.style.left = `${segment.x0 * scale - 0.5 + panX}px`;
+    div.style.top = `${segment.y0 * scale + panY}px`;
     div.style.width = '1px';
     div.style.height = `${(segment.y1 - segment.y0) * scale}px`;
   } else {
-    div.style.left = `${segment.x0 * scale}px`;
-    div.style.top = `${segment.y0 * scale - 0.5}px`;
+    div.style.left = `${segment.x0 * scale + panX}px`;
+    div.style.top = `${segment.y0 * scale - 0.5 + panY}px`;
     div.style.width = `${(segment.x1 - segment.x0) * scale}px`;
     div.style.height = '1px';
   }
@@ -754,10 +806,16 @@ function makeTableResizePreview(
  * highlight, the peer cell highlights, and the dashed outline so the
  * frame→CSS math lives in one place.
  */
-function positionRect(el: HTMLDivElement, frame: Frame, scale: number): void {
+function positionRect(
+  el: HTMLDivElement,
+  frame: Frame,
+  scale: number,
+  panX = 0,
+  panY = 0,
+): void {
   el.style.position = 'absolute';
-  el.style.left = `${frame.x * scale}px`;
-  el.style.top = `${frame.y * scale}px`;
+  el.style.left = `${frame.x * scale + panX}px`;
+  el.style.top = `${frame.y * scale + panY}px`;
   el.style.width = `${frame.w * scale}px`;
   el.style.height = `${frame.h * scale}px`;
   el.style.boxSizing = 'border-box';
@@ -776,9 +834,14 @@ function positionRect(el: HTMLDivElement, frame: Frame, scale: number): void {
  * rects which deepen at intersections; we deliberately keep the alpha
  * low so the overlap doesn't read as a single dark blob.
  */
-function makeCellRangeRect(frame: Frame, scale: number): HTMLDivElement {
+function makeCellRangeRect(
+  frame: Frame,
+  scale: number,
+  panX = 0,
+  panY = 0,
+): HTMLDivElement {
   const div = document.createElement('div');
-  positionRect(div, frame, scale);
+  positionRect(div, frame, scale, panX, panY);
   div.style.background = 'rgba(26, 115, 232, 0.18)';
   div.dataset.slidesCellRange = 'true';
   return div;
@@ -797,12 +860,14 @@ function appendOutline(
   overlay: HTMLDivElement,
   frame: Frame,
   scale: number,
+  panX: number,
+  panY: number,
   className: string,
   border: string = OUTLINE_BORDER,
 ): void {
   const el = document.createElement('div');
   el.className = className;
-  positionRect(el, frame, scale);
+  positionRect(el, frame, scale, panX, panY);
   el.style.border = border;
   overlay.appendChild(el);
 }
@@ -820,6 +885,8 @@ function renderPeerOverlays(
   options: OverlayOptions,
 ): void {
   const { scale, slideWidth, slideHeight } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
 
   for (const guide of peers.guides) {
     const el = document.createElement('div');
@@ -829,13 +896,13 @@ function renderPeerOverlays(
     el.style.opacity = '0.7';
     el.style.pointerEvents = 'none';
     if (guide.axis === 'x') {
-      el.style.left = `${guide.position * scale}px`;
-      el.style.top = '0px';
+      el.style.left = `${guide.position * scale + px}px`;
+      el.style.top = `${py}px`;
       el.style.width = '1px';
       el.style.height = `${slideHeight * scale}px`;
     } else {
-      el.style.left = '0px';
-      el.style.top = `${guide.position * scale}px`;
+      el.style.left = `${px}px`;
+      el.style.top = `${guide.position * scale + py}px`;
       el.style.width = `${slideWidth * scale}px`;
       el.style.height = '1px';
     }
@@ -851,7 +918,7 @@ function renderPeerOverlays(
   for (const cell of peers.cellRects) {
     const el = document.createElement('div');
     el.className = 'wfb-slides-peer-cell';
-    positionRect(el, cell.frame, scale);
+    positionRect(el, cell.frame, scale, px, py);
     el.style.background = cell.color;
     el.style.opacity = '0.22';
     overlay.appendChild(el);
@@ -864,6 +931,8 @@ function renderPeerOverlays(
       overlay,
       ring.frame,
       scale,
+      px,
+      py,
       'wfb-slides-peer-ring',
       `2px solid ${ring.color}`,
     );
@@ -874,8 +943,8 @@ function renderPeerOverlays(
     el.className = 'wfb-slides-peer-label';
     el.textContent = label.text;
     el.style.position = 'absolute';
-    el.style.left = `${label.x * scale}px`;
-    el.style.top = `${label.y * scale}px`;
+    el.style.left = `${label.x * scale + px}px`;
+    el.style.top = `${label.y * scale + py}px`;
     // Sit the tag just above the ring's top-left corner.
     el.style.transform = 'translateY(-100%)';
     el.style.transformOrigin = 'left bottom';
@@ -917,19 +986,21 @@ function makeHandle(
 
 function makeGuide(guide: SnapGuide, options: OverlayOptions): HTMLDivElement {
   const { scale, slideWidth, slideHeight } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const el = document.createElement('div');
   el.className = 'wfb-slides-snap-guide';
   el.style.position = 'absolute';
   el.style.background = '#e11d48';
   el.style.pointerEvents = 'none';
   if (guide.axis === 'x') {
-    el.style.left = `${guide.position * scale}px`;
-    el.style.top = '0px';
+    el.style.left = `${guide.position * scale + px}px`;
+    el.style.top = `${py}px`;
     el.style.width = '1px';
     el.style.height = `${slideHeight * scale}px`;
   } else {
-    el.style.left = '0px';
-    el.style.top = `${guide.position * scale}px`;
+    el.style.left = `${px}px`;
+    el.style.top = `${guide.position * scale + py}px`;
     el.style.width = `${slideWidth * scale}px`;
     el.style.height = '1px';
   }
@@ -950,6 +1021,8 @@ function makeSmartGuideArrows(
   options: OverlayOptions,
 ): HTMLElement[] {
   const out: HTMLElement[] = [];
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   for (const span of guide.spans) {
     if (guide.axis === 'x') {
       const shaft = document.createElement('div');
@@ -957,15 +1030,16 @@ function makeSmartGuideArrows(
       shaft.style.position = 'absolute';
       shaft.style.background = SMART_GUIDE_COLOR;
       shaft.style.pointerEvents = 'none';
-      const left  = Math.min(span.from, span.to) * options.scale;
-      const right = Math.max(span.from, span.to) * options.scale;
+      const left  = Math.min(span.from, span.to) * options.scale + px;
+      const right = Math.max(span.from, span.to) * options.scale + px;
+      const perp  = span.perpendicular * options.scale + py;
       shaft.style.left = `${left}px`;
-      shaft.style.top = `${span.perpendicular * options.scale - 0.5}px`;
+      shaft.style.top = `${perp - 0.5}px`;
       shaft.style.width = `${right - left}px`;
       shaft.style.height = `1px`;
       out.push(shaft);
-      out.push(arrowhead('left',  left,  span.perpendicular * options.scale));
-      out.push(arrowhead('right', right, span.perpendicular * options.scale));
+      out.push(arrowhead('left',  left,  perp));
+      out.push(arrowhead('right', right, perp));
       out.push(makeSmartGuideLabel(span, 'x', options));
     } else {
       const shaft = document.createElement('div');
@@ -973,15 +1047,16 @@ function makeSmartGuideArrows(
       shaft.style.position = 'absolute';
       shaft.style.background = SMART_GUIDE_COLOR;
       shaft.style.pointerEvents = 'none';
-      const top    = Math.min(span.from, span.to) * options.scale;
-      const bottom = Math.max(span.from, span.to) * options.scale;
-      shaft.style.left = `${span.perpendicular * options.scale - 0.5}px`;
+      const top    = Math.min(span.from, span.to) * options.scale + py;
+      const bottom = Math.max(span.from, span.to) * options.scale + py;
+      const perp   = span.perpendicular * options.scale + px;
+      shaft.style.left = `${perp - 0.5}px`;
       shaft.style.top = `${top}px`;
       shaft.style.width = `1px`;
       shaft.style.height = `${bottom - top}px`;
       out.push(shaft);
-      out.push(arrowhead('up',   span.perpendicular * options.scale, top));
-      out.push(arrowhead('down', span.perpendicular * options.scale, bottom));
+      out.push(arrowhead('up',   perp, top));
+      out.push(arrowhead('down', perp, bottom));
       out.push(makeSmartGuideLabel(span, 'y', options));
     }
   }
@@ -1015,16 +1090,18 @@ function makeSmartGuideLabel(
   el.style.transform = 'translate(-50%, -50%)';
   const distance = Math.round(Math.abs(span.to - span.from));
   el.textContent = String(distance);
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const mid = ((span.from + span.to) / 2) * options.scale;
   const perpPx = span.perpendicular * options.scale;
   if (axis === 'x') {
     // Arrow is horizontal; label sits centered ABOVE the shaft.
-    el.style.left = `${mid}px`;
-    el.style.top = `${perpPx - 10}px`;
+    el.style.left = `${mid + px}px`;
+    el.style.top = `${perpPx - 10 + py}px`;
   } else {
     // Arrow is vertical; label sits centered to the RIGHT of the shaft.
-    el.style.left = `${perpPx + 10}px`;
-    el.style.top = `${mid}px`;
+    el.style.left = `${perpPx + 10 + px}px`;
+    el.style.top = `${mid + py}px`;
   }
   return el;
 }
@@ -1083,12 +1160,14 @@ function makeSmartGuideOutlines(
   options: OverlayOptions,
 ): HTMLElement[] {
   const out: HTMLElement[] = [];
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   for (const f of guide.matchedFrames) {
     const el = document.createElement('div');
     el.className = 'wfb-slides-smart-size';
     el.style.position = 'absolute';
-    el.style.left = `${f.x * options.scale}px`;
-    el.style.top = `${f.y * options.scale}px`;
+    el.style.left = `${f.x * options.scale + px}px`;
+    el.style.top = `${f.y * options.scale + py}px`;
     el.style.width = `${f.w * options.scale}px`;
     el.style.height = `${f.h * options.scale}px`;
     el.style.border = `1px dashed ${SMART_GUIDE_COLOR}`;
@@ -1114,6 +1193,8 @@ function makePermanentGuide(
   options: OverlayOptions,
 ): HTMLDivElement {
   const { scale, slideWidth, slideHeight } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const el = document.createElement('div');
   el.className = 'wfb-slides-guide';
   el.dataset.guide = guide.id;
@@ -1121,13 +1202,13 @@ function makePermanentGuide(
   el.style.background = '#e11d48';
   el.style.pointerEvents = 'none';
   if (guide.axis === 'x') {
-    el.style.left = `${guide.position * scale}px`;
-    el.style.top = `-${GUIDE_EXTEND_PX}px`;
+    el.style.left = `${guide.position * scale + px}px`;
+    el.style.top = `${py - GUIDE_EXTEND_PX}px`;
     el.style.width = '1px';
     el.style.height = `${GUIDE_EXTEND_PX * 2 + slideHeight * scale}px`;
   } else {
-    el.style.left = `-${GUIDE_EXTEND_PX}px`;
-    el.style.top = `${guide.position * scale}px`;
+    el.style.left = `${px - GUIDE_EXTEND_PX}px`;
+    el.style.top = `${guide.position * scale + py}px`;
     el.style.width = `${GUIDE_EXTEND_PX * 2 + slideWidth * scale}px`;
     el.style.height = '1px';
   }
@@ -1170,6 +1251,8 @@ function renderAdjustmentHandles(
   if (!handles || handles.length === 0) return;
 
   const { scale } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const { frame } = el;
 
   const adjustments =
@@ -1178,7 +1261,11 @@ function renderAdjustmentHandles(
     const local = handle.position({ w: frame.w, h: frame.h }, adjustments);
     const world = adjustmentLocalToWorld(frame, local);
     overlay.appendChild(
-      makeAdjustmentHandle(`adjust-${i}`, world.x * scale, world.y * scale),
+      makeAdjustmentHandle(
+        `adjust-${i}`,
+        world.x * scale + px,
+        world.y * scale + py,
+      ),
     );
   });
 }
@@ -1292,6 +1379,8 @@ function renderConnectionPointsOverlay(
   const nearest = findNearestConnectorTarget(cursor, elements, zoom);
   if (!nearest) return;
 
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
   const snapRadiusLogical = SITE_SNAP_RADIUS / zoom;
   const sites = getConnectionSites(nearest);
   for (let i = 0; i < sites.length; i++) {
@@ -1301,8 +1390,8 @@ function renderConnectionPointsOverlay(
     overlay.appendChild(
       makeConnectionSiteDot(
         i,
-        w.x * options.scale,
-        w.y * options.scale,
+        w.x * options.scale + px,
+        w.y * options.scale + py,
         highlighted,
       ),
     );
@@ -1406,8 +1495,11 @@ function renderAutofitToggle(
         : 'none';
 
   const { scale } = options;
-  const x = element.frame.x * scale;
-  const y = (element.frame.y + element.frame.h) * scale + AUTOFIT_TOGGLE_OFFSET;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
+  const x = element.frame.x * scale + px;
+  const y =
+    (element.frame.y + element.frame.h) * scale + AUTOFIT_TOGGLE_OFFSET + py;
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -1503,6 +1595,8 @@ function makeAnimationBadge(
   frame: Frame,
   positions: number[],
   scale: number,
+  panX = 0,
+  panY = 0,
 ): HTMLDivElement {
   const badge = document.createElement('div');
   badge.className = 'wfb-slides-anim-badge';
@@ -1511,8 +1605,8 @@ function makeAnimationBadge(
   badge.style.position = 'absolute';
   // Anchor badge at element top-left in screen space, slightly inset so
   // it sits inside (not overlapping) the 1-px selection frame border.
-  badge.style.left = `${frame.x * scale + ANIM_BADGE_OFFSET_X}px`;
-  badge.style.top = `${frame.y * scale + ANIM_BADGE_OFFSET_Y}px`;
+  badge.style.left = `${frame.x * scale + ANIM_BADGE_OFFSET_X + panX}px`;
+  badge.style.top = `${frame.y * scale + ANIM_BADGE_OFFSET_Y + panY}px`;
   badge.style.minWidth = `${ANIM_BADGE_SIZE}px`;
   badge.style.height = `${ANIM_BADGE_SIZE}px`;
   badge.style.padding = '0 5px';
