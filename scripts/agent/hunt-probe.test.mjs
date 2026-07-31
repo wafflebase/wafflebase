@@ -147,8 +147,13 @@ test("assertSafeArgv: hard-denies credential and session commands regardless of 
   }
   // Flags must not let a denied command slip past the word matching.
   assert.throws(() => assertSafeArgv(["--format", "json", "api-keys", "revoke", "x"], { mutating: false }), /refusing/);
-  // A mutating charter may run them.
-  assert.equal(assertSafeArgv(["api-keys", "revoke", "x"], { mutating: true }), true);
+  // A mutating charter does NOT relax these. It is licensed to create/rename/delete
+  // DOCUMENTS in the hunt workspace, never to touch credentials or the session —
+  // and `ctx switch` in particular would move probes off the isolated workspace,
+  // defeating the very refusal the mutating tier depends on.
+  for (const argv of [["api-keys", "revoke", "x"], ["login"], ["logout"], ["ctx", "switch", "other"]]) {
+    assert.throws(() => assertSafeArgv(argv, { mutating: true }), /hard-denied for every charter/, argv.join(" "));
+  }
   assert.ok(HARD_DENIED_COMMANDS.length > 0 && Object.isFrozen(HARD_DENIED_COMMANDS));
 });
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadCharters, validateCharter, renderReport } from "./hunt.mjs";
+import { loadCharters, validateCharter, renderReport, checkStack } from "./hunt.mjs";
 import { isFilingVerdict } from "./hunt-gate.mjs";
 
 // Read the SHIPPED manifest rather than inlining a copy. An earlier draft of the
@@ -26,12 +26,41 @@ test("every shipped charter passes its own validator", () => {
   }
 });
 
-test("tier 1 charters are backend-free and non-mutating", () => {
-  // The whole reason tier 1 ships first: no docker lifecycle, so no flake, and no
-  // way for a probe to touch real data.
+test("nothing can mutate without a backend, and tier 1 stays read-only", () => {
+  // This replaces a blanket "no charter mutates" assertion, which was true only
+  // while tier 1 was the only tier. The property that actually protects data is
+  // narrower and survives new charters:
+  //
+  //   mutating  =>  needsBackend
+  //
+  // The workspace refusal is gated on `mutating` directly, and `checkStack` on
+  // `needsBackend`. This invariant is what keeps the two aligned: a charter marked
+  // mutating but NOT needsBackend would mutate documents while skipping the
+  // backend-reachability skip, so a half-up stack could let it run partway against
+  // whatever the ambient config resolves to — the developer's own workspace.
   for (const c of CHARTERS) {
-    assert.equal(c.needsBackend, false, `${c.id} must not need a backend in tier 1`);
-    assert.equal(c.mutating, false, `${c.id} must be non-mutating in tier 1`);
+    if (c.mutating) {
+      assert.equal(c.needsBackend, true, `${c.id} mutates, so it must also be needsBackend`);
+    }
+  }
+  // The tier-1 pair specifically must stay read-only: they run without docker, so
+  // nothing gates them, and they are the charters a developer runs casually.
+  for (const id of ["contract", "crash"]) {
+    const c = charterOf(id);
+    assert.equal(c.needsBackend, false, `${id} must stay backend-free`);
+    assert.equal(c.mutating, false, `${id} must stay non-mutating`);
+  }
+});
+
+test("a mutating charter does not require a doc citation, but must still demand one citation", () => {
+  // A broken relation or a wrong post-delete state is self-evidencing — no written
+  // promise is needed for `set A1=42; get A1 -> 7` to be wrong. But dropping
+  // `minCitations` to 0 would let a candidate through with nothing locating the
+  // defect in code, which is unactionable for whoever picks it up.
+  for (const id of ["round-trip", "state"]) {
+    const c = charterOf(id);
+    assert.equal(c.requiresDocCitation, false, `${id} should not need a doc promise`);
+    assert.ok((c.minCitations ?? 0) >= 1, `${id} must still require a code citation`);
   }
 });
 
@@ -261,4 +290,72 @@ test("renderReport: redacts secrets carried by DROPPED candidates", () => {
     ],
   });
   assert.equal(md.includes("s3cr3t-workspace-key"), false, "a dropped candidate's secret reached the report");
+});
+
+// --- backend preconditions ---------------------------------------------------
+
+test("checkStack: a healthy backend is up", async () => {
+  const calls = [];
+  const r = await checkStack("http://localhost:3000", {
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return { ok: true, status: 200 };
+    },
+  });
+  assert.deepEqual(r, { up: true, detail: "HTTP 200" });
+  assert.deepEqual(calls, ["http://localhost:3000/health"]);
+});
+
+test("checkStack: a trailing slash does not produce a double slash", async () => {
+  let seen = null;
+  await checkStack("http://localhost:3000///", { fetchImpl: async (u) => ((seen = u), { ok: true, status: 200 }) });
+  assert.equal(seen, "http://localhost:3000/health");
+});
+
+test("checkStack: every failure mode reports DOWN rather than throwing", async () => {
+  // A thrown error here would abort the whole run, taking the backend-FREE charters
+  // with it — the opposite of the intent, which is to skip only what cannot run.
+  const cases = [
+    ["non-2xx", async () => ({ ok: false, status: 503 }), /HTTP 503/],
+    ["connection refused", async () => { throw new Error("fetch failed"); }, /fetch failed/],
+    ["aborted", async () => { const e = new Error("aborted"); e.name = "AbortError"; throw e; }, /no response in/],
+  ];
+  for (const [label, fetchImpl, detail] of cases) {
+    const r = await checkStack("http://x", { fetchImpl, timeoutMs: 50 });
+    assert.equal(r.up, false, label);
+    assert.match(r.detail, detail, label);
+  }
+  // No server configured at all is also down, not a crash.
+  assert.equal((await checkStack("")).up, false);
+  assert.equal((await checkStack(undefined)).up, false);
+});
+
+test("renderReport: a skipped charter is reported as NOT a clean bill of health", () => {
+  // The failure this prevents: a run where the only mutating charter never started
+  // renders "0 reported", which reads exactly like "nothing is wrong".
+  const md = renderReport({
+    ...base,
+    reported: [],
+    dropped: [],
+    stats: { proposed: 0, reported: 0 },
+    skipped: [
+      { charter: "round-trip", kind: "stack-down", why: "backend unreachable (fetch failed)" },
+      { charter: "state", kind: "workspace-refused", why: "WAFFLEBASE_HUNT_WORKSPACE is not set." },
+    ],
+  });
+  assert.match(md, /## Charters that did NOT run \(2\)/);
+  assert.match(md, /not a clean bill of health/);
+  assert.match(md, /round-trip.*stack-down/);
+  assert.match(md, /state.*workspace-refused/);
+  // It must precede the no-findings section, or a reader reaches the reassuring
+  // sentence before the caveat.
+  assert.ok(
+    md.indexOf("did NOT run") < md.indexOf("No candidates reported"),
+    "the skip warning must come before the no-findings message",
+  );
+});
+
+test("renderReport: no skip section when everything ran", () => {
+  const md = renderReport({ ...base, reported: [], dropped: [], stats: { proposed: 0 } });
+  assert.doesNotMatch(md, /did NOT run/);
 });
