@@ -208,3 +208,13 @@ document.getElementById('btn-redo')!.addEventListener('click', () => {
   editor.redo();
   editor.focus();
 });
+
+// TEMP (not for commit): insert a 2x2 table so tables can be tested in the
+// standalone demo. insertTable already nests into a cell when the caret is
+// inside one — repeat with the caret in a cell to build nested tables, then
+// select a table, copy (Cmd+C), and paste (Cmd+V) into a cell to exercise
+// #528 / #333.
+document.getElementById('btn-table')!.addEventListener('click', () => {
+  editor.insertTable(2, 2);
+  editor.focus();
+});

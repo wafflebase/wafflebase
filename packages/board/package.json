@@ -1,0 +1,40 @@
+{
+  "name": "@wafflebase/board",
+  "private": true,
+  "version": "0.6.2",
+  "license": "Apache-2.0",
+  "description": "Infinite canvas engine for Wafflebase",
+  "type": "module",
+  "main": "dist/wafflebase-board.cjs",
+  "module": "dist/wafflebase-board.es.js",
+  "types": "dist/wafflebase-board.es.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/wafflebase-board.es.d.ts",
+      "import": "./dist/wafflebase-board.es.js",
+      "require": "./dist/wafflebase-board.cjs",
+      "default": "./dist/wafflebase-board.es.js"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest --run --passWithNoTests",
+    "test:watch": "vitest --watch --passWithNoTests",
+    "build": "vite --config vite.build.ts build",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@wafflebase/core": "workspace:*",
+    "@wafflebase/docs": "workspace:*",
+    "@wafflebase/slides": "workspace:*"
+  },
+  "devDependencies": {
+    "jsdom": "^28.0.0",
+    "prettier": "^3.3.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2",
+    "vite-plugin-dts": "^4.5.3",
+    "vitest": "^4.1.8"
+  }
+}

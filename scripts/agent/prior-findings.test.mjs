@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tagPriorFindings, lensCheckNames, collectPrior } from "./prior-findings.mjs";
-import { parseArgs } from "./gh-checks.mjs";
+import { parseArgs, commitCheckRuns, prCommitsWithCheckRuns } from "./gh-checks.mjs";
 
 const NAMES = ["agent-review-correctness", "agent-review-security"];
 
@@ -153,4 +153,63 @@ test("collectPrior: never throws — a failed commit list is [] and junk is []",
   }
   // No lens names → nothing can match, and it must not throw on the way there.
   assert.deepEqual(collectPrior({ pr: "581", names: [], api: () => [{ sha: "s1" }], log: quiet }), []);
+});
+
+// --- commitCheckRuns --------------------------------------------------------
+
+test("commitCheckRuns: slurps and flattens, exactly as the multi-commit path does", () => {
+  const api = (args) => {
+    assert.ok(args.includes("--slurp"), "check-runs MUST be slurped or the JSON is invalid");
+    assert.ok(args.some((a) => a.includes("/commits/abc/check-runs")));
+    return [{ check_runs: [{ id: 1 }] }, { check_runs: [{ id: 2 }] }];
+  };
+  assert.deepEqual(commitCheckRuns("abc", { api }), [{ id: 1 }, { id: 2 }]);
+  for (const junk of [null, "x", 7, [null, {}, { check_runs: null }]]) {
+    assert.deepEqual(commitCheckRuns("abc", { api: () => junk }), []);
+  }
+});
+
+// The two functions fail in OPPOSITE directions, and callers depend on which.
+// `prCommitsWithCheckRuns` swallows per commit, because losing one commit's runs
+// must not cost the other commits'. `commitCheckRuns` has no catch at all: its
+// caller asked about ONE commit, so swallowing would hand back "this commit had
+// no check runs" — which reads as "the panel never ran" — when the truth is "we
+// could not look". harvest.mjs relies on being able to tell those apart.
+test("commitCheckRuns: THROWS on a bad response, unlike the per-commit path", () => {
+  const boom = () => { throw new Error("422 unprocessable"); };
+  assert.throws(() => commitCheckRuns("abc", { api: boom }), /422/);
+  const api = (args) =>
+    args.includes("--paginate") && args.some((a) => a.includes("/pulls/"))
+      ? [{ sha: "bad" }]
+      : boom();
+  assert.deepEqual(prCommitsWithCheckRuns("1", { api, log: () => {} }), [{ sha: "bad", checkRuns: [] }]);
+});
+
+test("parseArgs: value-less flags must be DECLARED, not inferred from what follows", () => {
+  // Inference fails in both directions. `--append` at the end of argv reads the
+  // next token — undefined — and becomes falsy, which is how harvest.mjs printed
+  // instead of writing while exiting 0 and reporting success.
+  const a = parseArgs(["node", "s", "--pr", "548", "--append"], { booleans: ["append"] });
+  assert.equal(a.append, true);
+  assert.equal(a.pr, "548");
+  // Order must not matter for a boolean either.
+  assert.equal(parseArgs(["node", "s", "--append", "--pr", "548"], { booleans: ["append"] }).pr, "548");
+  // Undeclared → unchanged, so no existing caller shifts behavior.
+  assert.equal(parseArgs(["node", "s", "--append"]).append, undefined);
+  // An EMPTY string is a value, not a flag — review-panel.mjs passes possibly-empty
+  // --since-sha/--review-mode unconditionally and relies on this.
+  assert.equal(parseArgs(["node", "s", "--since-sha", "", "--head", "x"])["since-sha"], "");
+});
+
+test("commitCheckRuns: a non-array check_runs contributes nothing, not itself", () => {
+  // `p?.check_runs ?? []` would spread a scalar or object straight into the run
+  // list via flatMap, and it would travel downstream as if it were a run.
+  for (const payload of [7, "x", { id: 1 }, true]) {
+    assert.deepEqual(commitCheckRuns("abc", { api: () => [{ check_runs: payload }] }), []);
+  }
+  // A good page alongside a junk one still yields the good runs.
+  assert.deepEqual(
+    commitCheckRuns("abc", { api: () => [{ check_runs: 7 }, { check_runs: [{ id: 2 }] }] }),
+    [{ id: 2 }],
+  );
 });

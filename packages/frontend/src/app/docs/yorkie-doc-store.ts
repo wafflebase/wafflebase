@@ -2762,6 +2762,17 @@ export class YorkieDocStore implements DocStore {
     pos: { blockId: string; offset: number } | null,
     selection?: DocsSelection | null,
   ): void {
+    // Skip entirely while a composition is in progress. `pos` may be a
+    // view-local, not-yet-committed composing offset, and this write has
+    // no addToHistory guard — if it lands between setCursorForHistory()
+    // staging the pre-edit position and the syllable's own commit, it
+    // corrupts the value Yorkie's undo restores (see
+    // docs-intent-preserving-edits.md, "Caret Restoration on Undo Races
+    // Against the Live-Cursor Publisher", issue #609). clampPosToModel
+    // below masks this at end-of-block but not when there is trailing
+    // content. The syllable's own commit (insertText → recordHistoryPresence)
+    // republishes the real position once it lands, so peers still see it.
+    if (this.compositionStartAnchor !== null) return;
     // Clamp to the model before publishing so an out-of-model offset (e.g.
     // the caret sitting after view-local IME composing text) never leaks
     // into peer presence. See clampPosToModel.

@@ -6,13 +6,62 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 374
+Total archived tasks: 423
 
-## 2026/07 (44 tasks)
+## 2026/07 (93 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| cache core split (2026-07-31) | [20260731-cache-core-split-todo.md](./2026/07/20260731-cache-core-split-todo.md) | [20260731-cache-core-split-lessons.md](./2026/07/20260731-cache-core-split-lessons.md) |
+| panel feedback corpus (2026-07-31) | [20260731-panel-feedback-corpus-todo.md](./2026/07/20260731-panel-feedback-corpus-todo.md) | [20260731-panel-feedback-corpus-lessons.md](./2026/07/20260731-panel-feedback-corpus-lessons.md) |
+| reduce lens samples (2026-07-31) | [20260731-reduce-lens-samples-todo.md](./2026/07/20260731-reduce-lens-samples-todo.md) | [20260731-reduce-lens-samples-lessons.md](./2026/07/20260731-reduce-lens-samples-lessons.md) |
+| docs nested table paste input routing (2026-07-30) | [20260730-docs-nested-table-paste-input-routing-todo.md](./2026/07/20260730-docs-nested-table-paste-input-routing-todo.md) | - |
+| restatement clustering (2026-07-30) | [20260730-restatement-clustering-todo.md](./2026/07/20260730-restatement-clustering-todo.md) | - |
+| token attribution (2026-07-30) | [20260730-token-attribution-todo.md](./2026/07/20260730-token-attribution-todo.md) | [20260730-token-attribution-lessons.md](./2026/07/20260730-token-attribution-lessons.md) |
+| verify after clustering (2026-07-30) | [20260730-verify-after-clustering-todo.md](./2026/07/20260730-verify-after-clustering-todo.md) | [20260730-verify-after-clustering-lessons.md](./2026/07/20260730-verify-after-clustering-lessons.md) |
+| absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./2026/07/20260729-absence-claims-todo.md) | - |
+| incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./2026/07/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./2026/07/20260729-incremental-review-lessons.md) |
+| incremental review wiring (2026-07-29) | [20260729-incremental-review-wiring-todo.md](./2026/07/20260729-incremental-review-wiring-todo.md) | [20260729-incremental-review-wiring-lessons.md](./2026/07/20260729-incremental-review-wiring-lessons.md) |
+| review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./2026/07/20260729-review-novelty-gate-todo.md) | - |
+| blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./2026/07/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./2026/07/20260728-blast-radius-lens-lessons.md) |
+| coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./2026/07/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./2026/07/20260728-coverage-first-rubrics-lessons.md) |
+| docs edit link in place (2026-07-28) | [20260728-docs-edit-link-in-place-todo.md](./2026/07/20260728-docs-edit-link-in-place-todo.md) | [20260728-docs-edit-link-in-place-lessons.md](./2026/07/20260728-docs-edit-link-in-place-lessons.md) |
+| independent verifier (2026-07-28) | [20260728-independent-verifier-todo.md](./2026/07/20260728-independent-verifier-todo.md) | [20260728-independent-verifier-lessons.md](./2026/07/20260728-independent-verifier-lessons.md) |
+| model refresh opus 5 (2026-07-28) | [20260728-model-refresh-opus-5-todo.md](./2026/07/20260728-model-refresh-opus-5-todo.md) | [20260728-model-refresh-opus-5-lessons.md](./2026/07/20260728-model-refresh-opus-5-lessons.md) |
+| agent metrics cost weighting (2026-07-27) | [20260727-agent-metrics-cost-weighting-todo.md](./2026/07/20260727-agent-metrics-cost-weighting-todo.md) | - |
+| detect stalled review rounds (2026-07-27) | [20260727-detect-stalled-review-rounds-todo.md](./2026/07/20260727-detect-stalled-review-rounds-todo.md) | [20260727-detect-stalled-review-rounds-lessons.md](./2026/07/20260727-detect-stalled-review-rounds-lessons.md) |
+| omit generated antlr from review (2026-07-27) | [20260727-omit-generated-antlr-from-review-todo.md](./2026/07/20260727-omit-generated-antlr-from-review-todo.md) | [20260727-omit-generated-antlr-from-review-lessons.md](./2026/07/20260727-omit-generated-antlr-from-review-lessons.md) |
+| scope review lenses (2026-07-27) | [20260727-scope-review-lenses-todo.md](./2026/07/20260727-scope-review-lenses-todo.md) | [20260727-scope-review-lenses-lessons.md](./2026/07/20260727-scope-review-lenses-lessons.md) |
+| tighten fixer implement prompts (2026-07-27) | [20260727-tighten-fixer-implement-prompts-todo.md](./2026/07/20260727-tighten-fixer-implement-prompts-todo.md) | [20260727-tighten-fixer-implement-prompts-lessons.md](./2026/07/20260727-tighten-fixer-implement-prompts-lessons.md) |
+| docs viewer read interaction (2026-07-24) | [20260724-docs-viewer-read-interaction-todo.md](./2026/07/20260724-docs-viewer-read-interaction-todo.md) | [20260724-docs-viewer-read-interaction-lessons.md](./2026/07/20260724-docs-viewer-read-interaction-lessons.md) |
+| document created sort (2026-07-24) | [20260724-document-created-sort-todo.md](./2026/07/20260724-document-created-sort-todo.md) | [20260724-document-created-sort-lessons.md](./2026/07/20260724-document-created-sort-lessons.md) |
+| local spec to pr pipeline (2026-07-24) | [20260724-local-spec-to-pr-pipeline-todo.md](./2026/07/20260724-local-spec-to-pr-pipeline-todo.md) | [20260724-local-spec-to-pr-pipeline-lessons.md](./2026/07/20260724-local-spec-to-pr-pipeline-lessons.md) |
+| notes collapsible sections (2026-07-24) | [20260724-notes-collapsible-sections-todo.md](./2026/07/20260724-notes-collapsible-sections-todo.md) | [20260724-notes-collapsible-sections-lessons.md](./2026/07/20260724-notes-collapsible-sections-lessons.md) |
+| notes empty bullet setext (2026-07-24) | [20260724-notes-empty-bullet-setext-todo.md](./2026/07/20260724-notes-empty-bullet-setext-todo.md) | [20260724-notes-empty-bullet-setext-lessons.md](./2026/07/20260724-notes-empty-bullet-setext-lessons.md) |
+| review panel metrics (2026-07-24) | [20260724-review-panel-metrics-todo.md](./2026/07/20260724-review-panel-metrics-todo.md) | - |
+| sheets cell hyperlink (2026-07-24) | [20260724-sheets-cell-hyperlink-todo.md](./2026/07/20260724-sheets-cell-hyperlink-todo.md) | [20260724-sheets-cell-hyperlink-lessons.md](./2026/07/20260724-sheets-cell-hyperlink-lessons.md) |
+| visual harness pixel tolerance (2026-07-24) | [20260724-visual-harness-pixel-tolerance-todo.md](./2026/07/20260724-visual-harness-pixel-tolerance-todo.md) | [20260724-visual-harness-pixel-tolerance-lessons.md](./2026/07/20260724-visual-harness-pixel-tolerance-lessons.md) |
+| board canvas skeleton (2026-07-23) | [20260723-board-canvas-skeleton-todo.md](./2026/07/20260723-board-canvas-skeleton-todo.md) | [20260723-board-canvas-skeleton-lessons.md](./2026/07/20260723-board-canvas-skeleton-lessons.md) |
+| hyperlink tables consistency (2026-07-23) | [20260723-hyperlink-tables-consistency-todo.md](./2026/07/20260723-hyperlink-tables-consistency-todo.md) | [20260723-hyperlink-tables-consistency-lessons.md](./2026/07/20260723-hyperlink-tables-consistency-lessons.md) |
+| maintainer merge skill (2026-07-23) | [20260723-maintainer-merge-skill-todo.md](./2026/07/20260723-maintainer-merge-skill-todo.md) | [20260723-maintainer-merge-skill-lessons.md](./2026/07/20260723-maintainer-merge-skill-lessons.md) |
+| note code block style (2026-07-23) | [20260723-note-code-block-style-todo.md](./2026/07/20260723-note-code-block-style-todo.md) | [20260723-note-code-block-style-lessons.md](./2026/07/20260723-note-code-block-style-lessons.md) |
+| docs baseline dedup (2026-07-22) | [20260722-docs-baseline-dedup-todo.md](./2026/07/20260722-docs-baseline-dedup-todo.md) | [20260722-docs-baseline-dedup-lessons.md](./2026/07/20260722-docs-baseline-dedup-lessons.md) |
+| docs hyperlink formatting exit (2026-07-22) | [20260722-docs-hyperlink-formatting-exit-todo.md](./2026/07/20260722-docs-hyperlink-formatting-exit-todo.md) | - |
+| docs ime composing underline (2026-07-22) | [20260722-docs-ime-composing-underline-todo.md](./2026/07/20260722-docs-ime-composing-underline-todo.md) | - |
+| docs undo selection (2026-07-22) | [20260722-docs-undo-selection-todo.md](./2026/07/20260722-docs-undo-selection-todo.md) | [20260722-docs-undo-selection-lessons.md](./2026/07/20260722-docs-undo-selection-lessons.md) |
+| docs visual harness (2026-07-22) | [20260722-docs-visual-harness-todo.md](./2026/07/20260722-docs-visual-harness-todo.md) | - |
+| open ended ranges (2026-07-22) | [20260722-open-ended-ranges-todo.md](./2026/07/20260722-open-ended-ranges-todo.md) | [20260722-open-ended-ranges-lessons.md](./2026/07/20260722-open-ended-ranges-lessons.md) |
+| byte text functions (2026-07-21) | [20260721-byte-text-functions-todo.md](./2026/07/20260721-byte-text-functions-todo.md) | [20260721-byte-text-functions-lessons.md](./2026/07/20260721-byte-text-functions-lessons.md) |
+| docs mixed fontsize baseline (2026-07-21) | [20260721-docs-mixed-fontsize-baseline-todo.md](./2026/07/20260721-docs-mixed-fontsize-baseline-todo.md) | [20260721-docs-mixed-fontsize-baseline-lessons.md](./2026/07/20260721-docs-mixed-fontsize-baseline-lessons.md) |
+| docx sdt text import (2026-07-21) | [20260721-docx-sdt-text-import-todo.md](./2026/07/20260721-docx-sdt-text-import-todo.md) | [20260721-docx-sdt-text-import-lessons.md](./2026/07/20260721-docx-sdt-text-import-lessons.md) |
+| xlsx style tiling (2026-07-21) | [20260721-xlsx-style-tiling-todo.md](./2026/07/20260721-xlsx-style-tiling-todo.md) | - |
+| autonomous issue to pr pipeline (2026-07-20) | [20260720-autonomous-issue-to-pr-pipeline-todo.md](./2026/07/20260720-autonomous-issue-to-pr-pipeline-todo.md) | [20260720-autonomous-issue-to-pr-pipeline-lessons.md](./2026/07/20260720-autonomous-issue-to-pr-pipeline-lessons.md) |
+| documents bulk select move (2026-07-20) | [20260720-documents-bulk-select-move-todo.md](./2026/07/20260720-documents-bulk-select-move-todo.md) | [20260720-documents-bulk-select-move-lessons.md](./2026/07/20260720-documents-bulk-select-move-lessons.md) |
+| analytics dashboard viz (2026-07-19) | [20260719-analytics-dashboard-viz-todo.md](./2026/07/20260719-analytics-dashboard-viz-todo.md) | [20260719-analytics-dashboard-viz-lessons.md](./2026/07/20260719-analytics-dashboard-viz-lessons.md) |
+| image viewer (2026-07-19) | [20260719-image-viewer-todo.md](./2026/07/20260719-image-viewer-todo.md) | [20260719-image-viewer-lessons.md](./2026/07/20260719-image-viewer-lessons.md) |
 | toolbar dropdown unification (2026-07-19) | [20260719-toolbar-dropdown-unification-todo.md](./2026/07/20260719-toolbar-dropdown-unification-todo.md) | [20260719-toolbar-dropdown-unification-lessons.md](./2026/07/20260719-toolbar-dropdown-unification-lessons.md) |
+| workspace folders (2026-07-19) | [20260719-workspace-folders-todo.md](./2026/07/20260719-workspace-folders-todo.md) | [20260719-workspace-folders-lessons.md](./2026/07/20260719-workspace-folders-lessons.md) |
+| release v0.6.1 (2026-07-18) | [20260718-release-v0.6.1-todo.md](./2026/07/20260718-release-v0.6.1-todo.md) | - |
 | active tasks audit (2026-07-17) | [20260717-active-tasks-audit-todo.md](./2026/07/20260717-active-tasks-audit-todo.md) | - |
 | documentation 0.6.0 update (2026-07-17) | [20260717-documentation-0.6.0-update-todo.md](./2026/07/20260717-documentation-0.6.0-update-todo.md) | [20260717-documentation-0.6.0-update-lessons.md](./2026/07/20260717-documentation-0.6.0-update-lessons.md) |
 | multi file upload (2026-07-17) | [20260717-multi-file-upload-todo.md](./2026/07/20260717-multi-file-upload-todo.md) | [20260717-multi-file-upload-lessons.md](./2026/07/20260717-multi-file-upload-lessons.md) |

@@ -7,7 +7,7 @@
     "appliesWhen": ["**"],
     "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
-    "samples": 2
+    "samples": 1
   },
   {
     "id": "security",
@@ -17,7 +17,7 @@
     "appliesWhen": ["**"],
     "scopeClasses": ["code", "code-adjacent", "policy", "design-spec", "prose"],
     "model": "claude-opus-5",
-    "samples": 2
+    "samples": 1
   },
   {
     "id": "design-fit",
@@ -27,7 +27,7 @@
     "appliesWhen": ["packages/**", "scripts/**", "docs/design/**"],
     "scopeClasses": ["code", "code-adjacent", "policy", "design-spec"],
     "model": "claude-opus-5",
-    "samples": 2
+    "samples": 1
   },
   {
     "id": "test-adequacy",
@@ -37,7 +37,7 @@
     "appliesWhen": ["packages/**", "scripts/**"],
     "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
-    "samples": 2
+    "samples": 1
   },
   {
     "id": "blast-radius",
@@ -47,7 +47,7 @@
     "appliesWhen": ["packages/**", "scripts/**"],
     "scopeClasses": ["code", "code-adjacent", "policy"],
     "model": "claude-opus-5",
-    "samples": 2
+    "samples": 1
   },
   {
     "id": "docs",

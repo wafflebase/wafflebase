@@ -92,6 +92,8 @@ export function getDocumentPath(doc: {
       return `/f/${doc.id}`;
     case "note":
       return `/n/${doc.id}`;
+    case "board":
+      return `/b/${doc.id}`;
     case "sheet":
     default:
       return `/s/${doc.id}`;

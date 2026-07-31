@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: `Folder` model (`id, name, workspaceId, parentId, authorID, createdAt`) and `Document.folderId`; Prisma client types `Folder`, updated `Document`.
 
-- [ ] **Step 1: Add the `Folder` model and `Document.folderId`**
+- [x] **Step 1: Add the `Folder` model and `Document.folderId`**
 
 In `schema.prisma`, add the model (place it after `Document`):
 
@@ -67,17 +67,17 @@ In the `Document` model, add the folder relation + index (after the `workspace` 
 In `Workspace`, add the back-relation to the relation block: `folders Folder[]`.
 In `User`, add the back-relation: `folders Folder[]`.
 
-- [ ] **Step 2: Start the database**
+- [x] **Step 2: Start the database**
 
 Run: `docker compose up -d`
 Expected: postgres + yorkie containers up.
 
-- [ ] **Step 3: Generate the migration**
+- [x] **Step 3: Generate the migration**
 
 Run: `pnpm --filter @wafflebase/backend exec prisma migrate dev --name add_workspace_folders`
 Expected: a new migration folder is created, applied to the dev DB, and the Prisma client regenerates without error.
 
-- [ ] **Step 4: Verify the generated SQL enforces the delete rule**
+- [x] **Step 4: Verify the generated SQL enforces the delete rule**
 
 Read the generated `migration.sql`. Confirm:
 - `Folder_parentId_fkey` uses `ON DELETE CASCADE`.
@@ -86,7 +86,7 @@ Read the generated `migration.sql`. Confirm:
 
 If the `onDelete` clauses are wrong, fix the schema and re-run Step 3.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/backend/prisma/schema.prisma packages/backend/prisma/migrations
@@ -112,7 +112,7 @@ git commit -m "Add Folder model and Document.folderId migration"
   - `assertNoCycle(folderId: string, newParentId: string | null): Promise<void>` (throws `BadRequestException`)
   - `assertSameWorkspace(parentId: string, workspaceId: string): Promise<void>` (throws `BadRequestException`)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/backend/test/folder.e2e-spec.ts`. Follow the existing DB-gated e2e pattern (guarded by `RUN_DB_INTEGRATION_TESTS`, bootstraps `PrismaService`). Model the setup/teardown on an existing `*.e2e-spec.ts` in `packages/backend/test/` (read one first for the exact bootstrap + `describeIf` gate helper used in this repo).
 
@@ -142,12 +142,12 @@ it('cascade-deletes descendant folders', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `docker compose up -d && RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: FAIL — `folder.service` module not found / `folderService` undefined.
 
-- [ ] **Step 3: Implement `FolderService`**
+- [x] **Step 3: Implement `FolderService`**
 
 ```ts
 import { BadRequestException, Injectable } from '@nestjs/common';
@@ -239,12 +239,12 @@ export class FolderService {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/backend/src/folder/folder.service.ts packages/backend/test/folder.e2e-spec.ts
@@ -266,7 +266,7 @@ git commit -m "Add FolderService with cycle and same-workspace guards"
 - Consumes: `FolderService`, `WorkspaceService` (`resolveId`, `assertMember`), `isDocumentManager`.
 - Produces: `FolderModule` (exports `FolderService`); routes `POST/GET workspaces/:workspaceId/folders`, `PATCH/DELETE folders/:id`.
 
-- [ ] **Step 1: Write the failing HTTP test**
+- [x] **Step 1: Write the failing HTTP test**
 
 Add to `folder.e2e-spec.ts` (authenticated HTTP through the Nest app, mirroring the document/share-link HTTP e2e cases already in `packages/backend/test/`):
 
@@ -295,12 +295,12 @@ it('PATCH rejects a cycle-forming move with 400', async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: FAIL — routes 404 (controller not registered).
 
-- [ ] **Step 3: Write the DTOs**
+- [x] **Step 3: Write the DTOs**
 
 `folder.dto.ts`:
 
@@ -332,7 +332,7 @@ export class UpdateFolderDto {
 }
 ```
 
-- [ ] **Step 4: Write the controller**
+- [x] **Step 4: Write the controller**
 
 `folder.controller.ts`:
 
@@ -460,7 +460,7 @@ export class FolderController {
 }
 ```
 
-- [ ] **Step 5: Write the module and register it**
+- [x] **Step 5: Write the module and register it**
 
 `folder.module.ts`:
 
@@ -483,12 +483,12 @@ export class FolderModule {}
 
 In `packages/backend/src/app.module.ts`, add `FolderModule` to the `imports` array (read the file to place it alongside `DocumentModule`).
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: PASS (5 tests total).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/folder packages/backend/src/app.module.ts packages/backend/test/folder.e2e-spec.ts
@@ -509,7 +509,7 @@ git commit -m "Add folder REST endpoints with member/manager gating"
 - Consumes: `FolderService.getById`.
 - Produces: `PATCH documents/:id` accepts `folderId: string | null`; `GET workspaces/:wid/documents?folderId=` filters by folder (omitted = root); `DocumentListItem.folderId` returned; create-in-workspace accepts `folderId`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `folder.e2e-spec.ts`:
 
@@ -545,12 +545,12 @@ it('rejects moving a document into a folder from another workspace with 400', as
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: FAIL — `folderId` ignored (doc still appears at root; cross-workspace move returns 200).
 
-- [ ] **Step 3: Extend the DTOs**
+- [x] **Step 3: Extend the DTOs**
 
 In `document.dto.ts`, add to `UpdateDocumentDto`:
 
@@ -569,7 +569,7 @@ And add the same optional field to `CreateDocumentInWorkspaceDto` (and `CreateDo
   folderId?: string;
 ```
 
-- [ ] **Step 4: Wire `FolderService` into the document module**
+- [x] **Step 4: Wire `FolderService` into the document module**
 
 In `document.module.ts`, add `FolderModule` to `imports`:
 
@@ -579,7 +579,7 @@ import { FolderModule } from '../folder/folder.module';
   imports: [AuthModule, WorkspaceModule, FileModule, ShareLinkModule, FolderModule],
 ```
 
-- [ ] **Step 5: Implement the controller changes**
+- [x] **Step 5: Implement the controller changes**
 
 In `document.controller.ts`:
 
@@ -668,12 +668,12 @@ import { FolderService } from '../folder/folder.service';
 
 6. Add `folderId` to the `DocumentListItem` doc comment (the value already flows via `...d` since `DocumentWithAuthor` now includes `folderId` — no code change needed, but note it in the type's comment).
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e -- folder.e2e-spec`
 Expected: PASS (7 tests total).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/document packages/backend/test/folder.e2e-spec.ts
@@ -697,7 +697,7 @@ git commit -m "Support folderId on document create, move, and list"
   - `moveDocument(id, target: { workspaceId?: string; folderId?: string | null })`.
   - `fetchWorkspaceDocuments(workspaceId, folderId?: string | null)`.
 
-- [ ] **Step 1: Add the `Folder` type + `Document.folderId`**
+- [x] **Step 1: Add the `Folder` type + `Document.folderId`**
 
 In `types/documents.ts`:
 
@@ -713,7 +713,7 @@ export type Folder = {
 
 Add to the `Document` type: `folderId?: string | null;`.
 
-- [ ] **Step 2: Create the folder API client**
+- [x] **Step 2: Create the folder API client**
 
 `api/folders.ts`:
 
@@ -772,7 +772,7 @@ export async function deleteFolder(id: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 3: Extend `moveDocument`**
+- [x] **Step 3: Extend `moveDocument`**
 
 Replace the body of `moveDocument` in `api/documents.ts` (keep the export name) to send both fields:
 
@@ -796,7 +796,7 @@ export async function moveDocument(
 
 Then update the single existing caller in `document-list.tsx` (the move mutation) to pass `{ workspaceId }` — done in Task 7.
 
-- [ ] **Step 4: Add `folderId` to `fetchWorkspaceDocuments`**
+- [x] **Step 4: Add `folderId` to `fetchWorkspaceDocuments`**
 
 In `api/workspaces.ts`, change `fetchWorkspaceDocuments` to accept an optional `folderId` and append it as a query param when defined (a `null`/`undefined` folderId sends no param → backend returns root). Read the current implementation (research: `api/workspaces.ts:220-224`) and add:
 
@@ -814,12 +814,12 @@ export async function fetchWorkspaceDocuments(
 }
 ```
 
-- [ ] **Step 5: Verify typecheck + lint**
+- [x] **Step 5: Verify typecheck + lint**
 
 Run: `pnpm --filter @wafflebase/frontend lint && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: PASS (callers updated in later tasks may still reference the old `moveDocument(id, workspaceId)` signature — if tsc flags the `document-list.tsx` caller, that is expected and fixed in Task 7; if you want a green gate now, do Task 7's caller edit first).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/types/documents.ts packages/frontend/src/api/folders.ts packages/frontend/src/api/documents.ts packages/frontend/src/api/workspaces.ts
@@ -842,7 +842,7 @@ git commit -m "Add frontend folder API client and folderId types"
 
 **Before starting:** read `document-list.tsx` in full (research map: table setup ~535-556, columns, row actions ~306-361, move dialog ~850-916, mutations ~386-506) and `workspace-documents.tsx` (~12-65). These are the integration anchors.
 
-- [ ] **Step 1: Write the pure path helper + its test**
+- [x] **Step 1: Write the pure path helper + its test**
 
 `folder-path.ts`:
 
@@ -868,7 +868,7 @@ export function folderPath(folders: Folder[], folderId: string | null): Folder[]
 
 If the frontend has a vitest setup, add `folder-path.test.ts` asserting a 2-level chain and root (`[]`). If not, cover it via the manual smoke in Step 6.
 
-- [ ] **Step 2: Read the current folder param in `workspace-documents.tsx`**
+- [x] **Step 2: Read the current folder param in `workspace-documents.tsx`**
 
 Add `?folder=` reading via `useSearchParams`, fetch folders, and fetch documents scoped to the current folder:
 
@@ -904,7 +904,7 @@ Pass `folders`, `folderId`, and a `onNavigateFolder` callback into `DocumentList
 />
 ```
 
-- [ ] **Step 3: Write the breadcrumb component**
+- [x] **Step 3: Write the breadcrumb component**
 
 `folder-breadcrumb.tsx`:
 
@@ -943,7 +943,7 @@ export function FolderBreadcrumb({
 }
 ```
 
-- [ ] **Step 4: Accept the new props in `DocumentList` and render folder rows**
+- [x] **Step 4: Accept the new props in `DocumentList` and render folder rows**
 
 In `document-list.tsx`:
 - Extend the props type with `folders?: Folder[]`, `folderId?: string | null`, `onNavigateFolder?: (id: string | null) => void`.
@@ -951,16 +951,16 @@ In `document-list.tsx`:
 - Filter to the folders whose `parentId === (folderId ?? null)` (direct children of the current folder) and render them as rows *above* the document rows, using a folder icon (`IconFolder` already imported in the sidebar/layout — import from the same source). Clicking a folder row calls `onNavigateFolder(folder.id)`.
 - Keep the existing document table intact. Simplest integration: render a small folder-row list (`<button>` rows styled like table rows) in a section directly above the `<Table>`, rather than merging folders into the TanStack row model — this avoids a union row type across the sortable columns.
 
-- [ ] **Step 5: Verify typecheck + lint**
+- [x] **Step 5: Verify typecheck + lint**
 
 Run: `pnpm --filter @wafflebase/frontend lint && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: PASS.
 
-- [ ] **Step 6: Manual smoke**
+- [x] **Step 6: Manual smoke**
 
 Run `pnpm dev`, open `/w/:workspaceId`. Create a folder (Task 7 adds the button — if not yet present, create one via the API/devtools), confirm: folder row appears, clicking it sets `?folder=<id>` and lists only that folder's documents, breadcrumb shows the path and navigates back.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents/folder-breadcrumb.tsx packages/frontend/src/app/documents/folder-path.ts packages/frontend/src/app/documents/document-list.tsx packages/frontend/src/app/workspaces/workspace-documents.tsx
@@ -977,7 +977,7 @@ git commit -m "Add folder rows, breadcrumb, and drill-in navigation"
 **Interfaces:**
 - Consumes: `createFolder`, `renameFolder`, `deleteFolder`, `moveDocument`, `moveFolder`, `fetchFolders`.
 
-- [ ] **Step 1: Add "New folder" to the New menu**
+- [x] **Step 1: Add "New folder" to the New menu**
 
 In the New menu (research: ~605-755), add a "New folder" item that opens a small name-input dialog and calls a `createFolderMutation`:
 
@@ -988,7 +988,7 @@ const createFolderMutation = useMutation({
 });
 ```
 
-- [ ] **Step 2: Add folder-row actions (rename / delete)**
+- [x] **Step 2: Add folder-row actions (rename / delete)**
 
 Each folder row gets a dropdown (mirror the document row actions, research: ~306-361) with Rename and Delete, gated on the caller being a manager. Since the folder list endpoint returns `authorID`, compute manageability client-side the same way the row `canManage` is used for documents, OR always show the actions and let the backend 403 be surfaced via the existing toast path. Prefer the former if the current user id is readily available in this component; otherwise the latter is acceptable and simpler.
 
@@ -1006,7 +1006,7 @@ const deleteFolderMutation = useMutation({
 });
 ```
 
-- [ ] **Step 3: Extend the Move dialog with a folder picker**
+- [x] **Step 3: Extend the Move dialog with a folder picker**
 
 In the move dialog (research: ~850-916), after the workspace `<Select>` add a folder `<Select>` populated by fetching the *chosen* target workspace's folders (`fetchFolders(targetWorkspaceId)`), defaulting to "(workspace root)". Track `targetFolderId` state; reset it to root whenever `targetWorkspaceId` changes. Render folders as an indented flat list (indent by depth via `folderPath` length) so nesting is legible in a flat `<Select>`.
 
@@ -1025,16 +1025,16 @@ const moveMutation = useMutation({
 
 On submit: if the target workspace equals the current one, send only `{ folderId: targetFolderId }`; if it differs, send `{ workspaceId: targetWorkspaceId, folderId: targetFolderId ?? undefined }` (folder is validated against the target workspace server-side).
 
-- [ ] **Step 4: Verify typecheck + lint**
+- [x] **Step 4: Verify typecheck + lint**
 
 Run: `pnpm --filter @wafflebase/frontend lint && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: PASS (the old `moveDocument(id, workspaceId)` caller is now updated → no signature error).
 
-- [ ] **Step 5: Manual smoke**
+- [x] **Step 5: Manual smoke**
 
 `pnpm dev`: create a folder via New menu; move a document into it via the Move dialog (folder picker); rename and delete a folder; confirm deleting a non-empty folder returns its documents to root (not deleted).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents/document-list.tsx
@@ -1051,29 +1051,29 @@ git commit -m "Add new-folder, folder actions, and folder move picker"
 - Create: `docs/tasks/active/20260719-workspace-folders-lessons.md`
 - Modify: `docs/tasks/README.md` (add this task's row)
 
-- [ ] **Step 1: Document the new endpoints**
+- [x] **Step 1: Document the new endpoints**
 
 Add a "Folders (`/workspaces/:workspaceId/folders`)" table to `packages/backend/README.md` mirroring the Documents section: `POST` create (member), `GET` list (member), `PATCH /folders/:id` rename (member) / move (manager), `DELETE /folders/:id` (manager). Note the `?folderId=` param on `GET .../documents` and `folderId` on document create/PATCH.
 
-- [ ] **Step 2: Run the fast gate**
+- [x] **Step 2: Run the fast gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + unit).
 
-- [ ] **Step 3: Run the full DB-backed gate**
+- [x] **Step 3: Run the full DB-backed gate**
 
 Run: `docker compose up -d && pnpm verify:full`
 Expected: PASS, including the new `folder.e2e-spec` cases.
 
-- [ ] **Step 4: Self code-review**
+- [x] **Step 4: Self code-review**
 
 Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff. Apply blocking findings; record non-blocking ones in the lessons file.
 
-- [ ] **Step 5: Capture lessons + update the task index**
+- [x] **Step 5: Capture lessons + update the task index**
 
 Write `20260719-workspace-folders-lessons.md` (what was non-obvious: the DB-enforced delete rule, class-validator null handling for `parentId`/`folderId`, flat-vs-tree folder rows). Add the row to `docs/tasks/README.md` Active Tasks.
 
-- [ ] **Step 6: Commit + open PR**
+- [x] **Step 6: Commit + open PR**
 
 ```bash
 git add packages/backend/README.md docs/design/workspace-folders.md docs/tasks

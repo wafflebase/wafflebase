@@ -49,6 +49,7 @@ import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
 import { resolveEndpoint } from '../canvas/connector-frame';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import { screenToWorld, type Viewport } from '../canvas/viewport';
 import {
   alignFrames,
   distributeFrames,
@@ -293,6 +294,19 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * (headless tests, mounts without a thumbnail strip).
    */
   onFontsLoaded?: () => void;
+  /**
+   * When true, omit every slide-scoped item from the empty-canvas
+   * context menu (`canvasContextItems()`) — today just "Change
+   * layout…", whose `onPick` calls `store.applyLayout()`. The board
+   * package (`@wafflebase/board`) reuses this editor unmodified via
+   * `initializeEditor`, backed by a `SlidesStore` implementation
+   * (`YorkieBoardStore`) whose slide/theme/layout/animation/table
+   * methods are all `notSupported()` throws — a board has no slides to
+   * change the layout of. Without this flag, right-clicking the empty
+   * board canvas and picking "Change layout…" throws uncaught. Default
+   * false keeps the slides editor's menu unchanged.
+   */
+  suppressSlideChrome?: boolean;
 }
 
 export interface SlidesEditor {
@@ -461,6 +475,14 @@ export interface SlidesEditor {
    * The editor only updates its internal scale and triggers a repaint.
    */
   setHostSize(hostWidth: number, hostHeight: number): void;
+  /**
+   * Replace the active pan/zoom viewport used for the world↔screen
+   * mapping (board callers only — slide callers never set this).
+   * Marks the renderer dirty and repaints immediately so the caller
+   * doesn't need to separately call `markDirty()` + `render()` on
+   * every pan/zoom tick.
+   */
+  setViewport(viewport: Viewport): void;
   /**
    * Update the slide's offset inside the canvas bitmap, in
    * slide-logical pixels. Used when the canvas is bigger than the
@@ -994,6 +1016,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideHeight: slideH,
         permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+        ...this.overlayPan(),
       });
       this.reattachEditingTextBox();
       return;
@@ -1010,6 +1033,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideWidth: SLIDE_WIDTH,
         slideHeight: slideH,
         cropWindow: { ...f, rotation: s.rotation },
+        ...this.overlayPan(),
       });
       return;
     }
@@ -1153,6 +1177,7 @@ class SlidesEditorImpl implements SlidesEditor {
         });
         this.requestRender();
       },
+      ...this.overlayPan(),
     });
     // renderOverlay clears `overlay.innerHTML` on every call, which
     // would also unmount the text-box container. Re-append it after
@@ -1217,7 +1242,21 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private scale(): number {
-    return this.options.hostWidth / SLIDE_WIDTH;
+    return this.options.viewport?.zoom ?? this.options.hostWidth / SLIDE_WIDTH;
+  }
+
+  /**
+   * Board-mode pan offset (screen px, applied after `scale()`), read from
+   * the viewport when present. Spread into every `renderOverlay(...)`
+   * options object so handles/guides land at `world * scale + pan`.
+   * Defaults to `{ panX: 0, panY: 0 }` absent a viewport, which keeps the
+   * existing fit-scale overlay rendering byte-identical.
+   */
+  private overlayPan(): { panX: number; panY: number } {
+    return {
+      panX: this.options.viewport?.panX ?? 0,
+      panY: this.options.viewport?.panY ?? 0,
+    };
   }
 
   /**
@@ -1352,6 +1391,11 @@ class SlidesEditorImpl implements SlidesEditor {
         this.setCellSelection(null);
         this.repaintOverlay();
       },
+      // See `SlidesEditorOptions.suppressSlideChrome` — a board mount
+      // passes `true` so the keyboard rules that call slide/table-scoped
+      // `SlidesStore` methods (which `YorkieBoardStore` implements as
+      // `notSupported()` throws) no-op instead of crashing.
+      suppressSlideChrome: this.options.suppressSlideChrome,
     });
   }
 
@@ -1474,6 +1518,12 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+  }
+
+  setViewport(viewport: Viewport): void {
+    this.options.viewport = viewport;
+    this.markDirty();
+    this.render();
   }
 
   setSlideOffset(logicalX: number, logicalY: number): void {
@@ -3190,33 +3240,44 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private canvasContextItems(x: number, y: number): ContextMenuItem[] {
-    return [
+    const items: ContextMenuItem[] = [
       { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
-      { label: '---',   run: () => undefined },
-      {
-        label: 'Change layout…',
-        run: () => {
-          const slide = this.currentSlide();
-          if (!slide) return;
-          showLayoutPicker(document.body, {
-            store: this.options.store,
-            anchor: { x: this.lastContextX, y: this.lastContextY },
-            selectedLayoutId: slide.layoutId,
-            onPick: (layoutId) => {
-              this.options.store.batch(() =>
-                this.options.store.applyLayout(slide.id, layoutId),
-              );
-              this.requestRender();
-            },
-            onClose: () => {},
-          });
+    ];
+    // "Change layout…" is slide-scoped (its onPick calls
+    // `store.applyLayout()`), which a board-backed `SlidesStore` throws
+    // on (`notSupported`). Board mounts pass `suppressSlideChrome:
+    // true` to drop it; the slides editor keeps it by default.
+    if (!this.options.suppressSlideChrome) {
+      items.push(
+        { label: '---',   run: () => undefined },
+        {
+          label: 'Change layout…',
+          run: () => {
+            const slide = this.currentSlide();
+            if (!slide) return;
+            showLayoutPicker(document.body, {
+              store: this.options.store,
+              anchor: { x: this.lastContextX, y: this.lastContextY },
+              selectedLayoutId: slide.layoutId,
+              onPick: (layoutId) => {
+                this.options.store.batch(() =>
+                  this.options.store.applyLayout(slide.id, layoutId),
+                );
+                this.requestRender();
+              },
+              onClose: () => {},
+            });
+          },
         },
-      },
+      );
+    }
+    items.push(
       { label: '---',   run: () => undefined },
       { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
       { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
       { label: 'Insert text',      run: () => this.insertAt('text', x, y) },
-    ];
+    );
+    return items;
   }
 
   private insertAt(kind: ShapeOrTextInsertKind, x: number, y: number): void {
@@ -3763,6 +3824,10 @@ class SlidesEditorImpl implements SlidesEditor {
       // pass the full element frame as today.
       frame: target.editFrame,
       scale: this.scale(),
+      // Board infinite-canvas pan: keeps the in-place editing container
+      // aligned with the committed slide render when panned. `0,0` on
+      // plain slides (no viewport) — identical to pre-board behavior.
+      ...this.overlayPan(),
       blocks: target.blocks,
       // Drives editor autofit: 'shrink' scales fonts to fit the fixed box,
       // 'grow' (and absent) tracks content height, 'none' is fixed. The
@@ -4889,12 +4954,28 @@ class SlidesEditorImpl implements SlidesEditor {
     this.options.overlay.appendChild(rectEl);
 
     const start = this.clientToLogical(clientX, clientY);
+    // Place the zero-size rect at the start point immediately. Without
+    // this, a pointer-down (before the first move sizes it) leaves
+    // left/top unset, so the bordered rect flashes at the overlay origin
+    // (0,0) — the top-left corner, glaringly far from the cursor on a
+    // panned/zoomed board — until the first pointermove snaps it into place.
+    {
+      const scale = this.scale();
+      const { panX, panY } = this.overlayPan();
+      rectEl.style.left = `${start.x * scale + panX}px`;
+      rectEl.style.top = `${start.y * scale + panY}px`;
+      rectEl.style.width = '0px';
+      rectEl.style.height = '0px';
+    }
     const onMove = (ev: MouseEvent) => {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
       const scale = this.scale();
-      rectEl.style.left = `${rect.x * scale}px`;
-      rectEl.style.top = `${rect.y * scale}px`;
+      // The lasso rect lives on the overlay, so it must honor the same
+      // pan offset as every other overlay position (0 outside board mode).
+      const { panX, panY } = this.overlayPan();
+      rectEl.style.left = `${rect.x * scale + panX}px`;
+      rectEl.style.top = `${rect.y * scale + panY}px`;
       rectEl.style.width = `${rect.w * scale}px`;
       rectEl.style.height = `${rect.h * scale}px`;
     };
@@ -5185,6 +5266,7 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      ...this.overlayPan(),
     });
   }
 
@@ -5221,6 +5303,7 @@ class SlidesEditorImpl implements SlidesEditor {
       connectorAffordance: this.connectorAffordance(),
       permanentGuides: doc.guides,
       pendingGuide: this.pendingGuide,
+      ...this.overlayPan(),
     });
   }
 
@@ -5270,6 +5353,10 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private clientToLogical(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.options.canvas.getBoundingClientRect();
+    const vp = this.options.viewport;
+    if (vp) {
+      return screenToWorld(vp, { x: clientX - rect.left, y: clientY - rect.top });
+    }
     const scale = this.scale();
     // The canvas DOM may extend past the slide rect on each axis
     // (the surrounding empty area inside `scrollHost` becomes the
@@ -5443,6 +5530,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
         connectorAffordance: this.connectorAffordance(),
+        ...this.overlayPan(),
       });
     };
 
@@ -5640,6 +5728,7 @@ class SlidesEditorImpl implements SlidesEditor {
         slideWidth: SLIDE_WIDTH,
         slideHeight: this.slideHeight(),
         allElements: startSlide.elements,
+        ...this.overlayPan(),
       });
     };
 
@@ -5701,6 +5790,7 @@ class SlidesEditorImpl implements SlidesEditor {
       slideWidth: SLIDE_WIDTH,
       slideHeight: this.slideHeight(),
       allElements: synthetic.elements,
+      ...this.overlayPan(),
     });
   }
 

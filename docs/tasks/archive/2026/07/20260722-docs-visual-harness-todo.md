@@ -47,7 +47,7 @@ line's max font size, not the marker's own size).
   new `docs-mixed-font-size-*` PNGs were committed; every other
   regenerated baseline was reverted via `git checkout --` before staging.
 - [x] `pnpm verify:fast` green.
-- [ ] Add before/after screenshots of the two new docs scenarios to PR
+- [x] Add before/after screenshots of the two new docs scenarios to PR
   #527's description once CI is green.
 
 ## Notes

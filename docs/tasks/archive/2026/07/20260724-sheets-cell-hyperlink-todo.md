@@ -18,19 +18,19 @@ A cell is treated as a hyperlink when it holds a **plain string value**
 Detection happens at render/click time, so nothing is persisted and the
 `Store` interface is untouched.
 
-- [ ] `packages/sheets/src/view/url-detect.ts` — `cellHyperlink(value)`
+- [x] `packages/sheets/src/view/url-detect.ts` — `cellHyperlink(value)`
       returning the normalized URL or `null`. The URL-safety primitive
       (`isSafeUrl` + `SAFE_PROTOCOLS`) is reused from the shared
       `@wafflebase/core/url` module rather than reimplemented — Docs also
       imports it from there, so both engines gate links against one allowlist.
-- [ ] Theme: add `cellLinkColor` to Light (`#1A73E8`) / Dark (`#8AB4F8`).
-- [ ] `gridcanvas.ts` `renderCellContent` — when a cell is a hyperlink,
+- [x] Theme: add `cellLinkColor` to Light (`#1A73E8`) / Dark (`#8AB4F8`).
+- [x] `gridcanvas.ts` `renderCellContent` — when a cell is a hyperlink,
       paint the text in the link color and underline it (respecting an
       explicit `style.tc` override).
-- [ ] `worksheet.ts` `handleMouseDown` — Ctrl/Cmd+Click on a hyperlink cell
+- [x] `worksheet.ts` `handleMouseDown` — Ctrl/Cmd+Click on a hyperlink cell
       opens it in a new tab (`window.open(..., 'noopener,noreferrer')`),
       matching the Docs Ctrl/Cmd+Click behavior.
-- [ ] Unit test for `cellHyperlink` detection (safe/unsafe, formula, blanks).
+- [x] Unit test for `cellHyperlink` detection (safe/unsafe, formula, blanks).
 
 ## Non-goals
 

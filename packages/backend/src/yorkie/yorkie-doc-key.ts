@@ -10,7 +10,13 @@
  * a wrong key.
  */
 export type DocumentTypeLike =
-  | 'sheet' | 'doc' | 'slides' | 'pdf' | 'note' | 'image';
+  | 'sheet'
+  | 'doc'
+  | 'slides'
+  | 'pdf'
+  | 'note'
+  | 'image'
+  | 'board';
 
 export const YORKIE_DOC_KEY_PREFIXES = {
   sheet: 'sheet-',
@@ -19,6 +25,7 @@ export const YORKIE_DOC_KEY_PREFIXES = {
   pdf: 'pdf-',
   note: 'note-',
   image: 'image-',
+  board: 'board-',
 } as const;
 
 export function yorkieDocKeyPrefix(type: string): string {
@@ -35,6 +42,8 @@ export function yorkieDocKeyPrefix(type: string): string {
       return YORKIE_DOC_KEY_PREFIXES.note;
     case 'image':
       return YORKIE_DOC_KEY_PREFIXES.image;
+    case 'board':
+      return YORKIE_DOC_KEY_PREFIXES.board;
     default:
       throw new Error(`Unknown document type: ${type}`);
   }

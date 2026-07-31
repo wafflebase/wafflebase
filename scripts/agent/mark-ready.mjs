@@ -36,7 +36,7 @@
 import { execFileSync } from "node:child_process";
 import { allRequiredPassed, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
-import { disclosesAiAuthorship } from "./disclosure.mjs";
+import { disclosesAiAuthorship, HANDOFF_MARKER } from "./disclosure.mjs";
 
 const prNumber = process.argv[2];
 const promote = process.argv.includes("--promote");
@@ -46,7 +46,6 @@ if (!prNumber || !/^\d+$/.test(prNumber)) {
   process.exit(2);
 }
 
-const HANDOFF_MARKER = "<!-- agent-handoff -->";
 const rcIdx = process.argv.indexOf("--require-checks");
 // Absent flag → defaults. Explicit `--require-checks ""` → empty set. Only the
 // missing flag falls back to DEFAULT; an explicitly empty value must NOT (else

@@ -605,7 +605,39 @@ Components:
   detection-vs-verifier instead of one anonymous total — the effort summary renders
   it as a cost · weighted-tokens table. This is what makes "which
   lens, and is it the verifier?" answerable from the ledger rather than by guessing;
-  it is measurement only and gates nothing. The
+  it is measurement only and gates nothing.
+  **Prompt caching (shared core).** The diff dominates the panel's prompt input and
+  every session re-sent it, so the lens prompt is split in two: a cacheable
+  `systemPrompt` prefix carrying the framing, the scope note and the diff, before
+  `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, and the lens's own identity + rubric after it in
+  the user prompt. `createWarmupGate` then runs one session per DISTINCT prefix
+  alone (the `~1.25×` cache write) and fans the rest out concurrently (`~0.1×` reads).
+  Grouping is keyed on the prefix *bytes*, not on the lens, which is what lets two
+  lenses handed the same slice share one warm-up; a prefix only one session will use
+  is sent uncached, since a write nothing re-reads is a `~25%` loss.
+  Byte-identity is the whole mechanism, and once every lens dropped to `samples: 1`
+  (#607, #610) a lens could no longer share a prefix with itself — leaving cross-lens
+  sharing as the only caching left, and excluding exactly the lenses with the biggest
+  slices (`security` reads two classes more than the others; `design-fit` appended
+  the issue spec, making its prefix unique on every PR). So the cacheable prefix is
+  now the **shared core** — the file classes every code-reviewing lens has in common
+  (`cacheCoreClasses`, derived from the manifest: `code`, `code-adjacent`, `policy`)
+  — while each lens's remaining in-scope hunks and the issue spec ride uncached in
+  the user prompt, where they already cost full price and, no other session sending
+  those same bytes as a leading prefix, could never be shared anyway (another lens
+  may read some of the same hunks — `docs` reads the prose part of `security`'s
+  remainder — but as a different byte string, which caching cannot match). `splitLensDiff` guarantees `core + extra` is exactly
+  that lens's own slice, so **no lens sees a hunk outside its scope**: file-class
+  routing is unchanged, only the packaging is. A lens that does not read every core
+  class (`docs`, prose-only) keeps its own slice and shares with nobody, as before.
+  On a mixed PR at the shipped one-sample manifest this takes the projected
+  prompt-input saving from `~23%` to `~50%` (five lenses on one warm-up instead of
+  three); `scripts/agent/cache-report.mjs` renders the projection offline from the
+  real prompt builders. Note the API matches a cacheable prefix as a *leading byte
+  run* and the SDK exposes a single boundary, so nesting shorter slices inside longer
+  ones would need multiple cache breakpoints and does not work here — sharing
+  requires byte-*identity*, which is why the core is a common prefix rather than an
+  ordering. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
@@ -634,6 +666,19 @@ Components:
        highest severity; distinct bugs never merge), and the verifier refute pass
        is the precision counterweight. No LLM/semantic merge — that could
        over-merge two distinct bugs into one, reintroducing the miss.
+       Every blocking lens runs at `samples: 1`. A second opus detection sample
+       was the panel's single largest cost — detection dominated one L-size PR's
+       ~$14 panel (#605, surfaced by the per-lens token attribution above) — so the
+       second sample was dropped across the board to keep a panel runnable within
+       one session limit. The recall the union bought is given up: a defect a
+       single sample non-deterministically misses is no longer recovered by a
+       second one. For the code-quality lenses the verifier, the tests, and CI
+       still backstop a miss; for `security` there is **no** such backstop — a
+       planted instruction or a pasted secret missed on the one sample is missed —
+       so this is the sharpest edge of the trade, accepted for cost. `samples` is a
+       per-lens field, so raising `security` (or any lens) back to 2 is a one-field
+       change the moment the attribution table or a missed finding says it is worth
+       the spend.
     2. **Cross-round re-check.** Each round persists its blocking findings in the
        per-lens check run's `output.text`; the next round reads the latest prior
        `agent-review-<lens>` findings (`scripts/agent/prior-findings.mjs` →
@@ -1071,10 +1116,166 @@ Done criteria for Tier 1 (met): a local run reports at least one defect that a
 human independently confirms, with **zero** reports a human judges wrong, and the
 funnel explains every dropped candidate.
 
-Not yet built: `round-trip` and `state` charters (need the backend tier and a
-`WAFFLEBASE_HUNT_WORKSPACE` safety rail), the rolling GitHub-issue report,
-autonomous filing behind `HUNT_FILING_ENABLED` with a mechanical accept-rate kill
-switch, and the formula differential oracle.
+Not yet built: the rolling GitHub-issue report, autonomous filing behind
+`HUNT_FILING_ENABLED` with a mechanical accept-rate kill switch, and the formula
+differential oracle. (The `round-trip`/`state` backend charters and the
+`WAFFLEBASE_HUNT_WORKSPACE` safety rail shipped — see the backend-tier section
+below.)
+
+**The explorer EXECUTES.** The first cut could not: its grant was Read/Grep/Glob and
+its prompt said *"you never run commands yourself"*, so it read the source,
+predicted a contradiction, and a trusted runner tested the prediction afterwards.
+That removed the only reason to target a CLI — a CLI's unique value is being an
+executable interface — and made surprise impossible, which is the product.
+
+The propose/execute split survives where it earns its keep. It is correct for
+**reporting** (exact replay, no shell injection) and wrong for **exploration**
+(blindness is the problem). So exploration now runs through one in-process MCP tool
+(`scripts/agent/hunt-tool.mjs`): `argv` arrays only, no shell, `assertSafeArgv` plus
+the CLI's own `schema` safety annotations, an environment `buildProbeEnv`
+**replaces**, and an enforced probe budget. Verifiers keep the read-only grant —
+handing them execution would let a verifier confirm a finding with evidence of its
+own making.
+
+Evidence is **cited, not authored**. Every tool call is journalled, and a candidate
+names `probeRefs`/`failingRef` — indices into that journal. A model therefore cannot
+describe a reproduction it never performed, which a model-authored `probes` array
+allowed; `resolveProbeRefs` converts the indices back into the shape the gate,
+replay and report already speak, and drops any candidate whose references do not
+resolve. The repro is a transcript rather than a claim.
+
+Two grounds exist only because the explorer can now act: `self-inconsistent` (two
+paths disagree about the same data) and `schema-annotation-false` (a command
+violates its own declared safety level). Both are checkable from a transcript, which
+is what stops them collapsing into *"this surprised me"* — the ground deliberately
+absent, because it is the slop generator that ended curl's bug bounty.
+
+**Backend tier, and the refusal that gates it.** `round-trip` (metamorphic
+identities: import→export, batch ≡ N×set, `--pages` partitions, `--dry-run` mutates
+nothing) and `state` (create→delete→list, rename twice, delete twice) are
+`needsBackend: true` and `mutating: true`. Their oracles are self-evidencing — a
+broken relation needs no written promise — so they set `requiresDocCitation: false`
+while still demanding a code citation, or a finding would be unactionable.
+
+Two preconditions run before a token is spent, and they fail differently on purpose.
+A missing stack (`checkStack`, `GET /health`, 2s) SKIPS the charter, mirroring the
+review panel's treatment of its own missing preconditions. A refused workspace also
+skips, but is a configuration error rather than an environmental one. Neither is
+silent: the report renders **Charters that did NOT run** immediately after the
+funnel, because "found nothing" and "never executed" are otherwise the same zero and
+only one of them means the code is fine.
+
+`scripts/agent/hunt-workspace.mjs` is the whole guarantee. `WAFFLEBASE_HUNT_WORKSPACE`
+must be set explicitly — there is no default and no inference from the developer's
+config, because a workspace a mutating run may destroy has to be something a human
+typed. It is refused if it is an obviously-real name, if it equals
+`WAFFLEBASE_WORKSPACE`, if it appears anywhere in the resolved config.yaml or
+session.json, or if either file exists but cannot be read. Absence of proof is
+refusal, since a deleted document does not come back from a reflog. The collision
+check is a deliberately crude substring scan honouring `WAFFLEBASE_CONFIG` /
+`WAFFLEBASE_SESSION` overrides: parsing YAML would mean a new dependency or a
+hand-rolled parser whose bugs are silent, and a missed collision is unrecoverable
+while a false one costs one renamed variable.
+
+Asking the CLI for its resolved workspace would be more authoritative and does not
+work: `status` ignores `--format json` and prints prose. That is ground-truth defect
+\#9 — the one command that would answer the question is one of the things this
+hunter exists to find.
+
+Every seeded document is named `hunt-<runId>-<n>`, and `hunt.mjs cleanup --run <id>`
+deletes by that exact prefix and nothing else, printing every decision including what
+it left alone. `--run` is mandatory so there is no "delete everything that looks like
+a fixture" mode to reach by accident, and the run id is in the prefix so concurrent
+runs cannot delete each other's fixtures. Docker lifecycle is NOT reimplemented —
+`scripts/verify-integration-docker.mjs` owns it, and `preflight` reports what is missing.
+### Phase 27: Panel Feedback Corpus
+
+**Principle:** Entropy Management — the panel has been tuned repeatedly with no
+record of whether any change helped.
+
+Everything else in the pipeline measures effort
+(`scripts/agent/metrics.mjs`), self-agreement (`compareSampleAgreement`), or
+process (`scripts/agent/rounds.mjs`). Nothing records **outcomes**. So each of
+the panel's tuning decisions — severity thresholds, `samples: 2`, file-class
+routing, the novelty gate, unanimity in the verifier — was argued from intuition
+and two or three remembered incidents. `scripts/agent/misses.jsonl` is the ledger that
+makes those arguments settleable.
+
+**Record shape.** Strict JSONL, one object per line, stable field order (no comment
+lines — an unreadable line makes `--append` refuse, so the format cannot document
+itself):
+
+```text
+schema, id, label, source, pr, handoffAt, evidence{commitSha,commentId,url},
+files[], fileClasses[], lens, severity, origin, summary,
+panelSaw{reviewedSha,conclusion,blockingFindings}, verifiedBy, notes
+```
+
+`label` is `miss` **or** `false-positive`, and both live in one corpus deliberately:
+a change that cuts misses by raising more findings must pay for it in false
+positives, and a corpus holding only one of the two would score that change as pure
+progress. `fileClasses` and `origin` were added to the original plan shape once #582
+(file-class routing) and #583 (novelty origins) shipped — they turn "we missed four
+bugs" into a sliceable claim about *which* population the panel is weak on.
+
+**`verifiedBy: ""` is the load-bearing field.** `scripts/agent/harvest.mjs`
+proposes candidates from two independent signatures; a human confirms. Nothing
+may consume a record
+until someone has put their name there, and the harvester cannot set it even by
+accident (`toMissRecord` defaults it and neither harvest path passes it). An
+auto-harvested, auto-trusted corpus is a corpus of noise, and harvester noise is
+*systematic* — it follows whatever the matcher over-fires on — so it would move the
+panel somewhere specific and wrong rather than nowhere.
+
+**Two signatures**, both from data GitHub already keeps:
+
+1. **Human commits after handoff.** `scripts/agent/mark-ready.mjs` posts
+   `HANDOFF_MARKER` when the panel approves. A human editing *reviewable code*
+   after that instant is the shape of a missed defect. The marker constant moved
+   into `scripts/agent/disclosure.mjs` because it is now a contract between two
+   modules, and `scripts/agent/mark-ready.mjs` runs its CLI at import time so
+   nothing can import a constant from it.
+2. **CodeRabbit findings the panel did not raise**, at blocking severity only —
+   this corpus measures the *gate*, and a minor maintainability note is not a gate
+   failure.
+
+**Two lists that must not be one.** `interestingFiles` restricts candidates to the
+`code` / `code-adjacent` classes via `classifyFile`, so the harvester's notion of
+reviewable code cannot drift from the panel's own routing table. `policy` is
+excluded even though `.github/**` and `scripts/agent/lenses/*.md` land there: a
+human editing those is changing the **reviewer**, which is a different event from
+the reviewer missing a bug, and mixing the two populations corrupts the one number
+this corpus produces.
+
+**Never feed `misses.jsonl` to a lens.** Not as few-shot examples, not as "past
+misses to watch for". Three independent reasons, any one sufficient: it biases
+lenses toward historical bug shapes when the next defect is by definition new; it
+re-grows the prompt incremental review exists to shrink; and it is a verbatim
+archive of **attacker-influenceable text** (CodeRabbit bodies, contributor commit
+messages). If it ever must reach a model it goes in fenced as DATA, exactly like
+the diff.
+
+**Fail directions, opposite by design.** Every read path degrades to fewer
+candidates and never throws — a GitHub hiccup costs this run's proposals, not the
+corpus. The single write path (`--append`) refuses on any doubt: one unparseable
+line means we do not know every id already in the file, so appending could
+duplicate a curated record, and a duplicate double-counts in every later tally,
+silently and permanently. `dedupeById` keeps the **first** occurrence for the same
+reason — existing records are passed ahead of fresh candidates so a re-harvest can
+never blank a human's `verifiedBy`.
+
+Seeded with #548's two documented misses: the CodeRabbit `EditorAPI.paste()`
+read-only bypass (Major, `correctness`, all four lenses green on that sha), and the
+`test-adequacy` flip — `success` at `ab952c9`, `failure` with one major at
+`ffeb1d2`, where the only diff between the two commits is +16 lines in
+`docs/design/sharing.md`. No test or source file changed, so a lens found a real
+defect on one run of byte-identical content and missed it on another. That single
+record is the strongest evidence yet against dropping to `samples: 1`.
+
+Done criteria: the plan's panel-quality bar (0 proven false negatives across the
+corpus, `critical` demonstrably in use, ≤ 2 rounds to converge) becomes
+*measurable*. Not yet built: a `harvest --report` roll-up, scheduled harvesting,
+and the paired shadow-mode comparison Phase 9's merge-eligibility line feeds.
 
 ## Harness Policy
 

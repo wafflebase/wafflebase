@@ -14,7 +14,7 @@ afterEach(() => {
   while (trackedEditors.length) trackedEditors.pop()!.detach();
 });
 
-function makeFixture() {
+function makeFixture(opts?: { suppressSlideChrome?: boolean }) {
   document.body.innerHTML = '';
   const canvas = document.createElement('canvas');
   canvas.width = 960; canvas.height = 540;
@@ -31,7 +31,10 @@ function makeFixture() {
       data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
     });
   });
-  const editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+  const editor = initialize({
+    canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1,
+    suppressSlideChrome: opts?.suppressSlideChrome,
+  });
   trackedEditors.push(editor);
   return { canvas, overlay, store, editor, elementId };
 }
@@ -208,6 +211,30 @@ describe('keyboard — Cmd+D duplicate element', () => {
     editor = e;
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
     expect(store.read().slides).toHaveLength(2);
+  });
+
+  // Board mounts (`suppressSlideChrome: true`) reuse this editor
+  // unmodified with a `YorkieBoardStore` whose `duplicateSlide()` throws
+  // `notSupported()` — a board has no slides. Without this guard, Cmd+D
+  // with no selection crashed on every board (see
+  // docs/tasks/active/*-board-keymap-crash*).
+  it('with suppressSlideChrome and no selection, is a no-op (does not call duplicateSlide)', () => {
+    const { editor: e, store } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    const spy = vi.spyOn(store, 'duplicateSlide');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.read().slides).toHaveLength(1);
+  });
+
+  it('with suppressSlideChrome and a selection, still duplicates the selected element', () => {
+    const { editor: e, store, elementId } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
+    const elements = store.read().slides[0].elements;
+    expect(elements).toHaveLength(2);
+    expect(editor.getSelection()).toEqual([elements[1].id]);
   });
 });
 
@@ -550,6 +577,17 @@ describe('keyboard — Cmd+M new slide', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', metaKey: true, bubbles: true }));
     expect(store.read().slides[1].layoutId).toBe(layoutId);
   });
+
+  // Board mounts pass `suppressSlideChrome: true`; `YorkieBoardStore.addSlide()`
+  // throws `notSupported()` since a board has no slides.
+  it('with suppressSlideChrome, is a no-op (does not call addSlide)', () => {
+    const { editor: e, store } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    const spy = vi.spyOn(store, 'addSlide');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', metaKey: true, bubbles: true }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.read().slides).toHaveLength(1);
+  });
 });
 
 describe('keyboard — Cmd+Shift+D duplicate slide', () => {
@@ -562,6 +600,18 @@ describe('keyboard — Cmd+Shift+D duplicate slide', () => {
     editor.setSelection([elementId]);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, shiftKey: true, bubbles: true }));
     expect(store.read().slides).toHaveLength(2);
+  });
+
+  // Board mounts pass `suppressSlideChrome: true`; `YorkieBoardStore.duplicateSlide()`
+  // throws `notSupported()` since a board has no slides.
+  it('with suppressSlideChrome, is a no-op (does not call duplicateSlide)', () => {
+    const { editor: e, store, elementId } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    editor.setSelection([elementId]);
+    const spy = vi.spyOn(store, 'duplicateSlide');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, shiftKey: true, bubbles: true }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.read().slides).toHaveLength(1);
   });
 });
 
@@ -861,5 +911,112 @@ describe('keyboard — Esc scope pop', () => {
     editor.setSelection([elementId]);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(editor.getSelection()).toEqual([]);
+  });
+});
+
+describe('keyboard — Cmd+V paste drops unsupported types on a board', () => {
+  let editor: SlidesEditor | null = null;
+  let originalClipboard: unknown;
+
+  beforeEach(() => {
+    if (editor) { editor.detach(); editor = null; }
+    originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  });
+
+  afterEach(() => {
+    if (originalClipboard) {
+      Object.defineProperty(navigator, 'clipboard', originalClipboard as PropertyDescriptor);
+    } else {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  // Copying a table from a Slides deck and pasting it into a board tab
+  // is a realistic cross-doc paste — both mount the same editor and
+  // share the same clipboard MIME type (`MIME_TYPE`). A board's
+  // `YorkieBoardStore` has no table support: every table-scoped store
+  // method throws `notSupported()` the moment the pasted table is
+  // edited (resize a column, type into a cell, etc). Filtering the
+  // table out at paste time means one never lands on the board at all.
+  function mockClipboardWith(elements: unknown[]) {
+    const json = serializeElements(elements as never);
+    // jsdom's Blob lacks `.text()`; readClipboard only ever calls
+    // `.text()` on the resolved "blob", so a plain object suffices.
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        read: vi.fn(async () => [
+          { types: [MIME_TYPE], getType: async () => ({ text: async () => json }) },
+        ]),
+      },
+      configurable: true,
+    });
+  }
+
+  // `makeFixture()` always seeds one shape element on the slide, so
+  // "nothing new landed" is asserted as "still exactly the original
+  // shape" rather than an empty slide.
+
+  it('with suppressSlideChrome, drops a pasted table element', async () => {
+    const { editor: e, store, elementId } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    mockClipboardWith([
+      {
+        id: 'src-table',
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: { columnWidths: [200], rows: [{ height: 100, cells: [{ body: { blocks: [] }, style: {} }] }] },
+      },
+    ]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    const elements = store.read().slides[0].elements;
+    expect(elements).toHaveLength(1);
+    expect(elements[0].id).toBe(elementId);
+    expect(editor.getSelection()).toEqual([]);
+  });
+
+  it('with suppressSlideChrome, still pastes non-table elements from the same clipboard', async () => {
+    const { editor: e, store, elementId } = makeFixture({ suppressSlideChrome: true });
+    editor = e;
+    mockClipboardWith([
+      {
+        id: 'src-table',
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: { columnWidths: [200], rows: [{ height: 100, cells: [{ body: { blocks: [] }, style: {} }] }] },
+      },
+      {
+        id: 'src-shape',
+        type: 'shape',
+        frame: { x: 300, y: 100, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb', value: '#f00' } },
+      },
+    ]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    const elements = store.read().slides[0].elements;
+    // Original seeded shape + the one pasted shape; the table is dropped.
+    expect(elements).toHaveLength(2);
+    expect(elements.map((el) => el.type).sort()).toEqual(['shape', 'shape']);
+    expect(elements.some((el) => el.id === elementId)).toBe(true);
+  });
+
+  it('without suppressSlideChrome (slides), a pasted table is unaffected', async () => {
+    const { editor: e, store } = makeFixture();
+    editor = e;
+    mockClipboardWith([
+      {
+        id: 'src-table',
+        type: 'table',
+        frame: { x: 0, y: 0, w: 200, h: 100, rotation: 0 },
+        data: { columnWidths: [200], rows: [{ height: 100, cells: [{ body: { blocks: [] }, style: {} }] }] },
+      },
+    ]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    const elements = store.read().slides[0].elements;
+    // Original seeded shape + the pasted table — nothing filtered.
+    expect(elements).toHaveLength(2);
+    expect(elements.some((el) => el.type === 'table')).toBe(true);
   });
 });

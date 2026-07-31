@@ -36,6 +36,8 @@ import {
   buildLensPrompt,
   resolveReviewScope,
   sampleCountFor,
+  cacheCoreClasses,
+  splitLensDiff,
 } from "./review-panel.mjs";
 import { TOKEN_WEIGHTS } from "./metrics.mjs";
 
@@ -186,6 +188,10 @@ export function planSessions(lenses, { changedFiles, fileBlocks, issue, scopeNot
   const sessions = [];
   const skipped = [];
   const noNewHunks = [];
+  // Same derivation as the panel's main(), from the same manifest. The projection
+  // is only worth reading if it groups sessions the way the round actually will,
+  // and after the core split the grouping depends on this value.
+  const coreClasses = cacheCoreClasses(lenses);
   for (const lens of lenses) {
     const plan = lensReviewPlan(lens, changedFiles, fileBlocks);
     if (plan.skip) { skipped.push(lens.id); continue; }
@@ -198,8 +204,13 @@ export function planSessions(lenses, { changedFiles, fileBlocks, issue, scopeNot
     // Same default as the panel, via the panel's own helper so the two cannot drift.
     // Sample count is what makes the per-lens reuse worth having.
     const samples = sampleCountFor(lens);
-    const prefix = lensCacheKey(lens, { diff: plan.diff, issue, scopeNote });
-    const userPrompt = buildLensPrompt(lens, { rubric: lens.rubric });
+    // The cacheable prefix is the shared CORE only; this lens's remaining hunks
+    // and its issue spec are counted where they are actually paid for — in the
+    // uncached user prompt. Modelling them in the prefix would overstate both the
+    // saving and the cache-hit share.
+    const { core, extra } = splitLensDiff(lens, fileBlocks, coreClasses);
+    const prefix = lensCacheKey({ diff: core, scopeNote });
+    const userPrompt = buildLensPrompt(lens, { rubric: lens.rubric, extraDiff: extra, issue });
     for (let i = 0; i < samples; i++) sessions.push({ lensId: lens.id, prefix, userPrompt });
   }
   return { sessions, skipped, noNewHunks };

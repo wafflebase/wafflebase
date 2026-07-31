@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   projectCacheSavings,
   estimateTokens,
@@ -7,8 +9,10 @@ import {
   renderReport,
   planSessions,
 } from "./cache-report.mjs";
-import { sliceDiffByFile } from "./review-panel.mjs";
+import { sliceDiffByFile, loadLenses } from "./review-panel.mjs";
 import { TOKEN_WEIGHTS } from "./metrics.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // This module's whole job is to state a number a human will trust when deciding
 // whether the caching change paid off. So the arithmetic is asserted against
@@ -125,6 +129,46 @@ test("planSessions: a lens with an empty slice contributes NO sessions", () => {
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].lenses, ["correctness"]);
   assert.equal(groups[0].sessions, 2);
+});
+
+test("planSessions: at one sample per lens, five lenses still share one warm-up", () => {
+  // The projection has to model the CORE SPLIT the panel performs, or the number
+  // it prints is about a round that never happens. Driven with the shipped
+  // manifest forced to one sample — the configuration this change exists for.
+  const manifest = loadLenses(path.join(HERE, "lenses")).map((l) => ({ ...l, samples: 1 }));
+  const files = [
+    "scripts/agent/review-panel.mjs", ".github/workflows/agent-review-panel.yml",
+    "docs/design/harness-engineering.md", "docs/tasks/active/notes.md",
+  ];
+  // Padded to roughly the diff size a real PR carries, so the prefix dominates
+  // the round the way it does in production rather than being swamped by the
+  // lenses' own rubrics.
+  const blocks = sliceDiffByFile(files.map((f) =>
+    `diff --git a/${f} b/${f}\n@@ -1 +1 @@\n-a\n+${"b".repeat(8000)}\n`).join(""));
+  const { sessions } = planSessions(manifest, { changedFiles: files, fileBlocks: blocks, issue: "spec", scopeNote: "" });
+  const { groups, totals } = projectCacheSavings(sessions);
+
+  const shared = groups.filter((g) => g.cacheable);
+  assert.equal(shared.length, 1, "exactly one warm-up group is cacheable");
+  assert.deepEqual(shared[0].lenses,
+    ["blast-radius", "correctness", "design-fit", "security", "test-adequacy"]);
+  assert.equal(shared[0].sessions, 5, "one write, four reads — all at a single sample each");
+  // The structural claim, independent of how big the fixture's rubrics are: four
+  // of the five sessions re-read the prefix instead of re-sending it.
+  assert.equal(shared[0].readTokens, 4 * shared[0].prefixTokens);
+  // docs reads only prose, so it correctly stays alone and uncached.
+  assert.deepEqual(groups.filter((g) => !g.cacheable).map((g) => g.lenses), [["docs"]]);
+  assert.ok(totals.savedPct > 25, `a five-way share must show a real saving, got ${totals.savedPct}%`);
+
+  // The remainder is priced where it is actually paid: security reads two classes
+  // the core lacks, so its user prompt must be the biggest, while the prefix stays
+  // identical for all five. Counting those hunks in the prefix instead would
+  // overstate both the saving and the cache-hit share.
+  const userTokens = (id) => estimateTokens(sessions.find((s) => s.lensId === id).userPrompt);
+  assert.ok(userTokens("security") > userTokens("correctness"),
+    "security's extra classes must be counted in its uncached half");
+  assert.equal(new Set(sessions.filter((s) => s.lensId !== "docs").map((s) => s.prefix)).size, 1,
+    "the five participating lenses must send byte-identical prefixes");
 });
 
 test("projectCacheSavings: an empty round is shape-stable, not a special case", () => {
