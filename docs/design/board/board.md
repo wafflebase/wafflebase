@@ -81,10 +81,9 @@ green with no change to slides behavior.
 ### Architecture
 
 ```text
-@wafflebase/board          NEW package — board-specific logic
-  ├─ model/                board document model (single plane; drops layout/master/notes)
-  ├─ view/viewport.ts      Viewport { panX, panY, zoom } + world↔screen + culling
-  └─ view/board-editor     thin wrapper mounting the slides editor with a viewport
+@wafflebase/board          NEW package — board-specific pure logic
+  ├─ model/board.ts        board document model + single-slide deck synthesizer
+  └─ view/viewport.ts      Viewport { panX, panY, zoom } + world↔screen ops + culling
         │  imports
         ▼
 @wafflebase/slides         scene engine (element model, renderer, editor,
@@ -92,11 +91,19 @@ green with no change to slides behavior.
         │  imports
         ▼
 @wafflebase/core           tokens / geometry / canvas / ooxml (existing plan)
+
+packages/frontend/src/app/board/   the React mount + CRDT adapter (NOT the board package)
+  ├─ board-detail.tsx      route shell (sidebar + header chrome) + DocumentProvider
+  ├─ board-view.tsx        mounts the reused slides editor with the board Viewport
+  ├─ board-toolbar.tsx     minimal insert toolbar (Select / Text / Shape / Line)
+  └─ yorkie-board-store.ts YorkieBoardStore implements SlidesStore (single synthetic slide)
 ```
 
-Frontend hosts the Yorkie adapter (`YorkieBoardStore`) exactly as it hosts
-`YorkieSlidesStore` today (the Yorkie impls live in `packages/frontend`, not in
-the engine packages).
+As with slides, the Yorkie adapter (`YorkieBoardStore`) and the editor mount
+live in `packages/frontend`, not in the engine package — the `@wafflebase/board`
+package stays pure (model + viewport math). SP1 did not add a
+`view/board-editor` wrapper; `board-view.tsx` calls the slides `initializeEditor`
+directly with the board viewport.
 
 Per the chosen **incremental-extraction** strategy, board imports the scene
 engine from `@wafflebase/slides` in SP1. The one shared surface this creates —

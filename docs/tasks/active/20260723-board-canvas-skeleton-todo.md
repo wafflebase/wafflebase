@@ -1,5 +1,7 @@
 # Board Canvas Skeleton (SP1) Implementation Plan
 
+> **STATUS: IMPLEMENTED — in review as PR #606** (branch `design/board-infinite-canvas`). All 13 tasks landed; `verify:self` green. The per-step `- [ ]` boxes below are preserved as the original plan of record; see **Results / Review** at the bottom for the completion summary + deferred follow-ups. Task stays in `active/` until the PR merges, then archives.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a new `"board"` document type + `@wafflebase/board` package that renders a collaborative, infinite pan/zoom canvas by reusing the slides scene engine through an injected viewport transform.
