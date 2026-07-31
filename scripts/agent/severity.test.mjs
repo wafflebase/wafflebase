@@ -147,3 +147,69 @@ test("renderSummaryMd: no note when verification ran, or when the count is zero"
   // Byte-identical to the no-option call, so the common path is unchanged.
   assert.equal(renderSummaryMd("R", findings, "b", { unverified: null }), renderSummaryMd("R", findings, "b"));
 });
+
+// --- the fixer-prompt cut contract -----------------------------------------
+//
+// agent-review-panel.yml's "Gather failing lens findings" step hands each lens
+// body to the fixer as <panel-findings>, cut at the FIRST "\n### " so the fixer
+// gets the verdict and the narration but NO findings — its work list is the
+// separately-filtered checklist. That cut lives in YAML and cannot be unit
+// tested, so the invariant it rests on is pinned here, in the module that
+// renders the thing being cut: nothing above the first "\n### " may be a
+// finding, and every finding section must begin with exactly that marker.
+
+test("renderSummaryMd: the fixer cuts this body at the first '### ' — nothing above it may be a finding", () => {
+  const md = renderSummaryMd(
+    "R",
+    [
+      { severity: "critical", file: "a.mjs", summary: "CRIT_MARKER" },
+      { severity: "major", file: "b.mjs", summary: "MAJOR_MARKER" },
+      { severity: "minor", file: "c.mjs", summary: "MINOR_MARKER" },
+      { severity: "nit", file: "d.mjs", summary: "NIT_MARKER" },
+    ],
+    "lens narration",
+    { demoted: [{ summary: "DEMOTED_MARKER", novelty: {} }], unverified: { errored: 1, sent: 2 } },
+  );
+  const prose = md.split("\n### ")[0];
+  // Kept: the verdict header, the verifier-outage warning, the lens's narration.
+  assert.match(prose, /changes requested/);
+  assert.match(prose, /verifier did not run on 1 of 2/);
+  assert.match(prose, /lens narration/);
+  // Dropped: every finding at every severity, and the demoted section. The
+  // blocking ones go too — they reach the fixer through the checklist instead,
+  // already filtered to critical/major and non-backlog.
+  for (const marker of ["CRIT_MARKER", "MAJOR_MARKER", "MINOR_MARKER", "NIT_MARKER", "DEMOTED_MARKER"]) {
+    assert.ok(!prose.includes(marker), `${marker} survived the cut`);
+  }
+});
+
+test("renderSummaryMd: every '###' it emits is a section marker the cut can find", () => {
+  const md = renderSummaryMd(
+    "R",
+    [
+      { severity: "critical", summary: "c" },
+      { severity: "major", summary: "m" },
+      { severity: "minor", summary: "n" },
+      { severity: "nit", summary: "t" },
+    ],
+    "prose",
+    { demoted: [{ summary: "d", novelty: {} }] },
+  );
+  // Four severity sections + the demoted one, each introduced by "\n### ".
+  assert.equal(md.split("\n### ").length, 6);
+  // And NO other "###" anywhere — one not at a line start, or written as "####",
+  // would sit above the split point and carry a finding across it.
+  assert.equal((md.match(/###/g) || []).length, 5);
+});
+
+test("renderSummaryMd: a '### ' inside the lens's own prose cuts early but still leaks no finding", () => {
+  // `summaryText` is the lens's own narration, so it can contain anything —
+  // including a markdown heading. That cuts the body earlier than intended,
+  // which costs context but never leaks a finding, because every finding is
+  // rendered strictly after `summaryText`. Pinned so the failure direction
+  // stays the safe one.
+  const md = renderSummaryMd("R", [{ severity: "critical", summary: "CRIT_MARKER" }], "intro\n### Notes\nmore");
+  const prose = md.split("\n### ")[0];
+  assert.match(prose, /intro/);
+  assert.ok(!prose.includes("CRIT_MARKER"));
+});
