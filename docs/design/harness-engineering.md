@@ -634,6 +634,16 @@ Components:
        highest severity; distinct bugs never merge), and the verifier refute pass
        is the precision counterweight. No LLM/semantic merge — that could
        over-merge two distinct bugs into one, reintroducing the miss.
+       The code-quality lenses (`correctness`, `design-fit`, `test-adequacy`,
+       `blast-radius`) run at `samples: 1`. A second opus detection sample was the
+       panel's single largest cost — detection dominated one L-size PR's ~$14
+       panel (#605, surfaced by the per-lens token attribution above) — while a
+       missed code defect is already backstopped by the verifier, the tests, and
+       CI. `security` deliberately keeps `samples: 2`: a planted instruction or a
+       pasted secret it non-deterministically misses has no other backstop, and it
+       is one of the cheaper lenses, so the recall insurance is worth the marginal
+       cost. The knob is per-lens, so this split is a one-field change to revisit
+       once the attribution table shows the effect.
     2. **Cross-round re-check.** Each round persists its blocking findings in the
        per-lens check run's `output.text`; the next round reads the latest prior
        `agent-review-<lens>` findings (`scripts/agent/prior-findings.mjs` →
