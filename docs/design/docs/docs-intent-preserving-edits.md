@@ -151,13 +151,13 @@ on.
 This assumes nothing else writes `activeCursorPos` in the gap between
 `setCursorForHistory()` staging it and the edit's own write. That assumption
 breaks under IME composition: `docs-view.tsx`'s `onCursorMove` listener
-republishes the live cursor to presence on a 100ms throttle
-(`YorkieDocStore.updateCursorPos()`, no `addToHistory`) on *every* interim
-composition render — i.e. while the composing text is still view-local (see
-above), before the syllable's single commit `doc.update()` runs. If that
-throttled write lands in the gap, it overwrites the correctly-staged pre-edit
-position with the in-progress (uncommitted) composing position, and undo
-restores the wrong caret.
+may publish a trailing live-cursor update to presence during interim
+composition (`YorkieDocStore.updateCursorPos()`, no `addToHistory`) — i.e.
+while the composing text is still view-local (see above), before the
+syllable's single commit `doc.update()` runs. If that throttled write lands
+in the gap, it overwrites the correctly-staged pre-edit position with the
+in-progress (uncommitted) composing position, and undo restores the wrong
+caret.
 
 `updateCursorPos` clamps to the block's current text length
 (`clampPosToModel`), which incidentally masks this for composing at the end
@@ -326,8 +326,8 @@ deleting.
 
 3. **Caret restoration races the live-cursor publisher during IME composition**
    — see "Caret Restoration on Undo Races Against the Live-Cursor Publisher"
-   above and issue #609. Reproduces when composing Hangul with content on both
-   sides of the caret; masked (accidentally) when composing at end-of-block.
+   above and issue #609. Reproduces when composing Hangul with content after
+   the caret; masked (accidentally) when composing at end-of-block.
 
 ## Risks and Mitigation
 
