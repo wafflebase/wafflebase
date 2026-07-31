@@ -46,4 +46,24 @@ describe('isEditableTarget', () => {
     });
     expect(isEditableTarget(div)).toBe(true);
   });
+
+  // Regression coverage for F2: a focused BoardToolbar toggle (a native
+  // <button> under Radix's Toggle/Toolbar primitives) must not have its
+  // Space-activates-click behavior swallowed by the pan-mode shortcut.
+  it('is true for a <button> (e.g. a focused BoardToolbar toggle)', () => {
+    const button = document.createElement('button');
+    expect(isEditableTarget(button)).toBe(true);
+  });
+
+  it('is true for an element with role="button"', () => {
+    const div = document.createElement('div');
+    div.setAttribute('role', 'button');
+    expect(isEditableTarget(div)).toBe(true);
+  });
+
+  it('is false for a non-button element with an unrelated role', () => {
+    const div = document.createElement('div');
+    div.setAttribute('role', 'presentation');
+    expect(isEditableTarget(div)).toBe(false);
+  });
 });

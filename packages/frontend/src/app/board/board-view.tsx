@@ -258,6 +258,18 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
     });
 
     // --- wheel: ctrl/cmd zoom-at-cursor, plain pan ---
+    //
+    // Bound to `container`, not `canvas`: the overlay injects
+    // `[data-handle] { pointer-events: auto }` so selection/resize
+    // handles are hit-testable above the canvas, which means a wheel
+    // tick while the cursor sits over a handle targets the handle
+    // element and bubbles through `overlay`/`container` — never
+    // reaching a canvas-bound listener (zoom/pan would silently stop,
+    // and `preventDefault()` would never run, over a handle). `canvas`
+    // and `overlay` both fill `container` exactly (no border/padding),
+    // so the cached `canvasRect` below remains the correct reference
+    // rect for the cursor→world offset math regardless of which
+    // descendant the event originated on.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       vp.current = applyWheelToViewport(vp.current, {
@@ -270,7 +282,7 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       });
       editor.setViewport(vp.current);
     };
-    canvas.addEventListener("wheel", onWheel, { passive: false });
+    container.addEventListener("wheel", onWheel, { passive: false });
 
     // --- space-drag / middle-drag pan ---
     let spaceDown = false;
@@ -298,8 +310,18 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       spaceDown = false;
       if (!panning) canvas.style.cursor = "";
     };
+    // If Space is held and the window loses focus (tab away, switch
+    // app) before `keyup` fires, `spaceDown` would otherwise latch
+    // true forever — the cursor stays stuck at "grab" and the next
+    // drag pans instead of selecting. `blur` is the only reliable
+    // signal here (no `keyup` is guaranteed to follow).
+    const onWindowBlur = () => {
+      spaceDown = false;
+      if (!panning) canvas.style.cursor = "";
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
 
     const onPointerDown = (e: PointerEvent) => {
       const isMiddleButton = e.button === 1;
@@ -360,13 +382,14 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
 
     return () => {
       resizeObserver.disconnect();
-      canvas.removeEventListener("wheel", onWheel);
+      container.removeEventListener("wheel", onWheel);
       container.removeEventListener("pointerdown", onPointerDown, { capture: true });
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
       offSelection();
       offChange();
