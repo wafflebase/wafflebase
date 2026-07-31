@@ -18,6 +18,7 @@ import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
+import { dropStickyAtViewportCenter } from "./sticky";
 
 interface BoardViewProps {
   /**
@@ -102,6 +103,9 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
   // `setState` would re-render the whole component tree for a value
   // only the imperative canvas mount below ever reads.
   const vp = useRef<Viewport>(DEFAULT_VIEWPORT);
+  // Assigned inside the mount effect once store/editor exist; lets the
+  // toolbar trigger a sticky drop that reads the live viewport + host size.
+  const stickyInserterRef = useRef<((colorValue: string) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
   // Lifted into React state (in addition to `editorRef`) purely so the
   // toolbar can re-render with a live `editor` reference once the mount
@@ -197,6 +201,16 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
     });
     editorRef.current = editor;
     setEditor(editor);
+    stickyInserterRef.current = (colorValue: string) => {
+      dropStickyAtViewportCenter({
+        store,
+        editor,
+        viewport: vp.current,
+        hostWidth: hostW,
+        hostHeight: hostH,
+        colorValue,
+      });
+    };
 
     // Cached canvas rect for the pointer/wheel hot paths below — a bare
     // `canvas.getBoundingClientRect()` forces a synchronous layout
@@ -398,6 +412,7 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       store.dispose();
       editorRef.current = null;
       setEditor(null);
+      stickyInserterRef.current = null;
       style.remove();
     };
   }, [didMount, doc, readOnly]);
@@ -426,7 +441,12 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
           pointer→world mapping, so the toolbar must not add to (or live
           inside) that measured box. Hidden entirely for viewer-role
           share-link visitors, matching every other insert affordance. */}
-      {!readOnly && <BoardToolbar editor={editor} />}
+      {!readOnly && (
+        <BoardToolbar
+          editor={editor}
+          onInsertSticky={(color) => stickyInserterRef.current?.(color)}
+        />
+      )}
       <div
         ref={containerRef}
         data-document-id={documentId}
