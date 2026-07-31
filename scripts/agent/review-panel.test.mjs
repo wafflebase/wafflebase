@@ -1880,12 +1880,33 @@ test("claimTypeOf: absence only when the finding says so", () => {
   }
 });
 
-test("absence claims get a larger turn budget than presence claims", () => {
+test("no claim type verifies on a budget that measurement showed is too small", () => {
   // #578's false "no CI workflow runs these tests" had a real counterexample
   // three hops away (ci.yml → verify:self → verify-self.mjs → agent:tests) and
   // confirmed because the verifier ran out of turns, not because it was right.
-  assert.ok(VERIFIER_MAX_TURNS.absence > VERIFIER_MAX_TURNS.presence);
-  assert.equal(VERIFIER_MAX_TURNS.presence, 8);
+  // That is why ABSENCE got 20.
+  //
+  // PRESENCE was 8, on the theory that it is only a lookup. Measured over one
+  // round (review-execution.json, run 30610776868): 8 of 18 verifications died on
+  // error_max_turns, all at exactly 9 turns — this ceiling — burning $1.93 for no
+  // verdict. `absence > presence` is therefore no longer asserted: the asymmetry
+  // it encoded was the reasoning that produced the wrong number.
+  assert.ok(VERIFIER_MAX_TURNS.absence >= VERIFIER_MAX_TURNS.presence);
+  // Literal pins, so lowering either one has to break a test and be argued for.
+  assert.equal(VERIFIER_MAX_TURNS.presence, 20);
+  assert.equal(VERIFIER_MAX_TURNS.absence, 20);
+});
+
+test("every claim type maps to a real turn budget", () => {
+  // claimTypeOf returns one of these two and nothing else, so a missing key would
+  // pass `maxTurns: undefined` to the SDK — an unbounded verification, which is
+  // the failure this constant exists to prevent.
+  for (const claimType of ["presence", "absence"]) {
+    const budget = VERIFIER_MAX_TURNS[claimType];
+    assert.equal(typeof budget, "number", claimType);
+    assert.ok(Number.isInteger(budget) && budget > 0, `${claimType} budget must be a positive integer`);
+  }
+  assert.deepEqual(Object.keys(VERIFIER_MAX_TURNS).sort(), ["absence", "presence"]);
 });
 
 test("`unresolved` does NOT drop a finding", () => {

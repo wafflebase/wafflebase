@@ -1577,15 +1577,32 @@ export function createWarmupGate() {
 // judging ONE finding, and an unbounded budget multiplies across every blocking
 // finding in every round.
 //
-// ABSENCE claims get more. Refuting "there is no X" means FINDING an X, which is
-// a search across the repository, while refuting a presence claim is a lookup at
-// a location the finding already names. On #578 the false "no CI workflow runs
-// these tests" survived precisely here: the counterexample is real and
-// reachable — ci.yml -> `pnpm verify:self` -> verify-self.mjs -> the agent:tests
-// lane — but that is three hops plus the reads to confirm each, and the verifier
-// ran out of turns, so bias-to-keep confirmed a false claim. Absence claims are
-// the minority, so the extra ceiling is bounded in practice.
-export const VERIFIER_MAX_TURNS = { presence: 8, absence: 20 };
+// ABSENCE claims were given more on the theory that refuting "there is no X"
+// means FINDING an X — a search across the repository — while refuting a presence
+// claim is a lookup at a location the finding already names. The absence half of
+// that is well evidenced: on #578 the false "no CI workflow runs these tests"
+// survived precisely here, because its counterexample is real and reachable
+// (ci.yml -> `pnpm verify:self` -> verify-self.mjs -> the agent:tests lane) but
+// three hops away, and the verifier ran out of turns, so bias-to-keep confirmed a
+// false claim.
+//
+// The PRESENCE half was wrong, and `presence: 8` came from it. Measured over one
+// round (`review-execution.json`, run 30610776868): 8 of 18 verifications died on
+// `error_max_turns`, every one of them at exactly 9 turns — this ceiling. They
+// burned $1.93 and returned no verdict, so their findings reached the gate
+// unfiltered while the summary reported an "outage". A lookup is evidently not
+// what this job is: locating the code, reading enough around it to judge the
+// claim, and citing a `file:line` costs more than 8 turns far more often than not.
+//
+// So presence is raised to the value already proven sufficient for the HARDER job.
+// It is not tuned to a measured presence distribution, because there isn't one:
+// nothing has been allowed past 9 turns, so every successful verification observed
+// (10 through 22 turns) was necessarily an absence claim. 20 is the defensible
+// choice precisely because any smaller number would be invented.
+//
+// The two keys stay separate at equal values. They encode different jobs and will
+// diverge again once presence claims have a distribution of their own to read.
+export const VERIFIER_MAX_TURNS = { presence: 20, absence: 20 };
 
 /** `presence` unless the finding explicitly says otherwise. */
 export function claimTypeOf(finding) {
