@@ -51,12 +51,12 @@ this branch for the diff).
 - [x] Manual smoke: re-ran #333's 2-level and 3-level repro steps in the
   `packages/docs` standalone demo — caret enters and input lands in the
   pasted copy at every level, confirmed fixed.
-- [ ] Add an automated regression test for #333's repro (model-level,
+- [x] Add an automated regression test for #333's repro (model-level,
   matching the existing test style — e.g. paste/clone a table with a nested
   table, assert `Doc.getBlock` resolves the pasted copy's nested cell block,
   not the source's).
-- [ ] `pnpm verify:fast` green.
-- [ ] Self code review (`superpowers:requesting-code-review` or
+- [x] `pnpm verify:fast` green.
+- [x] Self code review (`superpowers:requesting-code-review` or
   `/code-review`) over the full branch diff.
-- [ ] Rebase onto latest `upstream/main`, open PR: `Fixes #528` is already
+- [x] Rebase onto latest `upstream/main`, open PR: `Fixes #528` is already
   merged separately — this PR should read `Fixes #333`.

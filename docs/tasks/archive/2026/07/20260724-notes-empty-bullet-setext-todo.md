@@ -56,12 +56,12 @@ expectation. Documented as such.
 ## Steps
 
 - [x] Reproduce + root-cause (markdown-it lheading + list interrupt guards)
-- [ ] Add `packages/notes/src/view/list-empty-bullet-plugin.ts`
-- [ ] Wire it into `preview.ts`
-- [ ] Unit tests in `preview.test.ts` (bug case, workaround, `---` setext still
+- [x] Add `packages/notes/src/view/list-empty-bullet-plugin.ts`
+- [x] Wire it into `preview.ts`
+- [x] Unit tests in `preview.test.ts` (bug case, workaround, `---` setext still
       works, non-empty nested list unaffected, top-level lone dash)
-- [ ] Note the deviation in `docs/design/notes/notes.md`
-- [ ] Draft PR
+- [x] Note the deviation in `docs/design/notes/notes.md`
+- [x] Draft PR
 
 ## Acceptance criteria
 

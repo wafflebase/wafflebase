@@ -47,16 +47,16 @@ knows the local sheet's bounds; they are left unexpanded (evaluate to `#ERROR!`)
 
 ## Checklist
 
-- [ ] Grammar: COL/ROW fragments + extended REFRANGE
-- [ ] Regenerate ANTLR parser (`pnpm sheets build:formula`)
-- [ ] `CellIndex.bounds()`
-- [ ] `Store.getUsedBounds()` + 3 impls + `Sheet.getUsedBounds()`
-- [ ] `isUnboundedRange` + `resolveRange` in coordinates.ts
-- [ ] `expandUnboundedRanges` in formula.ts
-- [ ] Wire calculator + buildDependantsMap
-- [ ] Tests: coordinates unit, formula expand, calculation (5 issue cases + reactivity)
-- [ ] Update `docs/design/sheets/formula.md`
-- [ ] Draft PR
+- [x] Grammar: COL/ROW fragments + extended REFRANGE
+- [x] Regenerate ANTLR parser (`pnpm sheets build:formula`)
+- [x] `CellIndex.bounds()`
+- [x] `Store.getUsedBounds()` + 3 impls + `Sheet.getUsedBounds()`
+- [x] `isUnboundedRange` + `resolveRange` in coordinates.ts
+- [x] `expandUnboundedRanges` in formula.ts
+- [x] Wire calculator + buildDependantsMap
+- [x] Tests: coordinates unit, formula expand, calculation (5 issue cases + reactivity)
+- [x] Update `docs/design/sheets/formula.md`
+- [x] Draft PR
 
 ## Acceptance (issue setup: A1=10 A2=20 A3=30 B1=100 B2=200)
 
