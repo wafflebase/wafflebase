@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { SlidesStore } from '@wafflebase/slides';
+import type { GroupElement, SlidesStore } from '@wafflebase/slides';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import { YorkieBoardStore } from './yorkie-board-store';
 import { makeYorkieBoardDoc, makeShapeInit } from './__testkit__';
@@ -97,5 +97,69 @@ describe('YorkieBoardStore', () => {
     // back to (0, 0) and frame.x collapses to roughly -0.5 (just the
     // stroke pad), which fails this assertion.
     expect(conn!.frame.x).toBeGreaterThan(250);
+  });
+
+  // Regression coverage for F4: `detachConnectorsTargeting` (and
+  // `recomputeDependentConnectorFrames`) must walk the element tree
+  // RECURSIVELY, not just `root.elements` top-level — `group()`
+  // deliberately moves a connector into `group.data.children` when both
+  // its endpoints are internal to the grouped set, so a non-recursive
+  // walk silently skips a grouped connector when its target is removed,
+  // leaving a dangling `attached` endpoint pointing at an element that
+  // no longer exists.
+  it('removing a grouped element detaches a connector nested inside the same group', () => {
+    const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+    let aId = '';
+    let bId = '';
+    let connId = '';
+    store.batch(() => {
+      aId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      bId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'shape',
+        frame: { x: 200, y: 200, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect' },
+      });
+      connId = store.addElement(SYNTHETIC_SLIDE_ID, {
+        type: 'connector',
+        routing: 'straight',
+        start: { kind: 'attached', elementId: aId, siteIndex: 0 },
+        end: { kind: 'attached', elementId: bId, siteIndex: 0 },
+        arrowheads: {},
+        frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
+      });
+      // Both connector endpoints are internal to [aId, bId, connId], so
+      // group() moves the connector into the new group's children —
+      // it's no longer a top-level element in `root.elements`.
+      store.group(SYNTHETIC_SLIDE_ID, [aId, bId, connId]);
+    });
+
+    const groupBefore = store
+      .read()
+      .slides[0].elements.find((e) => e.type === 'group') as GroupElement;
+    expect(groupBefore).toBeDefined();
+    // Sanity: the connector really did land inside the group, not
+    // top-level — otherwise this test wouldn't distinguish the fix from
+    // the pre-fix behavior.
+    expect(groupBefore.data.children.some((c) => c.id === connId)).toBe(true);
+
+    store.batch(() => {
+      store.removeElement(SYNTHETIC_SLIDE_ID, bId);
+    });
+
+    const groupAfter = store
+      .read()
+      .slides[0].elements.find((e) => e.type === 'group') as GroupElement;
+    const conn = groupAfter.data.children.find((c) => c.id === connId) as
+      | { end: { kind: string } }
+      | undefined;
+    expect(conn).toBeDefined();
+    // With the pre-fix non-recursive walk, `detachConnectorsTargeting`
+    // never sees this nested connector, so `end` would still read
+    // `{ kind: 'attached', elementId: bId }` after `bId` is gone.
+    expect(conn!.end.kind).toBe('free');
   });
 });

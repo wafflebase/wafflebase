@@ -85,6 +85,31 @@ function unwrapElement(e: unknown): YorkieElement {
 }
 
 /**
+ * DFS walk of a Yorkie proxy element array, invoking `visit` for every
+ * element at every depth — descending into `group.data.children`, since
+ * `group()` deliberately moves a connector into a group's children when
+ * both its endpoints are internal to the grouped set (see `group()`
+ * above). `detachConnectorsTargeting` and
+ * `recomputeDependentConnectorFrames` use this (instead of a bare
+ * `for (const el of r.elements)`) so a connector nested inside a group
+ * is still found: a top-level-only walk would silently skip it, leaving
+ * a dangling `attached` endpoint after its target is removed, or a
+ * stale cached `frame` after its target moves.
+ */
+function walkYorkieElements(
+  elements: ProxyArray,
+  visit: (el: ProxyArray[number]) => void,
+): void {
+  for (const el of elements) {
+    visit(el);
+    if (el.type === 'group') {
+      const children = (el.data as { children?: ProxyArray })?.children ?? [];
+      walkYorkieElements(children, visit);
+    }
+  }
+}
+
+/**
  * DFS walk of a Yorkie proxy element array to find an element by id.
  * Returns the path (chain from root → element, leaf last) or null.
  * Verbatim port of the module-level helper in `yorkie-slides-store.ts`
@@ -1263,8 +1288,8 @@ export class YorkieBoardStore implements SlidesStore {
 
   private detachConnectorsTargeting(r: YorkieBoardRoot, targetId: string): void {
     const lookup = this.elementsLookup(r);
-    for (const el of r.elements) {
-      if (el.type !== 'connector') continue;
+    walkYorkieElements(r.elements as unknown as ProxyArray, (el) => {
+      if (el.type !== 'connector') return;
       const c = el as unknown as { start: Endpoint; end: Endpoint; frame: Frame };
       let mutated = false;
       for (const side of ['start', 'end'] as const) {
@@ -1279,13 +1304,13 @@ export class YorkieBoardStore implements SlidesStore {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
         c.frame = computeConnectorFrame(plain, lookup);
       }
-    }
+    });
   }
 
   private recomputeDependentConnectorFrames(r: YorkieBoardRoot, sourceId: string): void {
     const lookup = this.elementsLookup(r);
-    for (const el of r.elements) {
-      if (el.type !== 'connector') continue;
+    walkYorkieElements(r.elements as unknown as ProxyArray, (el) => {
+      if (el.type !== 'connector') return;
       const c = el as unknown as { start: Endpoint; end: Endpoint; frame: Frame };
       const dependsOnUs =
         (c.start.kind === 'attached' && c.start.elementId === sourceId) ||
@@ -1294,7 +1319,7 @@ export class YorkieBoardStore implements SlidesStore {
         const plain = unwrapElement(el) as unknown as ConnectorElement;
         c.frame = computeConnectorFrame(plain, lookup);
       }
-    }
+    });
   }
 
   private resolveYorkieParentArray(rootElements: ProxyArray, path: ProxyArray): ProxyArray {
