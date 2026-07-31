@@ -28,25 +28,63 @@ export function gh(args) {
 }
 
 /**
- * `--flag value` pairs plus positionals in `_`, shared by the two CLIs in this
- * pair rather than copied into each.
+ * `--flag value` pairs plus positionals in `_`, shared by the CLIs in this family
+ * rather than copied into each.
  *
  * Two properties worth keeping in one place: the accumulator has a NULL prototype,
  * so `--__proto__ x` writes an ordinary key instead of setting the object's
  * prototype; and positionals are collected wherever they appear, so argument order
  * is not load-bearing (reading the PR number from `argv[2]` made a flag-first
  * invocation fail with a usage error).
+ *
+ * `booleans` names the value-less flags, and it is DECLARED rather than inferred.
+ * Inferring — "treat `--x` as boolean when the next token also starts with `--`"
+ * — is what most hand-rolled parsers do and it is wrong in both directions: a
+ * genuinely value-less flag at the end of argv silently becomes `undefined`
+ * (`--append` parsed as falsy and harvest.mjs printed instead of writing, with an
+ * exit code of 0 and no complaint), and a flag whose legitimate value begins with
+ * `--` is swallowed. Callers that pass no `booleans` are unaffected, including the
+ * ones that deliberately pass possibly-EMPTY strings: `""` is a value, not a flag.
  */
-export function parseArgs(argv) {
+export function parseArgs(argv, { booleans = [] } = {}) {
+  const flags = new Set(Array.isArray(booleans) ? booleans : []);
   const a = Object.create(null);
   const positional = [];
   for (let i = 2; i < (Array.isArray(argv) ? argv.length : 0); i++) {
     const v = argv[i];
     if (typeof v !== "string") continue;
-    if (v.startsWith("--")) { a[v.slice(2)] = argv[i + 1]; i++; } else positional.push(v);
+    if (!v.startsWith("--")) { positional.push(v); continue; }
+    const key = v.slice(2);
+    if (flags.has(key)) { a[key] = true; continue; }
+    a[key] = argv[i + 1];
+    i++;
   }
   a._ = positional;
   return a;
+}
+
+/**
+ * Check runs for ONE commit, applying contract 1 from the header.
+ *
+ * Split out of `prCommitsWithCheckRuns` because a caller that needs the verdict on
+ * a single known commit should not pay one API call per commit on the PR to get
+ * it — and because a hand-rolled second copy of the `--slurp` incantation is
+ * exactly what this module exists to prevent.
+ */
+export function commitCheckRuns(sha, opts) {
+  const { api = gh } = opts && typeof opts === "object" ? opts : {};
+  const pages = api([
+    "api",
+    `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`,
+    "--paginate",
+    "--slurp",
+  ]);
+  // `check_runs` is guarded with Array.isArray rather than `?? []`: a scalar or
+  // object under that key would be spread into the result by flatMap and travel
+  // downstream as if it were a run.
+  return (Array.isArray(pages) ? pages : []).flatMap((p) =>
+    Array.isArray(p?.check_runs) ? p.check_runs : [],
+  );
 }
 
 /**
@@ -75,13 +113,7 @@ export function prCommitsWithCheckRuns(pr, opts) {
     if (!c?.sha) continue;
     // PER COMMIT: one unreadable commit costs that commit's runs, not the PR's.
     try {
-      const pages = api([
-        "api",
-        `repos/{owner}/{repo}/commits/${c.sha}/check-runs?per_page=100`,
-        "--paginate",
-        "--slurp",
-      ]);
-      out.push({ sha: c.sha, checkRuns: (Array.isArray(pages) ? pages : []).flatMap((p) => p?.check_runs ?? []) });
+      out.push({ sha: c.sha, checkRuns: commitCheckRuns(c.sha, { api }) });
     } catch (err) {
       log(`could not read check runs for ${c.sha} (${err.message}); skipping that commit.`);
       // Still record the commit: `groupReviewRounds` treats a commit with no lens
