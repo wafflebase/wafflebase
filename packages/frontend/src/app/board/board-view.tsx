@@ -24,6 +24,8 @@ import { dropStickyAtViewportCenter } from "./sticky";
 import { setupSlidesImagePaths } from "../slides/slides-image-input";
 import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
+import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
+import { centerViewportOnWorld } from "./minimap-geometry";
 
 interface BoardViewProps {
   /**
@@ -217,6 +219,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     editorRef.current = editor;
     setEditor(editor);
+
+    const minimap: BoardMinimap = createBoardMinimap({
+      store,
+      dpr,
+      getHostSize: () => ({ w: hostW, h: hostH }),
+      onNavigate: (worldCenter) => {
+        vp.current = centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH });
+        editor.setViewport(vp.current);
+        minimap.repaintViewport(vp.current);
+      },
+    });
+    container.appendChild(minimap.element);
+    minimap.repaintScene();
+    minimap.repaintViewport(vp.current);
+
     stickyInserterRef.current = (colorValue: string) => {
       dropStickyAtViewportCenter({
         store,
@@ -280,6 +297,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         editor.setHostSize(hostW, hostH);
       }
       canvasRect = canvas.getBoundingClientRect();
+      minimap.repaintViewport(vp.current);
     });
     resizeObserver.observe(container);
 
@@ -306,6 +324,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       editor.markDirty();
       editor.render();
       pushPeers();
+      minimap.repaintScene();
+      minimap.repaintViewport(vp.current);
     });
 
     // Local presence: broadcast selection. `Presence.set` merges, so
@@ -343,6 +363,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         offsetY: e.clientY - canvasRect.top,
       });
       editor.setViewport(vp.current);
+      minimap.repaintViewport(vp.current);
     };
     container.addEventListener("wheel", onWheel, { passive: false });
 
@@ -419,6 +440,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       panLastY = e.clientY;
       vp.current = { ...vp.current, panX: vp.current.panX + dx, panY: vp.current.panY + dy };
       editor.setViewport(vp.current);
+      minimap.repaintViewport(vp.current);
     };
     const onPointerUp = (e: PointerEvent) => {
       if (!panning || e.pointerId !== panPointerId) return;
@@ -456,6 +478,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       offSelection();
       offChange();
       offPeers();
+      minimap.dispose();
       editor.detach();
       store.dispose();
       editorRef.current = null;
