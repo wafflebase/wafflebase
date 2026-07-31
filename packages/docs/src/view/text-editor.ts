@@ -3569,21 +3569,19 @@ export class TextEditor {
       headBlock.marker = firstPasted.marker ? { ...firstPasted.marker } : undefined;
       this.doc.updateBlockDirect(pos.blockId, headBlock);
 
-      // Insert middle blocks (blocks[1..n-2]) after head block
-      let insertAfterIdx = this.doc.getBlockIndex(pos.blockId);
+      // Insert middle blocks (blocks[1..n-2]) after the head block, threaded
+      // before the split tail. `insertBlockAfter` is cell-aware (it resolves
+      // the sibling's containing array via the store), so this works whether
+      // the caret is in the body or inside a table cell — unlike the body-index
+      // `insertBlockAt`, which returns -1 in a cell and dropped the blocks into
+      // the document body (and then crashed on the stale tail lookup).
+      // `cloneBlockWithFreshIds` regenerates every id, recursively for nested
+      // tables, so the paste shares no ids with its source.
+      let prevBlockId = pos.blockId;
       for (let i = 1; i < blocks.length - 1; i++) {
-        const newBlock: Block = {
-          ...blocks[i],
-          id: generateBlockId(),
-          inlines: blocks[i].inlines.map((il) => ({ text: il.text, style: { ...il.style } })),
-          style: { ...blocks[i].style },
-          // Deep-copy marker so middle-block mutation (e.g. clearFormatting)
-          // can't leak back into the source clipboard payload. Symmetric
-          // with the head/tail block treatment above.
-          ...(blocks[i].marker ? { marker: { ...blocks[i].marker } } : {}),
-        };
-        insertAfterIdx++;
-        this.doc.insertBlockAt(insertAfterIdx, newBlock);
+        const newBlock = cloneBlockWithFreshIds(blocks[i]);
+        this.doc.insertBlockAfter(prevBlockId, newBlock);
+        prevBlockId = newBlock.id;
       }
 
       // Prepend last pasted block's inlines to the tail block, preserving block metadata
@@ -4608,27 +4606,21 @@ export class TextEditor {
     const measurer = this.getMeasurer();
     const targetLine = cell.lines[targetLineIdx];
 
-    // Handle nested table: resolve click into the inner table
+    // Handle nested table: resolve click into the inner table. Delegates to
+    // resolveOffsetInNestedTable, which recurses through arbitrarily many
+    // further nesting levels (a table nested inside a table nested inside a
+    // table, ...) instead of only handling one level deep.
     if (targetLine?.nestedTable) {
-      const innerLayout = targetLine.nestedTable;
       const innerBlock = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex];
       if (innerBlock?.tableData) {
-        // Find inner column from local X within the inner table
-        const innerLocalX = localX;
-        let innerCol = innerLayout.columnPixelWidths.length - 1;
-        for (let c = 0; c < innerLayout.columnXOffsets.length; c++) {
-          if (innerLocalX < innerLayout.columnXOffsets[c] + innerLayout.columnPixelWidths[c]) {
-            innerCol = c;
-            break;
-          }
-        }
-
-        // Find inner row from Y within the inner table
-        let innerRow = innerLayout.rowHeights.length - 1;
+        // Compute the inner table's absolute Y origin, accounting for split
+        // rows by picking the fragment that contains the click Y. This page
+        // lookup only needs to happen once: only the OUTER (top-level)
+        // table's rows have entries in the paginated layout, so every level
+        // below this one resolves with plain relative math inside
+        // resolveOffsetInNestedTable.
         let innerTableAbsY = 0;
         if (logicalY !== undefined) {
-          // Compute the inner table's absolute Y origin, accounting for
-          // split rows by picking the fragment that contains the click Y.
           const lineLayouts = computeMergedCellLineLayouts(
             cell.lines, cellAddr.rowIndex, dataCell?.rowSpan ?? 1,
             cellPadding, tl.rowYOffsets, tl.rowHeights,
@@ -4652,107 +4644,9 @@ export class TextEditor {
               }
             }
           }
-          const innerLocalY = logicalY - innerTableAbsY;
-          for (let r = 0; r < innerLayout.rowYOffsets.length; r++) {
-            if (innerLocalY < innerLayout.rowYOffsets[r] + innerLayout.rowHeights[r]) {
-              innerRow = r;
-              break;
-            }
-          }
         }
 
-        // Resolve merged cells in inner table
-        const innerDataCell = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
-        if (innerDataCell?.colSpan === 0) {
-          for (let r = innerRow; r >= 0; r--) {
-            for (let c = innerCol; c >= 0; c--) {
-              const cand = innerBlock.tableData.rows[r]?.cells[c];
-              if (cand && cand.colSpan !== 0) {
-                const cs = cand.colSpan ?? 1;
-                const rs = cand.rowSpan ?? 1;
-                if (r + rs > innerRow && c + cs > innerCol) {
-                  innerRow = r;
-                  innerCol = c;
-                  break;
-                }
-              }
-            }
-          }
-        }
-
-        // Resolve offset within the inner table cell directly using its layout
-        const innerCellLayout = innerLayout.cells[innerRow]?.[innerCol];
-        const innerCellData = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
-        if (innerCellLayout && innerCellData && !innerCellLayout.merged) {
-          const innerCellPadding = innerCellData.style.padding ?? 4;
-          const innerCellX = innerLayout.columnXOffsets[innerCol] + innerCellPadding;
-          const innerCellLocalX = innerLocalX - innerCellX;
-
-          // Find target line in inner cell
-          let innerLineIdx = innerCellLayout.lines.length - 1;
-          if (logicalY !== undefined) {
-            const innerCellAbsY = innerTableAbsY + innerLayout.rowYOffsets[innerRow] + innerCellPadding;
-            const innerCellRelY = logicalY - innerCellAbsY;
-            for (let li = 0; li < innerCellLayout.lines.length; li++) {
-              const line = innerCellLayout.lines[li];
-              if (innerCellRelY < line.y + line.height) {
-                innerLineIdx = li;
-                break;
-              }
-            }
-          }
-
-          // Check for further nesting (recursive)
-          const innerTargetLine = innerCellLayout.lines[innerLineIdx];
-          if (innerTargetLine?.nestedTable) {
-            // For deeper nesting, resolve to the block that owns this line
-            let deepBlockIdx = 0;
-            for (let bi = 0; bi < innerCellLayout.blockBoundaries.length; bi++) {
-              const nextBound = innerCellLayout.blockBoundaries[bi + 1] ?? innerCellLayout.lines.length;
-              if (innerLineIdx < nextBound) {
-                deepBlockIdx = bi;
-                break;
-              }
-            }
-            return { blockId: innerCellData.blocks[deepBlockIdx]?.id ?? innerCellData.blocks[0].id, offset: 0 };
-          }
-
-          // Find block index within inner cell
-          let innerBlockIdx = 0;
-          for (let bi = 0; bi < innerCellLayout.blockBoundaries.length; bi++) {
-            const nextBound = innerCellLayout.blockBoundaries[bi + 1] ?? innerCellLayout.lines.length;
-            if (innerLineIdx < nextBound) {
-              innerBlockIdx = bi;
-              break;
-            }
-          }
-
-          // Find character offset
-          let innerOffset = 0;
-          const innerBlockStart = innerCellLayout.blockBoundaries[innerBlockIdx] ?? 0;
-          for (let li = innerBlockStart; li < innerLineIdx; li++) {
-            for (const run of innerCellLayout.lines[li].runs) {
-              innerOffset += run.text.length;
-            }
-          }
-
-          if (innerTargetLine) {
-            for (const run of innerTargetLine.runs) {
-              const font = resolveInlineFont(run.inline.style);
-              for (let i = 0; i <= run.text.length; i++) {
-                const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
-                if (w >= innerCellLocalX) {
-                  return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset + i };
-                }
-              }
-              innerOffset += run.text.length;
-            }
-          }
-          return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset };
-        }
-
-        // Fallback: first block of inner cell
-        return { blockId: innerBlock.tableData.rows[innerRow].cells[innerCol].blocks[0].id, offset: 0 };
+        return this.resolveOffsetInNestedTable(innerBlock, targetLine.nestedTable, innerTableAbsY, localX, logicalY);
       }
     }
 
@@ -4770,6 +4664,149 @@ export class TextEditor {
       }
     }
     const cellBlockId = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex].id;
+    return { blockId: cellBlockId, offset };
+  }
+
+  /**
+   * Resolve a click into a table that is itself nested inside a cell (any
+   * depth: a table nested inside a table nested inside a table, ...).
+   *
+   * Only the outermost (top-level) table's rows are page/split-aware — they
+   * are the only ones with entries in the paginated layout, since a nested
+   * table renders as a single synthetic line inside its parent cell (see
+   * `layoutCellBlocks` in table-layout.ts). So `tableAbsY` — the already-
+   * resolved, page-aware Y origin of this table — is computed once by the
+   * caller for the first nesting level, and this method carries it forward
+   * with plain relative arithmetic for every level below that. The X
+   * coordinate is re-based onto the containing cell's content box at each
+   * level: descending into a cell, the recursive call passes `cellLocalX`
+   * (the click X relative to that cell's content origin), so the child level
+   * measures against its own columns rather than the ancestor table's.
+   *
+   * Recurses via `line.nestedTable` when the resolved cell's target line is
+   * itself a nested table, instead of stopping after one level — the #333
+   * bug was exactly this: a table nested three (or more) levels deep bailed
+   * out at the second level and returned a position on the table block
+   * itself (which has no text), rejecting the caret outright.
+   */
+  private resolveOffsetInNestedTable(
+    tableBlock: Block,
+    layoutTable: import('./table-layout.js').LayoutTable,
+    tableAbsY: number,
+    localX: number,
+    logicalY: number | undefined,
+  ): { blockId: string; offset: number } {
+    const fallbackBlockId = tableBlock.tableData?.rows[0]?.cells[0]?.blocks[0]?.id ?? tableBlock.id;
+
+    // Resolve row from Y, column from X.
+    let row = layoutTable.rowHeights.length - 1;
+    if (logicalY !== undefined) {
+      const relY = logicalY - tableAbsY;
+      for (let r = 0; r < layoutTable.rowYOffsets.length; r++) {
+        if (relY < layoutTable.rowYOffsets[r] + layoutTable.rowHeights[r]) {
+          row = r;
+          break;
+        }
+      }
+    }
+    let col = layoutTable.columnPixelWidths.length - 1;
+    for (let c = 0; c < layoutTable.columnXOffsets.length; c++) {
+      if (localX < layoutTable.columnXOffsets[c] + layoutTable.columnPixelWidths[c]) {
+        col = c;
+        break;
+      }
+    }
+
+    // Resolve a covered (merged) cell to its merge top-left.
+    const dataCell0 = tableBlock.tableData!.rows[row]?.cells[col];
+    if (dataCell0?.colSpan === 0) {
+      outer: for (let r = row; r >= 0; r--) {
+        for (let c = col; c >= 0; c--) {
+          const cand = tableBlock.tableData!.rows[r]?.cells[c];
+          if (cand && cand.colSpan !== 0) {
+            const cs = cand.colSpan ?? 1;
+            const rs = cand.rowSpan ?? 1;
+            if (r + rs > row && c + cs > col) {
+              row = r;
+              col = c;
+              break outer;
+            }
+          }
+        }
+      }
+    }
+
+    const cellLayout = layoutTable.cells[row]?.[col];
+    const cellData = tableBlock.tableData!.rows[row]?.cells[col];
+    if (!cellLayout || !cellData || cellLayout.merged) {
+      return { blockId: fallbackBlockId, offset: 0 };
+    }
+
+    const cellPadding = cellData.style.padding ?? 4;
+    const cellOriginX = layoutTable.columnXOffsets[col] + cellPadding;
+    const cellLocalX = localX - cellOriginX;
+    const cellOriginY = tableAbsY + layoutTable.rowYOffsets[row] + cellPadding;
+
+    // Find the target line within the cell by Y.
+    let lineIdx = cellLayout.lines.length - 1;
+    if (logicalY !== undefined) {
+      const relY = logicalY - cellOriginY;
+      for (let li = 0; li < cellLayout.lines.length; li++) {
+        if (relY < cellLayout.lines[li].y + cellLayout.lines[li].height) {
+          lineIdx = li;
+          break;
+        }
+      }
+    }
+    const targetLine = cellLayout.lines[lineIdx];
+
+    // Which block (within the cell's own block list) owns this line.
+    let blockIdx = 0;
+    for (let bi = 0; bi < cellLayout.blockBoundaries.length; bi++) {
+      const nextBoundary = cellLayout.blockBoundaries[bi + 1] ?? cellLayout.lines.length;
+      if (lineIdx < nextBoundary) {
+        blockIdx = bi;
+        break;
+      }
+    }
+    const cellBlockId = cellData.blocks[blockIdx]?.id ?? fallbackBlockId;
+
+    // Further nesting — recurse into it instead of stopping here.
+    if (targetLine?.nestedTable) {
+      const nestedBlock = cellData.blocks[blockIdx];
+      if (nestedBlock?.tableData) {
+        return this.resolveOffsetInNestedTable(
+          nestedBlock,
+          targetLine.nestedTable,
+          cellOriginY + targetLine.y,
+          cellLocalX,
+          logicalY,
+        );
+      }
+      return { blockId: cellBlockId, offset: 0 };
+    }
+
+    // Character offset within the target line's runs.
+    let offset = 0;
+    const blockStartLine = cellLayout.blockBoundaries[blockIdx] ?? 0;
+    for (let li = blockStartLine; li < lineIdx; li++) {
+      for (const run of cellLayout.lines[li].runs) {
+        offset += run.text.length;
+      }
+    }
+    if (targetLine) {
+      const measurer = this.getMeasurer();
+      for (const run of targetLine.runs) {
+        const font = resolveInlineFont(run.inline.style);
+        for (let i = 0; i <= run.text.length; i++) {
+          const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
+          if (w >= cellLocalX) {
+            return { blockId: cellBlockId, offset: offset + i };
+          }
+        }
+        offset += run.text.length;
+      }
+    }
     return { blockId: cellBlockId, offset };
   }
 

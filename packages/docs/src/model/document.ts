@@ -36,6 +36,26 @@ import type { DocStore } from '../store/store.js';
 export type EditContext = 'body' | 'header' | 'footer';
 
 /**
+ * Recursively search `blocks` (and every nested table cell) for a block with
+ * `blockId`. Used as the parent-map-independent fallback in `findBlockInCells`.
+ */
+function walkCellsForBlock(blocks: Block[], blockId: string): Block | undefined {
+  for (const b of blocks) {
+    if (b.type === 'table' && b.tableData) {
+      for (const row of b.tableData.rows) {
+        for (const cell of row.cells) {
+          const found = cell.blocks.find((cb) => cb.id === blockId);
+          if (found) return found;
+          const nested = walkCellsForBlock(cell.blocks, blockId);
+          if (nested) return nested;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Document manipulation logic.
  *
  * Delegates all mutations through a DocStore. Maintains a cached
@@ -154,27 +174,34 @@ export class Doc {
    * Handles nested tables where the parent table is itself inside another table cell.
    */
   private findBlockInCells(blockId: string): Block | undefined {
+    // Fast path: the parent map (populated at layout time) locates the cell
+    // directly, so getBlock stays cheap for blocks that existed at the last
+    // layout.
     const cellInfo = this._blockParentMap.get(blockId);
-    if (!cellInfo) return undefined;
+    if (cellInfo) {
+      let tableBlock: Block | undefined;
+      tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      if (!tableBlock) {
+        tableBlock = this._document.header?.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      }
+      if (!tableBlock) {
+        tableBlock = this._document.footer?.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      }
+      if (!tableBlock) {
+        tableBlock = this.findBlockInCells(cellInfo.tableBlockId);
+      }
+      const cell = tableBlock?.tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      const found = cell?.blocks.find((b) => b.id === blockId);
+      if (found) return found;
+    }
 
-    // Find the parent table block — it may be top-level, in header/footer, or nested
-    let tableBlock: Block | undefined;
-    tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
-    if (!tableBlock) {
-      tableBlock = this._document.header?.blocks.find((b) => b.id === cellInfo.tableBlockId);
-    }
-    if (!tableBlock) {
-      tableBlock = this._document.footer?.blocks.find((b) => b.id === cellInfo.tableBlockId);
-    }
-    if (!tableBlock) {
-      tableBlock = this.findBlockInCells(cellInfo.tableBlockId);
-    }
-
-    if (tableBlock?.tableData) {
-      const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
-      return cell?.blocks.find((b) => b.id === blockId);
-    }
-    return undefined;
+    // Fallback: a full recursive walk. The parent map is only rebuilt on
+    // layout, so a block created since the last layout — e.g. the tail block a
+    // paste splits out inside a cell — isn't in it yet; walk the tables so
+    // getBlock never spuriously throws for a real cell block.
+    return walkCellsForBlock(this._document.blocks, blockId)
+      ?? walkCellsForBlock(this._document.header?.blocks ?? [], blockId)
+      ?? walkCellsForBlock(this._document.footer?.blocks ?? [], blockId);
   }
 
   /**
