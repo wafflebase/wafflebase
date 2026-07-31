@@ -24,7 +24,19 @@ on:
 permissions: {}
 
 env:
-  MAX_REVIEW_ROUNDS: "5"
+  # Failed fix rounds before review-round-guard.mjs pages a human.
+  #
+  # Three, not five, because nothing in this pipeline can page for
+  # non-convergence any earlier: detectStalledRounds needs `minRepeats + 1` = 3
+  # rounds of evidence before it will report a stall. So rounds 4 and 5 were a
+  # PR paying ~$12 of panel each on the way to a page that was already
+  # inevitable — and a PR the fixer has failed to converge three times is not
+  # converging on the fourth without the human the guard is about to ask for.
+  #
+  # This bounds the FIXER only. The guard runs in the `fix` job, downstream of
+  # `review-panel`, so a PR that has already been paged still re-runs the whole
+  # panel on every CI-green push. Lowering this does not address that.
+  MAX_REVIEW_ROUNDS: "3"
 
 jobs:
   # Is this PR agent-managed? Either an autonomous `agent/` branch, OR a human PR
