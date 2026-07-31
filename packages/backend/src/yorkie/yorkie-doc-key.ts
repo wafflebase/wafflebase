@@ -10,7 +10,13 @@
  * a wrong key.
  */
 export type DocumentTypeLike =
-  | 'sheet' | 'doc' | 'slides' | 'pdf' | 'note' | 'image' | 'board';
+  | 'sheet'
+  | 'doc'
+  | 'slides'
+  | 'pdf'
+  | 'note'
+  | 'image'
+  | 'board';
 
 export const YORKIE_DOC_KEY_PREFIXES = {
   sheet: 'sheet-',
