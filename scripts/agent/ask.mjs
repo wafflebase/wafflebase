@@ -454,14 +454,10 @@ export async function askStructured({
   // wires `mcpServers`, so the whole session shape stays observable in one place.
   const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers });
 
-  // MCP tool calls are otherwise "effectively unbounded by default"
-  // (sdk.d.ts:477). Each call already carries its own probe timeout, so this is
-  // the backstop for a call that never returns at all. A process-level env side
-  // effect, so it stays OUT of the pure `buildSessionOptions`; `options.mcpServers`
-  // is present only when the grant actually wired a server.
-  if (options.mcpServers && !process.env.MCP_TOOL_TIMEOUT) {
-    process.env.MCP_TOOL_TIMEOUT = String(60_000);
-  }
+  // NOTE: `MCP_TOOL_TIMEOUT` is deliberately NOT set here. It has to be in place
+  // before the SDK is imported, and by this line it already has been — the server
+  // passed in `mcpServers` was built by `createProbeServer` (hunt-tool.mjs), which
+  // imports the SDK itself. That is where the backstop is set.
 
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // The one place the real SDK is in hand, so the one place the cache-boundary

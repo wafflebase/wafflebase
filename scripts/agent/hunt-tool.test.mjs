@@ -348,3 +348,94 @@ test("createProbeServer registers the `run` tool (skipped without the SDK)", asy
     scratch.dispose();
   }
 });
+
+// --- review follow-ups ---------------------------------------------------------
+
+test("a probe is clamped to the session time remaining, not its own timeout", async () => {
+  // `totalTimeoutMs` bounded when a probe may START and nothing bounded how long it
+  // then ran, so a probe admitted with 100ms of budget left still got its full
+  // per-probe timeout — the session could overrun by nearly 20s.
+  let now = 0;
+  // Session budget must EXCEED the per-probe cap, or the session is always the
+  // binding constraint and the test proves nothing about the cap.
+  const budget = createProbeBudget({ maxProbes: 10, totalTimeoutMs: 600_000, now: () => now });
+  const seen = [];
+  const call = createProbeTool({
+    charter: { mutating: false, probeBudget: { perProbeTimeoutMs: 20_000 } },
+    bin: "/x",
+    scratch: "/tmp",
+    budget,
+    journal: [],
+    runner: (argv, opts) => {
+      seen.push(opts.timeoutMs);
+      return { argv, exitCode: 0, signal: null, stdout: "", stderr: "", timedOut: false, spawnError: null };
+    },
+  });
+
+  await call({ argv: ["schema"] });
+  assert.equal(seen[0], 20_000, "with the whole session left, the per-probe cap applies");
+
+  now = 599_900; // 100ms of session budget remains
+  await call({ argv: ["schema"] });
+  assert.equal(seen[1], 100, "near the deadline the probe must be clamped to what is left");
+  assert.ok(seen[1] < 20_000);
+});
+
+test("the help exemption cannot override a resolved destructive annotation", async () => {
+  // `--help` matched anywhere in argv used to force "read-only", so
+  // `docs delete d1 --help` was waved through despite the schema declaring
+  // docs.delete destructive. The exemption may only RESCUE an unresolvable lookup.
+  const table = new Map([["docs.delete", "destructive"], ["docs.list", "read-only"]]);
+  const safetyOf = (words) => {
+    for (let n = words.length; n >= 1; n--) {
+      const k = words.slice(0, n).join(".");
+      if (table.has(k)) return table.get(k);
+    }
+    return null;
+  };
+  const { call } = makeServer({ charter: { mutating: false }, safetyOf });
+
+  assert.equal((await call({ argv: ["docs", "delete", "d1", "--help"] })).isError, true, "help must not launder a destructive command");
+  assert.equal((await call({ argv: ["docs", "delete", "d1", "-h"] })).isError, true, "short form too");
+  // …while the cases the exemption exists for still work: `docs` alone and `schema`
+  // are absent from the registry, so the lookup is unresolvable and would otherwise
+  // fail closed on the explorer's primary discovery tools.
+  assert.equal((await call({ argv: ["docs", "--help"] })).isError, false, "`docs --help` must stay allowed");
+  assert.equal((await call({ argv: ["schema"] })).isError, false, "`schema` must stay allowed");
+  assert.equal((await call({ argv: ["docs", "list"] })).isError, false, "resolved read-only still allowed");
+});
+
+test("a shapeless secret straddling the truncation boundary is still redacted", () => {
+  // Clipping ran BEFORE redaction, so a token cut in half left a head that no
+  // longer matched. The shape patterns (`wfb_…`, JWT, Bearer) catch a fragment
+  // anyway, so the exploitable case is a secret whose ONLY protection is the exact
+  // `extra` match in redactSecrets — `split(v).join(...)`, which a truncated value
+  // cannot satisfy. Hence a deliberately shapeless value here; a `wfb_`-prefixed
+  // one would pass whether or not the fix is present, and prove nothing.
+  const secret = "Zq7Z".repeat(10); // 40 chars, no recognisable shape
+  const { call } = makeServer({
+    cfg: { apiKey: secret },
+    runner: (argv) => ({
+      argv,
+      exitCode: 0,
+      signal: null,
+      // Straddles the 20k clip boundary: 10 chars before it, the rest after.
+      stdout: "x".repeat(20_000 - 10) + secret + "tail",
+      stderr: "",
+      timedOut: false,
+      spawnError: null,
+    }),
+  });
+  return call({ argv: ["status"] }).then((r) => {
+    const t = textOf(r);
+    assert.equal(t.includes(secret), false, "the whole secret leaked");
+    // Only the first 10 characters survive the 20k clip, so THAT is the fragment
+    // to assert on — checking a longer slice is vacuous, since it could not have
+    // been present either way.
+    assert.equal(
+      t.includes(secret.slice(0, 10)),
+      false,
+      "a secret FRAGMENT survived: the clip cut it before redaction could match it",
+    );
+  });
+});

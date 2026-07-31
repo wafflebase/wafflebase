@@ -115,7 +115,11 @@ export function createProbeBudget({ maxProbes = 40, totalTimeoutMs = 600_000, no
         };
       }
       used++;
-      return { ok: true };
+      // How much session time is left AFTER admitting this probe. The caller clamps
+      // the per-probe timeout to it: without that, a probe admitted with 100ms of
+      // budget remaining still runs for its full 20s, so `totalTimeoutMs` bounds
+      // when a probe may START but not when the session ends.
+      return { ok: true, remainingMs: Math.max(0, totalTimeoutMs - elapsed) };
     },
   };
 }
@@ -226,29 +230,25 @@ function clip(s) {
  * the two would hide it.
  */
 function renderObservation(obs, secrets) {
+  // Redact BEFORE clipping. Clipping first can cut a token in half, leaving a head
+  // that no longer matches any secret pattern — so the truncation itself would
+  // defeat the redaction it precedes.
+  const safe = (text) => clip(redactSecrets(String(text ?? ""), { extra: secrets }));
   const parts = [
     `exit code: ${obs.exitCode === null ? "null (killed)" : obs.exitCode}`,
     obs.signal ? `signal: ${obs.signal}` : null,
     obs.timedOut ? "TIMED OUT" : null,
     obs.spawnError ? `spawn error: ${obs.spawnError}` : null,
     `--- stdout (${obs.stdout.length} chars) ---`,
-    clip(obs.stdout),
+    safe(obs.stdout),
     `--- stderr (${obs.stderr.length} chars) ---`,
-    clip(obs.stderr),
+    safe(obs.stderr),
   ].filter((p) => p !== null);
-  // Redacted HERE, at the boundary where text first becomes visible to a model
-  // whose output reaches a public report. `runProbe` output can carry an
-  // `Authorization: Bearer …` header or the configured API key verbatim.
+  // Redacted again over the whole thing, which also covers the metadata lines (a
+  // spawn error can echo an argument). The streams are already clean by here.
   return redactSecrets(parts.join("\n"), { extra: secrets });
 }
 
-/**
- * The in-process MCP server exposing the single `run` tool.
- *
- * `runner` is injectable for the same reason `runProbe`'s is: the tests must
- * exercise refusal, budgeting, journalling and redaction without spawning a CLI
- * or touching a network.
- */
 /**
  * The tool's behaviour, with NO third-party dependency.
  *
@@ -281,9 +281,25 @@ export function createProbeTool({
     //    additionally consulting that schema, whose wrongness is itself one of the
     //    things this hunter looks for.
     try {
+      // The help exemption may only RESCUE an unresolvable annotation; it must
+      // never override a resolved one. `docs delete d1 --help` would otherwise be
+      // waved through as read-only despite `docs.delete` being declared
+      // destructive, because the flag matched anywhere in argv. Ask the real
+      // `safetyOf` first and defer to it whenever it has an answer.
       assertSafeArgv(argv, {
         mutating: charter?.mutating === true,
-        safetyOf: isReadOnlyByConstruction(argv) ? () => "read-only" : safetyOf,
+        // When no annotation table is available at all, pass `null` through
+        // unchanged so `assertSafeArgv` skips the annotation check entirely and
+        // falls back to the hard-deny list — wrapping it here would instead make
+        // EVERY command unresolvable, and therefore refused.
+        safetyOf:
+          typeof safetyOf === "function"
+            ? (words) => {
+                const declared = safetyOf(words);
+                if (declared != null) return declared;
+                return isReadOnlyByConstruction(argv) ? "read-only" : null;
+              }
+            : null,
       });
     } catch (err) {
       return say(
@@ -299,7 +315,14 @@ export function createProbeTool({
     try {
       obs = runProbe(
         { argv, stdin, files },
-        { bin, env: buildProbeEnv(scratch, cfg), cwd: scratch, timeoutMs, runner },
+        {
+          bin,
+          env: buildProbeEnv(scratch, cfg),
+          cwd: scratch,
+          // Never let one probe outlive the session budget it was admitted under.
+          timeoutMs: Math.max(1, Math.min(timeoutMs, charged.remainingMs ?? timeoutMs)),
+          runner,
+        },
       );
     } catch (err) {
       // A fixture path escaping the scratch lands here. Still a readable refusal,
@@ -330,6 +353,14 @@ export function createProbeTool({
  * worth testing is in `createProbeTool`, which this merely wraps in a tool schema.
  */
 export async function createProbeServer(opts = {}) {
+  // Set BEFORE the SDK is imported. MCP tool calls are otherwise "effectively
+  // unbounded by default" (sdk.d.ts:477), and the per-server `timeoutMs` override
+  // at sdk.d.ts:1011 exists only on the http/sse/stdio/proxy server types — NOT on
+  // in-process SDK servers — so this variable is the only lever available here.
+  // Setting it at the earliest point on the MCP path costs nothing and removes any
+  // question about whether a cached SDK import already read it.
+  if (!process.env.MCP_TOOL_TIMEOUT) process.env.MCP_TOOL_TIMEOUT = String(60_000);
+
   const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
   const { z } = await import("zod");
   const runTool = createProbeTool(opts);

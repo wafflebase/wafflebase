@@ -37,7 +37,7 @@
       "totalTimeoutMs": 600000
     },
     "verifierMaxTurns": 20,
-    "explorerMaxTurns": 40
+    "explorerMaxTurns": 55
   },
   {
     "id": "crash",
@@ -75,6 +75,6 @@
       "totalTimeoutMs": 600000
     },
     "verifierMaxTurns": 20,
-    "explorerMaxTurns": 40
+    "explorerMaxTurns": 55
   }
 ]

@@ -412,17 +412,31 @@ test("no module under scripts/agent statically imports a third-party package", (
   // (`./`, `../`) or a builtin (`node:`). Third-party dependencies are reachable
   // only through `await import(...)` inside the function that needs them.
   const dir = path.dirname(fileURLToPath(import.meta.url));
-  const files = readdirSync(dir).filter((f) => f.endsWith(".mjs"));
+  // Recursive: a guard against a future mistake has to cover where a future module
+  // might be put, and `node --test *.test.mjs` globbing flatly is exactly the trap
+  // that makes a nested module easy to add and easy to miss.
+  const walk = (d) =>
+    readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+      if (e.name === "node_modules" || e.name.startsWith(".")) return [];
+      const full = path.join(d, e.name);
+      return e.isDirectory() ? walk(full) : e.name.endsWith(".mjs") ? [full] : [];
+    });
+  const files = walk(dir);
   assert.ok(files.length > 10, "expected to find the agent modules");
 
-  const STATIC_FROM = /^\s*(?:import|export)\b[^;]*?\sfrom\s+["']([^"']+)["']/gm;
+  // Two forms, because both load the package: `import x from "pkg"` and the bare
+  // side-effect `import "pkg"`. Matching only the first would leave the simpler
+  // one — the one someone reaches for to register a polyfill — undetected.
+  const WITH_FROM = /^\s*(?:import|export)\b[^;]*?\sfrom\s+["']([^"']+)["']/gm;
+  const SIDE_EFFECT = /^\s*import\s+["']([^"']+)["']/gm;
+  const isLocal = (spec) => spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("node:");
   const offenders = [];
   for (const file of files) {
-    const src = readFileSync(path.join(dir, file), "utf8");
-    for (const m of src.matchAll(STATIC_FROM)) {
-      const spec = m[1];
-      if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("node:")) continue;
-      offenders.push(`${file} → ${spec}`);
+    const src = readFileSync(file, "utf8");
+    for (const re of [WITH_FROM, SIDE_EFFECT]) {
+      for (const m of src.matchAll(re)) {
+        if (!isLocal(m[1])) offenders.push(`${path.relative(dir, file)} → ${m[1]}`);
+      }
     }
   }
   assert.deepEqual(
