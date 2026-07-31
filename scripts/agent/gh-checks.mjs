@@ -79,7 +79,12 @@ export function commitCheckRuns(sha, opts) {
     "--paginate",
     "--slurp",
   ]);
-  return (Array.isArray(pages) ? pages : []).flatMap((p) => p?.check_runs ?? []);
+  // `check_runs` is guarded with Array.isArray rather than `?? []`: a scalar or
+  // object under that key would be spread into the result by flatMap and travel
+  // downstream as if it were a run.
+  return (Array.isArray(pages) ? pages : []).flatMap((p) =>
+    Array.isArray(p?.check_runs) ? p.check_runs : [],
+  );
 }
 
 /**

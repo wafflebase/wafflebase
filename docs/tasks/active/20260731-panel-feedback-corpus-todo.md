@@ -43,7 +43,7 @@ corpus of known-wrong verdicts to be scored against.
 - [x] `parseArgs` gained a **declared** `booleans` option (see lessons).
 - [x] Backfilled #548's two documented misses, then ran the harvester over #548 and
       appended its three candidates.
-- [x] `pnpm verify:self` green (11/11); 425 agent tests (388 on `main`).
+- [x] `pnpm verify:self` green (11/11); 430 agent tests (388 on `main`).
 
 ## Corrected from the plan
 
@@ -82,7 +82,7 @@ fenced as DATA, exactly like the diff.
 
 ## Verification
 
-- [x] 34 new tests in `harvest.test.mjs`, plus 3 in `prior-findings.test.mjs` for
+- [x] 42 new tests — `harvest.test.mjs`, plus `prior-findings.test.mjs` for
       `commitCheckRuns` and the `parseArgs` boolean.
 - [x] End-to-end against the real API on #548: 3 candidates, exit 0.
 - [x] `--append` run, then re-run — second run appends nothing.
@@ -92,6 +92,38 @@ fenced as DATA, exactly like the diff.
 - [x] The corpus file is asserted by its own test — every line parses, every record
       has the exact field order, a known label/source, a PR number, a summary and
       an evidence URL, and no duplicate ids.
+
+## Review response (CodeRabbit, #608)
+
+Seven fixed, one skipped.
+
+- [x] **`--append` could destroy two records.** If `misses.jsonl` lacked a trailing
+      newline, `appendFileSync` joined its last record to the first new one.
+      `parseJsonl` cannot see this — the file parses cleanly *before* the append —
+      so the existing bad-line refusal did not cover it. Reproduced, then guarded
+      before the write. The most serious of the batch.
+- [x] **`headAtHandoff` fell back to the PR's last commit.** When every commit
+      post-dates the handoff (force-push after promotion), that fallback recorded a
+      *post-handoff* verdict as "what let the PR through" — contradicting this
+      module's own rule that a wrong field is worse than an empty one. Removed.
+- [x] **CodeRabbit author matched by prefix.** `coderabbitai-anything` would have
+      been accepted, and anyone can register that and comment on a public PR. Now
+      an exact login set.
+- [x] `commitCheckRuns`: a non-array `check_runs` was spread into the run list by
+      `flatMap` instead of contributing nothing.
+- [x] `listCandidatePrs` now reports hitting the 200 cap — a silently truncated
+      list makes a partial harvest read as a complete one, which is the one
+      conclusion this corpus must never reach by accident.
+- [x] Dropped a local `gh` wrapper that duplicated the shared helper exactly.
+- [x] ```` ```text ```` on the record-shape fence.
+- [x] Tests for all of the above, plus `origin`/`fileClasses` validation in the
+      corpus test so hand-written records cannot drift on the two slicing fields.
+
+**Skipped: loosening `CR_HEADER` to tolerate a preamble.** Every CodeRabbit finding
+in this repository starts with the header — no preamble has ever been observed.
+Un-anchoring the match to cover a hypothetical would let arbitrary italic text
+mid-body register as a finding, which is a worse trade for a matcher that decides
+what gets archived.
 
 ## What needs a human
 

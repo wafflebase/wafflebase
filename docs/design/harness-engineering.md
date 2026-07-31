@@ -1106,7 +1106,7 @@ makes those arguments settleable.
 lines — an unreadable line makes `--append` refuse, so the format cannot document
 itself):
 
-```
+```text
 schema, id, label, source, pr, handoffAt, evidence{commitSha,commentId,url},
 files[], fileClasses[], lens, severity, origin, summary,
 panelSaw{reviewedSha,conclusion,blockingFindings}, verifiedBy, notes

@@ -200,3 +200,16 @@ test("parseArgs: value-less flags must be DECLARED, not inferred from what follo
   // --since-sha/--review-mode unconditionally and relies on this.
   assert.equal(parseArgs(["node", "s", "--since-sha", "", "--head", "x"])["since-sha"], "");
 });
+
+test("commitCheckRuns: a non-array check_runs contributes nothing, not itself", () => {
+  // `p?.check_runs ?? []` would spread a scalar or object straight into the run
+  // list via flatMap, and it would travel downstream as if it were a run.
+  for (const payload of [7, "x", { id: 1 }, true]) {
+    assert.deepEqual(commitCheckRuns("abc", { api: () => [{ check_runs: payload }] }), []);
+  }
+  // A good page alongside a junk one still yields the good runs.
+  assert.deepEqual(
+    commitCheckRuns("abc", { api: () => [{ check_runs: 7 }, { check_runs: [{ id: 2 }] }] }),
+    [{ id: 2 }],
+  );
+});

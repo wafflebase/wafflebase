@@ -48,7 +48,6 @@
 //     whose id we never saw, and duplicate curated records silently double-count
 //     in every downstream tally.
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -220,6 +219,9 @@ const CR_CATEGORY_TO_LENS = new Map([
   ["functional correctness", "correctness"],
   ["security & privacy", "security"],
 ]);
+
+/** The bot's login, in the two shapes GitHub returns it. */
+const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
 
 /** Strip emoji/punctuation from a CodeRabbit header field, leaving the words. */
 const headerWords = (s) =>
@@ -494,7 +496,13 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     const at = Date.parse(str(c?.commit?.committer?.date));
     return Number.isFinite(at) && at <= cutoff;
   });
-  const headAtHandoff = beforeHandoff[beforeHandoff.length - 1] ?? prCommits[prCommits.length - 1];
+  // NO fallback to the PR's last commit. If every commit post-dates the handoff
+  // (a force-push or rebase after promotion rewrites committer dates), the last
+  // commit is one the panel saw only AFTER the human's fix — recording its verdict
+  // would describe a panel that had already been shown the answer. An empty
+  // `panelSaw` says "we could not establish what the panel saw", which is true; a
+  // post-handoff sha would be a wrong measurement that reads as a right one.
+  const headAtHandoff = beforeHandoff[beforeHandoff.length - 1];
 
   // The sha is known for certain the moment we have the commit list, so it is
   // recorded OUTSIDE the check-run fetch. Only `conclusion` and
@@ -548,7 +556,12 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     log(`#${pr}: could not list review comments (${err.message}).`);
   }
   for (const rc of reviewComments) {
-    if (!str(rc?.user?.login).startsWith("coderabbitai")) continue;
+    // EXACT login, not a prefix. `startsWith("coderabbitai")` also accepts
+    // `coderabbitai-x`, and anyone can register that name and comment on a public
+    // PR — which would let a stranger write rows into the corpus. Curation is the
+    // real defence, but a matcher that decides whose text gets archived should not
+    // be the loose one.
+    if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
     const finding = classifyCodeRabbitComment(rc.body);
     if (!finding) continue;
     const files = interestingFiles([str(rc.path)]);
@@ -588,21 +601,34 @@ function loadLensNames() {
   }
 }
 
+const PR_LIST_LIMIT = 200;
+
 /**
  * Merged agent PRs to examine. `--since` is passed straight to GitHub's search
  * rather than filtered client-side, so a wide window does not silently truncate
  * at the page limit.
+ *
+ * A result that exactly fills the limit is REPORTED. A silently capped list makes
+ * a partial harvest read as a complete one, and "we found no misses in this
+ * window" is precisely the conclusion this corpus must never reach by accident.
  */
-function listCandidatePrs({ since, api }) {
+export function listCandidatePrs({ since, api, log = console.error }) {
   const search = since ? `merged:>=${since}` : "";
-  const argv = ["pr", "list", "--state", "merged", "--limit", "200", "--json", "number,headRefName,author"];
+  const argv = ["pr", "list", "--state", "merged", "--limit", String(PR_LIST_LIMIT), "--json", "number,headRefName,author"];
   if (search) argv.push("--search", search);
   const prs = api(argv);
-  return (Array.isArray(prs) ? prs : []).filter(isAgentPr).map((p) => p.number);
+  const all = Array.isArray(prs) ? prs : [];
+  if (all.length >= PR_LIST_LIMIT) {
+    log(
+      `harvest: the PR list came back at the ${PR_LIST_LIMIT} cap, so older PRs in this ` +
+        `window were NOT examined. Narrow --since and run again.`,
+    );
+  }
+  return all.filter(isAgentPr).map((p) => p.number);
 }
 
 function cmdHarvest(args) {
-  const api = (a) => JSON.parse(execFileSync("gh", a, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 }));
+  const api = gh;
   const names = loadLensNames();
   let prs;
   if (args.pr) {
@@ -645,6 +671,22 @@ function cmdHarvest(args) {
   // do not know every id already in the file, so appending could duplicate a
   // curated record — and a duplicate double-counts in every tally taken against
   // the corpus, silently, forever.
+  //
+  // The missing-newline case is the same class of damage and `parseJsonl` cannot
+  // see it: a file whose last line has no trailing `\n` parses perfectly (split
+  // yields the same records), but appending to it CONCATENATES the last existing
+  // record with the first new one, destroying BOTH. Verified: appending to
+  // `{"id":"a"}\n{"id":"b"}` yields `{"id":"b"}{"id":"c"}` on one line, and the
+  // next read reports 1 unreadable line — by which point the data is gone. So the
+  // boundary is checked BEFORE the write, not inferred from a later parse.
+  if (existingText !== "" && !existingText.endsWith("\n")) {
+    console.error(
+      `harvest: refusing to append — ${MISSES_PATH} does not end with a newline. ` +
+        `Appending would join its last record to the first new one and destroy both. ` +
+        `Add a trailing newline and run again.`,
+    );
+    process.exit(0);
+  }
   if (bad > 0) {
     console.error(
       `harvest: refusing to append — ${bad} unreadable line(s) in ${MISSES_PATH}. ` +

@@ -19,8 +19,10 @@ import {
   dedupeById,
   panelVerdictAt,
   harvestPr,
+  listCandidatePrs,
 } from "./harvest.mjs";
 import { HANDOFF_MARKER } from "./disclosure.mjs";
+import { ORIGINS } from "./novelty.mjs";
 
 const NAMES = ["agent-review-correctness", "agent-review-test-adequacy"];
 
@@ -421,6 +423,43 @@ test("harvestPr: ignores CodeRabbit replies and non-CodeRabbit authors", () => {
   assert.equal(records.filter((r) => r.source === "coderabbit").length, 1);
 });
 
+test("harvestPr: the CodeRabbit login is matched EXACTLY, not by prefix", () => {
+  // Anyone can register `coderabbitai-x` and comment on a public PR. Curation is
+  // the real defence, but the matcher deciding whose text gets archived into the
+  // corpus should not be the loose one.
+  const { records } = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [
+        { id: 9, user: { login: "coderabbitai-impostor" }, path: "packages/docs/src/view/text-editor.ts", body: CR_MAJOR_CORRECTNESS },
+        { id: 10, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", body: CR_MAJOR_SECURITY },
+      ],
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  assert.deepEqual(records.filter((r) => r.source === "coderabbit").map((r) => r.evidence.commentId), ["10"]);
+});
+
+test("harvestPr: every commit after the handoff leaves panelSaw EMPTY, not wrong", () => {
+  // A force-push or rebase after promotion rewrites committer dates, so no commit
+  // predates the handoff. The old fallback took the PR's LAST commit — one the
+  // panel saw only after the human's fix — and recorded its verdict as what let
+  // the PR through. An empty panelSaw says "we could not establish it", which is
+  // true; a post-handoff sha is a wrong measurement that reads as a right one.
+  const { records } = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/pulls/548/commits?per_page=100": [
+        { sha: SHA_FIX, parents: [{ sha: SHA_BASE }], author: { login: "harrykim8672", type: "User" }, commit: { message: "Late fix", committer: { date: "2026-07-25T10:00:00Z" } } },
+      ],
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  const fix = records.find((r) => r.source === "human-fix");
+  assert.ok(fix, "the candidate is still proposed");
+  assert.deepEqual(fix.panelSaw, { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+});
+
 test("harvestPr: 'could not look' never reads the same as 'nothing found'", () => {
   const notAgent = harvestPr(548, {
     api: fakeApi({ "repos/{owner}/{repo}/pulls/548": { user: { login: "harrykim8672" }, head: { ref: "feat/x" } } }),
@@ -467,6 +506,43 @@ test("harvestPr: one failed sub-request costs its own candidates, not the PR's",
   assert.equal(fix.panelSaw.reviewedSha, SHA_BASE);
 });
 
+// --- listCandidatePrs --------------------------------------------------------
+
+test("listCandidatePrs: a capped list is REPORTED, never passed off as complete", () => {
+  // "We found no misses in that window" is exactly the conclusion this corpus must
+  // never reach by accident, and a silently truncated PR list produces it.
+  const full = Array.from({ length: 200 }, (_, i) => ({ number: i + 1, headRefName: "agent/x", author: { login: "x" } }));
+  const logged = [];
+  assert.equal(listCandidatePrs({ api: () => full, log: (m) => logged.push(m) }).length, 200);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /cap.*NOT examined/s);
+
+  // Under the cap, nothing is said.
+  const quiet = [];
+  listCandidatePrs({ api: () => full.slice(0, 199), log: (m) => quiet.push(m) });
+  assert.deepEqual(quiet, []);
+});
+
+test("listCandidatePrs: --since goes to GitHub's search, and non-agent PRs drop out", () => {
+  let seen = null;
+  const api = (argv) => {
+    seen = argv;
+    return [
+      { number: 1, headRefName: "agent/1-x", author: { login: "harrykim8672" } },
+      { number: 2, headRefName: "feat/y", author: { login: "harrykim8672" } },
+      { number: 3, headRefName: "feat/z", author: { login: "app/yorkie-agent" } },
+    ];
+  };
+  assert.deepEqual(listCandidatePrs({ since: "2026-07-01", api, log: () => {} }), [1, 3]);
+  assert.ok(seen.includes("--search") && seen.includes("merged:>=2026-07-01"));
+  // No --since → no search term at all, rather than an empty one.
+  listCandidatePrs({ api, log: () => {} });
+  assert.ok(!seen.includes("--search"));
+  for (const junk of [null, "x", 7, {}]) {
+    assert.deepEqual(listCandidatePrs({ api: () => junk, log: () => {} }), []);
+  }
+});
+
 // --- the corpus file itself --------------------------------------------------
 
 test("misses.jsonl: every line parses, and every record is well-formed", () => {
@@ -484,6 +560,11 @@ test("misses.jsonl: every line parses, and every record is well-formed", () => {
     assert.ok(Number.isInteger(r.pr) && r.pr > 0, `missing PR number on ${r.id}`);
     assert.ok(r.summary !== "", `a record with no summary teaches nothing (${r.id})`);
     assert.ok(r.evidence.url !== "", `a record with no evidence cannot be curated (${r.id})`);
+    // origin and fileClasses are the two SLICING fields. A hand-written record is
+    // not built by toMissRecord, so nothing else stops them drifting — and a wrong
+    // slice is worse than a missing one, because it still produces a number.
+    assert.ok(ORIGINS.includes(r.origin), `unknown origin "${r.origin}" on ${r.id}`);
+    assert.deepEqual(r.fileClasses, fileClassesOf(r.files), `fileClasses drifted from files on ${r.id}`);
   }
   // Ids are what dedupe keys on; a duplicate would double-count forever.
   assert.equal(new Set(records.map((r) => r.id)).size, records.length);
