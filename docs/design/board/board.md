@@ -52,15 +52,17 @@ their own spec → plan → implementation cycles.
   move, resize, rotate, snap, smart-guides, select) **without forking
   `editor.ts`**, by injecting a viewport transform.
 - Real-time collaboration via Yorkie (single plane, `board-<id>` docKey) plus
-  presence cursors.
+  peer presence — live peer **selection** rides `setPeers`. (Rendered
+  peer-cursor dots are deferred to a follow-up; SP1 wires the presence channel
+  but does not paint remote cursors.)
 - **Regression gate:** slides behavior is byte-for-byte preserved — the existing
   slides import/export/round-trip/painter/interaction suites stay green
   (slides wraps its fit-scale as the *default viewport*).
 
 Success = a `"board"` document can be created, opened, collaboratively edited
 (add/move/resize/rotate a shape, text box, and connector) on an infinite
-pan/zoom canvas with peer cursors, and `pnpm verify:self` stays green with no
-change to slides behavior.
+pan/zoom canvas with live peer selection presence, and `pnpm verify:self` stays
+green with no change to slides behavior.
 
 ### Non-Goals (SP1)
 
@@ -78,7 +80,7 @@ change to slides behavior.
 
 ### Architecture
 
-```
+```text
 @wafflebase/board          NEW package — board-specific logic
   ├─ model/                board document model (single plane; drops layout/master/notes)
   ├─ view/viewport.ts      Viewport { panX, panY, zoom } + world↔screen + culling
