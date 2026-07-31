@@ -1089,6 +1089,95 @@ Not yet built: `round-trip` and `state` charters (need the backend tier and a
 autonomous filing behind `HUNT_FILING_ENABLED` with a mechanical accept-rate kill
 switch, and the formula differential oracle.
 
+### Phase 27: Panel Feedback Corpus
+
+**Principle:** Entropy Management — the panel has been tuned repeatedly with no
+record of whether any change helped.
+
+Everything else in the pipeline measures effort
+(`scripts/agent/metrics.mjs`), self-agreement (`compareSampleAgreement`), or
+process (`scripts/agent/rounds.mjs`). Nothing records **outcomes**. So each of
+the panel's tuning decisions — severity thresholds, `samples: 2`, file-class
+routing, the novelty gate, unanimity in the verifier — was argued from intuition
+and two or three remembered incidents. `scripts/agent/misses.jsonl` is the ledger that
+makes those arguments settleable.
+
+**Record shape.** Strict JSONL, one object per line, stable field order (no comment
+lines — an unreadable line makes `--append` refuse, so the format cannot document
+itself):
+
+```
+schema, id, label, source, pr, handoffAt, evidence{commitSha,commentId,url},
+files[], fileClasses[], lens, severity, origin, summary,
+panelSaw{reviewedSha,conclusion,blockingFindings}, verifiedBy, notes
+```
+
+`label` is `miss` **or** `false-positive`, and both live in one corpus deliberately:
+a change that cuts misses by raising more findings must pay for it in false
+positives, and a corpus holding only one of the two would score that change as pure
+progress. `fileClasses` and `origin` were added to the original plan shape once #582
+(file-class routing) and #583 (novelty origins) shipped — they turn "we missed four
+bugs" into a sliceable claim about *which* population the panel is weak on.
+
+**`verifiedBy: ""` is the load-bearing field.** `scripts/agent/harvest.mjs`
+proposes candidates from two independent signatures; a human confirms. Nothing
+may consume a record
+until someone has put their name there, and the harvester cannot set it even by
+accident (`toMissRecord` defaults it and neither harvest path passes it). An
+auto-harvested, auto-trusted corpus is a corpus of noise, and harvester noise is
+*systematic* — it follows whatever the matcher over-fires on — so it would move the
+panel somewhere specific and wrong rather than nowhere.
+
+**Two signatures**, both from data GitHub already keeps:
+
+1. **Human commits after handoff.** `scripts/agent/mark-ready.mjs` posts
+   `HANDOFF_MARKER` when the panel approves. A human editing *reviewable code*
+   after that instant is the shape of a missed defect. The marker constant moved
+   into `scripts/agent/disclosure.mjs` because it is now a contract between two
+   modules, and `scripts/agent/mark-ready.mjs` runs its CLI at import time so
+   nothing can import a constant from it.
+2. **CodeRabbit findings the panel did not raise**, at blocking severity only —
+   this corpus measures the *gate*, and a minor maintainability note is not a gate
+   failure.
+
+**Two lists that must not be one.** `interestingFiles` restricts candidates to the
+`code` / `code-adjacent` classes via `classifyFile`, so the harvester's notion of
+reviewable code cannot drift from the panel's own routing table. `policy` is
+excluded even though `.github/**` and `scripts/agent/lenses/*.md` land there: a
+human editing those is changing the **reviewer**, which is a different event from
+the reviewer missing a bug, and mixing the two populations corrupts the one number
+this corpus produces.
+
+**Never feed `misses.jsonl` to a lens.** Not as few-shot examples, not as "past
+misses to watch for". Three independent reasons, any one sufficient: it biases
+lenses toward historical bug shapes when the next defect is by definition new; it
+re-grows the prompt incremental review exists to shrink; and it is a verbatim
+archive of **attacker-influenceable text** (CodeRabbit bodies, contributor commit
+messages). If it ever must reach a model it goes in fenced as DATA, exactly like
+the diff.
+
+**Fail directions, opposite by design.** Every read path degrades to fewer
+candidates and never throws — a GitHub hiccup costs this run's proposals, not the
+corpus. The single write path (`--append`) refuses on any doubt: one unparseable
+line means we do not know every id already in the file, so appending could
+duplicate a curated record, and a duplicate double-counts in every later tally,
+silently and permanently. `dedupeById` keeps the **first** occurrence for the same
+reason — existing records are passed ahead of fresh candidates so a re-harvest can
+never blank a human's `verifiedBy`.
+
+Seeded with #548's two documented misses: the CodeRabbit `EditorAPI.paste()`
+read-only bypass (Major, `correctness`, all four lenses green on that sha), and the
+`test-adequacy` flip — `success` at `ab952c9`, `failure` with one major at
+`ffeb1d2`, where the only diff between the two commits is +16 lines in
+`docs/design/sharing.md`. No test or source file changed, so a lens found a real
+defect on one run of byte-identical content and missed it on another. That single
+record is the strongest evidence yet against dropping to `samples: 1`.
+
+Done criteria: the plan's panel-quality bar (0 proven false negatives across the
+corpus, `critical` demonstrably in use, ≤ 2 rounds to converge) becomes
+*measurable*. Not yet built: a `harvest --report` roll-up, scheduled harvesting,
+and the paired shadow-mode comparison Phase 9's merge-eligibility line feeds.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:
