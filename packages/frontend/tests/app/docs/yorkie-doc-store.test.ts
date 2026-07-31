@@ -483,6 +483,37 @@ describe('YorkieDocStore', () => {
       expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 3 });
     });
 
+    // Regression (issue #609): docs-view.tsx's throttled onCursorMove →
+    // updateCursorPos() republishes the live, view-local composing offset to
+    // presence on every interim composition render — a separate doc.update()
+    // with no addToHistory guard. If that write lands between
+    // setCursorForHistory() staging the correct pre-edit caret and the
+    // syllable's own commit, it corrupts the value Yorkie's undo restores.
+    // clampPosToModel normally masks this (an interim offset past the
+    // not-yet-updated block length clamps back to the staged position), but
+    // not when there is trailing content after the caret, since the interim
+    // offset can land exactly at (not past) the current model length.
+    it('undo restores the staged pre-composition cursor, not a racing interim publish', () => {
+      const block = makeBlock('aa');
+      store.setDocument({ blocks: [block] });
+      // compositionstart: saveSnapshot() stages the pre-edit caret (between
+      // the two "a"s), then the collaboration layer anchors composition start.
+      store.setCursorForHistory({ blockId: block.id, offset: 1 });
+      store.setCompositionStart({ blockId: block.id, offset: 1 });
+      // Race: the throttled live-cursor publisher fires mid-composition with
+      // the view-local composing offset (caret after the trailing "a").
+      // offset 2 == the current model length ("aa"), so clampPosToModel does
+      // not catch it.
+      store.updateCursorPos({ blockId: block.id, offset: 2 });
+      // compositionend commits the syllable as a single insertText (one
+      // doc.update()).
+      store.insertText(block.id, 1, '가');
+      store.setCompositionStart(null);
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      expect(restored).toEqual({ blockId: block.id, offset: 1 });
+    });
+
     it('contrast: the legacy interim-write churn produced many undo units', () => {
       const block = makeBlock('');
       store.setDocument({ blocks: [block] });

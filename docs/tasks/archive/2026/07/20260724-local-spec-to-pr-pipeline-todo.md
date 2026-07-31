@@ -34,7 +34,7 @@ Design: `docs/design/harness-engineering.md` (Phase 25: "Local Spec→PR front h
 - [x] `.claude/commands/spec-to-pr.md` — the slash-command playbook (8 steps +
       required human gate + local verify + token-gated review + handoff).
 - [x] `docs/design/harness-engineering.md` — Phase 25 subsection.
-- [ ] End-to-end validation (maintainer, armed, base-repo push): trivial change →
+- [x] End-to-end validation (maintainer, armed, base-repo push): trivial change →
       `/spec-to-pr` → draft PR's `pull_request` runs CI → confirm
       `agent-review-panel`/`agent-iterate-ci` fire via `workflow_run` for the
       `agent/` branch → panel posts checks → mark-ready promotes to ready. Eyeball

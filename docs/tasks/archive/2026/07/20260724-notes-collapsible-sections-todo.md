@@ -40,17 +40,17 @@ content and the summary label are still rendered through the normal
 
 ## Tasks (TDD)
 
-- [ ] `details-plugin.ts` block rule + renderers
-- [ ] `md.use(detailsPlugin)` wired in `preview.ts`
-- [ ] Tests in `preview.test.ts`:
-  - [ ] collapsed-by-default `<details>` renders `<details>`/`<summary>`
-  - [ ] `<details open>` sets the `open` attribute
-  - [ ] inner markdown is rendered (e.g. bold, code fence)
-  - [ ] summary label markdown is rendered
-  - [ ] nested `<details>` works
-  - [ ] stray `</details>` / `<script>` is NOT emitted as raw HTML (XSS guard)
-- [ ] preview CSS for `.note-details` / `.note-summary` (light + dark)
-- [ ] targeted unit test file green (`vitest run preview.test.ts`)
+- [x] `details-plugin.ts` block rule + renderers
+- [x] `md.use(detailsPlugin)` wired in `preview.ts`
+- [x] Tests in `preview.test.ts`:
+  - [x] collapsed-by-default `<details>` renders `<details>`/`<summary>`
+  - [x] `<details open>` sets the `open` attribute
+  - [x] inner markdown is rendered (e.g. bold, code fence)
+  - [x] summary label markdown is rendered
+  - [x] nested `<details>` works
+  - [x] stray `</details>` / `<script>` is NOT emitted as raw HTML (XSS guard)
+- [x] preview CSS for `.note-details` / `.note-summary` (light + dark)
+- [x] targeted unit test file green (`vitest run preview.test.ts`)
 
 ## Out of scope
 

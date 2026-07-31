@@ -18,58 +18,58 @@ drag-and-drop" section.
 
 ## Backend
 
-- [ ] `MoveDocumentsDto` (`{ ids: string[]; workspaceId?: string; folderId?: string | null }`)
+- [x] `MoveDocumentsDto` (`{ ids: string[]; workspaceId?: string; folderId?: string | null }`)
       and `DeleteDocumentsDto` (`{ ids: string[] }`) in `document.dto.ts`.
-- [ ] `PATCH documents/move` in `document.controller.ts` — one Prisma transaction;
+- [x] `PATCH documents/move` in `document.controller.ts` — one Prisma transaction;
       per-id `resolveDocManager` gate + `assertMember` (cross-ws) + `assertSameWorkspace`;
       reject `403` with offending ids if any fails; keep per-doc `updatedAt` bump.
-- [ ] `POST documents/delete` — per-id manager gate then delete.
-- [ ] Reject empty `ids`.
-- [ ] Service unit tests: atomic reject on mixed selection; same-workspace folder
+- [x] `POST documents/delete` — per-id manager gate then delete.
+- [x] Reject empty `ids`.
+- [x] Service unit tests: atomic reject on mixed selection; same-workspace folder
       validation; cross-workspace move drops folder; bulk delete gate; empty ids.
 
 ## Frontend — API + types
 
-- [ ] `api/documents.ts`: `moveDocuments(ids, { workspaceId?, folderId? })` → `PATCH /documents/move`;
+- [x] `api/documents.ts`: `moveDocuments(ids, { workspaceId?, folderId? })` → `PATCH /documents/move`;
       `deleteDocuments(ids)` → `POST /documents/delete`.
 
 ## Frontend — selection
 
-- [ ] Leading checkbox column in `document-list.tsx` (header select-all, per-row
+- [x] Leading checkbox column in `document-list.tsx` (header select-all, per-row
       checkbox on hover/selected, shift-range via TanStack). Reuse existing
       `rowSelection` state; `getRowId` already = document id.
-- [ ] Row click keeps opening the document (no behavior change).
+- [x] Row click keeps opening the document (no behavior change).
 
 ## Frontend — bulk action bar
 
-- [ ] Bar above table when `≥ 1` selected: "N selected", Move to…, Delete, clear (✕).
-- [ ] Move/Delete disabled (with tooltip) unless every selected doc is `canManage`.
+- [x] Bar above table when `≥ 1` selected: "N selected", Move to…, Delete, clear (✕).
+- [x] Move/Delete disabled (with tooltip) unless every selected doc is `canManage`.
 
 ## Frontend — move dialog (generalize)
 
-- [ ] Generalize `movingDoc` object → set of ids; title "Move N items" when `> 1`.
-- [ ] Submit → `moveDocuments(ids, …)`. Route the per-row "Move" menu item through
+- [x] Generalize `movingDoc` object → set of ids; title "Move N items" when `> 1`.
+- [x] Submit → `moveDocuments(ids, …)`. Route the per-row "Move" menu item through
       the same dialog with a single id (one code path).
-- [ ] Bulk delete confirmation dialog → `deleteDocuments(ids)`.
+- [x] Bulk delete confirmation dialog → `deleteDocuments(ids)`.
 
 ## Frontend — drag-and-drop
 
-- [ ] Rows `draggable` only when `canManage`; dragstart drags whole selection if
+- [x] Rows `draggable` only when `canManage`; dragstart drags whole selection if
       the row is selected, else just that row; payload on `dataTransfer`
       (`application/x-wafflebase-docs` + ids).
-- [ ] Folder cards + breadcrumb segments as drop targets; dragover highlight;
+- [x] Folder cards + breadcrumb segments as drop targets; dragover highlight;
       drop → `moveDocuments(ids, { folderId })`.
-- [ ] Verify no interference with `useWindowFileDrop` (custom MIME vs "Files").
+- [x] Verify no interference with `useWindowFileDrop` (custom MIME vs "Files").
 
 ## Frontend — tests
 
-- [ ] select-all + shift-range; action bar enable/disable by whole-selection
+- [x] select-all + shift-range; action bar enable/disable by whole-selection
       `canManage`; move dialog posts `{ ids, … }`; folder-card drop calls move.
 
 ## Verify
 
 - [x] `pnpm verify:fast` green (frontend 857 / backend 1399 / sheets 2609 / … all pass, exit 0).
-- [ ] Manual smoke in `pnpm dev`: multi-select, dialog move, DnD move, bulk delete,
+- [x] Manual smoke in `pnpm dev`: multi-select, dialog move, DnD move, bulk delete,
       permission-gated disable. **Pending** — needs a running authenticated app
       (docker + OAuth); recommended before merge. Logic verified by unit tests +
       per-task reviews + a whole-branch opus review instead.

@@ -19,22 +19,22 @@ inline's index; `layoutBlock` tags runs whose `inlineIndex` matches;
 
 ## Tasks (TDD)
 
-- [ ] `injectComposingInline` returns `{ inlines, composingIndex }`
-  - [ ] RED: index points at the spliced composing inline (mid-inline,
+- [x] `injectComposingInline` returns `{ inlines, composingIndex }`
+  - [x] RED: index points at the spliced composing inline (mid-inline,
         boundary, end-of-block, empty-block); `-1` for empty text
-  - [ ] Update the one production caller (`layoutBlock`)
-  - [ ] Update existing `composing-injection.test.ts` call sites
-- [ ] `LayoutRun.composing?: boolean` field
-- [ ] `layoutBlock` tags composing runs
-  - [ ] RED: exactly the composing run(s) tagged; wrap → every sub-run
+  - [x] Update the one production caller (`layoutBlock`)
+  - [x] Update existing `composing-injection.test.ts` call sites
+- [x] `LayoutRun.composing?: boolean` field
+- [x] `layoutBlock` tags composing runs
+  - [x] RED: exactly the composing run(s) tagged; wrap → every sub-run
         tagged; no `ComposingContext` → none tagged
-- [ ] `renderRun` composing underline
-  - [ ] RED: composing run strokes 1px solid at `baselineY + 2` in text
+- [x] `renderRun` composing underline
+  - [x] RED: composing run strokes 1px solid at `baselineY + 2` in text
         color; non-composing run without `style.underline` strokes none
-- [ ] Lifecycle: re-layout without composingContext → no tagged run → no
+- [x] Lifecycle: re-layout without composingContext → no tagged run → no
       underline (covered by the "none tagged" + renderRun tests)
-- [ ] `pnpm verify:fast` green
-- [ ] Manual smoke in `pnpm dev` (Korean IME shows underline, gone on commit)
+- [x] `pnpm verify:fast` green
+- [x] Manual smoke in `pnpm dev` (Korean IME shows underline, gone on commit)
 
 ## Out of scope (per note)
 

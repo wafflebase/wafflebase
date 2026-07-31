@@ -30,15 +30,15 @@ For pure ASCII every B-function equals its non-B sibling.
 
 ## Tasks
 
-- [ ] Add byte helpers + 8 function impls to `functions-text.ts`; register in
+- [x] Add byte helpers + 8 function impls to `functions-text.ts`; register in
       `textEntries`.
-- [ ] Add catalog entries (Text category) in `function-catalog.ts` so arity
+- [x] Add catalog entries (Text category) in `function-catalog.ts` so arity
       validation passes and autocomplete lists them.
-- [ ] Unit tests in `packages/sheets/test/formula/formula.test.ts` covering the
+- [x] Unit tests in `packages/sheets/test/formula/formula.test.ts` covering the
       issue's acceptance table + multibyte cases.
-- [ ] Update `docs/design/sheets/formula-coverage.md` (move the 8 out of "Not
+- [x] Update `docs/design/sheets/formula-coverage.md` (move the 8 out of "Not
       implemented — byte-variant text"; bump counts).
-- [ ] Land DRAFT PR, let CI verify.
+- [x] Land DRAFT PR, let CI verify.
 
 ## Done when
 

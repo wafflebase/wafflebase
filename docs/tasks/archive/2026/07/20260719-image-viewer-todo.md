@@ -61,7 +61,7 @@
 **Interfaces:**
 - Produces: `MAX_IMAGE_UPLOAD_BYTES` constant; widened `VALID_FILE_ID_PATTERN`; `FileService.upload(buffer, mimeType)` now accepts image MIMEs (per-category cap).
 
-- [ ] **Step 1: Widen constants**
+- [x] **Step 1: Widen constants**
 
 In `packages/backend/src/file/file.constants.ts`, replace the pdf-only pattern and add the image cap:
 
@@ -76,7 +76,7 @@ export const MAX_PDF_UPLOAD_BYTES = 50 * 1024 * 1024;
 export const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 ```
 
-- [ ] **Step 2: Allow image MIMEs in config**
+- [x] **Step 2: Allow image MIMEs in config**
 
 In `packages/backend/src/file/file.config.ts`, extend `allowedMimeTypes` (leave `maxFileSizeBytes: MAX_PDF_UPLOAD_BYTES` — it is the Multer ceiling / max of both caps):
 
@@ -91,7 +91,7 @@ In `packages/backend/src/file/file.config.ts`, extend `allowedMimeTypes` (leave 
   ],
 ```
 
-- [ ] **Step 3: Write failing service tests**
+- [x] **Step 3: Write failing service tests**
 
 Append to `packages/backend/src/file/file.service.spec.ts`. First extend `makeService` to allow images, then add image cases. Replace the `makeService` body's two config values:
 
@@ -140,12 +140,12 @@ Note: the existing `rejects a non-pdf mime type` test constructs a service whose
   });
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/backend test -- file.service`
 Expected: FAIL — `image/png` currently rejected (not in `MIME_TO_EXT`), 25 MB cap not enforced.
 
-- [ ] **Step 5: Extend the service**
+- [x] **Step 5: Extend the service**
 
 In `packages/backend/src/file/file.service.ts`, extend the MIME→ext map and add a per-category cap. Update the import and `MIME_TO_EXT`:
 
@@ -176,12 +176,12 @@ Replace the size check inside `upload()`:
     }
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/backend test -- file.service`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/file/
@@ -204,7 +204,7 @@ git commit -m "Accept image blobs in the file storage service"
 - Consumes: `VALID_FILE_ID_PATTERN` (Task 1).
 - Produces: `assertFileIdAllowed(type, fileId)` exported from `document-file-id.util.ts`; `DOCUMENT_TYPES` includes `'image'`; `yorkieDocKeyPrefix('image')` → `'image-'`.
 
-- [ ] **Step 1: Add `image` to the DTO type union**
+- [x] **Step 1: Add `image` to the DTO type union**
 
 In `packages/backend/src/document/document.dto.ts`:
 
@@ -212,7 +212,7 @@ In `packages/backend/src/document/document.dto.ts`:
 const DOCUMENT_TYPES = ['sheet', 'doc', 'slides', 'pdf', 'note', 'image'] as const;
 ```
 
-- [ ] **Step 2: Write failing gate util test**
+- [x] **Step 2: Write failing gate util test**
 
 Create `packages/backend/src/document/document-file-id.util.spec.ts`:
 
@@ -240,12 +240,12 @@ describe('assertFileIdAllowed', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- document-file-id`
 Expected: FAIL — module does not exist.
 
-- [ ] **Step 4: Create the util**
+- [x] **Step 4: Create the util**
 
 Create `packages/backend/src/document/document-file-id.util.ts`:
 
@@ -269,7 +269,7 @@ export function assertFileIdAllowed(
 }
 ```
 
-- [ ] **Step 5: Use the util in the controller**
+- [x] **Step 5: Use the util in the controller**
 
 In `packages/backend/src/document/document.controller.ts`, delete the private `assertFileIdAllowed` method (around lines 104-112) and import the util:
 
@@ -283,7 +283,7 @@ Replace the two call sites `this.assertFileIdAllowed(body.type, body.fileId);` w
     assertFileIdAllowed(body.type, body.fileId);
 ```
 
-- [ ] **Step 6: Write failing doc-key test**
+- [x] **Step 6: Write failing doc-key test**
 
 Create `packages/backend/src/yorkie/yorkie-doc-key.spec.ts`:
 
@@ -310,12 +310,12 @@ describe('yorkie-doc-key image prefix', () => {
 });
 ```
 
-- [ ] **Step 7: Run test to verify it fails**
+- [x] **Step 7: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- yorkie-doc-key`
 Expected: FAIL — `yorkieDocKeyPrefix('image')` throws (unknown type).
 
-- [ ] **Step 8: Reserve the image prefix**
+- [x] **Step 8: Reserve the image prefix**
 
 In `packages/backend/src/yorkie/yorkie-doc-key.ts`:
 
@@ -340,12 +340,12 @@ And add the switch case before `default:`:
       return YORKIE_DOC_KEY_PREFIXES.image;
 ```
 
-- [ ] **Step 9: Run tests to verify they pass**
+- [x] **Step 9: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/backend test -- "document-file-id|yorkie-doc-key"`
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/backend/src/document/ packages/backend/src/yorkie/
@@ -371,7 +371,7 @@ git commit -m "Allow the image document type in the backend"
 - Consumes: `assertFileIdAllowed` semantics (Task 2) — the frontend creates `image` docs with a `fileId`.
 - Produces: `UploadKind` includes `"image"`; `uploadFile(file)` and `fileUrl(id, token?)` in `api/files.ts`; `getDocumentPath({type:"image"})` → `/f/:id`.
 
-- [ ] **Step 1: Add `"image"` to `DocumentType`**
+- [x] **Step 1: Add `"image"` to `DocumentType`**
 
 In `packages/frontend/src/types/documents.ts`:
 
@@ -379,7 +379,7 @@ In `packages/frontend/src/types/documents.ts`:
 export type DocumentType = "sheet" | "doc" | "slides" | "pdf" | "note" | "image";
 ```
 
-- [ ] **Step 2: Update classify tests (png is now supported)**
+- [x] **Step 2: Update classify tests (png is now supported)**
 
 Replace `packages/frontend/src/app/documents/__tests__/upload-kind.test.ts` body:
 
@@ -409,12 +409,12 @@ describe("classifyUploadKind", () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-kind`
 Expected: FAIL — `photo.png` is `null`, not `"image"`.
 
-- [ ] **Step 4: Extend the classifier**
+- [x] **Step 4: Extend the classifier**
 
 In `packages/frontend/src/app/documents/upload-kind.ts`:
 
@@ -438,12 +438,12 @@ const EXT_TO_KIND: Record<string, UploadKind> = {
 
 (Leave `classifyUploadKind` unchanged.)
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-kind`
 Expected: PASS.
 
-- [ ] **Step 6: Generalize the file API**
+- [x] **Step 6: Generalize the file API**
 
 In `packages/frontend/src/api/files.ts`, rename both exports to be type-agnostic (the endpoint already is):
 
@@ -473,7 +473,7 @@ export function fileUrl(documentId: string, token?: string): string {
 }
 ```
 
-- [ ] **Step 7: Update the pdf-collab import**
+- [x] **Step 7: Update the pdf-collab import**
 
 In `packages/frontend/src/app/files/pdf-collab.tsx`, line ~34 and ~136:
 
@@ -484,7 +484,7 @@ import { fileUrl } from '@/api/files.ts';
     fileUrl: fileUrl(documentId, token),
 ```
 
-- [ ] **Step 8: Merge the pdf/image branch in the upload queue**
+- [x] **Step 8: Merge the pdf/image branch in the upload queue**
 
 In `packages/frontend/src/app/documents/upload-queue.ts`:
 
@@ -529,7 +529,7 @@ Replace the `else if (item.kind === "pdf") { ... }` block (lines 264-276) with a
     }
 ```
 
-- [ ] **Step 9: Route image to the file viewer**
+- [x] **Step 9: Route image to the file viewer**
 
 In `packages/frontend/src/app/documents/document-list-utils.ts`, add a case in the `getDocumentPath` switch alongside `pdf`:
 
@@ -539,7 +539,7 @@ In `packages/frontend/src/app/documents/document-list-utils.ts`, add a case in t
       return `/f/${doc.id}`;
 ```
 
-- [ ] **Step 10: Fix the existing worker/queue tests**
+- [x] **Step 10: Fix the existing worker/queue tests**
 
 In `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts` (lines 12-16), swap the now-supported `.png` for an unsupported type:
 
@@ -591,12 +591,12 @@ In `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts`:
 > object shape used by the mixed-batch test (with `uploadFile` instead of
 > `uploadPdf`) rather than referencing a helper that doesn't exist.
 
-- [ ] **Step 11: Run the frontend queue tests**
+- [x] **Step 11: Run the frontend queue tests**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-queue upload-kind`
 Expected: PASS.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add packages/frontend/src/types/documents.ts \
@@ -621,7 +621,7 @@ git commit -m "Route image uploads through the document queue"
 - Consumes: `fileUrl` (Task 3), `TYPE_META` shape, `classifyUploadKind` accept list.
 - Produces: `ImageThumb({ documentId })` React component; `image` entry in `TYPE_META`/`TYPE_OPTIONS`; "Upload Image" New-menu item.
 
-- [ ] **Step 1: Write the ImageThumb component**
+- [x] **Step 1: Write the ImageThumb component**
 
 Create `packages/frontend/src/app/documents/image-thumb.tsx`. It lazily fetches bytes only after the row scrolls into view (`IntersectionObserver`), builds an object URL, and revokes it on unmount. Falls back to the generic icon while loading or on error:
 
@@ -691,7 +691,7 @@ export function ImageThumb({ documentId }: { documentId: string }) {
 }
 ```
 
-- [ ] **Step 2: Register the image type in the list**
+- [x] **Step 2: Register the image type in the list**
 
 In `packages/frontend/src/app/documents/document-list.tsx`:
 
@@ -721,7 +721,7 @@ const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
 ];
 ```
 
-- [ ] **Step 3: Render the thumbnail in the title cell**
+- [x] **Step 3: Render the thumbnail in the title cell**
 
 In the title cell (around line 256), swap the plain icon for the thumbnail when the row is an image:
 
@@ -740,7 +740,7 @@ In the title cell (around line 256), swap the plain icon for the thumbnail when 
 
 (Leave the rest of the cell — presence avatars, etc. — unchanged.)
 
-- [ ] **Step 4: Add the "Upload Image" New-menu item**
+- [x] **Step 4: Add the "Upload Image" New-menu item**
 
 In `ImportMenuItems` (around line 222, after the Upload PDF item):
 
@@ -753,12 +753,12 @@ In `ImportMenuItems` (around line 222, after the Upload PDF item):
         </DropdownMenuItem>
 ```
 
-- [ ] **Step 5: Verify lint + build**
+- [x] **Step 5: Verify lint + build**
 
 Run: `pnpm --filter @wafflebase/frontend lint && pnpm --filter @wafflebase/frontend test`
 Expected: PASS (no test asserts the exact menu list; TYPE_META now exhaustively covers `DocumentType`, satisfying the `Record<DocumentType, …>` type).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents/image-thumb.tsx \
@@ -779,7 +779,7 @@ git commit -m "Show image type filter and inline row thumbnails"
 - Consumes: `fetchDocument`, `fetchDocuments`, `fetchWorkspaces`, `fileUrl` (Task 3), existing `PdfCollabProvider`/`PdfHeaderActions`/`PdfCollabBody`.
 - Produces: `FileShell` (shared sidebar/header), `ImageViewer` (viewer + nav); `FileDetail` dispatches by `doc.type`.
 
-- [ ] **Step 1: Extract the shared shell**
+- [x] **Step 1: Extract the shared shell**
 
 Create `packages/frontend/src/app/files/file-shell.tsx` by lifting the sidebar/header/rename/workspace logic currently inline in `file-detail.tsx`'s `FileLayout`. It takes the header actions and body as props and does NOT own any Yorkie provider:
 
@@ -907,7 +907,7 @@ export function FileShell({
 }
 ```
 
-- [ ] **Step 2: Write the image viewer with prev/next**
+- [x] **Step 2: Write the image viewer with prev/next**
 
 Create `packages/frontend/src/app/files/image-viewer.tsx`:
 
@@ -1084,7 +1084,7 @@ export function ImageViewer({ documentId }: { documentId: string }) {
 }
 ```
 
-- [ ] **Step 3: Dispatch by type in FileDetail**
+- [x] **Step 3: Dispatch by type in FileDetail**
 
 Rewrite `packages/frontend/src/app/files/file-detail.tsx` so `FileLayout` becomes two thin layouts selected by `doc.type`, both built on `FileShell`. The PDF layout keeps the `PdfCollabProvider`; the image layout has none:
 
@@ -1189,12 +1189,12 @@ export function FileDetail() {
 export default FileDetail;
 ```
 
-- [ ] **Step 4: Typecheck + lint + test**
+- [x] **Step 4: Typecheck + lint + test**
 
 Run: `pnpm --filter @wafflebase/frontend lint && pnpm --filter @wafflebase/frontend test`
 Expected: PASS. (No unit test drives the viewer; it is covered by manual smoke below. If the repo has a route smoke test that mounts `FileDetail`, ensure it still renders the PDF path.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/files/
@@ -1205,12 +1205,12 @@ git commit -m "Add the image viewer with workspace prev/next navigation"
 
 ## Task 6: Full verify + manual smoke + finish
 
-- [ ] **Step 1: Run the full fast gate**
+- [x] **Step 1: Run the full fast gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + all unit suites across packages).
 
-- [ ] **Step 2: Manual smoke in `pnpm dev`**
+- [x] **Step 2: Manual smoke in `pnpm dev`**
 
 Prereq: `docker compose up -d` (Postgres + Yorkie + MinIO). Then `pnpm dev`.
 
@@ -1220,11 +1220,11 @@ Prereq: `docker compose up -d` (Postgres + Yorkie + MinIO). Then `pnpm dev`.
 - Confirm a PDF still opens with comments/presence (no regression from the FileDetail refactor).
 - Try uploading a > 25 MB image → the upload panel row shows an error with the size reason; other items continue.
 
-- [ ] **Step 3: Self-review the branch diff**
+- [x] **Step 3: Self-review the branch diff**
 
 Dispatch a code review over the full branch diff (`/code-review` or `superpowers:requesting-code-review`). Apply blocking findings; note non-blocking ones as known limitations.
 
-- [ ] **Step 4: Capture lessons + index**
+- [x] **Step 4: Capture lessons + index**
 
 Create `docs/tasks/active/20260719-image-viewer-lessons.md` with anything non-obvious found during implementation (e.g. the `.png`-as-skipped test coupling, the FileDetail provider-before-type ordering). Then:
 
@@ -1234,7 +1234,7 @@ git add docs/tasks/
 git commit -m "Add image-viewer task lessons"
 ```
 
-- [ ] **Step 5: Rebase, push, open PR**
+- [x] **Step 5: Rebase, push, open PR**
 
 ```bash
 git fetch && git rebase origin/main
