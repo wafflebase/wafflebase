@@ -871,7 +871,13 @@ Components:
 
 - **Convergence detection (early exit from the fix loop).** `MAX_REVIEW_ROUNDS`
   is a blunt backstop — PR #521 burned all five rounds re-litigating overlapping
-  findings before anyone was paged. `scripts/agent/rounds.mjs`'s
+  findings before anyone was paged. It is now **3**, down from the 5 that PR #521
+  exhausted: `detectStalledRounds` needs `minRepeats + 1` = 3 rounds of evidence
+  before it can report a stall, so no earlier non-convergence page is possible,
+  and rounds 4-5 were a PR paying a full panel round each (~$12) on the way to a
+  page that was already inevitable. Note this bounds the **fixer**, not panel
+  spend: the guard runs in the `fix` job, so a paged PR still re-reviews on every
+  CI-green push. `scripts/agent/rounds.mjs`'s
   `detectStalledRounds` (wired into
   `scripts/agent/review-round-guard.mjs`, checked BEFORE the round cap so the
   more specific reason wins) pages as soon as two consecutive round pairs both
