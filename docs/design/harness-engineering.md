@@ -623,8 +623,10 @@ Components:
   now the **shared core** — the file classes every code-reviewing lens has in common
   (`cacheCoreClasses`, derived from the manifest: `code`, `code-adjacent`, `policy`)
   — while each lens's remaining in-scope hunks and the issue spec ride uncached in
-  the user prompt, where they already cost full price and, being read by one lens,
-  could never be shared anyway. `splitLensDiff` guarantees `core + extra` is exactly
+  the user prompt, where they already cost full price and, no other session sending
+  those same bytes as a leading prefix, could never be shared anyway (another lens
+  may read some of the same hunks — `docs` reads the prose part of `security`'s
+  remainder — but as a different byte string, which caching cannot match). `splitLensDiff` guarantees `core + extra` is exactly
   that lens's own slice, so **no lens sees a hunk outside its scope**: file-class
   routing is unchanged, only the packaging is. A lens that does not read every core
   class (`docs`, prose-only) keeps its own slice and shares with nobody, as before.

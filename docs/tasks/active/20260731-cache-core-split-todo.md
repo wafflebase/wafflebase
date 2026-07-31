@@ -48,10 +48,26 @@ inside it. 436/436 agent tests green (was 430).
 
 ## Why the remainder is not cached
 
-`security`'s extra hunks are read by `security` alone. A cache write costs `~1.25×`
-and only that one session could ever read it back, so caching the remainder would
-be a loss, not a saving. Full price in the user prompt is the cheapest those bytes
-can be — and it is what they already cost before this change.
+For the same reason the core *is* cached: **byte identity of a leading prefix**, not
+how many lenses read a file class. Both halves of that matter here.
+
+`security`'s remainder is its `design-spec` + `prose` hunks, and other lenses do read
+some of those — `docs` reads the prose part, which is literally a substring of it
+(6,598 of 8,761 bytes on #591's diff). But a substring is not a match: `docs` sends
+prose *alone*, a different byte string, and sends it as its own prefix. Nothing else
+sends `security`'s remainder. On top of that the remainder rides in the user prompt,
+after the rubric and past `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, where nothing is
+cacheable at all.
+
+So a cache write on it would be a `~1.25×` premium nothing reads back. Full price is
+the cheapest those bytes can be — and it is what they already cost before this
+change.
+
+The **issue spec** rides there for the same reason and is the one genuinely
+lens-specific payload: `design-fit` is the only lens that asks for it, so no other
+session can ever send a prefix containing those bytes. In the cacheable prefix it
+was pure cost — it made `design-fit`'s prefix unique on every PR and bought nothing
+in return.
 
 ## Why not nest the slices instead
 

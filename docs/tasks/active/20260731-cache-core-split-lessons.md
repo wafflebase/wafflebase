@@ -18,11 +18,21 @@
       prefix a superset others nest into, make the *common* part identical for
       everyone and push each lens's remainder out of the cache entirely.
 
-- [x] **Check what the optimum actually is before engineering toward it.** The
-      remainder is read by exactly one lens, so caching it would be a `~1.25×` write
-      nothing reads back. The theoretical best is therefore "core cached and shared,
-      remainder at full price" — which the simple design already achieves. The
+- [x] **Check what the optimum actually is before engineering toward it.** A
+      remainder is cacheable only if the same bytes form a shared leading prefix for
+      some other session, and none do — `docs` reads the prose part of `security`'s
+      remainder, but as a different byte string — so a cache write there is a `~1.25×`
+      premium nothing reads back. The theoretical best is therefore "core cached and
+      shared, remainder at full price", which the simple design already achieves. The
       elaborate nesting scheme would have been strictly more fragile for zero gain.
+
+- [x] **The set-membership habit is hard to shake, even while arguing against it.**
+      The first draft of these notes justified not caching the remainder because it
+      was "read by exactly one lens" — a *set* claim, in the very document whose point
+      is that caching answers a *byte* question. It reached the right conclusion for
+      the wrong reason, and the wrong reason is also false: `docs` does read part of
+      `security`'s remainder. Caught in review of this PR, not by a test, because
+      nothing mechanical checks that a rationale is the operative one.
 
 - [x] **Deleting a parameter is a stronger guarantee than a comment asking you not
       to use it.** `lensCacheKey` carried a long warning that no `lens.title` or

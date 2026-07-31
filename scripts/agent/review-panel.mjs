@@ -1390,14 +1390,19 @@ export function lensCacheKey({ diff, scopeNote }) {
 
 /**
  * The TASK half of a lens session: who this lens is, its rubric, whatever part of
- * its diff no other lens shares, and the closing instruction.
+ * its diff the shared core does not carry, and the closing instruction.
  *
  * The CORE of the diff is deliberately absent — it lives in the cacheable system
  * prefix above, which is what makes the round's sessions share it. What lands here
  * is only `extraDiff`, the blocks this lens reads and the other code lenses do not
- * (`splitLensDiff`). Those bytes cannot be cached by anyone: they are, by
- * definition, read by a single lens, so a cache write on them would be a 1.25x
- * premium nothing reads back. Full price here is the cheapest they can be.
+ * (`splitLensDiff`). Those bytes are not cacheable, and the reason is byte
+ * identity rather than how many lenses read them: caching needs the same bytes to
+ * form a shared LEADING prefix, and a remainder is neither. Other lenses may well
+ * read some of the same hunks — `docs` reads the prose part of `security`'s
+ * remainder — but as a different byte string, and here it arrives after the
+ * rubric, past the boundary, where nothing is cacheable at all. Since no other
+ * session sends these bytes as a prefix, a cache write on them would be a 1.25x
+ * premium nothing reads back, so full price here is the cheapest they can be.
  *
  * The issue spec is here for the same reason. `design-fit` is the only lens that
  * asks for it, so keeping it in the cacheable prefix could never share it with
