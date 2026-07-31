@@ -61,6 +61,12 @@ export interface SlidesImagePathDeps {
   editor: Pick<SlidesEditor, 'getEditingElementId' | 'getCurrentSlideId'>;
   store: SlidesStore;
   upload: (file: File) => Promise<{ url: string; w: number; h: number }>;
+  /**
+   * Optional per-insert world center (board mode: current viewport
+   * center). Evaluated at drop/paste time so it tracks live pan/zoom.
+   * Absent ⇒ slide-center framing (slides behavior unchanged).
+   */
+  center?: () => { x: number; y: number } | undefined;
 }
 
 /**
@@ -83,10 +89,10 @@ export interface SlidesImagePathDeps {
  * steals a paste meant for that input.
  */
 export function setupSlidesImagePaths(deps: SlidesImagePathDeps): () => void {
-  const { canvasWrap, editor, store, upload } = deps;
+  const { canvasWrap, editor, store, upload, center } = deps;
 
   const insert = (slideId: string, file: File) => {
-    void insertImageOnSlide({ store, slideId, file, upload }).catch((err) => {
+    void insertImageOnSlide({ store, slideId, file, upload, center: center?.() }).catch((err) => {
       console.error('Failed to insert image', err);
       toast.error('Failed to insert image');
     });

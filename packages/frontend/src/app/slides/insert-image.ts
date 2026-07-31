@@ -10,6 +10,13 @@ export interface InsertImageArgs {
   slideId: string;
   file: File;
   upload: (file: File) => Promise<{ url: string; w: number; h: number }>;
+  /**
+   * Optional world-space center for the inserted image. When set, the
+   * aspect-capped frame is re-centered on this point (board mode: land
+   * the image on-screen at the current viewport center) instead of the
+   * slide's geometric center. Absent ⇒ today's slide-center framing.
+   */
+  center?: { x: number; y: number };
 }
 
 /** Inserted images are capped at this fraction of the slide in each axis. */
@@ -68,11 +75,16 @@ export function computeImageFrame(
 export async function insertImageOnSlide(args: InsertImageArgs): Promise<string> {
   const { url, w, h } = await args.upload(args.file);
   const slideHeight = deckSlideHeight(args.store.read().meta);
+  const frame = computeImageFrame(w, h, slideHeight);
+  if (args.center) {
+    frame.x = args.center.x - frame.w / 2;
+    frame.y = args.center.y - frame.h / 2;
+  }
   let elementId = '';
   args.store.batch(() => {
     elementId = args.store.addElement(args.slideId, {
       type: 'image',
-      frame: computeImageFrame(w, h, slideHeight),
+      frame,
       data: { src: url },
     });
   });
