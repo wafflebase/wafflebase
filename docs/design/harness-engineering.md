@@ -605,7 +605,39 @@ Components:
   detection-vs-verifier instead of one anonymous total — the effort summary renders
   it as a cost · weighted-tokens table. This is what makes "which
   lens, and is it the verifier?" answerable from the ledger rather than by guessing;
-  it is measurement only and gates nothing. The
+  it is measurement only and gates nothing.
+  **Prompt caching (shared core).** The diff dominates the panel's prompt input and
+  every session re-sent it, so the lens prompt is split in two: a cacheable
+  `systemPrompt` prefix carrying the framing, the scope note and the diff, before
+  `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, and the lens's own identity + rubric after it in
+  the user prompt. `createWarmupGate` then runs one session per DISTINCT prefix
+  alone (the `~1.25×` cache write) and fans the rest out concurrently (`~0.1×` reads).
+  Grouping is keyed on the prefix *bytes*, not on the lens, which is what lets two
+  lenses handed the same slice share one warm-up; a prefix only one session will use
+  is sent uncached, since a write nothing re-reads is a `~25%` loss.
+  Byte-identity is the whole mechanism, and once every lens dropped to `samples: 1`
+  (#607, #610) a lens could no longer share a prefix with itself — leaving cross-lens
+  sharing as the only caching left, and excluding exactly the lenses with the biggest
+  slices (`security` reads two classes more than the others; `design-fit` appended
+  the issue spec, making its prefix unique on every PR). So the cacheable prefix is
+  now the **shared core** — the file classes every code-reviewing lens has in common
+  (`cacheCoreClasses`, derived from the manifest: `code`, `code-adjacent`, `policy`)
+  — while each lens's remaining in-scope hunks and the issue spec ride uncached in
+  the user prompt, where they already cost full price and, no other session sending
+  those same bytes as a leading prefix, could never be shared anyway (another lens
+  may read some of the same hunks — `docs` reads the prose part of `security`'s
+  remainder — but as a different byte string, which caching cannot match). `splitLensDiff` guarantees `core + extra` is exactly
+  that lens's own slice, so **no lens sees a hunk outside its scope**: file-class
+  routing is unchanged, only the packaging is. A lens that does not read every core
+  class (`docs`, prose-only) keeps its own slice and shares with nobody, as before.
+  On a mixed PR at the shipped one-sample manifest this takes the projected
+  prompt-input saving from `~23%` to `~50%` (five lenses on one warm-up instead of
+  three); `scripts/agent/cache-report.mjs` renders the projection offline from the
+  real prompt builders. Note the API matches a cacheable prefix as a *leading byte
+  run* and the SDK exposes a single boundary, so nesting shorter slices inside longer
+  ones would need multiple cache breakpoints and does not work here — sharing
+  requires byte-*identity*, which is why the core is a common prefix rather than an
+  ordering. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
   `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable

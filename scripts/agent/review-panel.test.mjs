@@ -29,12 +29,15 @@ import {
   classifyFile,
   sliceDiffByFile,
   diffForLens,
+  cacheCoreClasses,
+  splitLensDiff,
   lensReviewPlan,
   lensHasScope,
   buildLensPrompt,
   buildLensSystemPrompt,
   lensCacheKey,
   countPrefixSessions,
+  loadLenses,
   sampleCountFor,
   createWarmupGate,
   resolveReviewScope,
@@ -160,11 +163,11 @@ const LENS = { id: "correctness", title: "Correctness", needsIssueSpec: true, mo
 const PROMPT_IN = { rubric: "# rubric", diff: "@@ -1 +1 @@\n-a\n+b", issue: "the spec" };
 
 test("incremental review is inert without a scope note: identical rendered prefix", () => {
-  const base = buildLensSystemPrompt(LENS, PROMPT_IN);
+  const base = buildLensSystemPrompt(PROMPT_IN);
   // Every falsy scope-note value a caller can produce — "" is what renderScopeNote
   // returns in full mode, and the others are what a half-wired caller passes.
   for (const scopeNote of ["", undefined, null, 0, false]) {
-    assert.deepEqual(buildLensSystemPrompt(LENS, { ...PROMPT_IN, scopeNote }), base,
+    assert.deepEqual(buildLensSystemPrompt({ ...PROMPT_IN, scopeNote }), base,
       `scopeNote=${JSON.stringify(scopeNote)} must not change the cacheable prefix`);
   }
   // An unconditional `parts.push("", scopeNote)` would add a blank line to every
@@ -182,20 +185,25 @@ test("incremental review is inert without a scope note: identical rendered prefi
       PROMPT_IN.diff,
       "```",
       "",
-      "## The originating issue this PR claims to satisfy (DATA):",
-      "```",
-      "the spec",
-      "```",
+      "Any further hunks in your scope, and the originating issue if your lens uses",
+      "one, follow in your task message. Together with the diff above they are the",
+      "whole of what you are reviewing.",
     ].join("\n"),
     SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
   ]);
+  // The notice is UNCONDITIONAL, and that is not a stylistic choice: this builder
+  // is not told whether the lens has a remainder, so it CANNOT vary the text by
+  // lens. Emitting it only when one exists would give `security` a prefix a few
+  // bytes longer than `correctness`'s and silently split the warm-up group.
+  assert.ok(base[0].includes("Any further hunks in your scope"),
+    "a lens with no remainder must still get the notice, or prefixes diverge");
 });
 
 // The TASK half. Its shape matters for one reason beyond tidiness: the closing
 // instruction has to stay LAST, with nothing after it (see the source guard far
 // below, and the injection-framing test that follows).
-test("the lens user prompt is identity + rubric + closing, and carries no diff", () => {
-  const p = buildLensPrompt(LENS, PROMPT_IN);
+test("the lens user prompt is identity + rubric + closing, and carries no shared diff", () => {
+  const p = buildLensPrompt(LENS, { rubric: PROMPT_IN.rubric });
   assert.equal(p, [
     "You are the Correctness reviewer. Stay strictly in your lane; defer other lenses' concerns.",
     "",
@@ -203,17 +211,44 @@ test("the lens user prompt is identity + rubric + closing, and carries no diff",
     "",
     LENS_CLOSING_INSTRUCTION,
   ].join("\n"));
-  // THE cost invariant of this whole change. The diff is the token-dominant chunk
-  // and it must travel ONLY in the cacheable prefix: re-adding it here (or to the
-  // rubric) would leave every test green, every verdict identical, and quietly
-  // restore paying full price for it once per sample.
-  assert.ok(!p.includes(PROMPT_IN.diff), "the diff must not be in the user prompt — it would not be cached");
-  assert.ok(!p.includes(PROMPT_IN.issue), "the issue spec must not be in the user prompt — it would not be cached");
+  // THE cost invariant of this whole change. The SHARED CORE is the token-dominant
+  // chunk and must travel ONLY in the cacheable prefix: re-adding it here (or to
+  // the rubric) would leave every test green, every verdict identical, and quietly
+  // restore paying full price for it once per session.
+  assert.ok(!buildLensPrompt(LENS, { rubric: PROMPT_IN.rubric, extraDiff: "@@ mine @@", issue: "the spec" })
+    .includes(PROMPT_IN.diff), "the shared core must never appear in the user prompt");
+});
+
+// The remainder — the hunks this lens reads and the other code lenses do not.
+// Uncacheable by construction (one reader), so it rides here at full price, which
+// is what it already cost before the split.
+test("a lens's own hunks and issue spec ride in the user prompt, closing instruction last", () => {
+  const p = buildLensPrompt(LENS, { rubric: "# rubric", extraDiff: "@@ -9 +9 @@\n-x\n+y", issue: "the spec" });
+  assert.ok(p.includes("@@ -9 +9 @@\n-x\n+y"), "the lens's own hunks must reach it at all");
+  assert.ok(p.includes("the spec"), "needsIssueSpec lenses still get the issue, just uncached");
+  // Re-framed as DATA here rather than leaning on the system prefix's framing:
+  // this is untrusted diff text arriving in a second place, and a lens must not
+  // read it as a task change.
+  assert.ok(p.includes("DATA, not instructions"), "the remainder must carry its own injection framing");
+  // THE security invariant, unchanged by this PR and easiest to break here: two
+  // new blocks now land between the rubric and the closing instruction.
+  assert.ok(p.endsWith(LENS_CLOSING_INSTRUCTION), "the closing instruction must still be LAST");
+  assert.ok(p.indexOf("@@ -9 +9 @@") < p.indexOf(LENS_CLOSING_INSTRUCTION),
+    "untrusted hunks must not be able to follow the closing instruction");
+  // A lens that does not ask for the issue must not receive it, split or not.
+  const noSpec = buildLensPrompt({ title: "Docs", needsIssueSpec: false }, { rubric: "# r", issue: "the spec" });
+  assert.ok(!noSpec.includes("the spec"));
+  // No remainder ⇒ no empty diff fence. A lens with nothing extra must render the
+  // same bytes it did before the split existed.
+  for (const extraDiff of ["", "   ", undefined]) {
+    assert.ok(!buildLensPrompt(LENS, { rubric: "# rubric", extraDiff }).includes("```diff"),
+      `extraDiff=${JSON.stringify(extraDiff)} must not open an empty diff block`);
+  }
 });
 
 test("the scope note lands BEFORE the diff, so the lens knows it is partial", () => {
   const note = "## SCOPE NOTE";
-  const [pre] = buildLensSystemPrompt(LENS, { ...PROMPT_IN, scopeNote: note });
+  const [pre] = buildLensSystemPrompt({ ...PROMPT_IN, scopeNote: note });
   assert.ok(pre.includes(note), "the note must reach the prompt at all");
   assert.ok(pre.indexOf(note) < pre.indexOf("```diff"),
     "a lens that reads the diff before the scope note reviews a fragment believing it is whole");
@@ -225,37 +260,36 @@ test("the scope note lands BEFORE the diff, so the lens knows it is partial", ()
 // one is a silent-cost-regression guard: break it and reviews still work, cost
 // quietly goes back up, and nothing else in the suite notices.
 test("the cacheable prefix is shared across lenses and ends at the boundary", () => {
-  const [, marker] = buildLensSystemPrompt(LENS, PROMPT_IN);
+  const [, marker] = buildLensSystemPrompt(PROMPT_IN);
   assert.equal(marker, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, "the marker must be the LAST element");
-  assert.equal(buildLensSystemPrompt(LENS, PROMPT_IN).length, 2,
+  assert.equal(buildLensSystemPrompt(PROMPT_IN).length, 2,
     "nothing may follow the boundary — blocks after it are not cacheable");
 
-  // Two DIFFERENT lenses handed the same slice must produce a byte-identical
-  // prefix, or the cross-lens half of the saving silently disappears. This is why
-  // no lens.title / rubric may appear in the system half.
-  const other = { id: "security", title: "Security", needsIssueSpec: true, model: "claude-opus-5" };
-  assert.deepEqual(buildLensSystemPrompt(other, PROMPT_IN), buildLensSystemPrompt(LENS, PROMPT_IN));
-  assert.equal(lensCacheKey(other, PROMPT_IN), lensCacheKey(LENS, PROMPT_IN),
-    "same slice + same issue-block ⇒ same warm-up group");
-  for (const title of ["Correctness", "Security"]) {
-    assert.ok(!buildLensSystemPrompt(LENS, PROMPT_IN)[0].includes(title),
-      `a lens title in the prefix makes it unique per lens (${title})`);
+  // The prefix takes NO lens, which is the strongest available form of "no
+  // lens-specific byte can get in here": not a convention a later edit could
+  // break, but an argument that does not exist. One such byte makes the prefix
+  // unique per lens and silently costs the cross-lens saving — and cross-lens is
+  // ALL of the saving now that every lens runs a single sample.
+  assert.equal(lensCacheKey.length, 1, "lensCacheKey must take only the shared inputs");
+  assert.equal(buildLensSystemPrompt.length, 1, "buildLensSystemPrompt must take only the shared inputs");
+  for (const title of ["Correctness", "Security", "rubric"]) {
+    assert.ok(!buildLensSystemPrompt(PROMPT_IN)[0].includes(title),
+      `${title} in the prefix would make it unique per lens`);
   }
-
-  // ...and lenses that genuinely differ must NOT group: a lens without the issue
-  // spec has a shorter prefix, so sharing a warm-up with one that has it would be
-  // a miss, not a read.
-  const noSpec = { id: "prose", title: "Prose", needsIssueSpec: false, model: "claude-opus-5" };
-  assert.notEqual(lensCacheKey(noSpec, PROMPT_IN), lensCacheKey(LENS, PROMPT_IN));
-  assert.notEqual(lensCacheKey(LENS, { ...PROMPT_IN, diff: "@@ other @@" }), lensCacheKey(LENS, PROMPT_IN));
+  // Same core ⇒ same group, no matter which lenses asked for it.
+  assert.equal(lensCacheKey({ diff: PROMPT_IN.diff, scopeNote: "" }),
+    lensCacheKey({ diff: PROMPT_IN.diff, scopeNote: "" }));
+  // ...and a genuinely different core must NOT group, or a warm-up would be a
+  // miss rather than a read.
+  assert.notEqual(lensCacheKey({ diff: "@@ other @@" }), lensCacheKey(PROMPT_IN));
 });
 
 // A cache WRITE costs 1.25x. Requesting one for a prefix nothing will re-read is
 // therefore a ~25% cost INCREASE on that prefix, not a saving — the exact trap a
 // single-sample lens falls into.
 test("a prefix no second session will read is sent uncached, as a plain string", () => {
-  const cached = buildLensSystemPrompt(LENS, PROMPT_IN);
-  const plain = buildLensSystemPrompt(LENS, { ...PROMPT_IN, cacheable: false });
+  const cached = buildLensSystemPrompt(PROMPT_IN);
+  const plain = buildLensSystemPrompt({ ...PROMPT_IN, cacheable: false });
   assert.equal(typeof plain, "string", "no marker ⇒ no cache entry ⇒ no 1.25x write premium");
   assert.equal(plain, cached[0], "the model must see the SAME text either way — only the caching differs");
   assert.ok(!plain.includes(SYSTEM_PROMPT_DYNAMIC_BOUNDARY));
@@ -323,14 +357,139 @@ test("countPrefixSessions: only prefixes with a SECOND session are worth caching
     { id: "blast-radius", title: "Blast", scopeClasses: ["code"], samples: 2 },
     { id: "docs", title: "Docs", scopeClasses: ["prose"], samples: 1 },
   ];
-  const counts = countPrefixSessions(lenses, { changedFiles: files, fileBlocks: blocks, issue: "", scopeNote: "" });
-  const codeKey = lensCacheKey(lenses[0], { diff: diffForLens(lenses[0], blocks), issue: "", scopeNote: "" });
-  const proseKey = lensCacheKey(lenses[2], { diff: diffForLens(lenses[2], blocks), issue: "", scopeNote: "" });
+  const coreClasses = cacheCoreClasses(lenses);
+  const counts = countPrefixSessions(lenses, { changedFiles: files, fileBlocks: blocks, scopeNote: "", coreClasses });
+  const key = (l) => lensCacheKey({ diff: splitLensDiff(l, blocks, coreClasses).core, scopeNote: "" });
+  const codeKey = key(lenses[0]);
+  const proseKey = key(lenses[2]);
   assert.equal(counts.get(codeKey), 4, "both code lenses' samples pool onto one prefix");
   assert.equal(counts.get(proseKey), 1, "the single-sample prose lens shares with nobody");
-  // The docs lens reads ONLY prose while the code lenses never read prose, so
-  // those sets are disjoint and no diff ordering can ever make them share.
+  // The docs lens reads ONLY prose, so it fails the core guard and keeps its own
+  // slice. No diff ordering and no core can ever make it share with a code lens.
   assert.notEqual(codeKey, proseKey);
+});
+
+// THE POINT OF THE SPLIT. At one sample per lens (lenses.json since #607) a lens
+// cannot share a prefix with itself, so cross-lens sharing is the only caching
+// left — and the lenses that fell out of it were the ones with the biggest slices.
+test("cacheCoreClasses: the classes every code lens reads, from the manifest", () => {
+  const manifest = loadLenses(path.join(HERE, "lenses"));
+  assert.deepEqual(cacheCoreClasses(manifest), ["code", "code-adjacent", "policy"],
+    "the shipped panel's code lenses have exactly these three in common");
+
+  // Derived, not hardcoded: a lens that drops a class shrinks the core.
+  assert.deepEqual(cacheCoreClasses([
+    { id: "a", scopeClasses: ["code", "code-adjacent", "policy"] },
+    { id: "b", scopeClasses: ["code", "policy"] },
+  ]), ["code", "policy"]);
+  // A prose-only lens is not a code lens and must NOT drag the core to empty —
+  // that is exactly the `docs` case, and letting it vote would switch caching off
+  // for the whole panel.
+  assert.deepEqual(cacheCoreClasses([
+    { id: "a", scopeClasses: ["code", "policy"] },
+    { id: "b", scopeClasses: ["code", "policy"] },
+    { id: "docs", scopeClasses: ["prose"] },
+  ]), ["code", "policy"]);
+  // A lens with no scopeClasses reads EVERYTHING (lensScope's fail-safe), so it
+  // constrains nothing.
+  assert.deepEqual(cacheCoreClasses([{ id: "a" }, { id: "b", scopeClasses: ["code"] }]), ["code"]);
+  // Nobody to share with ⇒ no core ⇒ splitLensDiff leaves every lens whole.
+  for (const only of [[], [{ id: "a", scopeClasses: ["code"] }], [{ id: "d", scopeClasses: ["prose"] }]]) {
+    assert.deepEqual(cacheCoreClasses(only), [], `${JSON.stringify(only)} has fewer than two code lenses`);
+  }
+});
+
+test("splitLensDiff: core is lens-independent, and core + extra is the lens's own slice", () => {
+  const blocks = sliceDiffByFile(
+    "diff --git a/packages/x/src/a.ts b/packages/x/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n" +
+    "diff --git a/docs/design/d.md b/docs/design/d.md\n@@ -1 +1 @@\n-c\n+d\n" +
+    "diff --git a/docs/tasks/active/n.md b/docs/tasks/active/n.md\n@@ -1 +1 @@\n-e\n+f\n" +
+    "diff --git a/CLAUDE.md b/CLAUDE.md\n@@ -1 +1 @@\n-g\n+h\n",
+  );
+  const lenses = [
+    { id: "correctness", scopeClasses: ["code", "code-adjacent", "policy"] },
+    { id: "design-fit", scopeClasses: ["code", "code-adjacent", "policy", "design-spec"] },
+    { id: "security", scopeClasses: ["code", "code-adjacent", "policy", "design-spec", "prose"] },
+    { id: "docs", scopeClasses: ["prose"] },
+  ];
+  const core = cacheCoreClasses(lenses);
+  const split = (l) => splitLensDiff(l, blocks, core);
+
+  // THE SAFETY INVARIANT: no lens gains or loses a single hunk. The split changes
+  // which HALF a block travels in, never whether the lens sees it — so scope
+  // routing is exactly as tight as it was before.
+  for (const lens of lenses) {
+    const { core: c, extra: e } = split(lens);
+    const got = new Set([...sliceDiffByFile(c), ...sliceDiffByFile(e)].map((b) => b.block));
+    const want = new Set(sliceDiffByFile(diffForLens(lens, blocks)).map((b) => b.block));
+    assert.deepEqual([...got].sort(), [...want].sort(),
+      `${lens.id}: core + extra must be exactly its own scope slice`);
+  }
+
+  // THE CACHING INVARIANT: every participating lens gets byte-identical core,
+  // whatever else it reads. This is what puts them in one warm-up group.
+  const cores = new Set(lenses.slice(0, 3).map((l) => split(l).core));
+  assert.equal(cores.size, 1, "the three code lenses must share one core, byte for byte");
+  assert.ok(split(lenses[0]).core.includes("CLAUDE.md"), "policy is a core class and belongs in the shared half");
+  assert.ok(!split(lenses[0]).core.includes("docs/design"), "a non-core class must never enter the shared core");
+
+  // Only what a lens reads beyond the core lands in its remainder.
+  assert.equal(split(lenses[0]).extra, "", "correctness reads nothing outside the core");
+  assert.ok(split(lenses[1]).extra.includes("docs/design/d.md"));
+  assert.ok(!split(lenses[1]).extra.includes("docs/tasks"), "design-fit does not read prose");
+  assert.ok(split(lenses[2]).extra.includes("docs/tasks/active/n.md"));
+
+  // docs reads no core class, so it must NOT be handed the core — that would be a
+  // prose lens reviewing the code diff. It keeps its own slice and shares nothing.
+  const d = split(lenses[3]);
+  assert.equal(d.shared, false);
+  assert.equal(d.extra, "");
+  assert.equal(d.core, diffForLens(lenses[3], blocks), "a non-participant is left exactly as it was");
+  assert.ok(!d.core.includes("packages/x/src/a.ts"), "the docs lens must never see the code diff");
+});
+
+test("splitLensDiff: falls back to the whole slice when the split would buy nothing", () => {
+  // A prose-only PR. Every code lens's core slice is empty, so splitting would
+  // leave an empty shared prefix and push the real content out of the cache
+  // entirely — strictly worse than not splitting.
+  const blocks = sliceDiffByFile("diff --git a/docs/tasks/active/n.md b/docs/tasks/active/n.md\n@@ -1 +1 @@\n-e\n+f\n");
+  const security = { id: "security", scopeClasses: FILE_CLASSES };
+  const s = splitLensDiff(security, blocks, ["code", "code-adjacent", "policy"]);
+  assert.equal(s.shared, false);
+  assert.equal(s.extra, "");
+  assert.equal(s.core, diffForLens(security, blocks), "the whole slice stays in the prefix");
+  // No core at all (fewer than two code lenses in the manifest) — same fallback.
+  for (const noCore of [[], undefined, null]) {
+    assert.deepEqual(splitLensDiff(security, blocks, noCore), s);
+  }
+});
+
+test("at one sample per lens, the panel still shares ONE warm-up across five lenses", () => {
+  // The end-to-end claim, executed against the shipped manifest rather than
+  // asserted: this is the property that stopped holding when samples went to 1,
+  // and the reason the core split exists.
+  const manifest = loadLenses(path.join(HERE, "lenses")).map((l) => ({ ...l, samples: 1 }));
+  const files = [
+    "scripts/agent/review-panel.mjs", ".github/workflows/agent-review-panel.yml",
+    "docs/design/harness-engineering.md", "docs/tasks/active/notes.md",
+  ];
+  const blocks = sliceDiffByFile(files.map((f) =>
+    `diff --git a/${f} b/${f}\n@@ -1 +1 @@\n-a\n+b-${f}\n`).join(""));
+  const coreClasses = cacheCoreClasses(manifest);
+  const counts = countPrefixSessions(manifest, { changedFiles: files, fileBlocks: blocks, scopeNote: "", coreClasses });
+
+  const shared = [...counts.entries()].filter(([, n]) => n > 1);
+  assert.equal(shared.length, 1, "exactly one prefix is shared");
+  assert.equal(shared[0][1], 5,
+    "correctness, test-adequacy, blast-radius, design-fit and security must pool onto it");
+  // design-fit joins only because the issue spec moved to the user prompt. Before
+  // that, its prefix was unique on EVERY PR, code-only ones included.
+  const key = (id) => lensCacheKey({
+    diff: splitLensDiff(manifest.find((l) => l.id === id), blocks, coreClasses).core, scopeNote: "",
+  });
+  assert.equal(key("design-fit"), key("correctness"), "the issue spec must not split design-fit off");
+  assert.equal(key("security"), key("correctness"), "extra classes must not split security off");
+  assert.notEqual(key("docs"), key("correctness"), "the prose lens still stands alone, correctly");
 });
 
 test("main() decides cacheability from the session count before opening any session", () => {
@@ -510,7 +669,7 @@ test("main() threads the resolved scope through runLens", () => {
     "runLens must receive scopeNote, or incremental mode reviews a fragment silently");
   // The note now rides in the CACHEABLE half, so this follows the note there —
   // the rendered tests above cover the shape, this covers the plumbing.
-  assert.match(src, /buildLensSystemPrompt\(lens, \{[^}]*scopeNote[^}]*\}\)/,
+  assert.match(src, /buildLensSystemPrompt\(\{[^}]*scopeNote[^}]*\}\)/,
     "runLens must pass scopeNote on to the system-prompt builder");
   // Every panel entry must be built by panelEntry, which is what makes the
   // write-rule test below binding. An entry assembled inline could carry a pointer
@@ -954,8 +1113,21 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   assert.match(branch[0], /applicable: false/,
     "a skipped lens marked applicable becomes a required check that can never go green");
   assert.match(src, /const lensDiff = plan\.diff/);
-  assert.match(src, /runLens\(lens, \{ rubric: lens\.rubric, diff: lensDiff,/,
-    "runLens must receive the SLICED diff, not the full one");
+  // runLens receives the slice in its two halves — the cacheable core and this
+  // lens's remainder. That `core + extra` is exactly `plan.diff` is executed by
+  // the splitLensDiff tests above; this only pins that main() feeds it both, since
+  // dropping `extraDiff` would silently stop showing security half its scope.
+  assert.match(src, /const \{ core, extra \} = splitLensDiff\(lens, fileBlocks, coreClasses\);/,
+    "main() must split the lens's slice against the round's core");
+  assert.match(src, /runLens\(lens, \{ rubric: lens\.rubric, diff: core, extraDiff: extra,/,
+    "runLens must receive BOTH halves, or the lens reviews less than its scope");
+  // The core must be derived ONCE and threaded into both the cacheability
+  // pre-pass and the round loop. Two derivations could disagree, and the failure
+  // mode is a prefix counted as shared that no second session ever reads — a
+  // 1.25x write for nothing, invisible except in the bill.
+  assert.match(src, /const coreClasses = cacheCoreClasses\(allLenses\);/);
+  assert.match(src, /countPrefixSessions\(allLenses, \{[^}]*coreClasses[^}]*\}\)/,
+    "the pre-pass must count against the same core the loop splits against");
 
   // An empty slice on an in-scope lens must skip DETECTION only. If it also
   // short-circuited the prior-round re-check, an earlier blocking finding would
