@@ -6,11 +6,13 @@ import {
 import {
   DEFAULT_VIEWPORT,
   SYNTHETIC_SLIDE_ID,
+  screenToWorld,
   type Viewport,
 } from "@wafflebase/board";
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
+import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
@@ -19,6 +21,9 @@ import { applyWheelToViewport } from "./board-wheel";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import { dropStickyAtViewportCenter } from "./sticky";
+import { setupSlidesImagePaths } from "../slides/slides-image-input";
+import { insertImageOnSlide } from "../slides/insert-image";
+import { makeBoardImageUpload } from "./board-image";
 
 interface BoardViewProps {
   /**
@@ -39,6 +44,13 @@ interface BoardViewProps {
    * `role === 'viewer'`.
    */
   readOnly?: boolean;
+  /**
+   * Owning workspace id (from the document metadata). Needed to build
+   * the image-upload function (`POST /api/v1/workspaces/:id/images`).
+   * Undefined while the document query is loading — the Image button
+   * stays disabled until it resolves.
+   */
+  workspaceId?: string;
 }
 
 /**
@@ -95,7 +107,7 @@ function mapBoardPeers(
  * deferred follow-up, so this client does not publish `cursor` into
  * presence (would be pure CRDT churn with nothing reading it).
  */
-export function BoardView({ documentId, readOnly }: BoardViewProps) {
+export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   // Live pan/zoom state. A ref (not React state) because it updates on
@@ -106,6 +118,10 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
   // Assigned inside the mount effect once store/editor exist; lets the
   // toolbar trigger a sticky drop that reads the live viewport + host size.
   const stickyInserterRef = useRef<((colorValue: string) => void) | null>(null);
+  // Assigned inside the mount effect (editable + workspace-known only);
+  // lets the toolbar's Image button and the board's paste/drop paths
+  // funnel through the same insert call, centered on the live viewport.
+  const imageInserterRef = useRef<((file: File) => void) | null>(null);
   const [didMount, setDidMount] = useState(false);
   // Lifted into React state (in addition to `editorRef`) purely so the
   // toolbar can re-render with a live `editor` reference once the mount
@@ -211,6 +227,38 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
         colorValue,
       });
     };
+
+    // Image input: paste + drag-drop + toolbar button, all funneling to
+    // insertImageOnSlide, centered on the current viewport. Disabled in
+    // read-only mode and until the workspace id resolves (upload needs it).
+    let disposeImagePaths: (() => void) | undefined;
+    if (!readOnly && workspaceId) {
+      const upload = makeBoardImageUpload(workspaceId);
+      const center = () => screenToWorld(vp.current, { x: hostW / 2, y: hostH / 2 });
+      disposeImagePaths = setupSlidesImagePaths({
+        canvasWrap: container,
+        editor,
+        store,
+        upload,
+        center,
+      });
+      imageInserterRef.current = (file: File) => {
+        void insertImageOnSlide({
+          store,
+          slideId: SYNTHETIC_SLIDE_ID,
+          file,
+          upload,
+          center: center(),
+        }).catch((err) => {
+          // Mirrors the paste/drop path's failure handling
+          // (`setupSlidesImagePaths`'s internal `insert()`) and the
+          // slides toolbar's `handleImagePick` — `insertImageOnSlide`
+          // itself never toasts, so the toolbar-click caller must.
+          console.error("Failed to insert image", err);
+          toast.error("Failed to insert image");
+        });
+      };
+    }
 
     // Cached canvas rect for the pointer/wheel hot paths below — a bare
     // `canvas.getBoundingClientRect()` forces a synchronous layout
@@ -413,9 +461,11 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
       editorRef.current = null;
       setEditor(null);
       stickyInserterRef.current = null;
+      disposeImagePaths?.();
+      imageInserterRef.current = null;
       style.remove();
     };
-  }, [didMount, doc, readOnly]);
+  }, [didMount, doc, readOnly, workspaceId]);
 
   if (loading) {
     return (
@@ -445,6 +495,8 @@ export function BoardView({ documentId, readOnly }: BoardViewProps) {
         <BoardToolbar
           editor={editor}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
+          onInsertImage={(file) => imageInserterRef.current?.(file)}
+          disabled={!workspaceId}
         />
       )}
       <div

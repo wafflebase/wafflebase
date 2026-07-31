@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { Toolbar } from "@/components/ui/toolbar";
@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconPointer, IconLetterT, IconNote } from "@tabler/icons-react";
+import { IconPointer, IconLetterT, IconNote, IconPhoto } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,25 +24,31 @@ export interface BoardToolbarProps {
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
+  /** Upload + insert the picked/pasted/dropped file at the viewport center. */
+  onInsertImage?: (file: File) => void;
 }
 
 /**
  * Minimal insert toolbar for the board infinite canvas: Select / Text /
- * Sticky ▾ / Shape ▾ / Line ▾. Mirrors `slides/toolbar/insert-group.tsx`'s wiring
- * against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
- * `onInsertModeChange` API, minus the two controls that don't apply to a
+ * Sticky ▾ / Image / Shape ▾ / Line ▾. Mirrors `slides/toolbar/insert-group.tsx`'s
+ * wiring against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
+ * `onInsertModeChange` API, minus the one control that doesn't apply to a
  * board:
  *
- * - Image insert is out of scope for the board (SP2) — dropped rather
- *   than wired to a dead `onImagePick`.
  * - Table insert is deliberately never exposed here: `YorkieBoardStore`
  *   throws `notSupported()` on the table-editing ops (`insertTableRow`
  *   etc.) a table element's handlers call, and board paste already
  *   strips tables on the way in. Surfacing `<TablePicker>` would let a
  *   user create a table that then crashes as soon as it's edited.
  */
-export function BoardToolbar({ editor, disabled, onInsertSticky }: BoardToolbarProps) {
+export function BoardToolbar({
+  editor,
+  disabled,
+  onInsertSticky,
+  onInsertImage,
+}: BoardToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -136,6 +142,34 @@ export function BoardToolbar({ editor, disabled, onInsertSticky }: BoardToolbarP
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Image — opens a file picker; upload + insert is board-view's
+          onInsertImage (reuses the slides upload + insert pipeline). */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={false}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Insert image"
+            disabled={disabled || !editor || !onInsertImage}
+          >
+            <IconPhoto size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Insert image</TooltipContent>
+      </Tooltip>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onInsertImage?.(file);
+          e.target.value = ""; // allow re-selecting the same file
+        }}
+      />
 
       {/* Shape ▾ — active when insertMode is a ShapeKind (not text, and
           not a line-tool kind: connectors / scribble live in Line ▾) */}
