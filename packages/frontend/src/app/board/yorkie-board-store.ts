@@ -224,12 +224,36 @@ export class YorkieBoardStore implements SlidesStore {
   private batchDepth = 0;
   private changeListeners = new Set<() => void>();
   private unsubscribeDoc: (() => void) | undefined;
+  /**
+   * Memoized result of {@link read}. `read()` deep-unwraps EVERY element
+   * (`yorkieToPlain` = `JSON.parse(proxy.toJSON())` per node), so on a
+   * large board it rebuilds the whole document — and the editor calls it
+   * at least twice per interaction frame (once in `render()`, once in
+   * `repaintOverlay()`), which measured at ~25k `JSON.parse` calls and
+   * ~4 MB parsed per pan frame. Holding the last snapshot collapses that
+   * to one rebuild per actual change.
+   *
+   * The snapshot is SHARED with every caller, so it must be treated as
+   * read-only; see the "READ-ONLY" notes at the legacy-group refSize
+   * migration sites in `packages/slides/src/view/editor/editor.ts`.
+   *
+   * Dropped by {@link invalidateRead} from the two choke points through
+   * which `root` can change — {@link withUpdate} (every local mutation,
+   * inside or outside a `batch`) and {@link notifyChange} (remote change,
+   * snapshot, undo, redo).
+   */
+  private cachedDoc: SlidesDocument | null = null;
 
   constructor(doc: YorkieDocument<YorkieBoardRoot>) {
     this.doc = doc;
     this.undoFloor = this.doc.getUndoStackForTest().length;
     this.unsubscribeDoc = doc.subscribe((e) => {
-      if (e.type === 'remote-change') {
+      // 'snapshot' is a DISTINCT DocEventType from 'remote-change': when
+      // the server sends a whole-document snapshot (large remote catch-up)
+      // the SDK emits the former and NOT the latter. It has to be handled
+      // here or `root` would change with nothing dropping `cachedDoc`,
+      // leaving every later `read()` permanently stale.
+      if (e.type === 'remote-change' || e.type === 'snapshot') {
         this.notifyChange();
       }
     });
@@ -247,14 +271,24 @@ export class YorkieBoardStore implements SlidesStore {
   }
 
   private notifyChange(): void {
+    // Drop the snapshot BEFORE the listeners run: they react by calling
+    // `read()` (that is the whole point of the notification), so a stale
+    // cache here would hand them the pre-change document.
+    this.invalidateRead();
     for (const cb of this.changeListeners) {
       try { cb(); } catch { /* swallow listener errors */ }
     }
   }
 
+  /** Drop the memoized {@link read} snapshot. See {@link cachedDoc}. */
+  private invalidateRead(): void {
+    this.cachedDoc = null;
+  }
+
   // --- read ---
 
   read(): SlidesDocument {
+    if (this.cachedDoc) return this.cachedDoc;
     const root = this.doc.getRoot();
     const meta = yorkieToPlain<{
       title?: string;
@@ -262,7 +296,7 @@ export class YorkieBoardStore implements SlidesStore {
       recentColors?: string[];
     }>(root.meta) ?? {};
     const elements = (root.elements ?? []).map((e) => this.readElement(e));
-    return boardToSlidesDocument({
+    this.cachedDoc = boardToSlidesDocument({
       meta: {
         title: meta.title ?? 'Untitled board',
         unit: meta.unit,
@@ -270,6 +304,7 @@ export class YorkieBoardStore implements SlidesStore {
       },
       elements,
     });
+    return this.cachedDoc;
   }
 
   readMeta(): Meta {
@@ -384,10 +419,22 @@ export class YorkieBoardStore implements SlidesStore {
   // --- batch + undo (verbatim port of YorkieSlidesStore's scaffolding) ---
 
   private withUpdate(fn: (r: YorkieBoardRoot) => void): void {
-    if (this.activeRoot) {
-      fn(this.activeRoot);
-    } else {
-      this.doc.update((r) => fn(r));
+    // Sole choke point for local mutations — every mutator routes through
+    // here, whether it runs against the ambient `activeRoot` inside a
+    // `batch()` or opens its own `doc.update`. Dropping the snapshot in a
+    // `finally` (rather than only at the end of `batch()`) is what makes a
+    // `read()` BETWEEN two mutations of the same batch observe the first
+    // one: Yorkie applies changes to the local root optimistically, so
+    // `doc.getRoot()` already reflects them mid-batch. The `finally` also
+    // keeps the cache conservative if `fn` throws part-way through.
+    try {
+      if (this.activeRoot) {
+        fn(this.activeRoot);
+      } else {
+        this.doc.update((r) => fn(r));
+      }
+    } finally {
+      this.invalidateRead();
     }
   }
 
