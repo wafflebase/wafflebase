@@ -4,6 +4,21 @@ import { BadRequestException } from '@nestjs/common';
 const BOARD_URL_RE = /miro\.com\/app\/(?:board|live-embed)\/([^/?#]+)/i;
 
 /**
+ * `decodeURIComponent` throws a raw `URIError` on a malformed percent
+ * sequence (e.g. `ab%zz`). Both call sites below take user input, so
+ * translate that into the contracted `BadRequestException` rather than
+ * letting it escape as a 500. The message stays generic — never echo the
+ * caller's input back.
+ */
+function decodeOrReject(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new BadRequestException('Malformed Miro board id');
+  }
+}
+
+/**
  * Extract a Miro board id from a pasted board URL, or accept a bare id.
  *
  * Board ids are base64-ish and commonly end in `=`, which some systems
@@ -18,12 +33,12 @@ export function parseMiroBoardId(input: string): string {
 
   const match = BOARD_URL_RE.exec(trimmed);
   if (match) {
-    return decodeURIComponent(match[1]);
+    return decodeOrReject(match[1]);
   }
 
   // A bare id: no scheme, no slashes, no spaces.
   if (!/[/\s]/.test(trimmed) && !/^https?:/i.test(trimmed)) {
-    return decodeURIComponent(trimmed);
+    return decodeOrReject(trimmed);
   }
 
   throw new BadRequestException(

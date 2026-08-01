@@ -29,4 +29,14 @@ describe('parseMiroBoardId', () => {
   it('rejects an empty string', () => {
     expect(() => parseMiroBoardId('   ')).toThrow(BadRequestException);
   });
+
+  it('rejects a bare id with a malformed percent sequence', () => {
+    expect(() => parseMiroBoardId('ab%zz')).toThrow(BadRequestException);
+  });
+
+  it('rejects a board URL with a malformed percent sequence', () => {
+    expect(() => parseMiroBoardId('https://miro.com/app/board/%E0%A4%A/')).toThrow(
+      BadRequestException,
+    );
+  });
 });
