@@ -5,6 +5,24 @@ import { MemNoteStore } from '../store/memory.js';
 import type { NoteRemoteChange, NoteStore } from '../store/store.js';
 import { noteStoreFacet, noteSync } from './note-sync.js';
 
+/** NoteStore stub; `over` supplies only the members a test cares about. */
+function stubStore(over: Partial<NoteStore>): NoteStore {
+  return {
+    getText: () => '',
+    editText: () => {},
+    batch: (fn) => fn(),
+    undo: () => {},
+    redo: () => {},
+    canUndo: () => false,
+    canRedo: () => false,
+    subscribeRemote: () => () => {},
+    setLocalSelection: () => {},
+    getPeerSelections: () => [],
+    subscribePresence: () => () => {},
+    ...over,
+  };
+}
+
 function mount(store: NoteStore) {
   const view = new EditorView({
     state: EditorState.create({
@@ -24,18 +42,48 @@ describe('noteSync', () => {
     view.destroy();
   });
 
+  it('groups a transaction\'s edits into one store batch', () => {
+    // The store's undo unit is the batch, so all changes carried by one
+    // CodeMirror transaction must land inside a single batch() — otherwise a
+    // multi-change command (e.g. insertTable) would need several undos.
+    const backing = new MemNoteStore('AAAA BBBB');
+    let depth = 0;
+    let maxDepth = 0;
+    const editDepths: number[] = [];
+    const store = stubStore({
+      getText: () => backing.getText(),
+      editText: (f, t, i) => {
+        editDepths.push(depth);
+        backing.editText(f, t, i);
+      },
+      batch: (fn) => {
+        depth++;
+        maxDepth = Math.max(maxDepth, depth);
+        try { fn(); } finally { depth--; }
+      },
+    });
+    const view = mount(store);
+    view.dispatch({
+      changes: [
+        { from: 0, to: 0, insert: 'XY' },
+        { from: 5, to: 9, insert: 'Z' },
+      ],
+      userEvent: 'input.type',
+    });
+    expect(editDepths).toEqual([1, 1]);
+    expect(maxDepth).toBe(1);
+    view.destroy();
+  });
+
   it('applies remote edits into the editor without echoing back', () => {
     // A store that lets the test emit a remote change on demand.
     let emit: (c: NoteRemoteChange) => void = () => {};
     const backing = new MemNoteStore('hello');
-    const store: NoteStore = {
+    const store = stubStore({
       getText: () => backing.getText(),
       editText: (f, t, i) => backing.editText(f, t, i),
       subscribeRemote: (l) => { emit = l; return () => {}; },
-      setLocalSelection: () => {},
-      getPeerSelections: () => [],
-      subscribePresence: () => () => {},
-    };
+    });
     const view = mount(store);
     const before = backing.getText();
     emit({ type: 'edits', changes: [{ from: 5, to: 5, insert: ' world' }] });
@@ -47,14 +95,10 @@ describe('noteSync', () => {
 
   it('applies a full replacement', () => {
     let emit: (c: NoteRemoteChange) => void = () => {};
-    const store: NoteStore = {
+    const store = stubStore({
       getText: () => 'old',
-      editText: () => {},
       subscribeRemote: (l) => { emit = l; return () => {}; },
-      setLocalSelection: () => {},
-      getPeerSelections: () => [],
-      subscribePresence: () => () => {},
-    };
+    });
     const view = mount(store);
     emit({ type: 'replace', content: 'brand new' });
     expect(view.state.doc.toString()).toBe('brand new');

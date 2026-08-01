@@ -33,6 +33,12 @@ export interface NotePeerSelection {
  * plain string (tests); the frontend's YorkieNoteStore backs it with a Yorkie
  * Text CRDT + presence (collaboration). All coordinates are CodeMirror
  * character indices; CRDT position translation lives inside YorkieNoteStore.
+ *
+ * Undo/redo is store-owned (as in DocStore / SlidesStore) rather than
+ * view-owned: on the Yorkie store it reverts the local client's ops through
+ * `doc.history`, which preserves a peer's concurrent edits. A view-local
+ * CodeMirror history could only restore an absolute snapshot and would
+ * clobber them.
  */
 export interface NoteStore {
   /** Current full markdown text. */
@@ -40,8 +46,28 @@ export interface NoteStore {
   /** Apply a local edit (originating in the editor) to the model. */
   editText(from: number, to: number, insert: string): void;
   /**
-   * Subscribe to remote changes. The listener receives changes already
-   * translated to CodeMirror coordinates. MemNoteStore never emits.
+   * Run `fn`, grouping every edit it makes into a single undo unit. Reentrant:
+   * a nested `batch` folds into the outermost one. A batch that edits nothing
+   * records no undo unit.
+   */
+  batch(fn: () => void): void;
+  /**
+   * Revert the last local undo unit. The resulting text change is delivered
+   * back through `subscribeRemote` (so the view applies it like any other
+   * out-of-band change) — not returned here. No-op when `canUndo()` is false.
+   */
+  undo(): void;
+  /** Re-apply the last undone unit. No-op when `canRedo()` is false. */
+  redo(): void;
+  /** Whether there is a local unit to undo (above the seeded baseline). */
+  canUndo(): boolean;
+  /** Whether there is an undone local unit to redo. */
+  canRedo(): boolean;
+  /**
+   * Subscribe to out-of-band changes: a peer's edit, a CRDT snapshot, or the
+   * result of a local `undo()`/`redo()`. The listener receives changes already
+   * translated to CodeMirror coordinates. MemNoteStore emits only for
+   * undo/redo (it has no peers).
    */
   subscribeRemote(listener: (change: NoteRemoteChange) => void): Unsubscribe;
   /**
