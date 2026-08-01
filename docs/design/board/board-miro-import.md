@@ -142,7 +142,7 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 | `sticky_note` | SP2's sticky: `roundRect` shape, Miro **named** `style.fillColor` (`yellow`, `light_green`, …) → hex via a lookup table, `data.content` as the text, middle-anchored |
 | `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect` + report), fill / border color / border width, inline text |
 | `text` | `TextElement` with a docs `Block[]` body |
-| `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; a target that wasn't imported → `free` at that item's frame center, or the connector is skipped + reported when neither end resolves; `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
+| `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; **both ends must resolve**, otherwise the connector is skipped + reported (Miro exposes no absolute coordinate for an unmapped end, so no honest fallback position exists — anchoring it anywhere would either strand the line at the world origin or invent geometry); `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
 | `image` | `ImageElement` with the re-hosted `data.src` |
 | `frame` | `rect` shape (light fill, visible border) + the frame title as its text — a labelled region, not a container |
 | `card` / `app_card` | `roundRect` shape whose text body is the title plus the description |
