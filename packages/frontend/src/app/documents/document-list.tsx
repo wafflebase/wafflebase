@@ -664,7 +664,10 @@ export function DocumentList({
         />
       ),
       cell: ({ row, table }) => (
+        // A miss on the 16x16 box opens the document instead of selecting it,
+        // so `::after` widens the hit area to 32x32 without resizing the box.
         <Checkbox
+          className="relative after:absolute after:top-1/2 after:left-1/2 after:size-8 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
           checked={row.getIsSelected()}
           onCheckedChange={(v) => row.toggleSelected(!!v)}
           onClick={(e) => {
