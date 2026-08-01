@@ -38,6 +38,11 @@ describe('miroShapeKind', () => {
     expect(miroShapeKind('sombrero')).toEqual({ kind: 'rect', known: false });
     expect(miroShapeKind(undefined)).toEqual({ kind: 'rect', known: false });
   });
+
+  it('does not resolve inherited Object.prototype keys from untrusted names', () => {
+    expect(miroShapeKind('constructor')).toEqual({ kind: 'rect', known: false });
+    expect(miroShapeKind('__proto__')).toEqual({ kind: 'rect', known: false });
+  });
 });
 
 describe('stickyHex', () => {
@@ -49,6 +54,11 @@ describe('stickyHex', () => {
 
   it('falls back to the default sticky yellow for unknown or missing names', () => {
     expect(stickyHex('chartreuse')).toBe(stickyHex(undefined));
+  });
+
+  it('does not resolve inherited Object.prototype keys from untrusted names', () => {
+    expect(stickyHex('constructor')).toBe(stickyHex(undefined));
+    expect(stickyHex('constructor')).toMatch(/^#[0-9A-Fa-f]{6}$/);
   });
 });
 

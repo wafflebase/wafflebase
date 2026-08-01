@@ -29,8 +29,18 @@ const SHAPE_MAP: Record<string, ShapeKind> = {
   right_brace: 'rightBrace',
 };
 
-/** Resolve a Miro shape name; `known` is false when we fell back. */
+/**
+ * Resolve a Miro shape name; `known` is false when we fell back.
+ *
+ * The lookup is own-property-only. `name` arrives verbatim from externally
+ * supplied Miro JSON, and a bare index would resolve inherited
+ * `Object.prototype` keys — `'constructor'`, `'toString'`, `'__proto__'` etc.
+ * would report `known: true` with a `kind` that is not a `ShapeKind` at all,
+ * and that bogus value would flow on into the CRDT document. `tsc` cannot
+ * catch this because `Record<string, T>` does not model prototype fallthrough.
+ */
 export function miroShapeKind(name: string | undefined): { kind: ShapeKind; known: boolean } {
-  const mapped = name ? SHAPE_MAP[name] : undefined;
+  const mapped =
+    name && Object.prototype.hasOwnProperty.call(SHAPE_MAP, name) ? SHAPE_MAP[name] : undefined;
   return mapped ? { kind: mapped, known: true } : { kind: 'rect', known: false };
 }

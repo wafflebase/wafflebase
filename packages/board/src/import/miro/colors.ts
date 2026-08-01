@@ -25,7 +25,20 @@ const STICKY_HEX: Record<string, string> = {
 /** Miro's documented default sticky color. */
 const DEFAULT_STICKY = STICKY_HEX.light_yellow;
 
-/** Named Miro sticky color → hex, falling back to the default yellow. */
+/**
+ * Named Miro sticky color → hex, falling back to the default yellow.
+ *
+ * The lookup is own-property-only. `named` arrives verbatim from externally
+ * supplied Miro JSON, and a bare index would resolve inherited
+ * `Object.prototype` keys — `'constructor'`, `'toString'`, `'__proto__'` etc.
+ * would return a function rather than a hex string, silently violating the
+ * declared return type. `tsc` cannot catch this because `Record<string, T>`
+ * does not model prototype fallthrough.
+ */
 export function stickyHex(named: string | undefined): string {
-  return (named && STICKY_HEX[named]) || DEFAULT_STICKY;
+  const mapped =
+    named && Object.prototype.hasOwnProperty.call(STICKY_HEX, named)
+      ? STICKY_HEX[named]
+      : undefined;
+  return mapped || DEFAULT_STICKY;
 }
