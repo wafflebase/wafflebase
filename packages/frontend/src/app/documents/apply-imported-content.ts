@@ -3,11 +3,14 @@ import { fetchYorkieToken } from "@/api/auth";
 import { initialSpreadsheetDocument } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@wafflebase/sheets";
 import type { Document as DocsDocument } from "@wafflebase/docs";
-import type { SlidesDocument } from "@wafflebase/slides";
+import type { ElementInit, SlidesDocument, SlidesStore } from "@wafflebase/slides";
+import { SYNTHETIC_SLIDE_ID } from "@wafflebase/board";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
+import { initialBoardRoot, type YorkieBoardRoot } from "@/types/board-document";
 import { YorkieDocStore } from "@/app/docs/yorkie-doc-store";
 import { ensureSlidesRoot } from "@/app/slides/yorkie-slides-store";
+import { YorkieBoardStore } from "@/app/board/yorkie-board-store";
 
 /**
  * A parsed, client-side import ready to be written into its Yorkie document.
@@ -17,12 +20,14 @@ import { ensureSlidesRoot } from "@/app/slides/yorkie-slides-store";
 export type ImportedContent =
   | { type: "sheet"; document: SpreadsheetDocument }
   | { type: "doc"; document: DocsDocument }
-  | { type: "slides"; document: SlidesDocument };
+  | { type: "slides"; document: SlidesDocument }
+  | { type: "board"; elements: ElementInit[] };
 
 /**
  * The docKey Yorkie attaches to for each editable document type. Mirrors the
  * inline template literals the editor `DocumentProvider`s use
- * (`document-detail.tsx`, `docs-detail.tsx`, `slides-detail.tsx`).
+ * (`document-detail.tsx`, `docs-detail.tsx`, `slides-detail.tsx`,
+ * `board-detail.tsx`).
  */
 function buildDocKey(type: ImportedContent["type"], docId: string): string {
   switch (type) {
@@ -32,7 +37,34 @@ function buildDocKey(type: ImportedContent["type"], docId: string): string {
       return `slides-${docId}`;
     case "sheet":
       return `sheet-${docId}`;
+    case "board":
+      return `board-${docId}`;
   }
+}
+
+/**
+ * Write every mapped element onto the board in ONE batch — a single Yorkie
+ * change and a single undo unit. Driving the store (rather than assigning
+ * `root.elements` directly) reuses its connector-frame computation and
+ * text/connector normalization.
+ *
+ * `__id` is the mapper's internal handle for wiring connector endpoints; it is
+ * not part of the model, so it is stripped here.
+ */
+export function applyBoardElements(
+  store: Pick<SlidesStore, "batch" | "addElement">,
+  elements: ElementInit[],
+): void {
+  if (elements.length === 0) return;
+  store.batch(() => {
+    for (const element of elements) {
+      const { __id: _, ...init } = element as ElementInit & {
+        __id?: string;
+      };
+      void _;
+      store.addElement(SYNTHETIC_SLIDE_ID, init as ElementInit);
+    }
+  });
 }
 
 /**
@@ -105,6 +137,18 @@ export async function applyImportedContent(
       // Reuse the exact writer the docs editor uses on mount
       // (docs-view.tsx: `new YorkieDocStore(doc).setDocument(pending)`).
       new YorkieDocStore(doc).setDocument(content.document);
+      await client.detach(doc);
+    } else if (content.type === "board") {
+      const doc = new Document<YorkieBoardRoot>(docKey);
+      await client.attach(doc, { initialRoot: initialBoardRoot() });
+      const store = new YorkieBoardStore(doc);
+      try {
+        applyBoardElements(store, content.elements);
+      } finally {
+        // The store subscribes to the doc in its constructor — release it
+        // before detaching.
+        store.dispose();
+      }
       await client.detach(doc);
     } else {
       const parsed = content.document;
