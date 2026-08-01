@@ -82,8 +82,39 @@ describe('MiroService.importBoard', () => {
     const result = await service.importBoard('tok', 'B=', 'ws-1');
 
     expect(result.items.length).toBe(MiroService.MAX_ITEMS);
+    // Both feeds truncate here, so each note must name the feed it covers.
     expect(result.notes).toContainEqual(
-      expect.objectContaining({ reason: 'truncated' }),
+      expect.objectContaining({ reason: 'truncated', itemType: 'items' }),
+    );
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'truncated', itemType: 'connectors' }),
+    );
+  });
+
+  it('stops when a page is empty but still advertises a cursor', async () => {
+    // A stuck cursor: every page claims there is more but delivers nothing.
+    // Without a no-forward-progress guard the item ceiling never trips
+    // (`out.length` stays 0) and the loop would fetch forever.
+    let calls = 0;
+    const fetchMock = jest.fn().mockImplementation(() => {
+      calls += 1;
+      // Safety valve: if the guard regresses, the loop still terminates and
+      // the call-count assertion below fails loudly, instead of hanging the
+      // whole suite on a starved event loop.
+      if (calls > 100) return Promise.resolve(jsonResponse({ data: [] }));
+      return Promise.resolve(jsonResponse({ data: [], cursor: 'SAME' }));
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(result.items).toEqual([]);
+    expect(result.connectors).toEqual([]);
+    // Exactly one request per feed — the stalled cursor is not followed.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'stalled', itemType: 'items' }),
     );
   });
 

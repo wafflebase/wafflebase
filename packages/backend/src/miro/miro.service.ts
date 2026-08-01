@@ -58,11 +58,13 @@ export class MiroService {
       `${MIRO_API}/boards/${encodeURIComponent(boardId)}/items`,
       token,
       notes,
+      'items',
     );
     const connectors = await this.fetchPaged<MiroConnector>(
       `${MIRO_API}/boards/${encodeURIComponent(boardId)}/connectors`,
       token,
       notes,
+      'connectors',
     );
 
     // Task 3 re-hosts image bytes here before returning.
@@ -72,12 +74,14 @@ export class MiroService {
   /**
    * Follow Miro's cursor pagination until exhausted or the item ceiling is
    * reached. On truncation a note is pushed rather than failing — a partial
-   * import the user knows about is better than none.
+   * import the user knows about is better than none. `label` names the feed
+   * ('items' / 'connectors') so a note says WHICH one was cut.
    */
   private async fetchPaged<T>(
     baseUrl: string,
     token: string,
     notes: MiroImportNote[],
+    label: string,
   ): Promise<T[]> {
     const out: T[] = [];
     let cursor: string | undefined;
@@ -88,14 +92,37 @@ export class MiroService {
       if (cursor) url.searchParams.set('cursor', cursor);
 
       const page = await this.getJson<MiroPage<T>>(url.toString(), token);
-      out.push(...(page.data ?? []));
+      const batch = page.data ?? [];
+      out.push(...batch);
 
       if (out.length >= MiroService.MAX_ITEMS) {
         out.length = MiroService.MAX_ITEMS;
-        notes.push({ reason: 'truncated', count: MiroService.MAX_ITEMS });
+        notes.push({
+          reason: 'truncated',
+          itemType: label,
+          count: MiroService.MAX_ITEMS,
+        });
         return out;
       }
       if (!page.cursor) return out;
+
+      // DO NOT REMOVE: this is what makes the loop provably terminate.
+      //
+      // The item ceiling above bounds the item COUNT, not the ITERATION count.
+      // A page that returns zero items while still advertising a cursor (stuck
+      // cursor, transient upstream bug) leaves `out.length` frozen, so the
+      // ceiling never trips and we would fetch that same cursor forever,
+      // hanging the request until an external timeout.
+      //
+      // Requiring forward progress closes that hole exactly: every iteration
+      // that continues appends at least one item, and `out.length` is capped
+      // at MAX_ITEMS, so the loop runs at most MAX_ITEMS + 1 times. Stopping
+      // here may yield a short read, so it is reported like any other
+      // degradation instead of silently looking like a complete import.
+      if (batch.length === 0) {
+        notes.push({ reason: 'stalled', itemType: label, count: out.length });
+        return out;
+      }
       cursor = page.cursor;
     }
   }
