@@ -94,14 +94,44 @@ describe('mapMiroItems', () => {
     expect(connector.arrowheads.end).toBeTruthy();
   });
 
-  it('falls back to a free endpoint at the target centre when one end is unmapped', () => {
-    const { inits } = mapMiroItems({
+  it('skips a connector when only the end is unmapped, and counts it', () => {
+    // Miro exposes no absolute coordinate for the unmapped end, so there is no
+    // honest fallback position — a `free` endpoint would strand the line at the
+    // world origin, far from a board that sits away from (0, 0). Report it.
+    const { inits, skipped } = mapMiroItems({
       items: [{ id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } }],
       connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'ghost' } }],
     });
-    const connector = inits.find((i) => i.type === 'connector') as any;
-    expect(connector.start.kind).toBe('attached');
-    expect(connector.end.kind).toBe('free');
+    expect(inits.find((i) => i.type === 'connector')).toBeUndefined();
+    expect(skipped.connector).toBe(1);
+  });
+
+  it('skips a connector when only the start is unmapped, and counts it', () => {
+    const { inits, skipped } = mapMiroItems({
+      items: [{ id: 'b', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } }],
+      connectors: [{ id: 'c1', startItem: { id: 'ghost' }, endItem: { id: 'b' } }],
+    });
+    expect(inits.find((i) => i.type === 'connector')).toBeUndefined();
+    expect(skipped.connector).toBe(1);
+  });
+
+  it('never emits a free endpoint — every emitted connector end is attached', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(9000, 9000), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(9300, 9000), data: { shape: 'rectangle' } },
+      ],
+      connectors: [
+        { id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' } },
+        { id: 'c2', startItem: { id: 'a' }, endItem: { id: 'ghost' } },
+      ],
+    });
+    const connectors = inits.filter((i) => i.type === 'connector') as any[];
+    expect(connectors).toHaveLength(1);
+    for (const c of connectors) {
+      expect(c.start.kind).toBe('attached');
+      expect(c.end.kind).toBe('attached');
+    }
   });
 
   it('skips a connector whose ends are both unmapped, and counts it', () => {

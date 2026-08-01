@@ -90,6 +90,7 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
           text: {
             blocks: miroHtmlToBlocks(str(data.content)),
             verticalAnchor: 'middle',
+            autofit: 'shrink',
           },
         },
       } as ElementInit & { __id: string });
@@ -158,22 +159,18 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     const startElement = startId ? idMap.get(startId) : undefined;
     const endElement = endId ? idMap.get(endId) : undefined;
 
-    // Nothing to anchor to on either end — the connector would float at the
-    // origin, which is worse than reporting it.
-    if (!startElement && !endElement) {
+    // Both ends must anchor to a mapped element. Miro exposes no absolute
+    // coordinate for an end that did not map, so a `free` endpoint could only
+    // be guessed — and the guess lands at the world origin, which for a board
+    // sitting far from (0, 0) draws a long stray line across the import.
+    // Reporting the connector is honest; inventing a position is not.
+    if (!startElement || !endElement) {
       bump('connector');
       continue;
     }
 
-    const centreOf = (miroId: string | undefined): { x: number; y: number } => {
-      const f = miroId ? frames.get(miroId) : undefined;
-      return f ? { x: f.x + f.w / 2, y: f.y + f.h / 2 } : { x: 0, y: 0 };
-    };
-
-    const endpoint = (elementId: string | undefined, otherMiroId: string | undefined): Endpoint =>
-      elementId
-        ? { kind: 'attached', elementId, siteIndex: 0 }
-        : { kind: 'free', ...centreOf(otherMiroId) };
+    const start: Endpoint = { kind: 'attached', elementId: startElement, siteIndex: 0 };
+    const end: Endpoint = { kind: 'attached', elementId: endElement, siteIndex: 0 };
 
     const style = connector.style ?? {};
     const strokeWidth = num(style.strokeWidth);
@@ -182,8 +179,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       type: 'connector',
       frame: { x: 0, y: 0, w: 0, h: 0, rotation: 0 },
       routing: routingOf(connector.shape),
-      start: endpoint(startElement, startId),
-      end: endpoint(endElement, endId),
+      start,
+      end,
       arrowheads: {
         ...(str(style.startStrokeCap) && str(style.startStrokeCap) !== 'none'
           ? { start: { kind: 'triangle', size: 'md' } }
