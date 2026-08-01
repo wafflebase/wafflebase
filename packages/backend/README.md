@@ -191,6 +191,26 @@ Documents gain folder support: `GET /workspaces/:wid/documents?folderId=` filter
 to a folder (omitted = workspace root); document create and `PATCH /documents/:id`
 accept `folderId` (`null` = move to root, manager-gated like the workspace move).
 
+### Miro import (`/workspaces/:workspaceId/miro/import`)
+
+Reads a Miro board on the caller's behalf so it can be imported as a
+`"board"` document (design: [`docs/design/board/board-miro-import.md`](../../docs/design/board/board-miro-import.md)).
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/workspaces/:wid/miro/import` | JWT (member) | Fetch a Miro board's items + connectors (`{ token, boardUrl }`) and return `{ items, connectors, notes }` |
+
+The caller supplies their own Miro access token in the request body. It is used
+for that request only — **never stored, never logged, and never returned**;
+there is no Miro credential in the database and no Prisma model for it. Items
+and connectors come from two separate paginated Miro endpoints (`/items` does
+not include connectors). Image bytes are downloaded with the token (Miro's
+`imageUrl` is auth-scoped and expires in ~60s) and re-uploaded into the
+workspace image bucket, so the stored document references a stable wafflebase
+URL. Anything skipped — unsupported item types, failed images, a truncated or
+stalled read — is reported back in `notes` and surfaced to the user rather than
+dropped silently.
+
 ### Analytics
 
 `POST /internal/analytics/view-events` is a beacon endpoint (share-token
