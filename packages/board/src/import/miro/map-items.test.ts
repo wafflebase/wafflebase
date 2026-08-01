@@ -159,6 +159,28 @@ describe('mapMiroItems', () => {
     expect(skipped.connector).toBe(1);
   });
 
+  it('skips a connector attached to an image that has no imageUrl, and counts it here', () => {
+    // An image without a usable `imageUrl` emits no element. Registering it in
+    // the id map anyway made a connector to it resolve to a truthy handle, so
+    // the connector was emitted `attached` to an element that never existed —
+    // the applier then dropped it, reporting the loss under ITS counter and
+    // naming the wrong cause. The mapper's contract is that both ends resolve,
+    // so the validation has to happen before the id is minted.
+    const { inits, skipped } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'img', type: 'image', ...at(300, 0), data: {} },
+      ],
+      connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'img' } }],
+      resolveImageUrl: identity,
+    });
+
+    expect(inits.find((i) => i.type === 'image')).toBeUndefined();
+    expect(inits.find((i) => i.type === 'connector')).toBeUndefined();
+    expect(skipped.image).toBe(1);
+    expect(skipped.connector).toBe(1);
+  });
+
   it('reports an unknown shape kind as an approximation, not a skip', () => {
     // The shape IS imported, as a rect. Counting it under `skipped` produced
     // "2 shape-kinds skipped" — claiming content was lost when it was present,

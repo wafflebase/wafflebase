@@ -66,6 +66,16 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       bump(item.type);
       continue;
     }
+    // An image with no usable `imageUrl` emits nothing, so it must not reach
+    // the id map: a connector pointing at it would resolve to a live handle
+    // and be emitted `attached` to an element that is never created. The
+    // applier does catch that, but it reports the drop under its own counter —
+    // the honest place to account for it is here, where the cause is known.
+    // This is why the check runs in pass 1, BEFORE the id is minted.
+    if (item.type === 'image' && !str((item.data ?? {}).imageUrl)) {
+      bump('image');
+      continue;
+    }
     const elementId = generateId();
     idMap.set(item.id, elementId);
     frames.set(item.id, miroFrame(item.position, item.geometry));
@@ -145,8 +155,9 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     }
 
     if (item.type === 'image') {
-      const src = str(data.imageUrl);
-      if (!src) { bump('image'); continue; }
+      // Non-null by construction: pass 1 drops an image without a `src` before
+      // it can be registered, so anything reaching here has one.
+      const src = str(data.imageUrl)!;
       inits.push({
         // The backend's URL is root-relative; the injected resolver makes it
         // absolute before it is persisted. See `MiroImportInput`.
