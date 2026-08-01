@@ -61,6 +61,40 @@ const IMAGE_HOST_ALLOWLIST: {
  */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Deadlines for the outbound calls.
+ *
+ * Node's `fetch` applies NO overall request deadline: a host that accepts the
+ * connection and then stalls holds a Nest request worker until the client
+ * gives up. `fetchPaged` makes that worse — it can issue up to `MAX_ITEMS + 1`
+ * sequential page requests, so one stalled hop stalls the whole import.
+ *
+ * The JSON deadline is per PAGE, not per import, which is the right unit: a
+ * healthy page answers in well under a second, and a large board is allowed to
+ * take many of them. The image deadline is looser because it covers a real
+ * binary transfer, bounded independently at `MAX_IMAGE_BYTES`.
+ */
+const API_TIMEOUT_MS = 15_000;
+const IMAGE_TIMEOUT_MS = 30_000;
+
+/**
+ * Aggregate ceilings on the image re-hosting phase.
+ *
+ * `MAX_IMAGE_BYTES` bounds ONE image; it says nothing about the total. With
+ * `MAX_ITEMS = 5000` an image-heavy board could otherwise drive 5000
+ * sequential downloads of up to 10 MB each on a single request — tens of GB of
+ * transfer and buffer churn, and a request that never finishes.
+ *
+ * So the phase is also bounded as a whole: at most `MAX_REHOSTED_IMAGES`
+ * downloads, and at most `MAX_TOTAL_IMAGE_BYTES` in aggregate. 100 images /
+ * 64 MB covers the boards people actually import while keeping the worst case
+ * to a bounded, sub-minute amount of work. Whatever is left over is SKIPPED
+ * (not downloaded) and reported under its own note reason, so the user is told
+ * their board was too image-heavy rather than silently losing pictures.
+ */
+const MAX_REHOSTED_IMAGES = 100;
+const MAX_TOTAL_IMAGE_BYTES = 64 * 1024 * 1024;
+
 interface MiroPage<T> {
   data?: T[];
   cursor?: string;
@@ -81,6 +115,10 @@ export class MiroService {
    * the truncation is reported — bounded memory beats a silent partial import.
    */
   static readonly MAX_ITEMS = 5000;
+
+  /** Aggregate image ceilings, exposed so the tests assert the real numbers. */
+  static readonly MAX_REHOSTED_IMAGES = MAX_REHOSTED_IMAGES;
+  static readonly MAX_TOTAL_IMAGE_BYTES = MAX_TOTAL_IMAGE_BYTES;
 
   constructor(private readonly imageService: ImageService) {}
 
@@ -124,6 +162,12 @@ export class MiroService {
    *
    * A failure drops just that image (with a note) — one broken asset must not
    * fail the whole import.
+   *
+   * The phase as a whole is bounded by `MAX_REHOSTED_IMAGES` /
+   * `MAX_TOTAL_IMAGE_BYTES`; images past either ceiling are skipped without
+   * being fetched and reported under `image-budget`, kept separate from
+   * `image-failed` because "your board is too image-heavy" and "this image is
+   * broken" are different facts.
    */
   private async rehostImages(
     items: MiroItem[],
@@ -132,6 +176,9 @@ export class MiroService {
     notes: MiroImportNote[],
   ): Promise<MiroItem[]> {
     let failed = 0;
+    let overBudget = 0;
+    let downloads = 0;
+    let downloadedBytes = 0;
     const out: MiroItem[] = [];
 
     for (const item of items) {
@@ -142,6 +189,13 @@ export class MiroService {
       const src = (item.data as { imageUrl?: string } | undefined)?.imageUrl;
       if (!src) {
         failed++;
+        continue;
+      }
+      if (
+        downloads >= MAX_REHOSTED_IMAGES ||
+        downloadedBytes >= MAX_TOTAL_IMAGE_BYTES
+      ) {
+        overBudget++;
         continue;
       }
       try {
@@ -156,10 +210,18 @@ export class MiroService {
         }
         url.searchParams.set('format', 'original');
 
+        // Two independent reasons to stop: the size cap (raised from inside
+        // `readCapped`, so it needs a controller we own) and the deadline. Only
+        // a combined signal honours both — a bare `controller.signal` gives the
+        // transfer no clock, and a bare timeout cannot be tripped by the cap.
         const controller = new AbortController();
+        downloads++;
         const res = await fetch(url.toString(), {
           headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+          ]),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -183,6 +245,7 @@ export class MiroService {
         }
 
         const buffer = await MiroService.readCapped(res, controller);
+        downloadedBytes += buffer.length;
         const uploaded = await this.imageService.upload(
           buffer,
           mime,
@@ -205,6 +268,13 @@ export class MiroService {
 
     if (failed > 0) {
       notes.push({ reason: 'image-failed', itemType: 'image', count: failed });
+    }
+    if (overBudget > 0) {
+      notes.push({
+        reason: 'image-budget',
+        itemType: 'image',
+        count: overBudget,
+      });
     }
     return out;
   }
@@ -353,28 +423,62 @@ export class MiroService {
     let res: Response;
     try {
       res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-    } catch {
-      throw new InternalServerErrorException('Could not reach the Miro API');
+    } catch (err) {
+      // A stalled upstream and an unreachable one need different messages —
+      // "could not reach" sends the user hunting for a network problem that
+      // isn't there. Neither message may carry the URL or the token.
+      throw new InternalServerErrorException(
+        MiroService.isTimeout(err)
+          ? 'The Miro API did not respond in time'
+          : 'Could not reach the Miro API',
+      );
     }
 
     if (res.status === 401) {
-      throw new UnauthorizedException('The Miro token was rejected (invalid or expired)');
+      throw new UnauthorizedException(
+        'The Miro token was rejected (invalid or expired)',
+      );
     }
     if (res.status === 403) {
-      throw new ForbiddenException('The Miro token lacks access to this board (needs boards:read)');
+      throw new ForbiddenException(
+        'The Miro token lacks access to this board (needs boards:read)',
+      );
     }
     if (res.status === 404) {
-      throw new NotFoundException('Miro board not found, or the token has no access to it');
+      throw new NotFoundException(
+        'Miro board not found, or the token has no access to it',
+      );
     }
     if (res.status === 429) {
-      throw new InternalServerErrorException('Miro rate limit reached — try again in a minute');
+      throw new InternalServerErrorException(
+        'Miro rate limit reached — try again in a minute',
+      );
     }
     if (!res.ok) {
-      throw new InternalServerErrorException(`Miro API error (HTTP ${res.status})`);
+      throw new InternalServerErrorException(
+        `Miro API error (HTTP ${res.status})`,
+      );
     }
 
     return (await res.json()) as T;
+  }
+
+  /**
+   * Did this rejection come from our own deadline?
+   *
+   * `AbortSignal.timeout` rejects with a `TimeoutError`, but older/edge
+   * runtimes and polyfills surface a plain `AbortError`. The feed fetch carries
+   * no other abort source, so treating both as the deadline is exact rather
+   * than a guess.
+   */
+  private static isTimeout(err: unknown): boolean {
+    const name = (err as { name?: unknown } | null)?.name;
+    return name === 'TimeoutError' || name === 'AbortError';
   }
 }

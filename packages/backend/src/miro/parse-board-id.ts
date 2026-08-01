@@ -43,11 +43,24 @@ function toUrl(value: string): URL | null {
  * caller's input back.
  */
 function decodeOrReject(value: string): string {
+  let decoded: string;
   try {
-    return decodeURIComponent(value);
+    decoded = decodeURIComponent(value);
   } catch {
     throw new BadRequestException('Malformed Miro board id');
   }
+
+  // Re-check AFTER decoding. Both call sites validate the ENCODED form — the
+  // bare-id branch rejects `/` and whitespace, the URL branch takes a
+  // `[^/?#]+` path segment — and `%2F` passes both, then decodes into a
+  // delimiter that is spliced into the Miro request path. The caller
+  // re-escapes with `encodeURIComponent`, so this is defence in depth rather
+  // than the only guard, but a board id containing a delimiter or whitespace
+  // is not a real id in the first place.
+  if (!decoded || /[/\\\s]/.test(decoded)) {
+    throw new BadRequestException('Malformed Miro board id');
+  }
+  return decoded;
 }
 
 /**

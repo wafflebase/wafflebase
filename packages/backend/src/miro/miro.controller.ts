@@ -24,7 +24,8 @@ export class MiroController {
     @Body() dto: ImportMiroBoardDto,
   ) {
     const userId = Number(req.user.id);
-    const workspaceId = await this.workspaceService.resolveId(workspaceIdOrSlug);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.miroService.importBoard(dto.token, dto.boardUrl, workspaceId);
   }
