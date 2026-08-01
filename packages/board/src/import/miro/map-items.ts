@@ -18,17 +18,43 @@ function routingOf(shape: string | undefined): 'straight' | 'elbow' | 'curved' {
 }
 
 /**
+ * Escape text that is about to be interpolated into an HTML fragment.
+ *
+ * Card titles/descriptions arrive as PLAIN TEXT and are wrapped in `<p>` so
+ * they can share `miroHtmlToBlocks` with the fields that really are HTML.
+ * Without this, a title containing `<`, `&`, or literally `</p><p>` is
+ * reparsed as markup: the words silently restructure, or vanish into a tag
+ * name. (Not an XSS vector — `DOMParser` output is inert and only text and
+ * marks are ever read off it — but it does corrupt the user's content.)
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * Map a Miro board's items + connectors to board `ElementInit`s.
  *
  * Two passes, mirroring the PPTX importer's `parseSpTree`: pass 1 assigns an
  * element id to every mappable item and records `miroId → elementId`, so pass
  * 2 can resolve connector endpoints regardless of the order items arrived in.
  *
- * Pure: no I/O, no secrets, no DOM beyond `DOMParser` for the text fragments.
+ * The ids minted here are LOCAL HANDLES carried on `__id`, not the ids the
+ * document ends up with — the store mints its own on `addElement`. The applier
+ * (`applyBoardElements`) is responsible for remapping every connector endpoint
+ * from a `__id` onto the real one; a connector written with a raw `__id`
+ * anchors to nothing and collapses to the world origin.
+ *
+ * Pure: no I/O, no secrets, no env — the one environment-dependent value (the
+ * image base URL) is injected as `resolveImageUrl`.
  */
 export function mapMiroItems(input: MiroImportInput): MiroMapResult {
   const skipped: Record<string, number> = {};
   const bump = (type: string) => { skipped[type] = (skipped[type] ?? 0) + 1; };
+  const approximated: Record<string, number> = {};
+  const approx = (kind: string) => { approximated[kind] = (approximated[kind] ?? 0) + 1; };
 
   // --- pass 1: id map + frames ---
   const idMap = new Map<string, string>();
@@ -49,7 +75,17 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
   // --- pass 2: build the elements ---
   const inits: (ElementInit & { __id?: string })[] = [];
 
-  for (const item of mappable) {
+  // Frames first. A board has no container concept, so a Miro frame becomes an
+  // ordinary opaque rectangle — and z-order here is array order. Emitting them
+  // in `/items` order meant a frame that happened to arrive after the items it
+  // contains painted straight over them, hiding the content it is supposed to
+  // delimit. Frames are backdrops, so they go at the bottom.
+  const ordered = [
+    ...mappable.filter((i) => i.type === 'frame'),
+    ...mappable.filter((i) => i.type !== 'frame'),
+  ];
+
+  for (const item of ordered) {
     const __id = idMap.get(item.id)!;
     const frame = frames.get(item.id)!;
     const data = item.data ?? {};
@@ -75,7 +111,8 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
 
     if (item.type === 'shape') {
       const { kind, known } = miroShapeKind(str(data.shape));
-      if (!known) bump('shape-kind');
+      // The shape IS imported — as a rect. That is a degradation, not a skip.
+      if (!known) approx('shape-kind');
       const borderWidth = num(style.borderWidth);
       inits.push({
         __id,
@@ -111,7 +148,9 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       const src = str(data.imageUrl);
       if (!src) { bump('image'); continue; }
       inits.push({
-        __id, type: 'image', frame, data: { src },
+        // The backend's URL is root-relative; the injected resolver makes it
+        // absolute before it is persisted. See `MiroImportInput`.
+        __id, type: 'image', frame, data: { src: input.resolveImageUrl(src) },
       } as ElementInit & { __id: string });
       continue;
     }
@@ -138,7 +177,10 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     // card | app_card
     const title = str(data.title) ?? '';
     const description = str(data.description) ?? '';
-    const html = [title ? `<p>${title}</p>` : '', description ? `<p>${description}</p>` : ''].join('');
+    const html = [
+      title ? `<p>${escapeHtml(title)}</p>` : '',
+      description ? `<p>${escapeHtml(description)}</p>` : '',
+    ].join('');
     inits.push({
       __id,
       type: 'shape',
@@ -195,5 +237,5 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     } as ElementInit & { __id: string });
   }
 
-  return { inits, skipped };
+  return { inits, skipped, approximated };
 }

@@ -14,7 +14,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { importMiroBoard } from "@/api/miro";
+import { deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
+import { resolveImageUrl } from "@/app/spreadsheet/image-upload";
 import { applyImportedContent } from "./apply-imported-content";
 import { getDocumentPath } from "./document-list-utils";
 import { summarizeImport } from "./miro-import-summary";
@@ -60,9 +62,13 @@ export function MiroImportDialog({
     setPhase("fetching");
     try {
       const result = await importMiroBoard(workspaceId, { token, boardUrl });
-      const { inits, skipped } = mapMiroItems({
+      const { inits, skipped, approximated } = mapMiroItems({
         items: result.items,
         connectors: result.connectors,
+        // The backend hands back root-relative image URLs; the API is on
+        // another origin, so they have to be absolute before they are
+        // persisted. Same resolver the native image upload applies.
+        resolveImageUrl,
       });
 
       setPhase("creating");
@@ -71,9 +77,32 @@ export function MiroImportDialog({
         type: "board",
         folderId: folderId ?? undefined,
       });
-      await applyImportedContent(doc.id, { type: "board", elements: inits });
 
-      const summary = summarizeImport(skipped, result.notes ?? []);
+      let applied;
+      try {
+        applied = await applyImportedContent(doc.id, {
+          type: "board",
+          elements: inits,
+        });
+      } catch (applyErr) {
+        // The document exists but is empty. Leaving it behind means every
+        // retry adds another orphaned "Imported Miro board" to the user's
+        // list, so clean it up before surfacing the real error. The delete is
+        // best-effort: its failure must not replace the error worth reporting.
+        try {
+          await deleteDocument(doc.id);
+        } catch {
+          /* best-effort cleanup */
+        }
+        throw applyErr;
+      }
+
+      const summary = summarizeImport({
+        skipped,
+        approximated,
+        droppedConnectors: applied.droppedConnectors,
+        notes: result.notes ?? [],
+      });
       if (summary) {
         toast.warning(`Imported with notes: ${summary}`);
       } else {
@@ -104,7 +133,19 @@ export function MiroImportDialog({
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label htmlFor="miro-token">Access token</Label>
-              <Input id="miro-token" name="token" type="password" autoFocus required />
+              {/*
+                `autoComplete="off"`: a bare type="password" field makes the
+                browser offer to SAVE this credential, which contradicts the
+                promise directly above it that the token is never stored.
+              */}
+              <Input
+                id="miro-token"
+                name="token"
+                type="password"
+                autoComplete="off"
+                autoFocus
+                required
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="miro-board-url">Board URL</Label>

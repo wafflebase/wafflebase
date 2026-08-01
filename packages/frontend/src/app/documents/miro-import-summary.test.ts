@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  describeApproximation,
   describeNote,
   pluralizeSkipLabel,
   summarizeImport,
@@ -8,16 +9,16 @@ import {
 
 describe("summarizeImport", () => {
   it("returns null only for a genuinely clean import", () => {
-    expect(summarizeImport({}, [])).toBeNull();
+    expect(summarizeImport({ skipped: {}, notes: [] })).toBeNull();
   });
 
   it("reports a stalled-only result instead of looking clean", () => {
     // Regression guard: `stalled` is a real backend reason (short paginated
     // read). It used to fall through to the success toast, which is exactly
     // the silent-success outcome the backend pushes the note to prevent.
-    const summary = summarizeImport({}, [
+    const summary = summarizeImport({ skipped: {}, notes: [
       { reason: "stalled", itemType: "items", count: 312 },
-    ]);
+    ] });
 
     expect(summary).not.toBeNull();
     expect(summary).toMatch(/incomplete/i);
@@ -27,9 +28,9 @@ describe("summarizeImport", () => {
   it("surfaces an unrecognized future reason rather than dropping it", () => {
     // The backend can add reasons this build has never heard of; none of them
     // may make a degraded import look clean.
-    const summary = summarizeImport({}, [
+    const summary = summarizeImport({ skipped: {}, notes: [
       { reason: "some-future-reason", itemType: "shapes", count: 7 },
-    ]);
+    ] });
 
     expect(summary).not.toBeNull();
     expect(summary).toContain("some-future-reason");
@@ -37,10 +38,10 @@ describe("summarizeImport", () => {
   });
 
   it("combines mapper skips with backend notes", () => {
-    const summary = summarizeImport({ connector: 3, embed: 1 }, [
+    const summary = summarizeImport({ skipped: { connector: 3, embed: 1 }, notes: [
       { reason: "image-failed", itemType: "image", count: 2 },
       { reason: "truncated", itemType: "items", count: 5000 },
-    ]);
+    ] });
 
     expect(summary).toContain("3 connectors");
     expect(summary).toContain("1 embed");
@@ -49,7 +50,46 @@ describe("summarizeImport", () => {
   });
 
   it("still warns when only mapper skips are present", () => {
-    expect(summarizeImport({ connector: 2 }, [])).toBe("2 connectors skipped");
+    expect(summarizeImport({ skipped: { connector: 2 }, notes: [] })).toBe("2 connectors skipped");
+  });
+
+  it("words an approximation as imported-but-degraded, not as a skip", () => {
+    // The old copy read "2 shape-kinds skipped": it told the user content was
+    // missing when it was present, under a Miro type that does not exist.
+    const summary = summarizeImport({
+      skipped: {},
+      approximated: { "shape-kind": 2 },
+      notes: [],
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary).not.toMatch(/skipped/);
+    expect(summary).toContain("2 shape(s)");
+    expect(summary).toMatch(/rectangles/);
+  });
+
+  it("reports connectors the applier had to drop", () => {
+    const summary = summarizeImport({
+      skipped: {},
+      droppedConnectors: 2,
+      notes: [],
+    });
+
+    expect(summary).toContain("2 connectors dropped");
+  });
+
+  it("stays clean when the applier dropped nothing", () => {
+    expect(
+      summarizeImport({ skipped: {}, approximated: {}, droppedConnectors: 0, notes: [] }),
+    ).toBeNull();
+  });
+});
+
+describe("describeApproximation", () => {
+  it("falls back to a generic wording for an unknown degradation kind", () => {
+    expect(describeApproximation("some-future-kind", 3)).toContain(
+      "some-future-kind",
+    );
   });
 });
 

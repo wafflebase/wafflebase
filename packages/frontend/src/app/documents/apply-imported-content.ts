@@ -3,7 +3,12 @@ import { fetchYorkieToken } from "@/api/auth";
 import { initialSpreadsheetDocument } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@wafflebase/sheets";
 import type { Document as DocsDocument } from "@wafflebase/docs";
-import type { ElementInit, SlidesDocument, SlidesStore } from "@wafflebase/slides";
+import type {
+  ElementInit,
+  Endpoint,
+  SlidesDocument,
+  SlidesStore,
+} from "@wafflebase/slides";
 import { SYNTHETIC_SLIDE_ID } from "@wafflebase/board";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
@@ -42,29 +47,97 @@ function buildDocKey(type: ImportedContent["type"], docId: string): string {
   }
 }
 
+/** An init carrying the mapper's local handle, as `mapMiroItems` emits them. */
+type MappedInit = ElementInit & { __id?: string };
+
+/**
+ * Rewrite a connector endpoint from the mapper's local handle onto the id the
+ * store actually minted. Returns null when the handle has no real id, which
+ * means the connector cannot be written honestly.
+ */
+function remapEndpoint(
+  endpoint: Endpoint,
+  realIds: Map<string, string>,
+): Endpoint | null {
+  if (endpoint.kind !== "attached") return endpoint;
+  const elementId = realIds.get(endpoint.elementId);
+  return elementId ? { ...endpoint, elementId } : null;
+}
+
 /**
  * Write every mapped element onto the board in ONE batch — a single Yorkie
  * change and a single undo unit. Driving the store (rather than assigning
  * `root.elements` directly) reuses its connector-frame computation and
  * text/connector normalization.
  *
- * `__id` is the mapper's internal handle for wiring connector endpoints; it is
- * not part of the model, so it is stripped here.
+ * Two passes, because the ids the mapper wired connectors to are NOT the ids
+ * the document gets. `mapMiroItems` mints its own handles and records them on
+ * `__id`; `addElement` mints a fresh id of its own and returns it, and that one
+ * wins. Writing the mapper's `__id` through verbatim produced connectors
+ * anchored to elements no document ever contained — `resolveEndpoint` falls
+ * back to (0, 0) for an unresolvable attached id, so every arrow collapsed into
+ * a ~1x1 frame at the world origin: invisible, nowhere near the content, and
+ * reported to the user as a clean import.
+ *
+ * So: pass 1 writes every non-connector element and builds `__id → real id`
+ * from `addElement`'s return value; pass 2 writes the connectors with their
+ * endpoints rewritten through that map. The split is driven off
+ * `el.type === "connector"`, never off array order — connectors arrive from a
+ * separate Miro feed, so nothing orders them after their targets.
+ *
+ * A connector whose endpoint fails to remap is DROPPED and counted rather than
+ * written dangling. The mapper already guarantees both ends resolve, so the
+ * count should always be zero; it is returned anyway because a silent drop is
+ * the exact failure mode this import is built to avoid, and the caller folds a
+ * non-zero count into the user-facing summary.
+ *
+ * `__id` is not part of the model, so it is stripped on the way in.
  */
 export function applyBoardElements(
   store: Pick<SlidesStore, "batch" | "addElement">,
   elements: ElementInit[],
-): void {
-  if (elements.length === 0) return;
+): { droppedConnectors: number } {
+  if (elements.length === 0) return { droppedConnectors: 0 };
+
+  let droppedConnectors = 0;
   store.batch(() => {
+    const realIds = new Map<string, string>();
+    const connectors: MappedInit[] = [];
+
+    // Pass 1 — every non-connector element, recording the id the store minted.
     for (const element of elements) {
-      const { __id: _, ...init } = element as ElementInit & {
-        __id?: string;
+      const mapped = element as MappedInit;
+      if (mapped.type === "connector") {
+        connectors.push(mapped);
+        continue;
+      }
+      const { __id, ...init } = mapped;
+      const realId = store.addElement(SYNTHETIC_SLIDE_ID, init as ElementInit);
+      if (__id) realIds.set(__id, realId);
+    }
+
+    // Pass 2 — connectors, with endpoints pointed at the real elements.
+    for (const connector of connectors) {
+      const { __id, ...init } = connector as MappedInit & {
+        start: Endpoint;
+        end: Endpoint;
       };
-      void _;
-      store.addElement(SYNTHETIC_SLIDE_ID, init as ElementInit);
+      void __id;
+      const start = remapEndpoint(init.start, realIds);
+      const end = remapEndpoint(init.end, realIds);
+      if (!start || !end) {
+        droppedConnectors++;
+        continue;
+      }
+      store.addElement(SYNTHETIC_SLIDE_ID, {
+        ...init,
+        start,
+        end,
+      } as unknown as ElementInit);
     }
   });
+
+  return { droppedConnectors };
 }
 
 /**
@@ -103,10 +176,22 @@ export function applyBoardElements(
  * and a retry re-applies the content — the same create-then-populate exposure
  * the pre-queue single-file flow had.
  */
+/**
+ * What the apply had to give up on, for callers that report it.
+ *
+ * Only the board branch can currently drop anything; every other type is
+ * a whole-root overwrite that either lands or throws. The queue-driven
+ * callers ignore this — the Miro dialog folds it into its summary.
+ */
+export interface ImportApplyResult {
+  droppedConnectors: number;
+}
+
 export async function applyImportedContent(
   docId: string,
   content: ImportedContent,
-): Promise<void> {
+): Promise<ImportApplyResult> {
+  let result: ImportApplyResult = { droppedConnectors: 0 };
   const client = new Client({
     rpcAddr: import.meta.env.VITE_YORKIE_RPC_ADDR,
     apiKey: import.meta.env.VITE_YORKIE_PUBLIC_KEY,
@@ -143,7 +228,7 @@ export async function applyImportedContent(
       await client.attach(doc, { initialRoot: initialBoardRoot() });
       const store = new YorkieBoardStore(doc);
       try {
-        applyBoardElements(store, content.elements);
+        result = applyBoardElements(store, content.elements);
       } finally {
         // The store subscribes to the doc in its constructor — release it
         // before detaching.
@@ -166,6 +251,7 @@ export async function applyImportedContent(
       ensureSlidesRoot(doc);
       await client.detach(doc);
     }
+    return result;
   } finally {
     // Never let a cleanup failure mask the real apply/attach error.
     try {
