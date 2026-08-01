@@ -130,6 +130,7 @@ import { useWindowFileDrop } from "./use-window-file-drop";
 import { enqueue, startUploads } from "./upload-queue";
 import { pickFiles } from "./pick-files";
 import { ImageThumb } from "./image-thumb";
+import { MiroImportDialog } from "./miro-import-dialog";
 
 /**
  * A single row of the unified list: either a folder or a document. Folders and
@@ -256,8 +257,10 @@ function dateColumn(
  */
 function ImportMenuItems({
   onImport,
+  onImportMiro,
 }: {
   onImport: (accept: string) => void;
+  onImportMiro: () => void;
 }) {
   return (
     <>
@@ -282,6 +285,10 @@ function ImportMenuItems({
       >
         <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
         Upload Image
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={onImportMiro}>
+        <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+        Import from Miro…
       </DropdownMenuItem>
     </>
   );
@@ -329,6 +336,7 @@ export function DocumentList({
     id: string;
     name: string;
   } | null>(null);
+  const [miroImportOpen, setMiroImportOpen] = useState(false);
 
   // The current workspace's real UUID. Every document in a workspace-scoped
   // list shares it — used to gate folder moves (moveFolder has no workspace
@@ -1217,7 +1225,10 @@ export function DocumentList({
                 New folder
               </DropdownMenuItem>
             )}
-            <ImportMenuItems onImport={handleImportPick} />
+            <ImportMenuItems
+              onImport={handleImportPick}
+              onImportMiro={() => setMiroImportOpen(true)}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
         </div>
@@ -1400,7 +1411,10 @@ export function DocumentList({
                           <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
                           New Board
                         </DropdownMenuItem>
-                        <ImportMenuItems onImport={handleImportPick} />
+                        <ImportMenuItems
+                          onImport={handleImportPick}
+                          onImportMiro={() => setMiroImportOpen(true)}
+                        />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1742,6 +1756,13 @@ export function DocumentList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MiroImportDialog
+        open={miroImportOpen}
+        onOpenChange={setMiroImportOpen}
+        workspaceId={workspaceId}
+        folderId={folderId}
+      />
       </div>
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-40 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
