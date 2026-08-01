@@ -238,6 +238,14 @@ store needed — unlike the upload queue, selection doesn't outlive the list).
 - **Row click still opens the document** (unchanged). Only the checkbox mutates
   selection. This is the Gmail/Drive-list model and keeps the existing behavior
   intact.
+- Because row click opens the document, a *miss* on the checkbox navigates away
+  and takes the selection with it. The painted 16×16 box therefore carries a
+  transparent `::after` overlay giving it a **32×32 hit area**, the size of the
+  row's more-actions button. The box itself is not resized, so row alignment
+  and the existing handlers are untouched.
+- **Body rows only.** The header has no click handler to fall through to, and
+  there the overlay would cross into the Title column and swallow clicks on
+  `SortableHeader`'s sort button.
 
 ### Frontend — bulk action bar
 
