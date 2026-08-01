@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/api/auth";
+import { assertOk } from "@/api/http-error";
 import type { MiroItemLike, MiroConnectorLike } from "@wafflebase/board";
 
 export interface MiroImportNote {
@@ -11,27 +12,6 @@ export interface MiroImportResult {
   items: MiroItemLike[];
   connectors: MiroConnectorLike[];
   notes: MiroImportNote[];
-}
-
-/**
- * Best-effort extraction of a server-provided error message from a failed
- * response body, without touching `response.headers` — some callers (and
- * this module's own tests) hand back a bare `{ ok, status, json }` stub that
- * has no `Headers` object, which the shared `assertOk`/`readResponseErrorMessage`
- * helpers assume is always present (real `fetch()` responses always have one,
- * but a minimal test double may not).
- */
-async function readErrorMessage(res: Response): Promise<string | null> {
-  try {
-    const body = await res.json();
-    const message = (body as { message?: unknown } | null)?.message;
-    if (typeof message === "string" && message.trim()) {
-      return message.trim();
-    }
-  } catch {
-    // Body wasn't JSON (or already consumed) — fall back to the generic message.
-  }
-  return null;
 }
 
 /**
@@ -53,9 +33,6 @@ export async function importMiroBoard(
       body: JSON.stringify(payload),
     },
   );
-  if (!res.ok) {
-    const message = await readErrorMessage(res);
-    throw new Error(message || "Failed to import the Miro board");
-  }
+  await assertOk(res, "Failed to import the Miro board");
   return res.json();
 }

@@ -17,6 +17,7 @@ import { importMiroBoard } from "@/api/miro";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent } from "./apply-imported-content";
 import { getDocumentPath } from "./document-list-utils";
+import { summarizeImport } from "./miro-import-summary";
 
 interface MiroImportDialogProps {
   open: boolean;
@@ -26,16 +27,6 @@ interface MiroImportDialogProps {
 }
 
 type Phase = "idle" | "fetching" | "creating";
-
-/**
- * Label a `skipped` entry keyed by Miro item/connector type in a way that
- * reads naturally for both — e.g. "3 embeds" and "2 connectors", not the
- * literal "3 connector".
- */
-function pluralizeSkipLabel(type: string, count: number): string {
-  if (count === 1) return `1 ${type}`;
-  return type.endsWith("s") ? `${count} ${type}` : `${count} ${type}s`;
-}
 
 /**
  * Import a Miro board into a new board document.
@@ -82,22 +73,9 @@ export function MiroImportDialog({
       });
       await applyImportedContent(doc.id, { type: "board", elements: inits });
 
-      const skippedTotal = Object.values(skipped).reduce((a, b) => a + b, 0);
-      const failedImages =
-        result.notes.find((n) => n.reason === "image-failed")?.count ?? 0;
-      const truncated = result.notes.some((n) => n.reason === "truncated");
-      if (skippedTotal || failedImages || truncated) {
-        const parts: string[] = [];
-        if (skippedTotal) {
-          parts.push(
-            Object.entries(skipped)
-              .map(([type, count]) => pluralizeSkipLabel(type, count))
-              .join(", ") + " skipped",
-          );
-        }
-        if (failedImages) parts.push(`${failedImages} image(s) failed`);
-        if (truncated) parts.push("board truncated at the import limit");
-        toast.warning(`Imported with notes: ${parts.join("; ")}`);
+      const summary = summarizeImport(skipped, result.notes ?? []);
+      if (summary) {
+        toast.warning(`Imported with notes: ${summary}`);
       } else {
         toast.success("Miro board imported");
       }
