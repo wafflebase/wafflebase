@@ -83,6 +83,38 @@ export class UpdateDataSourceDto {
   sslEnabled?: boolean;
 }
 
+/**
+ * Connection fields for validating a datasource before it is persisted.
+ * Mirrors CreateDataSourceDto without `name`, which is irrelevant to a probe.
+ */
+export class TestConnectionDto {
+  @IsString()
+  @Length(1, 253)
+  host: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  port?: number;
+
+  @IsString()
+  @Length(1, 100)
+  database: string;
+
+  @IsString()
+  @Length(1, 100)
+  username: string;
+
+  @IsString()
+  @Length(0, 256)
+  password: string;
+
+  @IsOptional()
+  @IsBoolean()
+  sslEnabled?: boolean;
+}
+
 export class ExecuteQueryDto {
   @IsString()
   @Length(1, 100_000)
