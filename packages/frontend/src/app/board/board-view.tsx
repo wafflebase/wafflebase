@@ -460,8 +460,19 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     canvas.addEventListener("pointercancel", onPointerUp);
 
     // RAF loop so async asset loads (e.g. the image cache backing image
-    // elements) repaint — mirrors SlidesView's render loop. `render()`
-    // no-ops when the renderer isn't dirty, so this is cheap at idle.
+    // elements) repaint — mirrors SlidesView's render loop.
+    //
+    // `render()` short-circuits at idle: it returns BEFORE calling
+    // `store.read()` when the renderer is clean and no text-edit or
+    // crop session is active. That guard is load-bearing here — a board
+    // is one unbounded slide, so `YorkieBoardStore.read()` deep-unwraps
+    // the entire document (a `JSON.parse` per element `frame`/`data`).
+    //
+    // An earlier version of this comment claimed the loop was already
+    // cheap "because render() no-ops when the renderer isn't dirty".
+    // That was false: the no-op lived inside `SlideRenderer.render()`,
+    // i.e. *after* the read. An idle board with ~3000 elements burnt
+    // ~65 ms and ~12.6k `JSON.parse` calls per frame (≈15 fps).
     let raf = 0;
     const tick = () => {
       editor.render();

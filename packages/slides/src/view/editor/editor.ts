@@ -1273,6 +1273,37 @@ class SlidesEditorImpl implements SlidesEditor {
 
   render(): void {
     if (this.disposed) return;
+    // Cheap idle short-circuit, BEFORE the expensive `store.read()`
+    // below. Consumers (SlidesView, board-view) drive `render()` from a
+    // RAF loop so async asset loads repaint, which means this runs ~60×
+    // a second whether or not anything changed. `store.read()` is not
+    // cheap: a Yorkie-backed store deep-unwraps every element via
+    // `JSON.parse(proxy.toJSON())`, so on a large scene (a board is one
+    // unbounded slide holding the entire document) an idle frame was
+    // rebuilding megabytes of plain objects only for
+    // `SlideRenderer.render()` to discard the result at its own `if
+    // (!this.dirty) return;`. Short-circuiting here instead drops the
+    // read entirely.
+    //
+    // The two unconditional-paint paths below MUST NOT be short-
+    // circuited — they both bypass the dirty flag via `forceRender`:
+    //   - text editing (`editingElementId`), where the slide canvas is
+    //     re-composited every frame against the text editor's own canvas.
+    //   - an active crop session, whose dimmed-bitmap preview is live.
+    // `cropSession` is tested directly rather than through
+    // `cropPreview()`, which allocates a descriptor object.
+    //
+    // `paintRuler()` still runs, matching the previous behavior exactly:
+    // the old clean-frame path fell through to `renderer.render()` (a
+    // no-op) and then painted the ruler.
+    if (
+      !this.renderer.isDirty() &&
+      this.editingElementId === null &&
+      this.cropSession === null
+    ) {
+      this.paintRuler();
+      return;
+    }
     // Single read so `slide` and `doc` come from the same snapshot —
     // the renderer needs the deck's themes/master arrays to resolve
     // role-bound colors, and the in-memory slide reference must
