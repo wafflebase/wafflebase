@@ -139,6 +139,20 @@ Body: `{ token: string; boardUrl: string }`. Steps:
    attached*, and would buffer the whole response before the upload's own size
    check could run. A refused host or an oversize body degrades to the same
    `image-failed` note as any other download failure.
+
+   The per-image cap bounds one download, not the phase. Since a board may
+   carry thousands of images, the re-hosting phase also has **aggregate
+   ceilings** — a maximum number of downloads and a maximum total byte count —
+   past which the remaining images are skipped *without being fetched* and
+   reported under their own `image-budget` note (kept distinct from
+   `image-failed`: nothing malfunctioned, the board is simply too image-heavy
+   for one import).
+
+   Every outbound call carries a **deadline** (`AbortSignal.timeout`; the image
+   download combines it with the size-cap controller via `AbortSignal.any`).
+   Node's `fetch` applies none of its own, so without this a host that accepts
+   the connection and then stalls holds a request worker indefinitely — and the
+   paginated loop can issue one such call per page.
 5. **Return** `{ items, connectors, notes }`. The token is not echoed, not stored,
    not logged. Miro auth/permission errors map to 401/403/404 with a clear message.
 
@@ -152,14 +166,16 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 
 1. **Pass 1** — assign a wafflebase element id to every mappable item and
    record `miroId → elementId`, so connectors can resolve targets regardless of
-   order.
+   order. An item that cannot produce an element at all (an `image` with no
+   `imageUrl`) is counted as skipped **here**, before an id is minted: a
+   connector pointing at a registered-but-never-emitted item would otherwise
+   resolve to a live handle and be emitted `attached` to nothing.
 2. **Pass 2** — build one `ElementInit` per item.
 
 | Miro item | → board element |
 | --- | --- |
 | `sticky_note` | SP2's sticky: `roundRect` shape, Miro **named** `style.fillColor` (`yellow`, `light_green`, …) → hex via a lookup table, `data.content` as the text, middle-anchored |
-| `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect`, counted under `approximated`, not
-`skipped` — the shape IS imported), fill / border color / border width, inline text |
+| `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect`, counted under `approximated`, not `skipped` — the shape IS imported), fill / border color / border width, inline text |
 | `text` | `TextElement` with a docs `Block[]` body |
 | `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; **both ends must resolve**, otherwise the connector is skipped + reported (Miro exposes no absolute coordinate for an unmapped end, so no honest fallback position exists — anchoring it anywhere would either strand the line at the world origin or invent geometry); `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
 | `image` | `ImageElement` whose `data.src` is the re-hosted URL passed through the **injected `resolveImageUrl`**. The backend's URL is root-relative (`/api/v1/workspaces/:wid/images/:id`) and the SPA and API sit on different origins in every environment, so a relative src persisted into the CRDT 404s forever. The resolver is injected (and required, not defaulted) to keep this package free of env concerns while making the omission a compile error — the native upload path applies the same function |

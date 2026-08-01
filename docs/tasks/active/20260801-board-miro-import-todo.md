@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: `parseMiroBoardId(input: string): string` (throws `BadRequestException` on garbage); the `MiroItem` / `MiroConnector` / `MiroImportResult` types used by every later backend + mapper task.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/backend/src/miro/parse-board-id.spec.ts
@@ -70,12 +70,12 @@ describe('parseMiroBoardId', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- parse-board-id`
 Expected: FAIL — cannot find module `./parse-board-id`.
 
-- [ ] **Step 3: Write the types**
+- [x] **Step 3: Write the types**
 
 ```ts
 // packages/backend/src/miro/miro.types.ts
@@ -144,7 +144,7 @@ export interface MiroImportResult {
 }
 ```
 
-- [ ] **Step 4: Write the parser**
+- [x] **Step 4: Write the parser**
 
 ```ts
 // packages/backend/src/miro/parse-board-id.ts
@@ -182,12 +182,12 @@ export function parseMiroBoardId(input: string): string {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- parse-board-id`
 Expected: PASS (7 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/miro/
@@ -208,7 +208,7 @@ git commit -m "Add Miro item types and board-URL id parser"
 
 **Notes for the implementer:** the backend has **no HTTP client dependency** — use global `fetch` (Node 22). Backend service tests plain-`new` the service with hand-rolled mocks (see `datasource.service.spec.ts`); mock `fetch` with `global.fetch = jest.fn()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/backend/src/miro/miro.service.spec.ts
@@ -310,12 +310,12 @@ describe('MiroService.importBoard', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- miro.service`
 Expected: FAIL — cannot find module `./miro.service`.
 
-- [ ] **Step 3: Write the service**
+- [x] **Step 3: Write the service**
 
 ```ts
 // packages/backend/src/miro/miro.service.ts
@@ -452,12 +452,12 @@ export class MiroService {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- miro.service`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/backend/src/miro/
@@ -482,7 +482,7 @@ git commit -m "Fetch Miro items and connectors with cursor pagination"
 
 **Note:** `ImageService.upload` accepts a plain **`Buffer`** and only these mime types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`. The workspace-scoped public URL is built by the caller as `/api/v1/workspaces/${workspaceId}/images/${result.id}` (the service's own `url` field is a different, unscoped path — do not use it).
 
-- [ ] **Step 1: Write the failing re-host tests**
+- [x] **Step 1: Write the failing re-host tests**
 
 Append to `packages/backend/src/miro/miro.service.spec.ts`:
 
@@ -552,12 +552,12 @@ describe('MiroService image re-hosting', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- miro.service`
 Expected: FAIL — images are returned untouched, no `image-failed` note.
 
-- [ ] **Step 3: Add re-hosting to the service**
+- [x] **Step 3: Add re-hosting to the service**
 
 In `miro.service.ts`, replace the `// Task 3 re-hosts...` comment line with a call, and add the two methods:
 
@@ -641,12 +641,12 @@ In `miro.service.ts`, replace the `// Task 3 re-hosts...` comment line with a ca
   }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- miro.service`
 Expected: PASS (7 tests).
 
-- [ ] **Step 5: Add the DTO, controller, and module**
+- [x] **Step 5: Add the DTO, controller, and module**
 
 ```ts
 // packages/backend/src/miro/miro.dto.ts
@@ -721,7 +721,7 @@ export class MiroModule {}
 
 > Confirm `ImageModule` **exports** `ImageService` (`packages/backend/src/image/image.module.ts` — `FileModule` exports `FileService`; check the image one and add `exports: [ImageService]` if it is missing, which is a one-line, additive change).
 
-- [ ] **Step 6: Register the module**
+- [x] **Step 6: Register the module**
 
 In `packages/backend/src/app.module.ts`, add the import beside the other module imports:
 
@@ -731,13 +731,13 @@ import { MiroModule } from './miro/miro.module';
 
 and add `MiroModule,` to the `imports:` array (next to `ImageModule,` / `FolderModule,`).
 
-- [ ] **Step 7: Verify backend builds + all backend tests pass**
+- [x] **Step 7: Verify backend builds + all backend tests pass**
 
 Run: `pnpm --filter @wafflebase/backend build`
 Run: `pnpm --filter @wafflebase/backend test`
 Expected: build clean; full backend suite green.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/backend/src/miro/ packages/backend/src/app.module.ts packages/backend/src/image/image.module.ts
@@ -764,7 +764,7 @@ git commit -m "Re-host Miro images and expose the board import endpoint"
 
 **Note:** `Frame` is `{ x, y, w, h, rotation }`. `packages/board` tests run under **vitest + jsdom** (`pnpm --filter @wafflebase/board test`), and jsdom gives you `DOMParser` for the HTML parsing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/board/src/import/miro/primitives.test.ts
@@ -854,12 +854,12 @@ describe('miroHtmlToBlocks', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/board test -- primitives`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Write `geometry.ts`**
+- [x] **Step 3: Write `geometry.ts`**
 
 ```ts
 // packages/board/src/import/miro/geometry.ts
@@ -895,7 +895,7 @@ export function miroFrame(
 }
 ```
 
-- [ ] **Step 4: Write `shape-kind.ts`**
+- [x] **Step 4: Write `shape-kind.ts`**
 
 ```ts
 // packages/board/src/import/miro/shape-kind.ts
@@ -937,7 +937,7 @@ export function miroShapeKind(name: string | undefined): { kind: ShapeKind; know
 }
 ```
 
-- [ ] **Step 5: Write `colors.ts`**
+- [x] **Step 5: Write `colors.ts`**
 
 ```ts
 // packages/board/src/import/miro/colors.ts
@@ -975,7 +975,7 @@ export function stickyHex(named: string | undefined): string {
 }
 ```
 
-- [ ] **Step 6: Write `text.ts`**
+- [x] **Step 6: Write `text.ts`**
 
 ```ts
 // packages/board/src/import/miro/text.ts
@@ -1057,12 +1057,12 @@ export function miroHtmlToBlocks(html: string | undefined): Block[] {
 }
 ```
 
-- [ ] **Step 7: Run test to verify it passes**
+- [x] **Step 7: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/board test -- primitives`
 Expected: PASS (all 4 describes).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/board/src/import/miro/
@@ -1089,7 +1089,20 @@ git commit -m "Add Miro import primitives: geometry, shapes, colors, text"
 
 **Note:** the board package has exactly ONE barrel (`src/index.ts`) and no subpath exports, so the new module must be re-exported there to be importable from the frontend. `ConnectorElement.arrowheads` is **required** — pass `{}` for a plain line. `Endpoint` is `{ kind:'free'; x; y } | { kind:'attached'; elementId; siteIndex }`.
 
-- [ ] **Step 1: Write the failing test**
+> **Superseded — connector fallback.** The plan text below (Step 1's
+> "falls back to a free endpoint at the target centre" test and Step 4's
+> `centreOf`/`endpoint` helper) describes behavior that did **not** ship. The
+> shipped rule is **skip and count**: a connector is emitted only when BOTH
+> ends resolve to a mapped element, otherwise it is dropped and counted under
+> `skipped.connector`. Miro exposes no absolute coordinate for an unmapped end,
+> so the "centre" fallback degenerated to the world origin and drew a stray
+> line across boards that sit far from (0, 0). An item that cannot produce an
+> element (an `image` with no `imageUrl`) is therefore also rejected in pass 1,
+> before an id is minted, so it can never become a connector target. See
+> `docs/design/board/board-miro-import.md` and `map-items.ts`. The original
+> text is left intact as the historical plan.
+
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/board/src/import/miro/map-items.test.ts
@@ -1223,12 +1236,12 @@ describe('mapMiroItems', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/board test -- map-items`
 Expected: FAIL — cannot find module `./map-items`.
 
-- [ ] **Step 3: Write `types.ts`**
+- [x] **Step 3: Write `types.ts`**
 
 ```ts
 // packages/board/src/import/miro/types.ts
@@ -1269,7 +1282,7 @@ export interface MiroMapResult {
 }
 ```
 
-- [ ] **Step 4: Write `map-items.ts`**
+- [x] **Step 4: Write `map-items.ts`**
 
 ```ts
 // packages/board/src/import/miro/map-items.ts
@@ -1477,12 +1490,12 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/board test -- map-items`
 Expected: PASS (9 tests).
 
-- [ ] **Step 6: Export from the barrel and add the package to the test fan-out**
+- [x] **Step 6: Export from the barrel and add the package to the test fan-out**
 
 `packages/board/src/index.ts` — append:
 
@@ -1491,16 +1504,16 @@ export * from './import/miro/map-items';
 export * from './import/miro/types';
 ```
 
-Root `package.json`: the `verify:fast` script chains per-package `test` calls. Add board alongside the others so its suite runs in the gate — insert `pnpm --filter @wafflebase/board typecheck && pnpm --filter @wafflebase/board test && ` into the `verify:fast` chain (mirror the exact style of the neighbouring `@wafflebase/notes` entries).
+Root `package.json`: the `verify:fast` script chains per-package `test` calls. Add board alongside the others so its suite runs in the gate — insert `pnpm --filter @wafflebase/board typecheck && pnpm --filter @wafflebase/board test &&` into the `verify:fast` chain (mirror the exact style of the neighbouring `@wafflebase/notes` entries).
 
-- [ ] **Step 7: Verify the package builds and the gate includes it**
+- [x] **Step 7: Verify the package builds and the gate includes it**
 
 Run: `pnpm --filter @wafflebase/board build`
 Run: `pnpm --filter @wafflebase/board test`
 Run: `pnpm verify:fast`
 Expected: all green, and the board suite visibly runs in `verify:fast`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/board/src/ package.json
@@ -1521,7 +1534,7 @@ git commit -m "Map Miro items and connectors to board elements"
 
 **Note:** the board docKey is `` `board-${docId}` `` and the seed is `initialBoardRoot()` (`@/types/board-document`). `YorkieBoardStore` subscribes to the doc in its constructor, so call `store.dispose()` before `client.detach(doc)`. Every mutation must be inside `store.batch(...)` or it throws `Mutations must be wrapped in batch()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/src/app/documents/apply-imported-content-board.test.ts
@@ -1575,12 +1588,12 @@ describe('applyBoardElements', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- apply-imported-content-board`
 Expected: FAIL — `applyBoardElements` is not exported.
 
-- [ ] **Step 3: Add the exported helper + the board branch**
+- [x] **Step 3: Add the exported helper + the board branch**
 
 In `apply-imported-content.ts`, extend the imports:
 
@@ -1654,12 +1667,12 @@ And the branch inside `applyImportedContent`, alongside the `doc` branch:
 
 > The existing final `else` is the slides branch; convert it to `else if (content.type === "slides")` as shown so the union stays exhaustive, or keep slides as the trailing `else` and put the board branch above it. Either is fine — just don't leave `board` falling into the slides branch.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- apply-imported-content-board`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents/apply-imported-content.ts packages/frontend/src/app/documents/apply-imported-content-board.test.ts
@@ -1682,7 +1695,7 @@ git commit -m "Persist imported board elements headlessly in one batch"
 
 **Note:** call the backend through `fetchWithAuth` from `@/api/auth` + `assertOk` from `@/api/http-error` (the repo's established pair). The documents list's Rename dialog (`document-list.tsx`) is the dialog template to mirror: controlled `open`, `<DialogContent className="sm:max-w-md">`, a `<form onSubmit>`, `<Label>`/`<Input>`, `<DialogFooter>` with Cancel + submit buttons.
 
-- [ ] **Step 1: Write the failing API test**
+- [x] **Step 1: Write the failing API test**
 
 ```ts
 // packages/frontend/src/api/miro.test.ts
@@ -1729,12 +1742,12 @@ describe('importMiroBoard', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- api/miro`
 Expected: FAIL — cannot find module `./miro`.
 
-- [ ] **Step 3: Write the API client**
+- [x] **Step 3: Write the API client**
 
 ```ts
 // packages/frontend/src/api/miro.ts
@@ -1780,12 +1793,12 @@ export async function importMiroBoard(
 
 > Check `assertOk`'s behavior in `@/api/http-error` — if it does not surface the server's `message` field, the second test will fail. In that case, read the body here and throw an `Error` with the server message, falling back to the generic string. Match whatever the neighbouring API modules do.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- api/miro`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Write the dialog**
+- [x] **Step 5: Write the dialog**
 
 ```tsx
 // packages/frontend/src/app/documents/miro-import-dialog.tsx
@@ -1948,7 +1961,7 @@ export default MiroImportDialog;
 
 > `createDocument` is imported above for the no-workspace fallback. If the documents list always has a `workspaceId` in the surfaces where this dialog is rendered, drop that import rather than leaving it unused (lint runs with `--max-warnings 0`).
 
-- [ ] **Step 6: Wire the menu entry**
+- [x] **Step 6: Wire the menu entry**
 
 In `document-list.tsx`:
 
@@ -1998,14 +2011,14 @@ function ImportMenuItems({
 
 > `Frame` is already imported in this file (it's the New Board icon). Reuse it; don't add a second icon import for the same glyph.
 
-- [ ] **Step 7: Verify build, lint, and the full frontend suite**
+- [x] **Step 7: Verify build, lint, and the full frontend suite**
 
 Run: `pnpm --filter @wafflebase/frontend build`
 Run: `pnpm --filter @wafflebase/frontend lint`
 Run: `pnpm --filter @wafflebase/frontend test`
 Expected: all green.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/frontend/src/api/miro.ts packages/frontend/src/api/miro.test.ts packages/frontend/src/app/documents/miro-import-dialog.tsx packages/frontend/src/app/documents/document-list.tsx
@@ -2021,17 +2034,17 @@ git commit -m "Add the Miro import dialog and documents-list entry"
 - Modify: `packages/backend/README.md` (document the new endpoint)
 - Modify: `docs/tasks/active/20260801-board-miro-import-lessons.md`
 
-- [ ] **Step 1: Run the fast gate**
+- [x] **Step 1: Run the fast gate**
 
 Run: `pnpm verify:fast`
 Expected: green across packages (now including `@wafflebase/board`). Fix any lint (unused imports are the usual offender).
 
-- [ ] **Step 2: Run the self gate**
+- [x] **Step 2: Run the self gate**
 
 Run: `pnpm verify:self`
 Expected: all lanes green. **If `verify:frontend:chunks` fails on chunk COUNT**, the Miro dialog is a legitimate new lazy surface: bump `maxChunkCount` in `harness.config.json` and prepend a one-paragraph reason to `maxChunkCountReason` naming the Miro dialog + `@wafflebase/board` mapper as the new importers — the established repo pattern. Do NOT suppress a per-chunk KB failure that way; investigate that instead.
 
-- [ ] **Step 3: Document the endpoint**
+- [x] **Step 3: Document the endpoint**
 
 In `packages/backend/README.md`, add a row to the API table (near the Documents/Folders sections):
 
@@ -2051,15 +2064,15 @@ In `packages/backend/README.md`, add a row to the API table (near the Documents/
 - Confirm a bad token shows the "token was rejected" message in the dialog and the dialog stays open with values intact.
 - Confirm a board containing an unsupported item (e.g. an embed) reports the skip in the toast.
 
-- [ ] **Step 5: Self code review over the branch diff**
+- [x] **Step 5: Self code review over the branch diff**
 
 Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff. Pay particular attention to: the token never appearing in a log, a response, or an error message; the image download using the token and `format=original`; and connectors resolving to the NEW element ids rather than Miro ids.
 
 - [ ] **Step 6: Capture lessons and archive**
 
-Fill in `docs/tasks/active/20260801-board-miro-import-lessons.md`, then `pnpm tasks:archive && pnpm tasks:index`. Commit the task docs together with `docs/tasks/README.md`.
+Lessons are captured; the archive move still runs at merge time. Fill in `docs/tasks/active/20260801-board-miro-import-lessons.md`, then `pnpm tasks:archive && pnpm tasks:index`. Commit the task docs together with `docs/tasks/README.md`.
 
-- [ ] **Step 7: Open the PR**
+- [x] **Step 7: Open the PR**
 
 `git fetch && git rebase origin/main`; push; open a PR titled ≤70 chars (e.g. "Board SP3: import a Miro board into a new board document"), body = Summary + Test plan.
 
