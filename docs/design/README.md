@@ -103,6 +103,7 @@ Infinite canvas engine — boundless pan/zoom plane, reuses the Slides scene eng
 | Document                        | Description                                                                                        |
 | ------------------------------- | -------------------------------------------------------------------------------------------------- |
 | [board.md](board/board.md)      | Board — Miro/FigJam-style infinite canvas as a new `"board"` document type + `@wafflebase/board` package; reuses the Slides scene engine (element model/renderer/hit-test/editor) whose world coords are already transform-agnostic, injecting a `Viewport {panX,panY,zoom}` at the 3 fit-scale chokepoints instead of forking; board = "one unbounded slide" via a single-synthetic-slide `SlidesStore` adapter, `board-<id>` docKey, presence cursors; SP1 canvas skeleton (shapes/text/connectors + collab), SP2 sticky/image, SP3 Miro REST import |
+| [board-whiteboard-elements.md](board/board-whiteboard-elements.md) | Board whiteboard elements (SP2) — sticky notes (as a preset `roundRect` shape: fill + drop shadow + middle-anchored shrink-autofit text, board-local factory, no slides model change), image paste/drop/file-picker (reuses `uploadImageFile` + `setupSlidesImagePaths` + `insertImageOnSlide`), and a view-local minimap (`drawSlide` offscreen snapshot + `combinedBoundingBox` bounds + `screenToWorld` viewport-rect, drag-to-pan); all board-local, zero CRDT-schema change |
 
 ## Notes
 

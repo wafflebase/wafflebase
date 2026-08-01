@@ -233,7 +233,7 @@ migration, no `document.service.ts` change.
 | # | Sub-project | Scope |
 | --- | --- | --- |
 | **SP1** (this doc) | Canvas skeleton | viewport seam + board package/type/store + collaborative canvas |
-| SP2 | Whiteboard elements | sticky-note element type, image paste, minimap |
+| SP2 ([spec](board-whiteboard-elements.md)) | Whiteboard elements | sticky notes (preset shape), image paste/drop, minimap |
 | SP3 | Miro import | Miro REST API client → structured import of shapes/connectors/stickies/text |
 
 ### Risks and Mitigation

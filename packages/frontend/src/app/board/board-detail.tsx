@@ -125,7 +125,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <BoardView documentId={documentId} />
+          <BoardView documentId={documentId} workspaceId={documentData?.workspaceId} />
         </div>
       </SidebarInset>
     </SidebarProvider>

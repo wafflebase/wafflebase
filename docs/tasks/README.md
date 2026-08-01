@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board whiteboard elements (2026-07-31) | [20260731-board-whiteboard-elements-todo.md](./active/20260731-board-whiteboard-elements-todo.md) | [20260731-board-whiteboard-elements-lessons.md](./active/20260731-board-whiteboard-elements-lessons.md) |
+| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./active/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./active/20260731-release-v0.6.2-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
@@ -36,4 +38,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 423
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: autonomous issue hunting (2026-07-29)
+Latest active task: board whiteboard elements (2026-07-31)

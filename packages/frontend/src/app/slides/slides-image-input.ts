@@ -1,5 +1,6 @@
 import type { SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import { toast } from 'sonner';
+import { isAuthExpiredError } from '@/api/auth';
 import { insertImageOnSlide } from './insert-image';
 
 /** Subset of `DataTransfer` we read — lets tests pass plain objects. */
@@ -61,6 +62,12 @@ export interface SlidesImagePathDeps {
   editor: Pick<SlidesEditor, 'getEditingElementId' | 'getCurrentSlideId'>;
   store: SlidesStore;
   upload: (file: File) => Promise<{ url: string; w: number; h: number }>;
+  /**
+   * Optional per-insert world center (board mode: current viewport
+   * center). Evaluated at drop/paste time so it tracks live pan/zoom.
+   * Absent ⇒ slide-center framing (slides behavior unchanged).
+   */
+  center?: () => { x: number; y: number } | undefined;
 }
 
 /**
@@ -83,10 +90,13 @@ export interface SlidesImagePathDeps {
  * steals a paste meant for that input.
  */
 export function setupSlidesImagePaths(deps: SlidesImagePathDeps): () => void {
-  const { canvasWrap, editor, store, upload } = deps;
+  const { canvasWrap, editor, store, upload, center } = deps;
 
   const insert = (slideId: string, file: File) => {
-    void insertImageOnSlide({ store, slideId, file, upload }).catch((err) => {
+    void insertImageOnSlide({ store, slideId, file, upload, center: center?.() }).catch((err) => {
+      // Auth expiry redirects to login; don't flash a stale failure toast on
+      // the way out (matches the app's other mutation error paths).
+      if (isAuthExpiredError(err)) return;
       console.error('Failed to insert image', err);
       toast.error('Failed to insert image');
     });
