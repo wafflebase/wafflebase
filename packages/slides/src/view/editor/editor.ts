@@ -6142,29 +6142,41 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     const elementId = selectedIds[0];
-    const startEl = findElement(startSlide.elements, elementId);
-    if (!startEl) return;
+    const foundEl = findElement(startSlide.elements, elementId);
+    if (!foundEl) return;
     // Migrate legacy groups that pre-date the refSize field BEFORE the
     // drag begins, so the live preview also reflects proportional child
     // scaling (otherwise refSize would still be undefined while
     // paintGhostPreview is running, and only the post-commit render
     // would scale).
-    if (startEl.type === 'group' && startEl.data.refSize === undefined) {
-      const captured = { w: startEl.frame.w, h: startEl.frame.h };
+    const migratedRefSize =
+      foundEl.type === 'group' && foundEl.data.refSize === undefined
+        ? { w: foundEl.frame.w, h: foundEl.frame.h }
+        : undefined;
+    if (migratedRefSize) {
       this.options.store.batch(() => {
         this.options.store.updateElementData(startSlide.id, elementId, {
-          refSize: captured,
+          refSize: migratedRefSize,
         });
       });
-      // Patch the in-memory snapshot too. The migration batch writes to
-      // the store, but `startEl` was captured before the batch and the
-      // subsequent ghost paint (`paintGhostPreview([ghost], ...)`) builds
-      // the ghost from this in-memory copy. Without this line, the first
-      // frame of the drag preview would still render the children at the
-      // pre-migration scale (= 1 against the new frame dims), which makes
-      // the legacy migration invisible to the user mid-drag.
-      startEl.data.refSize = captured;
     }
+    // Carry the migrated refSize on a DETACHED copy. The migration batch
+    // writes to the store, but `foundEl` was captured before the batch and
+    // the subsequent ghost paint (`paintGhostPreview([ghost], ...)`) builds
+    // the ghost from this in-memory copy. Without the patched value the
+    // first frame of the drag preview would still render the children at
+    // the pre-migration scale (= 1 against the new frame dims), which makes
+    // the legacy migration invisible to the user mid-drag.
+    //
+    // IMPORTANT: the object graph reached through `startSlide` is the
+    // snapshot returned by `store.read()`. That snapshot is READ-ONLY and
+    // MUST NOT be written into — stores cache and share it across reads, so
+    // an in-place write would leak into every other reader and outlive this
+    // drag. Always build a patched local copy, as below.
+    const startEl: Element =
+      migratedRefSize && foundEl.type === 'group'
+        ? { ...foundEl, data: { ...foundEl.data, refSize: migratedRefSize } }
+        : foundEl;
     // Resize operates in world space so the handles stay fixed in the
     // positions the user sees. Convert the stored local frame to world
     // for all delta math, then convert back at commit time.
@@ -6245,7 +6257,7 @@ class SlidesEditorImpl implements SlidesEditor {
     handle: ResizeHandle,
     clientX: number,
     clientY: number,
-    startSlide: Slide,
+    rawStartSlide: Slide,
     scope: readonly string[],
     selectedIds: readonly string[],
   ): void {
@@ -6257,7 +6269,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // group's frame stretches.
     const groupsToMigrate: { id: string; refSize: { w: number; h: number } }[] = [];
     for (const id of selectedIds) {
-      const el = findElement(startSlide.elements, id);
+      const el = findElement(rawStartSlide.elements, id);
       if (el && el.type === 'group' && el.data.refSize === undefined) {
         groupsToMigrate.push({
           id,
@@ -6268,16 +6280,30 @@ class SlidesEditorImpl implements SlidesEditor {
     if (groupsToMigrate.length > 0) {
       this.options.store.batch(() => {
         for (const { id, refSize } of groupsToMigrate) {
-          this.options.store.updateElementData(startSlide.id, id, { refSize });
+          this.options.store.updateElementData(rawStartSlide.id, id, { refSize });
         }
       });
-      // Patch the in-memory copies so the ghost snapshots below pick up
-      // the migrated refSize for the first frame of the live preview.
-      for (const { id, refSize } of groupsToMigrate) {
-        const el = findElement(startSlide.elements, id);
-        if (el && el.type === 'group') el.data.refSize = refSize;
-      }
     }
+    // Carry the migrated refSize on a DETACHED copy of the slide, so the
+    // ghost snapshots below AND `paintMultiResizeLive` — which re-runs
+    // `findElement(startSlide.elements, ...)` on every drag frame — pick up
+    // the migrated refSize for the live preview.
+    //
+    // IMPORTANT: `rawStartSlide` belongs to the snapshot returned by
+    // `store.read()`. That snapshot is READ-ONLY and MUST NOT be written
+    // into — stores cache and share it across reads, so an in-place write
+    // would leak into every other reader and outlive this drag. Always
+    // build a patched local copy, as below.
+    const startSlide: Slide =
+      groupsToMigrate.length > 0
+        ? {
+            ...rawStartSlide,
+            elements: withPatchedGroupRefSizes(
+              rawStartSlide.elements,
+              new Map(groupsToMigrate.map((g) => [g.id, g.refSize])),
+            ),
+          }
+        : rawStartSlide;
 
     // Build immutable snapshots in world space. Group `worldFrame`
     // uses worldTightFrame so the bbox matches the overlay handles.
@@ -6466,6 +6492,34 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   // at this point so the only overlay output is the guides themselves.
   editor.markDirty();
   return editor;
+}
+
+/**
+ * Return a DETACHED copy of `elements` (recursing into group children, so
+ * a group nested under a drill-in scope is reached too) with `refSize`
+ * replaced on every group whose id appears in `refSizes`.
+ *
+ * Used by the legacy-group refSize migration in `startMultiResize`. The
+ * element graph handed to the editor is the snapshot returned by
+ * `store.read()`, which is READ-ONLY and must never be written into; this
+ * builds the patched copy the live drag preview reads from instead.
+ * Non-group elements are shared by reference — they are never mutated.
+ */
+function withPatchedGroupRefSizes(
+  elements: readonly Element[],
+  refSizes: ReadonlyMap<string, { w: number; h: number }>,
+): Element[] {
+  return elements.map((el) => {
+    if (el.type !== 'group') return el;
+    return {
+      ...el,
+      data: {
+        ...el.data,
+        refSize: refSizes.get(el.id) ?? el.data.refSize,
+        children: withPatchedGroupRefSizes(el.data.children, refSizes),
+      },
+    };
+  });
 }
 
 /**
