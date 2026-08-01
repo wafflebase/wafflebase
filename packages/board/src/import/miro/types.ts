@@ -10,11 +10,33 @@ export interface MiroItemLike {
   style?: Record<string, unknown>;
 }
 
+/**
+ * Miro's `RelativeOffset`: a point on an item's bounding box expressed as
+ * percentage strings, top-left = `{ x: '0%', y: '0%' }`. Typed loosely (and
+ * optionally numeric) because it arrives as untrusted payload — the parser in
+ * `connector-sites.ts` validates it rather than trusting the shape.
+ */
+export interface MiroRelativeOffsetLike {
+  x?: string | number;
+  y?: string | number;
+}
+
+/**
+ * One end of a Miro connector. `snapTo` (`'auto' | 'top' | 'right' | 'bottom'
+ * | 'left'`) and `position` are what decide which side of the shape the
+ * connector leaves from; see `pickConnectorSite`.
+ */
+export interface MiroConnectorEndLike {
+  id?: string;
+  snapTo?: string;
+  position?: MiroRelativeOffsetLike;
+}
+
 export interface MiroConnectorLike {
   id: string;
   shape?: string;
-  startItem?: { id?: string };
-  endItem?: { id?: string };
+  startItem?: MiroConnectorEndLike;
+  endItem?: MiroConnectorEndLike;
   style?: Record<string, unknown>;
 }
 

@@ -28,9 +28,16 @@ export interface MiroItem {
   parent?: { id?: string };
 }
 
-/** One end of a connector. `id` is the connected item's id when attached. */
+/**
+ * One end of a connector. `id` is the connected item's id when attached;
+ * `snapTo` (`'auto' | 'top' | 'right' | 'bottom' | 'left'`) and `position`
+ * (a relative offset on the item's bounding box) say WHERE on that item the
+ * connector lands — the board mapper reads both to choose the connection site,
+ * so they must survive the proxy hop verbatim.
+ */
 export interface MiroConnectorEnd {
   id?: string;
+  snapTo?: string;
   position?: { x?: string; y?: string };
 }
 

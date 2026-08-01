@@ -1,5 +1,6 @@
 import { generateId, type ElementInit, type Endpoint } from '@wafflebase/slides';
 import { miroFrame } from './geometry';
+import { pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
 import { miroHtmlToBlocks } from './text';
@@ -222,8 +223,24 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
       continue;
     }
 
-    const start: Endpoint = { kind: 'attached', elementId: startElement, siteIndex: 0 };
-    const end: Endpoint = { kind: 'attached', elementId: endElement, siteIndex: 0 };
+    // Each end attaches to the side that faces the other end. Hardcoding
+    // `siteIndex: 0` (top-centre, outward normal pointing north) made every
+    // imported connector leave the top of the source and arrive at the top of
+    // the target — and since the default routing is `curved`, which bows along
+    // those normals, even neighbouring shapes were joined by a huge arc
+    // sweeping over the board. See `pickConnectorSite` for the precedence.
+    const startFrame = startId ? frames.get(startId) : undefined;
+    const endFrame = endId ? frames.get(endId) : undefined;
+    const start: Endpoint = {
+      kind: 'attached',
+      elementId: startElement,
+      siteIndex: pickConnectorSite(connector.startItem, startFrame, endFrame),
+    };
+    const end: Endpoint = {
+      kind: 'attached',
+      elementId: endElement,
+      siteIndex: pickConnectorSite(connector.endItem, endFrame, startFrame),
+    };
 
     const style = connector.style ?? {};
     const strokeWidth = num(style.strokeWidth);

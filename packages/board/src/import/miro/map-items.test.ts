@@ -106,6 +106,59 @@ describe('mapMiroItems', () => {
     expect(connector.arrowheads.end).toBeTruthy();
   });
 
+  it('attaches each connector end to the site facing the other element', () => {
+    // `b` sits to the RIGHT of `a`, so the link should leave a's east edge and
+    // arrive on b's west edge — not the top of both (the old hardcoded 0).
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(300, 0), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' } }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.start.siteIndex).toBe(1); // E
+    expect(connector.end.siteIndex).toBe(3); // W
+  });
+
+  it('honours an explicit snapTo / position over the geometric default', () => {
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(300, 0), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1',
+        startItem: { id: 'a', snapTo: 'bottom' },
+        endItem: { id: 'b', position: { x: '50%', y: '0%' } },
+      }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.start.siteIndex).toBe(2); // S, from snapTo
+    expect(connector.end.siteIndex).toBe(0); // N, from position
+  });
+
+  it('falls back to geometry when both ends say snapTo auto', () => {
+    // `b` sits BELOW `a` (board y grows downward).
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'a', type: 'shape', ...at(0, 0), data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', ...at(0, 400), data: { shape: 'rectangle' } },
+      ],
+      connectors: [{
+        id: 'c1',
+        startItem: { id: 'a', snapTo: 'auto' },
+        endItem: { id: 'b', snapTo: 'auto' },
+      }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.start.siteIndex).toBe(2); // S
+    expect(connector.end.siteIndex).toBe(0); // N
+  });
+
   it('skips a connector when only the end is unmapped, and counts it', () => {
     // Miro exposes no absolute coordinate for the unmapped end, so there is no
     // honest fallback position — a `free` endpoint would strand the line at the
