@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { mapMiroItems } from "@wafflebase/board";
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isAuthExpiredError } from "@/api/auth";
 import { importMiroBoard } from "@/api/miro";
 import { deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
@@ -48,6 +49,13 @@ export function MiroImportDialog({
   const [error, setError] = useState<string | null>(null);
 
   const busy = phase !== "idle";
+
+  // Reset on OPEN rather than on close: it covers every way the dialog can go
+  // away (Cancel, Esc, the overlay, a successful import) in one place, so a
+  // failed attempt cannot greet the user again the next time they open it.
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -112,8 +120,13 @@ export function MiroImportDialog({
       onOpenChange(false);
       navigate(getDocumentPath(doc));
     } catch (err) {
+      // An expired session is already redirecting to login; an inline "failed
+      // to import" on the way out is noise about the wrong problem.
+      if (isAuthExpiredError(err)) return;
       // Keep the dialog open so the pasted values aren't lost.
-      setError(err instanceof Error ? err.message : "Failed to import the Miro board");
+      setError(
+        err instanceof Error ? err.message : "Failed to import the Miro board",
+      );
     } finally {
       setPhase("idle");
     }

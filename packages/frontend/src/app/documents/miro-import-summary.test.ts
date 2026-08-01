@@ -37,6 +37,19 @@ describe("summarizeImport", () => {
     expect(summary).toContain("7");
   });
 
+  it("words a budget skip apart from a failure", () => {
+    // Both mean "images are missing", but only one of them is a malfunction —
+    // conflating them sends the user looking for a broken asset that is fine.
+    const summary = summarizeImport({ skipped: {}, notes: [
+      { reason: "image-budget", itemType: "image", count: 4 },
+    ] });
+
+    expect(summary).not.toBeNull();
+    expect(summary).toContain("4");
+    expect(summary).toMatch(/limit/i);
+    expect(summary).not.toMatch(/failed/i);
+  });
+
   it("combines mapper skips with backend notes", () => {
     const summary = summarizeImport({ skipped: { connector: 3, embed: 1 }, notes: [
       { reason: "image-failed", itemType: "image", count: 2 },

@@ -32,6 +32,11 @@ export function describeNote(note: MiroImportNote): string {
   switch (note.reason) {
     case "image-failed":
       return `${note.count} image(s) failed`;
+    case "image-budget":
+      // Nothing broke here: the board carried more image data than one import
+      // is allowed to move, so the rest was left behind. Worded apart from
+      // `image-failed` because the user's next step is different.
+      return `${note.count} image(s) skipped — the board exceeds the per-import image limit`;
     case "truncated":
       return `${what} truncated at the import limit (${note.count})`;
     case "stalled":

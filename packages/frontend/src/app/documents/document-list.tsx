@@ -258,9 +258,12 @@ function dateColumn(
 function ImportMenuItems({
   onImport,
   onImportMiro,
+  workspaceId,
 }: {
   onImport: (accept: string) => void;
   onImportMiro: () => void;
+  /** Undefined on the workspace-less `/documents` route. */
+  workspaceId?: string;
 }) {
   return (
     <>
@@ -286,10 +289,18 @@ function ImportMenuItems({
         <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
         Upload Image
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={onImportMiro}>
-        <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
-        Import from Miro…
-      </DropdownMenuItem>
+      {/*
+        Workspace-scoped, like "New folder" above: the import needs a workspace
+        to create the document in and to re-host the board's images into. On
+        the workspace-less list the dialog could only open with its submit
+        permanently disabled, which is a dead end, so the entry is hidden.
+      */}
+      {workspaceId && (
+        <DropdownMenuItem onClick={onImportMiro}>
+          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+          Import from Miro…
+        </DropdownMenuItem>
+      )}
     </>
   );
 }
@@ -1228,6 +1239,7 @@ export function DocumentList({
             <ImportMenuItems
               onImport={handleImportPick}
               onImportMiro={() => setMiroImportOpen(true)}
+              workspaceId={workspaceId}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1414,6 +1426,7 @@ export function DocumentList({
                         <ImportMenuItems
                           onImport={handleImportPick}
                           onImportMiro={() => setMiroImportOpen(true)}
+                          workspaceId={workspaceId}
                         />
                       </DropdownMenuContent>
                     </DropdownMenu>
