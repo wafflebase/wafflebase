@@ -39,17 +39,12 @@ export class MiroService {
    */
   static readonly MAX_ITEMS = 5000;
 
-  constructor(private readonly imageService: ImageService) {
-    // Not yet used — Task 3 re-hosts images through it. Referenced here so
-    // the field isn't flagged as unused before that lands.
-    void this.imageService;
-  }
+  constructor(private readonly imageService: ImageService) {}
 
   async importBoard(
     token: string,
     boardUrl: string,
-    // Not yet used — Task 3 scopes re-hosted images to the workspace.
-    _workspaceId: string,
+    workspaceId: string,
   ): Promise<MiroImportResult> {
     const boardId = parseMiroBoardId(boardUrl);
     const notes: MiroImportNote[] = [];
@@ -67,8 +62,81 @@ export class MiroService {
       'connectors',
     );
 
-    // Task 3 re-hosts image bytes here before returning.
-    return { items, connectors, notes };
+    const rehosted = await this.rehostImages(items, token, workspaceId, notes);
+    return { items: rehosted, connectors, notes };
+  }
+
+  /** Mime types `ImageService.upload` accepts. */
+  private static readonly IMAGE_MIME = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+  ]);
+
+  /**
+   * Miro's `data.imageUrl` needs the bearer token and expires in ~60s, so it
+   * is useless in a persisted document. Download each image now and re-upload
+   * it to the workspace's image bucket, rewriting the URL to a stable one.
+   *
+   * A failure drops just that image (with a note) — one broken asset must not
+   * fail the whole import.
+   */
+  private async rehostImages(
+    items: MiroItem[],
+    token: string,
+    workspaceId: string,
+    notes: MiroImportNote[],
+  ): Promise<MiroItem[]> {
+    let failed = 0;
+    const out: MiroItem[] = [];
+
+    for (const item of items) {
+      if (item.type !== 'image') {
+        out.push(item);
+        continue;
+      }
+      const src = (item.data as { imageUrl?: string } | undefined)?.imageUrl;
+      if (!src) {
+        failed++;
+        continue;
+      }
+      try {
+        const url = new URL(src);
+        url.searchParams.set('format', 'original');
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const mime = res.headers?.get('content-type')?.split(';')[0]?.trim() ?? '';
+        if (!MiroService.IMAGE_MIME.has(mime)) throw new Error(`unsupported mime ${mime}`);
+
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const uploaded = await this.imageService.upload(
+          buffer,
+          mime,
+          `miro-${item.id}`,
+          workspaceId,
+        );
+        out.push({
+          ...item,
+          data: {
+            ...(item.data ?? {}),
+            imageUrl: `/api/v1/workspaces/${workspaceId}/images/${uploaded.id}`,
+          },
+        });
+      } catch {
+        // Deliberately swallowed: the note is the user-visible signal, and the
+        // error could otherwise carry request context we don't want logged.
+        failed++;
+      }
+    }
+
+    if (failed > 0) {
+      notes.push({ reason: 'image-failed', itemType: 'image', count: failed });
+    }
+    return out;
   }
 
   /**

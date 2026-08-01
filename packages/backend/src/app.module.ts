@@ -17,6 +17,7 @@ import { HealthModule } from './health/health.module';
 import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { FolderModule } from './folder/folder.module';
+import { MiroModule } from './miro/miro.module';
 
 @Module({
   imports: [
@@ -110,6 +111,7 @@ import { FolderModule } from './folder/folder.module';
     UserDocStylesModule,
     AnalyticsModule,
     FolderModule,
+    MiroModule,
   ],
   controllers: [],
   providers: [

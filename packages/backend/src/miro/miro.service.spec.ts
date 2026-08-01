@@ -125,3 +125,67 @@ describe('MiroService.importBoard', () => {
     expect(JSON.stringify(result)).not.toContain('SECRET-TOKEN');
   });
 });
+
+describe('MiroService image re-hosting', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function imagePage(imageUrl: string) {
+    return {
+      data: [{ id: 'img1', type: 'image', data: { imageUrl } }],
+    };
+  }
+
+  it('downloads image bytes with the token and rewrites the URL to a workspace-scoped one', async () => {
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1?format=preview')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] })) // connectors
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'image/png' : null) },
+        arrayBuffer: async () => bytes,
+      } as unknown as Response);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    imageService.upload.mockResolvedValue({ id: 'new-id', url: '/images/x' });
+
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    // Downloaded with auth, asking for the original bytes.
+    const downloadCall = fetchMock.mock.calls[2];
+    expect(String(downloadCall[0])).toContain('format=original');
+    expect((downloadCall[1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer tok',
+    });
+
+    // Uploaded as a Buffer under the workspace prefix.
+    expect(imageService.upload).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'image/png',
+      expect.any(String),
+      'ws-1',
+    );
+
+    expect(result.items[0].data).toMatchObject({
+      imageUrl: '/api/v1/workspaces/ws-1/images/new-id',
+    });
+  });
+
+  it('drops the image and reports it when the download fails', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce({ ok: false, status: 500 } as unknown as Response);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(result.items).toHaveLength(0);
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'image-failed', count: 1 }),
+    );
+  });
+});
