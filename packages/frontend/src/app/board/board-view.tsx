@@ -13,6 +13,7 @@ import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
 import { toast } from "sonner";
+import { isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
@@ -267,6 +268,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           upload,
           center: center(),
         }).catch((err) => {
+          // Auth expiry triggers a login redirect; a stale failure toast
+          // would flash on the way out — swallow it (same as the paste/drop
+          // handler and the rest of the app's mutation error paths).
+          if (isAuthExpiredError(err)) return;
           // Mirrors the paste/drop path's failure handling
           // (`setupSlidesImagePaths`'s internal `insert()`) and the
           // slides toolbar's `handleImagePick` — `insertImageOnSlide`

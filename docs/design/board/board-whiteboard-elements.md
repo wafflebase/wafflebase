@@ -113,15 +113,15 @@ export const STICKY_COLORS: { name: string; value: string }[] = [
 export const STICKY_SIZE = 180; // world px, square
 
 // Returns an ElementInit for store.addElement(SYNTHETIC_SLIDE_ID, init).
-export function buildStickyInit(colorValue: string, centerWorld: Point): ElementInit;
+export function buildStickyInit(colorValue: string, center: Point): ElementInit;
 ```
 
 `buildStickyInit` returns:
 
 ```ts
 { type: 'shape',
-  frame: { x: centerWorld.x - STICKY_SIZE/2, y: centerWorld.y - STICKY_SIZE/2,
-           width: STICKY_SIZE, height: STICKY_SIZE, rotation: 0 },
+  frame: { x: center.x - STICKY_SIZE/2, y: center.y - STICKY_SIZE/2,
+           w: STICKY_SIZE, h: STICKY_SIZE, rotation: 0 },
   data: {
     kind: 'roundRect',
     fill: { kind: 'srgb', value: colorValue },
@@ -172,7 +172,7 @@ on-screen rather than at world origin.
 > **`insertImageOnSlide` centering:** it currently frames against a fixed
 > `slideHeight`. Board passes the on-screen world center + a viewport-derived
 > max size. If the existing signature can't express "center here," we thread an
-> optional `centerWorld?: Point` param through `InsertImageArgs` — an additive,
+> optional `center?: Point` param through `InsertImageArgs` — an additive,
 > board-driven, slides-back-compatible change (default = today's behavior).
 
 ### Minimap (view-local)
@@ -224,7 +224,7 @@ undefined`) → minimap hidden or shows an empty placeholder. Shown in read-only
   adds one `image` element via the board store (the slides paste/drop internals
   are already covered in the slides suite; board only tests the wiring).
 - Slides regression — unaffected by construction (no slides source touched
-  except the additive `centerWorld?` param, whose default preserves current
+  except the additive `center?` param, whose default preserves current
   framing; the slides suite covers the default path).
 
 ## Risks and Mitigation
@@ -235,7 +235,7 @@ undefined`) → minimap hidden or shows an empty placeholder. Shown in read-only
   (parity with every other shape) and note it — do not fork the editor to force
   it.
 - **`insertImageOnSlide` centers against a fixed slide height.** *Mitigation:*
-  thread an additive optional `centerWorld?` through `InsertImageArgs`, default
+  thread an additive optional `center?` through `InsertImageArgs`, default
   = today's behavior, so slides is untouched and board lands images on-screen.
 - **Minimap repaint cost on large/animated boards.** *Mitigation:* coalesce
   scene snapshots (scheduler/rAF), repaint the cheap viewport-rect overlay

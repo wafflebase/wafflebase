@@ -1,5 +1,6 @@
 import type { SlidesEditor, SlidesStore } from '@wafflebase/slides';
 import { toast } from 'sonner';
+import { isAuthExpiredError } from '@/api/auth';
 import { insertImageOnSlide } from './insert-image';
 
 /** Subset of `DataTransfer` we read — lets tests pass plain objects. */
@@ -93,6 +94,9 @@ export function setupSlidesImagePaths(deps: SlidesImagePathDeps): () => void {
 
   const insert = (slideId: string, file: File) => {
     void insertImageOnSlide({ store, slideId, file, upload, center: center?.() }).catch((err) => {
+      // Auth expiry redirects to login; don't flash a stale failure toast on
+      // the way out (matches the app's other mutation error paths).
+      if (isAuthExpiredError(err)) return;
       console.error('Failed to insert image', err);
       toast.error('Failed to insert image');
     });

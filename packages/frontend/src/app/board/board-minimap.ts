@@ -80,6 +80,9 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
   let lastFit: MiniFit | null = null;
   let lastVp: Viewport = { panX: 0, panY: 0, zoom: 1 };
+  // Set in dispose(); guards the async `onAssetLoad` repaint path (and the
+  // rAF callback) from touching torn-down canvas/store state after teardown.
+  let disposed = false;
 
   const applyVisibility = () => {
     panel.style.display = visible ? 'block' : 'none';
@@ -87,7 +90,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   };
 
   const paintScene = () => {
-    if (!snapCtx) return;
+    if (disposed || !snapCtx) return;
     const doc = store.read() as SlidesDocument;
     const slide = doc.slides[0] as Slide;
     const frames = slide.elements.map((e) => e.frame);
@@ -130,7 +133,11 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   // rAF-coalesced scene repaint.
   let sceneRaf = 0;
   const scheduleScene = () => {
-    if (sceneRaf) return;
+    // `renderThumbnail` registers this as its `onAssetLoad`, and the global
+    // image cache fires those callbacks after the initial paint — possibly
+    // after `dispose()` has torn down the canvas/store. Bail once disposed so
+    // a late image load can't schedule a paint against a detached context.
+    if (disposed || sceneRaf) return;
     sceneRaf = requestAnimationFrame(() => {
       sceneRaf = 0;
       paintScene();
@@ -147,7 +154,10 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   };
   const onPointerDown = (e: PointerEvent) => {
     dragging = true;
-    canvas.setPointerCapture(e.pointerId);
+    // `setPointerCapture` can throw (e.g. InvalidPointerId); guard it like
+    // the `releasePointerCapture` below so a throw can't escape the handler
+    // and strand `dragging = true` without capture.
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* noop */ }
     navigateFromEvent(e);
   };
   const onPointerMove = (e: PointerEvent) => {
@@ -179,6 +189,7 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
       if (visible) blit();
     },
     dispose: () => {
+      disposed = true;
       if (sceneRaf) cancelAnimationFrame(sceneRaf);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);

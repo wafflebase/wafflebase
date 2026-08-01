@@ -11,6 +11,7 @@ import { IconPointer, IconLetterT, IconNote, IconPhoto } from "@tabler/icons-rea
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,11 @@ export function BoardToolbar({
 }: BoardToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Color chosen from the palette, applied in `onCloseAutoFocus` (below) so
+  // the sticky is created only after Radix has finished closing the menu —
+  // and with focus restoration prevented, so the new sticky's text caret
+  // keeps focus instead of the dropdown trigger stealing it back.
+  const pendingStickyColor = useRef<string | null>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -127,16 +133,32 @@ export function BoardToolbar({
               <span aria-hidden>▾</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="flex gap-1 p-1">
+          <DropdownMenuContent
+            align="start"
+            className="flex gap-1 p-1"
+            onCloseAutoFocus={(e) => {
+              const color = pendingStickyColor.current;
+              if (!color) return;
+              pendingStickyColor.current = null;
+              // Skip Radix's default focus restore to the trigger — otherwise
+              // it steals focus from the sticky's text caret that
+              // `dropStickyAtViewportCenter` (via onInsertSticky) just entered.
+              e.preventDefault();
+              onInsertSticky?.(color);
+            }}
+          >
             {STICKY_COLORS.map((c) => (
-              <button
+              <DropdownMenuItem
                 key={c.value}
-                type="button"
                 aria-label={c.name}
                 title={c.name}
-                className="h-6 w-6 rounded border border-black/10"
+                className="h-6 w-6 rounded border border-black/10 p-0"
                 style={{ backgroundColor: c.value }}
-                onClick={() => onInsertSticky?.(c.value)}
+                onSelect={() => {
+                  // Defer the actual insert to onCloseAutoFocus; onSelect just
+                  // records the choice and lets Radix close the menu.
+                  pendingStickyColor.current = c.value;
+                }}
               />
             ))}
           </DropdownMenuContent>

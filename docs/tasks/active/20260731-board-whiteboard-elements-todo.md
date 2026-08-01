@@ -327,6 +327,14 @@ import { STICKY_COLORS } from "./sticky";
 
 Insert a Sticky control after the Text box `<Tooltip>` block and before `<ShapePicker>`:
 
+> **Superseded (post-review):** the palette snippet below renders native
+> `<button>`s inside `DropdownMenuContent`. That leaves Radix's close-autofocus
+> to restore the trigger and steal the new sticky's text caret. The shipped
+> code (PR #619 review fix) instead uses `DropdownMenuItem` with the color
+> recorded in a ref and the insert deferred to `DropdownMenuContent`'s
+> `onCloseAutoFocus` (with `preventDefault()`), so focus lands on the sticky.
+> See `board-toolbar.tsx` for the current contract.
+
 ```tsx
       {/* Sticky note ▾ — main click drops the first (yellow) color;
           chevron opens the 6-color palette. Placement + text-edit entry

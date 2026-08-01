@@ -35,9 +35,20 @@ describe('createBoardMinimap', () => {
       dpr: 1,
     });
     expect(mm.element).toBeInstanceOf(HTMLElement);
-    // a toggle button exists
     const toggle = mm.element.querySelector('button');
     expect(toggle).not.toBeNull();
+    // The panel (canvas host) is the div sibling of the toggle.
+    const panel = mm.element.querySelector('div');
+    expect(panel).not.toBeNull();
+
+    // Visible by default; clicking the toggle hides the panel, clicking
+    // again shows it — the assertion the title actually promises.
+    expect((panel as HTMLElement).style.display).toBe('block');
+    (toggle as HTMLButtonElement).click();
+    expect((panel as HTMLElement).style.display).toBe('none');
+    (toggle as HTMLButtonElement).click();
+    expect((panel as HTMLElement).style.display).toBe('block');
+
     mm.dispose();
   });
 

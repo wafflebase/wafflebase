@@ -68,4 +68,27 @@ describe('dropStickyAtViewportCenter', () => {
     expect(setSelection).toHaveBeenCalledWith(['sticky-1']);
     expect(enterTextEditing).toHaveBeenCalledWith('sticky-1');
   });
+
+  it('centers on the transformed world point under a panned + zoomed viewport', () => {
+    const addElement = vi.fn().mockReturnValue('sticky-2');
+    const batch = vi.fn((fn: () => void) => fn());
+    const store = { addElement, batch } as unknown as import('@wafflebase/slides').SlidesStore;
+    const editor = {
+      setSelection: vi.fn(),
+      enterTextEditing: vi.fn(),
+    } as unknown as import('@wafflebase/slides').SlidesEditor;
+
+    // zoom=2, pan=(100,50), host 800×600 → screen center (400,300) maps to
+    // world ((400-100)/2, (300-50)/2) = (150, 125).
+    dropStickyAtViewportCenter({
+      store, editor,
+      viewport: { panX: 100, panY: 50, zoom: 2 },
+      hostWidth: 800, hostHeight: 600,
+      colorValue: '#CDEFC4',
+    });
+
+    const [, init] = addElement.mock.calls[0];
+    expect(init.frame.x).toBe(150 - STICKY_SIZE / 2);
+    expect(init.frame.y).toBe(125 - STICKY_SIZE / 2);
+  });
 });
