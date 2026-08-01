@@ -12,7 +12,9 @@ Miro board into a new wafflebase **board** document as native elements —
 sticky notes, shapes, text, connectors, images, frames, and cards.
 
 The import is **structured, not a screenshot**: it reads the Miro REST v2
-`GET /boards/{id}/items` feed and maps each item to the board's element model
+`GET /boards/{id}/items` feed **plus** the separate
+`GET /boards/{id}/connectors` feed (connectors are not part of the items
+response) and maps each entry to the board's element model
 (which is the slides `Element` union). It reuses three shipped seams rather
 than inventing new machinery:
 
@@ -109,16 +111,21 @@ Body: `{ token: string; boardUrl: string }`. Steps:
    (`https://miro.com/app/board/<id>/...`); accept a bare id too. Reject
    anything else with a 400 naming the expected shape.
 2. **Fetch items**, paginated: `GET https://api.miro.com/v2/boards/{id}/items?limit=50`
-   with `Authorization: Bearer <token>`, following `links.next` until
+   with `Authorization: Bearer <token>`, following the `cursor` until
    exhausted, capped at a **hard item ceiling** (see Risks) so a huge board
-   cannot exhaust memory.
-3. **Re-host images.** A Miro image item's URL is short-lived and
-   auth-scoped, so it is useless in a persisted document. For each image the
-   service fetches the bytes and re-uploads them through the existing file
-   service into the `wafflebase-files` bucket, replacing the item's URL with a
-   stable wafflebase URL. Failures degrade to a skipped item + a report entry,
-   never a failed import.
-4. **Return** `{ items, report }`. The token is not echoed, not stored, not
+   cannot exhaust memory. `limit` is capped at 50 by the API.
+3. **Fetch connectors** from the separate paginated endpoint
+   `GET /v2/boards/{id}/connectors` — connectors are **not** returned by
+   `/items`, so a board's arrows would silently vanish without this second
+   call.
+4. **Re-host images.** A Miro image's `data.imageUrl` requires the bearer
+   token and **expires after ~60 seconds**, so it is useless in a persisted
+   document. For each image the service fetches the bytes *with the token,
+   immediately* (appending `format=original`) and re-uploads them through the
+   existing `ImageService` into the workspace image bucket, replacing the URL
+   with a stable wafflebase one. Failures degrade to a skipped item + a report
+   entry, never a failed import.
+5. **Return** `{ items, connectors, report }`. The token is not echoed, not stored, not
    logged. Miro auth/permission errors map to 401/403/404 with a clear message.
 
 ### The mapper (`mapMiroItems`)
@@ -132,10 +139,10 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 
 | Miro item | → board element |
 | --- | --- |
-| `sticky_note` | SP2's sticky: `roundRect` shape, Miro color → nearest sticky fill, `data.text` from the item content, middle-anchored |
+| `sticky_note` | SP2's sticky: `roundRect` shape, Miro **named** `style.fillColor` (`yellow`, `light_green`, …) → hex via a lookup table, `data.content` as the text, middle-anchored |
 | `shape` | `ShapeElement` — Miro `shape` name → `ShapeKind` (`rectangle`→`rect`, `circle`→`ellipse`, `triangle`, `round_rectangle`→`roundRect`, `rhombus`→`diamond`, …; unknown → `rect` + report), fill / border color / border width, inline text |
 | `text` | `TextElement` with a docs `Block[]` body |
-| `connector` | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; missing target → `free` at the captured point; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
+| `connector` (separate feed) | `ConnectorElement` — `startItem.id`/`endItem.id` → `attached` endpoints via the id map; a target that wasn't imported → `free` at that item's frame center, or the connector is skipped + reported when neither end resolves; `shape` (`straight`/`elbowed`/`curved`) → `routing`; arrowheads from `style.startStrokeCap`/`endStrokeCap` |
 | `image` | `ImageElement` with the re-hosted `data.src` |
 | `frame` | `rect` shape (light fill, visible border) + the frame title as its text — a labelled region, not a container |
 | `card` / `app_card` | `roundRect` shape whose text body is the title plus the description |
@@ -148,10 +155,12 @@ height, rotation?}` in degrees; the board's `Frame` is top-left + radians:
 coordinates map **1:1** with no scaling. Items sit where Miro had them, and
 the existing viewport lands the user on the content.
 
-**HTML content.** Miro item text is a small HTML fragment (`<p>`, `<strong>`,
-`<a>`). SP3 parses only that subset into docs `Block[]`/inline styles;
-anything else degrades to plain text. Rich-text fidelity is explicitly
-best-effort.
+**HTML content.** Miro item text (`data.content`) is an HTML fragment — Miro
+documents `<p>`, `<a>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<u>`, `<s>`,
+`<span>`, `<br>` (text items additionally allow `<ol>`/`<ul>`/`<li>`). SP3
+parses a conservative subset — paragraph breaks plus bold/italic/underline/
+strikethrough — into docs `Block[]`; every other tag degrades to its text
+content. Rich-text fidelity is explicitly best-effort.
 
 ### Persistence (headless)
 
@@ -204,6 +213,9 @@ shown inline in the dialog, which stays open so the input isn't lost.
   **reported, never silent**; the board renderer already culls off-screen
   elements (SP1), and the minimap (SP2) makes a large import navigable. A
   spatial index stays deferred, consistent with SP1/SP2.
+- **Rate limits.** `GET /items` is a Level 2 endpoint (100 credits/call,
+  1000 req/min). *Mitigation:* `limit=50` (the API max) minimizes calls, and a
+  `429` surfaces as a clear retryable error rather than a partial import.
 - **Miro API drift.** v2 item shapes may change. *Mitigation:* the mapper reads
   a narrow, explicitly-typed subset and treats unknown types/fields as
   skip-and-report rather than throwing, so drift degrades instead of breaking.
