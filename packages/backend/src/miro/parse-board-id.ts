@@ -1,7 +1,39 @@
 import { BadRequestException } from '@nestjs/common';
 
-/** Matches the board id segment of a canonical Miro board URL. */
-const BOARD_URL_RE = /miro\.com\/app\/(?:board|live-embed)\/([^/?#]+)/i;
+/** Matches the board id segment of a canonical Miro board *path*. */
+const BOARD_PATH_RE = /^\/app\/(?:board|live-embed)\/([^/?#]+)/i;
+
+/**
+ * The host must really be Miro's, checked against a parsed `URL.hostname`
+ * rather than by searching the raw string.
+ *
+ * DO NOT loosen this back into a substring/`includes` test. `miro.com` can
+ * appear anywhere in an attacker-controlled URL — in the path
+ * (`https://evil.com/miro.com/app/board/X`), in the userinfo
+ * (`https://miro.com@evil.com/...`), or as a lookalike host
+ * (`notmiro.com`, `miro.com.evil.net`) — and every one of those would hand us
+ * a board id sourced from someone else's link. The suffix test carries the
+ * leading dot on purpose so it matches real subdomains only.
+ */
+function isMiroHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'miro.com' || host.endsWith('.miro.com');
+}
+
+/**
+ * Parse the input as a URL. Scheme-less pastes (`miro.com/app/board/<id>/`)
+ * are common enough to keep accepting, so they get an https prefix; anything
+ * that already carries a scheme keeps it, so `http://…` stays visible to the
+ * protocol check rather than being silently upgraded.
+ */
+function toUrl(value: string): URL | null {
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(value);
+    return new URL(hasScheme ? value : `https://${value}`);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * `decodeURIComponent` throws a raw `URIError` on a malformed percent
@@ -31,14 +63,24 @@ export function parseMiroBoardId(input: string): string {
     throw new BadRequestException('A Miro board URL or board id is required');
   }
 
-  const match = BOARD_URL_RE.exec(trimmed);
-  if (match) {
-    return decodeOrReject(match[1]);
-  }
-
-  // A bare id: no scheme, no slashes, no spaces.
+  // A bare id: no scheme, no slashes, no spaces. Checked before the URL
+  // parse because `toUrl` would otherwise read a bare id as a hostname.
   if (!/[/\s]/.test(trimmed) && !/^https?:/i.test(trimmed)) {
     return decodeOrReject(trimmed);
+  }
+
+  const url = toUrl(trimmed);
+  if (
+    url &&
+    (url.protocol === 'https:' || url.protocol === 'http:') &&
+    isMiroHost(url.hostname)
+  ) {
+    // `URL` leaves percent sequences in `pathname` untouched, so `%3D` padding
+    // still reaches `decodeOrReject` exactly as it did with the raw string.
+    const match = BOARD_PATH_RE.exec(url.pathname);
+    if (match) {
+      return decodeOrReject(match[1]);
+    }
   }
 
   throw new BadRequestException(

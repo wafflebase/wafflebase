@@ -173,6 +173,160 @@ describe('MiroService image re-hosting', () => {
     });
   });
 
+  /** A download response with only the pieces `rehostImages` reads. */
+  function downloadResponse(opts: {
+    contentType?: string;
+    contentLength?: string;
+    arrayBuffer?: () => Promise<ArrayBuffer>;
+    body?: unknown;
+  }) {
+    const headers: Record<string, string | undefined> = {
+      'content-type': opts.contentType,
+      'content-length': opts.contentLength,
+    };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h: string) => headers[h.toLowerCase()] ?? null },
+      body: opts.body,
+      arrayBuffer:
+        opts.arrayBuffer ??
+        (async () => {
+          throw new Error('arrayBuffer() should not have been called');
+        }),
+    } as unknown as Response;
+  }
+
+  it('accepts a mixed-case content-type and reads the body as a stream', async () => {
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3])];
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(downloadResponse({
+        contentType: 'Image/PNG',
+        body: {
+          getReader: () => {
+            let i = 0;
+            return {
+              read: async () =>
+                i < chunks.length ? { done: false, value: chunks[i++] } : { done: true },
+              cancel: async () => {},
+            };
+          },
+        },
+      }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    imageService.upload.mockResolvedValue({ id: 'new-id', url: '/images/x' });
+
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(imageService.upload).toHaveBeenCalledWith(
+      Buffer.from([1, 2, 3]),
+      'image/png',
+      expect.any(String),
+      'ws-1',
+    );
+    expect(result.items[0].data).toMatchObject({
+      imageUrl: '/api/v1/workspaces/ws-1/images/new-id',
+    });
+    expect(result.notes).toEqual([]);
+  });
+
+  it('refuses a non-Miro image host without fetching it or leaking the token', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://169.254.169.254/latest/meta-data/')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    const result = await service.importBoard('SECRET-TOKEN', 'B=', 'ws-1');
+
+    // Only the two api.miro.com feed calls happened — the metadata endpoint was
+    // never contacted, so the token was never offered to it.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(String(url)).not.toContain('169.254.169.254');
+      expect(new URL(String(url)).hostname).toBe('api.miro.com');
+    }
+    expect(imageService.upload).not.toHaveBeenCalled();
+    expect(result.items).toHaveLength(0);
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'image-failed', count: 1 }),
+    );
+  });
+
+  it('refuses a plaintext http image URL even on a Miro host', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('http://api.miro.com/v2/boards/B/resources/r1')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(String(url).startsWith('https://')).toBe(true);
+    }
+    expect(imageService.upload).not.toHaveBeenCalled();
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'image-failed', count: 1 }),
+    );
+  });
+
+  it('refuses a download whose content-length exceeds the cap', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(downloadResponse({
+        contentType: 'image/png',
+        contentLength: String(11 * 1024 * 1024),
+        // Deliberately cheap to read: the declared length alone must be
+        // enough to refuse, so this must never be consumed.
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(imageService.upload).not.toHaveBeenCalled();
+    expect(result.items).toHaveLength(0);
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'image-failed', count: 1 }),
+    );
+  });
+
+  it('refuses a body that streams past the cap even without a content-length', async () => {
+    // A lying (absent) content-length must not buy an unbounded read.
+    const chunk = new Uint8Array(4 * 1024 * 1024);
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1')))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(downloadResponse({
+        contentType: 'image/png',
+        body: {
+          async *[Symbol.asyncIterator]() {
+            for (let i = 0; i < 5; i++) yield chunk;
+          },
+        },
+        // A tiny buffer here: if the body is ever slurped via arrayBuffer()
+        // instead of read in chunks, the upload would wrongly succeed.
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(imageService.upload).not.toHaveBeenCalled();
+    expect(result.notes).toContainEqual(
+      expect.objectContaining({ reason: 'image-failed', count: 1 }),
+    );
+  });
+
   it('drops the image and reports it when the download fails', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(jsonResponse(imagePage('https://api.miro.com/v2/boards/B/resources/r1')))

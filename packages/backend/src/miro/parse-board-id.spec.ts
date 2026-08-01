@@ -22,8 +22,41 @@ describe('parseMiroBoardId', () => {
     expect(parseMiroBoardId('  uXjVOD50NUI=  ')).toBe('uXjVOD50NUI=');
   });
 
+  it('extracts the id from a live-embed URL', () => {
+    expect(parseMiroBoardId('https://miro.com/app/live-embed/ABC/')).toBe('ABC');
+  });
+
+  it('accepts a miro.com subdomain', () => {
+    expect(parseMiroBoardId('https://app.miro.com/app/board/uXjVOD50NUI=/')).toBe('uXjVOD50NUI=');
+  });
+
+  it('accepts a scheme-less board URL', () => {
+    expect(parseMiroBoardId('miro.com/app/board/uXjVOD50NUI=/')).toBe('uXjVOD50NUI=');
+  });
+
   it('rejects a non-Miro URL', () => {
     expect(() => parseMiroBoardId('https://example.com/whatever')).toThrow(BadRequestException);
+  });
+
+  it('rejects a URL that only mentions miro.com in its path', () => {
+    // The host must really be Miro's — an attacker-controlled origin that
+    // merely embeds the string `miro.com/app/board/...` must not be honoured.
+    expect(() => parseMiroBoardId('https://evil.com/miro.com/app/board/X')).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('rejects a host that merely ends with the miro.com text', () => {
+    expect(() => parseMiroBoardId('http://notmiro.com/app/board/X')).toThrow(BadRequestException);
+    expect(() => parseMiroBoardId('https://miro.com.evil.net/app/board/X')).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('rejects a URL whose userinfo spoofs the Miro host', () => {
+    expect(() => parseMiroBoardId('https://miro.com@evil.com/app/board/X')).toThrow(
+      BadRequestException,
+    );
   });
 
   it('rejects an empty string', () => {
