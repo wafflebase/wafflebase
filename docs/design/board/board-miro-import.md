@@ -180,6 +180,76 @@ Body: `{ token: string; boardUrl: string }`. Steps:
    raw string: an unanchored match accepts `https://evil.com/miro.com/app/board/<id>`
    and hands back an id sourced from someone else's link.
 
+#### Streaming progress (NDJSON)
+
+The whole import is one request, and a 3000-element board is ~60 sequential
+paginated round trips plus up to 100 image transfers — 30-60 s during which the
+original dialog showed a single static "Reading board…". That is
+indistinguishable from a hang, and was reported as one.
+
+The response is therefore **`application/x-ndjson`**: one JSON value per line,
+progress first, exactly one terminal line last.
+
+```jsonc
+{"type":"progress","stage":"items","done":150}
+{"type":"progress","stage":"connectors","done":40}
+{"type":"progress","stage":"images","done":3,"total":12}
+{"type":"result","items":[…],"connectors":[…],"notes":[…]}
+```
+
+`done` is a **running per-stage total**, not a delta, so a client renders it
+directly. `total` appears only for `images`, the one phase whose size is known
+up front. The `images` stage is announced even when it is empty (`done: 0,
+total: 0`) so the label moves off "reading" for every board.
+
+**Why streaming and not a job id + polling.** The credential must be sent
+**exactly once**. A job design would have to either park the token server-side
+between requests — which this whole feature exists to avoid — or make the
+client resend it with every poll. One streamed response keeps the one-shot
+property and still reports progress.
+
+##### The error boundary
+
+An HTTP status cannot be changed once the first byte is written, so the work
+that deserves a status is deliberately placed *ahead* of the stream. The
+service is split at exactly that seam:
+
+| | runs in | failure surfaces as |
+| --- | --- | --- |
+| board-id parse + **the first `/items` request** | `prepareImport` | a real status: **400** / **401** / **403** / **404** / **429**, JSON body, `assertOk` → `HttpError` |
+| later pages, connectors, image re-hosting | `runImport` | a final `{"type":"error","message":…}` line on an already-committed **200** |
+
+The first Miro call is what surfaces auth, permission and not-found, which is
+why it sits on the pre-stream side; its page is carried into `runImport` rather
+than re-fetched. The client throws `MiroImportStreamError` for an in-band error
+line, so a caller's `catch` behaves identically either way — the dialog stays
+open with the pasted values, the orphan document is cleaned up, and
+`isAuthExpiredError` still short-circuits.
+
+An in-band message is an **allowlist**, not a scrub: only `HttpException`
+messages (all raised from string literals in this module) are forwarded;
+anything else becomes a generic line. The rejected alternative,
+`message.includes(token) ? generic : message`, is a substring test against an
+attacker-influenced value and is wrong in *both* directions — the perfectly
+legal token `tok` censors this module's own 404 text ("…the **tok**en has no
+access…"), while a percent-encoded or line-wrapped token sails through.
+
+##### Keeping the bytes moving
+
+`Content-Type: application/x-ndjson`, `Cache-Control: no-cache, no-store,
+no-transform` (forbids a proxy re-encoding, and therefore re-buffering, the
+body), `X-Accel-Buffering: no` (nginx's `proxy_buffering` opt-out),
+`res.flushHeaders()`, `socket.setNoDelay(true)` (progress lines are tiny and
+Nagle would otherwise clump them), and **one `res.write` per line**.
+
+The frontend reads with `body.getReader()` through a pure line reader
+(`api/ndjson.ts`). A streamed response gives **no** alignment between chunks
+and lines, so it handles all four of: a line split across chunks, several lines
+in one chunk, a final line with no trailing newline, and — the one that looks
+impossible — a **multi-byte UTF-8 character split across a chunk boundary**,
+which a naive per-chunk `decode()` turns into U+FFFD and corrupts. Only
+`TextDecoder.decode(chunk, { stream: true })` holds the partial sequence back.
+
 ### The mapper (`mapMiroItems`)
 
 Pure, two-pass, mirroring `parseSpTree`'s structure:
@@ -266,8 +336,14 @@ the one outcome this flow exists to prevent.
 
 "Import from Miro…" joins the existing Import menu in the documents list. The
 dialog takes a token and a board URL, links to Miro's token docs, and states
-plainly that the token is used once and never stored. On submit: a progress
-state (fetching → mapping → creating), then navigate to `/b/:id`. If any
+plainly that the token is used once and never stored. On submit the Import
+button becomes the progress readout, driven by the NDJSON stream —
+"Reading board… 1,250 items" → "Reading connectors… 40" → "Importing images…
+3/12" → "Creating…" — then navigate to `/b/:id`. Counts are locale-grouped
+("1,250" reads as a count, "1250" reads as an id) and the button holds a
+minimum width so it does not resize on every tick. The wording is a pure
+function (`miro-import-progress.ts`) because this text is the only thing
+distinguishing a running import from a hung one. If any
 report channel is non-empty, a summary lists what did not come across and why.
 Errors are shown inline in the dialog, which stays open so the input isn't lost.
 
@@ -302,6 +378,23 @@ retrying cannot accumulate orphans.
   order, and the in-flight count is `> 1` but never `> IMAGE_CONCURRENCY`. The
   byte ceiling is asserted as a **bound**, not an exact count — pinning the
   count would be pinning the scheduler.
+- **Streaming** (`miro.controller.spec.ts`) — one progress line per stage then
+  exactly one `result`, monotonic `done`, the anti-buffering headers, a
+  pre-stream rejection arriving as a real **401** with nothing written, a
+  post-stream failure arriving as an in-band `error` line, and the allowlist
+  refusing to censor this module's own message for a short token.
+  **Plus one test over a real socket**: every other assertion sees `res.write`
+  calls, which proves lines are *produced* incrementally but not that they
+  *arrive* that way — a buffering layer would be invisible to it. That test
+  boots a real Nest server, requests it with `http.request`, and timestamps
+  each chunk. Observed: three progress lines at `+0 ms`, the rest at `+152 ms`
+  behind a 150 ms image phase; a buffered response would deliver all eight in
+  one chunk at the end.
+- **Line reader** (`api/ndjson.test.ts`) — a line split at *every* byte offset,
+  several lines in one chunk, a final line with no trailing newline, and
+  multi-byte (Korean, 3-byte) and astral (emoji, 4-byte) characters split
+  across the boundary. Verified to genuinely fail (3 of 9 tests) when
+  `{ stream: true }` is removed from the decode.
 - **Applier** — the `board` branch produces the expected `root.elements` in one
   batch, with connector endpoints remapped onto the store's real ids and
   unresolvable connectors dropped + counted. Its store double **must mint a
@@ -317,7 +410,8 @@ retrying cannot accumulate orphans.
   the test that catches that class of defect, and it must not be reduced to
   stubs.
 - **Security assertion** — a test that the response payload never contains the
-  token.
+  token, extended to the **streamed bytes**: the whole wire payload (progress
+  lines and terminal line alike) is searched, not just the parsed result.
 
 ## Risks and Mitigation
 
@@ -344,3 +438,10 @@ retrying cannot accumulate orphans.
   *Mitigation:* failures degrade to a reported skip rather than failing the
   import; the ceiling bounds the worst case; and the downloads run through a
   6-wide pool instead of serially, which is where most of the wall clock went.
+- **A long request looks like a hang.** 30-60 s of silence on a large board was
+  reported as "stuck". *Mitigation:* NDJSON progress on the same response, so
+  the dialog shows the live stage and counts. The residual risk is an
+  intermediary that buffers the body anyway; `no-transform` /
+  `X-Accel-Buffering: no` / `flushHeaders` / `setNoDelay` address the ones we
+  control, and a buffering proxy degrades to today's behavior (a single late
+  chunk) rather than breaking the import.

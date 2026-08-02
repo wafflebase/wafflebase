@@ -14,12 +14,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isAuthExpiredError } from "@/api/auth";
-import { importMiroBoard } from "@/api/miro";
+import { importMiroBoard, type MiroImportProgress } from "@/api/miro";
 import { deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { resolveImageUrl } from "@/app/spreadsheet/image-upload";
 import { applyImportedContent } from "./apply-imported-content";
 import { getDocumentPath } from "./document-list-utils";
+import { describeImportProgress } from "./miro-import-progress";
 import { summarizeImport } from "./miro-import-summary";
 
 interface MiroImportDialogProps {
@@ -46,6 +47,7 @@ export function MiroImportDialog({
 }: MiroImportDialogProps) {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>("idle");
+  const [progress, setProgress] = useState<MiroImportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const busy = phase !== "idle";
@@ -67,9 +69,17 @@ export function MiroImportDialog({
     if (!token || !boardUrl) return;
 
     setError(null);
+    setProgress(null);
     setPhase("fetching");
     try {
-      const result = await importMiroBoard(workspaceId, { token, boardUrl });
+      // The backend streams NDJSON progress over the SAME request the token was
+      // posted on, so the credential is still sent exactly once. Each line is a
+      // running per-stage total, so it can be rendered as-is.
+      const result = await importMiroBoard(
+        workspaceId,
+        { token, boardUrl },
+        setProgress,
+      );
       const { inits, skipped, approximated } = mapMiroItems({
         items: result.items,
         connectors: result.connectors,
@@ -129,6 +139,7 @@ export function MiroImportDialog({
       );
     } finally {
       setPhase("idle");
+      setProgress(null);
     }
   };
 
@@ -180,9 +191,18 @@ export function MiroImportDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !workspaceId}>
+            {/*
+              `min-w` + centring: the label grows from "Import" to
+              "Importing images… 12/128" as the stream reports in, and a button
+              that resizes on every progress tick reads as a glitch.
+            */}
+            <Button
+              type="submit"
+              disabled={busy || !workspaceId}
+              className="min-w-[13rem] justify-center tabular-nums"
+            >
               {phase === "fetching"
-                ? "Reading board…"
+                ? describeImportProgress(progress)
                 : phase === "creating"
                   ? "Creating…"
                   : "Import"}

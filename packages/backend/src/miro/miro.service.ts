@@ -11,7 +11,10 @@ import type {
   MiroConnector,
   MiroImportNote,
   MiroImportResult,
+  MiroImportSession,
   MiroItem,
+  MiroPage,
+  MiroProgressSink,
 } from './miro.types';
 
 const MIRO_API = 'https://api.miro.com/v2';
@@ -120,11 +123,6 @@ const MAX_TOTAL_IMAGE_BYTES = 64 * 1024 * 1024;
  */
 const IMAGE_CONCURRENCY = 6;
 
-interface MiroPage<T> {
-  data?: T[];
-  cursor?: string;
-}
-
 /**
  * Thin authenticated proxy to the Miro REST API.
  *
@@ -150,29 +148,100 @@ export class MiroService {
 
   constructor(private readonly imageService: ImageService) {}
 
+  /**
+   * PHASE 1 — everything that may still fail with a meaningful HTTP status.
+   *
+   * The import streams its progress, and an HTTP status cannot be changed once
+   * the first byte is written. So the two failures that genuinely need a
+   * status live here, ahead of the stream:
+   *
+   * - a board URL/id we cannot parse -> 400 (`parseMiroBoardId`);
+   * - the first authenticated Miro call, which is what surfaces a bad token
+   *   (401), a missing scope (403), a board the user cannot see (404), and a
+   *   rate limit (429).
+   *
+   * Anything that fails after this — a later page, an image, the upload — is
+   * reported in-band, because by then the response is committed to 200.
+   */
+  async prepareImport(
+    token: string,
+    boardUrl: string,
+  ): Promise<MiroImportSession> {
+    const boardId = parseMiroBoardId(boardUrl);
+    const firstItemsPage = await this.getJson<MiroPage<MiroItem>>(
+      MiroService.pageUrl(MiroService.feedUrl(boardId, 'items')),
+      token,
+    );
+    return { boardId, firstItemsPage };
+  }
+
+  /**
+   * PHASE 2 — the long tail, reporting progress as it goes.
+   *
+   * `emit` is called with a monotonic per-stage count; the controller turns
+   * each call into one NDJSON line. It is deliberately synchronous and
+   * fire-and-forget: progress must never be able to fail the import.
+   */
+  async runImport(
+    session: MiroImportSession,
+    token: string,
+    workspaceId: string,
+    emit: MiroProgressSink,
+  ): Promise<MiroImportResult> {
+    const notes: MiroImportNote[] = [];
+
+    const items = await this.fetchPaged<MiroItem>(
+      MiroService.feedUrl(session.boardId, 'items'),
+      token,
+      notes,
+      'items',
+      (done) => emit({ type: 'progress', stage: 'items', done }),
+      session.firstItemsPage,
+    );
+    const connectors = await this.fetchPaged<MiroConnector>(
+      MiroService.feedUrl(session.boardId, 'connectors'),
+      token,
+      notes,
+      'connectors',
+      (done) => emit({ type: 'progress', stage: 'connectors', done }),
+    );
+
+    const rehosted = await this.rehostImages(
+      items,
+      token,
+      workspaceId,
+      notes,
+      emit,
+    );
+    return { items: rehosted, connectors, notes };
+  }
+
+  /**
+   * The non-streaming entry point, kept for callers that just want the result
+   * (and for the tests that assert the end-to-end shape). It is exactly the
+   * two phases run back to back with the progress discarded, so there is no
+   * second code path to keep in step.
+   */
   async importBoard(
     token: string,
     boardUrl: string,
     workspaceId: string,
   ): Promise<MiroImportResult> {
-    const boardId = parseMiroBoardId(boardUrl);
-    const notes: MiroImportNote[] = [];
+    const session = await this.prepareImport(token, boardUrl);
+    return this.runImport(session, token, workspaceId, () => {});
+  }
 
-    const items = await this.fetchPaged<MiroItem>(
-      `${MIRO_API}/boards/${encodeURIComponent(boardId)}/items`,
-      token,
-      notes,
-      'items',
-    );
-    const connectors = await this.fetchPaged<MiroConnector>(
-      `${MIRO_API}/boards/${encodeURIComponent(boardId)}/connectors`,
-      token,
-      notes,
-      'connectors',
-    );
+  /** `https://api.miro.com/v2/boards/<id>/<feed>`, with the id escaped. */
+  private static feedUrl(boardId: string, feed: string): string {
+    return `${MIRO_API}/boards/${encodeURIComponent(boardId)}/${feed}`;
+  }
 
-    const rehosted = await this.rehostImages(items, token, workspaceId, notes);
-    return { items: rehosted, connectors, notes };
+  /** A feed URL with the page size and (optionally) a cursor applied. */
+  private static pageUrl(baseUrl: string, cursor?: string): string {
+    const url = new URL(baseUrl);
+    url.searchParams.set('limit', String(PAGE_LIMIT));
+    if (cursor) url.searchParams.set('cursor', cursor);
+    return url.toString();
   }
 
   /** Mime types `ImageService.upload` accepts. */
@@ -196,15 +265,13 @@ export class MiroService {
    * being fetched and reported under `image-budget`, kept separate from
    * `image-failed` because "your board is too image-heavy" and "this image is
    * broken" are different facts.
-   *
-   * The downloads run through a pool of `IMAGE_CONCURRENCY` workers rather than
-   * one at a time — see that constant for why 6.
    */
   private async rehostImages(
     items: MiroItem[],
     token: string,
     workspaceId: string,
     notes: MiroImportNote[],
+    emit: MiroProgressSink = () => {},
   ): Promise<MiroItem[]> {
     let failed = 0;
     let overBudget = 0;
@@ -216,7 +283,7 @@ export class MiroService {
     // contents, so a completion-ordered `push` would silently reshuffle
     // z-order and make the import non-deterministic. Every slot is written BY
     // INDEX and the holes (failed/skipped images) are compacted at the end, so
-    // the result is identical to the serial version's.
+    // the result is byte-identical to the serial version's.
     const out: (MiroItem | null)[] = new Array<MiroItem | null>(
       items.length,
     ).fill(null);
@@ -231,6 +298,16 @@ export class MiroService {
       }
       jobs.push(i);
     }
+
+    const total = jobs.length;
+    let done = 0;
+    // Announce the phase even when it is empty, so the client can move its
+    // label off "reading" for every board rather than only image-bearing ones.
+    emit({ type: 'progress', stage: 'images', done: 0, total });
+    const complete = (): void => {
+      done++;
+      emit({ type: 'progress', stage: 'images', done, total });
+    };
 
     // A shared cursor over `jobs` consumed by `IMAGE_CONCURRENCY` workers.
     // Workers claim indices IN ORDER, so the budget is spent on the earliest
@@ -247,6 +324,7 @@ export class MiroService {
         const src = (item.data as { imageUrl?: string } | undefined)?.imageUrl;
         if (!src) {
           failed++;
+          complete();
           continue;
         }
         // Budget is charged against COMPLETED downloads, so with a pool in
@@ -261,6 +339,7 @@ export class MiroService {
           downloadedBytes >= MAX_TOTAL_IMAGE_BYTES
         ) {
           overBudget++;
+          complete();
           continue;
         }
 
@@ -283,6 +362,7 @@ export class MiroService {
           // logged.
           failed++;
         }
+        complete();
       }
     };
 
@@ -457,24 +537,38 @@ export class MiroService {
    * reached. On truncation a note is pushed rather than failing — a partial
    * import the user knows about is better than none. `label` names the feed
    * ('items' / 'connectors') so a note says WHICH one was cut.
+   *
+   * `onPage` receives the running total after every page — this is the only
+   * signal a caller has that a 60-round-trip board is progressing rather than
+   * hung. `first` lets the caller hand in a page it has already fetched (the
+   * pre-stream probe), so the seeded page is never requested twice.
    */
   private async fetchPaged<T>(
     baseUrl: string,
     token: string,
     notes: MiroImportNote[],
     label: string,
+    onPage: (done: number) => void = () => {},
+    first?: MiroPage<T>,
   ): Promise<T[]> {
     const out: T[] = [];
     let cursor: string | undefined;
+    let seeded = first;
 
     for (;;) {
-      const url = new URL(baseUrl);
-      url.searchParams.set('limit', String(PAGE_LIMIT));
-      if (cursor) url.searchParams.set('cursor', cursor);
-
-      const page = await this.getJson<MiroPage<T>>(url.toString(), token);
+      let page: MiroPage<T>;
+      if (seeded) {
+        page = seeded;
+        seeded = undefined;
+      } else {
+        page = await this.getJson<MiroPage<T>>(
+          MiroService.pageUrl(baseUrl, cursor),
+          token,
+        );
+      }
       const batch = page.data ?? [];
       out.push(...batch);
+      onPage(Math.min(out.length, MiroService.MAX_ITEMS));
 
       if (out.length >= MiroService.MAX_ITEMS) {
         out.length = MiroService.MAX_ITEMS;
