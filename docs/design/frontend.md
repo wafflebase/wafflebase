@@ -434,8 +434,10 @@ caching and mutations.
 Row click navigates to the type-specific detail route via `getDocumentPath()`.
 
 Additional shipped frontend surfaces the sheets integration relies on but this
-doc does not detail: data validation (`data-validation-panel.tsx`), a threaded
-comments system, and URL-based share links (`src/api/share-links.ts`).
+doc does not detail: data validation
+(`packages/frontend/src/app/spreadsheet/data-validation-panel.tsx`), a threaded
+comments system, and URL-based share links
+(`packages/frontend/src/api/share-links.ts`).
 
 **Document detail** wraps `SheetView` in a `DocumentProvider` that connects to
 the Yorkie document with key `sheet-{id}`. The sheet and datasource tab views

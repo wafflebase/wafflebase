@@ -369,7 +369,7 @@ This table is updated as each PR lands.
 | #2  | Palette tokenization                   | Not started  |                                    |
 | #3  | Shared toolbar components              | Partially shipped | `ToolbarButton` + `ColorSwatch` shipped via #498; `EditorToolbar` / `ToolbarGroup` not built |
 | #4  | Slides toolbar migration               | Not started  |                    |
-| #5  | Sheets formatting toolbar              | Shipped      | `FormattingToolbar` in `components/formatting-toolbar.tsx` |
+| #5  | Sheets formatting toolbar              | Shipped      | `FormattingToolbar` in `packages/frontend/src/components/formatting-toolbar.tsx` |
 | #6  | Floating UI consolidation              | Not started  |                    |
 | #7  | Mobile first pass for Docs and Sheets  | Not started  |                    |
 | #8  | Icon library unification               | Not started  |                    |
