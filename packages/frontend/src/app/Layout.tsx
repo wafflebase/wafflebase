@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from "@/api/workspaces";
 import { useEffect, useMemo } from "react";
+import { UploadPanel } from "@/app/documents/upload-panel";
 
 /** Declarative route → title mapping. First match wins. */
 const ROUTE_TITLES: Array<{ path: string; title: string }> = [
@@ -136,6 +137,17 @@ export default function Layout() {
           <Outlet />
         </div>
       </SidebarInset>
+      {/* The upload queue is an app-scoped module singleton, so its panel
+          belongs to the shell, not to any one page. Rendered here it survives
+          navigation between Documents / Data Sources / Analytics / Settings,
+          so a background import (a Miro board can run for a minute) stays
+          visible while the user works elsewhere — the whole point of moving
+          that work off the modal.
+
+          Deliberately NOT at the router root: the editor routes (/b/:id and
+          friends) sit outside this Layout, and the board's minimap already
+          owns the bottom-right corner this panel would land on. */}
+      <UploadPanel />
     </SidebarProvider>
   );
 }

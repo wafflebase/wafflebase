@@ -125,7 +125,6 @@ import {
   type Workspace,
 } from "@/api/workspaces";
 import { downloadDocumentFile } from "@/api/download-file";
-import { UploadPanel } from "./upload-panel";
 import { useWindowFileDrop } from "./use-window-file-drop";
 import { enqueue, startUploads, type UploadItem } from "./upload-queue";
 import { pickFiles } from "./pick-files";
@@ -1800,7 +1799,6 @@ export function DocumentList({
           </span>
         </div>
       )}
-      <UploadPanel />
     </>
   );
 }
