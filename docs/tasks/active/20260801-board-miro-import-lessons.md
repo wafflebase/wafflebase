@@ -119,6 +119,74 @@ gap found was the *image* fetch — the single hop whose URL comes from upstream
 JSON rather than our own code — which is exactly where an allowlist was missing.
 When handling a secret, audit the hop whose destination you don't control.
 
+### "Correct but silent" is a bug report waiting to happen
+
+The import worked. It was still reported as **stuck**, because a 3000-element
+board is ~60 sequential paginated round trips plus up to 100 image downloads
+behind a dialog that said "Reading board…" and nothing else for 30-60 s. No
+amount of correctness fixes that: the user cannot distinguish a running import
+from a dead one. Any operation whose duration scales with the user's data needs
+a progress channel, and it needs one *before* someone files it as a hang.
+
+### The credential invariant chose the protocol
+
+The obvious progress design — return a job id, poll it — quietly breaks
+"the token is sent exactly once": polling either parks the credential
+server-side (the thing this feature was built to avoid) or resends it on every
+poll. Streaming the progress back on the *same* response is the only shape that
+keeps the one-shot property. The security constraint picked the architecture,
+not the other way round.
+
+### A streamed response commits its status code with the first byte
+
+This is the whole design pressure. `prepareImport` / `runImport` exist purely to
+put the work that deserves a status (board-id parse → 400; the first
+authenticated Miro call → 401/403/404/429) *ahead* of the first `res.write`, and
+everything after it reports in-band on an already-committed 200. Getting this
+backwards produces the worst outcome available: a 200 whose body says the import
+failed, which every generic client treats as success.
+
+### A "safety" check that can be wrong in both directions is not a guard
+
+The first cut scrubbed in-band error messages with
+`message.includes(token) ? generic : message`. A test caught it immediately: the
+token `"tok"` matched the word "token" in this module's own 404 text and blanked
+a perfectly good message — while a percent-encoded or line-wrapped token would
+have sailed straight through. It was replaced with an **allowlist** (only
+`HttpException` messages, all raised from string literals here, are forwarded).
+Prefer "these values are known safe" over "this value looks unsafe".
+
+### Multi-byte UTF-8 splits across chunk boundaries, and it looks impossible
+
+A `ReadableStream` gives no alignment between chunks and lines. The three
+obvious cases (split line, several lines per chunk, no trailing newline) are
+easy to remember; the fourth — a 3- or 4-byte character split across the
+boundary — is the one that gets skipped, and a naive per-chunk `decode()`
+silently turns it into U+FFFD. `TextDecoder.decode(chunk, { stream: true })` is
+the fix. Removing that one option fails 3 of the 9 parser tests, which is how we
+know the tests are load-bearing rather than decorative.
+
+### `res.write` proves production, not delivery
+
+Every controller test asserting on a `res.write` double proves lines are
+*produced* incrementally. It cannot see a buffering layer (compression, a
+serializer, nginx `proxy_buffering`, Nagle) between there and the client. One
+test over a real socket — Nest on an ephemeral port, `http.request`, a timestamp
+per chunk — is what actually proves it: three progress lines at `+0 ms` and the
+rest at `+152 ms` behind a 150 ms image phase.
+
+### Concurrency changes what a budget test can honestly assert
+
+Charging the byte ceiling against *completed* downloads lets a 6-wide pool
+overshoot it by up to `(concurrency - 1) x MAX_IMAGE_BYTES`. The exact skip
+count is now a property of the scheduler, so the test asserts a **bound** plus a
+conservation law (imported + reported = total) instead of a magic number. The
+alternative — reserving `MAX_IMAGE_BYTES` per in-flight slot to keep the count
+exact — would have skipped images that comfortably fit, trading a real user-
+visible regression for a tidier assertion. Also: output order had to be
+preserved by writing results **by index**, because `mapMiroItems` derives its id
+map and its frames-behind-contents z-order from array order.
+
 ## Verification notes
 
 - `pnpm verify:self`: all 11 lanes green. Chunk gate bumped 144 → 145 (the
@@ -130,6 +198,29 @@ When handling a secret, audit the hop whose destination you don't control.
   composition test that fails 4/4 against the pre-fix code.
 - Frontend `tsc --noEmit` verified clean by the controller (a fix report claim
   of pre-existing type errors did not reproduce).
+
+### Progress-streaming + image-concurrency follow-up
+
+- Suites after the follow-up: backend 395 (41 files), board 54, frontend 986,
+  slides 2634. `pnpm --filter @wafflebase/frontend lint` clean.
+- Streaming proven end to end over a real socket, not just via a `res.write`
+  double: `MiroController over a real socket` boots Nest on an ephemeral port
+  and timestamps each chunk. Traced output (`MIRO_STREAM_TRACE=1`) behind a
+  150 ms image phase:
+
+  ```text
+  +0ms    {"type":"progress","stage":"items","done":4}
+  +0ms    {"type":"progress","stage":"connectors","done":0}
+  +0ms    {"type":"progress","stage":"images","done":0,"total":4}
+  +152ms  {"type":"progress","stage":"images","done":1,"total":4}
+  …
+  +152ms  {"type":"result",…}
+  ```
+
+  A buffered response would deliver all eight lines in one chunk at the end.
+- The NDJSON line reader's tests are load-bearing: deleting `{ stream: true }`
+  from the decode fails 3 of its 9 cases (the Korean, emoji, and byte-by-byte
+  boundary tests), with the payload visibly corrupted to `�������`.
 
 ## Deferred follow-ups (none block merge)
 

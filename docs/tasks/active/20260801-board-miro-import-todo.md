@@ -2076,6 +2076,15 @@ Lessons are captured; the archive move still runs at merge time. Fill in `docs/t
 
 `git fetch && git rebase origin/main`; push; open a PR titled ≤70 chars (e.g. "Board SP3: import a Miro board into a new board document"), body = Summary + Test plan.
 
+- [x] **Step 8: Real progress reporting (post-review follow-up)**
+
+Reported as "the import is stuck": a 3000-element board is ~60 sequential paginated round trips plus up to 100 serial image downloads behind a static "Reading board…". Two commits:
+
+1. **`Download Miro import images through a bounded-concurrency pool`** — `rehostImages` runs 6 workers over a shared cursor instead of one `await` per image. Output order preserved by writing results **by index** (the mapper's id map and frame z-order depend on it); the count ceiling stays exact (charged inside `rehostOne`, after the host check, before the first `await`); the byte ceiling is charged on completion, so a pool may overshoot it by `(concurrency - 1) x MAX_IMAGE_BYTES` and its test asserts a bound + a conservation law rather than an exact count. Tests added: forced reverse-completion order preserves feed order across a mixed success/failure batch; in-flight peak is `> 1` and `<= IMAGE_CONCURRENCY`.
+2. **`Stream Miro import progress to the dialog as NDJSON`** — `application/x-ndjson`, one `{"type":"progress","stage",…}` line per page/image completion then exactly one `{"type":"result"}`. `MiroService` splits into `prepareImport` (board-id parse + the FIRST Miro call → 400/401/403/404/429, before a byte is written) and `runImport` (everything after, failures reported in-band as `{"type":"error"}` on a committed 200). Frontend: `importMiroBoard(ws, payload, onProgress)` with a pure line reader (`api/ndjson.ts`) handling split lines / multi-line chunks / no-trailing-newline / multi-byte UTF-8 boundaries; `MiroImportStreamError` for in-band failures; the dialog's Import button becomes the live readout.
+
+Verified: backend 395, board 54, frontend 986, slides 2634, frontend lint clean, `pnpm verify:self` all 11 lanes. Incremental delivery proven over a **real socket** (Nest on an ephemeral port + `http.request` chunk timestamps), not just via `res.write` assertions.
+
 ---
 
 ## Self-Review
