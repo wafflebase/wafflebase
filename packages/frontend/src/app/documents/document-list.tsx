@@ -168,9 +168,9 @@ const TYPE_META: Record<
 > = {
   sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
   doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
-  note: { label: "Note", Icon: NotebookPen, color: "text-purple-500" },
+  note: { label: "Notes", Icon: NotebookPen, color: "text-purple-500" },
   slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
-  pdf: { label: "PDF", Icon: IconFileTypePdf, color: "text-red-500" },
+  pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-red-500" },
   image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
   board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
 };
