@@ -60,6 +60,15 @@ IMAGE_STORAGE_BUCKET=wafflebase-images
 IMAGE_STORAGE_REGION=us-east-1
 IMAGE_STORAGE_ACCESS_KEY=minioadmin
 IMAGE_STORAGE_SECRET_KEY=minioadmin
+
+# Optional — Share Link view analytics (Kafka + StarRocks). Leave all
+# three unset to disable analytics entirely; the app is unaffected and the
+# dashboard shows "not enabled". Uncomment and fill in only after starting
+# the `analytics` Docker Compose profile (see "Analytics" below) — pointing
+# these at brokers that aren't running just produces connection errors.
+# WAFFLEBASE_KAFKA_ADDRESSES=localhost:29092
+# WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events
+# WAFFLEBASE_STARROCKS_DSN=root:@tcp(localhost:9030)/wafflebase
 ```
 
 ### PDF & Image Storage
@@ -74,6 +83,36 @@ in Yorkie. They use **two separate buckets** with their own settings:
 In production every value must be set explicitly. If `FILE_STORAGE_*` is
 missing, PDF upload is unavailable; if `IMAGE_STORAGE_*` is missing, image
 insertion is unavailable — in each case the rest of the app runs normally.
+
+### Analytics (optional)
+
+Wafflebase can record **Share Link view analytics** — views, unique/returning
+visitors, dwell time, and a per-link breakdown — surfaced on a per-document and
+per-workspace dashboard. This is entirely optional and **off by default**: with
+the three `WAFFLEBASE_KAFKA_*` / `WAFFLEBASE_STARROCKS_DSN` variables unset, the
+whole pipeline is a no-op and the dashboard shows "not enabled". The rest of the
+app is unaffected.
+
+The pipeline reuses the same stack Yorkie ships for its own analytics:
+
+- **Kafka** — the backend batches client view events (via a `sendBeacon`
+  endpoint) onto a Kafka topic.
+- **StarRocks** — a Routine Load ingests the topic into a
+  `wafflebase.view_events` table; the dashboard queries it back over MySQL wire
+  protocol.
+
+Both run as an **opt-in Docker Compose profile** kept out of the default stack:
+
+```bash
+docker compose --profile analytics up -d   # + the default postgres/yorkie/minio
+```
+
+Then point the backend at them with the analytics variables shown above
+(`WAFFLEBASE_KAFKA_ADDRESSES=localhost:29092`,
+`WAFFLEBASE_KAFKA_TOPIC=wafflebase-view-events`,
+`WAFFLEBASE_STARROCKS_DSN=root:@tcp(localhost:9030)/wafflebase`). Open a
+document through a share link to emit events, then visit the workspace
+**Analytics** tab.
 
 ### GitHub OAuth Setup
 
@@ -105,4 +144,4 @@ All your data is stored in:
 - **Yorkie** — Editable document content (cells, text, slides, notes, comments)
 - **Blob storage** — Uploaded PDFs and embedded images (S3-compatible)
 
-You control all of these services. There are no external dependencies or telemetry. Back up your PostgreSQL database, Yorkie data directory, and blob store to preserve everything.
+You control all of these services. There are no external dependencies, and no telemetry is sent anywhere outside your own infrastructure. (The optional analytics pipeline above records Share Link view events, but only into the Kafka + StarRocks services you run yourself — and only when you enable it.) Back up your PostgreSQL database, Yorkie data directory, and blob store to preserve everything.

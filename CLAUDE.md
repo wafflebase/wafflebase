@@ -1,12 +1,16 @@
 # CLAUDE.md — Wafflebase
 
 Wafflebase is a web-based collaborative office suite — spreadsheets,
-word documents, and presentations. Yorkie CRDTs for real-time
-collaboration, ANTLR4-based formula engine, Canvas rendering.
+word documents, presentations, markdown notes, an infinite-canvas board,
+and PDF/image viewers. Yorkie CRDTs for real-time collaboration,
+ANTLR4-based formula engine, Canvas rendering.
 
 - **Sheets** — Spreadsheet engine (data model, ANTLR4 formulas, Canvas grid rendering)
 - **Docs** — Word processor engine (rich text, Canvas rendering, pagination)
 - **Slides** — Presentation engine (free-position elements, theme system, Canvas + DOM overlay editor); reuses the docs rich-text engine inside text boxes
+- **Notes** — Markdown note engine (CodeMirror source editor, single Yorkie `Text` CRDT)
+- **Board** — Infinite-canvas engine (boundless pan/zoom plane; reuses the Slides scene engine)
+- **PDF / Image** — Static file document types (blob-stored original, no CRDT editing)
 
 See @docs/design/README.md for architecture, @packages/sheets/README.md,
 @packages/docs/README.md, @packages/slides/README.md,
