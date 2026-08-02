@@ -271,10 +271,15 @@ where `sig` is a JSON signature of the rendered content (theme
 colors/fonts, master background/placeholder styles, layout
 placeholders/background/static elements) so an in-place theme edit
 invalidates the bitmap rather than serving a stale one — avoids
-re-rendering the same preview. Theme/master switches naturally produce
-different keys; old entries fall out of reachability and become
-GC eligible. No LRU eviction in v1 (5 themes × 1 master × 11
-layouts × 2 sizes = 110 entries max).
+re-rendering the same preview. Because the theme builder edits
+themes/masters/layouts in place, each edit mints a new content key
+and the `Map` entries stay strongly reachable until deleted, so the
+cache would otherwise grow without bound. A `CACHE_CAP` of 128 bounds
+it: once `cache.size` exceeds the cap, the oldest entry (the `Map`'s
+first insertion-order key) is evicted. The immutable built-in previews
+(5 themes × 1 master × 11 layouts × 2 sizes = 110 entries) hash to
+stable keys and stay hot within the cap; only stale edited-layout
+bitmaps churn out over a long theme-editing session.
 
 ### Empty-placeholder ghost text
 
@@ -414,11 +419,12 @@ Browser smoke (manual, `pnpm dev`):
   not deployed yet. If decks accumulate before launch, a
   one-shot back-fill in `migrate.ts` is a 30-line change.
 
-- **Risk: preview cache grows unbounded with many themes.** Today
-  there are 5 themes, ≤2 masters per deck in practice, 11
-  layouts, and 1–2 preview sizes — roughly ≤220 canvases. At
-  160×90 RGBA, each canvas is ≈ 56 KB, so ≤ 13 MB worst case.
-  Acceptable. If custom themes ship, add LRU.
+- **Risk: preview cache grows unbounded with many themes or live
+  theme-builder edits.** A module-level `Map` never releases entries
+  on its own, and in-place theme edits mint a fresh content key each
+  time. Mitigated by a `CACHE_CAP` of 128 with oldest-first
+  (insertion-order) eviction. At 160×90 RGBA each canvas is ≈ 56 KB,
+  so the cache is bounded to ≈ 7 MB worst case.
 
 - **Risk: split-button hit-target ambiguity.** Mitigated by
   separator + ≥24 px right zone, and unambiguous icons (`+` left,

@@ -392,8 +392,9 @@ group has scale `1`, so the renderer applies no scale (no shear) and
 before and after ungroup, rotated or not, at any depth.
 
 **Enforcement.** `refSize` is seeded equal to `frame` at group creation
-(`store.group()`) and PPTX import already bakes `<a:chExt>/<a:ext>` into
-child world frames so imported groups also rest at scale `1`. The
+(`store.group()`) and PPTX import seeds `refSize` to the group's
+child-AABB extent (the same value it stores as `frame`), so imported
+groups also rest at scale `1`. The
 invariant only leaks through commit paths that change a group's `frame.w
 / h` without baking. Every such path must call `bakeGroupResize` in the
 same `batch`:
@@ -480,20 +481,29 @@ renderer already produces correct output without changes.
 `composeGroupTransform` to flatten `<p:grpSp>` into world-frame
 elements. Under the new model:
 
-- On encountering `<p:grpSp>`, the importer creates a `GroupElement`
-  whose `frame` is the group's own `<a:xfrm>` in the parent's
-  coordinate space, and recurses into its children.
-- Each child's `<a:off>` / `<a:ext>` (already in slide pixels after
-  `parseXfrm`) is converted to the group's local coordinate space
-  before storage: subtract the group's `<a:chOff>` and divide by the
-  local scale (`<a:chExt>` → `(group.frame.w, group.frame.h)`).
-  This is the inverse of the matrix the old code applied via
-  `applyGroupTransform`; the new helper `normalizeToGroupLocal`
-  shares the same quadratic-solver branch for rotated children under
-  non-uniform group scale.
+- On encountering `<p:grpSp>`, the importer (`parseGrpSp` in
+  `packages/slides/src/import/pptx/shape.ts`) creates a `GroupElement`
+  and recurses into its children.
+- `composeGroupTransform` bakes every enclosing group's `<a:chOff>` /
+  `<a:chExt>`→`<a:ext>` scale and rotation into one cumulative
+  transform, so `parseSpTreeChildren` returns each child in **world**
+  coordinates. This world-frame baking is an intermediate calculation
+  only — nothing is stored in world space.
+- The group's `frame` is the rotation-aware AABB
+  (`combinedBoundingBox`) of those world child frames, and `refSize` is
+  seeded to the same extent so the group rests at scale `1`. Children
+  are then converted to **group-local** coordinates by
+  `worldToGroupLocal` — subtracting the AABB origin (an x/y
+  translation; size and rotation preserved), matching the invariant
+  `MemSlidesStore.group()` uses. Connector free endpoints shift the
+  same way. (The `normalizeToGroupLocal` helper in
+  `packages/slides/src/model/group.ts` is the general inverse used by
+  the editor's drag-into-group path; the importer only needs the
+  translation because the group frame is already the children's tight
+  AABB.)
 - Nested `<p:grpSp>` resolves naturally — the recursion already
-  exists in the importer; only the per-frame `apply` call becomes
-  the inverse normalize call.
+  exists in the importer, and each level produces its own
+  AABB-anchored `GroupElement`.
 - Unsupported descendants (`<p:cxnSp>` with cross-group endpoints,
   picture types we already fall back on, etc.) follow today's
   behavior of being skipped or flattened with a `report.ts`

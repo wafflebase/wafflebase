@@ -397,13 +397,20 @@ callback for atomicity.
 ```typescript
 // YorkieDocStore.buildBlockNode — block(type='table') case
 if (block.type === 'table' && block.tableData) {
+  const attributes: Record<string, string> = {
+    id: block.id,
+    type: 'table',
+    cols: block.tableData.columnWidths.join(','),
+  };
+  // rowHeights is persisted (empty slot = '', so column-only tables stay compact).
+  if (block.tableData.rowHeights && block.tableData.rowHeights.length > 0) {
+    attributes.rowHeights = block.tableData.rowHeights
+      .map((h) => h ?? '')
+      .join(',');
+  }
   return {
     type: 'block',
-    attributes: {
-      id: block.id,
-      type: 'table',
-      cols: block.tableData.columnWidths.join(','),
-    },
+    attributes,
     children: block.tableData.rows.map((row) => ({
       type: 'row',
       attributes: {},
@@ -417,6 +424,8 @@ if (block.type === 'table' && block.tableData) {
 }
 
 // YorkieDocStore.treeNodeToBlock — table case (sketch)
+// Restores columnWidths from `cols` and, when present, rowHeights from the
+// `rowHeights` attribute ('' slots deserialize back to undefined).
 function treeNodeToBlock(node: TreeNode): Block { /* recursive walk */ }
 function treeNodeToRow(node: TreeNode): TableRow { /* filter type==='row' */ }
 function treeNodeToCell(node: TreeNode): TableCell {

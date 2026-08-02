@@ -97,9 +97,15 @@ export type ConnectorElement = ElementBase & {
 };
 ```
 
-`ElementBase` (`id`, `z`, `opacity`, …) is shared. There is no `frame`
-field — the bbox is derived from the endpoints at render time, used
-only for selection hit-testing and `Cmd+A` selection.
+`ElementBase` (`id`, `frame`, …) is shared, so a connector carries a
+`frame` — but it is a **derived cache**, never authored geometry. The
+store recomputes it from the endpoints via `computeConnectorFrame`
+(`packages/slides/src/view/canvas/connector-frame.ts`) inside
+`addElement` and every connector mutation, storing the tight path bbox
+(polyline or bezier extrema) expanded by the stroke half-width. It is
+used only for selection hit-testing and `Cmd+A` selection, and is never
+written directly — `updateElementFrame` rejects connectors so the cached
+frame cannot drift out of sync with the endpoints.
 
 `ShapeKind` drops `'line'` and `'arrow'`. The path-builder dispatcher's
 special-cased `drawLine` / `drawArrow` branches are removed from

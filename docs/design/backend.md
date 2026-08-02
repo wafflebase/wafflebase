@@ -214,14 +214,20 @@ Share-link authority mirrors the document model — see
 
 #### DataSources (`/datasources`)
 
-All endpoints require `JwtAuthGuard`. Ownership is enforced on every request.
+All endpoints require `JwtAuthGuard`. Access is **workspace-scoped**: each
+route resolves the datasource's `workspaceId` and calls
+`WorkspaceService.assertMember`, so any member of the owning workspace has full
+access (datasources are owned by a workspace, not by their author). Companion
+workspace-scoped routes (`POST`/`GET /workspaces/:workspaceId/datasources`) list
+and create within one workspace.
 
 **`POST /datasources`**
 - Body: `{ name, host, port?, database, username, password, sslEnabled? }`
 - Creates a datasource connection. Password is encrypted with AES-256-GCM.
 
 **`GET /datasources`**
-- Returns all datasources owned by the authenticated user. Passwords are masked.
+- Returns all datasources across every workspace the authenticated user is a
+  member of. Passwords are masked.
 
 **`GET /datasources/:id`**
 - Returns a single datasource. Password is masked.

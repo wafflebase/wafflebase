@@ -115,8 +115,12 @@ function getToolbarState(editor: SlidesEditor | null, store: SlidesStore | null)
   const selection = editor?.getSelection() ?? [];
   if (selection.length === 0) return { kind: 'idle' };
   const types = collectSelectedTypes(store, editor, selection);
-  const selectionType = types.size > 1 ? 'mixed' : (types.values().next().value as 'shape' | 'image' | 'text-element');
-  return { kind: 'object', selectionType, ids: selection };
+  // Full union: > 1 type → 'mixed'; a single 'text' maps to 'text-element',
+  // 'image' / 'connector' / 'table' pass through, everything else → 'shape'.
+  const selectionType = mapSelectionType(types); // 'shape' | 'connector' | 'image' | 'text-element' | 'table' | 'mixed'
+  // cellRange is populated only for table selections (null = whole table).
+  const cellRange = selectionType === 'table' ? editor.getCellSelection() : null;
+  return { kind: 'object', selectionType, ids: selection, cellRange };
 }
 ```
 

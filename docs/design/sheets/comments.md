@@ -59,7 +59,7 @@ still live in `packages/sheets/src/comment/` and are re-exported.
 
 ```
 packages/sheets/src/comment/
-├── types.ts          # CommentAnchor, CommentAuthor, Comment, Thread
+├── types.ts          # sheet-cell CommentAnchor, CommentAuthor, Comment, generic Thread<A>
 ├── thread.ts         # pure helpers — create, validate, mutate threads
 └── anchor.ts         # CellAnchor ↔ Sref helpers, anchor validation
 
@@ -105,12 +105,17 @@ export type CommentAuthor = {
   photo?: string;
 };
 
-// Discriminated union — Docs / Slides extraction adds variants here.
-export type CommentAnchor =
-  | { kind: 'sheet-cell'; tabId: string; rowId: string; colId: string };
-  // future: { kind: 'sheet-range'; tabId; startRowId; ...; endColId }
-  // future: { kind: 'docs-range'; blockId; ... }
-  // future: { kind: 'slide-element'; slideId; elementId }
+// Sheets owns only the sheet-cell anchor. The full cross-consumer union
+// (`CommentAnchor = SheetCellAnchor | DocsRangeAnchor | PdfRegionAnchor`) is
+// assembled in the frontend type module at
+// `packages/frontend/src/types/comments.ts`, which re-imports this shape as
+// `SheetCellAnchorBase`. Docs and PDF are the shipped extra consumers.
+export type CommentAnchor = {
+  kind: 'sheet-cell';
+  tabId: string;
+  rowId: string;
+  colId: string;
+};
 
 export type Comment = {
   id: string;            // UUID v4
@@ -120,9 +125,12 @@ export type Comment = {
   editedAt?: number;     // present iff body has been edited
 };
 
-export type Thread = {
+// Generic over the anchor so this same shape is the canonical base for every
+// consumer; the frontend's shared `Thread<A>` aliases it. Sheets itself only
+// ever uses the default `sheet-cell` anchor.
+export type Thread<A extends { kind: string } = CommentAnchor> = {
   id: string;            // UUID v4
-  anchor: CommentAnchor;
+  anchor: A;             // sheet-cell in this package
   comments: Comment[];   // [0] is root, rest are replies in author order
   resolved: boolean;
   resolvedAt?: number;

@@ -232,6 +232,12 @@ is guarded by `CombinedAuthGuard` + `WorkspaceScopeGuard` and delegates
 to the S3/MinIO-backed `ImageService`. Uploads accept png/jpeg/gif/webp
 up to 10 MB and return `{ id, url }`, where `url` points back at this
 workspace-scoped `GET` route. Objects are keyed `{workspaceId}/{imageId}`.
+The `GET` route sets `Cache-Control: public, max-age=31536000, immutable`
+(`packages/backend/src/api/v1/images.controller.ts`): image ids are
+opaque and workspace-scoped, so the blob at a given URL never changes and
+is treated as safe to cache. Note this is a `public` policy on a
+bearer-token URL — a shared proxy/CDN may cache the object without
+re-running `CombinedAuthGuard`/`WorkspaceScopeGuard` on later hits.
 
 #### 5.6 Rate limiting
 

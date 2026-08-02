@@ -17,9 +17,13 @@ command wraps it, completing the Slides CLI's parity with the Docs CLI
 
 The fidelity target is **full round-trip**: every element type, theme,
 master, layout, effect, animation, and transition the importer reads is
-written back. Success is defined by a **model-equivalence round-trip** —
+written back — with the single exception of `ChartElement`, whose PPTX
+serialization is deferred (see Non-Goals; the dispatch in
+`packages/slides/src/export/pptx/group.ts` skips `chart` elements). Success
+is defined by a **model-equivalence round-trip** —
 `import(.pptx) → export → re-import` yields a `SlidesDocument` that is
-deep-equal to the first import under a defined normalization (§6).
+deep-equal to the first import under a defined normalization (§6), over
+fixtures that contain no charts.
 
 **Status:** Shipped. The exporter lives in
 `packages/slides/src/export/pptx/` (the 20 modules below), is re-exported
@@ -55,6 +59,11 @@ export` CLI command; the round-trip and per-module tests live in
   job).
 - Exporting fields the importer never reads (no new model data is
   invented to satisfy OOXML completeness).
+- Chart round-trip. `ChartElement` is **not** serialized to PPTX; the
+  `chart` case in `packages/slides/src/export/pptx/group.ts` emits nothing
+  so a chart is silently dropped on export (import + render already ship —
+  see `docs/design/slides/slides-charts.md`). PPTX chart writing is a later
+  phase.
 - A separate PDF export (tracked separately; PDF needs Canvas raster).
 - Editing/streaming `.pptx` in place — export always writes a fresh deck.
 - Image *upload* — images already in the deck (`data:` URLs or server
