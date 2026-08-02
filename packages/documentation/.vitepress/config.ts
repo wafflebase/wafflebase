@@ -69,8 +69,7 @@ export default defineConfig({
       { text: "Sheets", link: "/sheets/build-a-budget" },
       { text: "Docs", link: "/docs-editor/writing-a-document" },
       { text: "Slides", link: "/slides/build-a-deck" },
-      { text: "Notes", link: "/notes/writing-a-note" },
-      { text: "Board", link: "/board/using-the-board" },
+      { text: "Notes & Board", link: "/notes/writing-a-note" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -128,14 +127,9 @@ export default defineConfig({
         ],
       },
       {
-        text: "Notes",
+        text: "Notes & Board",
         items: [
           { text: "Writing a Note", link: "/notes/writing-a-note" },
-        ],
-      },
-      {
-        text: "Board",
-        items: [
           { text: "Using the Board", link: "/board/using-the-board" },
         ],
       },
