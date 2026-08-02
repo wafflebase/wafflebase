@@ -125,11 +125,11 @@ import {
   type Workspace,
 } from "@/api/workspaces";
 import { downloadDocumentFile } from "@/api/download-file";
-import { UploadPanel } from "./upload-panel";
 import { useWindowFileDrop } from "./use-window-file-drop";
-import { enqueue, startUploads } from "./upload-queue";
+import { enqueue, startUploads, type UploadItem } from "./upload-queue";
 import { pickFiles } from "./pick-files";
 import { ImageThumb } from "./image-thumb";
+import { MiroImportDialog } from "./miro-import-dialog";
 
 /**
  * A single row of the unified list: either a folder or a document. Folders and
@@ -256,8 +256,13 @@ function dateColumn(
  */
 function ImportMenuItems({
   onImport,
+  onImportMiro,
+  workspaceId,
 }: {
   onImport: (accept: string) => void;
+  onImportMiro: () => void;
+  /** Undefined on the workspace-less `/documents` route. */
+  workspaceId?: string;
 }) {
   return (
     <>
@@ -283,6 +288,18 @@ function ImportMenuItems({
         <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
         Upload Image
       </DropdownMenuItem>
+      {/*
+        Workspace-scoped, like "New folder" above: the import needs a workspace
+        to create the document in and to re-host the board's images into. On
+        the workspace-less list the dialog could only open with its submit
+        permanently disabled, which is a dead end, so the entry is hidden.
+      */}
+      {workspaceId && (
+        <DropdownMenuItem onClick={onImportMiro}>
+          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
+          Import from Miro…
+        </DropdownMenuItem>
+      )}
     </>
   );
 }
@@ -329,6 +346,7 @@ export function DocumentList({
     id: string;
     name: string;
   } | null>(null);
+  const [miroImportOpen, setMiroImportOpen] = useState(false);
 
   // The current workspace's real UUID. Every document in a workspace-scoped
   // list shares it — used to gate folder moves (moveFolder has no workspace
@@ -402,32 +420,48 @@ export function DocumentList({
     [],
   );
 
+  // The settled callback keys off each item's OWN captured workspaceId, not
+  // the closed-over one — work may finish after the user has switched the list
+  // to another workspace, and the queue keeps only the latest callback, so it
+  // must not assume the current workspace.
+  const onItemSettled = useCallback(
+    (item: UploadItem) => {
+      if (item.status === "done") {
+        scheduleListRefresh(item.workspaceId);
+        if (item.warning) {
+          toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+        }
+      } else if (item.status === "error") {
+        // "Upload" is wrong for a row that never had a file: an externally
+        // driven import (Miro) fails at an import, not at an upload.
+        const verb = item.kind === "board" ? "Import" : "Upload";
+        toast.error(
+          `${verb} failed: ${item.fileName}${
+            item.reason ? ` — ${item.reason}` : ""
+          }`,
+        );
+      }
+    },
+    [scheduleListRefresh],
+  );
+
+  // Register on mount, not just when a file batch starts: an externally driven
+  // row (the Miro import) settles through the same callback, and it can be the
+  // first and only work the queue ever sees in this session. Without this the
+  // list would never refresh to show the imported board.
+  useEffect(() => {
+    startUploads(onItemSettled);
+  }, [onItemSettled]);
+
   const startBatch = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
       // Pass the folder the list is currently viewing so dropped/picked files
       // land here, not the workspace root (matches the manual "New …" path).
       enqueue(files, workspaceId, folderId ?? undefined);
-      // The settled callback keys off each item's OWN captured workspaceId,
-      // not the closed-over one — a batch may finish after the user has
-      // switched the list to another workspace, and startUploads keeps only
-      // the latest callback, so it must not assume the current workspace.
-      startUploads((item) => {
-        if (item.status === "done") {
-          scheduleListRefresh(item.workspaceId);
-          if (item.warning) {
-            toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
-          }
-        } else if (item.status === "error") {
-          toast.error(
-            `Upload failed: ${item.fileName}${
-              item.reason ? ` — ${item.reason}` : ""
-            }`,
-          );
-        }
-      });
+      startUploads(onItemSettled);
     },
-    [workspaceId, folderId, scheduleListRefresh],
+    [workspaceId, folderId, onItemSettled],
   );
 
   // Google-Drive-style whole-window drop: a file dropped anywhere (not just on
@@ -1220,7 +1254,11 @@ export function DocumentList({
                 New folder
               </DropdownMenuItem>
             )}
-            <ImportMenuItems onImport={handleImportPick} />
+            <ImportMenuItems
+              onImport={handleImportPick}
+              onImportMiro={() => setMiroImportOpen(true)}
+              workspaceId={workspaceId}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
         </div>
@@ -1403,7 +1441,11 @@ export function DocumentList({
                           <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
                           New Board
                         </DropdownMenuItem>
-                        <ImportMenuItems onImport={handleImportPick} />
+                        <ImportMenuItems
+                          onImport={handleImportPick}
+                          onImportMiro={() => setMiroImportOpen(true)}
+                          workspaceId={workspaceId}
+                        />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1745,6 +1787,13 @@ export function DocumentList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MiroImportDialog
+        open={miroImportOpen}
+        onOpenChange={setMiroImportOpen}
+        workspaceId={workspaceId}
+        folderId={folderId}
+      />
       </div>
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-40 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
@@ -1753,7 +1802,6 @@ export function DocumentList({
           </span>
         </div>
       )}
-      <UploadPanel />
     </>
   );
 }

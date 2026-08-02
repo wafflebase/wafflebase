@@ -1,6 +1,8 @@
 import {
   initializeEditor,
   type PeerView,
+  type Slide,
+  type SlidesDocument,
   type SlidesEditor,
 } from "@wafflebase/slides";
 import {
@@ -27,6 +29,7 @@ import { insertImageOnSlide } from "../slides/insert-image";
 import { makeBoardImageUpload } from "./board-image";
 import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
+import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 
 interface BoardViewProps {
   /**
@@ -118,6 +121,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // `setState` would re-render the whole component tree for a value
   // only the imperative canvas mount below ever reads.
   const vp = useRef<Viewport>(DEFAULT_VIEWPORT);
+  // One-shot "frame the content on open" latch. A ref, not effect-local
+  // state, so it outlives a mount-effect re-run (e.g. `workspaceId`
+  // resolving after the first render) — re-framing then would yank a
+  // viewport the user has already panned. See `createFitToContentOnce`.
+  const fitLatch = useRef<FitLatch>({ done: false });
   // Assigned inside the mount effect once store/editor exist; lets the
   // toolbar trigger a sticky drop that reads the live viewport + host size.
   const stickyInserterRef = useRef<((colorValue: string) => void) | null>(null);
@@ -235,6 +243,29 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     minimap.repaintScene();
     minimap.repaintViewport(vp.current);
 
+    // Open ON the board's content instead of at the world origin. Boards sit
+    // far from (0, 0) — a Miro import especially — so `DEFAULT_VIEWPORT` shows
+    // a magnified empty corner and the user has to hunt for their own content.
+    // Runs at mount AND on every store change until it succeeds once: the
+    // Yorkie document has usually not synced yet at mount, so there is nothing
+    // to frame. Read-only (share-link) mounts fit too — an unnavigable board is
+    // just as useless to a viewer. Once it fires it never runs again.
+    const fitToContentOnce = createFitToContentOnce({
+      latch: fitLatch.current,
+      getFrames: () => {
+        const snapshot = store.read() as SlidesDocument;
+        const slide = snapshot.slides[0] as Slide | undefined;
+        return slide ? slide.elements.map((e) => e.frame) : [];
+      },
+      getHostSize: () => ({ w: hostW, h: hostH }),
+      apply: (fitted) => {
+        vp.current = fitted;
+        editor.setViewport(vp.current);
+        minimap.repaintViewport(vp.current);
+      },
+    });
+    fitToContentOnce();
+
     stickyInserterRef.current = (colorValue: string) => {
       dropStickyAtViewportCenter({
         store,
@@ -326,6 +357,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // changes pushed in by another peer. Also refreshes peer chrome
     // (a peer's selection ring tracks elements anyone moved).
     const offChange = store.onChange(() => {
+      // Before the repaints below: this is the change that first brings the
+      // synced content in, and the minimap viewport rect painted afterwards
+      // must reflect the framed viewport, not the stale origin one.
+      fitToContentOnce();
       editor.markDirty();
       editor.render();
       pushPeers();
@@ -460,8 +495,19 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     canvas.addEventListener("pointercancel", onPointerUp);
 
     // RAF loop so async asset loads (e.g. the image cache backing image
-    // elements) repaint — mirrors SlidesView's render loop. `render()`
-    // no-ops when the renderer isn't dirty, so this is cheap at idle.
+    // elements) repaint — mirrors SlidesView's render loop.
+    //
+    // `render()` short-circuits at idle: it returns BEFORE calling
+    // `store.read()` when the renderer is clean and no text-edit or
+    // crop session is active. That guard is load-bearing here — a board
+    // is one unbounded slide, so `YorkieBoardStore.read()` deep-unwraps
+    // the entire document (a `JSON.parse` per element `frame`/`data`).
+    //
+    // An earlier version of this comment claimed the loop was already
+    // cheap "because render() no-ops when the renderer isn't dirty".
+    // That was false: the no-op lived inside `SlideRenderer.render()`,
+    // i.e. *after* the read. An idle board with ~3000 elements burnt
+    // ~65 ms and ~12.6k `JSON.parse` calls per frame (≈15 fps).
     let raf = 0;
     const tick = () => {
       editor.render();

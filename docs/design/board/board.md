@@ -67,7 +67,7 @@ green with no change to slides behavior.
 ### Non-Goals (SP1)
 
 - **Sticky notes, freehand drawing, image paste** — SP2.
-- **Miro import** — SP3 (structured import via the Miro REST API).
+- **Miro import** — SP3 (structured import via the Miro REST API; see [board-miro-import.md](board-miro-import.md)).
 - **Minimap, zoom-to-fit-all, presence viewport-follow** — nice-to-have follow-ups.
 - **PPTX / PDF export, presentation mode** — slide-deck concepts, not board.
 - **Layouts / masters / placeholders / speaker notes** — dropped from the board
@@ -234,7 +234,7 @@ migration, no `document.service.ts` change.
 | --- | --- | --- |
 | **SP1** (this doc) | Canvas skeleton | viewport seam + board package/type/store + collaborative canvas |
 | SP2 ([spec](board-whiteboard-elements.md)) | Whiteboard elements | sticky notes (preset shape), image paste/drop, minimap |
-| SP3 | Miro import | Miro REST API client → structured import of shapes/connectors/stickies/text |
+| SP3 ([spec](board-miro-import.md)) | Miro import | Miro REST v2 client (one-shot pasted token, backend-only) → structured import of stickies/shapes/text/connectors/images + best-effort frames/cards into a new board |
 
 ### Risks and Mitigation
 

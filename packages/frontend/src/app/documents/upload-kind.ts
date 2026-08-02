@@ -1,4 +1,18 @@
-export type UploadKind = "sheet" | "doc" | "slides" | "pdf" | "image";
+/**
+ * What a queued row produces. Every other kind is classified from a file
+ * extension; `board` is deliberately absent from `EXT_TO_KIND` because no
+ * file maps to it. It exists because an externally driven row
+ * (`enqueueExternal` — today the Miro import) still has to say what it is
+ * making, so consumers that switch on the kind can tell an import apart from
+ * an upload.
+ */
+export type UploadKind =
+  | "sheet"
+  | "doc"
+  | "slides"
+  | "pdf"
+  | "image"
+  | "board";
 
 export const SKIP_REASON = "Unsupported file type";
 

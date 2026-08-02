@@ -110,6 +110,23 @@ export class SlideRenderer {
   }
 
   /**
+   * Whether the next `render()` would actually paint.
+   *
+   * Exposed so consumers can skip the work they'd otherwise do to
+   * *build* `render()`'s arguments when the paint would be a no-op.
+   * `SlidesEditorImpl.render()` uses this: it must call
+   * `store.read()` to obtain the `slide`/`doc` pair, and on a large
+   * deck (or a board, which is one unbounded slide holding the whole
+   * document) that read deep-unwraps every element. Without this
+   * accessor the dirty short-circuit inside `render()` came far too
+   * late — the expensive read had already happened on every frame of
+   * the caller's RAF loop, even at idle.
+   */
+  isDirty(): boolean {
+    return this.dirty;
+  }
+
+  /**
    * Asset-load callback handed to `drawSlide`. Marks the slide dirty and
    * notifies the consumer so paths without a per-frame render loop (mobile
    * view, presenter) can schedule a repaint. Consumers that re-drive

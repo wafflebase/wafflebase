@@ -68,7 +68,22 @@ function loadImageDimensions(
   });
 }
 
-function resolveImageUrl(url: string): string {
+/**
+ * Turn a backend image URL into one the browser can actually load.
+ *
+ * The backend hands out image URLs root-relative (`/api/v1/workspaces/...`),
+ * but the SPA and the API sit on different origins in every environment we
+ * ship (`VITE_BACKEND_API_URL` is `http://localhost:3000` in dev and
+ * `https://api.wafflebase.io` in prod), so a relative URL resolves against the
+ * SPA origin and 404s forever once it is persisted. Anything already absolute
+ * is left alone.
+ *
+ * Exported because EVERY path that writes a backend image URL into a CRDT
+ * document has to apply this, not just the native upload above. The Miro board
+ * import is the second such path, and it shipped storing the raw relative URL
+ * precisely because this rule was private to this module.
+ */
+export function resolveImageUrl(url: string): string {
   if (/^https?:\/\//i.test(url)) return url;
   if (!BACKEND_BASE) return url;
   return `${BACKEND_BASE.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`;

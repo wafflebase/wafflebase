@@ -889,10 +889,17 @@ function makeToolbarStore(elements: Element[]): MemSlidesStore {
     void slideId;
   });
   // Rebuild with a fixed slide id so stub editor's "slide-1" matches.
+  // The snapshot returned by `store.read()` is READ-ONLY and must not be
+  // written into — stores may cache and share it across reads — so patch a
+  // detached copy instead.
   const doc = store.read();
-  doc.slides[0].id = "slide-1";
-  doc.slides[0].elements = elements;
-  return new MemSlidesStore(doc);
+  return new MemSlidesStore({
+    ...doc,
+    slides: [
+      { ...doc.slides[0], id: "slide-1", elements },
+      ...doc.slides.slice(1),
+    ],
+  });
 }
 
 // ---- Scenarios ----

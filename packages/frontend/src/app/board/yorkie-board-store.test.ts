@@ -1,8 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { GroupElement, SlidesStore } from '@wafflebase/slides';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import { YorkieBoardStore } from './yorkie-board-store';
 import { makeYorkieBoardDoc, makeShapeInit } from './__testkit__';
+
+/**
+ * Fire a synthetic SDK document event. `YorkieBoardStore` subscribes to
+ * `remote-change` / `snapshot` in its constructor; with no server to
+ * produce them, drive that subscription through Yorkie's public
+ * `Document.publish`. The store only reads `event.type`, so the rest of
+ * the payload is elided.
+ */
+function emitDocEvent(
+  doc: ReturnType<typeof makeYorkieBoardDoc>,
+  type: 'remote-change' | 'snapshot',
+): void {
+  (doc as unknown as { publish(events: unknown[]): void }).publish([{ type }]);
+}
 
 describe('YorkieBoardStore', () => {
   it('read() exposes one synthetic slide holding the elements', () => {
@@ -161,5 +175,159 @@ describe('YorkieBoardStore', () => {
     // never sees this nested connector, so `end` would still read
     // `{ kind: 'attached', elementId: bId }` after `bId` is gone.
     expect(conn!.end.kind).toBe('free');
+  });
+
+  // --- read() snapshot cache ---
+  //
+  // `read()` deep-unwraps every element (JSON.parse per node), and the
+  // editor calls it at least twice per interaction frame. The snapshot is
+  // memoized and must be dropped on EVERY path by which `root` can change.
+  describe('read() snapshot cache', () => {
+    it('returns the identical snapshot when nothing has changed', () => {
+      const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+      store.batch(() => {
+        store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      });
+      const first = store.read();
+      const second = store.read();
+      // Identity, not deep-equality: a rebuild would produce an equal but
+      // distinct object, so `toBe` is what actually proves no re-walk.
+      expect(second).toBe(first);
+      expect(store.read().slides[0]).toBe(first.slides[0]);
+    });
+
+    it('does not re-unwrap the element tree on a repeated read()', () => {
+      const doc = makeYorkieBoardDoc();
+      const store: SlidesStore = new YorkieBoardStore(doc);
+      store.batch(() => {
+        store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      });
+      store.read();
+      // Count the actual unwrap work: `yorkieToPlain` is
+      // `JSON.parse(proxy.toJSON())`, so a rebuild is observable as
+      // JSON.parse calls. A cache hit must do zero.
+      const parseSpy = vi.spyOn(JSON, 'parse');
+      try {
+        store.read();
+        expect(parseSpy).not.toHaveBeenCalled();
+      } finally {
+        parseSpy.mockRestore();
+      }
+    });
+
+    it('invalidates on a local mutation', () => {
+      const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+      const before = store.read();
+      let id = '';
+      store.batch(() => {
+        id = store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      });
+      const after = store.read();
+      expect(after).not.toBe(before);
+      expect(after.slides[0].elements.map((e) => e.id)).toEqual([id]);
+    });
+
+    it('sees a mutation made earlier in the SAME batch', () => {
+      // The correctness trap: `withUpdate` invalidates per-mutation rather
+      // than only at the end of `batch()`, because Yorkie applies changes
+      // to the local root optimistically. A batch-scoped invalidation
+      // would serve a stale document to this mid-batch read.
+      const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+      store.read();
+      let seenMidBatch: string[] = [];
+      let addedId = '';
+      store.batch(() => {
+        addedId = store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+        seenMidBatch = store.read().slides[0].elements.map((e) => e.id);
+        store.updateElementFrame(SYNTHETIC_SLIDE_ID, addedId, { x: 42 });
+        // The second mutation must be visible to a later mid-batch read too.
+        expect(
+          store.read().slides[0].elements.find((e) => e.id === addedId)?.frame.x,
+        ).toBe(42);
+      });
+      expect(seenMidBatch).toEqual([addedId]);
+    });
+
+    it('invalidates on a remote change', () => {
+      const doc = makeYorkieBoardDoc();
+      const store: SlidesStore = new YorkieBoardStore(doc);
+      const before = store.read();
+      expect(before.slides[0].elements).toHaveLength(0);
+      // Simulate the SDK delivering a remote change: mutate the root
+      // out-of-band (as a merged remote change would) and fire the event
+      // the store subscribed to in its constructor.
+      doc.update((r) => {
+        r.elements.push({
+          id: 'remote-1',
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+          data: { kind: 'rect' },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      });
+      emitDocEvent(doc, 'remote-change');
+      const after = store.read();
+      expect(after).not.toBe(before);
+      expect(after.slides[0].elements.map((e) => e.id)).toEqual(['remote-1']);
+    });
+
+    it('invalidates on a snapshot event', () => {
+      // 'snapshot' is a DISTINCT DocEventType from 'remote-change' — the
+      // SDK emits it (and not 'remote-change') for a whole-document
+      // server catch-up, so it must invalidate too or every later read()
+      // would be permanently stale.
+      const doc = makeYorkieBoardDoc();
+      const store: SlidesStore = new YorkieBoardStore(doc);
+      const before = store.read();
+      doc.update((r) => {
+        r.elements.push({
+          id: 'snap-1',
+          type: 'shape',
+          frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+          data: { kind: 'rect' },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      });
+      emitDocEvent(doc, 'snapshot');
+      const after = store.read();
+      expect(after).not.toBe(before);
+      expect(after.slides[0].elements.map((e) => e.id)).toEqual(['snap-1']);
+    });
+
+    it('invalidates on undo and redo', () => {
+      const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+      let id = '';
+      store.batch(() => {
+        id = store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      });
+      const withElement = store.read();
+      expect(withElement.slides[0].elements.map((e) => e.id)).toEqual([id]);
+
+      store.undo();
+      const undone = store.read();
+      expect(undone).not.toBe(withElement);
+      expect(undone.slides[0].elements).toHaveLength(0);
+
+      store.redo();
+      const redone = store.read();
+      expect(redone).not.toBe(undone);
+      expect(redone.slides[0].elements.map((e) => e.id)).toEqual([id]);
+    });
+
+    it('hands change listeners the post-change document', () => {
+      // `notifyChange` drops the cache BEFORE invoking listeners: they
+      // react by calling `read()`, so a stale snapshot here would defeat
+      // the whole notification.
+      const store: SlidesStore = new YorkieBoardStore(makeYorkieBoardDoc());
+      store.read();
+      const seen: number[] = [];
+      store.onChange(() => {
+        seen.push(store.read().slides[0].elements.length);
+      });
+      store.batch(() => {
+        store.addElement(SYNTHETIC_SLIDE_ID, makeShapeInit());
+      });
+      expect(seen).toEqual([1]);
+    });
   });
 });

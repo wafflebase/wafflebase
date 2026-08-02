@@ -16,6 +16,64 @@ describe("upload-queue store", () => {
     expect(items[1].reason).toBe("Unsupported file type");
   });
 
+  it("registers an externally driven item as active work the worker cannot claim", () => {
+    // "parsing" rather than "pending" is load-bearing: the row carries no
+    // File, and the worker's `runItem` dereferences `item.file!`. Only
+    // `nextPendingId` feeds the worker, and it only ever selects "pending".
+    const id = q.enqueueExternal({
+      fileName: "Miro board",
+      kind: "board",
+      workspaceId: "ws1",
+      folderId: "folder-2",
+    });
+
+    expect(q.getSnapshot()).toHaveLength(1);
+    expect(q.getSnapshot()[0]).toMatchObject({
+      id,
+      fileName: "Miro board",
+      kind: "board",
+      workspaceId: "ws1",
+      folderId: "folder-2",
+      status: "parsing",
+      done: 0,
+      total: 0,
+    });
+    expect(q.getSnapshot()[0].file).toBeUndefined();
+    expect(q.nextPendingId()).toBeUndefined();
+    // It is genuinely running, so it counts against the concurrency cap.
+    expect(q.activeCount()).toBe(1);
+  });
+
+  it("never offers to retry an item it cannot replay", () => {
+    const [fileItem] = q.enqueue([file("a.xlsx")], "ws1");
+    const externalId = q.enqueueExternal({
+      fileName: "Miro board",
+      kind: "board",
+    });
+    q.patchItem(fileItem.id, { status: "error", reason: "boom" });
+    q.patchItem(externalId, { status: "error", reason: "stream died" });
+
+    const byId = (id: string) => q.getSnapshot().find((i) => i.id === id)!;
+    expect(q.isRetryable(byId(fileItem.id))).toBe(true);
+    expect(q.isRetryable(byId(externalId))).toBe(false);
+
+    // A stray retry on the unreplayable row must be a no-op, not a row parked
+    // in "pending" that the worker would then try (and fail) to run.
+    q.retry(externalId);
+    expect(byId(externalId).status).toBe("error");
+    expect(q.nextPendingId()).toBeUndefined();
+    // The file-backed row is untouched by that no-op and still replayable
+    // (the worker suite covers the replay itself).
+    expect(byId(fileItem.id).status).toBe("error");
+    expect(q.isRetryable(byId(fileItem.id))).toBe(true);
+  });
+
+  it("keeps externally driven rows out of a file batch's pending queue", () => {
+    q.enqueueExternal({ fileName: "Miro board", kind: "board" });
+    const [pending] = q.enqueue([file("a.xlsx")], "ws1");
+    expect(q.nextPendingId()).toBe(pending.id);
+  });
+
   it("emits to subscribers and changes snapshot identity on mutation", () => {
     const cb = vi.fn();
     const unsub = q.subscribe(cb);
