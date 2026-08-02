@@ -523,10 +523,15 @@ describe('MiroService image re-hosting', () => {
   });
 
   it('stops re-hosting at the total-bytes ceiling and reports the remainder', async () => {
+    // The byte budget is charged against COMPLETED downloads, so with a pool
+    // of `IMAGE_CONCURRENCY` in flight it can be overshot by at most
+    // `IMAGE_CONCURRENCY - 1` downloads before it trips. That is the exact
+    // trade the pool makes, so it is asserted as a BOUND rather than an exact
+    // count — pinning the count would be pinning the scheduler.
     const per = 8 * 1024 * 1024;
-    const affordable = Math.ceil(MiroService.MAX_TOTAL_IMAGE_BYTES / per);
-    const extra = 2;
-    const fetchMock = routeFetch(imagesPage(affordable + extra), () =>
+    const serialAffordable = Math.ceil(MiroService.MAX_TOTAL_IMAGE_BYTES / per);
+    const total = serialAffordable * 5;
+    const fetchMock = routeFetch(imagesPage(total), () =>
       downloadResponse({
         contentType: 'image/png',
         arrayBuffer: async () => new Uint8Array(per).buffer,
@@ -539,13 +544,132 @@ describe('MiroService image re-hosting', () => {
 
     const result = await service.importBoard('tok', 'B=', 'ws-1');
 
-    expect(imageService.upload).toHaveBeenCalledTimes(affordable);
-    expect(fetchMock).toHaveBeenCalledTimes(2 + affordable);
-    expect(result.notes).toContainEqual({
-      reason: 'image-budget',
-      itemType: 'image',
-      count: extra,
+    const uploaded = imageService.upload.mock.calls.length;
+    expect(uploaded).toBeGreaterThanOrEqual(serialAffordable);
+    expect(uploaded).toBeLessThanOrEqual(
+      serialAffordable + MiroService.IMAGE_CONCURRENCY - 1,
+    );
+    // The ceiling still bites: the tail was skipped WITHOUT being fetched.
+    expect(uploaded).toBeLessThan(total);
+    expect(fetchMock).toHaveBeenCalledTimes(2 + uploaded);
+
+    // Every image is accounted for — imported or reported, never silent.
+    const budget = result.notes.find((n) => n.reason === 'image-budget');
+    expect(budget).toBeDefined();
+    expect(uploaded + budget!.count).toBe(total);
+    expect(result.notes.some((n) => n.reason === 'image-failed')).toBe(false);
+  });
+
+  it('preserves feed order across a mixed success/failure batch downloaded concurrently', async () => {
+    // The pool completes downloads OUT OF ORDER by design. `mapMiroItems`
+    // builds its id map and its frames-behind-contents z-order by walking this
+    // array, so pushing results in completion order would silently reshuffle
+    // the document. Results must be written back BY INDEX.
+    //
+    // The interleaving is forced rather than hoped for: each image resolves
+    // after a delay that is LONGER the EARLIER it appears, so completion order
+    // is the exact reverse of feed order.
+    const imageCount = 12;
+    const items = [
+      { id: 'shape-a', type: 'shape' },
+      ...Array.from({ length: imageCount }, (_, i) => ({
+        id: `img${i}`,
+        type: 'image',
+        data: { imageUrl: `https://api.miro.com/v2/boards/B/resources/r${i}` },
+      })),
+      { id: 'text-z', type: 'text' },
+    ];
+    // Every third image fails, so the survivors are a non-contiguous subset.
+    const fails = (i: number) => i % 3 === 0;
+
+    const fetchMock = jest.fn().mockImplementation((url: unknown) => {
+      const target = String(url);
+      if (target.includes('/items')) {
+        return Promise.resolve(jsonResponse({ data: items }));
+      }
+      if (target.includes('/connectors')) {
+        return Promise.resolve(jsonResponse({ data: [] }));
+      }
+      const index = Number(/resources\/r(\d+)/.exec(target)![1]);
+      return new Promise<Response>((resolve, reject) => {
+        setTimeout(
+          () =>
+            fails(index)
+              ? reject(new Error('boom'))
+              : resolve(
+                  downloadResponse({
+                    contentType: 'image/png',
+                    arrayBuffer: async () => new Uint8Array([index]).buffer,
+                  }),
+                ),
+          (imageCount - index) * 2,
+        );
+      });
     });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    imageService.upload.mockImplementation((buffer: Buffer) =>
+      Promise.resolve({ id: `up-${buffer[0]}`, url: '/images/x' }),
+    );
+
+    const result = await service.importBoard('tok', 'B=', 'ws-1');
+
+    const expected = [
+      'shape-a',
+      ...Array.from({ length: imageCount }, (_, i) => i)
+        .filter((i) => !fails(i))
+        .map((i) => `img${i}`),
+      'text-z',
+    ];
+    expect(result.items.map((i) => i.id)).toEqual(expected);
+    // And the concurrency really did interleave — uploads did not land in
+    // feed order, which is what makes the assertion above meaningful.
+    const uploadOrder = imageService.upload.mock.calls.map(
+      (call: unknown[]) => (call[0] as Buffer)[0],
+    );
+    expect(uploadOrder).not.toEqual([...uploadOrder].sort((a, b) => a - b));
+
+    const failedCount = Array.from({ length: imageCount }, (_, i) => i).filter(
+      fails,
+    ).length;
+    expect(result.notes).toContainEqual({
+      reason: 'image-failed',
+      itemType: 'image',
+      count: failedCount,
+    });
+  });
+
+  it('downloads images concurrently rather than one at a time', async () => {
+    // The serial loop was the slowest phase of the import and the reason it
+    // read as "stuck". Assert the pool is real by observing overlap.
+    const imageCount = MiroService.IMAGE_CONCURRENCY * 2;
+    let inFlight = 0;
+    let peak = 0;
+
+    const fetchMock = routeFetch(imagesPage(imageCount), () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      return downloadResponse({
+        contentType: 'image/png',
+        arrayBuffer: async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          inFlight--;
+          return new Uint8Array([1]).buffer;
+        },
+      });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { service, imageService } = makeService();
+    imageService.upload.mockResolvedValue({ id: 'new-id', url: '/images/x' });
+
+    await service.importBoard('tok', 'B=', 'ws-1');
+
+    expect(peak).toBeGreaterThan(1);
+    // ...and BOUNDED: an unbounded `Promise.all` over an image-heavy board
+    // would buffer `MAX_IMAGE_BYTES` per item at once.
+    expect(peak).toBeLessThanOrEqual(MiroService.IMAGE_CONCURRENCY);
   });
 
   it('drops the image and reports it when the download fails', async () => {

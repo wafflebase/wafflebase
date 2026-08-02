@@ -148,6 +148,26 @@ Body: `{ token: string; boardUrl: string }`. Steps:
    `image-failed`: nothing malfunctioned, the board is simply too image-heavy
    for one import).
 
+   The downloads run through a **bounded-concurrency pool**
+   (`IMAGE_CONCURRENCY = 6`) rather than one at a time: every one of them is a
+   network wait, so a serial loop leaves the connection idle for essentially
+   the whole of the slowest phase. 6 caps peak memory at
+   `6 x MAX_IMAGE_BYTES` = 60 MB — an unbounded `Promise.all` over 100 images
+   would be 1 GB — and stays far under Miro's 1000 req/min. Two invariants are
+   load-bearing:
+
+   - **Output order is unchanged.** Results are written back **by index** and
+     the holes compacted; they are never pushed in completion order.
+     `mapMiroItems` builds its id map and its frames-behind-contents z-order by
+     walking this array, so a reshuffle would silently change the document.
+   - **The count ceiling stays exact** — charged at dispatch, after the host
+     check and before the first `await`, so no two workers can claim the same
+     slot and a refused host still costs no budget. The **byte** ceiling is
+     charged against *completed* downloads, so a pool can overshoot it by at
+     most `(IMAGE_CONCURRENCY - 1) x MAX_IMAGE_BYTES` before it trips.
+     Reserving 10 MB per in-flight slot instead would skip images that
+     comfortably fit, which is the worse failure.
+
    Every outbound call carries a **deadline** (`AbortSignal.timeout`; the image
    download combines it with the size-cap controller via `AbortSignal.any`).
    Node's `fetch` applies none of its own, so without this a host that accepts
@@ -277,7 +297,11 @@ retrying cannot accumulate orphans.
   failure-degrades-to-note, the image-host allowlist (a non-Miro host is
   refused **without a fetch of that host and without the token**) and the size
   cap, and Miro error-status mapping. Miro `fetch` is mocked; no live API calls
-  in tests.
+  in tests. Concurrency adds: a mixed success/failure batch whose completion
+  order is forced to be the *reverse* of feed order still emits items in feed
+  order, and the in-flight count is `> 1` but never `> IMAGE_CONCURRENCY`. The
+  byte ceiling is asserted as a **bound**, not an exact count — pinning the
+  count would be pinning the scheduler.
 - **Applier** — the `board` branch produces the expected `root.elements` in one
   batch, with connector endpoints remapped onto the store's real ids and
   unresolvable connectors dropped + counted. Its store double **must mint a
@@ -318,4 +342,5 @@ retrying cannot accumulate orphans.
   approximations.
 - **Image re-hosting cost.** Fetch + re-upload per image is the slowest step.
   *Mitigation:* failures degrade to a reported skip rather than failing the
-  import; the ceiling bounds the worst case.
+  import; the ceiling bounds the worst case; and the downloads run through a
+  6-wide pool instead of serially, which is where most of the wall clock went.

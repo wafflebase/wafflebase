@@ -95,6 +95,31 @@ const IMAGE_TIMEOUT_MS = 30_000;
 const MAX_REHOSTED_IMAGES = 100;
 const MAX_TOTAL_IMAGE_BYTES = 64 * 1024 * 1024;
 
+/**
+ * How many image downloads may be in flight at once.
+ *
+ * Re-hosting is by far the slowest phase — up to `MAX_REHOSTED_IMAGES` (100)
+ * transfers, each with its own 30s deadline — and run one at a time it is also
+ * the phase most likely to look like a hang. Every one of those downloads is a
+ * network wait, not CPU, so the serial loop leaves the connection idle for
+ * essentially its whole duration.
+ *
+ * 6 is chosen, not maximal:
+ *
+ * - **Memory.** Each in-flight download may buffer up to `MAX_IMAGE_BYTES`
+ *   (10 MB) before it is handed to the upload, so the pool's peak footprint is
+ *   `CONCURRENCY x 10 MB`. At 6 that is 60 MB — the same order as the 25 MB
+ *   JSON body limit the process already accepts, and bounded regardless of how
+ *   image-heavy the board is. Unbounded `Promise.all` over 100 items would be
+ *   1 GB.
+ * - **Upstream politeness.** The downloads hit api.miro.com with the caller's
+ *   token; Miro's documented ceiling is 1000 req/min, and 6 in flight cannot
+ *   approach it while still cutting the phase's wall clock by ~6x.
+ * - **Diminishing returns.** Past ~6 the phase is bound by bandwidth and by
+ *   `ImageService.upload`, not by request latency.
+ */
+const IMAGE_CONCURRENCY = 6;
+
 interface MiroPage<T> {
   data?: T[];
   cursor?: string;
@@ -119,6 +144,9 @@ export class MiroService {
   /** Aggregate image ceilings, exposed so the tests assert the real numbers. */
   static readonly MAX_REHOSTED_IMAGES = MAX_REHOSTED_IMAGES;
   static readonly MAX_TOTAL_IMAGE_BYTES = MAX_TOTAL_IMAGE_BYTES;
+
+  /** Image download pool size, exposed so tests can reason about the bound. */
+  static readonly IMAGE_CONCURRENCY = IMAGE_CONCURRENCY;
 
   constructor(private readonly imageService: ImageService) {}
 
@@ -168,6 +196,9 @@ export class MiroService {
    * being fetched and reported under `image-budget`, kept separate from
    * `image-failed` because "your board is too image-heavy" and "this image is
    * broken" are different facts.
+   *
+   * The downloads run through a pool of `IMAGE_CONCURRENCY` workers rather than
+   * one at a time — see that constant for why 6.
    */
   private async rehostImages(
     items: MiroItem[],
@@ -179,92 +210,85 @@ export class MiroService {
     let overBudget = 0;
     let downloads = 0;
     let downloadedBytes = 0;
-    const out: MiroItem[] = [];
 
-    for (const item of items) {
-      if (item.type !== 'image') {
-        out.push(item);
+    // OUTPUT ORDER IS PART OF THE CONTRACT. `mapMiroItems` walks this array to
+    // build its miro-id -> element-id map and to lay frames down behind their
+    // contents, so a completion-ordered `push` would silently reshuffle
+    // z-order and make the import non-deterministic. Every slot is written BY
+    // INDEX and the holes (failed/skipped images) are compacted at the end, so
+    // the result is identical to the serial version's.
+    const out: (MiroItem | null)[] = new Array<MiroItem | null>(
+      items.length,
+    ).fill(null);
+
+    // The work list, in feed order. Non-image items are settled inline —
+    // there is nothing to await for them.
+    const jobs: number[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type !== 'image') {
+        out[i] = items[i];
         continue;
       }
-      const src = (item.data as { imageUrl?: string } | undefined)?.imageUrl;
-      if (!src) {
-        failed++;
-        continue;
-      }
-      if (
-        downloads >= MAX_REHOSTED_IMAGES ||
-        downloadedBytes >= MAX_TOTAL_IMAGE_BYTES
-      ) {
-        overBudget++;
-        continue;
-      }
-      try {
-        const url = new URL(src);
-        // Refuse BEFORE building any request, so there is no code path on
-        // which the bearer header exists alongside a non-allowlisted host.
-        if (
-          url.protocol !== 'https:' ||
-          !MiroService.isAllowedImageHost(url.hostname)
-        ) {
-          throw new Error('image host not allowed');
-        }
-        url.searchParams.set('format', 'original');
-
-        // Two independent reasons to stop: the size cap (raised from inside
-        // `readCapped`, so it needs a controller we own) and the deadline. Only
-        // a combined signal honours both — a bare `controller.signal` gives the
-        // transfer no clock, and a bare timeout cannot be tripped by the cap.
-        const controller = new AbortController();
-        downloads++;
-        const res = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(IMAGE_TIMEOUT_MS),
-          ]),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        // Lower-cased: HTTP header VALUES are case-sensitive to `Set.has`, but
-        // servers legitimately send `Image/PNG`, and dropping a valid image
-        // over letter case is a silent data loss.
-        const mime =
-          res.headers
-            ?.get('content-type')
-            ?.split(';')[0]
-            ?.trim()
-            .toLowerCase() ?? '';
-        if (!MiroService.IMAGE_MIME.has(mime)) {
-          throw new Error(`unsupported mime ${mime}`);
-        }
-
-        const declared = Number(res.headers?.get('content-length'));
-        if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
-          controller.abort();
-          throw new Error('image too large');
-        }
-
-        const buffer = await MiroService.readCapped(res, controller);
-        downloadedBytes += buffer.length;
-        const uploaded = await this.imageService.upload(
-          buffer,
-          mime,
-          `miro-${item.id}`,
-          workspaceId,
-        );
-        out.push({
-          ...item,
-          data: {
-            ...(item.data ?? {}),
-            imageUrl: `/api/v1/workspaces/${workspaceId}/images/${uploaded.id}`,
-          },
-        });
-      } catch {
-        // Deliberately swallowed: the note is the user-visible signal, and the
-        // error could otherwise carry request context we don't want logged.
-        failed++;
-      }
+      jobs.push(i);
     }
+
+    // A shared cursor over `jobs` consumed by `IMAGE_CONCURRENCY` workers.
+    // Workers claim indices IN ORDER, so the budget is spent on the earliest
+    // images exactly as the serial loop spent it; only the completion order
+    // differs, and nothing observable depends on that.
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const cursor = next++;
+        if (cursor >= jobs.length) return;
+        const index = jobs[cursor];
+        const item = items[index];
+
+        const src = (item.data as { imageUrl?: string } | undefined)?.imageUrl;
+        if (!src) {
+          failed++;
+          continue;
+        }
+        // Budget is charged against COMPLETED downloads, so with a pool in
+        // flight the byte ceiling can be overshot by at most
+        // `(IMAGE_CONCURRENCY - 1) x MAX_IMAGE_BYTES` before it trips — still
+        // a hard bound (64 MB + 50 MB), and the alternative (reserving
+        // `MAX_IMAGE_BYTES` per in-flight slot) would skip images that
+        // comfortably fit. The COUNT ceiling is charged at dispatch, so it is
+        // exact.
+        if (
+          downloads >= MAX_REHOSTED_IMAGES ||
+          downloadedBytes >= MAX_TOTAL_IMAGE_BYTES
+        ) {
+          overBudget++;
+          continue;
+        }
+
+        try {
+          out[index] = await this.rehostOne(item, src, token, workspaceId, {
+            // Charged from inside `rehostOne`, AFTER the host allowlist check
+            // and BEFORE its first await — so a refused host still costs no
+            // budget (as in the serial version), and no two workers can claim
+            // the same slot, keeping the count ceiling exact.
+            charge: () => {
+              downloads++;
+            },
+            addBytes: (n) => {
+              downloadedBytes += n;
+            },
+          });
+        } catch {
+          // Deliberately swallowed: the note is the user-visible signal, and
+          // the error could otherwise carry request context we don't want
+          // logged.
+          failed++;
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(IMAGE_CONCURRENCY, jobs.length) }, worker),
+    );
 
     if (failed > 0) {
       notes.push({ reason: 'image-failed', itemType: 'image', count: failed });
@@ -276,7 +300,77 @@ export class MiroService {
         count: overBudget,
       });
     }
-    return out;
+    return out.filter((item): item is MiroItem => item !== null);
+  }
+
+  /**
+   * Download ONE image and re-upload it, returning the item with a stable URL.
+   * Throws on any refusal or failure; the caller turns that into a note.
+   */
+  private async rehostOne(
+    item: MiroItem,
+    src: string,
+    token: string,
+    workspaceId: string,
+    budget: { charge: () => void; addBytes: (n: number) => void },
+  ): Promise<MiroItem> {
+    const url = new URL(src);
+    // Refuse BEFORE building any request, so there is no code path on
+    // which the bearer header exists alongside a non-allowlisted host.
+    if (
+      url.protocol !== 'https:' ||
+      !MiroService.isAllowedImageHost(url.hostname)
+    ) {
+      throw new Error('image host not allowed');
+    }
+    url.searchParams.set('format', 'original');
+
+    // Two independent reasons to stop: the size cap (raised from inside
+    // `readCapped`, so it needs a controller we own) and the deadline. Only
+    // a combined signal honours both — a bare `controller.signal` gives the
+    // transfer no clock, and a bare timeout cannot be tripped by the cap.
+    const controller = new AbortController();
+    budget.charge();
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.any([
+        controller.signal,
+        AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+      ]),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // Lower-cased: HTTP header VALUES are case-sensitive to `Set.has`, but
+    // servers legitimately send `Image/PNG`, and dropping a valid image
+    // over letter case is a silent data loss.
+    const mime =
+      res.headers?.get('content-type')?.split(';')[0]?.trim().toLowerCase() ??
+      '';
+    if (!MiroService.IMAGE_MIME.has(mime)) {
+      throw new Error(`unsupported mime ${mime}`);
+    }
+
+    const declared = Number(res.headers?.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+      controller.abort();
+      throw new Error('image too large');
+    }
+
+    const buffer = await MiroService.readCapped(res, controller);
+    budget.addBytes(buffer.length);
+    const uploaded = await this.imageService.upload(
+      buffer,
+      mime,
+      `miro-${item.id}`,
+      workspaceId,
+    );
+    return {
+      ...item,
+      data: {
+        ...(item.data ?? {}),
+        imageUrl: `/api/v1/workspaces/${workspaceId}/images/${uploaded.id}`,
+      },
+    };
   }
 
   /** Exact match, or a true subdomain of an allowlisted apex. */
