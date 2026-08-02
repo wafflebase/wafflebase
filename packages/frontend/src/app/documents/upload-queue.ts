@@ -30,6 +30,14 @@ export interface UploadItem {
   status: UploadStatus;
   done: number;
   total: number;
+  /**
+   * Progress wording chosen by whatever drives the item, shown in place of the
+   * `done/total` fraction. Only externally driven items set it: not every one
+   * of their stages is countable ("Reading board… 1,250 items" has no
+   * denominator), and a bare spinner is what got a working import reported as
+   * stuck in the first place.
+   */
+  detail?: string;
   docId?: string;
   docPath?: string;
   /** Uploaded blob id (pdf/image). Set before createDoc so a retry reuses the
@@ -88,6 +96,42 @@ export function enqueue(
   });
   replace([...items, ...created]);
   return created;
+}
+
+/**
+ * Register a row for work this queue does NOT run itself, and hand back its
+ * id so the caller can drive it with `patchItem`.
+ *
+ * The panel is just a view over this list, so anything that wants to report
+ * long-running progress there needs a row — even when there is no `File` and
+ * no upload. The Miro import is the first such caller: its work is a single
+ * streamed request whose credential must stay in the caller's closure, so the
+ * queue cannot (and must not) be able to run or re-run it.
+ *
+ * Created in `"parsing"`, never `"pending"`, and that is load-bearing:
+ * `nextPendingId` only ever selects `"pending"`, so the file worker can never
+ * pick this row up and dereference the `file` it does not have. `"parsing"`
+ * also makes `activeCount()` count it, which is correct — it IS active work,
+ * and it should hold a concurrency slot against file uploads.
+ */
+export function enqueueExternal(input: {
+  fileName: string;
+  kind: UploadKind;
+  workspaceId?: string;
+  folderId?: string | null;
+}): string {
+  const item: UploadItem = {
+    id: `u${++seq}`,
+    fileName: input.fileName,
+    kind: input.kind,
+    workspaceId: input.workspaceId,
+    folderId: input.folderId,
+    status: "parsing",
+    done: 0,
+    total: 0,
+  };
+  replace([...items, item]);
+  return item.id;
 }
 
 export function patchItem(id: string, patch: Partial<UploadItem>): void {
@@ -242,6 +286,18 @@ function settle(id: string): void {
   if (item && onItemSettledCb) onItemSettledCb(item);
 }
 
+/**
+ * Fire the host's settled callback for an externally driven item.
+ *
+ * An `enqueueExternal` row reaches its terminal state through `patchItem`
+ * rather than through the worker, so it has to announce itself. Without this
+ * the host would never refresh the documents list or report the failure — the
+ * two things that make a finished background import visible at all.
+ */
+export function settleExternal(id: string): void {
+  settle(id);
+}
+
 const MAX_RATE_RETRIES = 6;
 
 /** Backoff (ms) for a rate-limited (429) request, or null if not a 429. */
@@ -366,7 +422,27 @@ export function startUploads(
   pump();
 }
 
+/**
+ * Whether `retry(id)` can actually re-run this item.
+ *
+ * The worker replays an item from its retained `File`, so a row without one
+ * has nothing to replay: `retry` would move it back to `"pending"` and the
+ * worker would dereference a `file` that is not there. Externally driven rows
+ * (Miro) are the case that matters — re-running one would need the access
+ * token, which is deliberately not kept anywhere after the request goes out.
+ * The UI asks this rather than testing a kind, so any future externally driven
+ * row is covered by construction.
+ */
+export function isRetryable(item: UploadItem): boolean {
+  return item.file !== undefined;
+}
+
 export function retry(id: string): void {
+  const item = items.find((it) => it.id === id);
+  // Defensive, not decorative: the panel already hides the control, and this
+  // makes a stray programmatic call a no-op instead of parking an
+  // unprocessable row in "pending" forever.
+  if (item && !isRetryable(item)) return;
   patchItem(id, { status: "pending", reason: undefined, done: 0, total: 0 });
   pump();
 }

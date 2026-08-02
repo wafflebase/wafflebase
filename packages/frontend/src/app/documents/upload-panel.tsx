@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  AlertCircle,
   CheckCircle2,
   Loader2,
   RotateCw,
@@ -14,6 +15,7 @@ import {
   retry,
   dismissItem,
   clearFinished,
+  isRetryable,
   type UploadItem,
 } from "./upload-queue";
 
@@ -29,7 +31,10 @@ function StatusCell({ item }: { item: UploadItem }) {
   if (item.status === "skipped")
     return <span className="text-xs text-muted-foreground">Unsupported</span>;
   if (item.status === "error")
-    return (
+    // An item with nothing to replay from (an externally driven import, whose
+    // credential is deliberately not kept) gets a plain failure marker. A
+    // retry button that cannot possibly work is worse than none.
+    return isRetryable(item) ? (
       <Button
         variant="ghost"
         size="icon"
@@ -40,11 +45,21 @@ function StatusCell({ item }: { item: UploadItem }) {
       >
         <RotateCw className="h-3.5 w-3.5 text-destructive" />
       </Button>
+    ) : (
+      <AlertCircle
+        className="h-4 w-4 text-destructive"
+        aria-label={`${item.fileName} failed`}
+      />
     );
-  const label = item.total > 0 ? `${Math.min(item.done, item.total)}/${item.total}` : "";
+  // `detail` wins when the driver supplied wording: an import's early stages
+  // have a running count but no denominator, so the fraction alone would show
+  // nothing at all and read as a hung row.
+  const label =
+    item.detail ??
+    (item.total > 0 ? `${Math.min(item.done, item.total)}/${item.total}` : "");
   return (
-    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+    <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
       {label}
     </span>
   );
@@ -116,8 +131,13 @@ export function UploadPanel() {
               {item.status === "error" && item.reason && (
                 // Render the failure reason as visible text, not just the
                 // retry button's title tooltip, so it's available to keyboard
-                // and screen-reader users.
-                <p className="mt-0.5 text-xs text-destructive">{item.reason}</p>
+                // and screen-reader users. When the row cannot be retried in
+                // place, say what the user has to do instead — otherwise the
+                // absence of a retry control just reads as a missing feature.
+                <p className="mt-0.5 text-xs text-destructive">
+                  {item.reason}
+                  {!isRetryable(item) && " — start the import again to retry."}
+                </p>
               )}
             </li>
           ))}
