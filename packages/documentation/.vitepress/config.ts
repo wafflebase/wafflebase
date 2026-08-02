@@ -133,8 +133,15 @@ export default defineConfig({
         ],
       },
       {
-        text: "PDF",
-        items: [{ text: "Viewing PDFs", link: "/pdf/viewing-pdfs" }],
+        text: "PDF & Files",
+        items: [
+          { text: "Viewing PDFs", link: "/pdf/viewing-pdfs" },
+          { text: "Viewing Images", link: "/pdf/viewing-images" },
+          {
+            text: "Organizing with Folders",
+            link: "/pdf/organizing-with-folders",
+          },
+        ],
       },
       {
         text: "Developers",
