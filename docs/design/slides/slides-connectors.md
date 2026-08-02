@@ -97,9 +97,15 @@ export type ConnectorElement = ElementBase & {
 };
 ```
 
-`ElementBase` (`id`, `z`, `opacity`, …) is shared. There is no `frame`
-field — the bbox is derived from the endpoints at render time, used
-only for selection hit-testing and `Cmd+A` selection.
+`ElementBase` (`id`, `frame`, …) is shared, so a connector carries a
+`frame` — but it is a **derived cache**, never authored geometry. The
+store recomputes it from the endpoints via `computeConnectorFrame`
+(`packages/slides/src/view/canvas/connector-frame.ts`) inside
+`addElement` and every connector mutation, storing the tight path bbox
+(polyline or bezier extrema) expanded by the stroke half-width. It is
+used only for selection hit-testing and `Cmd+A` selection, and is never
+written directly — `updateElementFrame` rejects connectors so the cached
+frame cannot drift out of sync with the endpoints.
 
 `ShapeKind` drops `'line'` and `'arrow'`. The path-builder dispatcher's
 special-cased `drawLine` / `drawArrow` branches are removed from
@@ -292,16 +298,15 @@ view/editor/
     insert-connector.ts            Connector-tool drag flow with snap.
     connector-endpoint-drag.ts     Selected-endpoint drag with snap +
                                    free/attached transitions.
-    elbow-bend-drag.ts             Elbow yellow-diamond handle drag.
-  overlays/
-    connection-points-overlay.ts   DOM overlay of site dots during
-                                   insert / endpoint-drag modes.
+    bend-drag.ts                   Elbow / curved yellow-diamond handle drag.
 ```
 
-**Connection points overlay** runs as a DOM layer on top of the canvas
-so the dot size stays pixel-constant under zoom and the dots receive
-pointer events naturally for hover styling. Activates only when the
-user is inside `insert-connector` or `connector-endpoint-drag` mode.
+**Connection points overlay** is painted directly onto the canvas
+(not a separate DOM layer) during insert / endpoint-drag modes; the
+site-dot drawing and hover/snap logic live in `editor.ts`, `overlay.ts`,
+and `insert-connector.ts`. Dot sizing is DPR-corrected so it stays
+pixel-constant under zoom. It activates only when the user is inside
+`insert-connector` or `connector-endpoint-drag` mode.
 
 **Snap behavior** (pixel distances, screen-space, DPR-corrected):
 
@@ -377,14 +382,21 @@ endpoints; `commitTranslate` is the only sanctioned write path for
 
 ### 6. Store Layer
 
-`SlidesStore` interface in `packages/slides/src/store/store.ts` gains:
+Connectors are inserted through the generic
+`addElement(slideId, init)` path — `buildConnectorInit` in
+`packages/slides/src/view/editor/interactions/insert-connector.ts`
+pre-fills the `ConnectorElement` init, so there is no dedicated
+`addConnector`. `SlidesStore` in
+`packages/slides/src/store/store.ts` gains the connector-mutation
+methods:
 
 ```ts
-addConnector(connector: ConnectorElement): void;
 updateConnectorEndpoint(id: string, side: 'start' | 'end', endpoint: Endpoint): void;
 updateConnectorRouting(id: string, routing: ConnectorRouting): void;
 updateConnectorArrowheads(id: string, heads: { start?: ArrowheadStyle | null; end?: ArrowheadStyle | null }): void;
+updateConnectorStroke(id: string, stroke: ShapeStroke): void;
 updateConnectorElbowBend(id: string, bend: number | undefined): void;
+updateConnectorCurveBend(id: string, bend: number | undefined): void;
 ```
 
 Existing `removeElement(id)` gains a pre-removal sweep: iterate every
@@ -410,31 +422,32 @@ packages/slides/src/
 │   ├── connector-renderer.ts              NEW
 │   ├── arrowhead-renderer.ts              NEW
 │   ├── routing.ts                         NEW
-│   ├── routing.test.ts                    NEW
 │   ├── connection-sites/
 │   │   ├── index.ts                       NEW
 │   │   ├── defaults.ts                    NEW
-│   │   ├── overrides.ts                   NEW
-│   │   └── connection-sites.test.ts       NEW
+│   │   └── overrides.ts                   NEW
 │   ├── element-renderer.ts                MODIFY — dispatch connector
 │   ├── shape-renderer.ts                  MODIFY — drop line/arrow branches
 │   └── shape-special.ts                   MODIFY — drop drawLine/drawArrow
 ├── view/editor/
-│   ├── interactions/
-│   │   ├── insert-connector.ts            NEW
-│   │   ├── connector-endpoint-drag.ts     NEW
-│   │   ├── elbow-bend-drag.ts             NEW
-│   │   └── insert.ts                      MODIFY — connector tool entries
-│   └── overlays/
-│       └── connection-points-overlay.ts   NEW
+│   └── interactions/
+│       ├── insert-connector.ts            NEW (incl. buildConnectorInit)
+│       ├── connector-endpoint-drag.ts     NEW
+│       ├── bend-drag.ts                   NEW — elbow / curved handle drag
+│       └── insert.ts                      MODIFY — connector tool entries
 └── store/
     ├── store.ts                           MODIFY — add connector methods
-    ├── memory.ts                          MODIFY — implement connector methods
-    │                                              + removeElement sweep
-    └── memory.test.ts                     MODIFY — connector store tests
+    └── memory.ts                          MODIFY — implement connector methods
+                                                   + removeElement sweep
 ```
 
 ### 8. Testing Strategy
+
+Unit tests are not colocated with source; they live in the mirror tree
+under `packages/slides/test/` (e.g.
+`packages/slides/test/view/canvas/routing.test.ts`,
+`packages/slides/test/view/canvas/connection-sites/connection-sites.test.ts`,
+`packages/slides/test/store/memory.test.ts`).
 
 **Unit tests (Vitest, in `packages/slides`):**
 
@@ -477,8 +490,9 @@ Three PRs sized for independent review and verification:
 - Default 4-cardinal connection sites only (no per-kind overrides yet).
 - `routing.ts` with `routeStraight` only.
 - `connector-renderer.ts`, `arrowhead-renderer.ts`.
-- Store methods (`addConnector`, `updateConnectorEndpoint`,
-  `updateConnectorArrowheads`, `removeElement` sweep).
+- Store methods (`updateConnectorEndpoint`,
+  `updateConnectorArrowheads`, `removeElement` sweep); insertion reuses
+  the generic `addElement` path via `buildConnectorInit`.
 - `insert-connector.ts` and `connector-endpoint-drag.ts` for Line +
   Arrow tools.
 - `connection-points-overlay.ts`.
@@ -495,11 +509,14 @@ Three PRs sized for independent review and verification:
   for L-shape + bezier preview).
 - Right-click menu: routing change. ✅ Shipped (Straight / Elbow /
   Curved radio when selection is a single connector).
-- Per-`ShapeKind` overrides for the high-impact shapes. ✅ Mostly
-  shipped: `diamond` / `parallelogram` / `trapezoid` / `pentagon` /
-  `hexagon` / `octagon` / `star4..star10`. `triangle` / `rtTriangle`
-  excluded — 3-site OOXML cxnLst doesn't match the importer's 4-site
-  rect remap; needs a per-shape ooxml→waffle index table first.
+- Per-`ShapeKind` overrides for the high-impact shapes. ✅ Shipped for
+  `diamond` / `parallelogram` / `trapezoid` / `ellipse` (the current
+  `CONNECTION_SITES` registry in
+  `packages/slides/src/view/canvas/connection-sites/overrides.ts`).
+  Polygon (`pentagon` / `hexagon` / `octagon`) and `star` overrides are
+  not shipped yet. `triangle` / `rtTriangle` remain excluded — the
+  3-site OOXML cxnLst doesn't match the importer's 4-site rect remap;
+  they need a per-shape ooxml→waffle index table first.
 
 > Status (2026-06-12): elbow yellow-diamond bend handle shipped for
 > the Z (parallel-opposite-facing) topology. L / U / C topologies

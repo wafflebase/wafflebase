@@ -18,8 +18,10 @@ Fill colour and Border stay in the contextual toolbar
 do we. The panel grows the effect sections GS puts there: Drop shadow,
 Reflection, Recolor, Adjustments (brightness/contrast), Alt text.
 
-PPTX is **import-only** in this package (no exporter exists), so
-"round-trip" means parsing the OOXML effect elements on import.
+Effects round-trip through PPTX: the importer parses the OOXML effect
+elements, and the exporter (`packages/slides/src/export/pptx/effects.ts`,
+`effectsToXml`) serializes drop shadow / reflection back to
+`<a:outerShdw>` / `<a:reflection>`.
 
 ## Per-type menu
 
@@ -67,7 +69,7 @@ is added to the `data` of shape / text / table (image already had
 
 All fields optional ⇒ no migration; absent ⇒ no effect.
 
-Image-only (PR 2): `image.recolor?: 'none' | 'grayscale' | 'sepia'`
+Image-only (shipped): `image.recolor?: 'none' | 'grayscale' | 'sepia'`
 (preset presets via `ctx.filter`; theme-tinted duotone deferred),
 `image.brightness?: number` (-1..1), `image.contrast?: number` (-1..1).
 
@@ -82,15 +84,16 @@ Image-only (PR 2): `image.recolor?: 'none' | 'grayscale' | 'sepia'`
 - **Reflection**: after the element paints, draw a vertically-mirrored
   copy below it with a top-down alpha gradient mask (offscreen
   canvas), `globalAlpha = reflection.opacity`.
-- **Recolor / brightness / contrast** (PR 2): `ctx.filter` +
+- **Recolor / brightness / contrast**: `ctx.filter` +
   duotone composite in `image-renderer.ts`.
 
 ## Panel
 
 `pick-sections.ts` returns the section list per `selectionType`. New
 sections: `drop-shadow-section.tsx`, `reflection-section.tsx`,
-`recolor-section.tsx` (PR 2); `alt-text-section.tsx` extended to all
-object types; image Adjustments extended with brightness/contrast.
+`recolor-section.tsx`; `alt-text-section.tsx` extended to all
+object types; `image-adjustments-section.tsx` extended with
+brightness/contrast.
 
 Commit pattern mirrors existing sections: read current
 `el.data.effects`, compute merged object, write via
@@ -99,11 +102,11 @@ Commit pattern mirrors existing sections: read current
 
 ## Rollout
 
-Two PRs on branch `slides-format-effects`:
+Shipped over two PRs on branch `slides-format-effects`:
 
 1. Panel IA + object effects (shadow, reflection, alt text) across
-   shape/image/text/table/group + PPTX import + tests.
+   shape/image/text/table/group + PPTX import/export + tests.
 2. Image-only recolor + brightness/contrast + import + tests.
 
-Each commit keeps `pnpm verify:fast` green; code review over the
+Each commit kept `pnpm verify:fast` green; code review over the
 branch diff; manual smoke in `pnpm dev`.

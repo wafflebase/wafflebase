@@ -50,7 +50,7 @@ YorkieStore maintains two batch buffers:
 
 ```typescript
 private batchOverlay: Map<Sref, Cell | null> | null = null;
-private batchOps: Array<(root: Worksheet) => void> | null = null;
+private batchOps: Array<(root: SpreadsheetDocument) => void> | null = null;
 ```
 
 - **`batchOverlay`** — Buffers cell mutations. Maps `Sref` to `Cell` (set) or
@@ -97,8 +97,13 @@ naturally deduplicates), we write each key at most once.
 
 #### Methods unaffected by batch
 
-- `shiftCells()`, `moveCells()` — Run their own `doc.update()` outside the
-  batch (subsequent operations need to see the shifted state).
+- `shiftCells()`, `moveCells()` — Batch-aware at the store level: when a batch
+  is active they buffer their apply function into `batchOps` and defer to the
+  single `endBatch()` flush; otherwise they run their own `doc.update()`. In
+  practice `Sheet.shiftCells` / `Sheet.moveCells` call `store.shiftCells` /
+  `store.moveCells` *before* `beginBatch()`, so the structural change lands as
+  its own `doc.update()` and subsequent operations see the shifted state —
+  which is why these paths still produce 2 undo steps (see Non-Goals).
 - `findEdge()` — Uses `cellIndex` which is kept up-to-date during batch.
 - Read-only methods (`getDimensionSizes`, `getColumnStyles`, etc.) — Sheet
   caches these locally.

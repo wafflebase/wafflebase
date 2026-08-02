@@ -66,9 +66,13 @@ green with no change to slides behavior.
 
 ### Non-Goals (SP1)
 
-- **Sticky notes, freehand drawing, image paste** — SP2.
+- **Sticky notes, freehand drawing, image paste** — deferred to SP2; sticky
+  notes and image paste/drop **have since shipped** (SP2, see
+  [board-whiteboard-elements.md](board-whiteboard-elements.md)).
 - **Miro import** — SP3 (structured import via the Miro REST API; see [board-miro-import.md](board-miro-import.md)).
-- **Minimap, zoom-to-fit-all, presence viewport-follow** — nice-to-have follow-ups.
+- **Minimap, zoom-to-fit-all, presence viewport-follow** — nice-to-have
+  follow-ups; the **minimap has since shipped** (SP2). Zoom-to-fit-all and
+  presence viewport-follow remain unbuilt.
 - **PPTX / PDF export, presentation mode** — slide-deck concepts, not board.
 - **Layouts / masters / placeholders / speaker notes** — dropped from the board
   document model entirely.
@@ -95,7 +99,7 @@ green with no change to slides behavior.
 packages/frontend/src/app/board/   the React mount + CRDT adapter (NOT the board package)
   ├─ board-detail.tsx      route shell (sidebar + header chrome) + DocumentProvider
   ├─ board-view.tsx        mounts the reused slides editor with the board Viewport
-  ├─ board-toolbar.tsx     minimal insert toolbar (Select / Text / Shape / Line)
+  ├─ board-toolbar.tsx     insert toolbar (Select / Text / Sticky ▾ / Image / Shape ▾ / Line ▾)
   └─ yorkie-board-store.ts YorkieBoardStore implements SlidesStore (single synthetic slide)
 ```
 
@@ -184,7 +188,10 @@ interface YorkieBoardRoot {
   not solved here.
 - **Viewport and cursors are presence, not root** — pan/zoom is view-local and
   never touches the CRDT document; peer presence cursors ride the same channel
-  slides already uses.
+  slides already uses. `BoardPresence` (in
+  `packages/frontend/src/types/board-document.ts`) already carries a world-coords
+  `cursor` field, but as of SP1 the client neither publishes it nor paints remote
+  cursor dots — that remains a deferred follow-up.
 
 ### Document-type wiring (traced from `"note"` / `"slides"`)
 

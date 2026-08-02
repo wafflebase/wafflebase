@@ -11,13 +11,16 @@ target-version: 0.4.0
 
 Add Google Sheets-style threaded comments anchored to spreadsheet cells. Phase B
 (this document) covers single-cell threads with replies, resolve/reopen, and a
-side panel for browsing all comments. Mentions, notifications, and broader
-anchors (range, sheet, doc) are deferred to phase C.
+side panel for browsing all comments. `@user` mentions have since shipped (see
+[comments-mentions.md](../comments-mentions.md)); notifications and broader
+anchors (range, sheet, doc) remain deferred to phase C.
 
 The data model is designed *anchor-agnostic* from day one — a discriminated
-`CommentAnchor` union allows future extraction into a shared
-`@wafflebase/comments` package once Docs or Slides become a second consumer.
-Until then, comment code lives inside `packages/sheets`.
+`CommentAnchor` union. Docs and PDF have since become consumers, and the comment
+UI has been extracted into a shared frontend module at
+`packages/frontend/src/components/comments/` (a frontend-internal directory,
+**not** a published `@wafflebase/comments` package). The base data-model types
+still live in `packages/sheets/src/comment/` and are re-exported.
 
 ## Goals / Non-Goals
 
@@ -38,13 +41,16 @@ Until then, comment code lives inside `packages/sheets`.
 
 ### Non-Goals
 
-- `@user` mentions and notifications (deferred to phase C).
+- In-app / email notifications (deferred to phase C). Note: `@user` mentions
+  themselves have since shipped — see [comments-mentions.md](../comments-mentions.md).
 - Range, full-row, full-column, sheet, or document-wide comments (phase C+).
 - Rich-text body (bold, italics, links). Plain text + newlines only.
 - Email / external notifications.
 - Comment search across the workbook.
-- Cross-package generalization at this stage. The shared
-  `@wafflebase/comments` package is created when Docs adds comments.
+- Cross-package generalization. Docs and PDF have since added comments; the
+  shared UI landed as a frontend-internal module
+  (`packages/frontend/src/components/comments/`) rather than a published
+  `@wafflebase/comments` package.
 - Per-user read/unread state.
 
 ## Proposal Details
@@ -53,26 +59,33 @@ Until then, comment code lives inside `packages/sheets`.
 
 ```
 packages/sheets/src/comment/
-├── types.ts          # CommentAnchor, CommentAuthor, Comment, Thread
+├── types.ts          # sheet-cell CommentAnchor, CommentAuthor, Comment, generic Thread<A>
 ├── thread.ts         # pure helpers — create, validate, mutate threads
-├── anchor.ts         # CellAnchor ↔ Sref helpers, anchor validation
-└── index.ts          # public exports
+└── anchor.ts         # CellAnchor ↔ Sref helpers, anchor validation
 
 packages/sheets/src/store/store.ts
 └── Store interface gains six comment methods (§4)
 
 packages/sheets/src/view/
-└── render-comments.ts             # NEW — canvas marker rendering
+└── render-comments.ts             # canvas marker rendering
 
 packages/frontend/src/app/spreadsheet/
-├── yorkie-store.ts                # Store impl gains comment methods
-├── yorkie-worksheet-comments.ts   # NEW — Yorkie-local comment mutations
-├── yorkie-worksheet-structure.ts  # MODIFY — orphan cleanup on row/col delete
-└── components/comments/           # NEW — popover, side panel, composer
-    ├── CommentPopover.tsx
-    ├── CommentSidePanel.tsx
-    └── CommentComposer.tsx
+├── yorkie-store.ts                        # Store impl gains comment methods
+├── yorkie-worksheet-comments.ts           # Yorkie-local comment mutations
+├── yorkie-worksheet-structure.ts          # orphan cleanup on row/col delete
+└── components/comments/CommentPopover.tsx  # cell-click popover
+
+packages/frontend/src/components/comments/  # shared cross-consumer module
+└── components/                             # CommentComposer, CommentSidePanel, …
+
+packages/frontend/src/app/documents/document-detail.tsx  # wires the side panel
 ```
+
+Note: the reusable composer and side panel live in the shared
+`packages/frontend/src/components/comments/` module (consumed by sheets, docs,
+and pdf); only the spreadsheet-specific `CommentPopover` remains under
+`app/spreadsheet/`, and the sheet side panel is mounted from
+`app/documents/document-detail.tsx`.
 
 The shared `packages/sheets` package owns the data model, pure helpers, and the
 Canvas grid renderer (which already lives at `packages/sheets/src/view/gridcanvas.ts`).
@@ -92,12 +105,17 @@ export type CommentAuthor = {
   photo?: string;
 };
 
-// Discriminated union — Docs / Slides extraction adds variants here.
-export type CommentAnchor =
-  | { kind: 'sheet-cell'; tabId: string; rowId: string; colId: string };
-  // future: { kind: 'sheet-range'; tabId; startRowId; ...; endColId }
-  // future: { kind: 'docs-range'; blockId; ... }
-  // future: { kind: 'slide-element'; slideId; elementId }
+// Sheets owns only the sheet-cell anchor. The full cross-consumer union
+// (`CommentAnchor = SheetCellAnchor | DocsRangeAnchor | PdfRegionAnchor`) is
+// assembled in the frontend type module at
+// `packages/frontend/src/types/comments.ts`, which re-imports this shape as
+// `SheetCellAnchorBase`. Docs and PDF are the shipped extra consumers.
+export type CommentAnchor = {
+  kind: 'sheet-cell';
+  tabId: string;
+  rowId: string;
+  colId: string;
+};
 
 export type Comment = {
   id: string;            // UUID v4
@@ -107,9 +125,12 @@ export type Comment = {
   editedAt?: number;     // present iff body has been edited
 };
 
-export type Thread = {
+// Generic over the anchor so this same shape is the canonical base for every
+// consumer; the frontend's shared `Thread<A>` aliases it. Sheets itself only
+// ever uses the default `sheet-cell` anchor.
+export type Thread<A extends { kind: string } = CommentAnchor> = {
   id: string;            // UUID v4
-  anchor: CommentAnchor;
+  anchor: A;             // sheet-cell in this package
   comments: Comment[];   // [0] is root, rest are replies in author order
   resolved: boolean;
   resolvedAt?: number;
@@ -318,7 +339,7 @@ conditional-format indicators. Filter: `tabId === currentTab && !resolved`.
 
 | Property        | Value                                          |
 | --------------- | ---------------------------------------------- |
-| Shape           | 7 × 7 px right triangle (top-right of cell)    |
+| Shape           | 9 × 9 px right triangle (top-right of cell)    |
 | Color           | `#fbbc04` (Google Sheets parity)               |
 | Resolved hidden | Yes — only `resolved=false` shows a marker     |
 
@@ -395,11 +416,11 @@ popover.
 
 ### 8. Phase Plan
 
-| Phase  | Scope                                                                |
-| ------ | -------------------------------------------------------------------- |
-| **B**  | Everything in this document.                                         |
-| C      | `@user` mentions, notifications (in-app + email), per-user unread.   |
-| C+     | Range / row / column / sheet anchors, cross-package extraction to `@wafflebase/comments`. |
+| Phase  | Scope                                                                | Status |
+| ------ | -------------------------------------------------------------------- | ------ |
+| **B**  | Everything in this document.                                         | Shipped |
+| C      | `@user` mentions, notifications (in-app + email), per-user unread.   | Mentions shipped ([comments-mentions.md](../comments-mentions.md)); notifications + unread pending |
+| C+     | Range / row / column / sheet anchors, cross-package extraction.      | Extraction shipped as a shared frontend module (`packages/frontend/src/components/comments/`), not a published `@wafflebase/comments` package; broader anchors pending |
 
 ## Risks and Mitigation
 

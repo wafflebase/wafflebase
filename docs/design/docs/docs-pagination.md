@@ -92,8 +92,8 @@ interface Document {
 When `pageSetup` is undefined, all consumers use `DEFAULT_PAGE_SETUP`. This
 avoids a breaking change — existing `Document` construction sites
 (`MemDocStore`, `Doc.create()`, tests) continue to work without modification.
-A helper `resolvePageSetup(doc: Document): PageSetup` returns
-`doc.pageSetup ?? DEFAULT_PAGE_SETUP`.
+A helper `resolvePageSetup(setup: PageSetup | undefined): PageSetup` returns
+`setup ?? DEFAULT_PAGE_SETUP` (callers pass `doc.document.pageSetup`).
 
 ## Pagination Engine
 

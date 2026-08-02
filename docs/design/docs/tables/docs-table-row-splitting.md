@@ -103,7 +103,9 @@ its own `rowSplitOffset` / `rowSplitHeight`.
 ### 2. Rendering Layer
 
 Files: `packages/docs/src/view/doc-canvas.ts`,
-       `packages/docs/src/view/table-renderer.ts`
+       `packages/docs/src/view/table-renderer.ts`,
+       `packages/docs/src/view/table-geometry.ts`
+       (`computeTableRangeForPageLine`)
 
 #### 2.1 Clipped cell rendering
 
@@ -163,7 +165,8 @@ in both passes so backgrounds and content stay in lockstep.
 ### 3. Interaction Layer
 
 Files: `packages/docs/src/view/text-editor.ts`,
-       `packages/docs/src/view/pagination.ts` (pixel ↔ position)
+       `packages/docs/src/view/pagination.ts` (pixel ↔ position),
+       `packages/docs/src/view/selection.ts` (split-aware selection clipping)
 
 #### 3.1 Pixel → position (`paginatedPixelToPosition`)
 
@@ -186,13 +189,16 @@ fragment (same row, next page) rather than to the next row.
 
 #### 3.4 Selection rendering
 
-`renderSelection` clips selection highlight rectangles to the current
-page's fragment bounds, the same way cell content is clipped.
+`computeSelectionRects` (in `packages/docs/src/view/selection.ts`)
+clips selection highlight rectangles to the current page's fragment
+bounds via each `PageLine`'s `rowSplitOffset` / `rowSplitHeight`, the
+same way cell content is clipped.
 
 #### 3.5 Scroll into view
 
 When the cursor moves into a split row fragment on a different page,
-`scrollIntoView` targets that page's Y offset.
+`packages/docs/src/view/text-editor.ts` adjusts `container.scrollTop`
+to that page's Y offset.
 
 ## Risks and Mitigation
 

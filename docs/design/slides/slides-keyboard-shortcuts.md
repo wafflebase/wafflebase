@@ -24,9 +24,6 @@ and a discoverable shortcuts-help modal.
 
 ### Non-Goals
 
-- **Group / Ungroup** (`Cmd+G` / `Cmd+Shift+G`). No group concept exists
-  in the slides model yet; introducing one is a separate design
-  involving model, CRDT, rendering, and selection-box changes.
 - **Find / replace** (`Cmd+F` / `Cmd+Shift+H`). Slides find/replace
   spans every slide and needs its own UX (thumbnail jump, match
   highlight, sequential search). Out of scope here.
@@ -39,9 +36,10 @@ and a discoverable shortcuts-help modal.
 | Category | Shortcut | Behavior |
 |---|---|---|
 | Selection | `Cmd/Ctrl+A` | Select all elements on the current slide. |
-| Selection | `Esc` | Exit text edit → clear selection → otherwise no-op. |
+| Selection | `Esc` | Exit text edit → pop group drill-in level → clear selection → otherwise no-op. |
 | Selection | `Tab` / `Shift+Tab` | Cycle next/previous element on the current slide. With nothing selected, selects the bottom-most (Tab) or top-most (Shift+Tab) element. |
 | Selection | `F2` / `Enter` | When exactly one text element is selected, enter text-edit mode. |
+| Selection | `Cmd/Ctrl+Alt+G` / `Cmd/Ctrl+Shift+Alt+G` | Group the selected elements / ungroup the selected group. |
 | Slide | `Cmd/Ctrl+M` | Add a new slide after the current, using the current slide's layout, and switch to it. |
 | Slide | `Cmd/Ctrl+Shift+D` | Duplicate the current slide explicitly. (`Cmd+D` continues to duplicate selected elements; only falls back to slide-duplicate when nothing is selected.) |
 | Slide | `Page Up` / `Page Down` | Switch to previous / next slide. Boundary-safe. |
@@ -100,10 +98,11 @@ export interface KeyboardContext {
   currentSlideId(): string | undefined;
   setCurrentSlide(id: string): void;            // new
   enterEditMode?: (elementId: string) => void;  // new — for F2 / Enter
+  group(): void;                                 // Cmd+Alt+G — group selection
+  ungroup(): void;                               // Cmd+Shift+Alt+G — ungroup
   requestRender(): void;
   onStartPresentation?: (from: 'current' | 'first') => void;
   onShowShortcutsHelp?: () => void;
-  onLinkRequest?: () => void;                    // canvas-level (unused in v1, present for symmetry)
 }
 ```
 
@@ -164,7 +163,8 @@ export type ShortcutCategory =
   | 'Nudge'
   | 'Format'
   | 'Present'
-  | 'Help';
+  | 'Help'      // also groups Undo / Redo / Show-shortcuts
+  | 'Drag';     // Shift-constraint entries (see "Shift modifiers during drag")
 
 export interface ShortcutEntry {
   /** Category for grouping in the help modal. */

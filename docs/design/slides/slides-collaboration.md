@@ -50,7 +50,7 @@ local user navigated slides. `mountNotesPanel` subscribed only to
 fires on a remote change. Fixed by subscribing the notes panel to
 `store.onChange` with a focus guard (don't overwrite the local caret
 mid-keystroke) and disposing the subscription. See
-[20260620-slides-notes-live-sync-todo.md](../../tasks/active/20260620-slides-notes-live-sync-todo.md).
+[20260620-slides-notes-live-sync-todo.md](../../tasks/archive/2026/06/20260620-slides-notes-live-sync-todo.md).
 
 **Remaining:** `withNotes` stores notes as a plain `Block[]` and writes
 the whole array on every keystroke (`s.notes = clone(next)`). Two users
@@ -79,12 +79,17 @@ and should reuse the docs Tree bridge rather than inventing a new one.
 
 `SlidesPresence` (`packages/frontend/src/types/users.ts`) defines
 `activeSlideId`, `selectedElementIds`, `activeFrames` (live drag
-preview), and `draggingGuide`.
+preview), `draggingGuide`, and `selectedTableCells` (a peer's table
+cell-range selection).
 
-**Closed (peer selection rings + name tags).** `getPeers()` is now
-consumed. The editor exposes `setPeers(PeerView[])` and paints, in the
-DOM overlay, a coloured ring + name tag for every peer selecting an
-element on the local user's current slide. The plumbing:
+**Closed (peer selection rings + name tags + cell ranges).**
+`getPeers()` is now consumed. The editor exposes `setPeers(PeerView[])`
+and paints, in the DOM overlay, a coloured ring + name tag for every
+peer selecting an element on the local user's current slide. Peer
+table cell-range selections (`selectedTableCells`) are broadcast from
+`packages/frontend/src/app/slides/slides-view.tsx` and rendered as
+per-cell highlight rects (`PeerCellRect` in
+`packages/slides/src/view/editor/peers.ts`). The plumbing:
 
 - `YorkieSlidesStore.onPresenceChange` subscribes the Yorkie `'others'`
   channel (distinct from document `remote-change`).
@@ -106,7 +111,7 @@ is broadcast-only.
   previews funnel through `paintGhostPreview` (a clean emit point), but
   there is no single "gesture ended" hook to clear them symmetrically;
   this needs an explicit gesture-lifecycle signal. Tracked in
-  [20260621-slides-live-presence-todo.md](../../tasks/active/20260621-slides-live-presence-todo.md)
+  [20260621-slides-live-presence-todo.md](../../tasks/archive/2026/06/20260621-slides-live-presence-todo.md)
   P2/P3.
 - `slides.md` also references a `textCursor` presence field and peer
   text carets (à la `docs/docs-presence.md`); neither exists. Docs has

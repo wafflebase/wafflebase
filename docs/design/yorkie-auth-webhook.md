@@ -21,6 +21,15 @@ answers `{ allowed }` (HTTP `200`/`401`/`403`). We plug our existing permission
 logic into that endpoint so Yorkie enforces workspace membership and share-link
 roles per document, per verb.
 
+**Status: shipped.** The webhook endpoint
+(`packages/backend/src/document/yorkie-auth.controller.ts`), the two token
+endpoints, the `tokenType === 'access'` replay guard, the shared rawBody scope,
+and both frontend injectors are all implemented and wired. What remains
+operational (not code) is the staged rollout: enforcement is gated by
+`YORKIE_AUTH_WEBHOOK_ENFORCE` (shadow-mode default) and by registering the
+webhook methods on the Yorkie project. The sections below describe the design
+as built.
+
 ## Goals / Non-Goals
 
 **Goals**
@@ -85,9 +94,9 @@ existing `YorkieSignatureGuard`
 **unchanged** — no new secret. The guard authenticates *Yorkie* as the caller;
 the `token` in the body then authenticates the *end user*.
 
-The rawBody `verify` hook in `packages/backend/src/main.ts` is currently
-path-scoped to `/internal/yorkie/events`; extend it to also cover
-`/internal/yorkie/auth`.
+The rawBody `verify` hook in `packages/backend/src/main.ts` is scoped to the
+`/internal/yorkie/` prefix (`YORKIE_WEBHOOK_PATH_PREFIX`), so it covers both
+`/internal/yorkie/events` and `/internal/yorkie/auth` with no per-path change.
 
 ### Token strategy (the hard part)
 
@@ -140,19 +149,23 @@ A single request may carry multiple attributes; **all** must pass.
 
 ### Frontend wiring
 
-`YorkieProvider` accepts `authTokenInjector` (it spreads `ClientOptions`).
-Add it in both mount points, keeping `apiKey` + `metadata` as-is:
+`YorkieProvider` accepts `authTokenInjector` (it spreads `ClientOptions`). It is
+wired at both mount points, keeping `apiKey` + `metadata` as-is. The two entry
+points call two distinct helpers in `packages/frontend/src/api/auth.ts`:
+`fetchYorkieToken()` (GET) for the authenticated case and
+`fetchYorkieShareToken(token)` (POST `/auth/yorkie-token/share`) for the
+anonymous-share case.
 
 ```tsx
 // PrivateRoute.tsx (authenticated)
 <YorkieProvider
   rpcAddr={...} apiKey={...}
   metadata={{ userID: encodeURIComponent(me.username || 'anonymous-user') }}
-  authTokenInjector={async () => fetchYorkieToken()}       // GET /auth/yorkie-token
+  authTokenInjector={fetchYorkieToken}                          // GET /auth/yorkie-token
 />
 
 // shared-document.tsx (anonymous share)
-authTokenInjector={async () => fetchYorkieToken(resolved.token)}  // ?shareToken=
+authTokenInjector={token ? () => fetchYorkieShareToken(token) : undefined}  // POST /auth/yorkie-token/share
 ```
 
 The injector caches the token and re-fetches when yorkie calls it with
@@ -182,13 +195,16 @@ contributors can opt in. Leaving the URL unset keeps today's behavior.
 
 ### Rollout
 
-1. **Ship the endpoint + token endpoint + frontend injector** with the webhook
-   URL **unregistered** — no enforcement, but tokens now flow.
-2. **Shadow mode**: register the webhook but have the handler always return
-   `allowed:true` while logging the decision it *would* have made. Watch for
-   false denials (token gaps, key-parse misses, share edge cases).
-3. **Enforce**: flip the handler to honor the computed decision.
-4. Reversible at every step: unregister the webhook methods to fully disable.
+1. **Endpoint + token endpoints + frontend injectors** — shipped. With the
+   webhook URL **unregistered** there is no enforcement, but tokens flow.
+2. **Shadow mode** (default): register the webhook with
+   `YORKIE_AUTH_WEBHOOK_ENFORCE` unset/`false` — the handler computes the
+   decision, logs the one it *would* have made, but always returns `allowed`.
+   Watch for false denials (token gaps, key-parse misses, share edge cases).
+3. **Enforce**: set `YORKIE_AUTH_WEBHOOK_ENFORCE=true` so the handler honors the
+   computed decision.
+4. Reversible at every step: flip the flag back, or unregister the webhook
+   methods to fully disable.
 
 ## Risks and Mitigation
 

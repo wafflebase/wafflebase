@@ -40,10 +40,13 @@ No type changes required. `TableCell.blocks: Block[]` already accepts any
 
 **Changes:**
 
-- **Remove nested-table insertion guard** in `Document.insertTable()`. Currently
-  `insertTable` checks `BlockParentMap` and rejects insertion when the cursor is
-  inside a cell. Remove this check so that a table block is added to
-  `cell.blocks` like any other block.
+- **Dedicated cell-insertion method.** A table block is added to a cell's
+  `blocks` via `Document.insertTableInCell(blockId, rows, cols)`, which looks up
+  the parent cell in `BlockParentMap` and inserts the new table after `blockId`
+  (`packages/docs/src/model/document.ts`). `Document.insertTable(blockIndex, rows, cols)`
+  remains the body-only path and carries no nested-table guard; the editor's
+  Insert Table command branches on `blockParentMap` and calls `insertTableInCell`
+  when the cursor is inside a cell.
 
 - **Recursive `BlockParentMap` construction.** When building the map, recurse
   into cell blocks: if a block is a table, iterate its rows/cells and register
@@ -128,15 +131,18 @@ computeTableLayout(outerTable, contentWidth)
 - `getCellInfo(blockId)` returns the direct parent cell from `BlockParentMap` —
   works unchanged for nested tables.
 
-- **New `getTableContext(blockId)`** — walks up the `BlockParentMap` chain to
-  return the table hierarchy path: `[outermostTableId, ..., innermostTableId]`.
-  Used to identify the correct target table for structural operations.
+- **Target-table resolution.** The direct parent table is resolved via
+  `blockParentMap.get(blockId)` (its `BlockCellInfo` carries `tableBlockId`) and
+  `Document.getParentTableBlock(blockId)`
+  (`packages/docs/src/model/document.ts`). No dedicated hierarchy-path helper is
+  needed — structural operations only need the direct parent, which these
+  provide.
 
 **Table insertion in cells:**
 
-- `insertTable()` inserts a table block into the current cell's `blocks` array
-  at the cursor's block position. Identical to inserting a paragraph, except the
-  block type is `'table'`.
+- `insertTableInCell(blockId, rows, cols)` inserts a table block into the parent
+  cell's `blocks` array, after the block at `blockId`. Identical to inserting a
+  paragraph, except the block type is `'table'`.
 
 **Tab / arrow navigation:**
 
@@ -203,14 +209,17 @@ Current Yorkie Tree structure:
   nesting, so no SDK changes are needed — just insert the `<table>` subtree
   under the `<td>` node.
 
-- **`resolveTreePath(blockId): number[]` utility.** Converts a blockId to a
-  Yorkie Tree path by walking up the `BlockParentMap` hierarchy. For nested
-  tables, the path is deeper (e.g.,
-  `[tableIdx, rowIdx, colIdx, innerBlockIdx, innerRowIdx, ...]`).
+- **Nested cell-path helpers.** A blockId resolves to a deeper Yorkie Tree path
+  via the repeating `[r, c, b]`-triplet helpers in
+  `packages/frontend/src/app/docs/yorkie-doc-store.ts`
+  (`getCellSubPath`, `getCellBlock`, `setCellBlock`, `getBlocksArrayForPath`).
+  For nested tables the path descends through successive `[rowIdx, colIdx,
+  blockIdx]` triplets.
 
 - **Granular operations path adjustment.** Existing Store methods
   (`insertTableRow`, `deleteTableColumn`, `updateTableCell`, etc.) use tree
-  paths. For nested tables, `resolveTreePath` produces the correct deeper path.
+  paths. For nested tables, the cell-path helpers above produce the correct
+  deeper path.
 
 **Concurrent editing:**
 

@@ -9,17 +9,19 @@ target-version: 0.5.0
 
 ## Summary
 
-Add a native `ChartElement` to `@wafflebase/slides` so charts survive PPTX
-import and render on the Canvas with PowerPoint-like fidelity.
+A native `ChartElement` in `@wafflebase/slides` lets charts survive PPTX
+import and render on the Canvas with PowerPoint-like fidelity. Phase 1
+(import + render + PDF) is shipped.
 
-Today every `<p:graphicFrame>` in a slide is routed unconditionally to the
-table parser (`packages/slides/src/import/pptx/shape.ts:383` →
-`parseTable`), which returns an empty list when the frame is not a
-`<a:tbl>` (`packages/slides/src/import/pptx/table.ts:46`). A chart's
-`graphicFrame` therefore produces **zero elements, silently** — it is not
-placeholdered, not rasterized, and not even counted in `ImportReport`.
-That is why the second slide of an imported deck loses its chart with no
-warning.
+Before this shipped, every `<p:graphicFrame>` in a slide was routed
+unconditionally to the table parser, which returns an empty list when the
+frame is not a `<a:tbl>`. A chart's `graphicFrame` therefore produced
+**zero elements, silently** — it was not placeholdered, not rasterized, and
+not even counted in `ImportReport`, so an imported deck lost its charts
+with no warning. The `graphicFrame` dispatch now branches on the
+`<a:graphicData/@uri>`: a chart URI routes to `parseChartFrame`, a table
+to `parseTable`, and anything else to a reported grey placeholder
+(`packages/slides/src/import/pptx/shape.ts:414`).
 
 PPTX stores the numbers PowerPoint last computed inside the chart part's
 `<c:numCache>` / `<c:strCache>`. Reading those caches lets us reproduce
@@ -77,8 +79,9 @@ rendering, and a future path to editing and PPTX round-trip.
 ### Data model
 
 `ChartElement` joins the `Element` union in
-`packages/slides/src/model/element.ts:560` (and `ElementInit` at `:571`),
-with matching handling in `model/clone.ts` and `model/migrate.ts`.
+`packages/slides/src/model/element.ts:612` (and `ElementInit` at `:624`),
+with matching handling in `packages/slides/src/model/clone.ts` and
+`packages/slides/src/model/migrate.ts`.
 
 ```ts
 type ChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie';
@@ -114,8 +117,8 @@ frozen snapshot that matches PowerPoint's last render.
 
 ### PPTX import
 
-Fix the dispatch in `packages/slides/src/import/pptx/shape.ts:383`. A
-`<p:graphicFrame>` is disambiguated by its
+The dispatch in `packages/slides/src/import/pptx/shape.ts:414`
+disambiguates a `<p:graphicFrame>` by its
 `<a:graphicData graphicData/@uri>`:
 
 - `.../drawingml/2006/chart` → new `parseChartFrame`: resolve the frame's
@@ -135,7 +138,7 @@ placeholder + `unsupportedCharts` rather than throwing and aborting the
 whole import. A `<c:pt idx>` cache index is bounded before array
 allocation so a malformed/adversarial deck cannot hang the import.
 
-New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
+`packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
 
 - Walk `c:chartSpace/c:chart/c:plotArea` and pick the first plot type
   element: `c:barChart` (with `c:barDir val="col"|"bar"` →
@@ -155,15 +158,15 @@ New `packages/slides/src/import/pptx/chart.ts` maps `chartN.xml`:
   3-D variants) → return a placeholder marker so the dispatcher inserts
   the grey box.
 
-`packages/slides/src/import/pptx/report.ts` gains `importedCharts` and
+`packages/slides/src/import/pptx/report.ts` carries `importedCharts` and
 `unsupportedCharts` counters, surfaced in the import summary toast so
 charts never disappear without a trace.
 
 ### Canvas painter
 
-New `packages/slides/src/view/canvas/chart-renderer.ts`, dispatched from
+`packages/slides/src/view/canvas/chart-renderer.ts` is dispatched from
 the `switch (element.type)` in
-`packages/slides/src/view/canvas/element-renderer.ts:260` via
+`packages/slides/src/view/canvas/element-renderer.ts:359` via
 `case 'chart'`. It paints in element-local coordinates
 (`frame.w` × `frame.h`) with the 2D API:
 

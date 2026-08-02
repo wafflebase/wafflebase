@@ -46,7 +46,9 @@ The misspelled-range set is view-local session state (like
   follow-up project.
 - **Ignore / Ignore all.**
 - **Add to personal dictionary (persisted).**
-- **Toggle spell check on/off** (UI control).
+- **Toggle spell check on/off** (UI control). A programmatic
+  `setSpellCheckEnabled(enabled)` primitive exists on `EditorAPI`
+  (on by default), but no toolbar/menu control is wired to it in v1.
 - **Tables and headers/footers.** Only top-level body blocks are scanned;
   `getBlockText` returns empty for table blocks, so misspellings inside
   table cells and header/footer regions are not flagged in v1.
@@ -194,7 +196,7 @@ Add `nspell` to `packages/docs` dependencies; keep `dictionary-en` as a
 dev dependency (provenance for the vendored files). The en_US `.aff`/
 `.dic` are vendored into `src/spell/dict/` and loaded via `?raw` dynamic
 import so they form a lazy chunk, not part of the main bundle. The two
-dict chunks bump the frontend chunk count 108 → 110 in
+dict chunks bump the frontend chunk count 109 → 111 in
 `harness.config.json` (with a reason entry); the main docs entry stays
 ~346 KB with no dict inlined.
 
@@ -203,12 +205,11 @@ dict chunks bump the frontend chunk count 108 → 110 in
 - **Unit**
   - `SpellRouter`: Latin→en, Hangul→backend(absent→pass), CJK→skip;
     mixed-script paragraph routing.
-  - `tokenize`: skip rules (numbers, URLs, acronyms, <2 chars, caret
-    word, IME).
+  - `tokenize`: skip rules (numbers, URLs, acronyms, <2 chars, IME).
   - `LocalSpellProvider`: check/suggest against fixtures (known good +
     known misspelling → expected suggestions).
-  - `SpellSession`: range set updates on mutation; caret-word & IME
-    skips; hit-test; generation guard (stale recheck discarded); replace
+  - `SpellSession`: range set updates on mutation; IME skip; hit-test;
+    generation guard (stale recheck discarded); replace
     calls only `snapshot`+`deleteText`+`insertText` (view-local invariant).
   - `squigglePoints` geometry (zigzag alternation).
 - **Deferred / manual**

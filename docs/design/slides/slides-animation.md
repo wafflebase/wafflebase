@@ -55,8 +55,11 @@ imports without dropping effect data; existing decks render unchanged.
 - **Animation triggers** (start a sequence by clicking a specific shape /
   OOXML `interactiveSeq`). Dropped on import with a report warning.
 - **Auto-advance / timed slideshow** (per-slide `advTm`). Out of scope.
-- **PPTX export.** v1 exports PDF only; preservation fields lay the
-  groundwork for a future lossless PPTX export but no serializer is built.
+- **PPTX export.** *(No longer a non-goal — shipped.)* A full DrawingML
+  PPTX serializer now lives in `packages/slides/src/export/pptx/`, including
+  `packages/slides/src/export/pptx/animation.ts` (`transitionToXml` /
+  `animationsToTimingXml`) which round-trips these transitions and object
+  animations back to `<p:transition>` / `<p:timing>`.
 - **Audio / video timeline nodes.** Dropped with a report warning.
 - **Presence-synced playback.** Playback is local to each viewer, like the
   existing presenter.
@@ -291,7 +294,7 @@ holds transitions + animations together (like Google Slides):
 
 All edits go through the `Store` / `DocStore` interface — new ops
 `setSlideTransition`, `addAnimation`, `updateAnimation`, `removeAnimation`,
-`reorderAnimations` — never ad-hoc persistence (per CLAUDE.md).
+`reorderAnimation` — never ad-hoc persistence (per CLAUDE.md).
 
 The editor draws a small **order badge** on animated elements (shown when
 selected), as Google Slides / PowerPoint do.
@@ -328,8 +331,11 @@ to our effects and need not reproduce OOXML primitive tweens.
 - **Report — `src/import/pptx/report.ts`.** New keys:
   `transition-approximated`, `animation-preset-unmapped`,
   `animation-trigger-dropped`, `animation-media-dropped`.
-- **Export.** Out of scope for v1 (PDF only). Preservation fields make a
-  future lossless PPTX export possible.
+- **Export.** A PPTX exporter shipped after this design:
+  `packages/slides/src/export/pptx/animation.ts` serializes `transition` and
+  `animations` back to `<p:transition>` / `<p:timing>`, and the preservation
+  fields (`pptxPreset` / `motionPath`) keep unmapped presets lossless across
+  the round-trip.
 
 ### Testing strategy
 
@@ -372,7 +378,10 @@ All four phases shipped on the `slides-animation-design` branch. Object
 animations and slide transitions play in both presentation mode and the
 editor **Play** preview; the Motion panel authors transitions + object
 animations (category/effect/start/direction/delay/easing/by-paragraph);
-PPTX `<p:transition>` and `<p:timing>` import best-effort.
+PPTX `<p:transition>` and `<p:timing>` import best-effort. A PPTX exporter
+has since shipped (`packages/slides/src/export/pptx/animation.ts`) that
+serializes transitions + object animations back to `<p:transition>` /
+`<p:timing>`, so motion round-trips rather than being PDF-export-only.
 
 Known limitations / deviations (tracked for follow-up):
 

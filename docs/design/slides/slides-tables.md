@@ -7,19 +7,27 @@ target-version: 0.4.5
 
 ## Summary
 
-Add structured table editing to `@wafflebase/slides` to match PowerPoint
-and Google Slides parity. A table is a new `Element` kind that owns its
-own grid (rows × columns), per-cell text bodies, per-cell styling
+> **Status: shipped.** The `TableElement` model, both store backends
+> (`MemSlidesStore` + `YorkieSlidesStore`), the Canvas renderer, cell
+> editing / cell-range selection, structural edits, presence, and
+> PPTX/PDF/round-trip export are all implemented. The phase plan and
+> forward-looking framing below are retained as a design record; the
+> notes call out where reality diverges from the original proposal.
+
+Structured table editing in `@wafflebase/slides` matches PowerPoint and
+Google Slides parity. A table is an `Element` kind that owns its own
+grid (rows × columns), per-cell text bodies, per-cell styling
 (background, borders, padding, vertical alignment), and merged regions.
 
-This replaces the current PPTX import path
-(`packages/slides/src/import/pptx/table.ts`) which flattens `<a:tbl>`
-into independent text + transparent-rect elements and reports
+This replaced the earlier PPTX import path
+(`packages/slides/src/import/pptx/table.ts`), which used to flatten
+`<a:tbl>` into independent text + transparent-rect elements and report
 `tableMergesIgnored` / `tableBordersApproximated`. Real-world decks
 contain tables on most non-cover slides (e.g. the Yorkie 캐즘 deck has
-tables on slides 24–27 and 33–35), so flattening loses fidelity on
-import, makes alignment impossible to maintain when slides are re-edited,
-and blocks an eventual PPTX export.
+tables on slides 24–27 and 33–35), so flattening lost fidelity on
+import, made alignment impossible to maintain when slides were
+re-edited, and blocked PPTX export. The importer now produces a
+structured `TableElement`, and the PPTX exporter emits a real `<a:tbl>`.
 
 ### Goals
 
@@ -45,9 +53,12 @@ and blocks an eventual PPTX export.
   only. Docs allows nested tables; slides v1 doesn't — the visual
   payoff in slide context is small and the editor complexity (cell
   resize cascading through nested rows) is large.
-- **Cell-level Yorkie undo/redo.** Slides uses the existing
-  snapshot-based undo path (`store.batch`); table ops batch the same
-  way as any other element edit.
+- **Cell-level Yorkie undo/redo.** Table ops get no special undo
+  granularity — they batch through `store.batch` the same way as any
+  other element edit. `YorkieSlidesStore` maps each batch onto Yorkie
+  native `doc.history` (see
+  [slides-native-undo.md](slides-native-undo.md)); `MemSlidesStore`
+  retains the snapshot-based undo path.
 - **Linked-spreadsheet tables.** Tables are static OOXML-style grids,
   not embedded `@wafflebase/sheets` ranges. The latter is tracked under
   the existing "Embedded sheets" v2 item in `slides.md`.
@@ -83,12 +94,16 @@ and blocks an eventual PPTX export.
   `applyGroupTransform` rather than calling `updateElementFrame`, so a
   TableElement inside a group whose group is later ungrouped won't get
   its `columnWidths` / row heights proportionally scaled. The bug is
-  latent in P1 (no UI path to insert tables into groups) and is
-  closed when P3 wires the group-bake call sites through the store.
-- **Cell-range selection is absent.** Selecting a TableElement gives
-  whole-element selection; per-cell hover I-beam engages over the
-  entire table inset (see `getTextRegionRect` 'table' branch). Cell
-  selection, Tab/Shift+Tab navigation, and structural ops arrive in P3.
+  latent (no UI path inserts tables into groups) and is closed once the
+  group-bake call sites route through the store.
+- **Cell-range selection — resolved.** This was originally listed as a
+  P1 gap; it has since shipped. Cell selection, cell hit-testing,
+  Tab/Shift+Tab navigation, and structural ops all landed. The editor
+  drives cell-range drag via `startCellRangeDrag` / `tableCellAtPoint`
+  / `projectCellRangeRects` (`view/editor/editor.ts`, overlay rects via
+  `makeCellRangeRect` in `view/editor/overlay.ts`), and
+  `view/canvas/table-renderer.ts` exports `tableCellAtPoint`,
+  `tableEdgeAt`, and `nextCellInDirection`.
 
 ## Proposal Details
 
@@ -194,17 +209,12 @@ the convention every other structural slide op already uses.
 interface SlidesStore {
   // ...existing...
 
-  /** Create a fresh r × c table; cells start with one empty paragraph. */
-  addTable(
-    slideId: string,
-    init: {
-      frame: Frame;
-      rows: number;
-      cols: number;
-      columnWidths?: number[];   // defaults: equal split of frame.w
-      rowHeights?: number[];     // defaults: equal split of frame.h
-    },
-  ): string;
+  // Table creation reuses the generic `addElement(slideId, init)`
+  // element factory (there is no dedicated `addTable` store method);
+  // the editor's `insertTable(rows, cols, opts)` helper
+  // (`view/editor/editor.ts`) builds the initial `TableElement` — cells
+  // start with one empty paragraph, columns/rows default to an equal
+  // split of the frame — and hands it to `addElement`.
 
   insertTableRow(slideId: string, elementId: string, atIndex: number): void;
   deleteTableRow(slideId: string, elementId: string, rowIndex: number): void;
@@ -430,19 +440,20 @@ Rewrite `packages/slides/src/import/pptx/table.ts` to return a
 | `<a:tc>/<a:tcPr anchor>` | `style.verticalAlign` (`t`/`ctr`/`b`) |
 | `<a:tc>/<a:txBody>` | `body: TextBody` via existing `parseTextBody` |
 
-`ctx.report.tableMergesIgnored` and `ctx.report.tableBordersApproximated`
-counters are retired; replace with `ctx.report.tablesImported` (success
-count) and `ctx.report.tableCellsImported`. The non-blocking import
-toast text in `frontend/src/app/slides/...` updates correspondingly.
+The `ctx.report.tablesFlattened`, `ctx.report.tableMergesIgnored`, and
+`ctx.report.tableBordersApproximated` counters were retired (see the
+note in `import/pptx/report.ts`). Because tables now round-trip as a
+full structured element, there is no lossy path left to count, so no
+replacement counter was added — the import report simply stops
+mentioning tables.
 
 ### PPTX export
 
-Add `packages/slides/src/export/pptx/table.ts`, the inverse of import.
-The slides export pipeline doesn't exist yet (see Non-Goals in
-`slides.md` — PPTX export is v2). When that work lands, `TableElement`
-emits `<p:graphicFrame>/<a:tbl>` directly; until then, in-app authored
-tables export to PDF (which already paints from the canvas renderer,
-so this works on day one) but do not round-trip back to PPTX.
+`packages/slides/src/export/pptx/table.ts` is the inverse of import.
+The slides PPTX export pipeline has since shipped, and `TableElement`
+emits `<p:graphicFrame>/<a:tbl>` directly, so in-app authored tables
+round-trip back to PPTX (they also export to PDF via the canvas
+renderer path below).
 
 PDF export reuses the same `layoutTextBody` calls as Canvas rendering;
 the PDF writer in `packages/slides/src/export/pdf.ts` gains a table
@@ -460,21 +471,24 @@ working (they contain only `text` / `shape` / `image` elements).
 
 ### Phasing
 
+All six phases below have shipped — the model, structured PPTX import,
+cell editing, structural edits, Yorkie collaboration, and PDF export are
+all in the current tree. The plan is kept as a record of the rollout.
+
 | Phase | Deliverable | Verification |
 |---|---|---|
 | P1. Model + read-only render | `TableElement` type, `MemSlidesStore` add/get, `table-renderer.ts`, fixture-based snapshot tests | `pnpm slides test` + visual fixture in standalone harness |
 | P2. PPTX import (structured) | Rewrite `import/pptx/table.ts`, retire flatten path, update import report counters, fixture for the Yorkie 캐즘 deck | Snapshot diff vs prior flattened output; import-roundtrip unit tests |
 | P3. Cell editing | Cell-range selection, text edit via existing text-bridge, Tab/Shift+Tab navigation, cell-style toolbar | Vitest interaction tests for selection + Tab; visual smoke |
 | P4. Structural edits | Insert/delete row/col, merge/unmerge, drag-resize column/row borders, outer-frame proportional scale | Vitest tests; manual smoke |
-| P5. Yorkie + collaboration | `YorkieSlidesStore` table ops, presence (`selectedTableCells`, `resizingTableEdge`), concurrent-edit integration test | Postgres+Yorkie integration test `two-user-slides-table-yorkie.ts` |
+| P5. Yorkie + collaboration | `YorkieSlidesStore` table ops, presence (`selectedTableCells`, `resizingTableEdge`), concurrent-edit integration test | Postgres+Yorkie integration test `packages/frontend/tests/app/slides/yorkie-slides-table-concurrent.integration.ts` |
 | P6. PDF export | `export/pdf.ts` table case; visual PDF diff against a fixture deck | `pnpm verify:browser:docker` extension |
 
 Each phase ends with `pnpm verify:fast`; P5 additionally requires
 `pnpm verify:integration`; P6 requires `pnpm verify:browser:docker`.
 
-PPTX export remains tracked under the existing v2 backlog item in
-`slides.md` ("PPTX export"). Adding it later is a single new module —
-the structured model added here makes it mechanical.
+PPTX export has since shipped (`export/pptx/table.ts`); the structured
+model added here made it a mechanical inverse of the importer.
 
 ### Risks and Mitigation
 

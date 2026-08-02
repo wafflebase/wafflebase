@@ -7,20 +7,25 @@ target-version: 0.2.0
 
 ## Summary
 
-The Docs formatting toolbar currently has no controls for font family or
-font size. The data model already supports both (`InlineStyle.fontFamily`
-and `InlineStyle.fontSize`, applied via `editor.applyStyle`), and
-`FontRegistry` already handles on-demand web-font loading — only the UI
-is missing. Headings/Title/Subtitle in the Styles dropdown are the only
-way users can change typography today, which forces them to redefine the
-heading hierarchy whenever they want to vary body type.
-
-This document specifies adding a curated font-family picker, a Google
+The Docs formatting toolbar ships a font-family picker, a Google
 Docs–style font-size control, a line-spacing dropdown, and a "Clear
-formatting" button to the Docs toolbar, and threading the first two
-into the header/footer slim toolbar. The new controls are built as
-stateless components under `packages/frontend/src/components/text-formatting`
-so they can be reused by the Slides text-editing toolbar later.
+formatting" action. The data model already supported the underlying
+inline styles (`InlineStyle.fontFamily` and `InlineStyle.fontSize`,
+applied via `editor.applyStyle`), and `FontRegistry` already handled
+on-demand web-font loading — this work added the missing UI.
+
+The controls are built as stateless components under
+`packages/frontend/src/components/text-formatting` and are shared with
+the Slides text-editing toolbar. The two typography controls (family +
+size) are also threaded into the header/footer slim toolbar.
+
+> **Status:** shipped. The originally-scoped v1 has since been extended
+> well past this doc — the curated catalog grew into a generated
+> ~105-entry catalog plus a searchable "More fonts…" dialog backed by
+> the full `google/fonts`-derived library (see
+> [slides-fonts.md](../slides/slides-fonts.md)). The sections below
+> describe the design as first built; where the shipped surface has
+> moved on, that is called out inline.
 
 ### Goals
 
@@ -40,18 +45,23 @@ so they can be reused by the Slides text-editing toolbar later.
 - All controls reflect the current selection: a single resolved value
   when uniform, an empty / placeholder state when mixed.
 
-### Non-Goals
+### Non-Goals (as originally scoped)
 
 - A full Google Fonts–style "More fonts…" dialog with hundreds of
-  families and search across the entire library. Curated list only in
-  v1; library expansion is a follow-up document.
+  families and search across the entire library. *(Since shipped: the
+  follow-up library expansion landed a searchable "More fonts…" dialog
+  plus the full `google/fonts`-derived catalog and lazy loader —
+  `more-fonts-dialog.tsx`, `more-fonts-filter.ts`, `font-catalog.full.ts`,
+  `font-catalog-full-loader.ts`. See [slides-fonts.md](../slides/slides-fonts.md).)*
 - User font upload.
 - Per-character font preview on hover inside the family picker (each
   item still previews itself in its own font, but no live editor
   preview).
 - Migrating the Slides text-editing toolbar onto the new shared
-  components. The components are built reusable, but Slides adoption is
-  scheduled in a separate PR after the Docs work lands.
+  components. *(Since shipped: the Slides text-edit toolbar now renders
+  the same `FontFamilyPicker`/`FontSizePicker` from
+  `@/components/text-formatting` — see
+  `packages/frontend/src/app/slides/toolbar/text-edit-section.tsx`.)*
 - Changes to the Sheets toolbar.
 
 ## Proposal Details
@@ -63,11 +73,16 @@ Four new files under
 
 | File                          | Responsibility                                                                                     |
 | ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| `font-catalog.ts`             | Single source of truth for the curated font list (display name, CSS family, group, web-load flag). |
+| `font-catalog.ts`             | Font-picker contract + size/line-spacing presets + the `ensureFontLink` lazy loader; re-exports the catalog from `font-catalog.data.ts`. |
 | `font-family-picker.tsx`      | Stateless dropdown. Props: `value: string \| undefined` (undefined = mixed), `onChange(family)`.   |
 | `font-size-picker.tsx`        | Stateless `<input type="number">` + spinner buttons + preset dropdown. Props mirror above.         |
 | `line-spacing-picker.tsx`     | Stateless dropdown of presets plus Custom input. Props: `value: number`, `onChange(lh)`.           |
 | `clear-formatting-button.tsx` | Stateless button. Props: `onClick`.                                                                |
+
+> The curated list was originally hardcoded in `font-catalog.ts`. It now
+> lives in a generated `font-catalog.data.ts` (~105 entries built from
+> `google/fonts` metadata by `scripts/build-font-catalog.mjs`), which
+> `font-catalog.ts` re-exports as `FONT_CATALOG`.
 
 Each component is controlled: the toolbar owns the live value derived
 from the editor and the component only renders + emits. No internal
@@ -76,26 +91,54 @@ state beyond transient input focus.
 `font-catalog.ts` exports:
 
 ```ts
+export type FontGroup =
+  | 'Korean'
+  | 'Sans-serif'
+  | 'Serif'
+  | 'Monospace'
+  | 'Display'
+  | 'Handwriting';
+
 export interface FontEntry {
   /** Display label shown in the picker. */
   label: string;
   /** Canonical family name written to InlineStyle.fontFamily. */
   family: string;
-  /** Group header in the picker. */
-  group: 'Korean' | 'Sans-serif' | 'Serif' | 'Monospace';
+  /** Section header in the picker. */
+  group: FontGroup;
   /**
-   * Whether ensureFont() should be called before paint — true for web
-   * fonts (Google Fonts CSS), false for fonts that are expected to be
-   * present locally on most systems.
+   * Whether the family is served from Google Fonts (needs a CSS link +
+   * FontRegistry.ensureFont() before paint) vs a local/system face.
    */
   webFont: boolean;
+  /** Google Fonts `wght@…` axis values to request. Defaults to '400;700'. */
+  weights?: string;
+  /** Open-source license (OFL / APACHE2 / UFL) for export-embed notices. */
+  license?: 'OFL' | 'APACHE2' | 'UFL';
+  /** Google Fonts subsets (scripts) the family covers. */
+  scripts?: string[];
+  /**
+   * Loaded eagerly in the bootstrap CSS link (`true`) vs on demand via
+   * `ensureFontLink` (absent/`false`). Only the small pre-catalog set is
+   * eager so the bootstrap request stays small as the catalog grows.
+   */
+  eager?: boolean;
 }
 
 export const FONT_CATALOG: readonly FontEntry[];
 export const FONT_SIZE_PRESETS: readonly number[];
 ```
 
-### Curated font list (14 entries)
+The `Display` and `Handwriting` groups, along with the `weights` /
+`license` / `scripts` / `eager` fields, arrived with the generated
+catalog; the original spec listed only the first four groups and the
+first three fields.
+
+### Curated font list (original v1 — 14 entries)
+
+The list below is the set shipped in the first version. It has since been
+superseded by the generated ~105-entry `font-catalog.data.ts` (which adds
+`Display` and `Handwriting` groups and dozens of Google Fonts web faces).
 
 | Group      | Family               | Source         |
 | ---------- | -------------------- | -------------- |
@@ -115,11 +158,12 @@ export const FONT_SIZE_PRESETS: readonly number[];
 | Monospace  | Courier New          | Local          |
 
 `packages/docs/src/view/fonts.ts` extends `FONT_MAP` with fallback chains
-for every entry and extends `SERIF_FONTS` with the new serif faces. Web
-fonts get a single Google Fonts CSS `<link>` injected at app
-bootstrap (subset = latin + korean), and actual font binaries are still
-fetched lazily by `FontRegistry.ensureFont()` on first paint of a run
-that requests them.
+for every entry and extends `SERIF_FONTS` with the new serif faces. Only
+the small `eager` subset of web fonts is requested in the bootstrap
+Google Fonts CSS `<link>`; the long tail lazy-loads its CSS via
+`ensureFontLink(family, weights)` the first time a family is picked,
+hovered, or previewed. Actual font binaries are still fetched lazily by
+`FontRegistry.ensureFont()` on first paint of a run that requests them.
 
 ### Font size control
 
@@ -153,10 +197,10 @@ checkmark in the dropdown when it matches a preset.
 
 ### Clear formatting
 
-Calls a new `editor.clearFormatting()` method that, over the current
-selection range, removes every inline-style attribute by mapping each
-`InlineStyle` key to `undefined` and dispatching through the existing
-`applyInlineStyle` path. Block-level styles (alignment, line height,
+Calls `editor.clearInlineFormatting()`, which over the current selection
+range removes every inline-style attribute by dispatching the
+`CLEAR_INLINE_STYLE` payload through the existing `applyStyle` path
+(mapping each `InlineStyle` key to `undefined`). Block-level styles (alignment, line height,
 list kind, list level, heading level) are intentionally preserved —
 this matches Google Docs' behavior and avoids accidentally collapsing a
 heading into a paragraph.
@@ -185,9 +229,10 @@ getRangeStyleSummary(): {
   strikethrough?: boolean | 'mixed';
   fontFamily?: string | 'mixed';
   fontSize?: number | 'mixed';
-  color?: string | 'mixed';
-  backgroundColor?: string | 'mixed';
-  // ...
+  color?: InlineStyle['color'] | 'mixed';
+  backgroundColor?: InlineStyle['backgroundColor'] | 'mixed';
+  superscript?: boolean | 'mixed';
+  subscript?: boolean | 'mixed';
 };
 
 /**
@@ -195,7 +240,7 @@ getRangeStyleSummary(): {
  * Block-level styles (alignment, line height, list kind/level, heading
  * level) are preserved.
  */
-clearFormatting(): void;
+clearInlineFormatting(): void;
 ```
 
 `getRangeStyleSummary` is implemented by walking the inline runs that
@@ -254,9 +299,13 @@ blocks render the dropdown trigger with an em dash.
 ### Web-font loading flow
 
 1. Toolbar mounts; `font-catalog.ts` is statically imported.
-2. App bootstrap injects a single Google Fonts CSS `<link>` with the
-   subset of families flagged `webFont: true`, weight 400/700, subset
-   `latin,korean`. This is a one-time CSS load, not a binary load.
+2. App bootstrap injects a single Google Fonts CSS `<link>` (built by
+   `buildGoogleFontsHref` in
+   `packages/frontend/src/components/text-formatting/font-catalog.ts`)
+   with only the families flagged `eager: true` (the small pre-catalog
+   set), each at its own `weights`. This is a one-time CSS load, not a
+   binary load. Non-eager web families load on demand via
+   `ensureFontLink(family, weights)`.
 3. When the user picks a web font, the toolbar calls
    `editor.getStore().fonts.ensureFont(family)` (via the existing
    `FontRegistry`) before dispatching `applyStyle`. The applyStyle
@@ -276,7 +325,7 @@ blocks render the dropdown trigger with an em dash.
   - `getRangeStyleSummary` returns uniform value, `'mixed'`, and
     `undefined` correctly across single-block and multi-block ranges
     and across table cells.
-  - `clearFormatting()` removes every inline attribute on the range,
+  - `clearInlineFormatting()` removes every inline attribute on the range,
     leaves block-level style untouched, and rebuilds the rendered
     layout (no stale style on remeasure).
 - **Integration (`docs-tree-attached.e2e-spec.ts` pattern)**
@@ -292,7 +341,7 @@ blocks render the dropdown trigger with an em dash.
 | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Lazy web-font load causes layout shift on first paint of a Noto/Roboto run.                                   | `FontRegistry` already triggers a re-render on load; pagination recomputes only the affected blocks via `markDirty`. The picker also prefetches the family on hover so most picks are ready before commit. |
 | Mixed selections silently apply the new family/size to runs that already had a different value.               | Match Google Docs: applying any value writes that value to every run in the selection. Mixed state shows empty in the input but a click still writes uniformly.                                             |
-| `clearFormatting` accidentally collapses headings to paragraphs (regression vs. Google Docs).                 | Restrict the new method to `InlineStyle` keys only; block-type and block-style updates go through unrelated APIs and are not touched.                                                                       |
+| `clearInlineFormatting` accidentally collapses headings to paragraphs (regression vs. Google Docs).           | Restrict the new method to `InlineStyle` keys only; block-type and block-style updates go through unrelated APIs and are not touched.                                                                       |
 | Size input causes runaway CRDT writes if `onChange` fires on every keystroke.                                 | Commit only on Enter / blur / spinner / preset pick (specified above).                                                                                                                                      |
 | 14 fonts is too small for some users; a future "More fonts" dialog would change the picker contract.          | Picker's `value` and `onChange` are already typed as `string`, not a closed union — the dialog can extend the catalog without breaking the contract.                                                        |
 | Slides currently has its own `ThemedFontPicker` that resolves theme tokens to families; sharing risks a fork. | Keep `ThemedFontPicker` as-is. The new `FontFamilyPicker` is for "raw family" selection only. Slides will adopt it later for the box-edit case; theme-token UX stays separate.                              |

@@ -53,15 +53,20 @@ PR3 is deferrable to v1.5 if the five built-in themes prove sufficient.
 
 ### Non-Goals
 
-- **PPTX export** — out of scope. PDF export remains the only export
-  format. PPTX export is on the v2 backlog (see `slides.md`).
-- **Animations / transitions** — still out of scope; PPTX
-  `<p:transition>` and `<p:timing>` are stripped on import.
+- **PPTX export** — was originally out of scope, but a full PPTX
+  exporter has since shipped (`packages/slides/src/export/pptx/`,
+  exported as `exportPptx` from `packages/slides/src/index.ts`, wired
+  into the frontend action `slides/pptx-actions.ts` and the CLI
+  `slides export` command). See `slides-pptx-export.md`.
+- **Animations / transitions** — this doc strips PPTX `<p:transition>`
+  and `<p:timing>` on import; motion later shipped as its own feature
+  (see `slides-animation.md`).
 - **Embedded fonts** in PPTX (`.fntdata`) — ignored. Fallback uses our
   existing font registry plus Noto Sans KR for Hangul.
-- **Group elements as a first-class kind** — still v2. PPTX `<p:grpSp>`
-  is flattened on import (children's frames composed with the group
-  transform).
+- **Group elements as a first-class kind** — now shipped: there is a
+  first-class `GroupElement` (`packages/slides/src/model/element.ts`),
+  and PPTX `<p:grpSp>` is preserved as a `GroupElement` on import (not
+  flattened). See `slides-group.md`.
 - **Theme builder editing static elements on master/layout** — v1 limits
   master/layout editing to colors, fonts, and placeholder positions.
   Adding/removing static elements (logo bars etc.) on the master is
@@ -70,7 +75,11 @@ PR3 is deferrable to v1.5 if the five built-in themes prove sufficient.
   than ~50 MB or that fail in the browser are not auto-routed to a
   backend importer in v1.
 - **Shape library expansion beyond rect/ellipse/line/arrow/roundRect** —
-  v2 work. Unsupported PPTX shapes become a placeholder rect on import.
+  originally deferred, but the shape library has since grown to a large
+  `ShapeKind` registry (~150 kinds: chevron, donut, blockArc, can,
+  uturnArrow, flowchart/arrow/callout/star/banner families, …) in
+  `packages/slides/src/model/element.ts`. Only a genuinely unknown
+  `prst` falls back to a placeholder rect. See `slides-shapes.md`.
 
 ## Proposal Details
 
@@ -233,7 +242,8 @@ source of truth.
 ### Built-in themes (5)
 
 `packages/slides/src/themes/` — each theme is a TS module exporting a
-`Theme` literal. Five themes ship in PR1:
+`Theme` literal. Five themes shipped in PR1 (below); the catalog has
+since grown to 23 built-ins (see `slides-theme-catalog.md`):
 
 | id | name | character |
 |---|---|---|
@@ -360,8 +370,8 @@ choice is **reuse existing**.
 | `<p:sp>` `prst="roundRect"` | ShapeElement (kind: 'roundRect') | ✅ (new shape kind) |
 | `<p:sp>` other `prst` (chevron, donut, blockArc, can, uturnArrow, …) | ShapeElement rect placeholder; toast warns. v2 expands shape library | ⚠️ |
 | `<p:cxnSp>` | ShapeElement (line/arrow) | ✅ |
-| `<p:grpSp>` | Flatten: child frames composed with group transform | ⚠️ (group lost) |
-| `<p:graphicFrame><a:tbl>` | Matrix of TextElements + border ShapeElements per cell | ⚠️ (until docs-tables integration in v1.5) |
+| `<p:grpSp>` | Preserved as a first-class `GroupElement` (children carry group-local coords) | ✅ |
+| `<p:graphicFrame><a:tbl>` | First-class `TableElement` (rows × cols, per-cell text bodies) | ✅ |
 | `<p:sp>` with `<a:blipFill>` | ImageElement (shape `xfrm` → frame); full-bleed template visuals built as `custGeom`/`prstGeom` + blip | ✅ (non-rect freeform clip path lost) |
 | `<a:blipFill>` `<a:srcRect>` | source crop → `ImageElement.data.crop` | ✅ |
 | `<a:blipFill>` `<a:stretch><a:fillRect>` (negative insets) | "Fill" / cover crop → equivalent `data.crop`. Cover case only; positive-inset letterbox falls back to full stretch; not composed with `srcRect` | ✅ |
@@ -513,7 +523,7 @@ significantly smaller than the original mapping table assumed.
 | `<a:normAutofit>` (shrink-to-fit) | ❌ `TextElement.data` has only `blocks` — no autoFit field | **lossy:** pre-apply `fontScale` to each run's stored `fontSize` at parse time; the original is approximated, no live re-fit. Acceptable: shrink-to-fit only affects display, not content. |
 | `<a:bodyPr anchor>` (vertical text anchor) | ✅ `TextElement.data.verticalAnchor` (`packages/slides/src/import/pptx/text.ts:detectVerticalAnchor`) | **paint offset:** rendered via `packages/slides/src/view/canvas/text-renderer.ts:computeVerticalOriginY` (mirrored in `packages/docs/src/view/text-box-editor.ts` for in-place edit parity). `t/ctr/b` map to `top/middle/bottom`; `just`/`dist` collapse to `top`; empty / absent → undefined (inherit). **Overflow:** middle/bottom keep the anchor relationship (text extends above the frame top) to match PowerPoint / Google Slides; use `<a:normAutofit>` (`autofit: 'shrink'`) to keep oversized content inside the frame. |
 | `<a:outerShdw>` shape effects | ❌ `ShapeElement.data` has only `{kind, adjustments, fill, stroke}` | **drop**, 7 cases only; toast counts |
-| Slide canvas size flexibility | ❌ `SLIDE_WIDTH/HEIGHT` are module constants in `presentation.ts:50-51`; `SlidesDocument` has no `canvasSize` field | **rescale** EMU→px using deck's own `<p:sldSz>` so geometry preserves at the deck's aspect; if aspect ≠ 16:9, fit + toast warning |
+| Slide canvas size flexibility | ❌ `SLIDE_WIDTH/HEIGHT` are module constants in `presentation.ts` (`SLIDE_WIDTH` L238 / `SLIDE_HEIGHT` L243); `SlidesDocument` has no `canvasSize` field | **rescale** EMU→px using deck's own `<p:sldSz>` so geometry preserves at the deck's aspect; if aspect ≠ 16:9, fit + toast warning |
 
 **Net result:** of the original mapping table's ⚠️/❌ rows, only 3
 real model gaps remain for this deck (autoFit, shape shadow, dynamic
@@ -915,19 +925,26 @@ Known carve-outs:
 
 ## Future / Out of Scope
 
-The following remain out of scope but are unblocked by this work:
+Shipped since this doc was written (originally listed here as future):
 
-- **PPTX export** — symmetric inverse mapping of the import pipeline;
-  fonts and embedded media remain the hard parts
-- **Theme gallery beyond five** — community / brand themes; the model
-  supports unlimited themes from PR1 onward
+- **PPTX export** — the symmetric inverse mapping shipped
+  (`packages/slides/src/export/pptx/`; see `slides-pptx-export.md`).
+- **Animations / transitions** — shipped as a standalone feature
+  (`slides-animation.md`).
+- **Group / ungroup elements** — first-class `GroupElement` shipped
+  (`slides-group.md`).
+- **Shape library expansion** — chevron, donut, blockArc, can, etc. are
+  now first-class `ShapeKind`s, imported directly rather than as
+  placeholder rects (`slides-shapes.md`).
+
+Still out of scope but unblocked by this work:
+
+- **Theme gallery beyond the built-ins** — community / brand themes; the
+  model supports unlimited themes from PR1 onward (the built-in set has
+  since grown to 23; see `slides-theme-catalog.md`).
 - **Per-slide theme override** — Google Slides exposes this awkwardly;
   add only on demand
 - **Master / layout static elements** — adding logos / footers in the
   theme builder; v1.5
 - **docs theming** — docs absorbs `ThemeColor` in PR1 but does not
   expose it in its own UI; a docs-side theme picker is its own design
-- **Animations** — still v2
-- **Group / ungroup elements** — still v2
-- **Shape library expansion** — chevron, donut, blockArc, can, etc.
-  remain placeholder rects on import until v2

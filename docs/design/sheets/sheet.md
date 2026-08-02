@@ -210,8 +210,8 @@ navigation (see below).
 
 **ReadOnlyStore** (`packages/sheets/src/store/readonly.ts`) is a read-only Store implementation
 for displaying external data (e.g., SQL query results). Data is loaded via
-`loadQueryResults(columns, rows)` which populates row 0 with bold column
-headers and subsequent rows with data. All write operations are no-ops.
+`loadQueryResults(columns, rows)` which populates row 1 with bold column
+headers and rows 2+ with data (1-based to match the sheet coordinate system). All write operations are no-ops.
 
 ### Merged Cell Model
 
@@ -317,8 +317,9 @@ positions from the `CellIndex`.
 
 ### Formula Engine
 
-ANTLR-based parser, visitor-pattern evaluator, ~430 built-in
-functions, and cross-sheet reference resolution via pluggable
+ANTLR-based parser, visitor-pattern evaluator, ~447 built-in
+function entries (434 unique + aliases), and cross-sheet reference
+resolution via pluggable
 `GridResolver` / `FormulaResolver` callbacks. See
 [formula.md](formula.md) for the engine and
 [formula-coverage.md](formula-coverage.md) for the authoritative
@@ -480,7 +481,7 @@ non-default sizes in a `Map<number, number>` and provides:
   deleted.
 - `move(src, count, dst)` — Remaps keys when rows/columns are moved.
 
-Default sizes: **24px** row height, **100px** column width.
+Default sizes: **23px** row height, **100px** column width.
 
 ### Freeze Panes
 

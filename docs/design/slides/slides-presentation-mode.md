@@ -77,8 +77,8 @@ slides package and a thin React shell in the frontend, matching how
 | `packages/slides/src/view/present/index.ts` | Re-export. |
 | `packages/slides/src/index.ts` | Add `export { startPresenter, type Presenter, type PresenterOptions } from './view/present';`. |
 | `packages/frontend/src/app/slides/slides-presentation-mode.tsx` | React shell. Mounts a portal `<div>`, calls `startPresenter`, forwards `store` snapshots into `presenter.setDocument(...)`, cleans up on unmount. |
-| `packages/frontend/src/app/slides/slides-view.tsx` | Wires `onStartPresentation` to local state (`presentingFrom: 'current' \| 'first' \| null`) and conditionally mounts `<SlidesPresentationMode />`. |
-| `packages/frontend/src/app/slides/slides-detail.tsx` | Adds the "Present" split-button to the header chrome. |
+| `packages/frontend/src/app/slides/slides-view.tsx` | Declares the `onStartPresentation` prop and forwards it into the editor via a ref. |
+| `packages/frontend/src/app/slides/slides-detail.tsx` | Owns the `presentingFrom: 'current' \| 'first' \| null` state, conditionally mounts `<SlidesPresentationMode />`, and adds the "Present" split-button to the header chrome. |
 
 ### API surface (slides package)
 
@@ -226,7 +226,7 @@ continue to work and are already documented in
 
 ### Testing
 
-Vitest + jsdom in `packages/slides/src/view/present/presenter.test.ts`:
+Vitest + jsdom in `packages/slides/test/view/present/presenter.test.ts`:
 
 - Keyboard navigation maps each key to the expected next slide ID
   (or end-screen state) on a fixture deck with three slides.
@@ -243,7 +243,7 @@ Vitest + jsdom in `packages/slides/src/view/present/presenter.test.ts`:
 No colocated React-shell test — the frontend package's test runner
 (Node `--test` + experimental strip-types) doesn't support JSX, and
 no existing slides React component is unit-tested. The presenter's
-50 unit tests in `packages/slides/src/view/present/presenter.test.ts`
+unit tests in `packages/slides/test/view/present/presenter.test.ts`
 cover the framework-free half; the shell's mount / unmount lifecycle
 is exercised by the manual smoke in Task 10.2 of the implementation
 plan.

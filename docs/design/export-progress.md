@@ -12,8 +12,8 @@ seconds with only a spinner. The root cause is two-fold: the heavy export
 loops run **synchronously on the main thread**, blocking the event loop, and
 there is **no progress reporting**. This design adds an `onProgress` callback
 to each exporter and inserts cooperative event-loop yields between work units,
-then surfaces progress through a Sonner toast that mirrors the existing import
-flow ("Exporting … 12 / 50 slides").
+then surfaces progress through a lightweight Sonner toast ("Exporting … 12 /
+50 slides").
 
 ## Goals / Non-Goals
 
@@ -21,15 +21,15 @@ flow ("Exporting … 12 / 50 slides").
 
 - Show incremental progress for slides PDF, slides PPTX, docs PDF, docs DOCX.
 - Keep the UI responsive during export (toast actually repaints).
-- Reuse the import toast UX for consistency.
+- Use a lightweight, non-blocking Sonner toast (no modal, no cancel button).
 - Keep the export libraries (`@wafflebase/docs`, `@wafflebase/slides`) pure —
   no DOM/toast coupling; they only expose callbacks.
 
 **Non-Goals**
 
-- Cancellation (the chosen toast UX has no cancel button, matching import).
+- Cancellation (the chosen toast UX has no cancel button).
 - Web workers / off-main-thread export (much larger change; deferred).
-- A determinate progress-bar modal (rejected for import/export UX parity).
+- A determinate progress-bar modal (rejected in favor of the lighter toast).
 - Sheets export (out of scope for this task).
 
 ## Proposal Details
@@ -93,9 +93,8 @@ units" — but start with per-unit for the smoothest progress.
 
 ### C. Frontend toast wiring
 
-A shared `updateExportToast` helper (added to
-`packages/frontend/src/app/docs/export-utils.ts`) mirrors `updateImportToast`
-in `packages/frontend/src/app/documents/document-list.tsx`:
+A shared `updateExportToast` helper lives in
+`packages/frontend/src/app/docs/export-utils.ts`:
 
 ```ts
 function updateExportToast(id, title, done, total, unit): string | number {
@@ -112,8 +111,8 @@ threads an `onProgress` into its export action, which calls
 `updateExportToast`. On success the toast becomes `toast.success`; on failure
 the existing `toast.error` path is preserved. The current spinner icon and
 `disabled` state stay as complementary feedback. The toast is shown always
-(matching import) and is immediately replaced by the success toast, so small
-exports only flash briefly.
+and is immediately replaced by the success toast, so small exports only flash
+briefly.
 
 ### Data flow (slides PDF example)
 

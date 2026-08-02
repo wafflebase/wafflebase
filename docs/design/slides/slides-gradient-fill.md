@@ -35,13 +35,23 @@ export inherits it for free (it rasterizes `drawSlide()`).
 
 ```ts
 export type GradientStop = { pos: number; color: ThemeColor }; // pos 0..1
-export type GradientFill = { kind: 'gradient'; angle: number; stops: GradientStop[] };
+export type GradientFill = {
+  kind: 'gradient';
+  type: 'linear' | 'radial'; // only `linear` renders; `radial` is preservation-only
+  angle: number;
+  center?: { x: number; y: number }; // radial origin, 0..1 of the box (stored, not yet rendered)
+  stops: GradientStop[];
+};
 export type Fill = ThemeColor | GradientFill;                  // discriminated on `kind`
 export function representativeColor(fill: Fill): ThemeColor;    // gradient → first stop
 ```
 
 `ShapeElement.data.fill` widens from `ThemeColor` to `Fill`. `angle` is in
-radians (clockwise from the positive x-axis; `0` = left→right). The
+radians (clockwise from the positive x-axis; `0` = left→right). `type: 'radial'`
+and `center` are carried on the model but preservation-only in this feature — the
+importer, `resolveFillStyle`, and the exporter all treat every gradient as
+linear; the deferred radial render/export work is tracked in
+[slides-gradient-editing.md](slides-gradient-editing.md). The
 `kind: 'gradient'` discriminator turns every `resolveColor(data.fill)` into a
 compile error, so no consumer is silently missed. Freeform shapes share the
 field and renderer, so they get gradients for free. Migration (`wrapColor`)

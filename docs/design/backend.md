@@ -38,6 +38,17 @@ flowchart TD
   APP --> DOC["DocumentModule"]
   APP --> SHARE["ShareLinkModule"]
   APP --> DSRC["DataSourceModule"]
+  APP --> WS["WorkspaceModule"]
+  APP --> AK["ApiKeyModule"]
+  APP --> YK["YorkieModule"]
+  APP --> V1["ApiV1Module"]
+  APP --> IMG["ImageModule"]
+  APP --> FILE["FileModule"]
+  APP --> HEALTH["HealthModule"]
+  APP --> UDS["UserDocStylesModule"]
+  APP --> ANL["AnalyticsModule"]
+  APP --> FLD["FolderModule"]
+  APP --> MIRO["MiroModule"]
 
   AUTH --> JWT_MOD["JwtModule (access token expiry)"]
   AUTH --> USER_MOD["UserModule"]
@@ -63,14 +74,27 @@ flowchart TD
   DSRC --> PS4["PrismaService"]
 ```
 
+The diagram highlights the auth/document/share/datasource spine; `AppModule`
+imports the full module set listed below.
+
 | Module | Responsibility |
 |--------|---------------|
-| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule, ShareLinkModule, DataSourceModule. |
+| **AppModule** | Root module. Imports ConfigModule (global), LoggerModule (nestjs-pino), ThrottlerModule, plus the feature modules: AuthModule, DocumentModule, ShareLinkModule, DataSourceModule, WorkspaceModule, ApiKeyModule, YorkieModule, ApiV1Module, ImageModule, FileModule, HealthModule, UserDocStylesModule, AnalyticsModule, FolderModule, MiroModule. |
 | **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy. Imports UserModule for user lookup/creation. |
 | **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
 | **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
 | **DataSourceModule** | External PostgreSQL connection management. CRUD for connection configs, test connection, execute SELECT queries. Passwords encrypted at rest with AES-256-GCM. |
+| **WorkspaceModule** | Workspaces, members, invites, and role resolution — the backbone of the workspace access model. |
+| **ApiKeyModule** | Workspace-scoped API keys (`wfb_…`) for external/CLI access; generation, hashing, validation. |
+| **YorkieModule** | Global Yorkie client (`withDocument(id, cb)`), the auth/event webhook surface, and server-side document reads. |
+| **ApiV1Module** | REST API v1 (`/api/v1/…`) documents/tabs/cells over Yorkie, accepting JWT or API-key auth. |
+| **ImageModule** / **FileModule** | Blob storage for embedded images and static file document types (pdf/image). |
+| **HealthModule** | Liveness/readiness probes (`/health`, `/health/ready`). |
+| **UserDocStylesModule** | Per-user default docs named styles. |
+| **AnalyticsModule** | View-event Kafka producer + StarRocks reader (share-link analytics). |
+| **FolderModule** | Workspace folder tree (organizational document grouping). |
+| **MiroModule** | Miro board import support. |
 
 ### API Reference
 
@@ -102,6 +126,25 @@ flowchart TD
 **`POST /auth/logout`**
 - Guard: none (public endpoint)
 - Clears `wafflebase_session` and `wafflebase_refresh`.
+
+**`GET /auth/yorkie-token`**
+- Guard: `JwtAuthGuard`
+- Mints a short-lived token for the Yorkie client's `authTokenInjector` — the
+  session JWT lives in an httpOnly cookie the browser can't read, so the
+  frontend fetches this instead. The Yorkie auth webhook resolves per-document
+  access from the returned token (see [yorkie-auth-webhook.md](yorkie-auth-webhook.md)).
+
+**`POST /auth/yorkie-token/share`**
+- Guard: none (public — no session)
+- Body: `{ token }` (a share token). Returns a short-lived Yorkie token that
+  wraps the share token; the webhook does the real validation (existence,
+  expiry, document match, role). POST keeps the access-granting token out of
+  request URLs and access logs.
+
+**`POST /auth/cli/exchange`**
+- Guard: none (public — one-time CLI auth code)
+- Body: `{ code }`. Exchanges a one-time code minted during the CLI OAuth flow
+  for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
 
 #### Documents (`/documents`)
 
@@ -171,14 +214,20 @@ Share-link authority mirrors the document model — see
 
 #### DataSources (`/datasources`)
 
-All endpoints require `JwtAuthGuard`. Ownership is enforced on every request.
+All endpoints require `JwtAuthGuard`. Access is **workspace-scoped**: each
+route resolves the datasource's `workspaceId` and calls
+`WorkspaceService.assertMember`, so any member of the owning workspace has full
+access (datasources are owned by a workspace, not by their author). Companion
+workspace-scoped routes (`POST`/`GET /workspaces/:workspaceId/datasources`) list
+and create within one workspace.
 
 **`POST /datasources`**
 - Body: `{ name, host, port?, database, username, password, sslEnabled? }`
 - Creates a datasource connection. Password is encrypted with AES-256-GCM.
 
 **`GET /datasources`**
-- Returns all datasources owned by the authenticated user. Passwords are masked.
+- Returns all datasources across every workspace the authenticated user is a
+  member of. Passwords are masked.
 
 **`GET /datasources/:id`**
 - Returns a single datasource. Password is masked.
@@ -341,8 +390,13 @@ erDiagram
     Document {
         String id PK "uuid"
         String title
+        String type "default: sheet"
+        String fileId "nullable, blob key for pdf/image"
         Int authorID FK "nullable"
+        String workspaceId FK
+        String folderId FK "nullable, null = root"
         DateTime createdAt "default: now()"
+        DateTime updatedAt "from Yorkie event webhook"
     }
     ShareLink {
         String id PK "uuid"
@@ -363,12 +417,64 @@ erDiagram
         String password "AES-256-GCM encrypted"
         Boolean sslEnabled "default: false"
         Int authorID FK
+        String workspaceId FK
         DateTime createdAt "default: now()"
+        DateTime updatedAt
+    }
+    Workspace {
+        String id PK "uuid"
+        String name
+        String slug UK
+        DateTime createdAt "default: now()"
+    }
+    WorkspaceMember {
+        String id PK "uuid"
+        String role
+        String workspaceId FK
+        Int userId FK
+        DateTime joinedAt "default: now()"
+    }
+    WorkspaceInvite {
+        String id PK "uuid"
+        String token UK "uuid"
+        String role
+        String workspaceId FK
+        Int createdBy FK
+        DateTime expiresAt "nullable"
+    }
+    ApiKey {
+        String id PK "uuid"
+        String prefix
+        String hashedKey UK
+        String workspaceId FK
+        Int createdBy FK
+        String[] scopes "default: read, write"
+        DateTime revokedAt "nullable"
+    }
+    Folder {
+        String id PK "uuid"
+        String name
+        String workspaceId FK
+        String parentId FK "nullable, FolderTree"
+        Int authorID FK "nullable"
+    }
+    UserDocStyles {
+        Int userId PK "FK to User"
+        Json styles
         DateTime updatedAt
     }
     User ||--o{ Document : "author"
     User ||--o{ ShareLink : "creator"
     User ||--o{ DataSource : "author"
+    User ||--o{ WorkspaceMember : "membership"
+    User ||--o| UserDocStyles : "defaults"
+    Workspace ||--o{ WorkspaceMember : "members"
+    Workspace ||--o{ WorkspaceInvite : "invites"
+    Workspace ||--o{ ApiKey : "apiKeys"
+    Workspace ||--o{ Document : "documents"
+    Workspace ||--o{ Folder : "folders"
+    Workspace ||--o{ DataSource : "datasources"
+    Folder ||--o{ Document : "documents"
     Document ||--o{ ShareLink : "shareLinks"
 ```
 
@@ -380,9 +486,17 @@ erDiagram
 
 **Document:**
 - `id` — UUID primary key (auto-generated).
+- `type` — Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image).
+- `fileId` — Nullable blob-storage key for static file types (pdf/image).
 - `authorID` — Nullable foreign key to User. Nullable so documents can survive
   user deletion.
+- `workspaceId` — Foreign key to Workspace (cascade). Every document belongs to a
+  workspace — the basis of the access model.
+- `folderId` — Nullable foreign key to Folder (`SetNull`); `null` = workspace root.
 - `createdAt` — Auto-set on creation.
+- `updatedAt` — Last-modified time, set explicitly from Yorkie's
+  `DocumentRootChanged` event webhook (not Prisma's `@updatedAt`, since content
+  edits never pass through this backend). Used to order the documents list.
 
 **ShareLink:**
 - `id` — UUID primary key (auto-generated).
@@ -391,6 +505,26 @@ erDiagram
 - `documentId` — Foreign key to Document. Cascade-deletes when document is deleted.
 - `createdBy` — Foreign key to User (the document owner who created the link).
 - `expiresAt` — Optional expiration timestamp. `null` means no expiration.
+
+**Workspace / WorkspaceMember / WorkspaceInvite:**
+- `Workspace` — Top-level tenant (unique `slug`) owning documents, folders,
+  datasources, and API keys.
+- `WorkspaceMember` — Join row carrying a per-user `role` (unique on
+  `[workspaceId, userId]`); this is what `WorkspaceService.assertMember` and the
+  manager checks resolve against.
+- `WorkspaceInvite` — Tokenized, optionally-expiring invitation to join a
+  workspace with a given `role`.
+
+**ApiKey:**
+- Workspace-scoped external credential (`wfb_…`). Stores only `prefix` +
+  unique `hashedKey` (SHA-256), a `scopes` array (default `["read", "write"]`),
+  and a nullable `revokedAt` soft-revoke timestamp.
+
+**Folder / UserDocStyles:**
+- `Folder` — Workspace-scoped organizational tree (self-referential `parentId`
+  via the `FolderTree` relation); purely organizational, no permission effect.
+- `UserDocStyles` — Per-user default docs named styles, a single `Json` blob
+  keyed by `userId`.
 
 ### Environment Configuration
 
@@ -469,7 +603,7 @@ more providers (Google, email/password) requires adding new Passport
 strategies and updating the `authProvider` field. The architecture supports
 this via Passport's multi-strategy pattern.
 
-**Single-bucket rate limiting** — A single `default` bucket (60 req/min/IP)
+**Single-bucket rate limiting** — A single `default` bucket (120 req/min/IP)
 guards every route, with `@Throttle({ default: { limit: 10, ttl: 60_000 } })`
 overrides on auth endpoints. `/api/v1/*` and authenticated app traffic
 currently share this bucket; a per-API-key bucket is a planned follow-up.

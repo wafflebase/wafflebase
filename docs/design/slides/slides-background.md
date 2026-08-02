@@ -5,23 +5,33 @@ target-version: 0.6.0
 
 # Slides Background (Color / Image / Gradient)
 
+> **Status: shipped.** The full **Background** side panel — solid + gradient
+> **Color** (generic `FillPicker`), an **Image** section with opacity,
+> **Reset to theme**, and **Apply to all slides** — is implemented, along with
+> the model widening, renderer swap, Yorkie migration, and PPTX `<p:bg>`
+> gradient round-trip described below. The panel lives at
+> `packages/frontend/src/app/slides/background-side-panel.tsx` (state in
+> `use-slide-background.ts`). This document is retained as the design record;
+> the sections below describe the shipped implementation. Image tile/repeat
+> and background-image crop editing remain the only deferred items.
+
 ## Summary
 
-Today the right-side panel exposes a single **"Background Color"** control —
+Previously the right-side panel exposed a single **"Background Color"** control —
 a solid `ThemeColor` picker. Google Slides instead offers a **Background**
-dialog with a solid **Color**, an **Image**, a **Reset to theme**, and an
-**Add to theme / apply-to-all** action.
+control with a solid **Color**, an **Image**, a **Reset to theme**, and an
+**apply-to-all** action, and Wafflebase now matches that.
 
-The key finding is that this is **mostly a UI/plumbing task**: the slide
-background data model, the Canvas renderer, and Yorkie persistence already
-support an image fill, and every non-UI layer already has a reusable
-`Fill`-aware (`ThemeColor | GradientFill`) helper that the background code
-path deliberately bypasses in favor of a solid-only sibling. Shape gradient
-editing shipped in v0.5.x (the `FillPicker` / `GradientEditor` components and
-the `resolveFillStyle` / `fillXml` / `migrateGradientFill` helpers), so
-gradient backgrounds are now a *reuse-and-wire* job, not greenfield.
+This was **mostly a UI/plumbing task**: the slide background data model, the
+Canvas renderer, and Yorkie persistence already supported an image fill, and
+every non-UI layer already had a reusable `Fill`-aware
+(`ThemeColor | GradientFill`) helper that the old background code path bypassed
+in favor of a solid-only sibling. Shape gradient editing shipped in v0.5.x (the
+`FillPicker` / `GradientEditor` components and the `resolveFillStyle` /
+`fillXml` / `migrateGradientFill` helpers), so gradient backgrounds were a
+*reuse-and-wire* job, not greenfield.
 
-This design renames the control to **Background** and restructures it into
+The shipped control is renamed to **Background** and restructured into
 **Color / Image** sections, wires the existing generic `FillPicker` (solid +
 gradient in one component), reuses the existing image-upload URL pipeline for
 image backgrounds, and adds **Reset to theme** and **Apply to all slides**.
@@ -57,53 +67,50 @@ image backgrounds, and adds **Reset to theme** and **Apply to all slides**.
 
 ## Proposal Details
 
-### 1. Model — widen `fill` from `ThemeColor` to `Fill`
+### 1. Model — `fill` widened from `ThemeColor` to `Fill`
 
 `packages/slides/src/model/presentation.ts`
 
-- `Background.fill?: ThemeColor` → `Background.fill?: Fill` (L28).
-- `resolveBackgroundFill(slide, doc): ThemeColor` → return `Fill` (L207-219).
-  The fallback `{ kind: 'role', role: 'background' }` stays valid (a
-  `ThemeColor` is a subtype of `Fill`).
-- `isInheritableFill(fill: ThemeColor)` (L187-197) reads `.kind === 'role'`;
-  add an early `if (fill.kind === 'gradient') return false;` guard so a
-  gradient is never treated as an inherit sentinel.
-- `resolveBackgroundImage` (L225-234) touches only `.image` — unaffected.
-- `DEFAULT_BACKGROUND` (L174-176) stays a solid literal (backward compatible).
+- `Background.fill?: Fill` (L28).
+- `resolveBackgroundFill(slide, doc): Fill` (L208-220). The fallback
+  `{ kind: 'role', role: 'background' }` stays valid (a `ThemeColor` is a
+  subtype of `Fill`).
+- `isInheritableFill(fill: Fill)` (L187-198) reads `.kind === 'role'` and has
+  an early `if (fill.kind === 'gradient') return false;` guard so a gradient is
+  never treated as an inherit sentinel.
+- `resolveBackgroundImage` touches only `.image` — unaffected.
+- `DEFAULT_BACKGROUND` stays a solid literal (backward compatible).
 
 `packages/slides/src/model/master.ts`
 
-- `MasterBackground.fill: ThemeColor` → `Fill` (L21). `DEFAULT_MASTER`
-  literal (L39) stays solid.
+- `MasterBackground.fill: Fill` (L21). `DEFAULT_MASTER` literal (L39) stays
+  solid.
 
 `representativeColor(fill: Fill): ThemeColor` (`theme.ts:93-98`) already
 collapses a gradient to a solid and is reused wherever background code must
 degrade to a single color.
 
-### 2. Renderer — swap the solid-only paint for the `Fill`-aware helper
+### 2. Renderer — `Fill`-aware paint helper (both sites)
 
 `packages/slides/src/view/canvas/slide-renderer.ts`
 
-- Both background paint sites currently do
-  `ctx.fillStyle = resolveColor(resolveBackgroundFill(slide, doc), theme)`
-  (L184 no-pasteboard path, L204 pasteboard path). `resolveColor`
-  (`theme.ts:100-118`) returns only a solid string.
-- Replace with
+- Both background paint sites use
   `ctx.fillStyle = resolveFillStyle(ctx, resolveBackgroundFill(slide, doc), theme, w, h)`
-  (`render-context.ts:20-48`, the same helper shapes use at
-  `shape-renderer.ts:400/418`). It returns a solid CSS string for a
-  `ThemeColor` or a `CanvasGradient` for a gradient, laid across the `w × h`
-  box, with a degenerate fallback to `resolveColor(representativeColor(fill))`.
-- **Nuance:** the no-pasteboard path (L184) runs under the identity CTM (the
+  (L246-249 no-pasteboard path, L268-271 pasteboard path;
+  `render-context.ts`, the same helper shapes use). It returns a solid CSS
+  string for a `ThemeColor` or a `CanvasGradient` for a gradient, laid across
+  the `w × h` box, with a degenerate fallback to
+  `resolveColor(representativeColor(fill))`.
+- **Nuance:** the no-pasteboard path runs under the identity CTM (the
   `ctx.scale` is applied afterwards) and fills the whole bitmap in **device
-  pixels** — so it must pass `bitmapW × bitmapH` as `w/h`, matching the filled
-  rect. Only the **pasteboard** path (L204), which paints after `ctx.scale`
-  in logical coords, passes the logical slide size (`SLIDE_WIDTH × slideH`). A
-  gradient laid across the logical size in the no-pasteboard branch would only
-  line up when `bitmapW === SLIDE_WIDTH`, silently breaking thumbnails, PDF
-  export, and no-pasteboard presentation/mobile.
-- The image fill (L214-217, `pickBackgroundImage` → `drawImage`) is unchanged;
-  it already paints over the color/gradient fill.
+  pixels** — so it passes `bitmapW × bitmapH` as `w/h`, matching the filled
+  rect. Only the **pasteboard** path, which paints after `ctx.scale` in logical
+  coords, passes the logical slide size (`SLIDE_WIDTH × slideH`). A gradient
+  laid across the logical size in the no-pasteboard branch would only line up
+  when `bitmapW === SLIDE_WIDTH`, silently breaking thumbnails, PDF export, and
+  no-pasteboard presentation/mobile.
+- The image fill (`pickBackgroundImage` → `drawImage`) paints over the
+  color/gradient fill.
 
 `packages/slides/src/export/pdf.ts` — PDF export rasterizes `drawSlide`, so
 image backgrounds already round-trip (L264/L330 reference
@@ -120,11 +127,9 @@ the same swap there.
 
 `packages/slides/src/model/migrate.ts`
 
-- `migrateBackground` (L136-146) currently does
-  `out.fill = wrapColor(bg.fill)` (solid only). Change to the exact ternary
-  already used by `migrateElement` (L148-161):
-  `bg.fill?.kind === 'gradient' ? migrateGradientFill(bg.fill) : wrapColor(bg.fill)`.
-  `migrateGradientFill` (L173-181) is reused verbatim.
+- `migrateBackground` (L136) uses the same ternary as `migrateElement`:
+  `out.fill = bg.fill?.kind === 'gradient' ? migrateGradientFill(bg.fill) : wrapColor(bg.fill)`.
+  `migrateGradientFill` (L180) is reused verbatim.
 
 - **Write path is unchanged.** `updateSlideBackground` (`yorkie-slides-store.ts:874-879`)
   does `s.background = clone(bg)`, and the master/layout writers (L1020-1021,
@@ -196,20 +201,19 @@ from `shape-controls.tsx`) → `updateSlideBackground(slideId, { fill })`;
 - Renderer already stretches it (`drawImage` at `slide-renderer.ts:214-217`).
 - Opacity via the existing `image.opacity` field.
 
-### 6. PPTX import / export — reuse gradient helpers
+### 6. PPTX import / export — gradient helpers reused
 
-`packages/slides/src/import/pptx/slide.ts` — `parseSlideBackground` (L172-199)
-handles `blipFill` (L183) + `solidFill` (L192-195). Add a `gradFill` branch
-calling the existing `parseGradientFill(grad, clrMap)` (`shape.ts:940-968`).
+`packages/slides/src/import/pptx/slide.ts` — `parseSlideBackground` handles
+`blipFill` (image), `gradFill` (L193-197, calling `parseGradientFill(grad,
+clrMap)` from `shape.ts`), and `solidFill` (color).
 
-`packages/slides/src/export/pptx/slide.ts` — `backgroundToXml` (L79-86) calls
-`solidFillXml(fill)` (L85). Swap to the existing `fillXml(fill)`
-(`export/pptx/color.ts:67-70`), which emits `gradFillXml` for gradients else
-solid. Image `<a:blipFill>` export is unchanged.
+`packages/slides/src/export/pptx/slide.ts` — `backgroundToXml` (L83) calls
+`fillXml(fill)` (L70-72, from `export/pptx/color.ts`), which emits `gradFill`
+for gradients else solid. Image `<a:blipFill>` export is unchanged.
 
-## Phasing
+## Phasing (shipped)
 
-**Phase 1 — core (single PR)**
+**Phase 1 — core** ✅
 
 1. Model widening (`Background.fill`/`MasterBackground.fill` → `Fill`,
    `resolveBackgroundFill`, `isInheritableFill` guard).
@@ -219,7 +223,7 @@ solid. Image `<a:blipFill>` export is unchanged.
    (solid+gradient), Image upload section, **Reset to theme**; desktop +
    mobile. `use-slide-background.ts` widened with gradient draft/commit.
 
-**Phase 2 — extension (single PR)**
+**Phase 2 — extension** ✅
 
 5. **Apply to all slides** (master background write).
 6. Image **opacity** slider.

@@ -15,17 +15,24 @@ position ranges, and remain visible as "orphaned" cards in the side panel
 when their anchor text is fully deleted.
 
 The work introduces a **shared frontend module** at
-`packages/frontend/src/components/comments/` that owns the comment data
-model, pure helpers, the `CommentStore` interface, and the framework UI
-(composer, side panel, thread card, orphaned card). The domain packages
-(`packages/docs`, `packages/sheets`) **stay comment-naive** — they expose
-small render-time hooks (e.g., `editor.setCommentMarkers(rects)` analogous
-to `setSearchMatches`) and know nothing about Threads.
+`packages/frontend/src/components/comments/` that owns the comment anchor
+union, pure helpers, the `CommentStore` interface, and the framework UI
+(composer, side panel, thread card, orphaned card). The base data model
+(`Comment`, `CommentAuthor`, and the generic `Thread<A>`) is owned by
+`@wafflebase/sheets` — the lowest package in the dependency graph — and
+re-exported through `@/types/comments.ts`; `components/comments/types.ts`
+is a re-export shim, and the anchor union itself lives in
+`@/types/comments.ts`. The domain packages (`packages/docs`,
+`packages/sheets`) **stay comment-naive** — they expose small render-time
+hooks (e.g., `editor.setCommentMarkers(markers)` analogous to
+`setSearchMatches`) and know nothing about Threads.
 
-This PR delivers docs comments end-to-end. Sheets has a pre-existing
-comments implementation (different layout, inside `packages/sheets`); it
-keeps working unchanged in this PR and migrates to the shared module in a
-follow-up PR. Slides comments and mentions/notifications follow after that.
+Docs comments ship end-to-end. Sheets, which had a pre-existing comments
+implementation, now shares this module's UI (composer, side panel, thread
+card) while keeping its own Yorkie store, and a PDF-region comment
+consumer (`app/files/comments/`) has also shipped. `@user` mentions are
+implemented across the composer and rendered bodies; in-app / email
+notifications and slides comments remain future work.
 
 ## Goals / Non-Goals
 
@@ -54,12 +61,16 @@ follow-up PR. Slides comments and mentions/notifications follow after that.
 
 ### Non-Goals
 
-- Changes to `packages/sheets` or the existing sheets comments
-  implementation. Sheets migrates in a follow-up PR.
+- Reworking the existing sheets comments implementation. Sheets now shares
+  this module's UI while keeping its own Yorkie store, and the base
+  `Comment`/`CommentAuthor`/`Thread<A>` types live in `@wafflebase/sheets`
+  and are re-exported here.
 - Changes to `packages/docs` beyond a thin marker-rendering hook on the
   editor. Comment types, store, and React UI live in `packages/frontend`.
-- Slides comments (third consumer of the shared module — follow-up PR).
-- `@user` mentions and notifications (later phase, across all consumers).
+- Slides comments (a future consumer of the shared module).
+- Notifications (in-app / email) for `@user` mentions. Mentions themselves
+  are implemented (see `components/comments/mentions.ts`); only the
+  notification delivery remains future work.
 - Rich-text body (bold, italics, links). Plain text + newlines only.
 - Block-only or document-wide anchors. A range covering a whole block is
   expressed as a range, not a separate anchor kind.
@@ -71,19 +82,22 @@ follow-up PR. Slides comments and mentions/notifications follow after that.
 
 ### 1. Module Layout
 
-This PR is a single mergeable unit. Sheets is untouched.
+The shared module is anchor-generic and consumed by docs, sheets (UI), and
+PDF today.
 
 ```text
 packages/frontend/src/components/comments/        NEW — shared, anchor-generic
-├── types.ts
-│   ├── CommentAuthor
-│   ├── Comment
-│   ├── Thread<A extends CommentAnchor = CommentAnchor>
-│   └── CommentAnchor = sheet-cell | docs-range
-│                       (+ slide-element placeholder, no implementation yet)
+├── types.ts            # re-export shim over @/types/comments.ts (below);
+│                       #   Comment/CommentAuthor/Thread<A> are re-exported
+│                       #   from @wafflebase/sheets
+├── mentions.ts         # @user mention encode/parse/query/apply helpers
 ├── thread.ts            # pure helpers — create / validate / mutate
-├── comment-store.ts     # CommentStore<A> interface (6 methods)
+├── comment-store.ts     # CommentStore<A, AnchorInput = A> interface (7 methods)
 ├── mem-comment-store.ts # in-memory implementation for tests / dev
+
+packages/frontend/src/types/comments.ts           the actual type home
+├── CommentAnchor = sheet-cell | docs-range | pdf-region
+│                   (base Comment/CommentAuthor/Thread<A> from @wafflebase/sheets)
 ├── components/
 │   ├── CommentComposer.tsx      # author avatar + textarea + cancel/submit
 │   ├── CommentThreadCard.tsx    # one thread render (popover + side panel reuse)
@@ -92,28 +106,30 @@ packages/frontend/src/components/comments/        NEW — shared, anchor-generic
 │   └── OrphanedCard.tsx         # gray quotedText card
 └── __tests__/
 
-packages/frontend/src/app/docs/comments/          NEW — docs glue (the only consumer in this PR)
+packages/frontend/src/app/docs/comments/          docs glue
 ├── docs-anchor.ts               # DocSelection ↔ posRange,
 │                                #   extractAnchorContext, resolveAnchor
 ├── yorkie-comment-store.ts      # implements CommentStore<DocsRangeAnchor>
 │                                #   against root.comments on the docs Yorkie document
-├── decorations.ts               # thread[] → HighlightRect[]
-│                                #   (computeSelectionRects reuse from docs/view)
+├── decorations.ts               # thread[] → CommentMarker[] (computeCommentMarkers)
 ├── DocsCommentPopover.tsx       # docs-specific positioning
 └── docs-comments-controller.ts  # wires store ↔ editor ↔ React state
 
 packages/docs/src/view/editor.ts                  MODIFY (small)
-└── setCommentMarkers(rects: HighlightRect[]): void
-    Add a setter analogous to setSearchMatches. The editor draws yellow
-    background + 1px underline rects; it does not know they are comments.
+└── setCommentMarkers(markers: CommentMarker[]): void
+    Add a setter analogous to setSearchMatches. The editor computes the
+    yellow background + 1px underline rects from each marker's range; it
+    does not know they are comments.
 
 packages/frontend/src/app/docs/docs-view.tsx      MODIFY
 └── instantiate YorkieCommentStore (sharing the Yorkie Document with
     YorkieDocStore); mount CommentSidePanel; bind controller; wire entry
     points (context menu, toolbar, Cmd+Alt+M, side panel toggle).
-
-packages/frontend/visual/docs-comments.spec.ts    NEW
 ```
+
+A PDF-region consumer ships alongside docs under
+`packages/frontend/src/app/files/comments/` (`pdf-comment-store.ts`,
+`pdf-comments-controller.ts`), following the same store-per-consumer shape.
 
 **Boundary rules:**
 
@@ -126,20 +142,22 @@ packages/frontend/visual/docs-comments.spec.ts    NEW
 - `packages/docs` knows nothing about comments. The single new editor
   setter is named `setCommentMarkers` for clarity but its contract is
   agnostic ("draw these yellow highlight rects until I clear them").
-- `packages/sheets` is **not** touched.
+- `packages/sheets` owns the base `Comment`/`CommentAuthor`/`Thread<A>`
+  types (re-exported by the frontend) but has no docs-specific code.
 
 ### 2. Data Model
 
+`Comment`, `CommentAuthor`, and the generic `Thread<A>` are declared in
+`@wafflebase/sheets` (`packages/sheets/src/comment/types.ts`) and
+re-exported from `@/types/comments.ts`, which owns the anchor union:
+
 ```typescript
-// packages/frontend/src/components/comments/types.ts
+// packages/frontend/src/types/comments.ts
 
 import type { TreePosStructRange } from '@yorkie-js/sdk';
-
-export type CommentAuthor = {
-  userId: string;
-  username: string;
-  photo?: string;
-};
+// Comment / CommentAuthor / the base Thread<A> are owned by @wafflebase/sheets.
+import type { Thread as BaseThread } from '@wafflebase/sheets';
+export type { Comment, CommentAuthor } from '@wafflebase/sheets';
 
 export type CommentAnchor =
   | { kind: 'sheet-cell'; tabId: string; rowId: string; colId: string }
@@ -155,32 +173,27 @@ export type CommentAnchor =
        *  Used by the "Orphaned" side-panel card when posRange no longer
        *  resolves. */
       quotedText: string;
+    }
+  | {
+      kind: 'pdf-region';
+      /** Page-index + [0,1] page-relative rect. Static coordinates, so a
+       *  PDF anchor never orphans except when pageIndex is out of range. */
+      pageIndex: number;
+      rect: { x: number; y: number; w: number; h: number };
     };
   // future: { kind: 'slide-element'; slideId: string; elementId: string };
 
-export type Comment = {
-  id: string;
-  author: CommentAuthor;
-  body: string;          // plain text, '\n' allowed, non-empty after trim
-  createdAt: number;
-  editedAt?: number;
-};
-
-export type Thread<A extends CommentAnchor = CommentAnchor> = {
-  id: string;            // UUID v4
-  anchor: A;
-  comments: Comment[];   // [0] is root, rest are replies in author order
-  resolved: boolean;
-  resolvedAt?: number;
-  resolvedBy?: CommentAuthor;
-  createdAt: number;
-};
+// From @wafflebase/sheets, generic over the anchor:
+//   Comment { id, author, body, createdAt, editedAt? }
+//   Thread<A> { id, anchor: A, comments: Comment[], resolved,
+//               resolvedAt?, resolvedBy?, createdAt }
+export type Thread<A extends CommentAnchor = CommentAnchor> = BaseThread<A>;
 ```
 
-The discriminated `CommentAnchor` includes the `sheet-cell` variant
-**now**, even though sheets does not yet consume the shared module. This
-locks the schema in advance so the sheets migration PR is a
-copy-and-import-path-swap rather than a redesign.
+The discriminated `CommentAnchor` carries the `sheet-cell` variant (shared
+with the sheets store) and the shipped `pdf-region` variant alongside
+`docs-range`, so all three consumers reuse the same anchor-generic helpers
+and UI.
 
 `TreePosStructRange` is imported from `@yorkie-js/sdk` — a plain
 JSON-serializable struct. The dependency is intentional and contained to
@@ -208,10 +221,18 @@ clients; lazy resolution at read time keeps a single source of truth.
 
 A single anchor-generic interface, implemented per consumer.
 
+`AnchorInput` is what the caller passes to `addThread`; `A` is what is
+persisted. They coincide for sheets (its stored `sheet-cell` anchor) but
+differ for docs, which passes path endpoints the Yorkie store converts into
+a CRDT-stable `posRange` inside the same `doc.update()`.
+
 ```typescript
 // packages/frontend/src/components/comments/comment-store.ts
-export interface CommentStore<A extends CommentAnchor = CommentAnchor> {
-  addThread(anchor: A, body: string, author: CommentAuthor): Promise<Thread<A>>;
+export interface CommentStore<
+  A extends CommentAnchor = CommentAnchor,
+  AnchorInput = A,
+> {
+  addThread(input: AnchorInput, body: string, author: CommentAuthor): Promise<Thread<A>>;
   addReply(threadId: string, body: string, author: CommentAuthor): Promise<Comment>;
   editComment(threadId: string, commentId: string, body: string): Promise<void>;
   deleteComment(threadId: string, commentId: string): Promise<void>;
@@ -231,33 +252,34 @@ export interface CommentStore<A extends CommentAnchor = CommentAnchor> {
 }
 ```
 
-Implementations in this PR:
+Shipped implementations:
 
 - `MemCommentStore<A>` — in-memory map, used by Vitest tests and `MemDocStore`
   fixtures.
 - `YorkieCommentStore` (docs) — reads/writes `root.comments` on the same
   `yorkie.Document` as `YorkieDocStore`. `addThread` runs inside a single
   `doc.update()` so the snapshot is consistent.
+- PDF store (`app/files/comments/pdf-comment-store.ts`) — persists
+  `pdf-region` threads against the `pdf-<id>` Yorkie document.
+- Sheets keeps its own store on `worksheet.comments` (per-tab) and adopts
+  the shared UI.
 
-Future implementations (out of scope for this PR):
+Future implementations:
 
-- `YorkieCommentStore` (sheets) — reads/writes `worksheet.comments` (per-tab),
-  replaces the comment methods currently on the sheets `Store` interface.
 - `YorkieCommentStore` (slides) — reads/writes `slide.comments` or a top-level
   map keyed by slide id (decided when slides comments lands).
 
 ### 4. Yorkie Schema (Docs)
 
 The Docs Yorkie document already mixes a `Tree` and several JSON fields
-(`root.content`, `root.pageSetup`, `root.header`, `root.footer`). One more
-optional JSON field is added:
+(`root.content`, `root.pageSetup`, `root.stylesJson`). One more optional
+JSON field is added (see `packages/frontend/src/types/docs-document.ts`):
 
 ```typescript
-type DocsDocument = {
+type YorkieDocsRoot = {
   content: yorkie.Tree;
   pageSetup?: PageSetup;
-  header?: HeaderFooter;
-  footer?: HeaderFooter;
+  stylesJson?: string;
   comments?: { [threadId: string]: Thread<DocsRangeAnchor> };   // NEW
 };
 ```
@@ -402,36 +424,36 @@ The shared module imposes no orphan policy — each consumer decides.
 This is the small change in `packages/docs`. Nothing else.
 
 ```typescript
-// packages/docs/src/view/editor.ts
+// packages/docs/src/view/editor.ts (types in packages/docs/src/view/comment-markers.ts)
 export interface DocsEditor {
   // ... existing methods, including:
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
 
   // NEW
-  /** Draw yellow highlight rects until cleared. Comment-naive: docs does
-   *  not know what these rects represent. */
-  setCommentMarkers(rects: HighlightRect[]): void;
+  /** Draw yellow highlights for each marker until cleared. Comment-naive:
+   *  docs does not interpret the ids. Pass [] to clear. */
+  setCommentMarkers(markers: CommentMarker[]): void;
 }
 
-export type HighlightRect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+export interface CommentMarker {
   /** Opaque id the caller uses to map click → thread on the frontend side. */
   id: string;
-};
+  anchor: { blockId: string; offset: number };
+  focus: { blockId: string; offset: number };
+}
 ```
 
-Editor click handling already dispatches by (x, y); the comment controller
-in frontend listens for clicks inside reported marker rects and opens its
-popover. The editor itself routes only the geometry.
+The editor turns each marker's `anchor`/`focus` range into highlight rects
+itself, via the same selection layout used for search matches and peer
+cursors, so markers track resize / zoom / line wrap automatically — the
+frontend does not pre-compute rects.
 
-A `getCommentMarkerAt(x: number, y: number): string | null` helper on the
-editor lets the controller match a click to a marker id without
-re-running geometry. Implementation is O(rects). When rects overlap at the
-hit point, the last-set rect wins (so newer threads take precedence over
-older ones at the same spot).
+A `getCommentMarkerAt(clientX: number, clientY: number): string | null`
+helper on the editor lets the controller match a viewport-relative click to
+a marker id without re-running geometry (the editor converts to
+canvas-internal document coordinates first). When rects overlap at the hit
+point, the last-set marker wins (so newer threads take precedence over older
+ones at the same spot).
 
 ### 7. UI
 
@@ -448,8 +470,9 @@ DocsView
 
 The yellow highlight rects are drawn directly on the existing docs canvas
 during its render pass, like search matches and peer selections. The
-docs-comments-controller in frontend computes the rect list whenever
-threads change or the document re-paginates.
+docs-comments-controller in frontend recomputes the `CommentMarker` list
+whenever threads change or the document re-paginates; the editor turns
+each marker's range into rects itself.
 
 #### 7.2 Entry points
 
@@ -483,25 +506,30 @@ threads change or the document re-paginates.
 
 ### 8. Testing Strategy
 
+Tests live under the top-level `packages/frontend/tests/` mirror, not
+colocated `__tests__/` folders.
+
 #### 8.1 Unit (Vitest)
 
 ```text
-packages/frontend/src/components/comments/__tests__/
+packages/frontend/tests/components/comments/
 ├── thread.test.ts        # thread/comment creation, body validation, root
 │                         # delete cascade, edit timestamps, resolve transitions
-└── mem-comment-store.test.ts
+├── mem-comment-store.test.ts
+└── comment-composer-mentions.test.ts   # @user mention picker + body encoding
 
-packages/frontend/src/app/docs/comments/__tests__/
-└── docs-anchor.test.ts   # selectionToPath, extractAnchorContext, anchor
-                          # resolution under: identical tree, partial deletion,
-                          # full deletion (orphan), block-spanning range with
-                          # one block deleted, undo restoration
+packages/frontend/tests/app/docs/comments/
+├── docs-anchor.test.ts   # selectionToPath, extractAnchorContext, anchor
+│                         # resolution under: identical tree, partial deletion,
+│                         # full deletion (orphan), block-spanning range with
+│                         # one block deleted, undo restoration
+└── decorations.test.ts   # thread[] → marker list
 ```
 
 #### 8.2 Yorkie integration (frontend, e2e)
 
 ```text
-packages/frontend/src/app/docs/__tests__/comments.test.ts
+packages/frontend/tests/app/docs/comments/yorkie-comment-store-concurrent.integration.ts
 ├── concurrent thread creation on the same range — both preserved
 ├── concurrent replies — both preserved, deterministic order
 ├── partial deletion of anchor text — posRange shrinks, marker follows
@@ -513,39 +541,36 @@ packages/frontend/src/app/docs/__tests__/comments.test.ts
 
 #### 8.3 Visual / interaction (browser harness)
 
-```text
-packages/frontend/visual/docs-comments.spec.ts
-├── range selection + Cmd+Alt+M opens composer focused
-├── highlight render across a line wrap (per-line rects)
-├── highlight click → popover positioning (flips when near canvas edge)
-├── overlapping threads → popover lists both
-├── side panel tab counts update on resolve / reopen
-├── "Orphaned" sub-section renders quotedText, jump-to disabled
-└── side panel thread click → scroll + caret + flash highlight
-```
+No dedicated docs-comments browser harness spec ships today (there is no
+`packages/frontend/visual/` directory). The behaviors below — composer
+entry, highlight render across line wraps, popover positioning, overlapping
+threads, side-panel tab counts, orphan cards, and jump-to-anchor — are
+covered by the unit and Yorkie integration suites above; a browser spec
+remains a future addition.
 
 #### 8.4 Verify lanes
 
 - `pnpm verify:fast` — unit.
 - `pnpm verify:full` — Yorkie integration (needs `docker compose up -d`).
-- `pnpm verify:browser:docker` — visual.
 
 ### 9. Phase Plan
 
-The four steps are PR-sized and independently mergeable.
+The steps are PR-sized and independently mergeable.
 
-| Step | Scope                                                                                                                   | Files touched                                                                  |
-| ---- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **1 — this PR** | Shared module + docs comments end-to-end. Sheets unchanged.                                                  | new `components/comments/`, new `app/docs/comments/`, small `packages/docs/src/view/editor.ts` |
-| 2    | Sheets migrates to the shared module. UX unchanged. `packages/sheets/src/comment/*` removed; `Store` loses the 6 comment methods; new `app/spreadsheet/comments/` mirrors `app/docs/comments/`. | sheets package + `app/spreadsheet/comments/`                                  |
-| 3    | Slides comments. Third consumer of the shared module. Adds the `slide-element` anchor variant and `app/slides/comments/`. | shared `types.ts`, new `app/slides/comments/`, small slides editor hook       |
-| 4    | `@user` mentions + notifications (in-app + email) across all three consumers. Composer gains mention picker; Thread/Comment gain `mentionedUserIds`; backend gains notification job. | shared `components/comments/`, backend                                         |
+| Step | Status | Scope                                                                                                                   | Files touched                                                                  |
+| ---- | ------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1    | Shipped | Shared module + docs comments end-to-end.                                                                              | `components/comments/`, `app/docs/comments/`, `packages/docs/src/view/editor.ts` |
+| 2    | Shipped (UI) | Sheets shares the module's UI (composer / side panel / thread card) while keeping its own Yorkie store; the base `Comment`/`Thread` types now live in `@wafflebase/sheets`. | sheets package + `app/spreadsheet/comments/`                        |
+| —    | Shipped | PDF-region comments — `pdf-region` anchor variant + `app/files/comments/` store & controller.                          | shared `types.ts`, `app/files/comments/`                                       |
+| 3    | Future | Slides comments. Adds the `slide-element` anchor variant and `app/slides/comments/`.                                    | shared `types.ts`, new `app/slides/comments/`, small slides editor hook       |
+| 4    | Partial | `@user` mentions are shipped (composer picker + `@[username](userId)` body tokens rendered in threads). In-app / email notifications remain future work. | shared `components/comments/mentions.ts`; notification job (backend) unbuilt |
 
-After step 2, the `packages/sheets/src/comment/` folder is gone and the
-shared module is the single source of truth. The Sheets migration is
-mechanical: data shapes already match (the schema was locked in step 1),
-so it amounts to changing imports, moving Yorkie store code, and deleting
-the old marker renderer.
+Rather than deleting `packages/sheets/src/comment/`, the sheets migration
+promoted it to the *canonical home* of the base `Comment`/`CommentAuthor`/
+`Thread<A>` types: the frontend re-exports them so the sheets store and the
+shared type are literally the same declaration. Sheets adopted the shared
+UI (composer / side panel / thread card) while retaining its own Yorkie
+store and orphan policy.
 
 ## Risks and Mitigation
 

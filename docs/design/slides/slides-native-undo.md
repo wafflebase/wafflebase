@@ -7,18 +7,20 @@ target-version: 0.4.7
 
 ## Summary
 
-`YorkieSlidesStore` is the only document store that rolls its own
-snapshot-based undo/redo. `batch()` pushes a full `SlidesDocument`
-snapshot onto an `undoStack`, and `undo()` restores it by reconciling
-the live Yorkie root against the snapshot. Sheets
-(`spreadsheet/yorkie-store.ts`) and Docs (`docs/yorkie-doc-store.ts`)
-both use Yorkie-native `doc.history.undo()/redo()`, which apply the
-*reverse operations* of the last change and touch only what changed.
+**Shipped.** `YorkieSlidesStore` uses Yorkie-native
+`doc.history.undo()/redo()`, matching Sheets
+(`spreadsheet/yorkie-store.ts`) and Docs (`docs/yorkie-doc-store.ts`):
+undo/redo apply the *reverse operations* of the last local change and
+touch only what changed. The snapshot machinery (`undoStack`,
+`redoStack`, `replaceRoot`, and the `reconcile*` helpers) has been
+removed from the Yorkie store; only `MemSlidesStore` (the non-Yorkie
+fallback) still keeps snapshot undo.
 
-This document specifies migrating Slides to `doc.history`, matching
-Docs/Sheets, and removing the snapshot machinery (`undoStack`,
-`redoStack`, `replaceRoot`, and the `reconcile*` helpers) once parity
-is proven.
+Previously `YorkieSlidesStore` rolled its own snapshot-based undo/redo:
+`batch()` pushed a full `SlidesDocument` snapshot onto an `undoStack`,
+and `undo()` restored it by reconciling the live Yorkie root against the
+snapshot. This document records the migration to `doc.history` and the
+removal of that snapshot machinery.
 
 The snapshot approach caused the 2026-06-20 node-OOM incident:
 `replaceRoot` originally rewrote the whole root, tombstoning the entire
@@ -31,9 +33,9 @@ undo removes this whole problem class by construction.
 
 ## Goals / Non-Goals
 
-- **Goal**: Replace snapshot undo/redo in `YorkieSlidesStore` with
-  `doc.history`. Remove `undoStack` / `redoStack` / `replaceRoot` and
-  the reconcile helpers once native parity is green.
+- **Goal** (done): Replace snapshot undo/redo in `YorkieSlidesStore`
+  with `doc.history`, and remove `undoStack` / `redoStack` /
+  `replaceRoot` and the reconcile helpers.
 - **Goal**: Preserve the public `SlidesStore` contract — `batch(fn)`,
   `undo()`, `redo()`, `canUndo()`, `canRedo()` — unchanged for callers.
   In particular **one `batch()` call = one undo unit** must hold (the
@@ -222,11 +224,13 @@ the snapshot path did.
 The undo floor must be captured **after** the deck-seed step. The seed
 that opens a new deck with one slide runs through `batch()` (one undo
 unit) after construction; whoever owns that seed (the SlidesDetail
-wrapper) is responsible for the floor being correct. Today the store is
-constructed against an already-seeded doc in tests via
-`ensureSlidesRoot`, so capturing the floor in the constructor matches
-the Docs store. **Verification point**: a fresh deck cannot be undone
-back to zero slides (port a floor test from the Docs suite).
+wrapper) is responsible for the floor being correct. The store is
+constructed against an already-seeded doc via `ensureSlidesRoot`, so
+capturing the floor in the constructor matches the Docs store. For a
+seed that runs *after* construction, the store exposes
+`markUndoBaseline()`, which re-captures the floor at the current stack
+depth (mirrors how `YorkieDocStore` re-bases its floor in
+`setDocument`). A fresh deck cannot be undone back to zero slides.
 
 ### Presence and selection
 
@@ -243,7 +247,7 @@ back to zero slides (port a floor test from the Docs suite).
 
 ### Removals
 
-Once native parity is green, delete:
+With native parity green, these were deleted from `YorkieSlidesStore`:
 
 - `undoStack`, `redoStack` fields and all reads/writes.
 - `replaceRoot()`.
@@ -265,18 +269,21 @@ snapshot undo produce the same observable `read()`.
 
 ## Test Strategy
 
-- **Keep** `yorkie-slides-undo-churn.test.ts` as the regression guard.
-  Native undo should also be ~zero churn (reverse ops touch only the
-  changed nodes). Re-baseline the asserted `getGarbageLen` deltas if the
-  native numbers differ from the reconcile numbers.
-- **Keep** `yorkie-slides-store.test.ts` "one batch = one undo entry" —
-  this is the headline acceptance test for the grouping refactor.
-- **Add** a multi-element-drag grouping test: one batch with N
-  `updateElementFrame` calls → exactly one undo reverts all N.
-- **Add** an undo-floor test ported from the Docs suite: repeated undo
-  cannot drop below the seeded deck.
-- **Keep** the theme test "addTheme + applyTheme are batched into one
-  undo entry" and the autofit "survives undo/redo" equivalence test.
+The native-undo tests live under the
+`YorkieSlidesStore — undo/redo (Yorkie-native doc.history)` describe
+block in `yorkie-slides-store.test.ts`:
+
+- `yorkie-slides-undo-churn.test.ts` is the regression guard. Native
+  undo is also ~zero churn (reverse ops touch only the changed nodes).
+- "one batch = one undo entry" — the headline acceptance test for the
+  grouping refactor.
+- "groups a multi-element drag into a single undo unit" — one batch with
+  N `updateElementFrame` calls → exactly one undo reverts all N.
+- "cannot undo past the seeded initial state (undo floor)" and
+  "markUndoBaseline protects a post-construction deck seed" — the
+  floor tests.
+- The theme test "addTheme + applyTheme are batched into one undo entry"
+  and the autofit "survives undo/redo" equivalence test.
 - `pnpm verify:fast`; manual smoke: multi-element drag undo, undo across
   a concurrent peer edit (two-client), undo/redo of add/remove element
   with selection.

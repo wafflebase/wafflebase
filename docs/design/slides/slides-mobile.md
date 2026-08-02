@@ -8,25 +8,29 @@ target-version: 0.4.4
 ## Summary
 
 A touch-driven mobile experience for the slides package, mounted whenever
-the viewport is narrower than 768px. `SlidesView` branches on the existing
-`useIsMobile()` hook and delegates to `MobileSlidesView`, which exposes
-two modes:
+the viewport is narrower than 768px. The owner route (`slides-detail.tsx`)
+and the shared-link route (`shared-document.tsx`) both branch on the
+existing `useIsMobile()` hook and delegate to `MobileSlidesView`, which
+exposes two modes:
 
 - **`mode: 'view'` (read-only, Phase A — v0.4.3).** Paints with a
   standalone `SlideRenderer` and surfaces swipe navigation plus a
   Present-mode entry. Read-only is enforced by *not mounting* the
   editor — no mutation pathway exists.
-- **`mode: 'edit'` (light editing, Phase B — v0.4.4, default).** Replaces
-  the renderer with the full desktop `SlidesEditor` and adds three
-  mobile-specific UI affordances on top: a bottom-sheet text formatting
-  bar, a slide-ops floating action button (`+` / duplicate / delete /
-  change layout), and an undo/redo header pair.
+- **`mode: 'edit'` (light editing, Phase B — v0.4.4).** Replaces
+  the renderer with the full desktop `SlidesEditor` and adds
+  mobile-specific UI affordances: a parent-owned `MobileSlidesToolbar`
+  (`toolbar/mobile-toolbar.tsx`) for text formatting, and an add-slide
+  (`+`) button inside the horizontal `ThumbnailStrip`. Undo/redo and the
+  Present button are owned by the parent `SlidesToolbar` / `SiteHeader`,
+  not by `MobileSlidesView` itself.
 
-`mode` is decided by the outer route (`slides-detail.tsx`): viewers
-without edit permission get `'view'`; everyone else gets `'edit'`. Phase
-A and Phase B share the same Yorkie attachment and the same shell
-chrome (header, canvas-host, footer); only the rendering surface
-swaps.
+`mode` is decided by the route: `slides-detail.tsx` (owner) mounts
+`MobileSlidesView` with `mode="edit"` hardcoded, while
+`shared-document.tsx` (shared link) passes `mode={readOnly ? 'view' :
+'edit'}` — viewers without edit permission get `'view'`, editors get
+`'edit'`. Both modes share the same Yorkie attachment and the same
+canvas-host; only the rendering surface swaps.
 
 Editing — when enabled — is reused intact from desktop. The editor's
 programmatic surface (`enterTextEditing`, `setSelection`,
@@ -43,14 +47,15 @@ programmatic surface (`enterTextEditing`, `setSelection`,
 - Double-tap a text element to enter text edit; mobile virtual keyboard
   appears; `compositionstart`/`compositionend` produce the same Yorkie
   tree edits as desktop.
-- Bottom-sheet shows bold / italic / underline / font-size / color while
-  a text-box editor is active; controls call into
-  `editor.getActiveTextEditor()`'s existing format API.
-- Header gains undo / redo buttons wired to `store.undo()` /
-  `store.redo()`. Always visible (not just during edit) — matches Google
-  Slides mobile.
-- Floating action button on the canvas: `+` adds a slide (default
-  layout), long-press opens duplicate / delete / change-layout.
+- A mobile text-formatting bar (`MobileSlidesToolbar`) shows bold /
+  italic / underline / font-size / color while a text-box editor is
+  active; controls call into `editor.getActiveTextEditor()`'s existing
+  format API.
+- Undo / redo, wired to `store.undo()` / `store.redo()`, live on the
+  parent `SlidesToolbar` (shared with desktop).
+- Add a slide via a `+` button in the horizontal `ThumbnailStrip`
+  (`store.addSlide('blank')`). Duplicate / delete / change-layout are
+  not yet wired on the mobile surface.
 - Read-only viewers (no edit permission, shared-link viewers) get the
   Phase-A `SlideRenderer` path. Read-only is enforced *by not mounting
   the editor*, not by a `readOnly` flag.
@@ -85,9 +90,11 @@ programmatic surface (`enterTextEditing`, `setSelection`,
   editor.
 - Speaker-notes panel on mobile. Notes are not surfaced; reuse on mobile
   waits for Phase C or a notes-aware presenter view.
-- Shared-link read-only flow (`sharing.md`). The viewer is a natural
-  building block, but wiring viewer roles to share tokens is a separate
-  task.
+- ~~Shared-link read-only flow (`sharing.md`).~~ **Shipped.** The
+  shared-link route (`shared-document.tsx`) mounts `MobileSlidesView`
+  with `mode={readOnly ? 'view' : 'edit'}`, so anonymous viewers on a
+  phone get the read-only `SlideRenderer` path and share-link editors
+  get the edit path.
 - URL-stateful slide index. The current slide id is component-local;
   reload returns to the first slide.
 
@@ -95,8 +102,10 @@ programmatic surface (`enterTextEditing`, `setSelection`,
 
 ### Detection and branching
 
-`SlidesView` (`packages/frontend/src/app/slides/slides-view.tsx`)
-branches at the top of its render based on `useIsMobile()`
+The branch lives in the route shells, not in `SlidesView`. Both the
+owner route (`packages/frontend/src/app/slides/slides-detail.tsx`) and
+the shared-link route (`packages/frontend/src/app/shared/shared-document.tsx`)
+branch on `useIsMobile()`
 (`packages/frontend/src/hooks/use-mobile.ts`), which tracks
 `(max-width: 767px)`:
 
@@ -114,40 +123,33 @@ the RAF tick, thumbnail panel, notes panel, editor instance, and style
 tag. The Yorkie `useDocument` attachment lives on the surrounding
 `DocumentProvider`, so the document stays attached across the swap.
 
-`mobileMode` is passed by `slides-detail.tsx`: `'view'` when the user
-lacks edit permission, `'edit'` otherwise (default).
+`mobileMode` is fixed to `'edit'` on `slides-detail.tsx` (the owner
+always has edit access), while `shared-document.tsx` derives it from the
+resolved share-link role: `'view'` for viewers, `'edit'` for editors.
 
 ### MobileSlidesView shell
 
 `packages/frontend/src/app/slides/mobile-slides-view.tsx` owns the
-mobile-side shell, shared between view and edit modes.
+mobile-side canvas surface, shared between view and edit modes.
 
-**DOM structure:**
+**DOM structure.** `MobileSlidesView` renders only two children — a
+`flex: 1` canvas-host and a horizontal `ThumbnailStrip`. The header
+chrome (Back / title / Present) and undo/redo live on the parent
+`SiteHeader` / `SlidesToolbar` in the route shell, not inside this
+component; there is no in-component header or prev/next footer.
 
 ```html
-<div class="mobile-slides">
-  <header>
-    <button aria-label="Back to deck list">‹</button>
-    <button aria-label="Undo">↶</button>      <!-- edit mode only -->
-    <button aria-label="Redo">↷</button>      <!-- edit mode only -->
-    <h1 class="truncate">{title}</h1>
-    <button aria-label="Start presentation">▶</button>
-  </header>
-  <div ref={canvasHostRef} class="canvas-host">
-    <canvas />
-  </div>
-  <footer>
-    <button aria-label="Previous slide">‹</button>
-    <span>{index + 1} / {slides.length}</span>
-    <button aria-label="Next slide">›</button>
-  </footer>
+<div ref={canvasHostRef} class="canvas-host">   <!-- flex: 1 -->
+  <canvas />
+  <!-- edit mode also mounts an absolutely-positioned overlay div -->
 </div>
+<ThumbnailStrip ... />   <!-- horizontal mini-slide strip; tap to jump,
+                              add-slide (+) button in edit mode -->
 ```
 
-The outer container uses `100dvh` (dynamic viewport height) with a
-`100vh` fallback so the iOS Safari address-bar collapse/expand does not
-visually shift the canvas. Header is `≈ 44px`, footer `≈ 28px`,
-`canvas-host` is `flex: 1`.
+The route shell's outer container uses `100dvh` (dynamic viewport
+height) with a `100vh` fallback so the iOS Safari address-bar
+collapse/expand does not visually shift the canvas.
 
 **Yorkie data flow:**
 
@@ -238,8 +240,8 @@ tablets and stylus input get supported as a side-effect.
 | Concern | Handling |
 |---|---|
 | Touch drag fires no move events (iOS Safari) | **Pointer Events migration in Task 1a** — `mouse*` listeners become `pointer*` across `editor.ts`, `thumbnail-panel.ts`, `context-menu.ts`, `layout-picker.ts`. Solved at the source. |
-| iOS swipe-back at screen edge during drag | Cannot be intercepted — documented limitation. FAB and slide-strip navigation are the in-app workaround for users near the edge. |
-| Browser pinch-zoom vs element drag | `touch-action: none` on the canvas-host suppresses both pinch and pan. Slide swipe-nav is gone in edit mode (FAB + strip replace it). |
+| iOS swipe-back at screen edge during drag | Cannot be intercepted — documented limitation. The `ThumbnailStrip` is the in-app navigation workaround for users near the edge. |
+| Browser pinch-zoom vs element drag | `touch-action: none` on the canvas-host suppresses both pinch and pan. Slide swipe-nav is gone in edit mode (the `ThumbnailStrip` replaces it). |
 | Resize handle hit area | The editor renders handles at 8px on desktop. A mobile mode bumps the *hit* radius to 22px (≈ 44px diameter) without changing the visual handle size — done by extending `hit-test.ts`'s `handleHitTest` with a `tolerance` parameter, default 0. |
 | Double-tap zoom (iOS) | `touch-action: manipulation` on the canvas-host disables the 300ms double-tap zoom delay; the editor's double-click → text-edit fires immediately. (Subsumed by `touch-action: none` when we also need to block pinch.) |
 | Long-press system callout (iOS) | The callout is NOT a `contextmenu` event — `oncontextmenu` is a no-op against it. The kill is CSS: `-webkit-touch-callout: none` + `user-select: none` on the canvas-host. (Right-click `oncontextmenu` is still suppressed for desktop edit mode.) |
@@ -251,11 +253,14 @@ drag and long-press-callout were both blocked by the items above.
 Gate decision: option (B), proceed with the Pointer Events migration as
 Task 1a prerequisite.
 
-#### Bottom-sheet text formatting
+#### Mobile text formatting
 
-A new component `MobileTextFormatSheet` mounts at the bottom of the
-mobile shell, slide-up animated when `editor.isTextEditing()` is true.
-It binds to `editor.getActiveTextEditor()`:
+Text formatting shipped as `MobileSlidesToolbar`
+(`packages/frontend/src/app/slides/toolbar/mobile-toolbar.tsx`), owned by
+the parent route shell rather than mounted inside `MobileSlidesView`
+(the standalone `mobile-text-format-sheet.tsx` in the original file plan
+was never created). It surfaces while a text-box editor is active and
+binds to `editor.getActiveTextEditor()`:
 
 ```tsx
 const active = editor.getActiveTextEditor();
@@ -279,35 +284,23 @@ Sheet height ~64px. The canvas-host shrinks while the sheet is visible,
 the editor's `setHostSize` re-derives scale, and the selected text
 element stays in view via a scroll-into-view call.
 
-#### Slide ops FAB
+#### Slide ops (add slide)
 
-Floating action button bottom-right, ~56×56, primary-color circle with
-a `+` glyph. Tap = `store.addSlide(currentLayoutId)`. Long-press opens
-a vertical menu (Radix `Popover` or a hand-rolled list — see
-`context-menu.md` for the project's pattern):
+Slide creation shipped as an `IconPlus` button at the end of the
+horizontal `ThumbnailStrip` (not a bottom-right FAB). Tap calls
+`store.addSlide('blank')`.
 
-- Duplicate slide → `store.duplicateSlide(currentSlideId)`
-- Delete slide → `store.removeSlide(currentSlideId)` + advance to
-  next-or-prev
-- Change layout → opens a sheet of layout thumbnails; tap picks one →
-  `store.applyLayout(currentSlideId, layoutId)`
-
-The "change layout" sheet reuses the layout thumbnail rendering from
-`view/canvas/layout-preview.ts`. Picker UI is mobile-native (2-column
-grid of cards).
+The long-press menu (duplicate / delete / change layout via
+`store.duplicateSlide` / `removeSlide` / `applyLayout`) is **not yet
+wired on mobile** — only add-slide is available. Those ops remain
+available on desktop and are a follow-up for the mobile surface.
 
 #### Undo / redo
 
-Header gains two icon buttons next to the title:
-
-```text
-[‹]  [↶] [↷]  {title…}                  [▶]
-```
-
-Wired to `store.undo()` / `store.redo()`. Buttons disabled when the
-respective stack is empty; subscribed to a `store.onHistoryChange` hook.
-If that hook doesn't exist yet on `YorkieSlidesStore`, it gets added in
-the same PR — the desktop toolbar will benefit too.
+Undo/redo is owned by the parent `SlidesToolbar` (shared with desktop),
+not by `MobileSlidesView`. The planned dedicated `store.onHistoryChange`
+hook was not added — the toolbar drives undo/redo through the existing
+store surface, so no new history-subscription API was needed.
 
 ### Navigation (both modes)
 
@@ -340,14 +333,15 @@ listens for `pointerdown` / `pointermove` / `pointerup`.
   `dx < 0 ? nextSlide() : prevSlide()`.
 - A single tap (no movement) is a no-op in view mode.
 
-**Footer arrow buttons** are an explicit, accessible fallback for
+**ThumbnailStrip taps** are the explicit, accessible fallback for
 screen readers and any environment where the pointer events do not
-classify cleanly. Present in both modes.
+classify cleanly — tapping a thumbnail jumps directly to that slide.
+Present in both modes.
 
-**Present button**: invokes the same `onStartPresentation('current')`
-callback that the desktop view uses. The outer route shell already
-owns presentation mode and the fullscreen-overlay fallback; the mobile
-view is just another trigger.
+**Present button**: lives on the parent route shell (not inside
+`MobileSlidesView`) and invokes the same presentation entry the desktop
+view uses. The route shell already owns presentation mode and the
+fullscreen-overlay fallback; the mobile view is just another trigger.
 
 ### Loader / error states
 
@@ -365,15 +359,16 @@ Reuses the existing `<Loader />` component during `useDocument`'s
 | `packages/slides/src/view/editor/layout-picker.ts` | **Task 1a:** Pointer Events migration (panel hover/click). |
 | `packages/slides/src/view/editor/hit-test.ts` | Add `tolerance` parameter to `handleHitTest` for touch-sized hit areas. |
 | `packages/slides/src/view/editor/text-box-editor.ts` | Expose missing format getters/setters on `SlidesTextBoxEditor` if any are mouse-toolbar-only. |
-| `packages/slides/src/store/store.ts` | Add `onHistoryChange(cb): () => void` to `SlidesStore`. |
-| `packages/slides/src/store/memory.ts` | Implement `onHistoryChange` for `MemSlidesStore`. |
-| `packages/frontend/src/app/slides/yorkie-slides-store.ts` | Implement `onHistoryChange` for `YorkieSlidesStore`. |
-| `packages/frontend/src/app/slides/slides-view.tsx` | Add `useIsMobile()` branch at the top of render; delegate to `MobileSlidesView` when true. |
-| `packages/frontend/src/app/slides/mobile-slides-view.tsx` | Shell + `mode: 'view' \| 'edit'`. `view` mounts `SlideRenderer`; `edit` mounts `SlidesEditor`. Wires bottom-sheet, FAB, undo/redo for edit mode. |
-| `packages/frontend/src/app/slides/mobile-text-format-sheet.tsx` (new) | The bottom-sheet component. |
-| `packages/frontend/src/app/slides/mobile-slide-ops-fab.tsx` (new) | The FAB + long-press menu. |
-| `packages/frontend/src/app/slides/slides-detail.tsx` | Pass `mode` prop to `MobileSlidesView` based on user permission (default `edit`). |
+| `packages/frontend/src/app/slides/slides-detail.tsx` | Add `useIsMobile()` branch; mount `MobileSlidesView` with `mode="edit"` (owner always edits). |
+| `packages/frontend/src/app/shared/shared-document.tsx` | Add `useIsMobile()` branch for the shared-link route; mount `MobileSlidesView` with `mode={readOnly ? 'view' : 'edit'}`. |
+| `packages/frontend/src/app/slides/mobile-slides-view.tsx` | Canvas-host + `ThumbnailStrip`, `mode: 'view' \| 'edit'`. `view` mounts `SlideRenderer`; `edit` mounts `SlidesEditor` and adds the strip's add-slide (`+`) button. |
+| `packages/frontend/src/app/slides/toolbar/mobile-toolbar.tsx` (new) | `MobileSlidesToolbar` — parent-owned text-formatting bar (replaced the planned `mobile-text-format-sheet.tsx`). |
 | `packages/frontend/src/hooks/use-pointer-swipe.ts` (new) | Small hook (~50 lines) encapsulating the pointer classification described above (view mode). Unit-testable. |
+
+The `onHistoryChange` hook on `store.ts` / `memory.ts` /
+`yorkie-slides-store.ts`, and the standalone `mobile-slide-ops-fab.tsx`,
+were dropped: undo/redo and slide-ops live on the parent `SlidesToolbar`
+/ `ThumbnailStrip` and needed no new store surface.
 
 No backend, model, or Yorkie schema changes. The editor's mutation
 surface is unchanged.
@@ -401,13 +396,13 @@ benefit.
   function over synthetic pointer events.
 - **Unit (slides):** existing `SlideRenderer` tests cover correct
   rendering; no new tests needed for renderer reuse.
-- **Component (frontend):** `MobileSlidesView` mount renders the header,
-  footer, and a canvas; clicking the footer next button advances the
-  slide index by 1; the back and present buttons fire their respective
-  callbacks. Separate cases assert `mode: 'view'` does not mount the
-  editor and `mode: 'edit'` does.
+- **Component (frontend):** `MobileSlidesView` mount renders the
+  canvas-host and `ThumbnailStrip`; tapping a thumbnail advances the
+  slide index; the add-slide (`+`) button appears only in edit mode.
+  Separate cases assert `mode: 'view'` does not mount the editor and
+  `mode: 'edit'` does.
 - **Visual (`pnpm verify:browser:docker`):** fixtures at 360×640,
-  390×844, and 430×932 viewports verify header + canvas + footer layout
+  390×844, and 430×932 viewports verify canvas + `ThumbnailStrip` layout
   and that the first slide paints in both modes.
 - **Manual smoke:** `pnpm dev` → DevTools mobile emulation; verify
   swipe navigation (view), drag + double-tap-edit (edit), Present
@@ -423,7 +418,7 @@ benefit.
 | Mobile IME `compositionstart`/`end` ordering differs from desktop; existing `text-box-editor.ts` IME paths may misbehave. | Tested in spike on real iOS and Android. Patches go in `text-box-editor.ts` since desktop also benefits from correctness. |
 | Adding `mode: 'edit' \| 'view'` to `MobileSlidesView` mid-flight while a permission system is being designed elsewhere. | The prop has only two values and a `'edit'` default; downstream permission wiring can land independently. |
 | Bottom-sheet covers the selected text-box when it sits near slide bottom. | Editor's `setHostSize` already supports dynamic host size; mobile shell shrinks the canvas-host while the sheet is open and scrolls the selection into view. |
-| Undo/redo button state needs a `store.onHistoryChange` hook we don't have yet. | One method to add; mirrors the existing `onSelectionChange` pattern in `SlidesEditor`. Desktop toolbar benefits too. |
+| Undo/redo button state needs a `store.onHistoryChange` hook we don't have yet. | Resolved: undo/redo shipped on the parent `SlidesToolbar` using the existing store surface, so no new `onHistoryChange` hook was added. |
 | Spike found > 5 internal editor changes (Pointer Events) — strict gate breach. | Resolved at gate time: option (B). The "5 changes" rule was a heuristic against a state-machine rewrite; the Pointer Events rename is mechanical, no state change, and desktop gets pen tablet support as a bonus. Option (A) (mobile-only editor over `SlidesStore`) is still the fallback if Task 1a smoke surprises us. |
 | Two `computeFitSize` copies (desktop, presenter) become three. | Accepted; the math is ~10 lines and the slides package must stay frontend-agnostic. Revisit if a fourth caller appears. |
 | Pointer-event classification misfires on Android Chrome where horizontal scroll containers compete for the swipe gesture. | The mobile view has no scrollable ancestors inside the canvas host; outer container is `overflow: hidden`. Footer arrows are the fallback. |

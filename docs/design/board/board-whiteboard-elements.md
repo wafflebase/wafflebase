@@ -74,8 +74,9 @@ images — with `pnpm verify:self` green.
 ```text
 packages/frontend/src/app/board/     (all SP2 code lives here + board pkg)
   ├─ board-toolbar.tsx      + Sticky split-button, + Image button
-  ├─ board-view.tsx         + mount setupSlidesImagePaths, + <BoardMinimap/>
-  ├─ board-detail.tsx       pass uploadFn (uploadImageFile bound to workspaceId)
+  ├─ board-view.tsx         + mount setupSlidesImagePaths, + <BoardMinimap/>, wire makeBoardImageUpload
+  ├─ board-detail.tsx       pass workspaceId down to BoardView
+  ├─ board-image.ts   NEW   makeBoardImageUpload(workspaceId) upload adapter
   ├─ sticky.ts        NEW   sticky color palette + buildStickyInit(color, center)
   ├─ board-minimap.tsx NEW  view-local overview overlay + viewport-rect drag
   └─ minimap-geometry.ts NEW  pure world↔minimap mapping + fitted transform
@@ -83,10 +84,14 @@ packages/frontend/src/app/board/     (all SP2 code lives here + board pkg)
 packages/board/src/view/viewport.ts  (reused; may gain a setViewport helper)
         │ imports
         ▼
-@wafflebase/slides   REUSED unchanged:
-  insert-image.ts (insertImageOnSlide), slides-image-input.ts (setupSlidesImagePaths),
-  image-upload.ts (uploadImageFile), model/element.ts (ShapeElement/roundRect/Fill/
-  DropShadow/TextBody), view/canvas/slide-renderer.ts (drawSlide),
+Reused frontend-app image pipeline (NOT in @wafflebase/slides):
+  packages/frontend/src/app/slides/insert-image.ts (insertImageOnSlide),
+  packages/frontend/src/app/slides/slides-image-input.ts (setupSlidesImagePaths),
+  packages/frontend/src/app/spreadsheet/image-upload.ts (uploadImageFile)
+
+@wafflebase/slides   REUSED unchanged (scene engine):
+  model/element.ts (ShapeElement/roundRect/Fill/DropShadow/TextBody),
+  view/canvas/slide-renderer.ts (drawSlide),
   view/canvas/thumbnail.ts (renderThumbnail), model/frame.ts (combinedBoundingBox),
   view/canvas/viewport.ts (screenToWorld)
 ```
@@ -162,8 +167,10 @@ Three entry points, all funneling to the shipped `insertImageOnSlide`:
   `insertImageOnSlide({ store, slideId: SYNTHETIC_SLIDE_ID, file, upload })`.
   Omitted entirely when `readOnly`.
 
-`upload` is built in `board-detail.tsx` from the workspace it already has:
-`const upload = (file) => uploadImageFile(file, workspaceId)`. Insert position:
+`upload` is built by `makeBoardImageUpload(workspaceId)` in
+`packages/frontend/src/app/board/board-image.ts` (which wraps `uploadImageFile`);
+`board-detail.tsx` passes `workspaceId` down to `board-view.tsx`, where the
+adapter is wired. Insert position:
 `insertImageOnSlide` centers within a logical height; on a board we center on the
 current viewport (pass the viewport-center world point through
 `InsertImageArgs`, mirroring the sticky center computation) so the image lands
@@ -181,14 +188,15 @@ on-screen rather than at world origin.
 200×150 px) containing a downscaled snapshot of the whole scene plus the current
 viewport rectangle.
 
-**Geometry (`minimap-geometry.ts`, pure + unit-tested):**
-- `sceneBounds = combinedBoundingBox(elements.map(e => e.frame))` — the world
-  AABB of everything (padded by a margin). `undefined` when the board is empty.
-- `fit(sceneBounds, minimapSize)` → a `{ scale, offsetX, offsetY }` that maps
-  world → minimap px (letterboxed to preserve aspect).
-- `viewportRectInMinimap(vp, hostSize, fit)` — the on-screen world rect
+**Geometry (`packages/frontend/src/app/board/minimap-geometry.ts`, pure + unit-tested):**
+- `sceneBounds(frames, pad)` — the world AABB of everything (padded by a margin).
+  `undefined` when the board is empty.
+- `fitScene(bounds, minimapSize)` → a `{ scale, offsetX, offsetY }` (`MiniFit`)
+  that maps world → minimap px (letterboxed to preserve aspect).
+- `viewportRectInMini(vp, hostSize, fit)` — the on-screen world rect
   (`screenToWorld` of the two host corners) mapped into minimap px.
-- Inverse `minimapPointToWorld(px, fit)` for drag-to-pan.
+- `worldToMini(fit, p)` / inverse `miniToWorld(fit, p)` for drag-to-pan, plus
+  `centerViewportOnWorld` to recenter the viewport.
 
 **Rendering:** draw the scene into a small offscreen canvas via `drawSlide` /
 `renderThumbnail` with a viewport constructed from `fit` (`zoom = scale`,
@@ -198,7 +206,7 @@ and triggered on element change + a low-frequency tick; the viewport rectangle
 overlay repaints on every pan/zoom (cheap).
 
 **Interaction:** dragging inside the minimap recenters the board viewport
-(`minimapPointToWorld` → set `vp.panX/panY` so that world point is at host
+(`miniToWorld` → `centerViewportOnWorld` so that world point is at host
 center → `editor.setViewport` + `editor.render`). A **toggle button** (on by
 default) collapses it to a small chevron. Empty board (`sceneBounds ===
 undefined`) → minimap hidden or shows an empty placeholder. Shown in read-only.
@@ -218,7 +226,7 @@ undefined`) → minimap hidden or shows an empty placeholder. Shown in read-only
   right fill/shadow/middle-anchor/shrink-autofit and a frame centered on the
   given point; palette has 6 distinct colors.
 - `minimap-geometry.test.ts` — `fit` letterboxing (wide vs tall scenes),
-  round-trip `minimapPointToWorld(worldToMinimap(p)) ≈ p`, viewport-rect mapping
+  round-trip `miniToWorld(worldToMini(p)) ≈ p`, viewport-rect mapping
   for a known viewport, empty-scene `undefined`.
 - Image wiring — a board smoke test that a mocked `upload` + `insertImageOnSlide`
   adds one `image` element via the board store (the slides paste/drop internals

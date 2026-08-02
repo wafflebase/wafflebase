@@ -12,9 +12,9 @@ target-version: 0.5.0
 Add PDF as a fourth document type (`"pdf"`) alongside `sheet` / `doc` /
 `slides`. Unlike the three editor types, a PDF document has **static
 content**: the original file is stored as an S3/MinIO blob and the
-Postgres `Document` row references it — there is **no Yorkie CRDT** in
-Phase 1. Users upload a PDF from the documents list and open it in a
-pdf.js-based viewer route. Phase 2 layers collaboration on top by
+Postgres `Document` row references it — there is **no Yorkie CRDT** for
+the PDF bytes. Users upload a PDF from the documents list and open it in a
+pdf.js-based viewer route. Phase 2 layered collaboration on top by
 introducing a `pdf-<id>` Yorkie document that holds only comment threads
 and presence — never the PDF bytes — and by making the file-serving
 endpoint accept a share token so a shared PDF can be viewed without a
@@ -22,8 +22,13 @@ workspace membership. Viewing bytes is open to any valid share token;
 **commenting** is gated to editor-role links or workspace members
 (client-side, as with every other shared type — see Non-Goals and Slice 3).
 
-This document covers Phase 1 (view/store) in full and Phase 2
-(share + comments + presence) as an implementation spec.
+Both phases are **shipped**. This document covers Phase 1 (view/store)
+and Phase 2 (share + comments + presence); the "Phase 2" / "Slice"
+framing below is retained for historical structure but describes
+implemented behavior. Note also that the blob module was subsequently
+broadened beyond PDF: the same `FileService` and `GET /documents/:id/file`
+endpoint back the `"image"` document type (see
+[image-viewer.md](image-viewer.md)), so the file layer accepts images too.
 
 ### Goals
 
@@ -73,9 +78,11 @@ Add `"pdf"` as a document type and a nullable blob reference:
   firing if any code path derives a key for a PDF document.)
 - `packages/frontend/src/types/documents.ts` — extend `DocumentType`.
 - **Prisma migration**: add `fileId String?` to `Document`
-  (`packages/backend/prisma/schema.prisma`). Only PDF documents populate
-  it; it references the stored blob. Since PDF content is static, this
-  column — not Yorkie — is the natural home for the reference.
+  (`packages/backend/prisma/schema.prisma`). PDF documents populate it,
+  and the later `"image"` document type reuses the same column
+  (see [image-viewer.md](image-viewer.md)); it references the stored blob.
+  Since static-file content is not a CRDT, this column — not Yorkie — is
+  the natural home for the reference.
 
 ### Storage layer — new `FileService` / `FileController`
 
@@ -84,8 +91,13 @@ Mirror the existing `image/` module rather than overloading it (keeps
 
 - `packages/backend/src/file/file.service.ts` — S3-compatible
   (`@aws-sdk/client-s3`), dedicated bucket `wafflebase-files`, auto-create
-  on boot. `upload(buffer, mime, name)` accepts **`application/pdf` only**,
-  size cap **50 MB**. Reuses the `packages/backend/src/image/image.config.ts` env pattern
+  on boot. `upload(buffer, mime, name)` accepts **`application/pdf`** plus
+  the image MIME types (`image/png`, `image/jpeg`, `image/gif`,
+  `image/webp`) once the image document type shipped on the same blob
+  layer — size cap **50 MB** for PDFs (`MAX_PDF_UPLOAD_BYTES`) and a
+  separate **25 MB** cap for images (`MAX_IMAGE_UPLOAD_BYTES`), enforced
+  per category (`packages/backend/src/file/file.constants.ts`). Reuses the
+  `packages/backend/src/image/image.config.ts` env pattern
   (`FILE_STORAGE_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, dev
   defaults to the same MinIO endpoint).
 - `packages/backend/src/file/file.controller.ts`:
@@ -93,11 +105,14 @@ Mirror the existing `image/` module rather than overloading it (keeps
     **before** the document exists (upload-then-create flow), so it is
     JWT-gated blob storage only; it does not expose a public GET.
   - No public `GET /files/:id`. Serving is document-scoped (below).
-- Blob id validation mirrors `VALID_IMAGE_ID_PATTERN`.
+- Blob id validation uses `VALID_FILE_ID_PATTERN`
+  (`packages/backend/src/file/file.constants.ts`), which accepts both the
+  `.pdf` and image extensions (`png`/`jpe?g`/`gif`/`webp`).
 
 *Alternative considered*: extract a shared S3 blob core and make image/file
-thin configs. Deferred — with a single new file type, mirroring is
-simpler; revisit if a third blob kind appears.
+thin configs. The `file/` module instead grew to host both PDF and image
+blobs on one endpoint (the `image/` module remains for the older embedded
+in-sheet/docs images); a fuller extraction is still deferred.
 
 ### Serving — document-scoped, permission-gated
 
@@ -108,13 +123,17 @@ document read check instead of reimplementing permission logic:
   `GET /documents/:id` (JWT + `workspaceService.assertMember`), then
   resolves that document's `fileId` and streams the blob from S3. Returns
   404 when the document has no `fileId`.
-- Response headers: `Content-Type: application/pdf`,
-  `Cache-Control: private, max-age=...` (per-user cache, **not** the
-  images' `public, immutable`), optional `ETag`.
+- Response headers: `Content-Type` set to the blob's **stored MIME type**
+  (`application/pdf` for PDFs, `image/*` for image documents — the
+  controller streams `getObject(...).contentType`, it does not hardcode
+  `application/pdf`), `Cache-Control: private, max-age=...` (per-user
+  cache, **not** the images' `public, immutable`).
 - A blob id is never accepted directly from the client for reads — the
   only read path is through a document the caller can already access.
-- **Deletion**: when a document with a `fileId` is deleted, delete the
-  referenced blob (hook into `DocumentService` delete).
+- **Deletion**: when a document with a `fileId` is deleted, the referenced
+  blob is deleted best-effort in the **document controller** after the row
+  is removed (the `DocumentService` delete methods do no blob cleanup —
+  see the `deleteDocuments` doc-comment).
 
 ### Upload & create flow
 
@@ -161,28 +180,29 @@ an orphan-sweep job is a follow-up.
 - `getDocumentPath(type)` → `/f/:id` for `pdf`.
 - Add the "Upload PDF" action to the New menu (wired to the flow above).
 
-## Phase 2 — Share + comments + presence
+## Phase 2 — Share + comments + presence (shipped)
 
-Phase 2 attaches the reserved `pdf-<id>` Yorkie document for the first
-time (comment threads + presence only; PDF bytes stay in the blob),
-closes the one net-new backend gap (share-token file serving), and reuses
-the existing shared comments module and frontend presence pattern. No data
-migration: the `fileId` column and blob storage are unchanged. The `pdf-<id>`
-Yorkie doc is attached on first open of the viewer, with its `comments` map
-seeded empty at bootstrap via `initialRoot` (never created lazily — see the
-convergence note in Slice 2).
+Phase 2 attaches the reserved `pdf-<id>` Yorkie document (comment threads +
+presence only; PDF bytes stay in the blob), closes the one net-new backend
+gap (share-token file serving), and reuses the existing shared comments
+module and frontend presence pattern. No data migration: the `fileId`
+column and blob storage are unchanged. The `pdf-<id>` Yorkie doc is
+attached on first open of the viewer (`packages/frontend/src/app/files/pdf-collab.tsx`),
+with its `comments` map seeded empty at bootstrap via `initialRoot`
+(`initialPdfRoot` in `packages/frontend/src/types/pdf-document.ts`; never
+created lazily — see the convergence note in Slice 2).
 
-The work splits into five slices; the order below is also the intended PR
-sequence.
+All five slices below are **implemented**; the slice split is retained as
+the historical PR sequence.
 
 ### Slice 1 — Share-token-aware file serving (only net-new backend work)
 
-`GET /documents/:id/file` is today JWT + `workspaceService.assertMember`.
-Extend it to **member OR valid share token** rather than adding a parallel
-public endpoint — one access path, no permission drift:
+`GET /documents/:id/file` accepts **member OR valid share token** rather
+than a parallel public endpoint — one access path, no permission drift.
+It lives in its own `packages/backend/src/document/document-file.controller.ts`:
 
-- Make the route reachable without a JWT (optional auth), so anonymous
-  share viewers can fetch the bytes.
+- The route is guarded by `OptionalJwtAuthGuard` (reachable without a JWT),
+  so anonymous share viewers can fetch the bytes.
 - Resolution order: if `req.user` is a member of `doc.workspaceId` → serve.
   Else if a `?token=<shareToken>` query param is present →
   `shareLinkService.findByToken(token)`, assert `link.documentId === id`
@@ -190,8 +210,8 @@ public endpoint — one access path, no permission drift:
   expiry), then serve. Otherwise `403`.
 - **Role is irrelevant for serving** — both `viewer` and `editor` share
   roles may view the PDF. Role only gates comment *writes* (Slice 3).
-- Response headers unchanged (`application/pdf`,
-  `Cache-Control: private`, `X-Content-Type-Options: nosniff`).
+- Response headers unchanged (stored MIME type — `application/pdf` for a
+  PDF, `Cache-Control: private`, `X-Content-Type-Options: nosniff`).
 
 *Alternative considered*: a dedicated public `GET /shared/:token/file`.
 Rejected — it forks the permission logic into two implementations that can

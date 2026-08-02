@@ -152,10 +152,11 @@ Model-level unit tests (`packages/docs/test/model/paste-table-into-cell.test.ts`
 
 The four tests above landed with #528 (PR #531) and already exist on `main`.
 This note's #333 fix (recursive fresh ids + the `findBlockInCells` fallback)
-still needs its own regression coverage — a model-level test asserting
+has its own regression coverage as well — a model-level test asserting
 `Doc.getBlock` resolves a block inside a freshly pasted nested table that
-isn't yet in `_blockParentMap` — which is planned for the implementation PR
-that follows this design note, not part of this doc-only PR.
+isn't yet in `_blockParentMap` (`describe('Doc.getBlock resolves freshly
+pasted nested-table content (#333)')` in
+`packages/docs/test/model/paste-table-into-cell.test.ts`).
 
 Manual smoke plan (`pnpm dev`): copy a table (drag from a line above through a
 line below → `[paragraph, table, paragraph]`), click into a cell, paste — the
@@ -163,16 +164,14 @@ blocks should nest into the clicked cell (no crash). Also re-run #333's repro
 steps (2-level and 3-level nested tables, copy the outer table, paste
 elsewhere, click/type into the pasted copy at every nesting level) — the caret
 should enter and input should land in the pasted copy at every level, not the
-source. (Both were manually verified against a local draft of the
-implementation while investigating this note; re-verify against whatever
-actually lands in the implementation PR.)
+source.
 
 ## Risks and Mitigation
 
 | Risk | Mitigation |
 |------|------------|
 | Multi-block paste into a cell crashes (`Block not found`) | Root cause is the body-only middle-block insertion; replaced with cell-aware `insertBlockAfter` chaining so the split tail stays resolvable |
-| Pasted table shares cell ids with the source (same-tab copy) — #333's caret-rejection / input-misroute at every nesting level | `cloneBlockWithFreshIds` deep-regenerates ids recursively through nested tables (no-collision test already on `main` from #528); `findBlockInCells` gains a recursive fallback for blocks not yet in `_blockParentMap` (regression test planned for the implementation PR); manually verified against #333's 2-level and 3-level repro steps on a local draft |
+| Pasted table shares cell ids with the source (same-tab copy) — #333's caret-rejection / input-misroute at every nesting level | `cloneBlockWithFreshIds` deep-regenerates ids recursively through nested tables (no-collision test already on `main` from #528); `findBlockInCells` gains a recursive fallback for blocks not yet in `_blockParentMap` (regression test on `main` in `packages/docs/test/model/paste-table-into-cell.test.ts`); manually verified against #333's 2-level and 3-level repro steps |
 | Changing the body multi-block path regresses body paste | `insertBlockAfter(pos.blockId, …)` after the head is equivalent to `insertBlockAt(getBlockIndex+1)` for a body sibling; a body-paste regression-guard test covers it |
 | `blockParentMap` / cell signal stale after a remote edit | Use `getActiveLayout()` (refreshed for the active region), matching existing table ops |
 | Caret left in a stale position | Single-table: move into the pasted table's first cell; multi-block: keep the existing tail-block caret placement |

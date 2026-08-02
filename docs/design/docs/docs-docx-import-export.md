@@ -7,11 +7,17 @@ target-version: 0.3.2
 
 ## Summary
 
-Add the ability to import Microsoft Word (.docx) files into the Docs editor
-and export documents back to .docx format. This requires three prerequisite
-features that the Docs model does not yet support: inline images, image
-resource management (S3-compatible storage), and web font loading for Korean
-typefaces.
+Import Microsoft Word (.docx) files into the Docs editor and export documents
+back to .docx format. This is **shipped** (released in v0.3.2): the importer
+lives at `packages/docs/src/import/docx-importer.ts`, the exporter at
+`packages/docs/src/export/docx-exporter.ts`. It builds on three supporting
+features that also shipped: inline images (`ImageData` + `image` field on
+`InlineStyle` in `model/types.ts`), image resource management (the backend
+S3/MinIO `image` module), and web font loading for Korean typefaces
+(`packages/docs/src/view/fonts.ts`).
+
+The phases below describe the design as it was built; they are retained as an
+architectural reference, not a forward-looking plan.
 
 ## Goals
 
@@ -150,7 +156,7 @@ IMAGE_STORAGE_SECRET_KEY=minioadmin
 
 #### Development Environment
 
-Add MinIO to `docker-compose.yml`:
+MinIO is part of the default `docker-compose.yaml` stack:
 
 ```yaml
 minio:
@@ -450,9 +456,10 @@ packages/docs/src/
     docx-importer.ts            # Main importer entry point
     docx-parser.ts              # XML parsing utilities
     docx-style-map.ts           # OOXML → Docs style conversion
+    units.ts                    # OOXML unit conversions (twips/EMUs/half-points → px/pt)
   export/
     docx-exporter.ts            # Main exporter entry point
-    docx-builder.ts             # XML generation utilities
+    docx-templates.ts           # XML generation utilities
     docx-style-map.ts           # Docs → OOXML style conversion
   view/
     fonts.ts                    # Font registry and loading
@@ -464,7 +471,7 @@ packages/backend/src/
     image.service.ts
     image.config.ts
 
-docker-compose.yml              # + MinIO service
+docker-compose.yaml             # MinIO service (part of the default stack)
 ```
 
 ---

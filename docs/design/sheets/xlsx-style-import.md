@@ -12,48 +12,64 @@ target-version: 0.5.0
 
 ## Summary
 
-Today `importXlsxWorkbook` reads only **cell values, formulas, and merges**. It
-never opens `xl/styles.xml` and never inspects the per-cell `s=` (style index)
-attribute, so **every fill, border, font weight/color, alignment, number
-format, column width, hidden row/column, and conditional format is discarded on
-import.** A richly-formatted workbook lands as unstyled black-on-white text.
+`importXlsxWorkbook` now parses `xl/styles.xml` and resolves each cell's `s=`
+(style index) attribute into a `CellStyle` (Phase 1, shipped): **fills, borders,
+font weight/style (bold/italic/underline/strike), text color, horizontal/vertical
+alignment, number format, column widths, row heights, and hidden rows/columns**
+are imported. The per-cell patches are compacted into maximal rectangles before
+they land on the worksheet (Phase 2 compaction, shipped), keeping the Yorkie
+document small.
 
-The good news: the `Worksheet` / `CellStyle` model can already represent the
-majority of this. The fix is largely a **populate-the-existing-model** job in
-the importer, plus a small **model extension** (font family/size, hyperlinks)
-for the handful of things the model genuinely can't express yet.
+Still **not imported** and tracked as future work: conditional formatting, and
+the model extension for per-cell **font family**, **font size**, and **cell
+hyperlinks** — the handful of things the model genuinely can't express yet.
+Originally none of this was imported (the importer read only cell values,
+formulas, and merges); this doc tracked closing that gap.
 
 ## Motivation — the observed gap
 
 Reference file: `Yorkie Task List.xlsx` (8 sheets). Unzipping it shows how much
-formatting a real Google-Sheets-exported workbook carries, and how much is lost:
+formatting a real Google-Sheets-exported workbook carries. The table records the
+gap that motivated this work and the current import status after Phase 1/2:
 
-| Element in the file | Count / example | Currently imported? |
+| Element in the file | Count / example | Imported now? |
 |---|---|---|
-| Fonts | 27 (Arial/Roboto, bold, underline, strike, 10/11pt) | ❌ |
-| Fills (background) | 9 (`D9EAD3` green, `C9DAF8` blue, `FFF2CC` yellow, `F4CCCC` red…) | ❌ |
-| Borders | 13 (thin, per-side) | ❌ |
-| Cell formats (`cellXfs`) | 117 (alignment, wrapText, vertical-center) | ❌ |
-| Number formats | percent (9/10), text (49), custom currency `"$"#,##0.00` (164) | ❌ |
-| Column widths / hidden cols | `<cols>` customWidth ×9 + `hidden="1"` | ❌ |
-| Conditional formatting | 5 `conditionalFormatting` blocks (dxf-based) | ❌ |
-| Hyperlinks | 20 in sheet 1 alone | ❌ (model gap) |
+| Fonts | 27 (Arial/Roboto, bold, underline, strike, 10/11pt) | ⚠️ weight/style/color ✅; **family/size ❌** (Phase 3) |
+| Fills (background) | 9 (`D9EAD3` green, `C9DAF8` blue, `FFF2CC` yellow, `F4CCCC` red…) | ✅ |
+| Borders | 13 (thin, per-side) | ✅ (per-side boolean) |
+| Cell formats (`cellXfs`) | 117 (alignment, wrapText, vertical-center) | ⚠️ alignment ✅; wrapText ❌ |
+| Number formats | percent (9/10), text (49), custom currency `"$"#,##0.00` (164) | ✅ |
+| Column widths / hidden cols | `<cols>` customWidth ×9 + `hidden="1"` | ✅ |
+| Conditional formatting | 5 `conditionalFormatting` blocks (dxf-based) | ❌ (not yet built) |
+| Hyperlinks | 20 in sheet 1 alone | ❌ (model gap, Phase 3) |
 | Comments | 12 legacy + threaded | ❌ |
 | Drawings (images) | `drawing1`–`drawing8` | ❌ |
-| Merges | — | ✅ **the only style-adjacent thing imported** |
+| Merges | — | ✅ |
 
-### Root cause
+### Root cause (addressed for styles in Phase 1)
 
-- `parseCell()` (`xlsx-importer.ts:187`) reads only `<f>` and `<v>`; the `s`
-  attribute is ignored.
-- `importXlsxWorkbook()` never reads `xl/styles.xml`,
-  `xl/worksheets/_rels/*.rels`, `xl/drawings/*`, or `xl/comments*.xml`.
-- The frontend wiring (`xlsx-actions.ts:31`) copies `sheet.worksheet` verbatim —
-  no styling is added downstream either.
+Originally the importer discarded styles because `parseCell()` read only `<f>`
+and `<v>` (the `s` attribute was ignored) and `importXlsxWorkbook()` never read
+`xl/styles.xml`. Phase 1 fixed this:
+
+- `parseWorksheet()` now reads each cell's `s` attribute and resolves it via
+  `styleTable.resolveCellStyle` (`xlsx-importer.ts:351-354`).
+- `importXlsxWorkbook()` parses `xl/styles.xml` once per workbook via
+  `parseStyleTable` (`xlsx-importer.ts:420`, `xlsx-styles.ts`); the resolved
+  styles flow onto `worksheet.rangeStyles`.
+- The frontend wiring (`xlsx-actions.ts`) still copies `sheet.worksheet`
+  verbatim, so the imported styles reach the store with no downstream change.
+
+Still unread: `xl/drawings/*` and `xl/comments*.xml` (images/comments — see
+Non-Goals) and the hyperlink relationships (Phase 3).
 
 ## Goals / Non-Goals
 
 ### Goals
+
+Phase 1 (populate the existing model) and the Phase 2 range-style compaction
+have shipped; conditional-format import and the font-family/size + hyperlink
+model extension remain open.
 
 - **Populate the styles the model already supports** from `xl/styles.xml` + the
   per-cell `s` index: fills, borders, bold/italic/underline/strike, text color,
@@ -83,8 +99,8 @@ formatting a real Google-Sheets-exported workbook carries, and how much is lost:
 
 ### 1. Style resolution pipeline
 
-Add a `xl/styles.xml` parser that produces an indexable style table, then
-resolve each cell's `s` index to a `CellStyle`:
+`xlsx-styles.ts` parses `xl/styles.xml` into an indexable style table
+(`parseStyleTable`), then resolves each cell's `s` index to a `CellStyle`:
 
 ```text
 styles.xml
@@ -124,14 +140,14 @@ the built-in ids (0–49); custom ids (≥164) go through the heuristic.
 ### 3. Cell-level vs range-level storage
 
 XLSX styles are per-cell, but the model favors **range-scoped** patches
-(`rangeStyles: RangeStylePatch[]`) plus `colStyles` / `rowStyles`. Two options:
-
-- **Simple (Phase 1):** write one `rangeStyles` patch per styled cell (a 1×1
-  range). Correct, but produces one patch per cell — heavy for large sheets.
-- **Compacted (Phase 2):** run the existing range-style compaction (the same
-  logic used elsewhere in `range-styles.ts`) to coalesce identical adjacent
-  cell styles into rectangular patches, and lift whole-column/row uniform styles
-  into `colStyles` / `rowStyles`. This is what keeps the Yorkie doc small.
+(`rangeStyles: RangeStylePatch[]`) plus `colStyles` / `rowStyles`. The shipped
+importer collects one 1×1 patch per styled cell, then runs
+`coalesceRangeStylePatchesMaximal` (`range-styles.ts`) to tile identical
+adjacent cell styles into **maximal rectangles** before writing
+`worksheet.rangeStyles`. Excel stamps a style on every cell of a formatted
+table's used range, so this compaction is what keeps the Yorkie doc small.
+Lifting whole-column/row uniform styles into `colStyles` / `rowStyles` is a
+further optimization not yet applied.
 
 Column widths → `colWidths` (convert Excel character-width units to px), row
 heights → `rowHeights` (points→px), `hidden="1"` → `hiddenColumns` /
@@ -173,12 +189,13 @@ Map `<conditionalFormatting sqref><cfRule>` onto `ConditionalFormatRule`:
 
 ### 6. Importer shape changes
 
-`parseWorksheet` gains a `styleTable` parameter (parsed once per workbook) and,
-per cell, resolves `s` → `CellStyle` and records it. `parseCell` additionally
-reads the hyperlink relationship (`<hyperlinks>` + sheet `.rels`). The
-`ImportedXlsxSheet.worksheet` then carries `rangeStyles`/`colWidths`/etc., and
-the frontend wiring needs **no change** — it already copies the whole
-worksheet.
+`parseWorksheet` takes a `styleTable` parameter (parsed once per workbook) and,
+per cell, resolves `s` → `CellStyle` and records it. The
+`ImportedXlsxSheet.worksheet` carries `rangeStyles`/`colWidths`/`rowHeights`/
+`hiddenRows`/`hiddenColumns`, and the frontend wiring needs **no change** — it
+already copies the whole worksheet. Reading the hyperlink relationship
+(`<hyperlinks>` + sheet `.rels`) is deferred to Phase 3 alongside the `Cell.lk`
+model addition.
 
 ## Current Limitations
 
@@ -187,26 +204,30 @@ worksheet.
 2. Theme/indexed colors use a static fallback palette — exotic theme overrides
    may resolve approximately.
 3. Rich-text runs, images, and comments are not imported (later phases).
-4. Conditional formats beyond the mapped operator set are skipped, not
-   approximated.
+4. Conditional formats are not imported yet (planned; once built, formats
+   beyond the mapped operator set will be skipped rather than approximated).
+5. Per-cell font family/size and hyperlinks are not imported (the model lacks
+   `CellStyle.ff`/`fs` and `Cell.lk`; Phase 3).
 
 ## Rollout
 
-- **Phase 1 — core visual styles (biggest win).** Parse `xl/styles.xml`; map
-  fills, borders, bold/italic/underline/strike, text color, alignment, number
-  format; column widths / row heights / hidden. Store as per-cell `rangeStyles`.
-  No model change.
-- **Phase 2 — compaction + conditional formatting.** Coalesce range styles, lift
-  col/row-uniform styles; import mappable conditional formats.
+- **Phase 1 — core visual styles (biggest win). ✅ Shipped.** Parses
+  `xl/styles.xml`; maps fills, borders, bold/italic/underline/strike, text
+  color, alignment, number format; column widths / row heights / hidden. Stored
+  as `rangeStyles`. No model change. (`xlsx-styles.ts`, `xlsx-importer.ts`.)
+- **Phase 2 — compaction + conditional formatting. ◐ Partly shipped.** Range-
+  style compaction via `coalesceRangeStylePatchesMaximal` ships in Phase 1
+  already; whole-column/row lifting and conditional-format import are **not yet
+  built**.
 - **Phase 3 — model extension.** Add `CellStyle.ff`/`fs` (font family/size) and
-  `Cell.lk` (hyperlink); wire renderer + toolbar + Yorkie schema.
-- **Phase 4 — images & comments** (optional, largest surface).
+  `Cell.lk` (hyperlink); wire renderer + toolbar + Yorkie schema. Not started.
+- **Phase 4 — images & comments** (optional, largest surface). Not started.
 
 ## Risks and Mitigation
 
 | Risk | Mitigation |
 |---|---|
-| One `rangeStyles` patch per cell bloats the Yorkie doc | Phase 1 coalesces adjacent per-cell patches (column then row) via `coalesceAdjacentRangeStylePatches`; Phase 2 adds col/row-uniform lifting. A hard patch-count cap with unstyled fallback is deferred to Phase 2. |
+| One `rangeStyles` patch per cell bloats the Yorkie doc | Phase 1 tiles per-cell patches into maximal rectangles via `coalesceRangeStylePatchesMaximal`; col/row-uniform lifting and a hard patch-count cap with unstyled fallback remain future work. |
 | Number-format heuristic misreads custom codes | Built-in id lookup first; heuristic only for custom ids; default to `plain` on ambiguity (never corrupt the value). |
 | `CellStyle` field additions ripple across renderer/schema | Isolated in Phase 3; Phases 1–2 use only existing fields. |
 | Theme-color resolution incomplete | Static indexed+theme fallback palette; document as approximate. |
@@ -215,6 +236,8 @@ worksheet.
 ## References
 
 - Importer: `packages/sheets/src/import/xlsx-importer.ts`
+- Style parser: `packages/sheets/src/import/xlsx-styles.ts` (`parseStyleTable`,
+  `resolveCellStyle`, `mapNumberFormat`, `normalizeColor`)
 - Frontend wiring: `packages/frontend/src/app/spreadsheet/xlsx-actions.ts`
 - Model: `packages/sheets/src/model/workbook/worksheet-document.ts`,
   `packages/sheets/src/model/core/types.ts` (`CellStyle`, `NumberFormat`,

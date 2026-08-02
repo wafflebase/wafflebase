@@ -85,12 +85,13 @@ sheets/docs/slides ← frontend, backend, cli
 | Fill/gradient picker (frontend) | slides-only | **D** | Extract on demand. |
 | Chart | sheets=Recharts/DOM, slides=Canvas painter | **D** | Convergence target, not an extraction (see below). |
 
-Geometry redefinition sites (Tier A, illustrative):
-`packages/slides/src/model/frame.ts`,
+Geometry redefinition sites (Tier A). Phase 0 has since migrated the slides
+sites — `packages/slides/src/model/frame.ts`,
 `packages/slides/src/view/canvas/routing.ts`,
 `packages/slides/src/view/editor/interactions/insert.ts`,
-`packages/slides/src/view/editor/interactions/lasso.ts`,
-`packages/slides/src/model/image-crop.ts`,
+`packages/slides/src/view/editor/interactions/lasso.ts`, and
+`packages/slides/src/model/image-crop.ts` all import from
+`@wafflebase/core/geometry` now. The remaining local redefinition is
 `packages/sheets/src/view/layout.ts` (`Size` with `width/height` vs slides
 `w/h` — a real field-name mismatch across packages).
 
@@ -127,6 +128,7 @@ packages/core/
     tokens/               → @wafflebase/core/tokens     (palette, semantic, radius, typography, contrast)
       index.ts palette.ts semantic.ts radius.ts typography.ts contrast.ts
     geometry/index.ts     → @wafflebase/core/geometry     (Point/Rect/Size, bbox, hit-test)
+    url/index.ts          → @wafflebase/core/url           (SAFE_PROTOCOLS, isSafeUrl)  [shipped]
     canvas/index.ts       → @wafflebase/core/canvas        (DPR ctx setup, drawRoundedRect, offscreen)
     ooxml/
       index.ts            → @wafflebase/core/ooxml         (zip · xml · rels · units · escape)
@@ -140,6 +142,7 @@ packages/core/
   "./tokens":          { "types": "...", "import": "./dist/tokens/index.js",         "require": "./dist/cjs/tokens/index.js" },
   "./tokens.css":      "./dist/tokens.css",
   "./geometry":        { "types": "...", "import": "./dist/geometry/index.js",       "require": "./dist/cjs/geometry/index.js" },
+  "./url":             { "types": "...", "import": "./dist/url/index.js",            "require": "./dist/cjs/url/index.js" },
   "./canvas":          { "types": "...", "import": "./dist/canvas/index.js",         "require": "./dist/cjs/canvas/index.js" },
   "./ooxml":           { "types": "...", "import": "./dist/ooxml/index.js",          "require": "./dist/cjs/ooxml/index.js" },
   "./ooxml/drawingml": { "types": "...", "import": "./dist/ooxml/drawingml/index.js","require": "./dist/cjs/ooxml/drawingml/index.js" }
@@ -208,11 +211,14 @@ regression risk is staged.
 4. **Phase 3+ (deferred)** — chart convergence, color/theme model, store base:
    only after the OOXML core is stable.
 
-### Incidental fix
+### Incidental fix (shipped in Phase 0)
 
-`packages/docs/package.json` lists `@wafflebase/tokens` under
-**devDependencies**, but `packages/docs/src/view/theme.ts` imports `palette`
-at runtime. Promote to a regular dependency (fold into Phase 0).
+`packages/docs/package.json` previously listed `@wafflebase/tokens` under
+**devDependencies** while `packages/docs/src/view/theme.ts` imported `palette`
+at runtime. Resolved: `@wafflebase/tokens` no longer exists (folded into
+`@wafflebase/core`), `packages/docs/package.json` carries `@wafflebase/core`
+under **dependencies**, and `packages/docs/src/view/theme.ts` imports `palette`
+from `@wafflebase/core/tokens` at runtime.
 
 ### Risks and Mitigation
 

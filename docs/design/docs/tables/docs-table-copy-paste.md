@@ -24,9 +24,13 @@ This document covers Phase 1 (cell-to-cell) and Phase 3 (external table paste).
 
 **Non-Goals:**
 - Auto-expanding the target table when pasted data exceeds bounds (clamp instead)
-- Copying/pasting cell merge (colSpan/rowSpan) attributes in Phase 1
 - External HTML table parsing (Phase 3)
 - Undo/redo integration beyond existing `saveSnapshot()` mechanism
+
+Cell merge (colSpan/rowSpan) attributes are now copied and pasted:
+`cloneTableCells()` forwards the spans verbatim, `pasteTableCells()` repairs
+the grid invariant via `normalizeTableMerges()`, and the copy selection is
+expanded over merges via `expandCellRangeForMerges()`.
 
 ## Proposal Details
 
@@ -92,8 +96,9 @@ Both copy and paste need to regenerate block IDs inside cells to avoid ID collis
 function cloneTableCells(cells: TableCell[][]): TableCell[][] {
   return cells.map(row =>
     row.map(cell => ({
-      ...cell,
       style: { ...cell.style },
+      ...(cell.colSpan != null ? { colSpan: cell.colSpan } : {}),
+      ...(cell.rowSpan != null ? { rowSpan: cell.rowSpan } : {}),
       blocks: cell.blocks.map(b => ({
         ...b,
         id: generateBlockId(),
@@ -104,6 +109,9 @@ function cloneTableCells(cells: TableCell[][]): TableCell[][] {
   );
 }
 ```
+
+The `colSpan`/`rowSpan` fields are forwarded so merges survive a copy; after
+paste, `pasteTableCells()` calls `normalizeTableMerges()` to repair the grid.
 
 ### Changed Files
 
@@ -116,7 +124,7 @@ function cloneTableCells(cells: TableCell[][]): TableCell[][] {
 ### Unchanged
 
 - `selection.ts` — existing `tableCellRange` and `getSelectedText()` reused as-is
-- `document.ts` — existing `updateCellBlocks()` reused
+- `document.ts` — existing `updateBlockDirect()` reused to persist the pasted table block
 - `types.ts` — existing `TableCell`, `TableCellRange`, `CellAddress` reused
 
 ## Risks and Mitigation
@@ -125,7 +133,7 @@ function cloneTableCells(cells: TableCell[][]): TableCell[][] {
 |------|------------|
 | Large cell ranges produce big clipboard payloads | JSON serialization is fast for typical table sizes (<1000 cells); defer optimization |
 | Block ID collisions after paste | Always regenerate IDs via `generateBlockId()` during clone |
-| Paste into merged cells may corrupt layout | Phase 1 skips colSpan/rowSpan — paste treats each cell independently |
+| Paste into merged cells may corrupt layout | Merge spans are carried through and `normalizeTableMerges()` repairs the grid invariant after paste |
 | Cut from table leaves empty cells vs. removing rows | Cut replaces cell content with empty blocks (like spreadsheet behavior), does not remove structural rows/columns |
 
 ## Phase 3: External Table Paste
@@ -145,7 +153,7 @@ markdown table syntax — into `TableCell[][]`, then reuse the existing
 
 ### Non-Goals
 
-- colSpan/rowSpan from external HTML (Phase 1 already defers this)
+- colSpan/rowSpan from external HTML — `parseHtmlTableElement()` does not read `colspan`/`rowspan` attributes (internal cell-range copy/paste does preserve merges)
 - Markdown cell formatting (bold `**text**`, etc.) — cells are plain text
 
 ### New Functions in `clipboard.ts`

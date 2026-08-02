@@ -49,7 +49,8 @@ real, typed cell value.
 - A worksheet-level `DataValidationRule[]` model, range-scoped, mirroring
   `ConditionalFormatRule`. Cells stay untouched; the formula engine stays
   untouched.
-- Three control kinds: `checkbox`, `list`, `date`.
+- Control kinds: `checkbox`, `list`, `date` — since extended to `number` and
+  `text` comparison validation (all five shipped; see the Phase 4/5 sections).
 - In-cell rendering: checkbox glyph, dropdown arrow, and a warning marker for
   invalid values — reusing the filter-button render/hit-test precedent.
 - Interaction: click/Space toggle for checkboxes; anchored popover for list;
@@ -78,8 +79,13 @@ real, typed cell value.
 Add to `packages/sheets/src/model/core/types.ts`, mirroring
 `ConditionalFormatRule` (`types.ts:126-133`):
 
+The kind union grew across phases; the shipped type carries five kinds and a
+generic `operator`+`values` substructure (the `date`/`number`/`text` comparison
+kinds) in place of the original date-specific `dateMin`/`dateMax` fields — see
+the Phase 4/5 sections below for the rationale:
+
 ```typescript
-export type DataValidationKind = 'checkbox' | 'list' | 'date';
+export type DataValidationKind = 'checkbox' | 'list' | 'date' | 'number' | 'text';
 
 export type DataValidationRule = {
   id: string;
@@ -95,9 +101,9 @@ export type DataValidationRule = {
   checkedValue?: string;   // custom checked value (default: boolean "TRUE")
   uncheckedValue?: string; // custom unchecked value (default: boolean "FALSE")
 
-  // kind: 'date'
-  dateMin?: string;        // ISO lower bound, optional
-  dateMax?: string;        // ISO upper bound, optional
+  // kind: 'date' | 'number' | 'text' (operator + comparison operands)
+  operator?: DataValidationOperator;
+  values?: string[];       // operands (ISO date / number / text); length by operator
 };
 ```
 
@@ -634,10 +640,10 @@ quirk); the new `describeNumberRule` checks operands by index to avoid it.
 
 ### Testing
 
-> Scope note: this section is the testing strategy for the **full** feature
-> (all three kinds). Phases 1–2 shipped checkbox + list; Phase 4 (above) adds
-> date. See each phase's "as shipped"/"design" subsection for the coverage that
-> actually landed.
+> Scope note: this section is the testing strategy for the **full** feature.
+> Phases 1–2 shipped checkbox + list; Phase 4 added date; Phase 5 added the
+> `number`/`text` comparison kinds. See each phase's "as shipped"/"design"
+> subsection for the coverage that actually landed.
 
 - **model unit tests** (Vitest, `packages/sheets`): `resolveDataValidationAt` range
   matching (overlap/priority); checkbox value transitions (`TRUE`↔`FALSE`,

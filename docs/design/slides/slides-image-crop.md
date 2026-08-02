@@ -9,19 +9,17 @@ target-version: 0.5.0
 
 ## Summary
 
-Slides images already carry a normalized `crop` rectangle in the data
-model, the Canvas renderer already paints through it, and the PPTX
-importer already produces it. What is missing is the **interactive crop
-UX**: there is no way for a user to define or adjust a crop in the
-editor. The toolbar ships a disabled `IconCrop` placeholder whose
-comment reads *"full crop UI is deferred to a separate spec"* — this is
-that spec.
+Slides images carry a normalized `crop` rectangle in the data model, the
+Canvas renderer paints through it, and the PPTX importer produces it. The
+**interactive crop UX** described here is now shipped: a user can define
+and adjust a crop in the editor. The toolbar `IconCrop` button is active
+(it was previously a disabled placeholder).
 
 P0 delivers **free rectangular crop** (Google Slides / PowerPoint basic
 crop): enter a crop session on an image, drag eight black crop handles
 to trim the edges, pan the image underneath a fixed crop window, and
-commit. Crop-to-shape (masking) and aspect-ratio presets are explicitly
-P1 and live in their own follow-up.
+commit. Crop-to-shape (masking) and aspect-ratio presets remain P1 and
+live in their own follow-up.
 
 ## Goals / Non-Goals
 
@@ -56,15 +54,16 @@ P1 and live in their own follow-up.
 
 ## Proposal Details
 
-### Existing surface (no change needed)
+### Surface (shipped)
 
 | Concern | Where | State |
 | --- | --- | --- |
 | Model | `model/element.ts` — `ImageElement.data.crop?: Crop`, `Crop = { x, y, w, h }` normalized `0..1` of natural image | ✅ |
-| Render | `view/canvas/image-renderer.ts` `drawImage` — `drawImage(img, sx,sy,sw,sh, 0,0,w,h)` maps the crop source-rect onto the element frame | ✅ |
+| Crop math | `model/image-crop.ts` — `effectiveCrop`, `cropToFull`, `windowToCrop`, `applyCropHandle`, `panFull`, `normalizeCrop`, `frameToLocalWindow`, `windowToFrame`, `rotateVec`, `MIN_CROP_PX` | ✅ |
+| Render | `view/canvas/image-renderer.ts` — `drawImage` maps the crop source-rect onto the element frame; `drawCropPreview` paints the crop-mode overlay (called from `view/canvas/slide-renderer.ts`) | ✅ |
 | PPTX import | `import/pptx/image.ts` — `<a:srcRect>` and `<a:stretch><a:fillRect>` → `Crop` | ✅ |
 | Store ops | `store.ts` — `updateElementFrame`, `updateElementData`, `batch` | ✅ |
-| Toolbar slot | `frontend/.../toolbar/image-controls.tsx` — Replace / Crop (disabled) / Reset crop | partial |
+| Toolbar slot | `packages/frontend/src/app/slides/toolbar/image-controls.tsx` — Replace / Crop (active) / Reset crop | ✅ |
 
 The crop semantics are fixed by the renderer: **the crop source-rect is
 stretched to fill the element frame.** So `crop` answers "which sub-rect
@@ -135,48 +134,52 @@ frames, which would need a scope transform).
 
 ### Crop session state (editor)
 
-Mirror the existing text-edit session machinery in
+The crop session mirrors the existing text-edit session machinery in
 `view/editor/editor.ts` (`editingElementId` + `enterEditMode` /
-`exitEditMode`). Add a parallel, mutually-exclusive crop session:
+`exitEditMode`). It is a parallel, mutually-exclusive session held in a
+single `cropSession` field (no separate `croppingElementId`):
 
 ```ts
-private croppingElementId: string | null = null;
 private cropSession: {
   slideId: string;
   elementId: string;
-  before: { frame: Frame; crop?: Crop };  // for Esc / undo bracket
   full: { x: number; y: number; w: number; h: number }; // bitmap box
+  window: { x: number; y: number; w: number; h: number }; // bright crop box
+  ...
 } | null = null;
 ```
 
-- `enterCropMode(slideId, elementId)` — commit any open text edit first
-  (`editingElementId !== null → exitEditMode('commit')`); they are
-  mutually exclusive. Snapshot `before`, compute `full`, set state, open
-  one `store.batch` bracket, request a repaint.
-- `exitCropMode('commit' | 'cancel')` — on cancel, write `before` back;
-  on commit, the live drag handlers have already pushed `frame`/`crop`
-  via the store. Close the batch, clear state, repaint.
+- `enterImageCrop(elementId)` — commits any open text edit first (they
+  are mutually exclusive). Compute `full`/`window`, set state, request a
+  repaint. No store write happens on entry — the drag handlers
+  mutate the editor-local session, not the store. `isCropping()` reports
+  whether a session is active; `onCropChange(cb)` lets the toolbar
+  subscribe to enter/exit.
+- `exitImageCrop(commit: boolean)` — on cancel, nothing was written, so
+  just tear the session down; on commit, write the final `frame` + `crop`
+  together in one synchronous `store.batch()`, then clear state and
+  repaint. (`store.batch(fn)` closes its `doc.update()` scope when `fn`
+  returns, so it cannot stay open across the session's pointer events.)
 
 Entry points:
 
-1. **Double-click an image.** `onDoubleClick` currently early-returns
-   for non-text/shape leaf elements (`el.type !== 'text' && 'shape'`).
-   Add an `el.type === 'image'` branch that calls
-   `enterCropMode(slide.id, el.id)`. This matches Google Slides, where
-   double-clicking an image enters crop.
-2. **Toolbar Crop button.** Enable the placeholder; `onClick` calls a
-   thin `editor.enterCropMode(slideId, ids[0])` (single-selection only).
+1. **Double-click an image.** `onDoubleClick` has an `el.type === 'image'`
+   branch (top-level images only) that calls `enterImageCrop(el.id)`.
+   This matches Google Slides, where double-clicking an image enters crop.
+2. **Toolbar Crop button.** `onClick` toggles `editor.enterImageCrop(firstId)`
+   / `editor.exitImageCrop(true)` (single-selection only).
 
 Exit: `Enter` / click-outside / select-another → `commit`; `Esc` →
-`cancel`. Reuse the existing global key + outside-click plumbing that
+`cancel`. Reuses the existing global key + outside-click plumbing that
 text-edit already hooks.
 
 ### Interaction handlers
 
-Add `view/editor/interactions/crop.ts` alongside `resize.ts` / `drag.ts`
-/ `rotate.ts`, following their hit-test → move → commit shape. While a
-crop session is active the normal resize/rotate/drag handlers are
-suppressed for that element (the selection overlay swaps to crop chrome).
+The crop hit-test → move → commit handling lives inline in the crop
+session in `view/editor/editor.ts` (not a separate `interactions/crop.ts`
+file), driving the `model/image-crop.ts` helpers. While a crop session is
+active the normal resize/rotate/drag handlers are suppressed for that
+element (the selection overlay swaps to crop chrome).
 
 - **Crop-handle drag (trim).** Eight handles on the crop window
   (`frame`). Dragging an edge/corner moves that side of `frame`, clamped
@@ -186,10 +189,12 @@ suppressed for that element (the selection overlay swaps to crop chrome).
 - **Image pan.** Dragging inside the crop window moves `full` (the
   bitmap) under the fixed `frame`, clamped so `frame` stays within
   `full`. `crop.x/cy` shift; `crop.w/ch` unchanged.
-- Each pointer-move writes through `store.updateElementFrame` +
-  `store.updateElementData(..., { crop })` inside the open batch; the
-  renderer already reflects it live. Snapping/smart-guides are **off**
-  in crop mode (P0) to keep the math simple.
+- Each pointer-move mutates the editor-local `cropSession` (`full` /
+  `window`) only; the renderer reflects it live via the crop-preview
+  descriptor. The store is written once — `store.updateElementFrame` +
+  `store.updateElementData(..., { crop })` in a single `store.batch()` on
+  commit. Snapping/smart-guides are **off** in crop mode (P0) to keep the
+  math simple.
 
 ### Rendering in crop mode
 
@@ -210,18 +215,16 @@ handles.
 
 ### Toolbar wiring (`image-controls.tsx`)
 
-- Replace the disabled Crop button with an active one:
-  `onClick={() => editor?.enterCropMode(slideId, firstId)}`, enabled
-  when a single image is selected and the editor is editable.
-- While a crop session is active, render the button **pressed/active**;
-  clicking again (or the tooltip "Done") commits.
-- Keep **Reset crop** as-is. Confirm reset also restores `frame` to the
-  uncropped natural box; today it only clears `data.crop`, which—given
-  the stretch semantics—re-stretches the full bitmap into the old
-  cropped frame. P0 fix: on reset, recompute `frame` from `full` so the
-  picture returns to its true proportions, or document that reset keeps
-  the frame and only un-trims. (Decision: restore proportions; it is the
-  least surprising and matches GS "Reset image".)
+- The Crop button is active: `onCrop` toggles
+  `editor.enterImageCrop(firstId)` / `editor.exitImageCrop(true)`, enabled
+  when a single image is selected and the editor is present.
+- While a crop session is active the button renders **pressed/active**
+  (`aria-pressed`, muted background) with a "Done cropping" tooltip;
+  clicking again commits.
+- **Reset crop** routes through `editor.resetImageCrop(firstId)` so the
+  `frame` is recomputed from the uncropped bitmap (restoring true
+  proportions) rather than re-stretching the full bitmap into the stale
+  cropped frame, in one undo step. This matches GS "Reset image".
 
 ### Collaboration
 
@@ -240,8 +243,8 @@ local/presence-free in P0 (no "user is cropping" indicator).
 - **Renderer:** crop-mode overlay paints dimmed-full + full-kept +
   handles (ctx-spy assertions, mirroring existing image-renderer tests).
 - **Interaction:** enter via double-click and via toolbar; commit on
-  Enter / outside-click; cancel on Esc restores `before`; mutual
-  exclusion with text-edit.
+  Enter / outside-click; cancel on Esc leaves the model unchanged (no
+  store write occurred); mutual exclusion with text-edit.
 - **PPTX round-trip:** crop produced in-editor exports and re-imports to
   an equivalent `<a:srcRect>` (extends existing `import/pptx/image`
   coverage).
@@ -250,9 +253,11 @@ local/presence-free in P0 (no "user is cropping" indicator).
 
 ### Rollout
 
-Single PR (model/render/import already landed): editor crop session +
-`crop.ts` interaction + overlay paint + toolbar enablement + tests.
-Update `packages/slides/README.md` image section.
+Shipped in a single PR (on top of the already-landed model/render/import):
+editor crop session (inline in `editor.ts`), `model/image-crop.ts`
+helpers, `drawCropPreview` overlay paint, toolbar enablement, and tests
+(`test/model/image-crop.test.ts`, `test/view/canvas/crop-preview.test.ts`,
+`test/view/editor/image-crop-session.test.ts`).
 
 ## Risks and Mitigation
 

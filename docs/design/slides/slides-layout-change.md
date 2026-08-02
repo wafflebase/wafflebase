@@ -130,9 +130,11 @@ slide.elements.push({
 
 ### Store — `applyLayout` semantics
 
-A pure function `applyLayoutToSlide(slide, newLayout): void` lives
-in `packages/slides/src/model/layout.ts` and is called by both
-stores so the semantics never diverge.
+A pure function
+`applyLayoutToSlide(slide, newLayout, context?): void` (where
+`context?: { master: Master; theme: Theme }` seeds placeholder
+typography) lives in `packages/slides/src/model/layout.ts` and is
+called by both stores so the semantics never diverge.
 
 The algorithm has three passes:
 
@@ -170,7 +172,7 @@ non-empty) until then so we never lose a non-text orphan.
 ### Yorkie store
 
 `YorkieSlidesStore.applyLayout`
-(`packages/frontend/src/app/slides/yorkie-slides-store.ts:559`)
+(`packages/frontend/src/app/slides/yorkie-slides-store.ts`)
 calls the same pure `applyLayoutToSlide` from inside its existing
 `this.doc.update((r) => …)` block, where direct mutation of the
 slide proxy already works for the simpler additive logic today.
@@ -198,14 +200,17 @@ export interface LayoutPickerOptions {
   store: SlidesStore; // for theme/master lookup
   selectedLayoutId?: string; // outlined cell, optional
   anchor: { x: number; y: number };
+  trigger?: HTMLElement | null; // element that opened the picker
   onPick: (layoutId: string) => void;
   onClose: () => void;
 }
 
+// Returns an idempotent `close` handle so callers can dismiss the
+// popover programmatically (host unmount, trigger toggle).
 export function showLayoutPicker(
   host: HTMLElement,
   opts: LayoutPickerOptions,
-): void;
+): () => void;
 ```
 
 The picker mounts a `<div>` popover into `host`, positioned at
@@ -216,7 +221,7 @@ Esc → `onClose()` only. Arrow-key nav and Enter for keyboard.
 
 ### UI — split-button on `+`
 
-`packages/slides/src/view/editor/thumbnail-panel.ts:120` is the
+`packages/slides/src/view/editor/thumbnail-panel.ts` is the
 only place that calls `addSlide('blank')`. Split the existing
 `<button>` into a flex container with two hit zones:
 
@@ -261,11 +266,20 @@ Internally:
 3. Return the resulting `HTMLCanvasElement`.
 
 A module-level `Map` cache keyed
-`${themeId}:${masterId}:${layoutId}:${w}x${h}` avoids re-rendering
-the same preview. Theme/master switches naturally produce
-different keys; old entries fall out of reachability and become
-GC eligible. No LRU eviction in v1 (5 themes × 1 master × 11
-layouts × 2 sizes = 110 entries max).
+`${themeId}:${masterId}:${layoutId}:${w}x${h}@${dpr}:${sig}` —
+where `sig` is a JSON signature of the rendered content (theme
+colors/fonts, master background/placeholder styles, layout
+placeholders/background/static elements) so an in-place theme edit
+invalidates the bitmap rather than serving a stale one — avoids
+re-rendering the same preview. Because the theme builder edits
+themes/masters/layouts in place, each edit mints a new content key
+and the `Map` entries stay strongly reachable until deleted, so the
+cache would otherwise grow without bound. A `CACHE_CAP` of 128 bounds
+it: once `cache.size` exceeds the cap, the oldest entry (the `Map`'s
+first insertion-order key) is evicted. The immutable built-in previews
+(5 themes × 1 master × 11 layouts × 2 sizes = 110 entries) hash to
+stable keys and stay hot within the cap; only stale edited-layout
+bitmaps churn out over a long theme-editing session.
 
 ### Empty-placeholder ghost text
 
@@ -298,16 +312,20 @@ Implementation:
   }
   ```
 
-- `drawText` (`view/canvas/text-renderer.ts`) gains an optional
-  `placeholderHint?: string` parameter. When set **and** the text
-  element's blocks are all empty (existing `isElementEmpty`
-  semantics), it paints the hint string in a muted theme-aware
-  grey at the placeholder's natural baseline instead of running
-  the empty layout pass.
+- `drawText` (`packages/slides/src/view/canvas/text-renderer.ts`)
+  gains an optional
+  `placeholderHint?: { text: string; style: PlaceholderStyle }`
+  option. When set **and** the text element's blocks are all empty
+  (existing `isElementEmpty` semantics), it paints the hint text in
+  the slot's master typography (font role/size, color role,
+  alignment) instead of running the empty layout pass.
 
-- `drawElement` (`view/canvas/element-renderer.ts`) passes the
-  hint when the element has a `placeholderRef`, otherwise omits
-  it. User-added text boxes get no hint — by design.
+- `drawElement`
+  (`packages/slides/src/view/canvas/element-renderer.ts`) resolves
+  the hint text (`placeholderHintFor`) and the master's
+  `placeholderStyles` entry for the element's `placeholderRef.type`,
+  passing them when the element has a `placeholderRef`, otherwise
+  omitting it. User-added text boxes get no hint — by design.
 
 - The text-box editor (vanilla `contentEditable`) is **out of
   scope** for v1. While the user is actively editing, the
@@ -318,9 +336,18 @@ Implementation:
   placeholder hint at the contentEditable layer too — small
   follow-up.
 
-- Presentation mode is not yet built (Phase 5b-2). When it lands,
-  it gates its own renderer flag and skips the hint entirely so
-  ghost text never reaches the audience.
+- Presentation mode has since shipped
+  (`packages/slides/src/view/present/presenter.ts`, exported as
+  `startPresenter`), and it renders through the same `SlideRenderer`
+  as the editor. The renderer-level hint-suppression flag envisioned
+  here was **not** built: `SlideRendererOptions` carries no such
+  flag and `element-renderer.ts` paints the ghost hint
+  unconditionally for empty `placeholderRef`-bearing text elements.
+  In practice presented decks are authored decks — placeholders that
+  reach the audience have real content, so an empty-placeholder hint
+  on a presented slide is not observed. If audience-facing suppression
+  is ever needed, gate the hint on a renderer option — a small
+  follow-up.
 
 ### Migration
 
@@ -392,11 +419,12 @@ Browser smoke (manual, `pnpm dev`):
   not deployed yet. If decks accumulate before launch, a
   one-shot back-fill in `migrate.ts` is a 30-line change.
 
-- **Risk: preview cache grows unbounded with many themes.** Today
-  there are 5 themes, ≤2 masters per deck in practice, 11
-  layouts, and 1–2 preview sizes — roughly ≤220 canvases. At
-  160×90 RGBA, each canvas is ≈ 56 KB, so ≤ 13 MB worst case.
-  Acceptable. If custom themes ship, add LRU.
+- **Risk: preview cache grows unbounded with many themes or live
+  theme-builder edits.** A module-level `Map` never releases entries
+  on its own, and in-place theme edits mint a fresh content key each
+  time. Mitigated by a `CACHE_CAP` of 128 with oldest-first
+  (insertion-order) eviction. At 160×90 RGBA each canvas is ≈ 56 KB,
+  so the cache is bounded to ≈ 7 MB worst case.
 
 - **Risk: split-button hit-target ambiguity.** Mitigated by
   separator + ≥24 px right zone, and unambiguous icons (`+` left,

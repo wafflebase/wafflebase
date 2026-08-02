@@ -84,8 +84,10 @@ CodePair's Yorkie schema is tiny, which is what makes this port small:
 // Yorkie document root (identical to CodePair)
 type NoteRoot = { content: yorkie.Text };
 
-// Yorkie presence (identical to CodePair)
-type NotePresence = {
+// Yorkie presence (shipped as `NotesPresence`; the color/name/selection/cursor
+// caret fields are identical to CodePair, plus username/email/photo identity
+// fields for the shared UserPresence avatar chrome)
+type NotesPresence = {
   color: string;
   name: string;
   selection: yorkie.TextPosStructRange | null;
@@ -104,21 +106,22 @@ Vite + `vite-plugin-dts`, browser + `./node` export conditions, `src/index.ts`
 barrel). CodePair's `packages/codemirror` is ported here and reorganized to
 match Wafflebase's engine shape:
 
-- `src/model/` — note data types. Thin: content is a single markdown string.
 - `src/store/` — `NoteStore` interface (mirrors `DocStore` / `Store`) plus a
   `MemNoteStore` for tests. This is the persistence abstraction the CodeMirror
   view talks to; the Yorkie-backed implementation lives in the frontend
-  (below), same split as `packages/docs`.
-- `src/view/` — `initialize(container, store, theme)` → `EditorAPI`. Internally
-  builds the CodeMirror 6 `EditorState`: `@codemirror/lang-markdown`,
-  `basicSetup` (history **disabled** — Yorkie owns undo/redo), light/dark
-  themes, line wrapping, the Yorkie sync binding, toolbar, and the preview
-  pane (`@uiw/react-markdown-preview` or equivalent).
-- `src/yorkie/` — the CodeMirror↔Yorkie binding ported nearly verbatim from
-  CodePair (`yorkieSync.ts`, `remoteSelection.ts`, `index.ts`). Adjusted for
-  Wafflebase's `@yorkie-js/sdk` **0.7.8** (CodePair uses 0.7.12 — the `Text`
-  and presence APIs used here are stable across that gap, but the port must be
-  verified against 0.7.8).
+  (below), same split as `packages/docs`. Note data types are thin (content is
+  a single markdown string) and live in `packages/notes/src/store/store.ts` +
+  `packages/notes/src/types.ts` (there is no separate `src/model/` directory).
+- `src/view/` — `initialize(container, store, theme, readOnly, viewMode)` →
+  `NoteEditorAPI`. Internally builds the CodeMirror 6 `EditorState`:
+  `@codemirror/lang-markdown`, `basicSetup` (history **disabled** — Yorkie owns
+  undo/redo), light/dark themes, line wrapping, the Yorkie sync binding,
+  toolbar, and the preview pane. The CodeMirror↔Yorkie binding was ported
+  nearly verbatim from CodePair and lives alongside the view in
+  `packages/notes/src/view/note-sync.ts` +
+  `packages/notes/src/view/remote-selection.ts` (there is no separate
+  `src/yorkie/` directory). It targets Wafflebase's `@yorkie-js/sdk` **0.7.13**
+  using only stable `Text` + presence APIs.
 
 The port preserves CodePair's `EditorPort` adapter idea so the app manipulates
 the editor (getSelection / replaceRange / getContent / scrollIntoView) without
@@ -129,7 +132,7 @@ depending on CodeMirror directly.
 Mirrors `app/docs/`:
 
 - `notes-detail.tsx` — route component; mounts `<DocumentProvider
-  docKey={`note-${id}`} initialRoot={initialNoteRoot()}>` using
+  docKey={`note-${id}`} initialRoot={initialNotesRoot()}>` using
   `@yorkie-js/react`.
 - `notes-view.tsx` — constructs `YorkieNoteStore` from `useDocument()` and calls
   the engine's `initialize(container, store, theme)`.
@@ -139,8 +142,8 @@ Mirrors `app/docs/`:
   the Wafflebase-native equivalent of CodePair's `useYorkieDocument` +
   `yorkieSync` glue, adapted to `@yorkie-js/react`'s provider pattern.
 - Yorkie root type + seed live in `packages/frontend/src/types/notes-document.ts`
-  (`YorkieNotesRoot`, `initialNoteRoot()`), same location convention as
-  `types/docs-document.ts`.
+  (`YorkieNotesRoot`, `initialNotesRoot()`), same location convention as
+  `packages/frontend/src/types/docs-document.ts`.
 
 #### Data flow (collaboration)
 
@@ -210,11 +213,10 @@ the prefix.
 
 ### Risks and Mitigation
 
-- **Yorkie SDK version skew (0.7.12 → 0.7.8).** CodePair's binding targets a
-  newer SDK. *Mitigation:* the ported binding only uses stable `Text` +
-  presence APIs (`edit`, `toString`, `posRangeToIndexRange`,
-  `indexRangeToPosRange`, `getPresences`); verify each against 0.7.8 during the
-  port and pin behavior with a store-level test.
+- **Yorkie SDK version skew (resolved).** The ported binding only uses stable
+  `Text` + presence APIs (`edit`, `toString`, `posRangeToIndexRange`,
+  `indexRangeToPosRange`, `getPresences`); it shipped against Wafflebase's
+  `@yorkie-js/sdk` **0.7.13** with store-level tests pinning the behavior.
 - **CodeMirror as a new frontend dependency / bundle size.** Wafflebase editors
   are Canvas-based; CodeMirror 6 + markdown lang + preview is a new, sizable
   dependency loaded only on the `/n/:id` route. *Mitigation:* lazy-load the

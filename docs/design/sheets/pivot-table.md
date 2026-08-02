@@ -50,7 +50,7 @@ The pivot table system spans three layers:
 │  Field drag-and-drop, refresh button             │
 ├──────────────────────────────────────────────────┤
 │              Sheet Engine (packages/sheets)        │
-│  PivotCalculator  ─── PivotMaterializer          │
+│  calculatePivot()  ─── materialize()             │
 │  Data parsing, grouping, aggregation, cell output │
 ├──────────────────────────────────────────────────┤
 │                Store / Yorkie CRDT               │
@@ -396,13 +396,16 @@ a pivot sheet tab is active.
 
 ```text
 packages/frontend/src/app/spreadsheet/pivot/
-  pivot-editor-panel.tsx       // side panel container
-  pivot-field-list.tsx         // available fields from source headers
-  pivot-field-item.tsx         // individual field chip (draggable)
-  pivot-section.tsx            // Rows / Columns / Values / Filters section
-  pivot-actions.tsx            // Refresh, delete pivot table
+  pivot-editor-panel.tsx       // side panel: field lists, sections
+                               // (Rows/Columns/Values/Filters), field
+                               // chips, and Refresh/delete actions
   use-pivot-table.ts           // state management hook
 ```
+
+The panel ships as a single `packages/frontend/src/app/spreadsheet/pivot/pivot-editor-panel.tsx`
+container rather than separate field-list / field-item / section / actions
+files; the field rows, sections, and action buttons are all rendered inline
+within it.
 
 ### 8. Pivot Sheet Tab Indicator
 

@@ -17,14 +17,22 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-03-11, phases 1 through 20, 22, and 23 are completed. Browser
+As of 2026-03-11, phases 1 through 20, 22, and 23 are completed, and the
+agent-oriented pipeline (Phases 24–27) has since shipped: the autonomous
+contribution loop, the local Spec→PR front door, Tier-1 autonomous issue
+hunting, and the panel feedback corpus all live in the `.github/workflows/`
+`agent-*` workflows (e.g. `.github/workflows/agent-review-panel.yml`) and under
+`scripts/agent/` (e.g. `scripts/agent/review-panel.mjs`, `scripts/agent/hunt.mjs`,
+`scripts/agent/harvest.mjs`). Browser
 visual and interaction lanes are integrated into `verify:self` with graceful
 Chromium skip. Docker-based browser testing ensures consistent font rendering
 across macOS and CI (Ubuntu). Structured JSON lane reports are generated per
 lane and as a summary. Dependency freshness (vulnerability + outdated package
 detection) is integrated into `verify:entropy`. PR verification evidence is
 automated via CI artifact upload and auto-comment on PRs. Remaining work
-focuses on agent observability.
+is the rest of Phase 21's agent observability stack (structured backend
+logging, per-branch observability context) and autonomous issue-filing
+(Phase 26 Tier 2).
 
 ## Principles
 
@@ -262,7 +270,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-20, 22)
+## Completed Phases (1-20, 22, 23)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -323,10 +331,16 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Docker-based CI provisioning delivered (Phase 23) |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`scripts/agent/summarize-ci.mjs`); autonomous contribution loop (Phase 24) |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`scripts/agent/summarize-ci.mjs`); autonomous contribution loop shipped (Phases 24-27); remaining: Phase 21 structured logging/observability context + autonomous issue-filing |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
-## Remaining Work
+## Agent-Oriented Phases (21, 24-27)
+
+Phases 24–27 (autonomous contribution loop, local Spec→PR, Tier-1 issue hunting,
+panel feedback corpus) have shipped; each phase body below states what is live
+versus the narrower items still deferred. Phase 21 (agent observability) is
+partially delivered — the agent-queryable failure summary landed; structured
+backend logging and per-branch observability context remain.
 
 ### Phase 21: Agent Observability Stack
 

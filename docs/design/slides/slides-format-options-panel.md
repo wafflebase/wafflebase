@@ -16,13 +16,15 @@ toggles that do not fit the contextual top toolbar — Size & Position
 and Alt text. The panel coexists with the existing `ThemePanel` in the
 same right slot, mutually exclusive.
 
-This spec covers v1 of the panel. Drop shadow, reflection, recolor,
-brightness/contrast, text padding, and numeric shape adjustments are
-explicitly deferred — they all require new data-model fields and
-renderer/PPTX changes that are larger than the panel shell. The slides
-v1 non-goal "Right-side Format options panel" in
-[`slides.md`](./slides.md) is partially closed by this spec for the
-properties already present in the data model.
+This doc covered v1 of the panel; drop shadow, reflection, recolor, and
+image brightness/contrast — originally deferred here — have since shipped
+(a shared `Effects` bag on element `data`, plus `image.recolor` /
+`image.brightness` / `image.contrast`) and now render as panel sections
+(see below). Text padding and numeric shape adjustments remain deferred —
+they still require new data-model fields and renderer/PPTX changes that
+are larger than the panel shell. The slides v1 non-goal "Right-side
+Format options panel" in [`slides.md`](./slides.md) is closed by this
+work for the properties covered above.
 
 ### Goals
 
@@ -46,13 +48,6 @@ properties already present in the data model.
 
 ### Non-Goals
 
-- **Drop shadow**, **reflection**, **recolor** for shapes/text/images.
-  Each requires a new `data` field, a paint-time pipeline change, and
-  OOXML `<a:effectLst>` / `<a:duotone>` import-export mapping. Tracked
-  as separate v1.1+ specs.
-- **Image brightness / contrast**. Requires a canvas filter pipeline
-  (`ctx.filter = '...'` or per-image offscreen pass) and PPTX
-  `<a:lum>` / `<a:duotone>` round-trip. v1.1+.
 - **Text padding** (`<a:bodyPr lIns="..." tIns="...">`). The data model
   has no padding field today; adding it touches the docs RichText
   layout reused by slides text boxes. v1.1.
@@ -85,12 +80,15 @@ The right-side slot in `slides-detail.tsx` currently mounts
 to a single union:
 
 ```ts
-type RightPanel = 'theme' | 'format' | null;
+// This work adds 'format' alongside the existing 'theme'; later specs
+// extend the same union with 'motion' and 'background' (see
+// `docs/design/slides/slides-background.md`).
+type RightPanel = 'theme' | 'format' | 'motion' | 'background' | null;
 const [rightPanel, setRightPanel] = useState<RightPanel>(null);
 ```
 
-Toggling either panel sets the union to that panel's id; opening one
-closes the other. Closing sets it back to `null`. Existing
+Toggling any panel sets the union to that panel's id; opening one
+closes the others. Closing sets it back to `null`. Existing
 `themePanelOpen` reads in `DesktopSlidesLayout` are replaced by
 `rightPanel === 'theme'`; `MobileSlidesLayout` does not mount the
 format panel at all.
@@ -139,19 +137,24 @@ Section routing is a pure function:
 type SectionId =
   | 'size-position'
   | 'text-fitting'
+  | 'recolor'
   | 'image-adjustments'
+  | 'drop-shadow'
+  | 'reflection'
   | 'alt-text';
 
 function pickSections(selection: PanelSelection): readonly SectionId[];
 ```
 
-Mapping:
+Mapping (as shipped in `pick-sections.ts`; `selectionType` also has a
+`'table'` variant added by the tables feature):
 
 | selectionType | sections |
 |---|---|
-| `shape` | `['size-position']` |
-| `image` | `['size-position', 'image-adjustments', 'alt-text']` |
-| `text-element` | `['size-position', 'text-fitting']` |
+| `shape` | `['size-position', 'drop-shadow', 'reflection', 'alt-text']` |
+| `image` | `['size-position', 'recolor', 'image-adjustments', 'drop-shadow', 'reflection', 'alt-text']` |
+| `text-element` | `['size-position', 'text-fitting', 'drop-shadow', 'reflection', 'alt-text']` |
+| `table` | `['size-position', 'alt-text']` (drop shadow excluded — it would shadow every cell border) |
 | `connector` | `['size-position']` (rotation hidden internally) |
 | `group` | `['size-position']` |
 | `mixed` | `['size-position']` (rotation/W/H hidden, X/Y only) |
@@ -284,15 +287,29 @@ The H input lock in Size & Position keys off the same value
 ┌─ Adjustments ──────────────────────┐
 │ Transparency                       │
 │  [────●─────────────────] 30%      │
+│ Brightness                         │
+│  [──────────●───────────]  0       │
+│ Contrast                           │
+│  [──────────●───────────]  0       │
 └────────────────────────────────────┘
 ```
 
-- Slider 0–100% mapped to `image.opacity` as `1 - value/100`.
+- Transparency slider 0–100% mapped to `image.opacity` as `1 - value/100`.
   Internally stored as the existing `opacity` field (0..1).
+- Brightness and contrast sliders map to `image.brightness` /
+  `image.contrast` (stored `[-1, 1]`, shown as `-100..100`), applied at
+  paint time via `ctx.filter = brightness(...) contrast(...)`.
 - Commit on `pointerup` only, not during drag (one undo entry per
   adjustment session).
 - Multi-select: shows blank slider thumb when values differ; dragging
   commits the new value to all.
+
+Recolor (`image.recolor`: `'none' | 'grayscale' | 'sepia'`, a
+`ctx.filter` preset) renders as its own **Recolor** section above
+Adjustments for image selections. Drop shadow (`data.effects.shadow`)
+and reflection (`data.effects.reflection`) render as **Drop shadow** and
+**Reflection** sections for shape/image/text selections; both live in the
+shared `Effects` bag on element `data`.
 
 ### Alt text section
 
@@ -328,8 +345,12 @@ The H input lock in Size & Position keys off the same value
 
 `migrate.ts` requires no change — absence means `'in'`.
 
-No other model files change. `frame`, `text.autofit`, `image.opacity`,
-`image.alt` are all already in place.
+For the v1 panel no other model files changed — `frame`, `text.autofit`,
+`image.opacity`, `image.alt` were all already in place. The later
+drop-shadow / reflection / recolor / brightness / contrast sections did
+extend `element.ts` (the `Effects` bag plus `image.recolor` /
+`image.brightness` / `image.contrast`); all additive/optional, so
+`migrate.ts` still needs no change.
 
 ### File layout
 
@@ -340,14 +361,21 @@ packages/frontend/src/app/slides/
 └── format-panel/                    # new directory
     ├── index.tsx                    # FormatPanel shell + section routing
     ├── pick-sections.ts             # pure: selection → SectionId[]
-    ├── pick-sections.test.ts
     ├── units.ts                     # pxToUnit / unitToPx / formatDisplay / getCommonValue / radToDeg / degToRad
-    ├── units.test.ts
+    ├── slide-size-section.tsx       # deck size / orientation (shown when idle)
     ├── size-position-section.tsx
     ├── text-fitting-section.tsx     # 3-mode radio, writes data.autofit
-    ├── image-adjustments-section.tsx
+    ├── recolor-section.tsx          # image recolor preset, writes data.recolor
+    ├── image-adjustments-section.tsx # transparency + brightness + contrast
+    ├── drop-shadow-section.tsx      # writes data.effects.shadow
+    ├── reflection-section.tsx       # writes data.effects.reflection
     └── alt-text-section.tsx
 ```
+
+Section unit/component tests live under the top-level test mirror at
+`packages/frontend/tests/app/slides/format-panel/` (e.g.
+`pick-sections.test.ts`, `units.test.ts`, and a `*-section.test.tsx` per
+section), not as siblings of the source files.
 
 The `image-controls.tsx` toolbar file is edited to drop its
 `AltTextDropdown` and stop importing `IconAccessible`.

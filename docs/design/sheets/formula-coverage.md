@@ -8,12 +8,13 @@ target-version: 0.2.0
 ## Summary
 
 Google Sheets provides approximately 500 functions across 16 categories.
-Wafflebase currently implements **447 function entries (434 unique
-functions + 13 aliases)** covering core, power-user, and specialist
-spreadsheet needs. This document maps every Google Sheets function against
-our current support status.
+Wafflebase currently registers **463 function names** in `FunctionMap`
+(all keys are distinct names; legacy aliases share an implementation but
+count as their own registered name) covering core, power-user, and
+specialist spreadsheet needs. This document maps every Google Sheets
+function against our current support status.
 
-**Current coverage**: ~434 / ~500 unique functions (87%)
+**Current coverage**: ~463 / ~500 functions (~93%)
 
 Coverage is effectively complete for daily use. The remaining gaps are:
 - **Legacy aliases** (BETADIST, CHIDIST, etc.) — older names for modern
@@ -55,9 +56,14 @@ Notes:
 
 ### Adding a new function
 
-1. Implement in `packages/sheets/src/formula/functions.ts` — follow the
+1. Implement in the matching per-category file
+   `packages/sheets/src/formula/functions-<category>.ts` (e.g.
+   `packages/sheets/src/formula/functions-math.ts`,
+   `packages/sheets/src/formula/functions-statistical.ts`) — follow the
    existing `(ctx, visit, grid?) → EvalNode` pattern.
-2. Register in `FunctionMap`.
+2. Add the `['NAME', fn]` entry to that file's exported `*Entries` array;
+   `packages/sheets/src/formula/functions.ts` aggregates every category's
+   entries into `FunctionMap`.
 3. Add catalog entry in `packages/sheets/src/formula/function-catalog.ts`
    with name, category, description, and args.
 4. Add tests in `packages/sheets/test/formula/`.
@@ -117,7 +123,6 @@ ASC, FINDB, LEFTB, LENB, MIDB, REPLACEB, RIGHTB, SEARCHB
 | AVERAGE.WEIGHTED | Statistical | Weighted average                     |
 | MARGINOFERROR    | Statistical | Margin of error                      |
 | PEARSON          | Statistical | Same as CORREL (implemented)         |
-| ISBETWEEN        | Operator    | Range check                          |
 | IMCOTH           | Engineering | Complex hyperbolic cotangent         |
 | IMCSCH           | Engineering | Complex hyperbolic cosecant          |
 | IMLOG            | Engineering | Complex logarithm                    |

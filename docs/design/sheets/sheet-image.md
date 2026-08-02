@@ -28,7 +28,7 @@ image upload API serves both Sheets and Docs.
 - In-cell images / `IMAGE()` formula function (Phase 2)
 - Alt text editing, Z-order control, rotation (Phase 2)
 - Image cropping, filters, borders, shadows
-- S3 storage, thumbnails, CDN (future infrastructure)
+- Thumbnails, CDN (future infrastructure)
 - Edit locking during concurrent resize
 
 ## Proposal Details
@@ -85,49 +85,48 @@ Docs.
 | `GET` | `/api/v1/workspaces/:wid/images/:id` | Retrieve image binary |
 | `DELETE` | `/api/v1/workspaces/:wid/images/:id` | Delete image |
 
-All endpoints use `CombinedAuthGuard` (JWT + API key).
+All endpoints use `CombinedAuthGuard` (JWT + API key). The workspace-scoped
+routes above are served by `ApiV1ImagesController`
+(`src/api/v1/images.controller.ts`), guarded additionally by
+`WorkspaceScopeGuard`. A separate JWT-only `ImageController` in
+`src/image/image.controller.ts` serves the legacy `/images/:id` path.
 
-#### Prisma Model
+#### Storage — no DB metadata
 
-```prisma
-model Image {
-  id          String    @id @default(uuid())
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  filename    String
-  mimeType    String
-  size        Int
-  width       Int
-  height      Int
-  storagePath String
-  createdBy   Int
-  createdAt   DateTime  @default(now())
-}
-```
+Images are stored purely as S3-compatible object-store blobs keyed by
+`{workspaceId}/{uuid}.{ext}` — there is **no** database record. The
+extension is derived from the validated MIME type (not the client
+filename), and the UUID form is enforced on retrieval via
+`VALID_IMAGE_ID_PATTERN`. No Prisma model backs this feature.
 
 #### Constraints
 
 - Allowed types: image/png, image/jpeg, image/gif, image/webp
 - Max file size: 10 MB
-- Storage: local filesystem via `StorageService` abstraction (swap to S3 later)
+- Storage: S3-compatible object storage (MinIO in dev) via `ImageService`,
+  configured through `IMAGE_STORAGE_*` env vars (`image.config.ts`). Dev
+  defaults point at `http://localhost:9000`, bucket `wafflebase-images`;
+  production leaves them empty so misconfiguration fails fast.
 
 #### Module Structure
 
 ```
 src/image/
-├── image.module.ts       # Provides ImageService, StorageService
-├── image.service.ts      # Metadata CRUD (Prisma)
-├── image.controller.ts   # REST endpoints
-└── storage.service.ts    # File I/O abstraction (local, future S3)
+├── image.module.ts       # Provides ImageService (imports ConfigModule)
+├── image.service.ts      # S3 upload/get/delete via @aws-sdk/client-s3
+├── image.controller.ts   # JWT-only /images/:id serving
+├── image.config.ts       # IMAGE_STORAGE_* registerAs config
+└── image.constants.ts    # VALID_IMAGE_ID_PATTERN
 ```
 
 #### Upload Flow
 
 1. Client sends `POST` with multipart file
 2. Backend validates mime type and size
-3. `StorageService` writes file to `uploads/images/:wid/:id.ext`
-4. `ImageService` creates `Image` record in database
-5. Response: `{ id, url, width, height }`
+3. `ImageService` writes the blob to S3 under `{workspaceId}/{uuid}.{ext}`
+   via `PutObjectCommand`
+4. Response: `{ id, url }` (the URL points back at the workspace-scoped
+   retrieval route; width/height are not computed server-side)
 
 ### Frontend: Rendering
 
@@ -228,7 +227,7 @@ operations into single undo steps.
 | Floating image | Insert, drag-move, resize, delete | Alt text, Z-order, rotation |
 | In-cell image | — | `IMAGE()` function, cell rendering |
 | Insert paths | Menu, drag-and-drop, paste | URL input dialog |
-| Backend | Upload API (workspace-level) | S3 migration, thumbnails |
+| Backend | Upload API (workspace-level, S3/MinIO storage) | Thumbnails, CDN, DB metadata |
 | Collaboration | Real-time sync (LWW) | Edit locking (if needed) |
 
 ## Risks and Mitigation
@@ -237,5 +236,5 @@ operations into single undo steps.
 |------|--------|------------|
 | Large images slow Yorkie sync | Document bloat, sync latency | Only store URL in CRDT; binary on server; 10 MB limit |
 | Concurrent resize conflicts | Visual flicker | Last-writer-wins (acceptable, matches Charts/Google Sheets) |
-| Local file storage limits | Not production-scalable | StorageService abstraction allows S3 swap without API changes |
+| Object-store availability | Upload/serve failures | S3-compatible storage (MinIO in dev) via `ImageService`; swap endpoint via `IMAGE_STORAGE_*` env vars without API changes |
 | Image load latency | Blank rectangles on first render | Async load with cache + placeholder rendering |
