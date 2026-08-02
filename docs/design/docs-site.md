@@ -8,9 +8,10 @@ target-version: 0.1.0
 ## Summary
 
 A VitePress-based documentation site at `packages/documentation` provides
-user guides for each shipped module (Sheets, Docs, Slides) and developer
-references (self-hosting, REST API, CLI). Served at `wafflebase.io/docs`
-as a subpath of the existing GitHub Pages deployment.
+user guides for each shipped module (Sheets, Docs, Slides, Notes, Board,
+and PDF/Image files) and developer references (self-hosting, REST API,
+CLI). Served at `wafflebase.io/docs` as a subpath of the existing GitHub
+Pages deployment.
 
 ## Goals
 
@@ -39,11 +40,14 @@ packages/documentation/
 ├── index.md                  # Docs home (VitePress home layout)
 ├── guide/
 │   ├── getting-started.md    # Getting started
-│   └── collaboration.md      # Real-time collaboration & sharing
+│   ├── collaboration.md      # Real-time collaboration & sharing
+│   └── import-export.md      # Import & export
 ├── sheets/
 │   ├── build-a-budget.md     # Sheets tutorial
 │   ├── formulas.md           # Formulas reference
 │   ├── charts.md             # Charts & pivot tables
+│   ├── data-validation.md    # Data validation
+│   ├── datasources.md        # External datasources
 │   └── keyboard-shortcuts.md
 ├── docs-editor/
 │   ├── writing-a-document.md
@@ -52,6 +56,14 @@ packages/documentation/
 │   ├── build-a-deck.md       # Slides tutorial
 │   ├── themes-and-layouts.md
 │   └── keyboard-shortcuts.md
+├── notes/
+│   └── writing-a-note.md     # Notes tutorial
+├── board/
+│   └── using-the-board.md    # Board tutorial
+├── pdf/
+│   ├── viewing-pdfs.md
+│   ├── viewing-images.md
+│   └── organizing-with-folders.md
 └── developers/
     ├── self-hosting.md
     ├── rest-api.md
@@ -61,17 +73,17 @@ packages/documentation/
 ### VitePress Configuration
 
 - `base: '/docs/'` so all asset/link paths are prefixed correctly
-- Top nav order: **Guide / Sheets / Docs / Slides / Developers** — mirrors
-  the homepage's product progression
-- Sidebar groups one per nav entry; Slides group sits between Docs and
-  Developers
+- Top nav order: **Guide / Sheets / Docs / Slides / Notes & Board /
+  Developers** — mirrors the homepage's product progression
+- Sidebar groups mirror the nav plus a **PDF & Files** group (PDF/image
+  viewers, folders) between Notes & Board and Developers
 - Brand colors via CSS variable overrides to match homepage amber/gold theme
 - Built-in local search enabled
 
 ### Build & Deployment
 
 **Local development:**
-- `pnpm docs dev` runs VitePress dev server independently
+- `pnpm documentation dev` runs VitePress dev server independently
 
 **CI build:**
 1. `pnpm frontend build` → `packages/frontend/dist/`
@@ -95,8 +107,8 @@ packages/documentation/
 **developer-section.tsx:**
 - Keep existing REST API / CLI code examples
 - Add links below each code block pointing to full documentation:
-  - REST API block → `/docs/api/rest-api`
-  - CLI block → `/docs/api/cli`
+  - REST API block → `/docs/developers/rest-api`
+  - CLI block → `/docs/developers/cli`
 
 ### Content Outline
 
@@ -105,11 +117,14 @@ packages/documentation/
   navigation
 - Collaboration & Sharing: sharing documents, real-time co-editing,
   presence indicators
+- Import & Export: importing/exporting documents across formats
 
 **Sheets section:**
 - Build a Budget: hands-on tutorial
 - Formulas: supported functions, syntax, cell references, examples
 - Charts & Pivot Tables: data visualization and aggregation
+- Data Validation: in-cell controls and validation rules
+- External Datasources: connecting external databases
 - Keyboard Shortcuts: full reference
 
 **Docs section:**
@@ -121,6 +136,15 @@ packages/documentation/
 - Themes & Layouts: 4-tier theme model, 11 Google-Slides-parity layouts,
   placeholders
 - Keyboard Shortcuts: full reference
+
+**Notes & Board section:**
+- Writing a Note: markdown note editor tour
+- Using the Board: infinite-canvas board tutorial
+
+**PDF & Files section:**
+- Viewing PDFs: the PDF viewer
+- Viewing Images: the image viewer
+- Organizing with Folders: workspace folder organization
 
 **Developers section:**
 - Self-Hosting: deploying Wafflebase on your own infrastructure

@@ -106,11 +106,31 @@ function mentionBodyToPlainText(body: string): string;
 
 // extract userIds referenced in a body (for future notification work)
 function extractMentionedUserIds(body: string): string[];
+
+// inspect text up to the caret; return the in-progress "@query" (and the
+// index of its "@"), or null when the caret is not inside one — drives the
+// dropdown trigger.
+function detectMentionQuery(
+  text: string,
+  caret: number,
+): { query: string; start: number } | null;
+
+// rewrite each still-present "@username" of a selected mention into a
+// "@[username](userId)" token at submit time (approach B — tokenize on
+// submit); edited mentions are left as plain text.
+function applySelectedMentions(
+  body: string,
+  mentions: ReadonlyArray<MentionRef>,
+): string;
 ```
 
 `extractMentionedUserIds` is included now because it is trivial and is the
 single integration point a future notification feature needs — but nothing
-in this PR consumes it beyond a unit test, so it carries no runtime weight.
+in this feature consumes it beyond a unit test, so it carries no runtime
+weight. `detectMentionQuery` and `applySelectedMentions` are the two helpers
+that actually drive the input: the composer calls `detectMentionQuery` on
+each change to open/filter the dropdown, and `applySelectedMentions` on
+submit to tokenize the recorded selections.
 
 ### Member source — `useWorkspaceMembers(workspaceId)`
 
@@ -124,14 +144,19 @@ Each consumer's comment controller already knows its `workspaceId`
 result) down to `CommentComposer` as a prop. The shared module never
 fetches on its own — it stays presentation-only and testable.
 
-### Input — `MentionTextarea` inside `CommentComposer`
+### Input — mention behavior inside `CommentComposer`
 
-`CommentComposer` keeps its `<textarea>`. Mention behavior is layered via a
-small `MentionTextarea` wrapper / hook:
+`CommentComposer` keeps its `<textarea>`. Mention behavior is layered inline
+in `packages/frontend/src/components/comments/components/CommentComposer.tsx`
+(no separate wrapper component) using the
+`packages/frontend/src/components/comments/mentions.ts` helpers:
 
-- **Trigger**: detect an `@` immediately preceded by start-of-text or
-  whitespace, followed by the in-progress query (`@ki`). Show a dropdown
-  anchored under the caret listing members whose username matches the query
+- **Trigger**: `detectMentionQuery` fires on an `@` preceded by start-of-text
+  or any non-username character (anything outside `[A-Za-z0-9-]`), followed by
+  the in-progress query (`@ki`). This triggers after whitespace, punctuation,
+  and CJK glyphs typed with no space, but deliberately skips `email@host`
+  (the `@` there is preceded by a login character). Show a dropdown anchored
+  under the caret listing members whose username matches the query
   (case-insensitive prefix/substring).
 - **Dropdown**: reuses `AuthorAvatar` for each row. Keyboard: ↑/↓ move,
   Enter/Tab select, Esc closes. These keys are intercepted **only while the
@@ -139,12 +164,14 @@ small `MentionTextarea` wrapper / hook:
   Escape-cancel are unaffected when it's closed.
 - **Selection (approach B — tokenize on submit)**: selecting a member
   replaces the in-progress `@ki` with a clean `@username ` in the textarea
-  and records the chosen mention in a view-local **mention map**
-  (`{ matchedText, userId, username }`). On submit, the composer walks the
-  mention map and rewrites each still-present `@username` occurrence into a
-  `@[username](userId)` token before calling `onSubmit(body)`. If the user
-  manually edited a mention's text so it no longer matches, that mention is
-  silently dropped to plain text (graceful — never emits a broken token).
+  and records the chosen mention in a view-local **mention map** — a
+  `MentionRef[]` (`{ userId, username }`) held in a ref, keyed by username. On
+  submit, `applySelectedMentions` rewrites each still-present `@username`
+  occurrence into a `@[username](userId)` token before calling
+  `onSubmit(body)`. It re-matches by username with a trailing word-boundary
+  lookahead, so if the user manually edited a mention's text so it no longer
+  matches, that mention is silently dropped to plain text (graceful — never
+  emits a broken token).
 - **IME safety**: while an IME composition is active
   (`compositionstart`/`compositionend`), the `@`-trigger and key handling
   are suppressed so Korean/CJK composition isn't hijacked. (Reflects the
@@ -178,7 +205,7 @@ GET /workspaces/:id ──┐
                       ├─ useWorkspaceMembers(workspaceId) ─┐
 consumer controller ──┘                                    │ members[]
                                                            ▼
-CommentComposer ── MentionTextarea(@ dropdown) ── onSubmit("…@[u](id)…")
+CommentComposer ── inline @ dropdown ── onSubmit("…@[u](id)…")
                                                            │
                                                            ▼
                                               CommentStore (unchanged)

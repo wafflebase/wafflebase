@@ -41,7 +41,8 @@ parity.
 
 ### 1. Type System
 
-Extend `ChartType` in `packages/frontend/src/types/worksheet.ts`:
+`ChartType` is defined in `packages/sheets/src/model/workbook/worksheet-document.ts`
+(re-exported from `packages/frontend/src/types/worksheet.ts`):
 
 ```typescript
 export type ChartType = "bar" | "line" | "area" | "pie" | "scatter";
@@ -92,7 +93,7 @@ builder function converts the standard SheetChart fields:
 type PieDatasetEntry = { name: string; value: number; color: string };
 type PieDataset = { entries: PieDatasetEntry[] };
 
-function buildPieDataset(root, chart): PieDataset;
+function buildPieDataset(root, chart, palette?: string): PieDataset;
 ```
 
 - Rows with non-positive values are excluded.

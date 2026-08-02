@@ -35,7 +35,13 @@ export inherits it for free (it rasterizes `drawSlide()`).
 
 ```ts
 export type GradientStop = { pos: number; color: ThemeColor }; // pos 0..1
-export type GradientFill = { kind: 'gradient'; angle: number; stops: GradientStop[] };
+export type GradientFill = {
+  kind: 'gradient';
+  type: 'linear' | 'radial'; // `linear` uses `angle`; `radial` uses `center`
+  angle: number;
+  center?: { x: number; y: number }; // radial origin, 0..1 of the box
+  stops: GradientStop[];
+};
 export type Fill = ThemeColor | GradientFill;                  // discriminated on `kind`
 export function representativeColor(fill: Fill): ThemeColor;    // gradient → first stop
 ```

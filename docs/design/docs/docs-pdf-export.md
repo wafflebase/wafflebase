@@ -136,9 +136,19 @@ Separation rationale:
 // packages/docs/src/export/pdf-exporter.ts
 
 export interface PdfExportOptions {
+  /** Text measurer used for layout and pagination. **Required** — the
+      browser passes its Canvas measurer, the CLI a fontkit-backed one,
+      tests a deterministic stub. No silent fallback. */
+  measurer: TextMeasurer;
   /** Required when document contains image inlines. Same fetcher used by
       DocxExporter — frontend can pass the same instance to both. */
   imageFetcher?: ImageFetcher;
+  /** Resolves a curated Google Font family to embeddable TTF URLs so it
+      exports with its real face instead of a Helvetica/Times fallback.
+      Injected by the frontend (see P3-a below). */
+  fontResolver?: PdfFontResolver;
+  /** Optional pre-constructed font cache (defaults to `new PdfFonts()`). */
+  fonts?: PdfFonts;
   /** Optional metadata. Defaults: title from doc, author empty,
       creationDate = now. */
   metadata?: {
@@ -147,12 +157,15 @@ export interface PdfExportOptions {
     subject?: string;
     keywords?: string[];
   };
+  /** Progress callback: `(done, total, 'pages')`. */
+  onProgress?: (done: number, total: number, phase: string) => void;
 }
 
 export class PdfExporter {
+  // `opts` is required — `opts.measurer` must be supplied.
   static async export(
     doc: Document,
-    options?: PdfExportOptions,
+    opts: PdfExportOptions,
   ): Promise<Blob>;
 }
 ```
@@ -413,7 +426,7 @@ async function exportPdf(doc, title) {
 | Integration      | Vitest + pdf-lib | Re-load exported PDF, verify pages/text/fonts          |
 | Visual (manual)  | Adobe / Preview  | See verification checklist                             |
 
-Test fixtures in `packages/docs/src/export/__tests__/fixtures/`:
+Test fixtures live in `packages/docs/test/export/fixtures/pdf/`:
 
 - `simple-paragraph.json`
 - `mixed-korean-english.json`
@@ -421,7 +434,7 @@ Test fixtures in `packages/docs/src/export/__tests__/fixtures/`:
 - `with-merged-cells.json`
 - `with-split-row.json`
 - `with-image.json`
-- `multi-page.json`
+- `with-list.json`
 - `with-headings-and-links.json`
 - `with-header-footer-pagenumber.json`
 
@@ -452,24 +465,25 @@ packages/docs/src/
     pdf-fonts.ts
     pdf-table-painter.ts
     pdf-image-painter.ts
-    __tests__/
-      pdf-style-map.test.ts
-      pdf-fonts.test.ts
-      pdf-painter.test.ts
-      pdf-exporter.test.ts
-      fixtures/
-        *.json
-        fonts/
-          NotoSansKR-Regular.ttf      # for unit tests only, not bundled
-          NotoSansKR-Bold.ttf
-          NotoSerifKR-Regular.otf
-          NotoSerifKR-Bold.otf
+    yield.ts                          # cooperative yieldToPaint for progress
   view/
     table-geometry.ts                 # extracted from table-renderer.ts
+
+packages/docs/test/export/            # tests live under test/, not src/__tests__
+  pdf-exporter.test.ts
+  pdf-style-map.test.ts
+  pdf-painter.test.ts
+  pdf-fonts.test.ts
+  pdf-font-fallback.test.ts
+  fixtures/
+    pdf/*.json
+    fonts/
+      test-cjk.ttf                    # small CJK font for unit tests, not bundled
 
 packages/frontend/src/app/docs/
   export-utils.ts
   pdf-actions.ts
+  docs-export-button.tsx              # Export ▾ dropdown (DOCX / PDF)
   docx-actions.ts                     # refactored to use export-utils
 ```
 

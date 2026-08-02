@@ -101,8 +101,6 @@ New pure module `packages/slides/src/model/autofit.ts`, built on docs
 export function computeAutofitScale(blocks, measurer, frameW, frameH, padding): number;
 /** Multiply every inline fontSize + block vertical margin by `scale`. */
 export function scaleBlocks(blocks, scale): Block[];
-/** Content height for grow callers: totalHeight + 2·padding. */
-export function computeAutofitHeight(blocks, measurer, frameW, padding): number;
 ```
 
 `computeAutofitScale` cannot solve scale analytically (smaller fonts wrap

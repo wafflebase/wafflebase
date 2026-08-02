@@ -91,6 +91,7 @@ type Worksheet = {
   sheetStyle?: CellStyle;
   rangeStyles?: RangeStylePatch[];
   conditionalFormats?: ConditionalFormatRule[];
+  dataValidations?: DataValidationRule[];          // see data-validation.md
   merges?: { [anchor: Sref]: MergeSpan };
   filter?: WorksheetFilterState;
   hiddenRows?: number[];
@@ -99,7 +100,7 @@ type Worksheet = {
   frozenRows: number;
   frozenCols: number;
   pivotTable?: PivotTableDefinition;              // see pivot-table.md
-  comments?: CommentsCollection;                  // see comments.md
+  comments?: { [threadId: string]: Thread };      // see comments.md
   images?: { [id: string]: SheetImage };          // see sheet-image.md
 };
 
@@ -107,7 +108,6 @@ type SpreadsheetDocument = {
   tabs: { [id: string]: TabMeta };
   tabOrder: string[];
   sheets: { [tabId: string]: Worksheet };
-  datasources?: { [id: string]: DatasourceConfig }; // see datasource.md
 };
 ```
 

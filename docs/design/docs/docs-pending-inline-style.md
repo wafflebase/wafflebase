@@ -7,10 +7,10 @@ target-version: 0.4.3
 
 ## Summary
 
-Today the docs editor silently ignores inline-style toolbar actions when the
-selection is collapsed: hitting **B** with no text selected does nothing.
-This proposal adds a transient *pending style* — the next characters the user
-types pick up the toggled style, and the pending state is dropped if the
+Previously the docs editor silently ignored inline-style toolbar actions when
+the selection was collapsed: hitting **B** with no text selected did nothing.
+The editor now implements a transient *pending style* — the next characters the
+user types pick up the toggled style, and the pending state is dropped if the
 caret moves elsewhere first. The pattern matches ProseMirror's "stored marks"
 and Google Docs' empty-caret formatting behaviour.
 
@@ -72,7 +72,7 @@ No changes to `DocStore`, the Yorkie schema, or `model/document.ts`.
 
 ### `PendingStyle` controller
 
-New file: `packages/docs/src/view/pending-style.ts` (~40 lines).
+The controller lives in `packages/docs/src/view/pending-style.ts` (~50 lines).
 
 ```ts
 export interface PendingStyle {
@@ -107,7 +107,7 @@ export interface PendingStyle {
   rebindAnchor(blockId: string): void;
 }
 
-export function createPendingStyle(doc: Document): PendingStyle;
+export function createPendingStyle(doc: Doc): PendingStyle;
 ```
 
 Internal state is `{ style, anchorBlockId, anchorOffset } | null`. All
@@ -240,7 +240,10 @@ read the same getter and pick up the change automatically.
 
 ### Testing
 
-New file: `packages/docs/test/view/pending-style.test.ts`.
+Tests live in three files: `packages/docs/test/view/pending-style.test.ts`
+(controller unit tests), `packages/docs/test/view/pending-style-editor.test.ts`,
+and `packages/docs/test/view/pending-style-integration.test.ts` (editor
+integration).
 
 Unit tests for the controller:
 
@@ -253,7 +256,7 @@ Unit tests for the controller:
 - `rewindAnchor` subtracts and clamps at 0.
 - `rebindAnchor` moves anchor to a new block at offset 0.
 
-Editor integration tests (extend existing `view/*.test.ts` style):
+Editor integration tests:
 
 - Collapsed + `applyStyle({bold:true})` + `insertText "abc"` → all three
   chars are bold in the document.

@@ -56,8 +56,8 @@ planned item links to (or will link to) its own design doc.
 | Images (insert, resize, rotate, crop, alignment) | ✅ |
 | Header / Footer (per-page editable regions) | ✅ |
 | Comments (text-range threads, posRange anchors) | ✅ |
+| Page break (manual `Ctrl+Enter` / `Cmd+Enter`, first-class `page-break` block) | ✅ |
 | Code block | ❌ Planned |
-| Page break (manual `Ctrl+Enter`) | ❌ Planned |
 | Section break (per-section PageSetup) | ❌ Planned |
 | Table of contents | ❌ Planned |
 | Suggestion mode (track changes) | ❌ Planned |
@@ -85,6 +85,7 @@ in the README index — the roadmap no longer duplicates their content.
 | Phase 3.2: Tables | Cells as `Block[]` containers, row/column ops, cell merge, Tree CRDT | [`docs-tables.md`](docs-tables.md) (umbrella) and the per-feature docs under [`tables/`](tables/) — UI, resize, copy-paste, row splitting, nested tables |
 | Phase 3.1: Images | Insert, resize, rotate, crop, Image Options panel | [`docs-image-editing.md`](docs-image-editing.md) |
 | Phase 4.1: Header / Footer | Editable per-page header/footer regions | [`docs-header-footer.md`](docs-header-footer.md) |
+| Phase 4.2: Page Break | Manual `Ctrl+Enter` / `Cmd+Enter` inserts a first-class `page-break` block (`handlePageBreak` in `packages/docs/src/view/text-editor.ts`), disabled in header/footer and table cells | This `Current State` table |
 | Phase 5.1: Comments | Text-range threads, posRange anchors, orphan preservation | [`docs-comments.md`](docs-comments.md) |
 | Phase 6.3: Spell check | English red squiggles + suggestions popover; vendored en_US Hunspell dict lazy-loaded as a separate chunk; per-word script routing; Korean/ignore/add-to-dictionary deferred | [`docs-spell-check.md`](docs-spell-check.md) |
 
@@ -98,12 +99,6 @@ doc when it picks up an owner.
 `Block.type = 'code-block'`. Monospace font, distinct background,
 inline formatting disabled inside the block, auto-convert on ``` ` ` ` ```
 input. Syntax highlighting is a follow-up.
-
-### Phase 4.2: Page Break
-
-`Block.type = 'page-break'`. Forces a page split. Shortcut:
-`Ctrl+Enter`. Already handled at the layout level via `page-break`
-blocks injected by find/replace; needs a first-class UI affordance.
 
 ### Phase 4.3: Section Break
 
@@ -170,5 +165,5 @@ Phase 2 (Inline + Clipboard) ✅ ┘                                    │
                                                        Phase 5 (Collaboration) ──→ Phase 6 (Advanced)
 ```
 
-Phases 1, 2, 3.1/3.2, 4.1, 5.1 have shipped. Phases 3.3, 4.2–4.4, 5.2,
-5.3, 6 remain in this roadmap.
+Phases 1, 2, 3.1/3.2, 4.1, 4.2, 5.1 have shipped. Phases 3.3, 4.3–4.4,
+5.2, 5.3, 6 remain in this roadmap.

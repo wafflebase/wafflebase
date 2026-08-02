@@ -123,8 +123,9 @@ local coordinate space and the renderer applies the group transform
 on top, children visibly scale proportionally — including text and
 its font glyphs — matching Google Slides.
 
-**Invariants** (enforced by `MemSlidesStore` and validated in
-`model/migrate.ts`):
+**Invariants** (enforced by the store — `group()` in
+`packages/slides/src/store/memory.ts`; `packages/slides/src/model/migrate.ts`
+does not touch groups):
 
 1. A group has at least one child. Removing the last child triggers
    automatic ungroup (the group element is removed and any remaining
@@ -215,13 +216,14 @@ interface SlidesStore {
   reorderElement(slideId, elementId, toIndex): void;
 
   // — New for grouping —
-  group(slideId, elementIds): string;
+  group(slideId, elementIds): { groupId: string; excludedConnectorIds: string[] };
   //   - All elementIds must share the same parent (slide-root or the
   //     same group). Throws if mixed parents.
   //   - Inserts a new GroupElement at the position of the front-most
   //     selected element; children move into it in their original
   //     z-order; child frames are normalized to group-local coords.
-  //   - Returns the new group id.
+  //   - Returns the new group id plus any connectors dropped from the
+  //     selection because one endpoint fell outside it (see §7).
   //
   ungroup(slideId, groupId): string[];
   //   - Bakes each child's frame through the group transform
@@ -422,10 +424,13 @@ because `applyGroupTransform` scaled its `frame` while `clone()` copied
 its stale `refSize`; settling to scale `1` first removes the scale that
 would have leaked.
 
-**Guard.** A DEV/test-only helper `assertGroupsSettled(elements)` walks
-the tree and asserts `refSize ≈ frame` for every group; regression tests
-call it after resize/ungroup commits so a future un-baked commit path
-fails loudly. Both stores implement the fix: `MemSlidesStore`
+**Guard.** Test-only helpers `isGroupSettled(group)` and
+`collectUnsettledGroups(elements)` in
+`packages/slides/test/support/group-invariant.ts` walk the tree and check
+`refSize ≈ frame` for every group; nothing enforces the invariant at
+runtime — regression tests call them after resize/ungroup commits (and the
+Yorkie equivalence suite's `allGroupsSettled`) so a future un-baked commit
+path fails loudly. Both stores implement the fix: `MemSlidesStore`
 (`store/memory.ts`, unit-tested) and `YorkieSlidesStore`
 (`frontend/.../yorkie-slides-store.ts`, live app); the shared math stays
 in `model/group.ts`.
@@ -497,27 +502,27 @@ elements. Under the new model:
 **Import fidelity invariant.** For any PPTX fixture, the union of
 world bboxes produced by the new (group-preserving) import must
 equal the union produced by the old (flattening) import within
-sub-pixel tolerance. This is enforced by a property test in
-`import/pptx/group.test.ts` that runs both code paths against the
-existing fixture set.
+sub-pixel tolerance. This is enforced by
+`packages/slides/test/import/pptx/group-preserving.test.ts`, which builds
+`<p:grpSp>` XML inline and compares the preserved group tree's leaf world
+frames against the flattening path.
 
 ### 9. PDF Export
 
-`packages/slides/src/export/pdf.ts` currently walks
-`slide.elements` flat. It becomes recursive in the same shape as
-`paintElement`:
+The shipped exporter (`packages/slides/src/export/pdf.ts`) is a **raster**
+P0 pipeline, not a vector emitter: it renders each slide through the
+existing `drawSlide()` canvas pipeline onto a high-DPI offscreen canvas and
+embeds one bitmap per page into a `pdf-lib` document (see
+[slides-pdf-export.md](./slides-pdf-export.md)). Groups therefore need **no
+PDF-specific code** — they are already handled by the recursive canvas
+renderer described in §5, so paint and export stay identical by
+construction. (`pdf.ts` does walk the tree for its own bookkeeping, e.g.
+`flattenElements` recurses `into el.data.children` to preload image bytes.)
 
-- Each `GroupElement` opens a PDF transform context (translation,
-  rotation, scale) and recurses into children.
-- Children's existing per-type emit functions are unchanged.
-- The `pdf-lib` graphics state stack handles `pushGraphicsState` /
-  `popGraphicsState` per group level.
-- Text glyph positions remain correct because the existing text
-  emit computes positions in local space; the transform stack
-  applies the composition.
-
-This keeps paint and export sharing one truth: the same recursion
-shape and the same transform composition function.
+A vector text-overlay hybrid — the per-group `pushGraphicsState` /
+`popGraphicsState` recursion originally sketched here — is deferred to the
+P1 vector pass; when it lands, group transforms compose via
+`applyGroupTransform` in `packages/slides/src/model/group.ts`.
 
 ### 10. Other Integration Points
 
@@ -592,12 +597,13 @@ Verification gates: end of P1–P3 → `pnpm verify:fast`; end of P4 →
 - One scenario covering: rotated group containing a rotated text
   box, drill-in, text edit, ungroup. Screenshot baseline updated.
 
-**PPTX import regression**:
+**PPTX import regression**
+(`packages/slides/test/import/pptx/group-preserving.test.ts`):
 
-- Fixture set under `packages/slides/test/fixtures/pptx-groups/`
-  with nested rotated groups + non-uniform scale. The visual-bbox
-  invariant test runs new (preserving) and old (flattening) code
-  paths and compares world bboxes per leaf within 0.5 px.
+- `<p:grpSp>` XML built inline (nested rotated groups + non-uniform
+  scale). The visual-bbox invariant test runs the new (preserving) and
+  old (flattening) code paths and compares world bboxes per leaf within
+  sub-pixel tolerance.
 
 ### 13. Selection Overlay (groups vs. drilled-in child)
 
@@ -701,12 +707,14 @@ group-selected baseline and a drilled-in baseline.
 
 ### Known Limitations / Follow-ups
 
-- **PDF export not implemented for slides v1.** The slides `export/`
-  directory does not exist yet. When it is added, the recursive emitter
-  pattern from §9 (Task 15 in the implementation plan) can be copied
-  directly; group transforms compose via `applyGroupTransform` in
-  `model/group.ts`, so paint and export will share the same math without
-  any group-specific changes to the leaf emitters.
+- **PDF export ships as a raster pipeline.** The slides `export/`
+  directory now exists (`packages/slides/src/export/pdf.ts`) and exports
+  every slide — groups included — by rendering through the shared
+  `drawSlide()` canvas pipeline and embedding one bitmap per page, so no
+  group-specific export code was needed (see §9). The vector emitter
+  pattern originally sketched in §9 is the deferred P1 vector pass; when it
+  lands, group transforms compose via `applyGroupTransform` in
+  `packages/slides/src/model/group.ts`.
 
 - **`selectAt` dead code in `view/editor/interactions/select.ts`.** This
   helper became unreachable after the Task 9 click-handler rewire that

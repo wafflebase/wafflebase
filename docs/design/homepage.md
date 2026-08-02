@@ -107,7 +107,9 @@ Right: `<ThemeToggle>` (sun/moon icon) + primary `<WbButton>` ("Get Started" or
 
 Single column, centered, max-width 920px, padded `pt-20 md:pt-28 pb-14 md:pb-20`.
 
-- Butter pill eyebrow `v0.3 · Apache-2.0 · Self-hosted` (leaf glow dot).
+- Butter pill eyebrow `{VERSION_LABEL} · Apache-2.0 · Self-hosted` (leaf glow
+  dot). `VERSION_LABEL` is derived at build time from the injected
+  `__APP_VERSION__` (major.minor of the root package.json), e.g. `v0.6`.
 - Fraunces `clamp(40, 6vw, 68)px` H1: "The Office Suite *You Can Own*"
   (italic + syrup-deep emphasis on the trailing phrase). `max-w-[20ch]`
   accommodates the shorter title without orphan wraps.
@@ -142,9 +144,9 @@ Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
 - **Theme sync** — all three iframes receive `{ type: 'theme-change', theme }`
   via `postMessage` whenever the homepage theme changes; the shared
   `ThemeProvider` inside the iframe applies the change without reload.
-- **Footer** — tab-aware mono hint text on the left, `wafflebase@0.3.7` on
-  the right (Slides hint: "Tip: arrow keys navigate slides — press F to
-  present.").
+- **Footer** — tab-aware mono hint text on the left, `wafflebase@${__APP_VERSION__}`
+  on the right (Vite injects the version from the root package.json at build
+  time) (Slides hint: "Tip: arrow keys navigate — ⌘/Ctrl+Enter to present.").
 
 #### FeaturesSection
 

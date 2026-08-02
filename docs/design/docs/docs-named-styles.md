@@ -155,10 +155,17 @@ resetAllStyles(): void;                                            // "Reset sty
 
 `updateStyleDefinition` / `resetStyle` / `resetAllStyles` each run as one
 batched undo unit and re-materialize block spacing for affected blocks.
-Implemented in `MemStore` (plain `this.doc.styles`) and `YorkieDocStore`
-(root-level `root.styles`, mirroring the `pageSetup` getter/setter +
-`readDocStyles` proxy-unwrap helper). Backend `docs-tree.ts` `DocsYorkieRoot`
-serializes `styles` the same way (deep copy on write, delete on omission).
+Implemented in `MemStore` (plain `this.doc.styles`) and `YorkieDocStore`.
+Unlike `pageSetup`, which is a nested CRDT object, the registry is stored at
+the Yorkie root as a single serialized JSON string (`root.stylesJson`): it is
+tiny and rarely concurrently edited, so whole-blob LWW is acceptable, and a
+scalar string sidesteps Yorkie proxy double-encoding and the variable /
+`StoredColor` key shapes inside a style definition. `readDocStyles`
+(`packages/frontend/src/app/docs/yorkie-doc-store.ts`) therefore `JSON.parse`s
+`root.stylesJson` rather than proxy-unwrapping. Backend
+`packages/backend/src/yorkie/docs-tree.ts` mirrors this with a
+`stylesJson?: string` field on `DocsYorkieRoot` (`JSON.stringify` on write,
+`delete` on omission).
 
 ### Per-user default styles (backend)
 
@@ -177,8 +184,8 @@ Endpoints (JWT, `@CurrentUser`-style like `auth.controller.ts` `getMe`):
 
 | Method | Route | Description |
 | --- | --- | --- |
-| `GET` | `/auth/me/doc-styles` | Return saved `DocStyles` (or `{}`) |
-| `PUT` | `/auth/me/doc-styles` | Upsert the current user's `DocStyles` |
+| `GET` | `/auth/me/doc-styles` | Return `{ styles }` — the saved `DocStyles` (or `{}`) wrapped |
+| `PUT` | `/auth/me/doc-styles` | Upsert the current user's `DocStyles`; returns `{ styles }` |
 
 Frontend wires these into the Styles dropdown "Options" submenu:
 - **Save as my default styles** → `PUT` current `getDocStyles()`.
@@ -203,8 +210,9 @@ callbacks to `EditorAPI` primitives that call the store methods above.
   in the PR; built-in-only — no data migration, and a user who preferred bold
   can "Update Heading 1 to match" a bold sample.
 - **Registry not understood by older clients / backend.** *Mitigation:*
-  `styles` is optional and additive at the Yorkie root, exactly like
-  `pageSetup`; absence resolves to built-ins.
+  `root.stylesJson` is optional and additive at the Yorkie root (like
+  `pageSetup`, though stored as a scalar JSON string rather than a nested CRDT
+  object); absence resolves to built-ins.
 - **Eager spacing materialization clobbers custom paragraph spacing on style
   switch.** *Mitigation:* only re-materialize when `StyleId` actually changes;
   this matches Google Docs (applying a style resets paragraph formatting).

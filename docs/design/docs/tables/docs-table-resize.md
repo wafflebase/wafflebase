@@ -38,7 +38,7 @@ Add optional `rowHeights` array:
 interface TableData {
   rows: TableRow[];
   columnWidths: number[];  // Proportional ratios (0-1), sum = 1.0
-  rowHeights?: number[];   // User-specified minimum heights in px
+  rowHeights?: (number | undefined)[];   // User-specified minimum heights in px
 }
 ```
 
@@ -186,11 +186,12 @@ During drag, render on the Canvas overlay:
 - **Row drag**: Horizontal dashed line (blue, 1px) from table left
   to table right at `currentPixel` Y position
 
-Line style: `setLineDash([4, 4])`, color `#4A90D9`, lineWidth 1.
+Line style: `setLineDash([4, 4])`, color `#4285F4`, lineWidth 1.
 
-The guideline is drawn in the render pass, not as a separate overlay.
-When `dragState` is non-null, the table renderer draws the guideline
-after borders.
+The guideline is drawn in the editor's paint loop, not as a separate
+overlay. `text-editor.ts` reports the drag position via an
+`onDragGuideline` callback, and `packages/docs/src/view/editor.ts`
+draws the dashed line after the page/table render pass.
 
 ## Layout Integration
 
@@ -254,8 +255,8 @@ so all pages re-render correctly.
 | `packages/docs/src/model/types.ts` | Add `rowHeights?: number[]` to `TableData` |
 | `packages/docs/src/model/document.ts` | Add `resizeColumn()`, `setRowHeight()`; update `insertRow()`/`deleteRow()` for `rowHeights` sync |
 | `packages/docs/src/view/table-layout.ts` | Apply `rowHeights` minimum in `computeTableLayout()` |
-| `packages/docs/src/view/text-editor.ts` | Border detection in `mousemove`, drag state management in `mousedown`/`mousemove`/`mouseup`, guideline trigger |
-| `packages/docs/src/view/table-renderer.ts` | Render guideline when `dragState` is active |
+| `packages/docs/src/view/text-editor.ts` | Border detection in `mousemove`, drag state management in `mousedown`/`mousemove`/`mouseup`, `onDragGuideline` callback |
+| `packages/docs/src/view/editor.ts` | Render guideline in the paint loop when the `onDragGuideline` position is set |
 | `packages/docs/src/store/memory.ts` | Persist `rowHeights` in store updates |
 
 ## Risks and Mitigation

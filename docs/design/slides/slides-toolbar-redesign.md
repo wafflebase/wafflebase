@@ -86,11 +86,26 @@ at predictable screen positions across state transitions.
 ```ts
 type ToolbarState =
   | { kind: 'idle' }
-  | { kind: 'object'; selectionType: 'shape' | 'image' | 'text-element' | 'mixed'; ids: string[] }
-  | { kind: 'text-edit'; elementId: string; textEditor: EditorAPI };
+  | {
+      kind: 'object';
+      selectionType: 'shape' | 'connector' | 'image' | 'text-element' | 'table' | 'mixed';
+      ids: readonly string[];
+      // Present iff selectionType === 'table' and a cell / cell-range is
+      // active; scopes TableControls ops to the selected cells (null = whole table).
+      cellRange?: { tableId: string; r0: number; c0: number; r1: number; c1: number } | null;
+    }
+  | { kind: 'text-edit'; elementId: string; textEditor: SlidesTextBoxEditor };
 ```
 
-Derivation lives in `slides-toolbar/index.tsx`:
+As shipped the object state distinguishes `connector` and `table`
+selections in addition to `shape` / `image` / `text-element` / `mixed`.
+Connector selections route through `ShapeControls` (Fill + Border);
+tables get a dedicated `TableControls` section
+(`packages/frontend/src/app/slides/toolbar/table-controls.tsx`) scoped
+by the optional `cellRange`.
+
+Derivation lives in `packages/frontend/src/app/slides/toolbar/state.ts`
+(imported by `packages/frontend/src/app/slides/toolbar/index.tsx`):
 
 ```ts
 function getToolbarState(editor: SlidesEditor | null, store: SlidesStore | null): ToolbarState {
@@ -255,10 +270,12 @@ that slides can borrow). PR 2 extracts them:
 packages/frontend/src/components/text-formatting/
 ├── text-style-group.tsx        # Font ▾, Size ▾
 ├── text-format-group.tsx       # B / I / U / S, Color, Highlight, Link
-├── text-paragraph-group.tsx    # Align ▾, List ▾, Indent +/-
-├── alignment-dropdown.tsx      # already exists inline; extracted
-└── color-picker-grid.tsx       # already exists at @/components/color-picker-grid
+└── text-paragraph-group.tsx    # Align ▾, List ▾, Indent +/-
 ```
+
+Paragraph alignment lives inside `text-paragraph-group.tsx` (there is no
+separate `alignment-dropdown.tsx`); the color grid is shared from
+`packages/frontend/src/components/color-picker-grid.tsx`.
 
 Each component takes `editor: EditorAPI | null` plus a `disabled` flag
 and reads/writes through the same `EditContext` API the docs toolbar
@@ -275,22 +292,24 @@ tests.
 
 ```
 packages/frontend/src/app/slides/toolbar/
-├── index.tsx                        # state derivation + global zones
+├── index.tsx                        # global zones + section routing
+├── state.ts                         # ToolbarState + getToolbarState derivation
 ├── insert-group.tsx                 # Select / Text / Image / Shape / Line
 ├── slide-group.tsx                  # + Slide split-button
 ├── arrange-menu.tsx                 # Order / Align / Distribute / Rotate
 ├── idle-section.tsx                 # Background button
 ├── object-section.tsx               # router on selectionType
-│   ├── shape-controls.tsx
-│   ├── image-controls.tsx
-│   ├── text-element-controls.tsx
-│   └── mixed-controls.tsx
+├── shape-controls.tsx               # shape / connector (Fill + Border)
+├── image-controls.tsx
+├── text-element-controls.tsx
+├── table-controls.tsx               # table / cell-range ops
 └── text-edit-section.tsx            # composes shared text-formatting groups
 ```
 
-The existing `slides-formatting-toolbar.tsx` is replaced by
-`slides/toolbar/index.tsx`. Imports from `slides-detail.tsx` change
-once.
+The files are flat (no `object-section/` subfolder); the `mixed`
+selection renders no per-type section, so there is no `mixed-controls.tsx`.
+The existing formatting toolbar is replaced by
+`packages/frontend/src/app/slides/toolbar/index.tsx`.
 
 ### State machine + event wiring
 

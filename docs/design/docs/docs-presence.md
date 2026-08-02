@@ -17,7 +17,10 @@ together.
 The cursor + label surface shipped in v0.3.1 (Phase 1); the avatar
 jump shipped in v0.3.8 and generalized the shared `UserPresence`
 component so Sheets and Docs both flow through `onSelectPeer` /
-`getJumpHint`. Remote selection highlight is Phase 2 (planned).
+`getJumpHint`. Remote selection highlight also shipped: peers broadcast
+`activeSelection`, `buildPeerCursors` threads it through as
+`PeerCursor.selection`, and `packages/docs/src/view/doc-canvas.ts`
+paints a per-page highlight behind the local selection.
 
 ## Goals / Non-Goals
 
@@ -43,7 +46,6 @@ component so Sheets and Docs both flow through `onSelectPeer` /
 
 ### Non-Goals
 
-- Remote selection highlight (Phase 2).
 - Avatar or profile picture in the label.
 - Animated fade-in / fade-out transitions.
 - Off-screen peer indicators ("User X is on page 3"). The avatar
@@ -77,13 +79,27 @@ type SheetPresence = {
   activeTabId?: string;
 } & User;
 
-// Docs presence (added in v0.3.1)
+// Docs presence (added in v0.3.1) — inlines the identity fields rather
+// than intersecting with User.
 type DocsPresence = {
+  username: string;
+  email: string;
+  photo: string;
   activeCursorPos?: {
     blockId: string;
     offset: number;
   };
-} & User;
+  // Remote selection highlight payload (shipped).
+  activeSelection?: {
+    anchor: { blockId: string; offset: number };
+    focus: { blockId: string; offset: number };
+    tableCellRange?: {
+      blockId: string;
+      start: { rowIndex: number; colIndex: number };
+      end: { rowIndex: number; colIndex: number };
+    };
+  };
+};
 ```
 
 No `activeDocId` filtering field is needed — each Yorkie document is
@@ -136,12 +152,14 @@ Yorkie others-changed event
 **`PeerCursor`** (defined in the docs package for rendering):
 
 ```ts
-// packages/docs/src/view/types.ts
+// packages/docs/src/view/peer-cursor.ts
 type PeerCursor = {
+  clientID: string;
   position: DocPosition;
   color: string;
   username: string;
   labelVisible: boolean;   // controlled by DocsView visibility state
+  selection?: DocRange;    // remote selection highlight (shipped)
 };
 ```
 

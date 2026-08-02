@@ -12,7 +12,8 @@ target-version: 0.6.1
 Bring a Google-Drive-style upload experience to the documents list: drag any
 number of files onto the page (or multi-select via the "New" menu) and have each
 one become a document — `.xlsx → sheet`, `.docx → doc`, `.pptx → slides`,
-`.pdf → pdf`. A hand-rolled upload queue drives the work with limited
+`.pdf → pdf`, and `.png/.jpg/.jpeg/.gif/.webp → image`. A hand-rolled upload
+queue drives the work with limited
 concurrency, and a fixed bottom-right **Upload panel** shows per-file progress,
 success, failure (with retry), and "unsupported → skipped" states.
 
@@ -37,7 +38,8 @@ design closes that gap for the documents list only.
 ### Non-Goals
 
 - Storing arbitrary/unsupported files or a generic `file` document type
-  (PDF stays the only binary-backed type; skipped files are not uploaded).
+  (only `pdf` and `image` are binary-backed types; skipped files are not
+  uploaded).
 - Folder upload / directory recursion.
 - Editor-internal multi-image insertion (docs/slides/sheets image DnD stays
   single-file; a separate effort).
@@ -58,10 +60,11 @@ design closes that gap for the documents list only.
 [upload-queue.ts]                      ← single module singleton (no library)
    │  enqueue(files, workspaceId)
    │  per file → extension → kind:
-   │     .xlsx → importXlsx  (client parse → sheet)
-   │     .docx → importDocx  (client parse → doc)
-   │     .pptx → importPptx  (client parse → slides)
-   │     .pdf  → uploadPdf    (binary → S3 → pdf, fileId)
+   │     .xlsx → importXlsx      (client parse → sheet)
+   │     .docx → importDocx      (client parse → doc)
+   │     .pptx → importPptxFile  (client parse → slides)
+   │     .pdf  → uploadFile      (binary → S3 → pdf, fileId)
+   │     png/jpg/jpeg/gif/webp → uploadFile (binary → S3 → image, fileId)
    │     else  → status 'skipped'
    │  worker loop, concurrency cap (2–3; parsing-heavy stays serial-ish)
    │  status: pending → parsing/uploading(done/total) → done | error | skipped
@@ -80,25 +83,39 @@ void>()`. Every mutator **replaces the `items` array reference** then emits
 (`for (const cb of listeners) cb()`), so snapshot identity changes only on real
 change.
 
+The kind/status types and item shape live in
+`packages/frontend/src/app/documents/upload-kind.ts` (`UploadKind`,
+`classifyUploadKind`) and `packages/frontend/src/app/documents/upload-queue.ts`
+(`UploadStatus`, `UploadItem`):
+
 ```ts
-type UploadKind = "sheet" | "doc" | "slides" | "pdf";
+// upload-kind.ts — `board` has no extension mapping; it exists only for
+// externally driven rows (enqueueExternal, e.g. the Miro import).
+type UploadKind = "sheet" | "doc" | "slides" | "pdf" | "image" | "board";
 type UploadStatus =
   | "pending" | "parsing" | "uploading" | "done" | "error" | "skipped";
 
 interface UploadItem {
-  id: string;              // client-generated
+  id: string;                 // client-generated
+  file?: File;                // retained for the worker; omitted for skipped
   fileName: string;
-  kind: UploadKind | null; // null when skipped/unsupported
-  workspaceId?: string;    // captured at enqueue time
+  kind: UploadKind | null;    // null when skipped/unsupported
+  workspaceId?: string;       // captured at enqueue time
+  folderId?: string | null;   // folder the list was viewing (null = root)
   status: UploadStatus;
-  done: number;            // progress numerator (image-upload phase, etc.)
+  done: number;               // progress numerator (image-upload phase, etc.)
   total: number;
-  docId?: string;          // set on success, for the "open" link
-  reason?: string;         // skip reason / error message
+  detail?: string;            // custom progress wording for external rows
+  docId?: string;             // set on success, for the "open" link
+  docPath?: string;           // route to the created document
+  fileId?: string;            // uploaded blob id (pdf/image), for retry reuse
+  reason?: string;            // skip reason / error message
+  warning?: string;           // non-fatal note on success (lossy PPTX, etc.)
 }
 
-// Exposed: getSnapshot(), subscribe(cb), enqueue(files, workspaceId),
-// retry(id), remove(id), clearFinished()
+// Exposed: getSnapshot(), subscribe(cb), enqueue(files, workspaceId, folderId?),
+// enqueueExternal(...), patchItem(id, patch), retry(id), removeItem(id),
+// dismissItem(id), clearFinished()
 ```
 
 Worker loop: a small in-module runner picks up `pending` items up to a
@@ -111,12 +128,12 @@ Per-item pipeline (mirrors today's single-file handlers, section-by-section
 reuse):
 
 1. classify extension → `kind` (or `skipped`).
-2. call the refactored `importXxx(file, onProgress)` / `uploadPdf(file)`.
+2. call the refactored `importXxx(file, onProgress)` / `uploadFile(file)`.
 3. `workspaceId ? createWorkspaceDocument(...) : createDocument({ title, type })`.
 4. **persist content headlessly** (xlsx/docx/pptx): `applyImportedContent`
    attaches the Yorkie doc, writes the same root the editor would, and detaches
-   (see below). PDF stores its bytes at create time via `fileId`, so it skips
-   this step.
+   (see below). PDF and image store their bytes at create time via `fileId`, so
+   they skip this step.
 5. `setStatus(id, "done", { docId })`. Do **not** auto-navigate — the panel row
    links to the document; only navigate if the user clicks.
 
@@ -140,11 +157,12 @@ must be kept in sync with them.
 
 ### React glue (`packages/frontend/src/app/documents/use-upload-queue.ts`)
 
-Follows `packages/frontend/src/app/slides/toolbar/zoom-control.tsx` exactly:
-`useState(getSnapshot())` + `useEffect(() => subscribe(() =>
-setItems(getSnapshot())), [])`. `useSyncExternalStore` is intentionally **not**
-used — there is zero precedent in the codebase and the manual pattern is the
-established convention.
+`useUploadQueue()` subscribes a component to the module-level queue via
+`useSyncExternalStore(subscribe, getSnapshot)`. Because `getSnapshot` returns a
+stable array reference that only changes on a real mutation, a mutation emitted
+in the window between render and effect-subscription cannot be missed — which is
+why this uses `useSyncExternalStore` rather than the manual `useState` +
+`useEffect` + `subscribe` pattern used elsewhere for simpler singletons.
 
 ### Upload panel (`packages/frontend/src/app/documents/upload-panel.tsx`)
 
@@ -163,7 +181,9 @@ Mounted once near the documents list root so it persists across in-list state.
 - Full-page `dragenter`/`dragover`/`drop` handlers gated to file drags; on
   `dragover` show a translucent overlay ("Drop files to upload"). On `drop`,
   collect `dataTransfer.files`, capture the active `workspaceId` prop, call
-  `enqueue`.
+  `enqueue`. The window listener/overlay lifecycle is extracted into the
+  `useWindowFileDrop` hook (`packages/frontend/src/app/documents/use-window-file-drop.ts`),
+  which `packages/frontend/src/app/documents/document-list.tsx` consumes.
 - The "New" menu import items gain multi-select: a hidden `<input multiple>`
   mirroring the DOM-append + focus-cancel logic already in `pickFile`
   (`packages/frontend/src/app/docs/export-utils.ts`), then `enqueue`.

@@ -55,7 +55,8 @@ from the long-press handler in
 SheetContextMenu (new)
 ├── Wraps canvas container as ContextMenuTrigger
 ├── onContextMenu: headerHitTest → determine menuType
-├── CellMenuItems: Cut, Copy, Paste, Delete
+├── CellMenuItems: Cut, Copy, Paste, Delete + optional Insert comment,
+│                  Data validation, Insert pivot table, Delete image
 ├── RowMenuItems: Insert above/below, Delete, Hide, Show
 └── ColumnMenuItems: Insert left/right, Delete, Hide, Show
 
@@ -76,6 +77,14 @@ components/ui/context-menu.tsx (new)
 - Copy
 - Paste (disabled if readOnly)
 - Delete (disabled if readOnly)
+- Insert comment (with keyboard hint; only if `onInsertComment` is wired)
+- Data validation (only if `onOpenDataValidation` is wired)
+- Insert pivot table (only if `onInsertPivotTable` is wired)
+- Delete image (only when an image is selected, via `selectedImageId` + `onDeleteImage`)
+
+The optional items are gated by their corresponding `SheetContextMenu` props
+(`onInsertComment`, `onOpenDataValidation`, `onInsertPivotTable`,
+`onDeleteImage`/`selectedImageId`) and each render behind a separator.
 
 #### Row Menu
 
@@ -114,17 +123,18 @@ used. Otherwise the single row/column at the click point is selected.
 ### Spreadsheet Facade API Additions
 
 ```typescript
-// Hide/show operations (move from worksheet direct calls to facade)
-hideRows(index: number, count: number): Promise<void>
-hideColumns(index: number, count: number): Promise<void>
-showRows(from: number, to: number): Promise<void>
-showColumns(from: number, to: number): Promise<void>
+// Hide/show operations (move from worksheet direct calls to facade).
+// Each takes the explicit list of axis indices to act on.
+hideRows(indices: number[]): Promise<void>
+hideColumns(indices: number[]): Promise<void>
+showRows(indices: number[]): Promise<void>
+showColumns(indices: number[]): Promise<void>
 
-// Adjacent hidden detection (for conditional Show menu item)
-getAdjacentHiddenRows(from: number, to: number):
-  { from: number; to: number } | null
-getAdjacentHiddenColumns(from: number, to: number):
-  { from: number; to: number } | null
+// Adjacent hidden detection (for conditional Show menu item).
+// Returns the array of hidden indices adjacent to the [from, to] range
+// (empty when none); the menu computes min/max over it for the label.
+findAdjacentHiddenRows(from: number, to: number): number[]
+findAdjacentHiddenColumns(from: number, to: number): number[]
 ```
 
 ### Key Files

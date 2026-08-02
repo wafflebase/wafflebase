@@ -123,7 +123,8 @@ packages/slides/                     # domain library
     │   │   ├── editor.ts            # controller
     │   │   ├── selection.ts
     │   │   ├── interactions/        # drag, resize, rotate, drag-add
-    │   │   └── text-bridge.ts       # bridge to docs IME / contenteditable
+    │   │   ├── thumbnail-panel.ts   # thumbnail strip (lives in the package)
+    │   │   └── text-box-editor.ts   # bridge to docs IME / contenteditable
     │   └── present/
     │       └── presenter.ts
     └── export/
@@ -131,11 +132,10 @@ packages/slides/                     # domain library
 
 packages/frontend/src/app/slides/    # Yorkie + React shell
 ├── yorkie-slides-store.ts           # Yorkie ↔ SlidesStore adapter
-├── slides-view.tsx                  # routed page entry
-├── editor-shell.tsx                 # 2-pane layout + top toolbar
-├── thumbnail-panel.tsx
-├── contextual-toolbar.tsx           # selection-driven top toolbar
-└── presentation-mode.tsx
+├── slides-view.tsx                  # routed page entry + 2-pane shell
+├── slides-detail.tsx                # editor shell wiring
+├── toolbar/                         # selection-driven contextual toolbar
+└── slides-presentation-mode.tsx
 ```
 
 Module responsibilities:
@@ -374,11 +374,16 @@ these batch boundaries:
 
 ### Presence
 
-> **Implementation status.** The shape below is design intent. As
-> shipped, presence broadcasts only `activeSlideId` +
-> `selectedElementIds`; `textCursor` / live drag frames are not
-> broadcast, and no peer cursors or selection rings render yet. See
-> [slides-collaboration.md](slides-collaboration.md) (Gap 3).
+> **Implementation status.** The shape below is design intent; field
+> names differ slightly from what shipped. As shipped, `SlidesPresence`
+> broadcasts `activeSlideId`, `selectedElementIds`, `activeFrames`
+> (live world-space drag/resize/rotate frames, cleared on mouseup),
+> and `selectedTableCells`. Peer cursors and selection rings/labels
+> **do** render — `computePeerOverlays` / `PeerRing` / `PeerLabel` in
+> `packages/slides/src/view/editor/peers.ts`, driven by
+> `editor.setPeers()`. Still not broadcast: text-edit carets (the
+> `textCursor` field below, plus per-cell `textCursorCell`). See
+> [slides-collaboration.md](slides-collaboration.md).
 
 ```ts
 type SlidesPresence = {
@@ -427,7 +432,8 @@ slide container (position: relative)
   docs layout engine with the text box's `frame.w` and renders the
   resulting layout to canvas. When the user enters text-edit mode on a
   text element, a contenteditable surface is mounted in the same
-  position and the docs IME bridge takes over keystrokes (`text-bridge.ts`).
+  position and the docs IME bridge takes over keystrokes
+  (`packages/slides/src/view/editor/text-box-editor.ts`).
 - **Text-box overflow.** Text-box `frame.h` auto-grows downward to fit
   the laid-out content; `frame.w` stays fixed (resize handles change
   width and trigger re-layout). The text box never clips. Pinning a
@@ -716,8 +722,10 @@ reads naturally in English.
   - `slides content <id>` — print a JSON dump of the presentation for
     debugging / inspection (matches `docs content`).
   - `slides export <id> --format pdf`
-  - `slides import` is intentionally absent in v1 (PPTX is out of
-    scope; JSON re-import is a developer tool, not a CLI command).
+  - `slides import <file>` — imports a `.pptx` deck as a new or
+    replacement presentation (shipped after v1, once PPTX import
+    landed; see
+    [slides-themes-layouts-import.md](slides-themes-layouts-import.md)).
 - **REST API** — no slide- or element-level endpoints in v1. Existing
   `/api/v1/workspaces/:wid/documents` endpoints accept the new type
   unchanged.

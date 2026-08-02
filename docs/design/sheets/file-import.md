@@ -25,7 +25,7 @@ between the existing client-side parser path and the new backend DuckDB path.
 
 | Capability | Status | Where |
 |------------|--------|-------|
-| **`.xlsx` import** | ✅ **Shipped** (PR #270) — **multi-sheet**, client-side, materializes to editable `sheet` tabs | `packages/sheets/src/import/xlsx-importer.ts` (`importXlsxWorkbook` / `importXlsxFile`), `packages/frontend/src/app/spreadsheet/xlsx-actions.ts` (`pickAndImportXlsx`) |
+| **`.xlsx` import** | ✅ **Shipped** (PR #270) — **multi-sheet**, client-side, materializes to editable `sheet` tabs | `packages/sheets/src/import/xlsx-importer.ts` (`importXlsxWorkbook` / `importXlsxFile`), `packages/frontend/src/app/spreadsheet/xlsx-actions.ts` (`importXlsx(file: File)`) |
 | CSV import | ⚠️ **Not wired** — `papaparse` is already a dependency of `@wafflebase/sheets` but unused | `packages/sheets/package.json` |
 | Parquet / JSON import | ❌ none | — |
 | Remote / object-storage file Connect | ❌ none | — |
@@ -80,7 +80,7 @@ browser can't reasonably go: large files and remote/object sources.
 
 ### 2. CSV import (client-side, quick win)
 
-- Add a CSV branch beside `pickAndImportXlsx` in
+- Add a CSV branch beside `importXlsx` in
   `packages/frontend/src/app/spreadsheet/xlsx-actions.ts` (or a sibling
   `csv-actions.ts`) using the already-installed `papaparse`.
 - Parse → build a one-sheet `SpreadsheetDocument` → editable sheet. The existing

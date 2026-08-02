@@ -204,9 +204,12 @@ positional snaps.
 ### Overlay rendering
 
 Same HTML/CSS overlay that already paints `SnapGuide` via
-`makeGuide` in `view/editor/overlay.ts`. New `makeSmartGuide` builds
-DIVs in the same coordinate convention (`position * scale` for
-placement). Color shared with the existing `#e11d48` guide red.
+`makeGuide` in `packages/slides/src/view/editor/overlay.ts`. Three
+functions build the DIVs in the same coordinate convention
+(`position * scale` for placement): `makeSmartGuideArrows` (spacing /
+distance shafts + arrowheads), `makeSmartGuideOutlines` (equal-size
+dashed peer outlines), and `makeSmartGuideLabel` (the numeric
+distance pill). Color shared with the existing `#e11d48` guide red.
 
 - Equal-spacing: **two** absolutely-positioned 1 px DIVs along the
   matched axis at the middle element's center line, each capped with a
@@ -218,7 +221,8 @@ placement). Color shared with the existing `#e11d48` guide red.
   wrapping every entry in `matchedFrames`. No label
 - Equal-spacing / equal-distance arrows also render a small numeric
   distance label (rounded px, no unit) at each shaft's midpoint —
-  white pill with the same red border, positioned perpendicular to the
+  a dark translucent pill (`rgba(0, 0, 0, 0.75)` background, white
+  text, rounded corners, no border), positioned perpendicular to the
   shaft so it doesn't overlap the line. Equal-size outlines remain
   unlabeled (the matched outline IS the label).
 
@@ -233,7 +237,7 @@ call, so leaving guides off the next render is enough).
 | Trio scan is O(N²) | N is typically 5–20; pre-filter with `overlapY`/`overlapX` cuts most pairs |
 | N > 30 slides | Cull candidates to those whose bbox lies within `slide.w/2` and `slide.h/2` of the dragged bbox |
 | `collectSnapCandidates` cost | Already paid by `snap.ts`; reuse the same array |
-| Threshold vs zoom | `SNAP_THRESHOLD = 8` is in slide coordinates today (matches `snap.ts`). `smart-guides.ts` uses the same constant from the same source so any future zoom-aware change applies to both |
+| Threshold vs zoom | `SNAP_THRESHOLD = 8` (a non-exported const in `packages/slides/src/view/editor/snap.ts`) is in slide coordinates today. `packages/slides/src/view/editor/smart-guides.ts` defines its own duplicate `THRESHOLD = 8` literal — the two are not a shared source, so a future zoom-aware change must update both |
 
 ### Group & rotated handling
 

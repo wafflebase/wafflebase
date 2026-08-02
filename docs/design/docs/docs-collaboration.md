@@ -34,10 +34,13 @@ Yorkie's `Tree` CRDT. The docs editor currently uses an in-memory store
 - Extensible tree structure for future block types (tables, lists, images)
 - Local snapshot-based undo/redo as a first step
 
-### Non-Goals
+### Non-Goals (as originally scoped)
 
-- Presence / remote cursor display (follow-up work)
-- Yorkie-based undo/redo (future migration from local snapshots)
+- ~~Presence / remote cursor display~~ — **since shipped**: peer carets and
+  name labels via `packages/docs/src/view/peer-cursor.ts`, with live presence
+  wiring in `packages/frontend/src/app/docs/docs-detail.tsx`.
+- ~~Yorkie-based undo/redo~~ — **since shipped**: `YorkieDocStore` delegates
+  undo/redo to Yorkie `doc.history` (see the Undo/Redo section below).
 - Offline editing with sync (out of scope)
 - Conflict resolution UI (Yorkie CRDT handles conflicts automatically)
 
@@ -80,8 +83,11 @@ element and text nodes:
 - **Text nodes** — Leaf nodes inside `<inline>` elements containing the actual
   character data.
 
-Future block types (`<table>`, `<list-item>`, `<image>`) are added as new
-element types alongside `<block>`.
+Tables have since shipped as `type: 'table'` element nodes (including nested
+tables) — see `packages/docs/src/model/document.ts` (`insertTable`,
+`insertTableInCell`, `createTableBlock`) and [`docs-tables.md`](docs-tables.md).
+Other future block types (`<list-item>`, `<image>`) follow the same pattern of
+adding new element types alongside `<block>`.
 
 ### Doc Class Refactoring
 
@@ -264,8 +270,9 @@ Other client edits
 
 ### Editor Integration
 
-- **`initialize(container, store)`** — `store` parameter becomes required;
-  caller provides either `MemDocStore` or `YorkieDocStore`.
+- **`initialize(container, store?, theme?, readOnly?)`** — `store` is optional
+  and defaults to a new `MemDocStore()`; the collaborative caller passes a
+  `YorkieDocStore`.
 - **`Doc`** — Created with the store: `new Doc(store)`.
 - **`syncToStore()` removed** — No longer needed since `Doc` writes through
   the store directly. `replaceDocument()` calls are removed from the editor.

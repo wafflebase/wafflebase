@@ -109,7 +109,7 @@ Both snap to the same grid as margins.
 
 ```typescript
 export interface BlockStyle {
-  alignment: 'left' | 'center' | 'right';
+  alignment: 'left' | 'center' | 'right' | 'justify';
   lineHeight: number;
   marginTop: number;
   marginBottom: number;
@@ -131,22 +131,32 @@ export interface BlockStyle {
 
 ### File Structure
 
-**New file:** `packages/docs/src/view/ruler.ts`
+**New module:** `packages/docs/src/view/ruler/` — a directory module split into
+`packages/docs/src/view/ruler/index.ts` (the `Ruler` class + `RULER_SIZE`),
+`packages/docs/src/view/ruler/unit.ts` (`RulerUnit`, `detectUnit`,
+`getGridConfig`, `snapToGrid`), and
+`packages/docs/src/view/ruler/tick-renderer.ts` (`drawTicks`).
 
 ```typescript
 class Ruler {
-  constructor(container: HTMLElement, docCanvas: HTMLCanvasElement)
+  constructor(
+    container: HTMLElement,
+    docCanvas: HTMLCanvasElement,
+    readOnly?: boolean,   // skip mouse handlers when the editor is read-only
+  )
 
   render(
     paginatedLayout: PaginatedLayout,
     scrollY: number,
     canvasWidth: number,
     viewportHeight: number,
-    cursorBlockStyle: BlockStyle,
+    cursorBlockStyle: BlockStyle | null,
+    cursorPageIndex?: number,   // which page the horizontal ruler tracks
   ): void
 
   onMarginChange(cb: (margins: PageMargins) => void): void
   onIndentChange(cb: (style: Partial<BlockStyle>) => void): void
+  onDragGuideline(cb: (position: { x?: number; y?: number } | null) => void): void
 
   dispose(): void
 }

@@ -76,7 +76,8 @@ interface Block {
 ```typescript
 interface TableData {
   rows: TableRow[];
-  columnWidths: number[];      // Proportional ratios (0–1), sum = 1.0
+  columnWidths: number[];              // Proportional ratios (0–1), sum = 1.0
+  rowHeights?: (number | undefined)[]; // Optional per-row pixel heights (row resize)
 }
 
 interface TableRow {
@@ -198,7 +199,11 @@ interface BlockCellInfo {
   colIndex: number;
 }
 
-type BlockParentMap = Map<string, BlockCellInfo>;
+// The reverse-lookup map is a plain Map<string, BlockCellInfo>, held on
+// Doc as the private `_blockParentMap` field and exposed via the
+// `blockParentMap` getter (set through `setBlockParentMap`). There is no
+// exported `BlockParentMap` type alias — "BlockParentMap" is just the
+// conceptual name used in code comments and this doc.
 ```
 
 Built during layout computation by walking the table structure
@@ -206,7 +211,7 @@ Built during layout computation by walking the table structure
 [`tables/docs-nested-tables.md`](tables/docs-nested-tables.md)). Cached
 on `DocumentLayout` and invalidated when the table block is dirty.
 
-**Usage:** only navigation decisions consult `BlockParentMap`. Normal
+**Usage:** only navigation decisions consult the block-parent map. Normal
 text editing uses `blockId` directly.
 
 ### Navigation Rules
@@ -352,7 +357,10 @@ interface DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void;
-  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void;
+  updateTableAttrs(
+    tableBlockId: string,
+    attrs: { cols: number[]; rowHeights?: (number | undefined)[] },
+  ): void;
 }
 ```
 

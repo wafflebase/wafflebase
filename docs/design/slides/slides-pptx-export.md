@@ -21,6 +21,12 @@ written back. Success is defined by a **model-equivalence round-trip** —
 `import(.pptx) → export → re-import` yields a `SlidesDocument` that is
 deep-equal to the first import under a defined normalization (§6).
 
+**Status:** Shipped. The exporter lives in
+`packages/slides/src/export/pptx/` (the 20 modules below), is re-exported
+from `packages/slides/src/node.ts`, and backs the `wafflebase slides
+export` CLI command; the round-trip and per-module tests live in
+`packages/slides/test/export/pptx/`.
+
 ## Goals / Non-Goals
 
 ### Goals
@@ -59,7 +65,7 @@ deep-equal to the first import under a defined normalization (§6).
 
 ### 1. Package Structure
 
-New directory `packages/slides/src/export/pptx/`, mirroring the
+The directory `packages/slides/src/export/pptx/` mirrors the
 importer's module split (so each importer module is the reference spec
 for its inverse). Architecture follows the docs `DocxExporter`:
 string-interpolated XML + `jszip`, zero DOM/Canvas.
@@ -87,8 +93,9 @@ presentation.ts ppt/presentation.xml (slide size, slide/master id lists)
 templates.ts    [Content_Types].xml, _rels/.rels boilerplate builders
 ```
 
-Target ≈ 2,000–3,000 LOC of source plus tests. Module isolation keeps
-each file reviewable and independently testable.
+Roughly 2,000–3,000 LOC of source plus tests. Module isolation keeps
+each file reviewable and independently testable; each module ships with
+its own unit test under `packages/slides/test/export/pptx/`.
 
 ### 2. Part / Relationship Assembly (`zip.ts`)
 
@@ -221,23 +228,24 @@ Mirrors `docs export`:
 - `schema/registry.ts` — `slides.export` entry (`read-only`; file write
   is local), aliases `slide.export`/`deck.export`.
 - `skills/slides-export-pptx.md` + SKILL.md index row.
-- `docs/design/cli.md` — add `slides export` to the command tree and
-  schema tables; drop the "PPTX export has no engine" deferral note.
+- `docs/design/cli.md` — documents `slides export` in the command tree and
+  schema tables (the "PPTX export has no engine" deferral note is gone).
 
 ### 8. Public Surface
 
 - `packages/slides/src/export/pptx/index.ts` exports `exportPptx` +
   `ExportPptxOptions`.
 - `packages/slides/src/node.ts` re-exports both (DOM-free audit per the
-  file's existing contract). The browser entry (`src/index.ts`)
-  re-exports them too for the in-app "Download as .pptx" path (wiring
-  the editor button is out of scope here but the API is ready).
+  file's existing contract). The browser entry (`packages/slides/src/index.ts`)
+  re-exports them too for the in-app "Download as .pptx" path; the editor
+  button is wired via `packages/frontend/src/app/slides/slides-export-button.tsx`
+  and `packages/frontend/src/app/slides/pptx-actions.ts`.
 
 ## Risks and Mitigation
 
 | Risk | Mitigation |
 |------|-----------|
-| Single-PR scope is large (~2–3k LOC + tests) | Strict module isolation (§1); each element module lands with its own unit test; round-trip fixtures gate the whole. Reviewable file-by-file. |
+| Large surface (~2–3k LOC + tests) | Strict module isolation (§1); each element module ships with its own unit test; round-trip fixtures gate the whole. Reviewable file-by-file. |
 | 100% model equivalence is impossible where the importer is lossy | Define success as deep-equal on a normalized projection (§6); document every excluded field in code and the spec. |
 | Generated ids defeat naive deep-equal | `normalize()` strips ids and compares references structurally. |
 | Layout/theme round-trip instability (importer maps OOXML→built-in ids) | Emit `type`/`matchingName` so the importer re-derives the same id; covered by the round-trip test. |

@@ -33,7 +33,8 @@ which consumes this surface — lives in [cli.md](cli.md).
   that).
 - Granular per-document or per-cell permission scoping on API keys
   (may be added later).
-- Rate limiting or usage metering.
+- Usage metering or per-key quota accounting. (A global request rate
+  limit *is* enforced — see §5.6 Rate limiting.)
 - Frontend UI for API key management beyond the existing workspace
   settings page.
 - MCP server (may be added later as a thin wrapper over the REST API).
@@ -126,8 +127,8 @@ user edits.
 `http://localhost:8080`).
 
 **Dependency**: `@yorkie-js/sdk` is in `packages/backend/package.json`,
-matching the version family used by the frontend (`@yorkie-js/react`
-0.6.49).
+matching the version used by the frontend (both pin `@yorkie-js/sdk`
+0.7.13; the frontend also uses `@yorkie-js/react` 0.7.13).
 
 **Types**: `SpreadsheetDocument`, `Worksheet`, `TabMeta`, and
 `Document` (the Docs root) are re-exported from a backend-local Yorkie
@@ -218,6 +219,28 @@ backend. The CLI imports `@wafflebase/docs` and runs it locally; this
 keeps the backend free of native rendering dependencies. See
 [cli.md](cli.md) for the local pipeline.
 
+#### 5.5 Images (workspace-scoped blobs)
+
+```
+POST   /api/v1/workspaces/:wid/images         Upload an image (multipart `file`)
+GET    /api/v1/workspaces/:wid/images/:imageId  Fetch an image blob
+DELETE /api/v1/workspaces/:wid/images/:imageId  Delete an image
+```
+
+`ApiV1ImagesController` (`packages/backend/src/api/v1/images.controller.ts`)
+is guarded by `CombinedAuthGuard` + `WorkspaceScopeGuard` and delegates
+to the S3/MinIO-backed `ImageService`. Uploads accept png/jpeg/gif/webp
+up to 10 MB and return `{ id, url }`, where `url` points back at this
+workspace-scoped `GET` route. Objects are keyed `{workspaceId}/{imageId}`.
+
+#### 5.6 Rate limiting
+
+The application registers a global NestJS `ThrottlerGuard` via
+`ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected
+routes tighten or relax it with `@Throttle`: the CLI auth endpoints cap
+at 10/min and the image endpoints raise to 600/min. This is coarse
+request throttling, not per-key usage metering or quotas.
+
 ### 6. Module Structure
 
 ```
@@ -240,6 +263,7 @@ packages/backend/src/
       tabs.controller.ts
       cells.controller.ts
       docs-content.controller.ts
+      images.controller.ts
       workspace-scope.guard.ts
 ```
 

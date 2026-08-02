@@ -7,22 +7,24 @@ target-version: 0.4.5
 
 ## Summary
 
-Make the eight resize handles behave when more than one element is
-selected. The overlay already draws those handles on the combined
-axis-aligned bbox of the selection, but `SlidesEditorImpl.startResize`
-bails out for `selectedIds.length !== 1`. (Multi-rotate is already
-wired in `startRotate` via the `isMulti` branch in `buildLiveState`
-and the move-pattern `paintMoveGhost`; this design extracts the
-rotation math to a pure helper for symmetry but leaves the runtime
-behavior alone.) This proposal wires the resize gesture end-to-end
-with Google Slides / PowerPoint parity:
-bbox-relative per-element transforms, type-dispatched handling for
-connectors and tables, multi-rotation around the bbox centre, Shift
-modifiers preserved, and one batched undo step per gesture. While
-we're here we also unify the live-preview paint: every resize / rotate
-(single and multi) renders the committed original at full opacity plus
-a translucent `GHOST_ALPHA` ghost at the proposed frame, matching the
-move drag and single-table-resize patterns; the in-place
+The eight resize handles behave when more than one element is
+selected. This shipped in v0.4.5. The overlay draws those handles on
+the combined axis-aligned bbox of the selection, and
+`SlidesEditorImpl.startResize` no longer bails out for
+`selectedIds.length !== 1` — it routes multi-selections through the
+pure `resizeMultiFrames` helper. (Multi-rotate is wired in
+`startRotate` via the `isMulti` branch in `buildLiveState` and the
+move-pattern ghost paint; extracting the rotation math into a pure
+`rotateMultiFrames` helper for symmetry remains deferred — see §8 — so
+multi-rotate runs through the existing inline math with no runtime
+change.) The resize gesture is wired end-to-end with Google Slides /
+PowerPoint parity: bbox-relative per-element transforms,
+type-dispatched handling for connectors and tables, multi-rotation
+around the bbox centre, Shift modifiers preserved, and one batched undo
+step per gesture. The live-preview paint is also unified: every resize
+/ rotate (single and multi) renders the committed original at full
+opacity plus a translucent `GHOST_ALPHA` ghost at the proposed frame,
+matching the move drag and single-table-resize patterns; the in-place
 `paintLiveScoped` path is retired for these gestures.
 
 ### Goals
@@ -335,10 +337,10 @@ The slides editor today has three live-preview paint paths:
 | `paintTableResizeGhost` (single table resize) | full opacity | `GHOST_ALPHA` table at new frame (cells scaled) | ghost ("active size now") |
 | `paintLiveScoped` (single non-table resize, current code) | hidden — replaced in synthetic slide | n/a | replaced element |
 
-The third path mutates the visible slide during the gesture, which
-diverges from the other two. This design retires `paintLiveScoped`
-for the resize / rotate gestures and routes every non-table resize
-(single and multi) through one shared helper:
+The third path mutated the visible slide during the gesture, which
+diverged from the other two. `paintLiveScoped` is now retired for the
+resize / rotate gestures; every non-table resize (single and multi)
+routes through one shared helper:
 
 ```ts
 private paintGhostPreview(
@@ -363,14 +365,14 @@ by a new function:
   follow the cursor for direct manipulation, so handles track the
   ghost.
 
-`paintMoveGhost` is renamed to `paintGhostPreview` and its existing
-single caller (the move drag) is updated. `paintLiveScoped` and its
-module-private helper `patchElementFrames` are deleted outright: this
+`paintMoveGhost` was renamed to `paintGhostPreview` and its single
+caller (the move drag) updated. `paintLiveScoped` and its
+module-private helper `patchElementFrames` were deleted outright: this
 design assumed connector-endpoint drag and adjustment-handle drag
-depended on `paintLiveScoped`, but inspection shows both call
-`this.renderer.forceRender(...)` directly. Once single-resize moves
-off `paintLiveScoped` (Task 3) the function has no remaining callers
-and is removed. `paintTableResizeGhost` stays for single-table resize
+depended on `paintLiveScoped`, but both call
+`this.renderer.forceRender(...)` directly. Once single-resize moved
+off `paintLiveScoped` the function had no remaining callers and was
+removed. `paintTableResizeGhost` stays for single-table resize
 because of its cell-width / row-height scaling; it already follows
 the same handle-on-ghost convention.
 

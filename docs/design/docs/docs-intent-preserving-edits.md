@@ -56,10 +56,9 @@ applyStyle(blockId, fromOffset, toOffset, style): void;
 splitBlock(blockId, offset, newBlockId, newBlockType): void;
 mergeBlock(blockId, nextBlockId): void;
 
-// Phase 4: Table cell variants
-insertTextInCell(tableBlockId, rowIndex, colIndex, cellBlockIndex, offset, text): void;
-deleteTextInCell(...): void;
-applyStyleInCell(...): void;
+// Phase 4: Table cell edits reuse the Phase 1–3 methods above — no
+// dedicated *InCell variants exist. resolveBlockTreePath() DFS resolves
+// cell-internal blockIds transparently (see Phase 4 below).
 ```
 
 ### Yorkie Tree Strategy
@@ -69,14 +68,14 @@ applyStyleInCell(...): void;
 | Text insert | `editByPath` | Character-level `[blockIdx, inlineIdx, charOffset]` | CRDT merge |
 | Text delete | `editByPath` | Character-level + empty inline cleanup | CRDT merge |
 | Style | `editByPath` (`splitLevel=1`) + `styleByPath` | Inline-level split + element style | CRDT merge |
-| Split | `editByPath` + `styleByPath` | Native CRDT split (`splitLevel=2`) | CRDT merge |
-| Merge | `editByPath` | Native boundary deletion | CRDT merge |
+| Split | `editByPath` + `styleByPath` | Manual two-step: delete "after" content + insert new block | CRDT merge |
+| Merge | `editByPath` + `editBulkByPath` | Two-step: delete next block + re-insert its inlines | CRDT merge |
 | Full doc write | `editBulkByPath` | Undo/redo fallback | — |
 
 **Path format:** 3 levels `[blockIdx, inlineIdx, charOffset]`. The inline
 node's `hasTextChild()` interprets the last element as a character offset.
 
-#### Native Inline Styling (SDK 0.7.6)
+#### Native Inline Styling
 
 Style operations use `editByPath` with `splitLevel=1` to split inline nodes
 at style boundaries, then `styleByPath` to apply attributes to the resulting
@@ -84,35 +83,28 @@ inlines. This eliminates LWW conflicts — concurrent text edits in the same
 block are preserved during styling operations. The split is performed at
 `toOffset` first, then `fromOffset`, so that earlier path indices remain valid.
 
-#### Native Split/Merge (SDK 0.7.4)
+#### Split/Merge (manual two-step)
 
-As of SDK 0.7.4, split and merge use native Yorkie Tree CRDT operations
-instead of block replacement. This eliminates LWW conflicts for concurrent
-structural edits.
+Split and merge deliberately avoid the native single-call `editByPath`
+splitLevel path — it breaks undo/redo and hits a yorkie-js-sdk range-narrowing
+bug on split-created blocks. Instead both operations decompose into
+same-parent edits, which still preserve editing intent (no whole-block
+replacement) while keeping undo/redo stable.
 
-**Split** uses `editByPath(path, path, undefined, splitLevel)` where
-`splitLevel=2`. The path points to text level `[blockIdx, inlineIdx,
-charOffset]`, and `splitLevel` counts only element ancestors (text nodes
-excluded). Two element levels are split: inline → block. After the split,
-`styleByPath` updates the new "after" block's attributes (id, type, list
-properties).
+**Split** is a two-step edit in `splitBlock`
+(`packages/frontend/src/app/docs/yorkie-doc-store.ts`): (1) delete the "after"
+content (from the split point to the end of the block) from the original
+block, then (2) insert a new block carrying that content via `editByPath` +
+`buildBlockNode`, followed by `styleByPath` to set the new block's attributes
+(id, type, list/heading properties). A native `splitLevel=2` call is
+explicitly *not* used — the only mentions of `splitLevel` in the store are
+comments explaining why it is avoided.
 
-**Merge** uses boundary deletion: `editByPath([blockIdx, inlineCount],
-[nextBlockIdx, 0])`. This deletes the range from the first block's close
-boundary to the next block's open boundary, triggering an automatic CRDT
-merge.
-
-**splitLevel note:** Yorkie's `splitLevel` counts from the immediate parent
-element of the text position upward. In our tree `doc → block → inline →
-text`, the parent chain from text is: inline (level 1) → block (level 2).
-So `splitLevel=2` achieves a block-level split.
-
-**Known concurrent edge cases (SDK 0.7.4):** Two integration tests remain
-skipped in the Yorkie SDK — `concurrently-split-split-test` and
-`concurrently-split-edit-test`. Both involve mixed `splitLevel` values
-(1 and 2) on deeply nested trees. Our use case (uniform `splitLevel=2` on
-a flat block list) is a narrower pattern, but concurrent split+edit
-divergence cannot be fully ruled out until these are resolved upstream.
+**Merge** in `mergeBlock` also decomposes into two same-parent operations,
+working around the yorkie-js-sdk "Phase 3 Range Narrowing" bug where a single
+cross-boundary `editByPath` fails on split-created blocks: (1) delete the next
+block element, then (2) re-insert its inline children at the end of the first
+block via `editBulkByPath` (deep-cloned so Yorkie mints fresh CRDT nodes).
 
 ### IME Composition and Undo Granularity
 
@@ -172,8 +164,8 @@ clamped, so the corrupted value survives. See issue #609.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Text insert/delete (character-level) | ✅ Shipped |
-| 2 | Inline styling (native CRDT, SDK 0.7.6) | ✅ Shipped |
-| 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
+| 2 | Inline styling (native CRDT `editByPath`/`styleByPath`) | ✅ Shipped |
+| 3 | Structural editing — split/merge (manual two-step) | ✅ Shipped |
 | 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
 | 5 | Block/cell attribute edits (styleByPath) | ✅ Shipped |
 | 6 | Cell span attributes (styleByPath) | ✅ Shipped |
@@ -318,11 +310,11 @@ deleting.
    before the local cursor, the position is not adjusted. Needs cursor
    transformation based on remote edit positions.
 
-2. **Concurrent split+edit edge cases** — Yorkie SDK 0.7.4 has two skipped
-   concurrent tests involving mixed splitLevel values. Our concurrent
-   integration tests (inline `splitLevel=1` + block `splitLevel=2`) converge
-   correctly in SDK 0.7.6, but edge cases cannot be fully ruled out until
-   resolved upstream.
+2. **Concurrent split+edit edge cases** — split/merge use the manual
+   two-step decomposition above (native `splitLevel=2` is avoided because it
+   breaks undo/redo and trips a yorkie-js-sdk range-narrowing bug). Our
+   concurrent integration tests converge correctly, but rare split+edit edge
+   cases cannot be fully ruled out.
 
 3. **Caret restoration races the live-cursor publisher during IME composition**
    — see "Caret Restoration on Undo Races Against the Live-Cursor Publisher"
@@ -335,8 +327,8 @@ deleting.
 |------|------------|
 | Yorkie `editByPath` at text level has bugs | Extensive testing; started with simplest case |
 | Model cache diverges from Yorkie Tree | In-place cache update after each mutation |
-| Yorkie Tree undo unstable for mixed ops | Feature-flagged; SDK 0.7.3 includes fix for mixed char+block undo |
+| Yorkie Tree undo unstable for mixed ops | Split/merge use the manual two-step decomposition (native `splitLevel=2` avoided) to keep undo/redo stable |
 | Performance regression | Benchmark per-character ops vs block replacement |
-| Native split divergence on concurrent split+edit | Uniform splitLevel=2 on flat block list; concurrent integration tests added |
+| Split divergence on concurrent split+edit | Manual two-step split/merge (native splitLevel avoided); concurrent integration tests added |
 | DFS tree traversal cost for cell block lookup | Tables are small; optimize with index cache if profiling shows regression |
 | Doc routing cleanup breaks existing cell editing | Each step is independently testable; unit + concurrent tests per step |

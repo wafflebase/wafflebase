@@ -81,7 +81,11 @@ model DataSource {
 ### 2. Query execution (native `mysql2`)
 
 - The service dispatches on `engine`: `pg.Client` for postgres, `mysql2` for
-  mysql. Add `mysql2` to `packages/backend` dependencies.
+  mysql. `mysql2` (`^3.23.0`) is already a `packages/backend` dependency — it
+  ships today for the analytics warehouse reader
+  (`packages/backend/src/analytics/analytics-warehouse.service.ts`), not the
+  datasource connector, so no new dependency is needed; the connector wiring
+  itself is still unbuilt.
 - Reuse the SELECT/WITH-only validator and the `LIMIT 10001` wrap + 10,000-row
   truncation flag. (MySQL dialect uses backtick identifiers, but SELECT/WITH
   detection and the forbidden-keyword list are unaffected.)

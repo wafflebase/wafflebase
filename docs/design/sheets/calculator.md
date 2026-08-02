@@ -47,12 +47,25 @@ Source: `packages/sheets/src/model/worksheet/calculator.ts`
      (reversed post-order).
 3. **Evaluate** — For each ref in topological order:
    - If the ref is in `cycledRefs`, its value is set to `#REF!`.
-   - Otherwise, `extractReferences` finds all referenced cells,
+   - Otherwise, `expandUnboundedRanges` rewrites whole-column/row/open-ended
+     ranges (e.g. `A:A`, `1:1`, `A1:B`) to concrete ranges clamped to the
+     used bounds, `extractReferences` finds all referenced cells,
      `fetchGridByReferences` loads their current values (including
-     cross-sheet data), `evaluate` computes the result, and the cell is
-     updated.
+     cross-sheet data), `evaluateWithSpill` computes the result, and the cell
+     is updated.
    - No-op writes are skipped when the evaluated result matches the existing
      cell value to reduce CRDT churn.
+
+**Array spill** — `evaluateWithSpill` may return a `SpillResult` (a 2-D block
+of `values` with `rows`/`cols`) instead of a scalar. When it does, the
+calculator writes the top-left result to the anchor cell (tagged with
+`spillRows`/`spillCols`) and fills the rest of the block with ghost cells
+carrying a `spillAnchor` back-reference. Before re-evaluating, an anchor's
+prior ghosts are cleared. If the target block collides with real user data
+(a cell that has a value/formula but no `spillAnchor`), the spill is blocked:
+the anchor shows `#REF!` with `spillBlocked: true`, no ghosts are written, and
+the blocker is recorded via `sheet.registerSpillBlocker`; a subsequent
+unblocked evaluation clears it via `sheet.clearSpillBlockers`.
 
 ```text
 setData(ref, value)
@@ -63,9 +76,10 @@ setData(ref, value)
         │
         ├── topologicalSort(...)  ──→  [A1, B1, C1, D1], cycled={}
         └── for each sref in sorted:
+              ├── expandUnboundedRanges(formula, usedBounds)
               ├── extractReferences(formula)
               ├── fetchGridByReferences(refs)  ──→  Grid (including cross-sheet data)
-              └── evaluate(formula, grid)  ──→  new value
+              └── evaluateWithSpill(formula, grid)  ──→  value or SpillResult
 ```
 
 ### Cross-Sheet Recalculation

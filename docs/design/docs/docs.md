@@ -7,7 +7,7 @@ target-version: 0.3.0
 
 ## Summary
 
-A new `packages/docs` package (`@wafflebase/document`) that provides a Canvas-based rich-text document
+A new `packages/docs` package (`@wafflebase/docs`) that provides a Canvas-based rich-text document
 editor, following the same architectural patterns as the existing `packages/sheets`.
 The initial prototype focuses on paragraph-level text editing with inline
 formatting, cursor/selection management, and undo/redo — all rendered on a
@@ -23,7 +23,7 @@ single HTML Canvas element.
 ### Goals
 
 - Provide a minimal but functional Canvas-based document editor as a new
-  monorepo package (`@wafflebase/document`).
+  monorepo package (`@wafflebase/docs`).
 - Support paragraph editing: text input/deletion, Enter to split blocks,
   Backspace to merge blocks.
 - Support inline text formatting: bold, italic, underline, font size, font
@@ -110,8 +110,10 @@ interface InlineStyle {
 - **Inline splitting**: When formatting changes mid-text, the affected Inline
   is split into two or three Inlines. Adjacent Inlines with identical styles
   are merged to keep the model compact.
-- **Block type**: Currently only `'paragraph'`. The discriminated union allows
-  future extension to `'table' | 'heading' | 'list'` etc.
+- **Block type**: The discriminated union has since grown well beyond
+  `'paragraph'`. `BlockType` in `packages/docs/src/model/types.ts` is now
+  `'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' |
+  'horizontal-rule' | 'table' | 'page-break'`.
 
 ### Document manipulation
 
@@ -163,8 +165,12 @@ interface DocStore {
 `MemDocStore` implementation:
 - Stores `Document` in memory.
 - Undo/redo via snapshot stack (deep-clone before each mutation).
-- Future `YorkieDocStore` will implement the same interface using Yorkie CRDT
-  operations, following the pattern established by the sheet package.
+
+`YorkieDocStore` (`packages/frontend/src/app/docs/yorkie-doc-store.ts`)
+implements the same `DocStore` interface using Yorkie CRDT operations,
+following the pattern established by the sheet package. See
+[`docs-collaboration.md`](docs-collaboration.md) and
+[`docs-intent-preserving-edits.md`](docs-intent-preserving-edits.md).
 
 ## Canvas Rendering
 
@@ -267,7 +273,7 @@ Desktop is unchanged (the cap at 1.0 means no scaling).
 
 ```
 packages/docs/
-├── package.json            # @wafflebase/document, same build pattern as sheets
+├── package.json            # @wafflebase/docs, same build pattern as sheets
 ├── tsconfig.json
 ├── vite.config.ts          # dev config
 ├── vite.build.ts           # library build (es + cjs)
@@ -284,8 +290,7 @@ packages/docs/
 │       ├── doc-canvas.ts   # Canvas rendering engine
 │       ├── cursor.ts       # Cursor management
 │       ├── selection.ts    # Selection management
-│       ├── text-editor.ts  # Input handling (keyboard, mouse)
-│       ├── doc-container.ts # Scroll management
+│       ├── text-editor.ts  # Input handling (keyboard, mouse) + scroll management
 │       ├── layout.ts       # Text measurement, word-wrap, layout tree
 │       └── theme.ts        # Visual constants
 └── test/

@@ -468,9 +468,9 @@ PDF export.
 
 #### 6.1 `TextMeasurer` Abstraction in `@wafflebase/docs`
 
-`paginateLayout` and `computeLayout` historically called `ctx.measureText`
-on a 2D Canvas. To allow the CLI (Node) to paginate without a native
-canvas binding, the layout functions take an injectable measurer:
+`computeLayout` historically called `ctx.measureText` on a 2D Canvas. To
+allow the CLI (Node) to lay out text without a native canvas binding, it
+takes an injectable measurer:
 
 ```ts
 // packages/docs/src/view/measurer.ts
@@ -490,8 +490,9 @@ export interface TextMeasurer {
 export class CanvasTextMeasurer implements TextMeasurer { /* … */ }
 ```
 
-`paginateLayout(doc, measurer, options)` and `computeLayout(doc,
-measurer, options)` accept the measurer as a parameter. All existing
+`computeLayout(blocks, measurer, contentWidth, …)` accepts the measurer
+as a parameter; `paginateLayout(layout, pageSetup)` then splits the
+already-computed layout into pages and needs no measurer. All existing
 call sites (renderer, editor, PDF exporter, frontend integration, test
 fixtures) pass a `CanvasTextMeasurer`. Tests that previously relied on
 Canvas mocks use a deterministic stub measurer.
@@ -499,11 +500,12 @@ Canvas mocks use a deterministic stub measurer.
 #### 6.2 `FontkitMeasurer` in the CLI
 
 `packages/cli/src/docs/fontkit-measurer.ts` implements `TextMeasurer` by
-loading fonts through the existing `PdfFonts` module (already a fontkit
-consumer for PDF export). Width is computed as `glyphAdvance ÷
-unitsPerEm × size`. A small in-memory font cache is keyed by
-`${family}|${weight}|${style}`. NotoKR loaders stay lazy so they only
-run when a command actually paginates.
+loading fonts through `fontkit` directly (`fontkit.create()`), keeping
+its own `register()` method and private `fonts` Map rather than reusing
+the PDF exporter's font loader. Width is computed as `advanceWidth ÷
+unitsPerEm × size`. The in-memory font cache is keyed by a lowercased
+`${family}|${weight}|${style}` variant. NotoKR loaders stay lazy so they
+only run when a command actually paginates.
 
 #### 6.3 DOCX Import via Backend Endpoints
 
@@ -528,7 +530,7 @@ confirmation payload in JSON.
 ```text
 1. CLI: HttpClient.getDocContent("abc-123")
 2. Backend: Yorkie attach "doc-abc-123" → return Document JSON
-3. CLI: paginateLayout(doc, FontkitMeasurer)
+3. CLI: computeLayout(blocks, FontkitMeasurer) → paginateLayout(layout, pageSetup)
 4. CLI: select blocks intersecting pages 1-3 (rule from § 6.6)
 5. CLI: blocksToMarkdown(...)
 6. CLI: write to stdout (or --out)
@@ -566,8 +568,9 @@ mapping". Suppressed by `--quiet`.
 
 #### 6.6 Page Slicing Semantics
 
-`--pages 1-3,5` triggers pagination via `paginateLayout(doc,
-FontkitMeasurer)` so the CLI knows each block's `lines[].pageIndex`.
+`--pages 1-3,5` triggers pagination via `computeLayout(blocks,
+FontkitMeasurer)` followed by `paginateLayout(layout, pageSetup)` so the
+CLI knows each block's `lines[].pageIndex`.
 Slicing behavior is format-aware:
 
 | Format  | Slicing rule                                                                                          |
@@ -614,22 +617,27 @@ packages/cli/
       docx-import.ts     importDocx + base64 ImageUploader + InvalidDocxError
       import.ts          runDocsImport orchestrator (POST + PUT, --replace flow)
       paginate.ts        paginateForCli helper (computeLayout + paginateLayout)
+      page-range.ts      parsePageRange (1-3,5,7-9 + clamp warnings)
+      page-slice.ts      sliceBlocksByPages
+      fontkit-measurer.ts FontkitMeasurer (TextMeasurer for Node)
+      image-fetcher.ts   Fetch remote/data image bytes for inline embedding
+      dom-polyfill.ts    @xmldom/xmldom shim for DocxImporter's DOMParser usage
     slides/              Presentation pipeline
       content.ts         runSlidesContent orchestrator (json + per-slide md/text)
       import.ts          runSlidesImport orchestrator (POST + PUT, --replace flow)
+      pptx-export.ts     exportPptx wrapper (inverse of the PPTX importer)
       pptx-import.ts     importPptx wrapper + base64 image uploader
     notes/               Markdown-note pipeline
       content.ts         runNotesContent orchestrator (json {content} + raw md/text)
       import.ts          runNotesImport orchestrator (POST + PUT, --replace flow)
-      page-range.ts      parsePageRange (1-3,5,7-9 + clamp warnings)
-      page-slice.ts      sliceBlocksByPages
-      fontkit-measurer.ts FontkitMeasurer (TextMeasurer for Node)
-      dom-polyfill.ts    @xmldom/xmldom shim for DocxImporter's DOMParser usage
     client/
       http-client.ts     REST API v1 wrapper (built-in fetch)
       dry-run.ts         Dry-run request printer
     config/
       config.ts          Config file + env + flag resolution
+      session.ts         Session file read/write + token refresh
+    util/
+      csv-parse.ts       CSV parsing helper for sheets import
     output/
       formatter.ts       Format dispatcher (json | table | csv | yaml)
       binary.ts          writeBinary helper for PDF/DOCX exports
@@ -648,6 +656,8 @@ packages/cli/
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
   scripts/
     gen-sample-docx.mjs  One-shot generator for the integration .docx fixture
+    gen-sample-pptx.mjs  One-shot generator for the integration .pptx fixture
+    debug-cmd.mjs        Local command-runner helper for manual CLI debugging
 ```
 
 **Root pnpm scripts**:
