@@ -127,7 +127,7 @@ import {
 import { downloadDocumentFile } from "@/api/download-file";
 import { UploadPanel } from "./upload-panel";
 import { useWindowFileDrop } from "./use-window-file-drop";
-import { enqueue, startUploads } from "./upload-queue";
+import { enqueue, startUploads, type UploadItem } from "./upload-queue";
 import { pickFiles } from "./pick-files";
 import { ImageThumb } from "./image-thumb";
 import { MiroImportDialog } from "./miro-import-dialog";
@@ -421,32 +421,48 @@ export function DocumentList({
     [],
   );
 
+  // The settled callback keys off each item's OWN captured workspaceId, not
+  // the closed-over one — work may finish after the user has switched the list
+  // to another workspace, and the queue keeps only the latest callback, so it
+  // must not assume the current workspace.
+  const onItemSettled = useCallback(
+    (item: UploadItem) => {
+      if (item.status === "done") {
+        scheduleListRefresh(item.workspaceId);
+        if (item.warning) {
+          toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
+        }
+      } else if (item.status === "error") {
+        // "Upload" is wrong for a row that never had a file: an externally
+        // driven import (Miro) fails at an import, not at an upload.
+        const verb = item.kind === "board" ? "Import" : "Upload";
+        toast.error(
+          `${verb} failed: ${item.fileName}${
+            item.reason ? ` — ${item.reason}` : ""
+          }`,
+        );
+      }
+    },
+    [scheduleListRefresh],
+  );
+
+  // Register on mount, not just when a file batch starts: an externally driven
+  // row (the Miro import) settles through the same callback, and it can be the
+  // first and only work the queue ever sees in this session. Without this the
+  // list would never refresh to show the imported board.
+  useEffect(() => {
+    startUploads(onItemSettled);
+  }, [onItemSettled]);
+
   const startBatch = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
       // Pass the folder the list is currently viewing so dropped/picked files
       // land here, not the workspace root (matches the manual "New …" path).
       enqueue(files, workspaceId, folderId ?? undefined);
-      // The settled callback keys off each item's OWN captured workspaceId,
-      // not the closed-over one — a batch may finish after the user has
-      // switched the list to another workspace, and startUploads keeps only
-      // the latest callback, so it must not assume the current workspace.
-      startUploads((item) => {
-        if (item.status === "done") {
-          scheduleListRefresh(item.workspaceId);
-          if (item.warning) {
-            toast.warning(`Imported "${item.fileName}" — ${item.warning}`);
-          }
-        } else if (item.status === "error") {
-          toast.error(
-            `Upload failed: ${item.fileName}${
-              item.reason ? ` — ${item.reason}` : ""
-            }`,
-          );
-        }
-      });
+      startUploads(onItemSettled);
     },
-    [workspaceId, folderId, scheduleListRefresh],
+    [workspaceId, folderId, onItemSettled],
   );
 
   // Google-Drive-style whole-window drop: a file dropped anywhere (not just on

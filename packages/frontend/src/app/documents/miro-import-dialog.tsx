@@ -1,7 +1,4 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-import { mapMiroItems } from "@wafflebase/board";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,14 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isAuthExpiredError } from "@/api/auth";
-import { importMiroBoard, type MiroImportProgress } from "@/api/miro";
-import { deleteDocument } from "@/api/documents";
-import { createWorkspaceDocument } from "@/api/workspaces";
-import { resolveImageUrl } from "@/app/spreadsheet/image-upload";
-import { applyImportedContent } from "./apply-imported-content";
-import { getDocumentPath } from "./document-list-utils";
-import { describeImportProgress } from "./miro-import-progress";
-import { summarizeImport } from "./miro-import-summary";
+import { startMiroImport } from "./miro-import-runner";
 
 interface MiroImportDialogProps {
   open: boolean;
@@ -30,14 +20,23 @@ interface MiroImportDialogProps {
   folderId?: string | null;
 }
 
-type Phase = "idle" | "fetching" | "creating";
-
 /**
  * Import a Miro board into a new board document.
  *
- * The token is held in local component state for the single request and never
- * persisted — the copy in the dialog says so, because asking for a credential
- * without saying what happens to it is not acceptable.
+ * The token is held for the single request and never persisted — the copy in
+ * the dialog says so, because asking for a credential without saying what
+ * happens to it is not acceptable.
+ *
+ * ## What this component is and is not responsible for
+ *
+ * It owns the form and the errors the form can fix, and nothing else. Submit
+ * awaits only the part of the import that can still fail with a status the
+ * user can act on from right here — a rejected token, a board they cannot
+ * read, a board that does not exist. Once the request is underway the dialog
+ * closes and `startMiroImport` reports the remaining 30-60s into the upload
+ * panel, exactly like a PPTX/XLSX import, so the user can navigate away while
+ * it finishes. Nothing about the running import is anchored to this component:
+ * unmounting it must not cancel anything.
  */
 export function MiroImportDialog({
   open,
@@ -45,12 +44,8 @@ export function MiroImportDialog({
   workspaceId,
   folderId,
 }: MiroImportDialogProps) {
-  const navigate = useNavigate();
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState<MiroImportProgress | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const busy = phase !== "idle";
 
   // Reset on OPEN rather than on close: it covers every way the dialog can go
   // away (Cancel, Esc, the overlay, a successful import) in one place, so a
@@ -69,66 +64,14 @@ export function MiroImportDialog({
     if (!token || !boardUrl) return;
 
     setError(null);
-    setProgress(null);
-    setPhase("fetching");
+    setBusy(true);
     try {
-      // The backend streams NDJSON progress over the SAME request the token was
-      // posted on, so the credential is still sent exactly once. Each line is a
-      // running per-stage total, so it can be rendered as-is.
-      const result = await importMiroBoard(
-        workspaceId,
-        { token, boardUrl },
-        setProgress,
-      );
-      const { inits, skipped, approximated } = mapMiroItems({
-        items: result.items,
-        connectors: result.connectors,
-        // The backend hands back root-relative image URLs; the API is on
-        // another origin, so they have to be absolute before they are
-        // persisted. Same resolver the native image upload applies.
-        resolveImageUrl,
-      });
-
-      setPhase("creating");
-      const doc = await createWorkspaceDocument(workspaceId, {
-        title: "Imported Miro board",
-        type: "board",
-        folderId: folderId ?? undefined,
-      });
-
-      let applied;
-      try {
-        applied = await applyImportedContent(doc.id, {
-          type: "board",
-          elements: inits,
-        });
-      } catch (applyErr) {
-        // The document exists but is empty. Leaving it behind means every
-        // retry adds another orphaned "Imported Miro board" to the user's
-        // list, so clean it up before surfacing the real error. The delete is
-        // best-effort: its failure must not replace the error worth reporting.
-        try {
-          await deleteDocument(doc.id);
-        } catch {
-          /* best-effort cleanup */
-        }
-        throw applyErr;
-      }
-
-      const summary = summarizeImport({
-        skipped,
-        approximated,
-        droppedConnectors: applied.droppedConnectors,
-        notes: result.notes ?? [],
-      });
-      if (summary) {
-        toast.warning(`Imported with notes: ${summary}`);
-      } else {
-        toast.success("Miro board imported");
-      }
-
+      // Resolves once the server has committed to a 200 — i.e. the import is
+      // genuinely running. The token goes no further than this call.
+      await startMiroImport({ workspaceId, folderId, token, boardUrl });
+      // Close immediately: the panel has the readout from here on, and the
+      // import does not depend on this component staying mounted.
       onOpenChange(false);
-      navigate(getDocumentPath(doc));
     } catch (err) {
       // An expired session is already redirecting to login; an inline "failed
       // to import" on the way out is noise about the wrong problem.
@@ -138,8 +81,7 @@ export function MiroImportDialog({
         err instanceof Error ? err.message : "Failed to import the Miro board",
       );
     } finally {
-      setPhase("idle");
-      setProgress(null);
+      setBusy(false);
     }
   };
 
@@ -151,7 +93,9 @@ export function MiroImportDialog({
             <DialogTitle>Import from Miro</DialogTitle>
             <DialogDescription>
               Paste a Miro access token and the board URL. The token is used for
-              this import only — it is never stored.
+              this import only — it is never stored. Once the import starts it
+              continues in the background, and its progress is shown in the
+              uploads panel.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -192,20 +136,13 @@ export function MiroImportDialog({
               Cancel
             </Button>
             {/*
-              `min-w` + centring: the label grows from "Import" to
-              "Importing images… 12/128" as the stream reports in, and a button
-              that resizes on every progress tick reads as a glitch.
+              The label only spans "Import" -> "Starting…" now: the long tail of
+              the import is reported in the panel, so this button is no longer
+              a progress readout and no longer needs a fixed width to stop it
+              resizing on every tick.
             */}
-            <Button
-              type="submit"
-              disabled={busy || !workspaceId}
-              className="min-w-[13rem] justify-center tabular-nums"
-            >
-              {phase === "fetching"
-                ? describeImportProgress(progress)
-                : phase === "creating"
-                  ? "Creating…"
-                  : "Import"}
+            <Button type="submit" disabled={busy || !workspaceId}>
+              {busy ? "Starting…" : "Import"}
             </Button>
           </DialogFooter>
         </form>

@@ -2085,6 +2085,20 @@ Reported as "the import is stuck": a 3000-element board is ~60 sequential pagina
 
 Verified: backend 395, board 54, frontend 986, slides 2634, frontend lint clean, `pnpm verify:self` all 11 lanes. Incremental delivery proven over a **real socket** (Nest on an ephemeral port + `http.request` chunk timestamps), not just via `res.write` assertions.
 
+- [x] **Step 9: Report progress in the upload panel, not the dialog (follow-up)**
+
+Step 8 made the wait visible but left it *modal*: the dialog owned the readout, so a 30-60 s import held the user hostage. Moved onto the same surface a PPTX/XLSX import uses — the fixed bottom-right upload panel.
+
+- **`upload-queue.ts`** gains `enqueueExternal({fileName, kind, workspaceId, folderId}) -> id` for work the queue does not run itself. The row is created in **`"parsing"`, never `"pending"`**: `nextPendingId` only selects `"pending"`, so the file worker can never claim a row with no `File` and dereference it; `"parsing"` also makes `activeCount()` treat it as active, which is correct. Plus `settleExternal(id)` (an externally driven row reaches its terminal state via `patchItem`, so it must announce itself to the host's settled callback) and `isRetryable(item)` = "has a `File` to replay", which `retry()` now enforces as a no-op guard. `UploadItem.detail` carries driver-chosen progress wording; `UploadKind` gains `"board"` (no extension maps to it — it exists so consumers can tell an import from an upload).
+- **`miro-import-runner.ts`** (NEW) is the module-scope driver, like the queue's own worker — not a hook/effect, so closing the dialog or navigating away cannot cancel it. `api/miro.ts` splits at the backend's own error boundary into `openMiroImportStream` (fetch + `assertOk`) and `readMiroImportStream` (drain + progress). **The token is an argument to the first half only**: the long-running half takes the already-opened `Response`, so nothing that outlives the dialog closes over the credential and no queue item ever carries it.
+- **Error boundary** = the controller's `prepareImport` / `runImport` seam, verbatim. Pre-stream (empty token/URL, rejected token, no access, board not found) rejects out of `startMiroImport` **before any row exists** and is shown inline in the still-open dialog; post-commit failures (including the in-band `{"type":"error"}` line) land as `status: "error"` + `reason` on the row. `isAuthExpiredError` removes the row instead of reporting it.
+- **Summary** rides on the row's `warning`, the same channel a lossy PPTX import uses, and is toasted by the documents list's one settled callback — which is now registered on mount, since a Miro import can be the only work the queue sees in a session. **Auto-navigation dropped** (it would undo the point); the finished row links to the board and the list refreshes.
+- **No retry control** for a row that cannot be replayed — retrying needs the token, which is deliberately not kept. The panel shows a failure marker and "— start the import again to retry" instead of a button that cannot work.
+
+Tests added: `miro-import-runner.test.ts` (13 — handoff boundary, progress mapping, done/error/auth-expiry terminals, orphan cleanup incl. a failing cleanup, token absent from the snapshot, never picked up by `nextPendingId`, no retry affordance), `upload-queue.test.ts` (+3), `upload-panel.test.tsx` (+3), `api/miro.test.ts` (+1 pinning that the pre-stream half does not touch the body).
+
+Verified: backend 395, board 54, frontend 1006, slides 2634, frontend lint clean, `pnpm verify:self` all 11 lanes.
+
 ---
 
 ## Self-Review

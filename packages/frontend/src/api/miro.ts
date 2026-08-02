@@ -54,7 +54,8 @@ type MiroImportEvent =
 const FALLBACK_ERROR = "Failed to import the Miro board";
 
 /**
- * Ask the backend to read a Miro board on the user's behalf.
+ * Ask the backend to read a Miro board on the user's behalf, and wait until
+ * the response has committed to a status.
  *
  * The token is sent once and used server-side only — it is never stored here,
  * never put in the URL (which would land in logs/history), and never written
@@ -62,7 +63,7 @@ const FALLBACK_ERROR = "Failed to import the Miro board";
  * true: a job-id + polling design would have to either park the credential on
  * the server or resend it with every poll.
  *
- * ## Two error surfaces, deliberately
+ * ## Two error surfaces, deliberately — and why this is two functions
  *
  * The server does the work that can fail with a meaningful status (board-id
  * parsing, the first authenticated Miro call) BEFORE writing a byte:
@@ -70,15 +71,24 @@ const FALLBACK_ERROR = "Failed to import the Miro board";
  * - **Before the stream** the response is a normal non-2xx, so it goes through
  *   the shared `assertOk` and arrives as an `HttpError` with `.status` and
  *   `.retryAfterMs` — unchanged from when this endpoint returned plain JSON.
+ *   Those are the failures the user can fix from the form they still have open
+ *   (a rejected token, no access, a board that does not exist), and they are
+ *   exactly the ones this function rejects with.
  * - **After the stream opens** the status is committed to 200 and a failure
- *   can only be an `{"type":"error"}` line. That throws
- *   `MiroImportStreamError`, so a caller's `catch` sees a failure either way.
+ *   can only be an `{"type":"error"}` line, which `readMiroImportStream`
+ *   throws as a `MiroImportStreamError`.
+ *
+ * Splitting the request in two at that seam lets a caller hand the two halves
+ * to different places: awaiting `openMiroImportStream` tells it the import is
+ * genuinely underway (so it can dismiss its form and report the rest
+ * elsewhere), while `readMiroImportStream` is the long-running part. The token
+ * is only needed by this half — nothing downstream of it has to hold the
+ * credential.
  */
-export async function importMiroBoard(
+export async function openMiroImportStream(
   workspaceId: string,
   payload: { token: string; boardUrl: string },
-  onProgress?: (progress: MiroImportProgress) => void,
-): Promise<MiroImportResult> {
+): Promise<Response> {
   const res = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${workspaceId}/miro/import`,
     {
@@ -88,7 +98,21 @@ export async function importMiroBoard(
     },
   );
   await assertOk(res, FALLBACK_ERROR);
+  return res;
+}
 
+/**
+ * Drain an opened import stream, reporting progress as it arrives and
+ * resolving with the terminal `result` line.
+ *
+ * Rejects with a `MiroImportStreamError` on an in-band `{"type":"error"}` line
+ * or on a stream that ends without a result, so a caller's `catch` sees a
+ * failure the same way it would from `openMiroImportStream`.
+ */
+export async function readMiroImportStream(
+  res: Response,
+  onProgress?: (progress: MiroImportProgress) => void,
+): Promise<MiroImportResult> {
   // A holder rather than a bare `let`: TypeScript's flow analysis ignores
   // assignments made inside a callback, and would otherwise narrow the
   // variable to `null` at the check below.

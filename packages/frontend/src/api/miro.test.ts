@@ -4,7 +4,30 @@ const fetchWithAuth = vi.fn();
 vi.mock('@/api/auth', () => ({ fetchWithAuth: (...a: unknown[]) => fetchWithAuth(...a) }));
 
 import { HttpError } from './http-error';
-import { importMiroBoard, MiroImportStreamError, type MiroImportProgress } from './miro';
+import {
+  openMiroImportStream,
+  readMiroImportStream,
+  MiroImportStreamError,
+  type MiroImportProgress,
+  type MiroImportResult,
+} from './miro';
+
+/**
+ * The whole request, as callers ran it before the pre-stream/in-stream seam
+ * was made explicit. The two halves compose into exactly the old behavior, so
+ * every assertion below still applies end to end — a failure on either side of
+ * the seam still surfaces as one rejected promise.
+ */
+async function importMiroBoard(
+  workspaceId: string,
+  payload: { token: string; boardUrl: string },
+  onProgress?: (progress: MiroImportProgress) => void,
+): Promise<MiroImportResult> {
+  return readMiroImportStream(
+    await openMiroImportStream(workspaceId, payload),
+    onProgress,
+  );
+}
 
 const encoder = new TextEncoder();
 
@@ -42,6 +65,33 @@ function ndjson(...events: unknown[]) {
 }
 
 const RESULT = { type: 'result', items: [{ id: 'a' }], connectors: [], notes: [] };
+
+describe('openMiroImportStream (the pre-stream half)', () => {
+  beforeEach(() => fetchWithAuth.mockReset());
+
+  it('resolves as soon as the status is committed, without touching the body', async () => {
+    // This is the seam the UI hands off on: once it resolves, the import is
+    // underway and can be reported somewhere other than the submitting form.
+    // Draining here would make "underway" mean "finished" and defeat that.
+    let readerRequested = false;
+    fetchWithAuth.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/x-ndjson' }),
+      body: {
+        getReader: () => {
+          readerRequested = true;
+          return { read: async () => ({ done: true, value: undefined }) };
+        },
+      },
+    });
+
+    const res = await openMiroImportStream('ws-1', { token: 'tok', boardUrl: 'B=' });
+
+    expect(readerRequested).toBe(false);
+    expect(res.status).toBe(200);
+  });
+});
 
 describe('importMiroBoard', () => {
   beforeEach(() => fetchWithAuth.mockReset());

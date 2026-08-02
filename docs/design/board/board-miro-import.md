@@ -77,7 +77,9 @@ in Miro, with a summary of anything skipped, and `pnpm verify:self` green.
 
 ```text
 packages/frontend/src/app/documents/
-  ├─ miro-import-dialog.tsx   NEW  token + board URL form, progress, report
+  ├─ miro-import-dialog.tsx   NEW  token + board URL form (form errors only)
+  ├─ miro-import-runner.ts    NEW  module-scope driver → upload-panel row
+  ├─ upload-queue.ts             + enqueueExternal / settleExternal / isRetryable
   └─ apply-imported-content.ts   + `board` branch (headless Yorkie apply)
         │  POST /workspaces/:wid/miro/import  { token, boardUrl }
         ▼
@@ -222,9 +224,12 @@ service is split at exactly that seam:
 The first Miro call is what surfaces auth, permission and not-found, which is
 why it sits on the pre-stream side; its page is carried into `runImport` rather
 than re-fetched. The client throws `MiroImportStreamError` for an in-band error
-line, so a caller's `catch` behaves identically either way — the dialog stays
-open with the pasted values, the orphan document is cleaned up, and
-`isAuthExpiredError` still short-circuits.
+line, so a caller's `catch` behaves identically either way. That seam is also
+where the UI splits: a pre-stream failure is thrown back to the dialog (which
+stays open with the pasted values), everything after it is reported on the
+upload-panel row — see [UX](#which-errors-stay-in-the-dialog). The orphan
+document is cleaned up and `isAuthExpiredError` still short-circuits in both
+cases.
 
 An in-band message is an **allowlist**, not a scrub: only `HttpException`
 messages (all raised from string literals in this module) are forwarded;
@@ -329,33 +334,93 @@ nowhere near the content, and reported to the user as a clean import.
 A connector whose endpoint fails to remap is **dropped and counted**, never
 written dangling. The mapper guarantees both ends resolve, so the count should
 always be zero; `applyBoardElements` returns `{ droppedConnectors }` anyway and
-the dialog folds a non-zero value into the summary, because a silent drop is
+the driver folds a non-zero value into the summary, because a silent drop is
 the one outcome this flow exists to prevent.
 
 ### UX
 
 "Import from Miro…" joins the existing Import menu in the documents list. The
 dialog takes a token and a board URL, links to Miro's token docs, and states
-plainly that the token is used once and never stored. On submit the Import
-button becomes the progress readout, driven by the NDJSON stream —
-"Reading board… 1,250 items" → "Reading connectors… 40" → "Importing images…
-3/12" → "Creating…" — then navigate to `/b/:id`. Counts are locale-grouped
-("1,250" reads as a count, "1250" reads as an id) and the button holds a
-minimum width so it does not resize on every tick. The wording is a pure
-function (`miro-import-progress.ts`) because this text is the only thing
-distinguishing a running import from a hung one. If any
-report channel is non-empty, a summary lists what did not come across and why.
-Errors are shown inline in the dialog, which stays open so the input isn't lost.
+plainly that the token is used once and never stored.
 
 The token field is `type="password"` **plus `autoComplete="off"`** — a bare
 password input prompts the browser to save a credential the copy directly above
 it promises is never stored.
 
+#### Progress lives in the upload panel, not the dialog
+
+An import is 30-60 s of work, and holding a modal open for it is the one thing
+the user cannot work around. So the import reports into the **fixed
+bottom-right upload panel**, exactly like a PPTX/XLSX import: the dialog closes
+the moment the import is underway and the row keeps ticking while the user does
+something else, including navigating away from the list.
+
+```text
+dialog submit ─ await startMiroImport() ─┬─ pre-stream reject → inline error, dialog stays open
+                                         └─ resolves → dialog closes
+                                              │
+        module-scope drive() ── patchItem(id, …) ──▶ upload panel row
+```
+
+- **`enqueueExternal({fileName, kind, workspaceId, folderId})`** registers a
+  row for work the queue does not run itself and hands back its id. It is
+  created in **`"parsing"`, never `"pending"`** — `nextPendingId` only ever
+  selects `"pending"`, so the file worker can never claim a row that has no
+  `File` and dereference it. `"parsing"` also makes `activeCount()` count it,
+  which is right: it is real work and should hold a concurrency slot.
+- **The driver is a module function** (`miro-import-runner.ts`), like the
+  queue's own worker — not a hook, an effect, or component state. Anything
+  anchored to the dialog would die with it, which is the behavior being
+  removed. Nothing is aborted on unmount.
+- **The token never enters a queue item.** The queue is a module singleton
+  whose rows outlive the dialog, so a credential parked there would live until
+  the tab closes. `startMiroImport` holds it only long enough to open the
+  request; the long-running half takes the already-opened `Response`, so it
+  cannot even start a second request.
+- **Progress mapping.** Each NDJSON line becomes
+  `patchItem(id, {status, done, total, detail})` — `items`/`connectors` report
+  as `parsing`, `images` as `uploading` (the only stage with a denominator, so
+  the only one that can drive the panel's `done/total`). `detail` carries the
+  wording from the same pure `miro-import-progress.ts` used before —
+  "Reading board… 1,250 items" → "Reading connectors… 40" → "Importing images…
+  3/12" → "Creating…" — because that text is the only thing distinguishing a
+  running import from a hung one, and the fraction alone would render blank for
+  the first two stages.
+- **No retry control.** Retrying would need the token, which is deliberately
+  not kept. The panel asks `isRetryable(item)` (i.e. "is there a `File` to
+  replay?") rather than testing a kind, renders a plain failure marker instead
+  of a retry button, and the reason line ends "— start the import again to
+  retry". `retry()` itself no-ops on such a row so a stray call cannot park it
+  in `"pending"`. A button that cannot possibly work is worse than none.
+- **The summary rides on the row's `warning`**, the same channel a lossy PPTX
+  import uses, and the documents list's one settled callback toasts it. Nothing
+  about what the import failed to carry over is lost by the dialog going away.
+- **No auto-navigation.** Landing the user on the new board would undo the
+  point of the change. The finished row links to it ("Open") and the list
+  refreshes, both driven by that same settled callback — which is now
+  registered on mount, not only when a file batch starts, since a Miro import
+  can be the only work the queue ever sees in a session.
+
+##### Which errors stay in the dialog
+
+The split is the backend's own error boundary, reused verbatim. Everything
+`prepareImport` covers — an empty token/URL, a rejected token, no access, a
+board that does not exist — fails **before a byte is written**, arrives as an
+`HttpError`, and is shown inline in the dialog, which stays open with the
+pasted values so the user can fix them. `openMiroImportStream` is exactly that
+half of the request, and `startMiroImport` awaits it; no panel row exists yet
+when it rejects. Once the response commits to 200 the import is genuinely
+underway, and every later failure — including an in-band `{"type":"error"}`
+line — lands on the row as `status: "error"` with the same user-facing message
+the dialog used to show. `isAuthExpiredError` removes the row instead: the app
+is already redirecting to login, and a row shouting about a failed import would
+outlive the redirect.
+
 Document creation and the apply are two steps, so a failed apply would otherwise
 leave an empty "Imported Miro board" behind, and pressing Import again would add
-another. The dialog **deletes the just-created document** when the apply throws
-(best-effort — a failed delete must not replace the error worth reporting), so
-retrying cannot accumulate orphans.
+another. The driver **deletes the just-created document** when the apply throws
+(best-effort — a failed delete must not replace the error worth reporting) and
+clears `docId` off the row so dismissing it cannot delete the same id twice.
 
 ### Testing
 
@@ -439,8 +504,9 @@ retrying cannot accumulate orphans.
   import; the ceiling bounds the worst case; and the downloads run through a
   6-wide pool instead of serially, which is where most of the wall clock went.
 - **A long request looks like a hang.** 30-60 s of silence on a large board was
-  reported as "stuck". *Mitigation:* NDJSON progress on the same response, so
-  the dialog shows the live stage and counts. The residual risk is an
+  reported as "stuck". *Mitigation:* NDJSON progress on the same response,
+  reported into the upload panel so the live stage and counts stay visible
+  while the user works elsewhere. The residual risk is an
   intermediary that buffers the body anyway; `no-transform` /
   `X-Accel-Buffering: no` / `flushHeaders` / `setNoDelay` address the ones we
   control, and a buffering proxy degrades to today's behavior (a single late
