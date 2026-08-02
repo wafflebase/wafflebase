@@ -43,7 +43,7 @@ planned item links to (or will link to) its own design doc.
 | Pagination (Letter / A4 / Legal, margins, page shadows) | ✅ |
 | IME support (Korean, Japanese, Chinese — partial) | ✅ |
 | Real-time collaboration (Yorkie CRDT, peer cursors & selections) | ✅ |
-| Undo / Redo (snapshot-based) | ✅ |
+| Undo / Redo (Yorkie `doc.history`) | ✅ |
 | Ruler & draggable margin / indent controls | ✅ |
 | Dark mode | ✅ |
 | Canvas rendering optimizations (incremental layout, viewport culling) | ✅ |

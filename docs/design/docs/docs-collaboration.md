@@ -220,27 +220,19 @@ The `onRemoteChange` callback triggers editor re-render. Since
 Stored as a JSON field (`pageSetup`) on the Yorkie document root, separate
 from the `content` tree. See the root schema above.
 
-#### Undo/Redo (Phase 1 — Local Snapshots)
+#### Undo/Redo
 
-The undo contract: **only explicit `snapshot()` calls create undo entries.**
-Individual `updateBlock()`/`insertBlock()`/`deleteBlock()` do NOT push to the
-undo stack. This applies to both `MemDocStore` and `YorkieDocStore`.
+The production `YorkieDocStore` drives undo/redo through **Yorkie
+`doc.history`** — `undo()`/`redo()`/`canUndo()`/`canRedo()` delegate to
+`this.doc.history.undo()/redo()/canUndo()/canRedo()`
+(`packages/frontend/src/app/docs/yorkie-doc-store.ts`). This gives
+operation-level undo that respects concurrent edits, rather than restoring a
+whole-document snapshot. (Shipped in PR #162, replacing the earlier
+snapshot-based scheme.)
 
-Note: The current `MemDocStore` pushes undo on every mutation method. This
-will be fixed to match the `snapshot()`-only contract so that both stores
-behave identically.
-
-- **`snapshot()`** — Calls `getDocument()` to deep-clone the current state
-  and pushes it onto a local undo stack.
-- **`undo()`** — Pops from the undo stack, pushes current state to redo
-  stack, and replaces the entire tree content with the snapshot.
-- **`redo()`** — Reverse of undo.
-
-**Limitation**: In Phase 1, undo restores a full document snapshot. During
-concurrent editing, this can overwrite other users' changes. This is
-acceptable as a known limitation; undo is scoped to single-user scenarios
-until Phase 2 migrates to `doc.history.undo()/redo()` for operation-level
-undo that respects concurrent edits.
+The in-package dev store `MemDocStore` still keeps a local snapshot undo
+stack — fine for single-user local development, but the collaborative path is
+the `doc.history` one described above.
 
 ### Data Flow
 

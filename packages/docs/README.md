@@ -26,7 +26,7 @@ Canvas-based document editor for Wafflebase. Provides a paragraph-level rich-tex
 
 - **Editor** — Top-level entry point. `initialize(container, store?)` mounts the editor and returns `EditorAPI`.
 - **Layout** — Measures text with Canvas `measureText()`, word-wraps into lines, then paginates into discrete pages.
-- **Store** — `DocStore` interface decouples the editor from persistence. `MemDocStore` provides snapshot-based undo/redo.
+- **Store** — `DocStore` interface decouples the editor from persistence. `MemDocStore` provides snapshot-based undo/redo for the in-package dev store; the production `YorkieDocStore` (frontend package) drives undo/redo through Yorkie `doc.history` (see [docs-collaboration.md](../../docs/design/docs/docs-collaboration.md)).
 - **Doc Model** — `Document → Block → Inline` hierarchy. Blocks are paragraphs; inlines carry styled text segments.
 
 ## Key Concepts
@@ -66,6 +66,12 @@ type PaginatedLayout, LayoutPage, PageLine
 // Rendering
 DocCanvas, Cursor, Selection, Theme, buildFont
 ```
+
+> The snippet above is the core surface. `src/index.ts` now exports many more
+> shipped subsystems — tables (`TableMergeContext`), named styles
+> (`StyleId`/`NamedStyleDef`/`DocStyles`), spell check, DOCX/PDF import-export,
+> comments, find & replace, hyperlinks, and images. See the per-feature design
+> docs indexed under **Docs** in [docs/design/README.md](../../docs/design/README.md).
 
 ## Usage
 
@@ -107,3 +113,9 @@ pnpm --filter @wafflebase/docs typecheck    # TypeScript check
 
 - [docs.md](../../docs/design/docs/docs.md) — Full design document (data model, layout, rendering)
 - [docs-pagination.md](../../docs/design/docs/docs-pagination.md) — Pagination design (page setup, coordinate mapping)
+
+The complete set of per-feature docs design documents (collaboration, tables,
+images, DOCX/PDF import-export, comments, spell check, named styles, font
+controls, ruler, presence, header/footer, intent-preserving edits, context
+menu, IME underline, …) is indexed under the **Docs** section of
+[docs/design/README.md](../../docs/design/README.md).

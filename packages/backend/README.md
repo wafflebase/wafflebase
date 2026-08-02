@@ -301,14 +301,19 @@ Key models managed by Prisma:
 | `email` | String | Unique |
 | `photo` | String? | Profile photo URL |
 
-**Document** — spreadsheet documents
+**Document** — a document of any type (sheet / doc / slide / note / board / pdf / image)
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
 | `title` | String | |
+| `type` | String | Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image) |
+| `fileId` | String? | Blob storage key for static file types (pdf/image) |
 | `authorID` | Int? | FK to User |
+| `workspaceId` | String | FK to Workspace (CASCADE) |
+| `folderId` | String? | FK to Folder (`SetNull`); null = workspace root |
 | `createdAt` | DateTime | Auto-set |
+| `updatedAt` | DateTime | Last-modified ordering, fed by the Yorkie event webhook |
 
 **ApiKey** — workspace-scoped API keys for external access
 
@@ -363,6 +368,15 @@ src/
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
 │   └── workspace-scope.guard.ts # Workspace access verification
+├── workspace/                 # Workspaces + members + sharing roles
+├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
+├── share-link/                # URL-based token sharing (sharing.md)
+├── datasource/                # External PostgreSQL/MySQL/BigQuery datasources
+├── file/                      # Blob storage for static file types (pdf)
+├── image/                     # Image document type upload/serve (image-viewer.md)
+├── analytics/                 # View-event Kafka producer + StarRocks reader (share-link-analytics.md)
+├── user-doc-styles/           # Per-user default docs named styles
+├── health/                    # Health-check endpoint
 └── database/
     └── prisma.service.ts      # Prisma client lifecycle
 ```

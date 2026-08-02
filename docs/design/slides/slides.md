@@ -45,21 +45,27 @@ documents) are explicitly out of scope and listed at the end.
 
 ### Non-Goals (v1)
 
-- ~~Animations, slide transitions~~ — shipped in v0.5.0; see
+- ~~Animations, slide transitions~~ — shipped; see
   [slides-animation.md](slides-animation.md).
-- Global theme system and master slides (only per-slide background fill
-  in v1; layouts are a fixed code-defined set, see "Layouts").
-- PPTX import/export (PDF only). PPTX export is a likely v2 ask given
-  ecosystem lock-in concerns.
-- Embedded sheets, ranges, charts.
+- ~~Global theme system and master slides~~ — shipped: 4-tier
+  theme/master/layout model with an in-editor theme builder and a
+  23-theme catalog. See [slides-themes-layouts-import.md](slides-themes-layouts-import.md)
+  and [slides-theme-catalog.md](slides-theme-catalog.md).
+- ~~PPTX import/export (PDF only)~~ — both shipped. See
+  [slides-themes-layouts-import.md](slides-themes-layouts-import.md) (import) and
+  [slides-pptx-export.md](slides-pptx-export.md) (export).
+- ~~Embedded sheets, ranges, charts~~ — charts shipped
+  ([slides-charts.md](slides-charts.md)); embedded sheets/ranges remain out of scope.
 - Comments, suggestions, version history.
-- Mobile zoom-to-fit (the docs equivalent can be ported in v2).
+- ~~Mobile zoom-to-fit~~ — mobile view + light edit shipped
+  ([slides-mobile.md](slides-mobile.md)).
 - Per-slide Yorkie documents and lazy loading. v1 assumes a single
   Yorkie document per presentation. Re-evaluate when presentations
   routinely exceed ~100 slides.
-- Right-side "Format options" panel (drop shadow, reflection, precise
-  numeric inputs). v1 surfaces all editable properties through the top
-  contextual toolbar; what is not in the toolbar is not in v1.
+- ~~Right-side "Format options" panel~~ — shipped (Size & Position, Text
+  fitting, effects, Alt text). See
+  [slides-format-options-panel.md](slides-format-options-panel.md) and
+  [slides-format-effects.md](slides-format-effects.md).
 - Slide- or element-level REST API endpoints. The existing
   `/api/v1/.../documents` metadata endpoints work with `type: 'slides'`
   unchanged; finer-grained endpoints can be added later if external
@@ -790,26 +796,26 @@ required for the first useful release):
 - Group / ungroup elements (Cmd+⌥+G) — shipped. See
   [slides-group.md](./slides-group.md).
 
-**Tracked for v2:**
+**Shipped since v1** (were tracked here, now done — see each doc):
+Animations & transitions, the 4-tier theme/master/user-editable-layout
+system, PPTX import **and** export, embedded charts, the right-side
+Format options panel (+ effects), and mobile view/light-edit. Their
+design docs are indexed under **Slides** in
+[docs/design/README.md](../README.md).
+
+**Still tracked:**
 
 - Speaker-notes presenter view (notes on a second screen during
   presentation; data model and per-slide notes panel are already in
   v1).
-- Animations and slide transitions.
-- Global theme system, master slides, and user-editable layouts.
-- PPTX export.
 - Comments and suggestions.
-- Mobile zoom-to-fit (port of the docs equivalent).
 - Per-slide Yorkie documents with lazy loading (when presentations
   routinely exceed ~100 slides).
-- Right-side "Format options" panel (drop shadow, reflection, precise
-  numeric inputs).
 - Slide- / element-level REST API endpoints.
 
 **Not currently planned but worth revisiting if asked for:**
 
-- PPTX import (much larger surface than export).
-- Embedded sheets, ranges, and charts inside a slide.
+- Embedded sheets and ranges inside a slide.
 - Audience tools (Q&A, live captions, polls).
 
 When closing items off this list, update both this section and the

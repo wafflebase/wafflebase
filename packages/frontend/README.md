@@ -1,6 +1,9 @@
 # Wafflebase Frontend
 
-React 19 single-page application for Wafflebase. Provides the spreadsheet UI, real-time collaboration via Yorkie, document management, and GitHub OAuth authentication.
+React 19 single-page application for Wafflebase. Hosts the editors for every
+document type — sheets, docs, slides, notes, board, and the PDF/image viewers —
+plus real-time collaboration via Yorkie, document/workspace management, sharing,
+and GitHub OAuth authentication.
 
 ## Tech Stack
 
@@ -13,7 +16,7 @@ React 19 single-page application for Wafflebase. Provides the spreadsheet UI, re
 | Server state | TanStack React Query 5 |
 | Tables | TanStack React Table 8 |
 | Real-time | Yorkie CRDT (`@yorkie-js/react` 0.6.28) |
-| Spreadsheet | `@wafflebase/sheets` (workspace dependency) |
+| Editor engines | `@wafflebase/sheets`, `@wafflebase/docs`, `@wafflebase/slides`, `@wafflebase/notes`, `@wafflebase/board` (workspace dependencies) |
 
 ## Getting Started
 
@@ -124,7 +127,14 @@ src/
 | `/login` | Login | Public | GitHub OAuth login |
 | `/` | Documents | Private | Document list |
 | `/settings` | Settings | Private | User settings |
-| `/:id` | DocumentDetail | Private | Spreadsheet editor |
+| `/s/:id` | DocumentDetail | Private | Sheets editor |
+| `/d/:id` | DocsDetail | Private | Docs (word processor) editor |
+| `/p/:id` | SlidesDetail | Private | Slides editor |
+| `/n/:id` | NotesDetail | Private | Notes editor |
+| `/b/:id` | BoardDetail | Private | Board (infinite canvas) editor |
+| `/f/:id` | FileDetail | Private/shared | PDF & image viewer (static file types) |
+| `/shared/:token`, `/invite/:token` | — | Public | Share-link + workspace-invite entry |
+| `/w/:workspaceId` (+ `/analytics`, `/settings`, `/datasources`) | Workspace | Private | Workspace home + sub-pages |
 
 ## Key Features
 
