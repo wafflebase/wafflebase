@@ -70,6 +70,7 @@ export default defineConfig({
       { text: "Docs", link: "/docs-editor/writing-a-document" },
       { text: "Slides", link: "/slides/build-a-deck" },
       { text: "Notes", link: "/notes/writing-a-note" },
+      { text: "Board", link: "/board/using-the-board" },
       { text: "Developers", link: "/developers/self-hosting" },
     ],
 
@@ -130,6 +131,12 @@ export default defineConfig({
         text: "Notes",
         items: [
           { text: "Writing a Note", link: "/notes/writing-a-note" },
+        ],
+      },
+      {
+        text: "Board",
+        items: [
+          { text: "Using the Board", link: "/board/using-the-board" },
         ],
       },
       {
