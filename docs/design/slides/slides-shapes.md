@@ -205,12 +205,6 @@ imports of labelled shapes layered (`ShapeElement` + paired
 `TextElement`); the new form is one element.
 
 **v1 limitations.**
-- *Type-to-edit first character.* The keystroke is consumed
-  (`preventDefault`) and enters edit mode, but the first character is
-  not yet inserted into the freshly-mounted text-box — the user has
-  to type it again. Forwarding the initial character requires threading
-  an `initialText` through `mountSlidesTextBox` into the docs editor;
-  deferred as a follow-up.
 - *Two import formats coexist in Yorkie storage.* Pre-feature decks
   imported a labelled shape as two layered elements (`ShapeElement`
   with no text + paired `TextElement` overlay); those documents keep

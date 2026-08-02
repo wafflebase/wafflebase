@@ -299,9 +299,13 @@ blocks render the dropdown trigger with an em dash.
 ### Web-font loading flow
 
 1. Toolbar mounts; `font-catalog.ts` is statically imported.
-2. App bootstrap injects a single Google Fonts CSS `<link>` with the
-   subset of families flagged `webFont: true`, weight 400/700, subset
-   `latin,korean`. This is a one-time CSS load, not a binary load.
+2. App bootstrap injects a single Google Fonts CSS `<link>` (built by
+   `buildGoogleFontsHref` in
+   `packages/frontend/src/components/text-formatting/font-catalog.ts`)
+   with only the families flagged `eager: true` (the small pre-catalog
+   set), each at its own `weights`. This is a one-time CSS load, not a
+   binary load. Non-eager web families load on demand via
+   `ensureFontLink(family, weights)`.
 3. When the user picks a web font, the toolbar calls
    `editor.getStore().fonts.ensureFont(family)` (via the existing
    `FontRegistry`) before dispatching `applyStyle`. The applyStyle

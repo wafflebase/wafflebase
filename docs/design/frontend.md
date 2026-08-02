@@ -359,16 +359,19 @@ flowchart LR
 
 ```typescript
 type UserPresence = {
-  selection?: SelectionPresence; // primary field: full range selection
-  activeCell?: Sref;   // legacy fallback for mixed-version peers, e.g. "C5"
+  selection?: SelectionPresence; // primary field: axis-ID range for cursors
+  activeCell?: Sref;   // always-emitted Sref; drives avatar jump, e.g. "C5"
   activeTabId?: string; // current tab id, e.g. "tab-1"
 } & User;              // spreads id, authProvider, username, email, photo
 ```
 
 The primary presence field is `selection` (a `SelectionPresence` range from
-`@wafflebase/sheets`); `activeCell` is retained only as a legacy fallback for
-peers running an older version. `UserPresence` extends the full `User` type
-rather than duplicating the profile fields.
+`@wafflebase/sheets`), which carries the axis-ID-stable anchor used to render
+peer cursor overlays. `activeCell` is always emitted alongside it as a plain
+`Sref`: it drives avatar jump navigation (below) and lets peer cursors render
+even when `selection` has no axis anchor (e.g. after Cmd+Down on an empty
+sheet). `UserPresence` extends the full `User` type rather than duplicating the
+profile fields.
 
 The `UserPresence` component (`packages/frontend/src/components/user-presence.tsx`) displays up
 to 4 user avatars in the header. It uses the `usePresences()` hook from

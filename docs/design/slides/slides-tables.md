@@ -53,9 +53,12 @@ structured `TableElement`, and the PPTX exporter emits a real `<a:tbl>`.
   only. Docs allows nested tables; slides v1 doesn't — the visual
   payoff in slide context is small and the editor complexity (cell
   resize cascading through nested rows) is large.
-- **Cell-level Yorkie undo/redo.** Slides uses the existing
-  snapshot-based undo path (`store.batch`); table ops batch the same
-  way as any other element edit.
+- **Cell-level Yorkie undo/redo.** Table ops get no special undo
+  granularity — they batch through `store.batch` the same way as any
+  other element edit. `YorkieSlidesStore` maps each batch onto Yorkie
+  native `doc.history` (see
+  [slides-native-undo.md](slides-native-undo.md)); `MemSlidesStore`
+  retains the snapshot-based undo path.
 - **Linked-spreadsheet tables.** Tables are static OOXML-style grids,
   not embedded `@wafflebase/sheets` ranges. The latter is tracked under
   the existing "Embedded sheets" v2 item in `slides.md`.

@@ -143,20 +143,23 @@ single `cropSession` field (no separate `croppingElementId`):
 private cropSession: {
   slideId: string;
   elementId: string;
-  before: { frame: Frame; crop?: Crop };  // for Esc / undo bracket
   full: { x: number; y: number; w: number; h: number }; // bitmap box
+  window: { x: number; y: number; w: number; h: number }; // bright crop box
   ...
 } | null = null;
 ```
 
 - `enterImageCrop(elementId)` — commits any open text edit first (they
-  are mutually exclusive). Snapshot `before`, compute `full`, set state,
-  open one `store.batch` bracket, request a repaint. `isCropping()`
-  reports whether a session is active; `onCropChange(cb)` lets the
-  toolbar subscribe to enter/exit.
-- `exitImageCrop(commit: boolean)` — on cancel, write `before` back; on
-  commit, the live drag handlers have already pushed `frame`/`crop` via
-  the store. Close the batch, clear state, repaint.
+  are mutually exclusive). Compute `full`/`window`, set state, request a
+  repaint. No store write happens on entry — the drag handlers
+  mutate the editor-local session, not the store. `isCropping()` reports
+  whether a session is active; `onCropChange(cb)` lets the toolbar
+  subscribe to enter/exit.
+- `exitImageCrop(commit: boolean)` — on cancel, nothing was written, so
+  just tear the session down; on commit, write the final `frame` + `crop`
+  together in one synchronous `store.batch()`, then clear state and
+  repaint. (`store.batch(fn)` closes its `doc.update()` scope when `fn`
+  returns, so it cannot stay open across the session's pointer events.)
 
 Entry points:
 
@@ -186,10 +189,12 @@ element (the selection overlay swaps to crop chrome).
 - **Image pan.** Dragging inside the crop window moves `full` (the
   bitmap) under the fixed `frame`, clamped so `frame` stays within
   `full`. `crop.x/cy` shift; `crop.w/ch` unchanged.
-- Each pointer-move writes through `store.updateElementFrame` +
-  `store.updateElementData(..., { crop })` inside the open batch; the
-  renderer already reflects it live. Snapping/smart-guides are **off**
-  in crop mode (P0) to keep the math simple.
+- Each pointer-move mutates the editor-local `cropSession` (`full` /
+  `window`) only; the renderer reflects it live via the crop-preview
+  descriptor. The store is written once — `store.updateElementFrame` +
+  `store.updateElementData(..., { crop })` in a single `store.batch()` on
+  commit. Snapping/smart-guides are **off** in crop mode (P0) to keep the
+  math simple.
 
 ### Rendering in crop mode
 
@@ -238,8 +243,8 @@ local/presence-free in P0 (no "user is cropping" indicator).
 - **Renderer:** crop-mode overlay paints dimmed-full + full-kept +
   handles (ctx-spy assertions, mirroring existing image-renderer tests).
 - **Interaction:** enter via double-click and via toolbar; commit on
-  Enter / outside-click; cancel on Esc restores `before`; mutual
-  exclusion with text-edit.
+  Enter / outside-click; cancel on Esc leaves the model unchanged (no
+  store write occurred); mutual exclusion with text-edit.
 - **PPTX round-trip:** crop produced in-editor exports and re-imports to
   an equivalent `<a:srcRect>` (extends existing `import/pptx/image`
   coverage).

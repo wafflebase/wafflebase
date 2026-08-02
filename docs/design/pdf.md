@@ -78,9 +78,11 @@ Add `"pdf"` as a document type and a nullable blob reference:
   firing if any code path derives a key for a PDF document.)
 - `packages/frontend/src/types/documents.ts` — extend `DocumentType`.
 - **Prisma migration**: add `fileId String?` to `Document`
-  (`packages/backend/prisma/schema.prisma`). Only PDF documents populate
-  it; it references the stored blob. Since PDF content is static, this
-  column — not Yorkie — is the natural home for the reference.
+  (`packages/backend/prisma/schema.prisma`). PDF documents populate it,
+  and the later `"image"` document type reuses the same column
+  (see [image-viewer.md](image-viewer.md)); it references the stored blob.
+  Since static-file content is not a CRDT, this column — not Yorkie — is
+  the natural home for the reference.
 
 ### Storage layer — new `FileService` / `FileController`
 
@@ -121,9 +123,11 @@ document read check instead of reimplementing permission logic:
   `GET /documents/:id` (JWT + `workspaceService.assertMember`), then
   resolves that document's `fileId` and streams the blob from S3. Returns
   404 when the document has no `fileId`.
-- Response headers: `Content-Type: application/pdf`,
-  `Cache-Control: private, max-age=...` (per-user cache, **not** the
-  images' `public, immutable`), optional `ETag`.
+- Response headers: `Content-Type` set to the blob's **stored MIME type**
+  (`application/pdf` for PDFs, `image/*` for image documents — the
+  controller streams `getObject(...).contentType`, it does not hardcode
+  `application/pdf`), `Cache-Control: private, max-age=...` (per-user
+  cache, **not** the images' `public, immutable`).
 - A blob id is never accepted directly from the client for reads — the
   only read path is through a document the caller can already access.
 - **Deletion**: when a document with a `fileId` is deleted, the referenced
@@ -206,8 +210,8 @@ It lives in its own `packages/backend/src/document/document-file.controller.ts`:
   expiry), then serve. Otherwise `403`.
 - **Role is irrelevant for serving** — both `viewer` and `editor` share
   roles may view the PDF. Role only gates comment *writes* (Slice 3).
-- Response headers unchanged (`application/pdf`,
-  `Cache-Control: private`, `X-Content-Type-Options: nosniff`).
+- Response headers unchanged (stored MIME type — `application/pdf` for a
+  PDF, `Cache-Control: private`, `X-Content-Type-Options: nosniff`).
 
 *Alternative considered*: a dedicated public `GET /shared/:token/file`.
 Rejected — it forks the permission logic into two implementations that can

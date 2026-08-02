@@ -363,14 +363,16 @@ affordances.
 ### Phasing
 
 The feature landed across six PRs, each independently demoable. All
-six are shipped; the table below is the historical rollout record.
+six are shipped, except that P4's in-flight peer-preview broadcast
+remains a follow-up (see "Presence"); the table below is the
+historical rollout record.
 
 | Phase | Scope | Verification |
 | --- | --- | --- |
 | P1. Extract shared core | Move tick / unit code from `packages/docs/src/view/ruler.ts` into `view/ruler/tick-renderer.ts` and `view/ruler/unit.ts`. `pxPerUnit` becomes a parameter. Docs behavior unchanged. | `pnpm verify:fast`, docs ruler visual smoke |
 | P2. Slides ruler display | `SlidesRuler` controller, H/V canvases, corner DOM, zoom + scroll + unit rendering. No guide code yet. | `pnpm verify:fast`, browser smoke at zoom 0.5 / 1 / 2 |
 | P3. Guides data + render | `Guide` type, store API, `MemSlidesStore` + Yorkie schema + lazy init. Guides paint into the overlay layer. No interactions. | Unit tests for store CRUD, integration test for Mem vs Yorkie equivalence and concurrent add/remove convergence |
-| P4. Guide interactions | Ruler drag-out, guide drag/move/delete, presence preview, ruler markers, context menu. | Interaction tests (drag sequences), two-user presence test |
+| P4. Guide interactions | Ruler drag-out, guide drag/move/delete, local guide preview, ruler markers, context menu. Peer-preview broadcast of the in-flight drag is deferred (see "Presence"); only committed guides sync. | Interaction tests (drag sequences), two-user committed-guide convergence test |
 | P5. Snap integration | Add `'guide'` kind, priority resolution, hit-snap visual emphasis. | Snap-priority unit tests, nudge-no-snap test |
 | P6. Read-only mounts + polish | `readOnly` branch suppresses listeners, presentation-mode and PDF skip guides. Design doc finalized. | Read-only mount tests, `pnpm verify:browser:docker` |
 

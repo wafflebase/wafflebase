@@ -116,9 +116,10 @@ packages/frontend/src/app/docs/comments/          docs glue
 └── docs-comments-controller.ts  # wires store ↔ editor ↔ React state
 
 packages/docs/src/view/editor.ts                  MODIFY (small)
-└── setCommentMarkers(rects: HighlightRect[]): void
-    Add a setter analogous to setSearchMatches. The editor draws yellow
-    background + 1px underline rects; it does not know they are comments.
+└── setCommentMarkers(markers: CommentMarker[]): void
+    Add a setter analogous to setSearchMatches. The editor computes the
+    yellow background + 1px underline rects from each marker's range; it
+    does not know they are comments.
 
 packages/frontend/src/app/docs/docs-view.tsx      MODIFY
 └── instantiate YorkieCommentStore (sharing the Yorkie Document with
@@ -469,8 +470,9 @@ DocsView
 
 The yellow highlight rects are drawn directly on the existing docs canvas
 during its render pass, like search matches and peer selections. The
-docs-comments-controller in frontend computes the rect list whenever
-threads change or the document re-paginates.
+docs-comments-controller in frontend recomputes the `CommentMarker` list
+whenever threads change or the document re-paginates; the editor turns
+each marker's range into rects itself.
 
 #### 7.2 Entry points
 

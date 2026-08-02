@@ -80,12 +80,15 @@ The right-side slot in `slides-detail.tsx` currently mounts
 to a single union:
 
 ```ts
-type RightPanel = 'theme' | 'format' | null;
+// This work adds 'format' alongside the existing 'theme'; later specs
+// extend the same union with 'motion' and 'background' (see
+// `docs/design/slides/slides-background.md`).
+type RightPanel = 'theme' | 'format' | 'motion' | 'background' | null;
 const [rightPanel, setRightPanel] = useState<RightPanel>(null);
 ```
 
-Toggling either panel sets the union to that panel's id; opening one
-closes the other. Closing sets it back to `null`. Existing
+Toggling any panel sets the union to that panel's id; opening one
+closes the others. Closing sets it back to `null`. Existing
 `themePanelOpen` reads in `DesktopSlidesLayout` are replaced by
 `rightPanel === 'theme'`; `MobileSlidesLayout` does not mount the
 format panel at all.

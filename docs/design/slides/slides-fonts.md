@@ -39,9 +39,11 @@ editors; Slides is the driving surface.
   in-view preview).
 - A **"More fonts…" dialog** with search, category, and script
   (Korean / Latin) filters, each row previewed in its own typeface.
-- **License correctness**: every catalog entry carries its license
-  (`OFL` / `APACHE2` / `UFL`), the data is sourced at build time from
-  the authoritative `google/fonts` repo, and embedded fonts ship their
+- **License correctness**: every **web-font** catalog entry carries its
+  license (`OFL` / `APACHE2` / `UFL`) — the non-web system faces
+  (`webFont: false`, e.g. Arial/Times New Roman) omit it since we never
+  embed their bytes. The data is sourced at build time from the
+  authoritative `google/fonts` repo, and embedded fonts ship their
   license texts.
 - **Export parity**: PDF (and later PPTX) export embeds any used Google
   Font, not just Noto KR.
@@ -132,11 +134,16 @@ export interface FontEntry {
   group: FontGroup;           // Korean | Sans-serif | Serif | Monospace | Display | Handwriting
   webFont: boolean;           // Google Fonts face (needs a CSS link) vs local/system
   weights?: string;           // wght axis values, e.g. '400;700' (default '400;700')
-  license?: 'OFL' | 'APACHE2' | 'UFL';
+  license?: 'OFL' | 'APACHE2' | 'UFL';   // web-font entries only; omitted for system faces
   scripts?: string[];         // Google "subsets": 'latin', 'korean', ...
   eager?: boolean;            // true → loaded in the bootstrap CSS link
 }
 ```
+
+`license` is optional: the ~10 non-web system faces (`webFont: false`)
+carry no license value because we never ship their bytes; only the
+embeddable web-font entries are guaranteed to carry one of the three
+licenses.
 
 Generator scripts under `packages/frontend/scripts/` (run on demand —
 **not** at every build, to keep the catalog deterministic and
@@ -222,23 +229,20 @@ fall back to Helvetica/Times. Slides PDF export is raster, so it embeds
 nothing. License notices (P3-b) and PPTX embedding (P3-c) remain. See
 [`docs/design/docs/docs-pdf-export.md`](../docs/docs-pdf-export.md).
 
-The original generalization intent (now realized for the curated set):
-`pdf-fonts.ts` historically hardcoded four Noto KR URLs in `DEFAULT_URLS`.
-Generalize to resolve **any used Google Font** to its TTF:
+How it shipped: `pdf-fonts.ts` historically hardcoded four Noto KR URLs
+in `DEFAULT_URLS`. P3-a generalized that to resolve **any curated Google
+Font** to its TTF via the generated
+`packages/frontend/src/components/text-formatting/font-files.data.ts` —
+per-family version-pinned `fonts.gstatic.com` static URLs (regular + bold),
+not GitHub/jsdelivr raw paths. The existing IndexedDB cache + fontkit
+subsetting is reused, so each used family is fetched once and
+subset-embedded.
 
-- Add a resolver that, given a family + weight, returns the
-  `github.com/google/fonts/raw/main/<license>/<family>/...ttf` URL (or
-  a jsdelivr mirror), pinned to a commit for reproducibility — same
-  pattern as the current tag-pinned Noto URLs.
-- Reuse the existing IndexedDB cache + fontkit subsetting so each used
-  family is fetched once and subset-embedded.
-- Collect the license of every embedded family and surface it on the
-  in-app **open-source notices** page (and, for PPTX later, embed per
-  OOXML font-embedding rules).
-
-This phase is what makes the richness *real* — without it, a deck using
-a fancy font would export with a fallback face. P0–P2 (on-screen) and
-this embed path must be designed together.
+Remaining work: collect the license of every embedded family and surface
+it on the in-app **open-source notices** page (P3-b), and — for PPTX
+(P3-c) — embed per OOXML font-embedding rules. Without the embed path a
+deck using a fancy font would export with a fallback face, so P0–P2
+(on-screen) and this embed path were designed together.
 
 ### Phased rollout
 
