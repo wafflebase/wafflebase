@@ -44,7 +44,6 @@ New design docs and new end-user pages are deferred (need authoring judgment).
 - [ ] `docs-hyperlinks.md` design doc (#520/#532/#548/#580) + reconcile xlsx `Cell.lk` gap
 - [ ] Sheets auto-link / header-ref subsections
 - [ ] Docs find & replace + viewer read-only subsections
-- [ ] VitePress end-user page: Board
 
 ## Verify
 

@@ -16,9 +16,12 @@ presentation), matching the conventions established by `sheets` and
 `docs`. Text inside text boxes reuses the rich-text engine from
 `@wafflebase/docs`. PDF export reuses the docs PDF pipeline.
 
-This document covers the v1 (MVP) scope. Larger items (animations,
-themes, PPTX, embedded sheet ranges, comments, lazy per-slide
-documents) are explicitly out of scope and listed at the end.
+This document records the original v1 (MVP) scope plus the larger items
+shipped since — animations, the theme/master/layout system, PPTX
+import/export, and charts (see the Non-Goals section, where each is
+marked shipped with a pointer to its design doc). The features still
+deferred (embedded sheet ranges, comments, lazy per-slide documents) are
+listed at the end.
 
 ### Goals
 

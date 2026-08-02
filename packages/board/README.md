@@ -29,11 +29,12 @@ Exports from `src/index.ts`:
 
 ```typescript
 // Model
-type BoardModel, SYNTHETIC_SLIDE_ID, boardToSlidesDocument
+type BoardModel
+SYNTHETIC_SLIDE_ID, boardToSlidesDocument
 
 // Viewport
-type Viewport, worldToScreen, screenToWorld
-DEFAULT_VIEWPORT, zoomAt, panBy
+type Viewport
+worldToScreen, screenToWorld, DEFAULT_VIEWPORT, zoomAt, panBy
 ```
 
 ## Build

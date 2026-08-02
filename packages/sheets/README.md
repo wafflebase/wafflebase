@@ -29,7 +29,7 @@ Core spreadsheet engine for Wafflebase. Provides the data model, formula evaluat
 | Concept | Description |
 |---------|-------------|
 | `Sheet` | Core data model — cell access, selection, navigation, row/column operations, copy/paste |
-| `Cell` | `{ v?: string; f?: string; s?: CellStyle; spill*? }` — display value, optional formula, per-cell style layer, and spill-range bookkeeping (`spillRows`/`spillCols`/`spillAnchor`/`spillBlocked`) |
+| `Cell` | `{ v?: string; f?: string; s?: CellStyle; spillRows?: number; spillCols?: number; spillAnchor?: Sref; spillBlocked?: boolean }` — display value, optional formula, per-cell style layer, and spill-range bookkeeping |
 | `Ref` | `{ r: number; c: number }` — numeric cell coordinate (1-based) |
 | `Sref` | String cell reference, e.g. `"A1"` |
 | `Range` | `[Ref, Ref]` — top-left and bottom-right corners |

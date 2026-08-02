@@ -30,7 +30,7 @@ in the package itself; the Yorkie adapter and React shell live in
 └─────────────────┘ └─────────────────┘ └────────────────┘
 ```
 
-- **Editor** — Top-level entry point. `initializeEditor(container, store, options)` mounts the Canvas + DOM overlay and wires drag/resize/lasso/insert interactions.
+- **Editor** — Top-level entry point. `initializeEditor(options)` — a single `SlidesEditorOptions` object (`{ canvas, overlay, store, … }`) — mounts the Canvas + DOM overlay and wires drag/resize/lasso/insert interactions.
 - **Renderer** — `SlideRenderer.render(slide, doc)` paints a slide to a Canvas 2D context. Every `ctx.fillStyle` / `ctx.strokeStyle` routes through `resolveColor(themeColor, theme)` so role-bound colors follow the deck's active theme. Text rendering delegates to `@wafflebase/docs`'s layout/paint pipeline.
 - **Store** — `SlidesStore` interface decouples the engine from persistence. `MemSlidesStore` provides snapshot-based undo/redo with batch grouping. `YorkieSlidesStore` (in the frontend package) adds real-time collaboration and drives undo/redo through Yorkie `doc.history` (one `batch()` = one undo unit — see [slides-native-undo.md](../../docs/design/slides/slides-native-undo.md)).
 - **Slide Model** — `SlidesDocument → Theme/Master/Layout/Slide → Element` hierarchy. Slides are free-position canvases; elements are text boxes (rich text via `@wafflebase/docs`), shapes (55+ OOXML presets), connectors, groups, tables, charts, and images.
@@ -44,7 +44,7 @@ in the package itself; the Yorkie adapter and React shell live in
 | `Master` | Theme-bound default placeholder styles for the deck |
 | `Layout` | Named placeholder geometry (Title slide, Section header, Big number, etc.); 11 Google-Slides-parity built-ins |
 | `Slide` | Picks one `layoutId`, owns its own `elements[]`, `background`, `notes` |
-| `Element` | `TextElement` \| `ShapeElement` \| `ImageElement` \| `ConnectorElement` \| `GroupElement` \| `TableElement` \| `ChartElement` — all carry an `id` and a `Frame` (x/y/w/h/rotation) |
+| `Element` | `TextElement` \| `ShapeElement` \| `ImageElement` \| `ConnectorElement` \| `GroupElement` \| `TableElement` \| `ChartElement` — all carry an `id` and a `Frame` (x/y/w/h/rotation). (`ChartElement` is part of the union but is not yet re-exported from the package root — charts render from imported PPTX but have no public editing API.) |
 | Image crop | `ImageElement.data.crop` is a normalized `0..1` source rect. Edit it interactively via `editor.enterImageCrop(id)` (double-click an image) — drag the black handles to trim, drag to pan, Enter/click-out commits, Esc cancels. `resetImageCrop(id)` clears it and restores proportions. P0 = rectangular; crop-to-shape is P1. See [docs/design/slides/slides-image-crop.md](../../docs/design/slides/slides-image-crop.md) |
 | `ThemeColor` | `{ kind: 'role', role, tint?, shade? }` \| `{ kind: 'srgb', value }` — hybrid binding so role colors follow theme switches |
 | `ThemeFont` | `{ kind: 'role', role: 'heading' \| 'body' }` \| `{ kind: 'family', family }` |
@@ -118,9 +118,10 @@ import {
 const store = new MemSlidesStore();
 store.batch(() => store.addSlide('title-slide'));
 
-// 2. Mount the editor on a container
-const container = document.getElementById('slides-editor')!;
-const editor = initializeEditor(container, { store });
+// 2. Mount the editor on a canvas + DOM overlay
+const canvas = document.getElementById('slides-canvas') as HTMLCanvasElement;
+const overlay = document.getElementById('slides-overlay') as HTMLDivElement;
+const editor = initializeEditor({ canvas, overlay, store });
 
 // 3. Switch the active theme — every role-bound element repaints
 store.batch(() => {

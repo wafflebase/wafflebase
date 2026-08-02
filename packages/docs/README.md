@@ -69,9 +69,11 @@ DocCanvas, Cursor, Selection, Theme, buildFont
 
 > The snippet above is the core surface. `src/index.ts` now exports many more
 > shipped subsystems — tables (`TableMergeContext`), named styles
-> (`StyleId`/`NamedStyleDef`/`DocStyles`), spell check, DOCX/PDF import-export,
-> comments, find & replace, hyperlinks, and images. See the per-feature design
-> docs indexed under **Docs** in [docs/design/README.md](../../docs/design/README.md).
+> (`StyleId`/`NamedStyleDef`/`DocStyles`), spell check, comments, find &
+> replace, hyperlinks, and DOCX/PDF import-export (`DocxImporter`/
+> `DocxExporter`/`PdfExporter`, which also carry inline images through the
+> round-trip). See the per-feature design docs indexed under **Docs** in
+> [docs/design/README.md](../../docs/design/README.md).
 
 ## Usage
 
