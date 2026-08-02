@@ -7,21 +7,21 @@ target-version: 0.5.0
 
 ## Summary
 
-The five built-in slide themes ship with the **Wafflebase brand
-palette melted into the defaults**: `default-light` and `default-dark`
-bind their accents to `palette.syrup` / `palette.butter` /
+Historically the built-in slide themes shipped with the **Wafflebase
+brand palette melted into the defaults**: `default-light` and
+`default-dark` bound their accents to `palette.syrup` / `palette.butter` /
 `palette.berry` / `palette.leaf` and their fonts to the brand
-`typography.display` stack (`packages/slides/src/themes/default-light.ts`,
-`packages/slides/src/themes/default-dark.ts`). Every new deck therefore inherits the waffle brand
-colors as its "Simple Light" default — which is not what Google Slides'
-"Simple Light" connotes (a neutral, near-monochrome base with one
+`typography.display` stack. Every new deck therefore inherited the waffle
+brand colors as its "Simple Light" default — which is not what Google
+Slides' "Simple Light" connotes (a neutral, near-monochrome base with one
 restrained accent).
 
-This design **de-brands the defaults** and **expands the catalog to ~23
+This design **de-branded the defaults** and **expanded the catalog to 23
 themes** for Google-Slides gallery parity, while keeping the existing
-flat-list model (`Theme`, `ThemePanel`, `ThemeThumbnail`) unchanged. The
-work is **pure data**: theme literals plus ordering, no schema, model, or
-UI structure change.
+flat-list model (`Theme`, `ThemePanel`, `ThemeThumbnail`) unchanged. It
+is now shipped (`packages/slides/src/themes/`). The work was **pure
+data**: theme literals plus ordering, no schema, model, or UI structure
+change.
 
 ### Goals
 
@@ -60,17 +60,19 @@ UI structure change.
 
 ## Current state
 
-`packages/slides/src/themes/index.ts` registers five themes in picker
-order: `defaultLight`, `defaultDark`, `streamline`, `focus`, `material`.
-`ThemePanel` (`packages/frontend/src/app/slides/theme-panel.tsx`) maps
+`packages/slides/src/themes/index.ts` registers 23 themes in picker
+order (`defaultLight`, `defaultDark`, `streamline`, `swiss`, …,
+`beachDay`, `wafflebase`). `ThemePanel`
+(`packages/frontend/src/app/slides/theme-panel.tsx`) maps
 `BUILT_IN_THEMES` to `ThemeThumbnail` cards; the thumbnail
 (`packages/frontend/src/app/slides/theme-thumbnail.tsx`) paints `aA` in `theme.fonts.heading`, the six
 accents as a strip, and the name — all from the literal, no assets.
 
-The problem is isolated to the two defaults:
+The original problem was isolated to the two defaults, which used to bind
+to the brand palette:
 
 ```ts
-// default-light.ts (current)
+// default-light.ts (before de-branding)
 accent1: palette.syrup,   accent2: palette.butter,
 accent3: palette.berry,   accent4: palette.leaf,
 fonts: { heading: firstFamily(typography.display), body: firstFamily(typography.body) }
@@ -78,8 +80,10 @@ fonts: { heading: firstFamily(typography.display), body: firstFamily(typography.
 
 Because element colors picked from the **Theme** row store
 `{ kind: 'role', role: 'accent1' }` (hybrid binding, see
-`slides-themes-layouts-import.md`), the brand palette renders on every
-role-bound element of every new deck.
+`slides-themes-layouts-import.md`), the brand palette rendered on every
+role-bound element of every new deck. The shipped `default-light.ts` now
+binds `accent1: '#1A73E8'` with Inter heading/body fonts, and the brand
+palette lives in the dedicated `wafflebase` theme.
 
 ## Proposal
 
@@ -87,20 +91,20 @@ role-bound element of every new deck.
 
 No change to `Theme`, `ColorScheme`, `FontScheme`, `resolveColor`,
 `resolveFont`, the Yorkie schema, or migration machinery. The picker
-stays a flat list. The only code that changes is:
+stays a flat list. The only code that changed is:
 
-- `packages/slides/src/themes/*.ts` — rewrite the two defaults, add ~18
-  new theme literals, add a `wafflebase` theme module.
-- `packages/slides/src/themes/index.ts` — extend `BUILT_IN_THEMES` and
-  re-export the new modules.
+- `packages/slides/src/themes/*.ts` — rewrote the two defaults, added the
+  new theme literals, added a `wafflebase` theme module.
+- `packages/slides/src/themes/index.ts` — extended `BUILT_IN_THEMES` and
+  re-exported the new modules.
 
 ### De-branding the defaults
 
-`default-light` and `default-dark` keep their **ids** (no remap) but are
+`default-light` and `default-dark` keep their **ids** (no remap) but were
 rewritten to neutral palettes and the Inter body/heading font. The brand
-palette moves to the new `wafflebase` theme, which keeps the
-`@wafflebase/tokens` `palette.*` and `typography.*` bindings so the old
-default look is reproducible in one click.
+palette moved to the new `wafflebase` theme, which keeps the
+`@wafflebase/core/tokens` `palette.*` and `typography.*` bindings so the
+old default look is reproducible in one click.
 
 ### Catalog and order
 
@@ -167,7 +171,7 @@ hyperlink, visitedHyperlink`:
 | `beach-day` | `#2B3A42` | `#FBFCFD` | `#5E7682` | `#E4F1F6` | `#00A8CC` | `#F4D35E` | `#EE964B` | `#00B4D8` | `#0077B6` | `#F7A072` | `#00A8CC` | `#0077B6` |
 
 `wafflebase` is not listed with hex because it binds to
-`@wafflebase/tokens` (`palette.syrup`, `palette.butter`, `palette.berry`,
+`@wafflebase/core/tokens` (`palette.syrup`, `palette.butter`, `palette.berry`,
 `palette.leaf`, `palette.syrupDeep`, `palette.berryBright`, the
 `palette.neutrals.light.*` slots, and `typography.display` / `body`) —
 it is the verbatim move of today's `default-light` body.
@@ -212,9 +216,14 @@ janking the panel.
   `default-light` and `default-dark`; the last is `wafflebase`. This is
   the transitive guard that replaces per-theme snapshots — it scales to
   23 themes without 23 fixtures.
-- A `fonts-in-catalog.test.ts` asserts every theme `heading` / `body`
-  family exists in the frontend font catalog (imported list), so a theme
-  cannot reference a font the loader can't resolve.
+- `packages/frontend/src/app/slides/theme-fonts.test.ts` asserts every
+  theme `heading` / `body` family exists in the frontend font catalog
+  (imported list), so a theme cannot reference a font the loader can't
+  resolve. (It lives frontend-side because that is where the font catalog
+  is defined.)
+- `packages/slides/src/themes/debrand.test.ts` guards the de-branding:
+  the two defaults no longer bind to the brand palette, and the
+  `wafflebase` theme reproduces the prior brand look.
 
 ### Visual regression (harness)
 
@@ -247,19 +256,20 @@ correctly.
 
 ## Rollout
 
-Single PR, commit-layered (each commit `pnpm verify:fast` green):
+Shipped in a single PR (#383), commit-layered (each commit
+`pnpm verify:fast` green):
 
 1. `feat(slides): de-brand default-light/dark, add wafflebase brand theme`
 2. `feat(slides): add 18 Google-Slides-parity built-in themes`
 3. `feat(slides): catalog validity + font-in-catalog + contrast tests`
 4. `test(frontend): retarget slides theme visual snapshots to 6-theme subset`
 
-Acceptance:
+Acceptance (all met):
 
 - `BUILT_IN_THEMES` has 23 entries, neutral defaults first, `wafflebase`
   last.
-- `catalog.test.ts` + `fonts-in-catalog.test.ts` green; contrast check
-  passes for all themes.
+- `catalog.test.ts` + `theme-fonts.test.ts` + `debrand.test.ts` green;
+  contrast check passes for all themes.
 - Harness 6-theme subset snapshots regenerated and green.
 - Manual smoke: panel scrolls 23, `wafflebase` reproduces the prior
   default look.

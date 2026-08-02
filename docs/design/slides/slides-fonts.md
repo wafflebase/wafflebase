@@ -9,18 +9,21 @@ target-version: 0.4.6
 
 ## Summary
 
-Today the font picker is a closed, hardcoded list of ~19 families
-(`packages/frontend/src/components/text-formatting/font-catalog.ts`)
-loaded as a **single Google Fonts CSS `<link>` at bootstrap**. This is
-fine for a small curated set but does not scale to the rich font
-experience users expect from Google Slides / Canva (hundreds to
-thousands of families, searchable, previewed in-place).
+The font picker used to be a closed, hardcoded list of ~19 families
+loaded as a **single Google Fonts CSS `<link>` at bootstrap** — fine for
+a small curated set but not the rich font experience users expect from
+Google Slides / Canva (hundreds to thousands of families, searchable,
+previewed in-place).
 
-This document proposes growing the catalog into a **data-driven Google
-Fonts catalog** with **per-font lazy loading**, a **"More fonts…"
-search dialog**, **per-document/per-user accumulated font lists**, and a
-**license-aware export embedding path** so the on-screen richness
-survives PDF/PPTX export.
+That rich-fonts system is now **shipped** (P0–P2). The catalog is a
+**build-time-generated data file** (`font-catalog.data.ts`, ~105 curated
+entries) with **per-font lazy loading** (`ensureFontLink`), a
+**"More fonts…" search dialog** over the full ~1,900-family Google Fonts
+library (`font-catalog.full.ts`, dynamic-imported), and a per-browser
+**recent-fonts** list. On the export side, **license-aware embedding is
+partly shipped** (P3-a: Docs PDF embeds curated Google Fonts); a
+per-presentation used-fonts set, license-notices page, and PPTX
+embedding remain (see the Phased rollout table).
 
 The shared text-formatting components (`font-catalog.ts`,
 `font-family-picker.tsx`, `fonts.ts`) are used by **both Docs and
@@ -62,17 +65,20 @@ editors; Slides is the driving surface.
 
 | Concern | Current implementation | File |
 | --- | --- | --- |
-| Catalog | Hardcoded `FONT_CATALOG` (19 entries) | `font-catalog.ts:35` |
-| Bootstrap load | One Google Fonts CSS `<link>` built from the whole catalog | `buildGoogleFontsHref()` `font-catalog.ts:75` |
-| Runtime load | `FontRegistry.ensureFont()` → `document.fonts.load()` → re-layout | `fonts.ts:293` |
-| Fallback chain | `resolveFontFamily()` maps family → CSS stack, injects Noto KR for Hangul | `fonts.ts:219` |
-| Prefetch | Picker item `onPointerEnter` → `onPrefetch` | `font-family-picker.tsx:120` |
-| PDF embed | Noto KR Subset OTF from jsdelivr, fontkit subsets at embed time | `pdf-fonts.ts:106` |
+| Catalog | Generated `FONT_CATALOG = FONT_CATALOG_DATA` (~105 entries, with `license`/`eager`) | `font-catalog.ts:66`, `font-catalog.data.ts` |
+| Full library | ~1,900-family `FONT_CATALOG_FULL`, dynamic-imported for the dialog | `font-catalog.full.ts`, `font-catalog-full-loader.ts` |
+| Bootstrap load | One Google Fonts CSS `<link>` built from the **`eager`** entries only | `buildGoogleFontsHref()` `font-catalog.ts:102` |
+| Lazy load | `ensureFontLink(family, weights)` injects a per-family CSS `<link>` on demand | `font-catalog.ts:142` |
+| Runtime load | `FontRegistry.ensureFont()` → `document.fonts.load()` → re-layout | `fonts.ts` |
+| Fallback chain | `resolveFontFamily()` maps family → CSS stack, injects Noto KR for Hangul | `fonts.ts` |
+| Prefetch | Picker item `onPointerEnter` → `onPrefetch` → `ensureFontLink` | `font-family-picker.tsx` |
+| PDF embed | Curated Google Fonts subset-embedded (P3-a); Noto KR + arbitrary curated families | `pdf-fonts.ts`, `pdf-painter.ts` |
 
-The two structural limits: (1) **the catalog is a closed hardcoded
-list** and (2) **the bootstrap loads the whole catalog in one CSS
-request** — the file's own comment notes v1 deliberately stays "under
-one network request." Both must change for rich fonts.
+The two original structural limits — a **closed hardcoded catalog** and a
+**bootstrap that loaded the whole catalog in one CSS request** — have both
+been removed: the catalog is generated data, and the bootstrap link now
+covers only the small `eager` set while the long tail lazy-loads via
+`ensureFontLink`.
 
 ### License model (why "everything in Google Fonts is usable")
 
@@ -115,73 +121,92 @@ package aggregates this into JSON and is a convenient build input.
 
 ### Catalog: hardcoded list → generated data
 
-Replace the hand-maintained `FONT_CATALOG` array with a
-**build-time-generated catalog** committed to the repo as JSON.
+The hand-maintained `FONT_CATALOG` array was **replaced by
+build-time-generated data** committed to the repo as a TS module. The
+shipped entry shape (`FontEntry` in `font-catalog.ts`) is:
 
 ```ts
-interface FontCatalogEntry {
+export interface FontEntry {
+  label: string;              // display label (e.g. '나눔고딕')
   family: string;             // canonical Google Fonts family
-  label?: string;             // localized display label (e.g. '나눔고딕')
-  category: FontGroup;        // Korean | Sans-serif | Serif | Monospace | Display | Handwriting
-  scripts: string[];          // Google "subsets": 'latin', 'korean', ...
-  weights: string;            // wght axis values, e.g. '400;700'
-  license: 'OFL' | 'APACHE2' | 'UFL';
-  popularity: number;         // for default sort
-  curated: boolean;           // true → shown in the dropdown menu
+  group: FontGroup;           // Korean | Sans-serif | Serif | Monospace | Display | Handwriting
+  webFont: boolean;           // Google Fonts face (needs a CSS link) vs local/system
+  weights?: string;           // wght axis values, e.g. '400;700' (default '400;700')
+  license?: 'OFL' | 'APACHE2' | 'UFL';
+  scripts?: string[];         // Google "subsets": 'latin', 'korean', ...
+  eager?: boolean;            // true → loaded in the bootstrap CSS link
 }
 ```
 
-A generator script (`scripts/build-font-catalog.ts`, run on demand —
+Generator scripts under `packages/frontend/scripts/` (run on demand —
 **not** at every build, to keep the catalog deterministic and
-reviewable) reads `google/fonts` metadata + `fontsource/google-font-metadata`
-and emits:
+reviewable) read `google/fonts` metadata and emit committed TS modules:
 
-- `font-catalog.curated.json` — ~100 families with `curated: true`
-  (Korean body + display, popular Latin sans/serif/mono).
-- `font-catalog.full.json` — full library, consumed only by the "More
-  fonts…" dialog (lazy-imported so the editor bundle isn't bloated).
+- `build-font-catalog.mjs` → `font-catalog.data.ts` (`FONT_CATALOG_DATA`,
+  ~105 curated entries: Korean body + display, popular Latin sans/serif/mono,
+  plus non-web system faces).
+- `build-font-catalog-full.mjs` → `font-catalog.full.ts`
+  (`FONT_CATALOG_FULL`, the full ~1,900-family library), consumed only by
+  the "More fonts…" dialog via a dynamic import so the editor bundle isn't
+  bloated.
+- `build-font-files.mjs` → `font-files.data.ts` (per-family gstatic TTF
+  URLs) for the PDF export-embed path.
 
 `font-catalog.ts` keeps its existing **named exports and types** (the
-`value: string` contract, `FONT_SIZE_PRESETS`, etc.) so call sites don't
-change; only the data source becomes the generated JSON.
+`value: string` picker contract, `FONT_SIZE_PRESETS`, etc.) so call sites
+don't change; only the data source is now the generated module
+(`FONT_CATALOG = FONT_CATALOG_DATA`).
 
 ### Loading model: bootstrap-all → per-font lazy
 
-Generalize the bootstrap injector into a **per-family** loader.
+The bootstrap injector was generalized into a **per-family** loader
+(shipped):
 
-- Keep injecting **one CSS `<link>` for the curated-menu web fonts** at
-  view mount (today's `useGoogleFontsLink`), so the dropdown previews
-  are instant.
-- Add `ensureFontLink(family, weights)` that injects a **per-family CSS
-  `<link>`** the first time a non-curated family is needed (selection,
-  picker hover, or in-view preview in the dialog). Idempotent + id-keyed
-  per family, mirroring the existing `ensureGoogleFontsLink` guard.
+- `useGoogleFontsLink` / `ensureGoogleFontsLink` still inject **one CSS
+  `<link>` at view mount**, but `buildGoogleFontsHref()` now builds it
+  from the **`eager`** web fonts only (the small set existing documents
+  render with), not the whole catalog — so the dropdown previews are
+  instant while the bootstrap request stays small.
+- `ensureFontLink(family, weights)` injects a **per-family CSS `<link>`**
+  the first time a non-eager family is needed (selection, picker hover,
+  or in-view preview in the dialog). It no-ops for system faces
+  (`webFont: false`), for `eager` fonts already in the bootstrap link,
+  and when a link for that family already exists; the DOM
+  (`data-wafflebase-font` attribute), not module state, is the idempotency
+  source so it survives HMR. It is wired into both editors' pickers and
+  toolbars (Docs and Slides).
 - `FontRegistry.ensureFont()` is unchanged — it already does
   `document.fonts.load()` + re-layout notification; the only addition is
   that the CSS `<link>` for that family must be present first, which
   `ensureFontLink` guarantees.
-- FOUT is handled as today via `display=swap`; the re-layout listener
-  repaints the Canvas when the real face resolves.
+- FOUT is handled via `display=swap`; the re-layout listener repaints the
+  Canvas when the real face resolves.
 
 ### UX: "More fonts…" dialog + recent / in-use
 
 `font-family-picker.tsx` keeps its grouped dropdown of **curated +
-in-use + recent** families, and gains a **"More fonts…"** item at the
-bottom that opens a dialog:
+recent** families, and has a **"More fonts…"** item at the bottom that
+opens `MoreFontsDialog` (`more-fonts-dialog.tsx`, shipped):
 
-- **Search** box (debounced) over the full catalog.
-- **Category** and **script** (Korean / Latin / …) filters.
-- **Virtualized list** (windowed) so 1,800 rows stay smooth; each
-  visible row previews in its own family via an `IntersectionObserver`
+- **Search** box over the full catalog.
+- **Category** and **script** (Korean / Latin / …) filters
+  (`more-fonts-filter.ts`: `FontCategoryFilter` / `FontScriptFilter`).
+- Each visible row previews in its own family via an `IntersectionObserver`
   that calls `ensureFontLink` only for on-screen rows.
-- Selecting a font adds it to the document's **used-fonts** set and the
-  user's **recent** list, so it surfaces in the dropdown next time.
+- The dialog lazy-loads the full library through `loadFullFontCatalog()`
+  (a memoized dynamic import of `font-catalog.full.ts`).
+- Selecting a font adds it to the user's **recent** list, so it surfaces
+  in the dropdown next time.
 
-**Where the used-fonts set lives:** persist per presentation in the
-Yorkie doc (a `usedFonts: string[]` on the presentation/meta object) so
-collaborators and the export path see the same set. "Recent" is a local
-(user-level) list in `localStorage`. The slides surface wires this
-through `SlidesView`; Docs reuses the same shared dialog.
+**Where the recent list lives:** "Recent" is a per-browser list in
+`localStorage` (`font-recents.ts`: `getRecentFonts` / `addRecentFont`,
+capped at `RECENT_FONTS_MAX`). The same shared dialog is reused by both
+Docs and Slides.
+
+> **Not yet built:** the originally-planned **per-presentation used-fonts
+> set** (a `usedFonts: string[]` persisted on the Yorkie presentation/meta
+> object, shared by collaborators and the export path) is not implemented —
+> no such field exists. Only the local `localStorage` recents shipped.
 
 ### Export: license-aware embedding
 
@@ -217,13 +242,13 @@ this embed path must be designed together.
 
 ### Phased rollout
 
-| Phase | Scope | Primary files |
-| --- | --- | --- |
-| **P0** | Generated curated catalog (~100) with `license` field; per-family lazy `ensureFontLink`; bootstrap loads curated menu only | `scripts/build-font-catalog.ts`, `font-catalog.ts`, `fonts.ts` |
-| **P1** | "More fonts…" dialog: search + category/script filters + virtualized in-view previews; recent + per-doc used-fonts persistence | new dialog component, `font-family-picker.tsx`, `SlidesView`, Yorkie meta |
-| **P2** | Full ~1,800 library in the dialog (lazy-imported `font-catalog.full.json`) | dialog data source |
-| **P3** | Export embed for arbitrary Google Fonts + open-source notices page; PPTX font embedding | `pdf-fonts.ts`, export paths, notices page |
-| **P4 (deferred)** | User-uploaded brand fonts + license attestation | out of scope here |
+| Phase | Status | Scope | Primary files |
+| --- | --- | --- | --- |
+| **P0** | ✅ Shipped | Generated curated catalog (~105) with `license`/`eager` fields; per-family lazy `ensureFontLink`; bootstrap loads `eager` set only | `scripts/build-font-catalog.mjs`, `font-catalog.data.ts`, `font-catalog.ts`, `fonts.ts` |
+| **P1** | ✅ Shipped (used-fonts set deferred) | "More fonts…" dialog: search + category/script filters + in-view `IntersectionObserver` previews; `localStorage` recents. Per-doc used-fonts Yorkie persistence **not built**. | `more-fonts-dialog.tsx`, `more-fonts-filter.ts`, `font-recents.ts`, `font-family-picker.tsx` |
+| **P2** | ✅ Shipped | Full ~1,900 library in the dialog (dynamic-imported `font-catalog.full.ts` via `loadFullFontCatalog`) | `font-catalog.full.ts`, `font-catalog-full-loader.ts` |
+| **P3** | ◐ Partial (P3-a shipped) | Export embed for curated Google Fonts (Docs PDF, P3-a). Open-source notices page (P3-b) + PPTX embedding (P3-c) remain. | `pdf-fonts.ts`, `pdf-painter.ts`, `font-files.data.ts`, `scripts/build-font-files.mjs` |
+| **P4 (deferred)** | Deferred | User-uploaded brand fonts + license attestation | out of scope here |
 
 ### Risks and Mitigation
 

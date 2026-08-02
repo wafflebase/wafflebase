@@ -19,10 +19,13 @@ and a gradient can never be authored from scratch.
 This spec adds the editing UI: the toolbar fill dropdown gains a
 `Solid | Gradient` toggle, and the Gradient mode surfaces a PowerPoint-style
 **stops-bar** (add / drag / delete stops, each with its own color + position +
-transparency) plus direction controls. It also extends the model, renderer,
-importer, and exporter from linear-only to **linear + radial**, so radial
-gradients — today collapsed to their first stop on import — survive the
-round-trip and become editable.
+transparency) plus direction controls. That editing UI shipped, together with
+a `type` (`linear | radial`) / `center` discriminator on the `GradientFill`
+model. The **linear + radial** widening of the renderer, importer, and
+exporter, however, did **not** land: radial gradients are still collapsed to
+their first stop on import, `resolveFillStyle` paints linear only, `gradFillXml`
+always emits `<a:lin>`, and the editor emits `type: 'linear'` exclusively. The
+radial design below is retained as a not-yet-built follow-up.
 
 Google Slides is not a reference here: it has no gradient fill editor at all.
 The design follows **PowerPoint / Keynote**, whose stops-bar idiom is the de
@@ -40,13 +43,18 @@ facto standard.
   **theme role colors** (theme-following gradients) or srgb + alpha.
 - Widen the model / renderer / importer / exporter from linear-only to
   **linear + radial**, preserving radial gradients through the PPTX round-trip.
+  *(Not shipped: only the model gained the `type` / `center` fields; the
+  renderer, importer, and exporter remain linear-only — see the Render /
+  Import / Export sections.)*
 - Apply gradient edits to shapes **and** freeform shapes (shared field +
   renderer), with multi-select writes collapsed into a single `store.batch`.
 
 **Non-Goals**
 
-- **Path / shape gradients** (`<a:path path="shape">`) beyond `circle`.
-  Still collapsed to their representative solid on import, as today.
+- **Path / shape gradients** (`<a:path path="shape">`). Collapsed to their
+  representative solid on import, as today. (The `circle` / radial case was
+  intended to be preserved but that work has not shipped — see the Import
+  section.)
 - **On-canvas gradient handles** (drag the axis / center directly on the
   shape). The editor is inline in the fill popover only; radial center is
   chosen from 5 presets, not dragged. The model stores `center` as a free
@@ -54,8 +62,11 @@ facto standard.
 - **Preset gradient swatches** (PowerPoint's "Preset gradients" row). Gradient
   mode seeds a 2-stop default from the current solid; a curated preset row is
   a follow-up.
-- **Gradient fills on text boxes, table cells, and slide backgrounds.** Those
-  remain solid-only parallel stacks, as in the gradient-fill spec.
+- **Gradient fills on text boxes and table cells.** Those remain solid-only
+  parallel stacks, as in the gradient-fill spec. *(Slide backgrounds are no
+  longer a non-goal: the background side panel now reuses `FillPicker` with a
+  `Solid | Gradient` toggle and writes a `GradientFill` via
+  `updateSlideBackground({ fill })` — see `use-slide-background`.)*
 - **Angle dial widget.** Linear direction is 8 presets + a numeric degree
   input, not a circular dial.
 
@@ -80,7 +91,8 @@ export type Fill = ThemeColor | GradientFill; // unchanged
 ```
 
 - `type` is **required**, not optional — every gradient carries an explicit
-  kind so `resolveFillStyle` / `gradFillXml` switch exhaustively.
+  kind. (The renderer and exporter do not yet branch on it — they treat every
+  gradient as linear — but the field is stored for the deferred radial work.)
 - `migrate.ts` backfills existing stored gradients (all linear, from the v1
   importer) with `type: 'linear'` — a one-line map. Absence of `center` means
   `{ x: 0.5, y: 0.5 }` (from-center), applied at read time, not migrated.
@@ -113,6 +125,10 @@ dropdown. A segmented toggle sits at the top:
   matches the existing color-pick-replaces-gradient behavior.
 
 #### `GradientEditor`
+
+> **Shipped linear-only.** The editor has no `Linear | Radial` type toggle and
+> emits `type: 'linear'` exclusively; the `Type:` row and the radial direction
+> controls in the mockup below are part of the deferred radial work.
 
 ```
 ┌ Gradient ────────────────────────────┐
@@ -170,12 +186,17 @@ swatch, direction preset, degree/position input blur) commit immediately via
   (solid or gradient). Multi-select applies the same `Fill` to every selected
   shape in a single `store.batch` — Format-panel parity.
 - Targets: `shape` and `freeform` (they share `data.fill` + the renderer, so
-  freeform gets gradient editing for free). Text boxes, table cells, and
-  backgrounds keep their solid-only pickers.
+  freeform gets gradient editing for free). Text boxes and table cells keep
+  their solid-only pickers; slide backgrounds have since gained the same
+  `FillPicker` gradient support (via `use-slide-background`).
 
 ### Render (`view/canvas/render-context.ts`)
 
-`resolveFillStyle` gains a radial branch; the linear branch is unchanged:
+> **Not shipped.** `resolveFillStyle` remains linear-only — it never calls
+> `createRadialGradient`. The radial branch below is the intended design for the
+> deferred radial work.
+
+`resolveFillStyle` would gain a radial branch; the linear branch is unchanged:
 
 ```ts
 if (fill.type === 'radial') {
@@ -199,8 +220,13 @@ solid) and the `paintFaces` 3D collapse are unchanged.
 
 ### Import (`import/pptx/shape.ts`)
 
+> **Not shipped.** `parseGradientFill` still collapses *every* `<a:path>`
+> gradient — `circle` included — to its first stop with `type: 'linear'`, and
+> never reads `<a:fillToRect>` or derives `center`. The `circle` upgrade below
+> is deferred.
+
 `parseGradientFill` currently collapses any `<a:path>` gradient to its first
-stop. Upgrade the `circle` case to preserve it:
+stop. The deferred upgrade would preserve the `circle` case:
 
 - `<a:path path="circle">` → `type: 'radial'`; read `<a:fillToRect l/t/r/b>`
   (1000ths-of-a-percent insets) and derive `center` (e.g. `x = l/(l+r)`,
@@ -212,14 +238,18 @@ stop. Upgrade the `circle` case to preserve it:
 
 ### PPTX export (`export/pptx/color.ts`)
 
-`gradFillXml` switches on `type`:
+> **Not shipped.** `gradFillXml` always emits `<a:lin ang="...">` — it does not
+> switch on `type` and never writes `<a:path path="circle">`. The `type` switch
+> below is deferred.
+
+`gradFillXml` would switch on `type`:
 
 - `linear` → `<a:lin ang="...">` (unchanged).
 - `radial` → `<a:path path="circle"><a:fillToRect .../></a:path>`, inverting the
   import `center` → insets mapping.
 
-Verified by the existing importer-fixture model-equivalence round-trip
-(extended with a radial fixture).
+This would be verified by the existing importer-fixture model-equivalence
+round-trip (extended with a radial fixture).
 
 ## Risks and Mitigation
 

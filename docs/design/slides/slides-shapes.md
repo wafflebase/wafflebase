@@ -9,9 +9,11 @@ target-version: 0.4.1
 
 The `@wafflebase/slides` package ships an OOXML-aligned shape library:
 **136 closed-path `ShapeKind` builders** rendered through a single
-path-builder registry, plus a special-cased dispatcher for connectors
-(`line` / `arrow`, now `ConnectorElement`), the 12 action buttons, and
-the data-driven `freeform` (`<a:custGeom>` / scribble) kind. Per-shape
+path-builder registry, plus special-cased dispatch for the 12 action
+buttons and the data-driven `freeform` (`<a:custGeom>` / scribble) kind.
+Lines and arrows are no longer `ShapeKind` values — they were extracted
+into a first-class `ConnectorElement` (see the `Connectors` note below and
+`slides-connectors.md`). Per-shape
 adjustments are stored as `data.adjustments?: number[]` and edited via
 yellow-diamond drag handles on the canvas. The catalog now exceeds the
 Google Slides shape menu (full PowerPoint Stars & Banners, the complete
@@ -30,7 +32,8 @@ task docs under `docs/tasks/`.
 - One shared rendering contract across all shapes: each closed-path
   shape is a pure `(size, adjustments) => Path2D` function, the
   dispatcher applies fill / stroke / theme color resolution. Only
-  `line` and `arrow` are special-cased (open path + arrowhead).
+  action buttons (body + glyph) and `freeform` (data-driven
+  `<a:custGeom>` path) are special-cased.
 - One storage contract for parametric shapes: `data.adjustments`
   mirrors OOXML `<a:avLst><a:gd>` so per-shape parameters round-trip
   to PPTX without an extra encoding layer.
@@ -48,9 +51,12 @@ task docs under `docs/tasks/`.
 
 ## Non-Goals
 
-- **Connector behaviour.** `line` and `arrow` are free-floating;
-  elbow / curved connectors that snap between two source elements
-  are a separate workstream.
+- **Connector behaviour** *(now shipped as a separate workstream).*
+  Lines, arrows, and elbow / curved connectors that snap between two
+  source elements are handled by the first-class `ConnectorElement`
+  type (`model/connector.ts`, `model/connection-site.ts`,
+  `view/canvas/connector-renderer.ts`), not the shape library — see
+  `slides-connectors.md`.
 - **Path-precise hit-testing.** Selection still uses the rotated
   frame AABB. Click-through-the-hole-of-donut behaviour using
   `ctx.isPointInPath(path, x, y)` is a follow-up.
@@ -69,8 +75,7 @@ task docs under `docs/tasks/`.
 
 ```ts
 export type ShapeKind =
-  // Lines (open-path, arrowhead) — special-cased renderers
-  | 'line' | 'arrow'
+  // (Lines / arrows are NOT ShapeKinds — see ConnectorElement.)
   // Basic shapes (P1: 15, P3-B: +29) — rect, …, snipRoundRect
   // Block arrows (P1: 8, P3-B: +13) — rightArrow, …, swooshArrow
   // Banners (P3-B: 5) — ribbon, …, leftRightRibbon
@@ -224,7 +229,7 @@ imports of labelled shapes layered (`ShapeElement` + paired
 ```
 packages/slides/src/view/canvas/
 ├── shape-renderer.ts          # dispatcher
-├── shape-special.ts           # drawLine, drawArrow, drawActionButton
+├── shape-special.ts           # drawActionButton (line/arrow now render via connector-renderer.ts)
 └── shapes/
     ├── builder.ts             # PathBuilder, AdjustmentSpec, AdjustmentHandle,
     │                          # adj() helper, regularPolygonPath()
@@ -247,10 +252,13 @@ The dispatcher in `shape-renderer.ts`:
 
 ```ts
 export function drawShape(ctx, size, data, theme) {
-  if (data.kind === 'line') return drawLine(ctx, size, data, theme);
-  if (data.kind === 'arrow') return drawArrow(ctx, size, data, theme);
   if (isActionButton(data.kind)) {
     return drawActionButton(ctx, size, data, theme);
+  }
+  // Freeform (`<a:custGeom>`) — geometry is data-driven, not parametric.
+  if (data.kind === 'freeform') {
+    // build path from data.path, paint fill/stroke, then optional arrowheads
+    return drawFreeform(ctx, size, data, theme);
   }
 
   const builder = PATH_BUILDERS.get(data.kind);
@@ -422,17 +430,19 @@ clamped.
 ### Picker UI
 
 The frontend toolbar exposes one **Shape ▾** button
-(`packages/frontend/src/app/slides/slides-formatting-toolbar.tsx`)
-that opens a Radix `Popover`:
+(`packages/frontend/src/app/slides/shape-picker.tsx`, with its catalog
+in `shape-picker-helpers.ts`) that opens a Radix `Popover`:
 
 - ~280 px wide, scrollable.
-- Sections in fixed order: **Lines · Shapes · Block Arrows ·
+- Sections in fixed order (8 categories): **Shapes · Block Arrows ·
   Banners · Flowchart · Callouts · Equation · Stars · Action
   Buttons**. Mirrors Google Slides' picker order, with Banners next
-  to Block Arrows (visual affinity) and Action Buttons at the end
-  (Google Slides exposes them via a separate Insert > Action button
-  entry; the picker keeps them in one popover until P3-C splits
-  them out).
+  to Block Arrows (visual affinity) and Action Buttons at the end.
+  Lines and arrows are no longer in this picker — they moved to a
+  dedicated sibling **Line ▾** dropdown (`line-picker.tsx`) with an
+  endpoint-anchored insertion UX (they are `ConnectorElement`s, not
+  shapes). An invariant test asserts exactly these 8 categories with
+  no `lines` entry.
 - Each section is a 6-column grid of 32 × 32 px buttons with
   24 × 24 px previews.
 - Previews render through the same `PATH_BUILDERS` — a
@@ -448,14 +458,16 @@ source of truth for which kinds appear in which section with which
 labels. An invariant test (`shape-picker.test.ts`) asserts every
 category entry has a registered `PATH_BUILDERS` builder.
 
-`InsertKind` (in `editor.ts`) is `ShapeKind | 'text'`. The
+`InsertKind` (in `editor.ts`) is
+`ShapeKind | 'text' | ConnectorInsertKind` (connectors ride the same
+insert-mode plumbing but build a `ConnectorElement`). The
 `buildInsertElement` dispatcher in `insert.ts` looks up a per-kind
 `STYLE_BY_KIND` style (`'filled' | 'outlined' | 'lineSpecial'`)
 for the initial fill / stroke. Conventions across all families:
 
 | Category | Default fill | Default stroke |
 |---|---|---|
-| Lines | (none) | `role: 'text'`, width 2 |
+| Open-path shapes (`arc`, `bracketPair`) — `lineSpecial` | (none) | `role: 'text'`, width 2 |
 | Basic / Block Arrows / Banners / Equation / Stars | `role: 'accent1'` | `role: 'text'`, width 1 |
 | Callouts / Flowchart | `role: 'background'` | `role: 'text'`, width 2 |
 | Action buttons | `role: 'background'` | `role: 'text'`, width 1 — `drawActionButton` reuses `stroke.color` for the inner glyph fill, falling back to the `background` role on collision so the glyph stays legible against any body fill |
@@ -643,4 +655,4 @@ priority where they do overlap.
 | P4 | DrawingML formula evaluator (`<a:avLst>` + guide formulas), enabling `kind: 'preset'` + `data.presetName` for unknown imports. |
 | Importer | `prst → ShapeKind` mapping table for the PPTX importer (tracked under `slides-themes-layouts-import.md`). |
 | Selection | Path-precise hit-testing via `ctx.isPointInPath`. Particularly relevant for stars (currently selects through the inner concave regions). |
-| Connectors | Elbow / curved connectors that snap to two source elements — separate workstream from the static shape library. |
+| Connectors | *Shipped* as a separate workstream: elbow / curved connectors that snap to two source elements are the first-class `ConnectorElement` type (`model/connector.ts`, `view/canvas/connector-renderer.ts`), not part of the static shape library — see `slides-connectors.md`. |

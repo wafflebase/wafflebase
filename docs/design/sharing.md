@@ -23,7 +23,6 @@ without logging in.
 ### Non-Goals
 
 - User-level invites or per-user permission management.
-- Server-side write protection — view-only enforcement is client-side only.
 - Granular permissions (e.g., comment-only, specific cell ranges).
 
 ## Proposal Details
@@ -99,11 +98,14 @@ URLs to clipboard, and revoking existing links.
 
 **Shared document route** (`/shared/:token`) — Placed outside `PrivateRoute` so
 anonymous users can access it. Resolves the token, sets up `YorkieProvider` and
-`DocumentProvider`, and renders the spreadsheet. The shared view follows the
-document's `tabOrder` and exposes tab switching across all tabs (sheet and
-datasource). Attempts to detect logged-in users for presence identity; falls
-back to "Anonymous". For `viewer` links, editing remains blocked across tab
-types (including datasource query editing).
+`DocumentProvider`, and branches on the resolved `type` to a per-type read-only
+layout: sheet, docs, slides (`SharedSlidesLayout`, with desktop/mobile
+variants), notes (`SharedNotesLayout`), board (`SharedBoardLayout`), and PDF
+(`SharedPdfLayout`). The sheet view follows the document's `tabOrder` and
+exposes tab switching across all tabs (sheet and datasource). Attempts to detect
+logged-in users for presence identity; falls back to "Anonymous". For `viewer`
+links, editing remains blocked across tab types (including datasource query
+editing).
 
 ### Sheet Package (Read-Only Mode)
 
@@ -143,9 +145,14 @@ constructed in read-only mode too, with every **mutating** path gated so
   unguessable.
 - **Revocation** — Deleting a ShareLink immediately invalidates the token.
 - **Cascade deletion** — Deleting a document cascades to all its share links.
-- **Client-side enforcement** — View-only mode is enforced in the browser.
-  Yorkie does not support per-user write auth, but the Yorkie doc key is only
-  revealed after valid token resolution, limiting exposure.
+- **Server-side write enforcement** — The Yorkie auth webhook enforces the
+  share-link role server-side: an anonymous visitor's token is checked in
+  `hasAccess()` (`packages/backend/src/document/yorkie-auth.controller.ts`),
+  which returns `needWrite ? link.role === 'editor' : true`, so a `viewer` token
+  requesting a write (`rw`) verb is denied with `403`
+  (see [yorkie-auth-webhook.md](yorkie-auth-webhook.md)). Client-side read-only
+  mode additionally gates the UI so a viewer never hits the error path, and the
+  Yorkie doc key is only revealed after valid token resolution.
 - **Expiration** — Links can have time-limited access (1h, 8h, 24h, 7d).
 
 ### Risks and Mitigation
@@ -154,12 +161,14 @@ constructed in read-only mode too, with every **mutating** path gated so
 the document. Mitigation: link expiration, ability to revoke links, and
 client-side role enforcement.
 
-**No server-side write protection** — A technically sophisticated user could
-bypass client-side read-only checks and write to the Yorkie document directly.
-Mitigation: acceptable for v1 since the Yorkie doc key is only revealed after
-valid token resolution; server-side enforcement can be added later via Yorkie
-webhooks.
+**Token leakage across write access** — A `viewer` link is read-only, but an
+`editor` link grants anonymous write access. Mitigation: editor links are gated
+to workspace owners / document authors, are revocable and expirable, and the
+Yorkie auth webhook enforces the link role server-side, so bypassing the
+client-side read-only checks does not grant a viewer token write access.
 
-**No rate limiting on token resolution** — The public resolve endpoint could be
-brute-forced. Mitigation: UUID tokens have sufficient entropy to make brute-force
-impractical; rate limiting via `@nestjs/throttler` can be added as needed.
+**Brute-forcing token resolution** — The public resolve endpoint could be
+probed. Mitigation: UUID tokens have sufficient entropy to make brute-force
+impractical, and the endpoint is rate limited by the global
+`@nestjs/throttler` `ThrottlerGuard` (default 120 req/min per client,
+`packages/backend/src/app.module.ts`).

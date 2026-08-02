@@ -46,7 +46,7 @@ at the bottom is updated whenever a PR lands.
 | --------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Tokens          | Four sources (frontend `@theme` plus three canvas theme files)        | `packages/frontend/src/index.css`, `packages/sheets/src/view/theme.ts`, `packages/docs/src/view/theme.ts`, `packages/slides/src/model/theme.ts` |
 | UI primitives   | Radix + shadcn + CVA, ~22 components                                   | `packages/frontend/src/components/ui/`                                                                     |
-| Toolbars        | Per-package: Slides (13 files), Docs (one file), Sheets (none)         | `packages/frontend/src/app/slides/`, `packages/frontend/src/app/docs/`                                     |
+| Toolbars        | Per-package: Slides (13 files), Docs (one file), Sheets (one file), Notes (one file) | `packages/frontend/src/app/slides/`, `packages/frontend/src/app/docs/`, `packages/frontend/src/components/formatting-toolbar.tsx` |
 | Floating UI     | Radix for dropdown/tooltip; custom inline-positioned popovers elsewhere | `packages/frontend/src/app/docs/docs-link-popover.tsx`, comment popovers                                   |
 | Mobile          | Slides only                                                            | `packages/frontend/src/app/slides/mobile-slides-view.tsx`, `packages/frontend/src/app/slides/toolbar/mobile-toolbar.tsx`, `packages/frontend/src/hooks/use-mobile.ts` |
 | Icons           | @tabler primary, lucide on the marketing homepage                      | `packages/frontend/src/app/(home)/`                                                                        |
@@ -145,11 +145,16 @@ swatch generator.
 
 Extract reusable toolbar primitives that all three editors can build on.
 
-- `<EditorToolbar>` shell — left/center/right zones, optional sticky.
-- `<ToolbarGroup>` — visual separators and optional group label.
-- `<ToolbarButton>` — variants (default/active/destructive) with shortcut
-  tooltips.
-- `<ColorSwatch>` — built on the PR #2 generator.
+- `<EditorToolbar>` shell — left/center/right zones, optional sticky. *(Not yet
+  built; the shared shell instead lives as `Toolbar` in
+  `packages/frontend/src/components/ui/toolbar.tsx`.)*
+- `<ToolbarGroup>` — visual separators and optional group label. *(Not yet
+  built; `ToolbarSeparator` covers the separator role.)*
+- `<ToolbarButton>` — variants (`icon` / `menu`) with shortcut tooltips.
+  **Shipped** via #498 in `packages/frontend/src/components/ui/toolbar.tsx`
+  (`forwardRef` + CVA).
+- `<ColorSwatch>` — **shipped** via #498 in
+  `packages/frontend/src/components/color-swatch.tsx`.
 - Migrate the Docs formatting toolbar first (single file, lowest risk).
 - Depends on PR #1, PR #2.
 
@@ -161,13 +166,16 @@ Extract reusable toolbar primitives that all three editors can build on.
   inside the slides app code.
 - Depends on PR #3.
 
-#### PR #5 — Sheets formatting toolbar
+#### PR #5 — Sheets formatting toolbar (shipped)
 
-- Sheets currently has no formatting toolbar — all formatting flows through
-  context menus and side panels.
-- Add a minimal set on top of the shared components: bold/italic/underline,
-  alignment, number format, text and background color.
-- Depends on PR #3, PR #4.
+- **Shipped.** Sheets previously had no formatting toolbar — all formatting
+  flowed through context menus and side panels.
+- A `FormattingToolbar` now ships in
+  `packages/frontend/src/components/formatting-toolbar.tsx` (mounted by
+  `packages/frontend/src/app/spreadsheet/sheet-view.tsx`), built on the shared
+  `Toolbar` / `ToolbarSeparator` / `ToolbarButton` and `ColorPickerGrid`
+  primitives: bold/italic, horizontal + vertical alignment, number format, and
+  text/background color — the minimal set this PR described.
 
 #### PR #6 — Floating UI consolidation (P1 #4)
 
@@ -356,12 +364,12 @@ This table is updated as each PR lands.
 
 | PR  | Title                                  | State        | Notes                              |
 | --- | -------------------------------------- | ------------ | ---------------------------------- |
-| #1  | `@wafflebase/tokens` package           | Ready to merge | Branch `tokens-package`, 2026-05-24 |
-| —   | Toolbar dropdown unification (Phases 1–3) | In review | PR #498, branch `unify-toolbar-dropdowns`, 2026-07-19; see "Toolbar dropdown unification" above |
+| #1  | `@wafflebase/tokens` package           | Shipped      | Landed as PR #292, then folded into `@wafflebase/core/tokens` (PR #477); see "Update (superseded location)" above |
+| —   | Toolbar dropdown unification (Phases 1–3) | Shipped | PR #498 (merged 2026-07-19); see "Toolbar dropdown unification" above |
 | #2  | Palette tokenization                   | Not started  |                                    |
-| #3  | Shared toolbar components              | Not started  |                    |
+| #3  | Shared toolbar components              | Partially shipped | `ToolbarButton` + `ColorSwatch` shipped via #498; `EditorToolbar` / `ToolbarGroup` not built |
 | #4  | Slides toolbar migration               | Not started  |                    |
-| #5  | Sheets formatting toolbar              | Not started  |                    |
+| #5  | Sheets formatting toolbar              | Shipped      | `FormattingToolbar` in `components/formatting-toolbar.tsx` |
 | #6  | Floating UI consolidation              | Not started  |                    |
 | #7  | Mobile first pass for Docs and Sheets  | Not started  |                    |
 | #8  | Icon library unification               | Not started  |                    |

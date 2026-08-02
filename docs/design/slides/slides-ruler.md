@@ -7,17 +7,25 @@ target-version: 0.4.2
 
 ## Summary
 
-Add horizontal and vertical rulers to the slides editor, plus
+The slides editor has horizontal and vertical rulers, plus
 presentation-wide alignment guides that users can drag out of the
 rulers. The ruler is primarily a placement aid: it shows slide
 coordinates (corner origin, inch / cm based on locale) and exposes
 draggable guides that participate in the existing snap engine. Text
-indent / tab handles inside text boxes are explicitly deferred to a
+indent / tab handles inside text boxes remain deferred to a
 later release.
 
-The design reuses the tick rendering and unit helpers from the docs
-ruler (`packages/docs/src/view/ruler.ts`) by extracting them into a
-shared low-level module so both packages stay visually consistent.
+The implementation reuses the tick rendering and unit helpers from the
+docs ruler by sharing a low-level module extracted into
+`packages/docs/src/view/ruler/` so both packages stay visually
+consistent.
+
+> **Status:** shipped. All six phases below are implemented in the
+> current codebase — the shared ruler core, the `SlidesRuler`
+> controller, the `Guide` data model + store API, ruler/guide
+> interactions, snap integration, and the read-only mount handling.
+> The remainder of this document describes the shipped design; the
+> "Phasing" section is retained as the historical rollout record.
 
 ### Goals
 
@@ -69,19 +77,22 @@ package owns its own controller and interactions.
 
 ```text
 packages/docs/src/view/ruler/
-├── index.ts            # MOVED — existing docs Ruler class (was view/ruler.ts)
-├── tick-renderer.ts    # NEW (extracted) — tick + label drawing
-└── unit.ts             # NEW (extracted) — RulerUnit, locale detect
+├── index.ts            # docs Ruler class (was the flat view/ruler.ts)
+├── tick-renderer.ts    # tick + label drawing (shared)
+└── unit.ts             # RulerUnit, locale detect (shared)
 
 packages/slides/src/view/editor/ruler/
+├── index.ts            # barrel: SlidesRuler, RULER_SIZE, SLIDES_PX_PER_INCH
 ├── ruler.ts            # SlidesRuler controller (H/V canvases + corner)
-├── guides-layer.ts     # paints permanent guides on the overlay layer
 └── interactions.ts     # ruler drag-out, guide drag, hit-test
 ```
 
-The docs file move is import-path-preserving: existing `from
-'../view/ruler'` resolves to the new `ruler/index.ts`. No call sites
-need to change.
+Permanent guides paint from the editor overlay layer
+(`packages/slides/src/view/editor/overlay.ts`) rather than from a
+dedicated ruler file, because they belong to the slide coordinate
+system. The docs file move was import-path-preserving: existing `from
+'../view/ruler'` resolves to `ruler/index.ts`, so no call sites
+changed.
 
 The shared modules take `pxPerUnit` as an argument so docs (96 dpi)
 and slides (144 dpi — see "Coordinate system") can both use them
@@ -105,8 +116,8 @@ editor-shell.tsx
     ├── <v-ruler-canvas>  absolute; top:14px; left:0; bottom:0; width:14px
     └── <canvas-pane>     absolute; top:14px; left:14px; right:0; bottom:0
         ├── <slide-canvas>      # existing
-        └── <overlay>           # existing
-            └── <guides-layer>  # NEW — permanent magenta solid lines
+        └── <overlay>           # existing — also paints permanent
+                                #   magenta guide lines
 ```
 
 The slide canvas area is offset by 14 px on top and left to make room
@@ -198,7 +209,7 @@ type SlidesDocument = {
   meta: { title: string };
   slides: Slide[];
   layouts: Layout[];
-  guides: Guide[];     // NEW
+  guides: Guide[];
 };
 ```
 
@@ -240,20 +251,21 @@ client writes the empty array.
 type SlidesPresence = {
   // ...existing
   draggingGuide?: {
-    id?: string;            // undefined while creating from ruler
     axis: 'x' | 'y';
     position: number;
   };
 };
 ```
 
-In v1 the `draggingGuide` field is reserved on `SlidesPresence` but
-the editor does not broadcast it: the live preview is local-only.
-`addGuide` / `moveGuide` commit once on `mouseup`, and the resulting
-store change propagates through the standard CRDT path so peers see
-the committed guide on their next render. Broadcasting the in-flight
-preview to peers is a tracked v1.1 follow-up — the schema is already
-in place to keep it a non-breaking change.
+The `draggingGuide` field is reserved on `SlidesPresence` (and the
+peer-view read path in `peer-view.ts` / `peers.ts` already maps it),
+but the editor does not broadcast it yet: the live preview is
+local-only via the editor's own `pendingGuide` state. `addGuide` /
+`moveGuide` commit once on `mouseup`, and the resulting store change
+propagates through the standard CRDT path so peers see the committed
+guide on their next render. Broadcasting the in-flight preview to
+peers remains a follow-up — the schema is already in place to keep it
+a non-breaking change.
 
 ### Interactions
 
@@ -350,7 +362,8 @@ affordances.
 
 ### Phasing
 
-Six PRs, each independently demoable.
+The feature landed across six PRs, each independently demoable. All
+six are shipped; the table below is the historical rollout record.
 
 | Phase | Scope | Verification |
 | --- | --- | --- |

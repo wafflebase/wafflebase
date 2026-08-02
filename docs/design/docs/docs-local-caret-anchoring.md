@@ -10,16 +10,17 @@ target-version: 0.4.1
 Keep the local caret and text selection attached to the user's intended
 logical text position when remote collaborators edit the same document.
 
-Today the docs editor stores the local caret as an absolute
-`{ blockId, offset }`. In collaborative mode, remote document changes invalidate
-the render cache, but they do not transform that local offset. If another user
-inserts text before the local caret in the same block, the caret keeps the same
-numeric offset and ends up pointing to a different character.
+The docs editor originally stored the local caret as an absolute
+`{ blockId, offset }`. In collaborative mode, remote document changes invalidated
+the render cache but did not transform that local offset, so if another user
+inserted text before the local caret in the same block, the caret kept the same
+numeric offset and ended up pointing to a different character.
 
-The proposed fix is to anchor the local caret and selection to Yorkie Tree
-positions in the frontend collaboration layer, then resolve those anchors back
-to `{ blockId, offset }` only when the editor needs to render or operate on the
-current document snapshot.
+This is now fixed: the local caret and selection are anchored to Yorkie Tree
+positions in the frontend collaboration layer (`YorkieDocStore` in
+`packages/frontend/src/app/docs/yorkie-doc-store.ts`), and those anchors are
+resolved back to `{ blockId, offset }` when the editor needs to render or
+operate on the current document snapshot.
 
 ## Background
 
@@ -29,17 +30,18 @@ shifting with the logical text position. The expected behavior matches editors
 like Google Docs and Notion: the caret should remain attached to the character
 boundary it originally represented.
 
-The maintainer confirmed this is a bug, not intentional behavior. The current
-local caret uses `DocPosition` from `packages/docs/src/model/types.ts`, while
-remote changes in `packages/frontend/src/app/docs/yorkie-doc-store.ts`
-invalidate render state without transforming the stored local offset.
+The maintainer confirmed this was a bug, not intentional behavior. The local
+caret uses `DocPosition` from `packages/docs/src/model/types.ts`, while the
+pre-fix remote-change path in
+`packages/frontend/src/app/docs/yorkie-doc-store.ts` invalidated render state
+without transforming the stored local offset.
 
-The maintainer also pointed to the preferred direction: anchor the caret to a
-Yorkie Tree position, then resolve back to `DocPosition` at render time. This
-is similar to the position-preserving approach needed for collaborative cursor
-state, but this note focuses on the local caret and selection first. Because
-the change touches headers, footers, tables, and selection paths, this note
-records the expected edge-case behavior before implementation.
+The maintainer also pointed to the preferred direction, which is what shipped:
+anchor the caret to a Yorkie Tree position, then resolve back to `DocPosition`
+at render time. This is similar to the position-preserving approach needed for
+collaborative cursor state, but this note focuses on the local caret and
+selection. Because the change touches headers, footers, tables, and selection
+paths, this note records the edge-case behavior the implementation covers.
 
 ## Goals
 
@@ -64,7 +66,7 @@ records the expected edge-case behavior before implementation.
 
 ### API Boundary
 
-`packages/docs` should continue to use resolved `DocPosition` values for
+`packages/docs` continues to use resolved `DocPosition` values for
 editing, layout, hit-testing, and rendering:
 
 ```ts
@@ -74,12 +76,19 @@ interface DocPosition {
 }
 ```
 
-The Yorkie-backed frontend integration should own the anchored representation:
+The Yorkie-backed frontend integration owns the anchored representation. The
+shipped types in `yorkie-doc-store.ts` also carry `blockId`, `offset`, and
+`regionTopIndex` — the last-known resolved position plus the anchor's top-level
+region-block index — which back the deterministic fallback ladder when the
+Yorkie position no longer resolves to a usable block:
 
 ```ts
 type AnchoredDocPosition = {
   region: 'body' | 'header' | 'footer';
-  yorkiePosition: TreePos;
+  blockId: string;
+  offset: number;
+  regionTopIndex: number;
+  yorkiePosition: TreePosRange;
   lineAffinity?: 'forward' | 'backward';
 };
 
@@ -90,7 +99,7 @@ type AnchoredDocRange = {
 };
 ```
 
-The concrete anchor is Yorkie's Tree position type. Convert a collapsed caret
+The concrete anchor is Yorkie's Tree position range type. Convert a collapsed caret
 or range endpoint with `tree.indexRangeToPosRange([index, index])`, and resolve
 it with `tree.posRangeToIndexRange(posRange)`. A caret is a collapsed range, so
 `AnchoredDocRange` maps 1:1 to two endpoint anchors. Yorkie-specific state
@@ -298,11 +307,17 @@ anchor, but it is never committed at a stale absolute offset.
 
 ## Rollout Plan
 
-1. Add local anchor conversion helpers in the Yorkie-backed docs integration.
-2. Store a local caret anchor whenever the editor cursor changes.
-3. Resolve and restore the local caret after remote document changes.
-4. Extend the same mechanism to non-collapsed text selections.
-5. Add tests for body text first, then tables, headers, and footers.
+Steps 1–5 have shipped in `yorkie-doc-store.ts` and `docs-view.tsx`; step 6
+remains a future consideration.
+
+1. ✅ Local anchor conversion helpers in the Yorkie-backed docs integration
+   (`anchorDocPosition`, `anchorDocRange`, `resolveAnchoredDocPosition`).
+2. ✅ Store a local caret anchor whenever the editor cursor changes
+   (`localCursorAnchor` / `localSelectionAnchor`).
+3. ✅ Resolve and restore the local caret after remote document changes
+   (`resolveAnchoredLocalCursor` wired into `store.onRemoteChange`).
+4. ✅ Extend the same mechanism to non-collapsed text selections.
+5. ✅ Tests for body text, tables, headers, and footers.
 6. Revisit remote peer cursor presence separately if the same anchor strategy
    should be shared later.
 

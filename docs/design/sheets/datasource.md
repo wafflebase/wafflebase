@@ -25,7 +25,7 @@ Data Sources allow users to connect external PostgreSQL databases to their Waffl
 - Support for databases other than PostgreSQL (MySQL, SQLite, etc.)
 - Writing back to external databases
 - Scheduled/automatic query refresh
-- Sharing datasource connections between users
+- Cross-workspace sharing of datasource connections (connections are shared within a workspace, not across workspaces or with arbitrary users)
 - Query parameterization or variables
 
 ## Architecture Overview
@@ -105,18 +105,20 @@ Located at `packages/backend/src/datasource/`.
 
 ```prisma
 model DataSource {
-  id         String   @id @default(uuid())
-  name       String
-  host       String
-  port       Int      @default(5432)
-  database   String
-  username   String
-  password   String              // AES-256-GCM encrypted
-  sslEnabled Boolean  @default(false)
-  authorID   Int
-  author     User     @relation(fields: [authorID], references: [id])
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String    @id @default(uuid())
+  name        String
+  host        String
+  port        Int       @default(5432)
+  database    String
+  username    String
+  password    String              // AES-256-GCM encrypted
+  sslEnabled  Boolean   @default(false)
+  authorID    Int                 // creator, for auditing
+  author      User      @relation(fields: [authorID], references: [id])
+  workspaceId String              // datasources are workspace-scoped
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 ```
 
@@ -126,17 +128,27 @@ All endpoints require JWT authentication (`JwtAuthGuard`).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/datasources` | Create a new datasource |
-| GET | `/datasources` | List user's datasources (passwords masked) |
+| POST | `/workspaces/:workspaceId/datasources` | Create a datasource in a workspace |
+| GET | `/workspaces/:workspaceId/datasources` | List a workspace's datasources (passwords masked) |
+| POST | `/datasources` | Create a datasource (workspace given in the request body) |
+| GET | `/datasources` | List datasources across the user's workspaces (passwords masked) |
 | GET | `/datasources/:id` | Get single datasource |
 | PATCH | `/datasources/:id` | Update datasource fields |
 | DELETE | `/datasources/:id` | Delete datasource |
 | POST | `/datasources/:id/test` | Test connection (SELECT 1) |
 | POST | `/datasources/:id/query` | Execute a SQL query |
 
+The workspace-scoped routes are the primary surface; the flat `POST /datasources`
+still exists for backward compatibility but requires a `workspaceId` in its body
+(`CreateDataSourceInWorkspaceDto`), and flat `GET /datasources` fans out across
+all of the caller's workspaces.
+
 #### Access Control
 
-Every operation verifies `ds.authorID === userId`. Users can only access their own datasources.
+Datasources are **workspace-scoped**. Every operation resolves the datasource's
+`workspaceId` and calls `workspaceService.assertMember(workspaceId, userId)`, so
+any member of the owning workspace can read, query, edit, or delete it — not just
+the creator (`authorID`, which is retained for auditing).
 
 #### Password Encryption
 
@@ -198,11 +210,11 @@ These are known gaps in the current implementation that represent opportunities 
 2. **Read-only results** — Query results cannot be edited, sorted, or filtered in the grid.
 3. **No auto-refresh** — Queries must be manually re-executed to see updated data.
 4. **No query history** — Previous queries are not saved; only the latest query persists.
-5. **Single-user datasources** — Connections are private to the creator; collaborators on a document cannot use a datasource tab unless they own the connection (they see the query but cannot execute it).
+5. **Workspace-scoped datasources** — Connections are shared among members of the owning workspace (any member can execute queries), but cannot be shared across workspaces or with non-members.
 6. **No connection pooling** — Each query execution creates and destroys a pg Client connection.
 7. **No schema browser** — Users must know table/column names; there is no database schema explorer.
 8. **Basic SQL editor** — Plain textarea without syntax highlighting, autocomplete, or formatting.
-9. **No column type mapping** — All values are displayed as strings regardless of the PostgreSQL data type.
+9. **Minimal column type mapping** — Values are displayed as strings for most PostgreSQL data types. The one exception is date/time types (`DATE`, `TIMESTAMP`, `TIMESTAMPTZ`), which the service keeps as raw Postgres text via a custom `datasourceTypeParser` to avoid the default parser's runtime-timezone shift; there is still no rich type mapping to numeric/boolean/date cell formats.
 10. **Authenticated HTTP coverage is still narrow** — Unit tests cover SQL validation and `DataSourceService` logic, controller-contract e2e tests cover route wiring with mocked services, DB-backed integration tests cover datasource/share-link service logic, and authenticated HTTP integration tests now cover core JWT-guarded datasource/share-link/document ownership paths. Broader edge-case coverage (auth/session failures, more negative permutations, and cross-module flows) is still missing.
 
 ## Next Steps
@@ -217,7 +229,7 @@ These are known gaps in the current implementation that represent opportunities 
 
 ### Medium-term (expand capabilities)
 
-- **Shared datasources**: Allow document collaborators to execute queries using the datasource owner's connection (with explicit permission).
+- **Shared datasources**: Workspace-level sharing is already implemented — any workspace member can execute queries against a datasource owned by the workspace. Remaining work is finer-grained sharing (e.g. cross-workspace access or per-document grants with explicit permission).
 - **Column type awareness**: Map PostgreSQL data types to appropriate cell formats (numbers, dates, booleans) instead of treating everything as strings.
 - **Sortable/filterable results**: Add column sorting and basic filtering on query results in the grid.
 - **Auto-refresh**: Optional periodic re-execution of queries (with configurable interval).

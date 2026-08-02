@@ -38,32 +38,42 @@ React Router 7.5 with route guards:
 ```mermaid
 flowchart TD
   BR["BrowserRouter (basename from VITE_FRONTEND_BASENAME)"]
+  BR --> HOME["/ → HomeOrRedirect (landing or redirect)"]
   BR --> PUB["PublicRoute"]
+  BR --> SHARED["/shared/:token → SharedDocument"]
   BR --> PRI["PrivateRoute"]
   PUB --> LOGIN["/login → Login"]
   PRI --> LAYOUT["Layout (sidebar + header)"]
-  PRI --> DOC["/:id → DocumentDetail"]
-  LAYOUT --> DOCS["/ → Documents"]
+  PRI --> DETAIL["/s|/d|/p|/f|/n|/b/:id → per-type detail"]
+  LAYOUT --> DOCS["/documents → Documents"]
+  LAYOUT --> WS["/w/:workspaceId → WorkspaceDocuments"]
   LAYOUT --> SET["/settings → Settings"]
 ```
 
+- **HomeOrRedirect** — `/` renders the marketing landing page for anonymous
+  visitors and redirects authenticated users into the app.
 - **PublicRoute** — Redirects to `/` if already authenticated.
 - **PrivateRoute** — Calls `fetchMe()` to verify the JWT cookie. Wraps
   children in `YorkieProvider`. Redirects to `/login` on failure.
+- Documents are organized into workspaces (`/w/:workspaceId`) and arbitrary-depth
+  folders; there are also top-level `/shared/:token`, `/invite/:token`,
+  `/datasources`, workspace analytics/settings/datasources, and `/harness/*`
+  routes.
 - Route components are loaded with `React.lazy` + `Suspense` so the login,
   list, settings, and document-detail pages are split into separate chunks.
 
 #### Provider Hierarchy
 
 ```
-StrictMode
-└── QueryClientProvider (TanStack React Query)
-    └── ThemeProvider (light / dark / system)
-        └── BrowserRouter
-            └── PrivateRoute
-                └── YorkieProvider (Yorkie client connection)
-                    └── DocumentProvider (per-document CRDT)
-                        └── Page components
+StrictMode (wraps App in main.tsx)
+└── ThemeProvider (light / dark / system)
+    └── TooltipProvider
+        └── QueryClientProvider (TanStack React Query)
+            └── BrowserRouter
+                └── PrivateRoute
+                    └── YorkieProvider (Yorkie client connection)
+                        └── DocumentProvider (per-document CRDT)
+                            └── Page components
 ```
 
 ### Sheet Integration
@@ -349,13 +359,16 @@ flowchart LR
 
 ```typescript
 type UserPresence = {
-  activeCell?: Sref;   // e.g. "C5"
+  selection?: SelectionPresence; // primary field: full range selection
+  activeCell?: Sref;   // legacy fallback for mixed-version peers, e.g. "C5"
   activeTabId?: string; // current tab id, e.g. "tab-1"
-  username: string;
-  email: string;
-  photo: string;
-};
+} & User;              // spreads id, authProvider, username, email, photo
 ```
+
+The primary presence field is `selection` (a `SelectionPresence` range from
+`@wafflebase/sheets`); `activeCell` is retained only as a legacy fallback for
+peers running an older version. `UserPresence` extends the full `User` type
+rather than duplicating the profile fields.
 
 The `UserPresence` component (`packages/frontend/src/components/user-presence.tsx`) displays up
 to 4 user avatars in the header. It uses the `usePresences()` hook from
@@ -410,11 +423,19 @@ caching and mutations.
 |----------|--------|----------|
 | `fetchDocuments()` | GET | `/documents` |
 | `fetchDocument(id)` | GET | `/documents/:id` |
-| `createDocument({ title })` | POST | `/documents` |
+| `createDocument({ title, type?, fileId? })` | POST | `/documents` |
+| `renameDocument(id, title)` | PATCH | `/documents/:id` |
+| `moveDocument(id, { workspaceId?, folderId? })` | PATCH | `/documents/:id` |
+| `moveDocuments(ids, target)` | PATCH | `/documents/move` |
 | `deleteDocument(id)` | DELETE | `/documents/:id` |
+| `deleteDocuments(ids)` | POST | `/documents/delete` |
 
 **Document list** uses TanStack Table with sorting, filtering, and pagination.
-Row click navigates to `/:id`.
+Row click navigates to the type-specific detail route via `getDocumentPath()`.
+
+Additional shipped frontend surfaces the sheets integration relies on but this
+doc does not detail: data validation (`data-validation-panel.tsx`), a threaded
+comments system, and URL-based share links (`src/api/share-links.ts`).
 
 **Document detail** wraps `SheetView` in a `DocumentProvider` that connects to
 the Yorkie document with key `sheet-{id}`. The sheet and datasource tab views
@@ -424,11 +445,12 @@ on demand when adding datasource tabs.
 #### Multi-Editor Integration
 
 The frontend hosts several editor types from a single document list.
-`Document` carries a `type: "sheet" | "doc" | "slides"` field (DB default
+`Document` carries a `type: DocumentType` field where `DocumentType =
+"sheet" | "doc" | "slides" | "pdf" | "note" | "image" | "board"` (DB default
 `"sheet"`, so legacy rows stay valid without migration); the create endpoints
-accept an optional `type`. The "New" dropdown in the document list offers one
-entry per type, and a type indicator column/icon distinguishes them in the
-list.
+accept an optional `type` (and `fileId` for the static file types). The "New"
+dropdown in the document list offers one entry per type, and a type indicator
+column/icon distinguishes them in the list.
 
 Routing keys off `doc.type`, resolved by a `getDocumentPath(doc)` helper:
 
@@ -437,23 +459,36 @@ Routing keys off `doc.type`, resolved by a `getDocumentPath(doc)` helper:
 | `sheet` (default) | `/s/:id` | `DocumentDetail` (sheets) |
 | `doc` | `/d/:id` | `DocsDetail` |
 | `slides` | `/p/:id` | `SlidesDetail` |
+| `note` | `/n/:id` | `NotesDetail` |
+| `board` | `/b/:id` | `BoardDetail` |
+| `pdf` / `image` | `/f/:id` | `FileDetail` |
 
 Each editor binds its own Yorkie document key — e.g. sheets use `sheet-{id}`
 and docs use `doc-{id}` — so they never collide even when they share the same
 underlying document UUID. The docs editor uses `YorkieDocStore`, a `DocStore`
 implementation backed by the Yorkie Tree CRDT (parallel to `YorkieStore` for
-sheets).
+sheets). The PDF/image (`FileDetail`) types are static blob documents with no
+Yorkie CRDT editing.
 
 ### Type Definitions
 
 ```typescript
 // src/types/documents.ts
+type DocumentType =
+  | "sheet" | "doc" | "slides" | "pdf" | "note" | "image" | "board";
+
 type Document = {
-  id: number;
+  id: string;
   title: string;
+  type: DocumentType;
   description: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;       // populated only by documents-list endpoints
+  workspaceId: string;
+  folderId?: string | null; // null/absent = workspace root
+  author?: DocumentAuthor | null;
+  editors?: DocumentEditor[];
+  canManage?: boolean;      // set only by documents-list endpoints
 };
 
 // src/types/users.ts
@@ -477,6 +512,7 @@ type DataSource = {
   password: string;  // Always masked from API
   sslEnabled: boolean;
   authorID: number;
+  workspaceId: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -9,20 +9,20 @@ target-version: 0.5.0
 
 ## Summary
 
-Slides has **no PDF export today**. The `slides/slides.md` design doc
-claims "PDF export reuses the docs PDF pipeline," but that is intent
-only — no code exists, and the docs pipeline (`PdfExporter` /
-`PdfPainter`) is built for paginated rich text + tables + images, not
-for the free-position element model that Slides uses (126 `ShapeKind`
-values, connectors, freeform paths, effects, rotations, groups).
+Slides ships a **raster PDF exporter**
+(`packages/slides/src/export/pdf.ts`). The docs pipeline (`PdfExporter`
+/ `PdfPainter`) is built for paginated rich text + tables + images, not
+for the free-position element model that Slides uses (100+ `ShapeKind`
+values, connectors, freeform paths, effects, rotations, groups), so
+rebuilding a vector painter for every slide element type would be a
+large, high-risk effort.
 
-Rebuilding a vector painter for every slide element type is a large,
-high-risk effort. Instead, P0 ships a **raster exporter**: render each
-slide to a high-DPI offscreen canvas with the *existing* `drawSlide()`
-pipeline — which already paints every element type with full theme
-resolution and effects — then embed one bitmap per page into a
-`pdf-lib` document sized 13.333" × 7.5" (16:9). This is pixel-identical
-to the on-screen editor for minimal effort.
+Instead, the shipped P0 exporter renders each slide to a high-DPI
+offscreen canvas with the *existing* `drawSlide()` pipeline — which
+already paints every element type with full theme resolution and
+effects — then embeds one bitmap per page into a `pdf-lib` document
+sized 13.333" × 7.5" (16:9). This is pixel-identical to the on-screen
+editor for minimal effort.
 
 Trade-off accepted: PDF text is not selectable and files are larger
 than vector. A future P1 can overlay vector text from the docs
@@ -78,11 +78,17 @@ exportSlidesPdf(doc, opts)                      packages/slides/src/export/pdf.t
        └─ page.drawImage(img, { x:0, y:0, width:960, height:540 })
   └─ return await pdf.save()  // Uint8Array → Blob
 
-exportPdfAndDownload(doc, title)                packages/frontend/src/app/slides/pdf-actions.ts
-  ├─ const { exportSlidesPdf } = await import('@wafflebase/slides/export')  // dynamic
-  ├─ blob = new Blob([await exportSlidesPdf(doc, ...)], { type: 'application/pdf' })
+exportSlidesPdfAndDownload(doc, title, onProgress?)   packages/frontend/src/app/slides/pdf-actions.ts
+  ├─ families = collectFontFamilies(doc); ensureFontLink + await document.fonts.load
+  ├─ bytes = await exportSlidesPdf(doc, { imageFetcher: docsImageFetcher, title, onProgress })
+  ├─ blob = new Blob([bytes], { type: 'application/pdf' })
   └─ downloadBlob(blob, safeFilename(title, 'pdf'))   // reuse docs export-utils
 ```
+
+`pdf-lib` is dynamic-imported *inside* `exportSlidesPdf` (not at the
+frontend call site), so it stays out of the editor bundle until an
+export actually runs; `exportSlidesPdf` / `collectFontFamilies` are
+re-exported from the main `@wafflebase/slides` entry.
 
 ### The core problem: render-and-wait
 
@@ -150,28 +156,30 @@ file size. `pdf-lib` supports both via `embedPng` / `embedJpg`.
 
 ### Module / export surface
 
-- New `packages/slides/src/export/pdf.ts` →
-  `exportSlidesPdf(doc: SlidesDocument, opts?: { scale?: number;
-  format?: 'png' | 'jpeg'; metadata?: { title?: string } }):
-  Promise<Uint8Array>`.
-- Add a `@wafflebase/slides/export` subpath export (or fold into the
-  existing public entry, lazily) so the frontend can dynamic-import it
-  without pulling the editor.
-- `pdf-lib` is already a dependency of `@wafflebase/docs`; add it to
-  `@wafflebase/slides` `package.json`.
+- `packages/slides/src/export/pdf.ts` →
+  `exportSlidesPdf(doc: SlidesDocument, opts?: ExportSlidesPdfOptions):
+  Promise<Uint8Array>`, where `ExportSlidesPdfOptions` carries `scale?`,
+  `format?: 'png' | 'jpeg'`, `quality?`, `imageFetcher?`,
+  `assetTimeoutMs?`, `title?`, and `onProgress?`. `exportSlidesPdf`,
+  `collectFontFamilies`, and the `ExportSlidesPdfOptions` /
+  `SlidesImageFetcher` types are re-exported from the main
+  `@wafflebase/slides` entry (no separate subpath); the module is
+  browser-only (DOM `Image` / `OffscreenCanvas` / `document.fonts`).
+- `pdf-lib` is listed in `@wafflebase/slides` `package.json` and is
+  dynamic-imported inside `exportSlidesPdf`.
 - Reuse `downloadBlob` / `safeFilename` from
   `frontend/src/app/docs/export-utils.ts` (consider promoting them to
   a shared frontend util; not required for P0).
 
 ### UI wiring
 
-Add an export control to the Slides toolbar right-side globals
-(`packages/frontend/src/app/slides/toolbar/`), next to Present — a
-small dropdown ("Export → PDF") matching the docs
-`docs-formatting-toolbar.tsx` pattern. Click handler calls
-`exportPdfAndDownload(store.doc, documentTitle)`. Show a busy/spinner
-state while rendering (large decks take a few seconds) and a toast on
-failure.
+The export control ships as a header **Export** menu
+(`packages/frontend/src/app/slides/slides-export-button.tsx`) offering
+PDF (`.pdf`) and PPTX (`.pptx`) items. The PDF item calls
+`exportSlidesPdfAndDownload(store.doc, documentTitle, onProgress)`. It
+shows a busy/spinner state while rendering (large decks take a few
+seconds), reports progress via the shared docs export toast
+(`updateExportToast`), and surfaces failures.
 
 ### Testing
 
@@ -193,6 +201,6 @@ failure.
 | A broken/slow image URL hangs export | Per-slide timeout failsafe; render with placeholder (same as editor's `isImageFailed` path). |
 | Fonts render in fallback if not loaded before snapshot | Up-front `ensureFontLink` + `document.fonts.load` for every used family/weight; await before any slide render. |
 | `OffscreenCanvas` unavailable in some browsers/tests | Fall back to detached `<canvas>`; tests use the existing `FakeOffscreenCanvas` shim. |
-| Cross-origin images taint the canvas → `toBlob` throws | Images already load same-origin/with credentials via the app's image pipeline; for external srcs set `crossOrigin='anonymous'` in `getOrLoadImage` and fall back to placeholder if it taints. |
+| Cross-origin images taint the canvas → `toBlob` throws | The exporter fetches each image's bytes (with credentials, via the injected `imageFetcher` — the frontend passes `docsImageFetcher`) into a same-origin object URL, clones each slide with the rewritten srcs, and renders the clone; images whose bytes cannot be fetched fall back to a blank 1×1 PNG. The editor's slides and shared image cache are never mutated. |
 | Animations/transitions not represented | Non-goal for P0; export the resting rendered state. |
 ```
