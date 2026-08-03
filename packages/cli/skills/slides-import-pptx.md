@@ -49,6 +49,8 @@ wafflebase slides import revision.pptx --replace <doc-id> --yes
 without an undo path. Pair with `--yes` (non-interactive) or respond
 `y` to the interactive prompt (TTY). Without `--yes` on a
 non-interactive shell, the CLI exits with `CONFIRMATION_REQ`.
+`--dry-run` is exempt: a preview writes nothing, so it neither prompts
+nor requires `--yes`.
 
 ### Dry-run
 
@@ -66,6 +68,7 @@ in the imported deck JSON — the deck is self-contained.
 
 - `INVALID_PPTX` — the file is not a parseable .pptx
 - `CONFIRMATION_REQ` — `--replace` without `--yes` on a non-TTY shell
+  (not raised under `--dry-run`)
 - `HTTP_ERROR` — the server rejected the create or content PUT
 
 ## Safety

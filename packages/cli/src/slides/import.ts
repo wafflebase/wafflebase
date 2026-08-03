@@ -143,7 +143,10 @@ export async function runSlidesImport(
 
   if (replace) {
     // `--replace` is destructive: confirm interactively unless `--yes`.
-    if (!yes) {
+    // `--dry-run` prints the PUT instead of issuing it, so there is
+    // nothing to confirm — skip the gate rather than fail a preview on a
+    // non-TTY shell (issue #593).
+    if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
           JSON.stringify(

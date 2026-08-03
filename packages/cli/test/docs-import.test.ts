@@ -356,4 +356,34 @@ describe('runDocsImport --replace', () => {
     expect(plan.path).toBe('/documents/doc-existing/content');
     expect(plan.body.blocks).toBeDefined();
   });
+
+  it('--dry-run without --yes on non-TTY prints the plan (issue #593)', async () => {
+    const cap = captureIO({ bytes, isTTY: false });
+    const client = makeClient({});
+    const result = await runDocsImport(
+      { file: 'sample.docx', replace: 'doc-existing', dryRun: true },
+      client,
+      cap.io,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(cap.stderrLines).toEqual([]);
+    expect(client.putCalls).toEqual([]);
+    const plan = JSON.parse(cap.stdoutLines.join(''));
+    expect(plan.method).toBe('PUT');
+    expect(plan.path).toBe('/documents/doc-existing/content');
+  });
+
+  it('--dry-run without --yes on a TTY does not prompt', async () => {
+    const cap = captureIO({ bytes, isTTY: true, confirmReply: false });
+    const client = makeClient({});
+    const result = await runDocsImport(
+      { file: 'sample.docx', replace: 'doc-existing', dryRun: true },
+      client,
+      cap.io,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(cap.confirmAnswers).toEqual([]);
+    expect(client.putCalls).toEqual([]);
+    expect(JSON.parse(cap.stdoutLines.join('')).method).toBe('PUT');
+  });
 });
