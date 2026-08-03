@@ -1,0 +1,234 @@
+import { strict as assert } from "node:assert";
+import test from "node:test";
+
+import {
+  assertSafeActionPlan,
+  classifyUiError,
+  oraclesFired,
+  runUiPlan,
+  scrubUiVolatile,
+  uiObservedKey,
+  uiPlanKey,
+  UI_ACTION_TYPES,
+  UI_READER_PREFIXES,
+} from "./hunt-ui-probe.mjs";
+
+const okPlan = { actions: [{ type: "goto", surface: "doc" }] };
+
+/** An observation as the driver emits one. */
+function obs(over = {}) {
+  return { index: 0, action: { type: "read", reader: "doc.fontSizes" }, ok: true, error: null, value: null, oracles: [], ...over };
+}
+
+// --- plan validation: the closed vocabulary ---------------------------------
+
+test("assertSafeActionPlan accepts a well-formed plan", () => {
+  assert.equal(assertSafeActionPlan(okPlan), true);
+});
+
+test("assertSafeActionPlan refuses an unknown action type", () => {
+  assert.throws(
+    () => assertSafeActionPlan({ actions: [{ type: "evaluate", script: "window.x=1" }] }),
+    /unknown type "evaluate"/,
+  );
+});
+
+test("assertSafeActionPlan refuses an empty or missing action list", () => {
+  assert.throws(() => assertSafeActionPlan({ actions: [] }), /non-empty array/);
+  assert.throws(() => assertSafeActionPlan({}), /non-empty array/);
+  assert.throws(() => assertSafeActionPlan(null), /must be an object/);
+});
+
+// The reader prefix check is what stops a caller reaching outside the registry —
+// there is no `eval.` namespace, so a typo AND an escape attempt both land here.
+test("assertSafeActionPlan refuses a reader outside the known namespaces", () => {
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "read", reader: "eval.window" }] }), /must start with one of/);
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "read", reader: "" }] }), /needs a reader name/);
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "read" }] }), /needs a reader name/);
+});
+
+test("assertSafeActionPlan accepts every declared reader namespace", () => {
+  for (const prefix of UI_READER_PREFIXES) {
+    assert.equal(assertSafeActionPlan({ actions: [{ type: "read", reader: `${prefix}whatever` }] }), true);
+  }
+});
+
+// A target with both forms is ambiguous, and one with neither is unresolvable.
+// Either would be silently interpreted by the driver rather than refused.
+test("assertSafeActionPlan refuses an ambiguous or empty click target", () => {
+  assert.throws(
+    () => assertSafeActionPlan({ actions: [{ type: "click", target: { role: "button", reader: "sheet.cellCenter" } }] }),
+    /exactly one of/,
+  );
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "click", target: {} }] }), /exactly one of/);
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "click" }] }), /needs a target object/);
+});
+
+test("assertSafeActionPlan refuses a click target whose reader escapes the namespaces", () => {
+  assert.throws(
+    () => assertSafeActionPlan({ actions: [{ type: "click", target: { reader: "eval.point" } }] }),
+    /must start with one of/,
+  );
+});
+
+test("assertSafeActionPlan refuses a goto to an unknown surface", () => {
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "goto", surface: "slides" }] }), /must be "sheet" or "doc"/);
+});
+
+test("assertSafeActionPlan refuses malformed type/key/scroll payloads", () => {
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "type", text: 42 }] }), /string `text`/);
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "key", key: "" }] }), /non-empty `key`/);
+  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "scroll", dy: "far" }] }), /finite numbers/);
+});
+
+test("UI_ACTION_TYPES has no execution escape hatch", () => {
+  for (const banned of ["evaluate", "eval", "script", "exec", "goto-url"]) {
+    assert.equal(UI_ACTION_TYPES.includes(banned), false, `${banned} must not be an action type`);
+  }
+});
+
+// --- outcome shape ----------------------------------------------------------
+
+test("uiObservedKey ignores volatile block ids", () => {
+  // Both strings are REAL output, captured from two attempts of the same plan:
+  // generateBlockId() is `block-${Date.now()}-${counter}`. Without scrubbing, every
+  // candidate that reads a selection would replay as non-deterministic and be dropped.
+  const a = obs({ action: { type: "read", reader: "doc.selection" }, value: '{"anchor":{"blockId":"block-1785735868118-3","offset":0}}' });
+  const b = obs({ action: { type: "read", reader: "doc.selection" }, value: '{"anchor":{"blockId":"block-1785735870911-3","offset":0}}' });
+  assert.equal(uiObservedKey(a), uiObservedKey(b));
+});
+
+test("uiObservedKey keeps the block ORDINAL, which is real signal", () => {
+  const a = obs({ value: '{"blockId":"block-1785735868118-3"}' });
+  const b = obs({ value: '{"blockId":"block-1785735868118-5"}' });
+  assert.notEqual(uiObservedKey(a), uiObservedKey(b));
+});
+
+// The single most important assertion in this file. For a CLI probe the outcome is
+// the exit code; for a UI read the VALUE is the outcome. If the value did not
+// participate in the key, [11,18,32] and [11,11,11] would be the same observation
+// and the hunter would be structurally unable to see a formatting defect at all.
+test("uiObservedKey distinguishes different read values", () => {
+  const before = obs({ value: "[11,18,32]" });
+  const after = obs({ value: "[11,11,11]" });
+  assert.notEqual(uiObservedKey(before), uiObservedKey(after));
+});
+
+test("uiObservedKey hashes an oversized value instead of inlining it", () => {
+  const key = uiObservedKey(obs({ value: "x".repeat(5000) }));
+  assert.match(key, /value:sha256:[0-9a-f]{16}$/);
+  assert.ok(key.length < 300, `key should stay bounded, got ${key.length} chars`);
+});
+
+test("uiObservedKey distinguishes which oracle fired, not how often", () => {
+  const once = obs({ oracles: [{ kind: "dom-invariant", rule: "duplicate-id", detail: "a" }] });
+  const twice = obs({ oracles: [
+    { kind: "dom-invariant", rule: "duplicate-id", detail: "a" },
+    { kind: "dom-invariant", rule: "duplicate-id", detail: "b" },
+  ] });
+  const other = obs({ oracles: [{ kind: "dom-invariant", rule: "placeholder-text", detail: "undefined" }] });
+  assert.equal(uiObservedKey(once), uiObservedKey(twice), "same rule twice is the same outcome");
+  assert.notEqual(uiObservedKey(once), uiObservedKey(other), "a different rule is a different outcome");
+});
+
+test("uiObservedKey separates a clean action from one that fired an oracle", () => {
+  assert.notEqual(uiObservedKey(obs()), uiObservedKey(obs({ oracles: [{ kind: "pageerror" }] })));
+});
+
+test("classifyUiError collapses timeouts that differ only in duration", () => {
+  assert.equal(classifyUiError("Timeout 10000ms exceeded."), "timeout");
+  assert.equal(classifyUiError("Timeout 30000ms exceeded."), "timeout");
+  assert.equal(
+    uiObservedKey(obs({ ok: false, error: "Timeout 10000ms exceeded." })),
+    uiObservedKey(obs({ ok: false, error: "Timeout 30000ms exceeded." })),
+  );
+});
+
+test("classifyUiError keeps distinct failure classes distinct", () => {
+  const classes = [
+    classifyUiError('[hunt-bridge] unknown reader "doc.nope". Valid readers: a, b'),
+    classifyUiError("[hunt-bridge] doc reader used while surface is \"sheet\" — goto the doc surface first"),
+    classifyUiError("unresolvable target {}"),
+    classifyUiError("Timeout 5000ms exceeded."),
+  ];
+  assert.deepEqual(classes, ["unknown-reader", "wrong-surface", "unresolvable-target", "timeout"]);
+});
+
+test("classifyUiError scrubs volatile paths out of an unclassified message", () => {
+  const key = classifyUiError("boom at /var/folders/xy/T/wb-hunt-ui-abc123/plan.json:4");
+  assert.ok(!key.includes("wb-hunt-ui-abc123"), `temp path leaked into the error class: ${key}`);
+});
+
+test("scrubUiVolatile still applies the shared scrubber", () => {
+  // Layered on scrubVolatile rather than replacing it, so the CLI and UI hunters
+  // cannot drift on what "volatile" means.
+  assert.equal(scrubUiVolatile("id 550e8400-e29b-41d4-a716-446655440000"), "id <UUID>");
+});
+
+// --- plan-level key ---------------------------------------------------------
+
+test("uiPlanKey notices a divergence that is not the last observation", () => {
+  // replay() keys only the LAST observation. For a UI plan the failing action is
+  // usually mid-sequence with reads after it, so a last-only key would call two
+  // materially different runs identical.
+  const good = [obs({ index: 0, value: "[11,18,32]" }), obs({ index: 1, value: "done" })];
+  const bad = [obs({ index: 0, value: "[11,11,11]" }), obs({ index: 1, value: "done" })];
+  assert.notEqual(uiPlanKey(good), uiPlanKey(bad));
+  assert.equal(uiObservedKey(good.at(-1)), uiObservedKey(bad.at(-1)), "last observation alone cannot tell them apart");
+});
+
+test("uiPlanKey is stable for identical attempts and counts length", () => {
+  const run = [obs({ index: 0 }), obs({ index: 1 })];
+  assert.equal(uiPlanKey(run), uiPlanKey([obs({ index: 0 }), obs({ index: 1 })]));
+  assert.match(uiPlanKey(run), /^n:2\|/);
+  assert.notEqual(uiPlanKey(run), uiPlanKey([obs({ index: 0 })]));
+});
+
+test("oraclesFired flattens every oracle with the action that caused it", () => {
+  const fired = oraclesFired([
+    obs({ index: 0 }),
+    obs({ index: 1, oracles: [{ kind: "pageerror", detail: "boom" }] }),
+    obs({ index: 2, oracles: [{ kind: "console-error", detail: "bad" }] }),
+  ]);
+  assert.deepEqual(fired.map((f) => [f.index, f.kind]), [[1, "pageerror"], [2, "console-error"]]);
+});
+
+// --- running ----------------------------------------------------------------
+
+test("runUiPlan validates BEFORE spawning anything", () => {
+  let called = false;
+  assert.throws(
+    () => runUiPlan({ actions: [{ type: "evaluate" }] }, { repoRoot: "/nope", runner: () => { called = true; } }),
+    /unknown type/,
+  );
+  assert.equal(called, false, "an invalid plan must not reach the runner");
+});
+
+test("runUiPlan passes the plan and attempt count to an injected runner", () => {
+  const seen = [];
+  const result = runUiPlan(okPlan, {
+    repoRoot: "/repo",
+    attempts: 3,
+    runner: (plan, opts) => {
+      seen.push({ plan, opts });
+      return [[obs()], [obs()], [obs()]];
+    },
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].opts.attempts, 3);
+  assert.deepEqual(seen[0].plan, okPlan);
+  assert.equal(result.length, 3);
+});
+
+test("runUiPlan refuses a non-positive attempt count", () => {
+  assert.throws(() => runUiPlan(okPlan, { repoRoot: "/r", attempts: 0, runner: () => [] }), /positive integer/);
+});
+
+// A runner that died must NOT look like "the app did nothing". An empty observation
+// array is a shape a caller could read as a finding; an exception cannot be.
+test("runUiPlan throws when the driver cannot produce a result", () => {
+  assert.throws(
+    () => runUiPlan(okPlan, { repoRoot: "/definitely/not/a/repo", timeoutMs: 5000 }),
+    /runner produced no readable result|runner failed/,
+  );
+});
