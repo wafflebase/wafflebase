@@ -253,6 +253,11 @@ export function aggregatePanelStats(entries) {
   // they coerce to 0 — but a non-zero value means those findings were never
   // filtered at all, which is the difference between a review and a raw dump.
   let errored = 0;
+  // Prior-round findings this round's fresh pass re-found, so one verdict settled
+  // both and only one session ran. Absent from entries written before the reuse
+  // existed, which coerce to 0 — the honest reading, since those rounds really
+  // did verify every carried-forward finding a second time.
+  let reusedPriorVerdicts = 0;
   // WHY those sessions threw, split by `classifyResult`'s kind. Absent from
   // pre-instrumentation entries, which contribute nothing — so an all-zero
   // `failures` means "no data yet", and the renderer omits the line rather than
@@ -290,6 +295,7 @@ export function aggregatePanelStats(entries) {
     absenceRefuted += Number(e.verifier && e.verifier.absenceRefuted) || 0;
     unresolved += Number(e.verifier && e.verifier.unresolved) || 0;
     errored += Number(e.verifier && e.verifier.errored) || 0;
+    reusedPriorVerdicts += Number(e.verifier && e.verifier.reusedPriorVerdicts) || 0;
     for (const k of Object.keys(failures)) {
       failures[k] += Number(e.verifier && e.verifier.failures && e.verifier.failures[k]) || 0;
     }
@@ -301,7 +307,7 @@ export function aggregatePanelStats(entries) {
   }
   return {
     agreementCounts, raised, raisedConfidence, kept,
-    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved, failures },
+    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved, reusedPriorVerdicts, failures },
     lanes: { blocking: laneBlocking, backlog: laneBacklog, unknownOrigin: laneUnknownOrigin },
     clusters: { clustered, collapsed },
   };
@@ -545,6 +551,16 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
       // proxy, not recall (no ground truth here). Shown alongside, not instead.
       `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
+      // Why that number is lower on a round ≥ 2 than the finding count suggests.
+      // Each of these would have been one more verifier session under the old
+      // unconditional re-check, so this is literally the sessions not run — and
+      // without it a falling `Sent to verifier` is ambiguous between "the reuse
+      // is working" and "the lenses raised less", which call for opposite
+      // actions. Omitted at zero: round 1 has no prior findings at all, and
+      // rounds recorded before the reuse existed coerce to 0 and stay quiet.
+      ...(v.reusedPriorVerdicts
+        ? [`- Prior findings re-found this round: ${v.reusedPriorVerdicts} (verified once, not twice)`]
+        : []),
       // Read this BEFORE the refute counts. A verifier session that threw keeps
       // its finding, so an outage looks identical in the output to a verifier
       // that confirmed everything — this line is the only thing that tells them
