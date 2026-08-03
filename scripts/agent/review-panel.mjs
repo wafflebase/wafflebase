@@ -43,7 +43,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
-import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "./ask.mjs";
+import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
@@ -1517,6 +1517,13 @@ async function runLens(lens, { rubric, diff, extraDiff, issue, repo, sessionLog,
     // rubric only asks it to check the prose in front of it does not, and an
     // unbounded budget there is spend with nothing to show for it.
     maxTurns: lens.maxTurns,
+    // Optional per-lens reasoning effort, same manifest-driven shape as
+    // `maxTurns` above. Omitted = the SDK default (`high`). This is the panel's
+    // main cost dial: spend tracks agentic turns, and effort is what moves them.
+    // Deliberately NOT set on the verifier (see verifyFinding) — a weaker
+    // verifier refutes less, so more findings survive to the fixer and the round
+    // gets more expensive, not less.
+    effort: lens.effort,
     label: "review",
     logMeta: { lens: lens.id, role: "detection" },
   });
@@ -1826,6 +1833,19 @@ async function main() {
   const fileBlocks = sliceDiffByFile(diff);
 
   const allLenses = loadLenses(lensesDir);
+  // Validate every manifest `effort` BEFORE the first token is spent. Without
+  // this a typo (`"hgih"`) would not surface until that lens opened its session,
+  // partway through a round that has already paid for the lenses ahead of it —
+  // and `assertEffort` throwing there lands in the per-lens catch, which reports
+  // it as a blocking "reviewer did not produce a valid verdict" finding rather
+  // than as the manifest error it is. Failing here is loud, free and honest.
+  for (const lens of allLenses) {
+    try {
+      assertEffort(lens.effort);
+    } catch (err) {
+      throw new Error(`lenses.json: lens "${lens.id}" has an invalid \`effort\` — ${err.message}`);
+    }
+  }
   // panel[] is the AUTHORITATIVE lens list the workflow + mark-ready consume —
   // one entry per manifest lens (applicable or skipped), so the three-way drift
   // between lenses.json / the workflow / mark-ready is removed.

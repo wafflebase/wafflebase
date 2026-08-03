@@ -84,6 +84,42 @@ export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
 export const PERMITTED_MCP_TOOLS = Object.freeze(["mcp__wafflebase__run"]);
 
 const PERMITTED_SET = new Set(PERMITTED_TOOLS);
+
+/**
+ * Reasoning-effort levels the SDK accepts (`EffortLevel`, sdk.d.ts:539 in the
+ * pinned 0.3.217). Effort controls how much the model thinks AND how many tool
+ * calls it makes to get there, so on this pipeline it is a COST dial: panel
+ * spend tracks agentic turns almost exactly, and turns are what effort moves.
+ *
+ * Frozen and listed literally rather than derived, for the same reason
+ * `PERMITTED_TOOLS` is: if the SDK ever drops a level, a literal list turns that
+ * into a failing test instead of a session that silently runs at the default.
+ */
+export const EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+
+const EFFORT_SET = new Set(EFFORT_LEVELS);
+
+/**
+ * Validate an effort value, returning it unchanged. `undefined` means "unset" and
+ * passes through — the caller then omits the key entirely and takes the SDK
+ * default, exactly as `maxTurns` does.
+ *
+ * Everything else throws, including `null` and a mis-cased or misspelled level.
+ * That strictness is the point: an unrecognised value would otherwise be dropped
+ * and the session would run at the default `high`, which is a silent COST
+ * regression — no error, no changed output, nothing in the logs. The same class
+ * of failure `assertBoundaryMatchesSdk` exists to prevent, one option over.
+ */
+export function assertEffort(effort) {
+  if (effort === undefined) return undefined;
+  if (typeof effort !== "string" || !EFFORT_SET.has(effort)) {
+    throw new Error(
+      `askStructured: \`effort\` must be one of ${EFFORT_LEVELS.join(", ")} ` +
+        `(got: ${JSON.stringify(effort)}). Omit it to take the SDK default.`,
+    );
+  }
+  return effort;
+}
 const PERMITTED_MCP_SET = new Set(PERMITTED_MCP_TOOLS);
 
 /** Is this grant one of the in-process MCP tools rather than a built-in? */
@@ -334,8 +370,11 @@ export async function withRetry(fn, { retries = 2, baseMs = 2000, sleep = defaul
  * `allowedTools` is validated here, which is also what keeps the grant check
  * ahead of the lazy SDK import at the one call site below.
  */
-export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers }) {
+export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort }) {
   const sessionTools = assertAllowedTools(allowedTools);
+  // Validated here, not at the spread below, so a bad value fails before the
+  // session is opened — same ordering as the tool grant.
+  const sessionEffort = assertEffort(effort);
 
   // `tools` restricts BUILT-IN tools only ("the base set of available built-in
   // tools", sdk.d.ts:1395). MCP tools do not come from there — they come from
@@ -384,6 +423,12 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
     // default. `maxTurns` exists in the pinned SDK (0.3.217), on the same
     // Options type as allowedTools/outputFormat/permissionMode.
     ...(Number.isFinite(maxTurns) ? { maxTurns } : {}),
+    // Same shape as `maxTurns`: present only when the caller asked for one, so
+    // an unset effort takes the SDK default (`high`) rather than being pinned
+    // here. `effort` is a session option, NOT prompt text — it never reaches
+    // `systemPrompt`, so it cannot fragment the cross-lens cache prefix that
+    // review-panel.mjs's warm-up depends on.
+    ...(sessionEffort === undefined ? {} : { effort: sessionEffort }),
     // `tools` and `allowedTools` are DIFFERENT levers and both are needed.
     // Per the pinned SDK's own docs (sdk.d.ts:1341-1348, :1395-1404):
     //   tools        = "the base set of available built-in tools" — the actual
@@ -440,6 +485,7 @@ export async function askStructured({
   maxTurns,
   allowedTools,
   mcpServers,
+  effort,
   label = "agent",
   // Optional attribution ({ lens, role }) stamped onto this call's logged result
   // message, so a consumer summing `sessionLog` can split cost by lens and by
@@ -452,7 +498,7 @@ export async function askStructured({
   // by observing that an invalid grant throws the validation error even when the
   // SDK cannot be resolved). It also splits any MCP grant from the built-ins and
   // wires `mcpServers`, so the whole session shape stays observable in one place.
-  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers });
+  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort });
 
   // NOTE: `MCP_TOOL_TIMEOUT` is deliberately NOT set here. It has to be in place
   // before the SDK is imported, and by this line it already has been — the server
