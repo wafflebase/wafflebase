@@ -62,6 +62,7 @@ import {
   LineSpacingPicker,
   InsertLinkButton,
   ensureFontLink,
+  clampFontSize,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { fetchMyDocStyles, saveMyDocStyles } from "@/api/doc-styles";
@@ -362,6 +363,10 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
     editor?.applyStyle({ fontSize: size });
     editor?.focus();
   };
+  const handleFontSizeStepMixed = (delta: number) => {
+    editor?.stepSelectionFontSize(delta, clampFontSize);
+    editor?.focus();
+  };
   const handleLineSpacing = (lh: number) => {
     editor?.applyBlockStyle({ lineHeight: lh });
     editor?.focus();
@@ -430,7 +435,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           onChange={handleFontFamily}
           onPrefetch={ensureFont}
         />
-        <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+        <FontSizePicker value={sizeValue} onChange={handleFontSize} onStepMixed={handleFontSizeStepMixed} />
         <ToolbarSeparator />
 
         {/* ── Font Styles ── */}
@@ -627,7 +632,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             onChange={handleFontFamily}
             onPrefetch={ensureFont}
           />
-          <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+          <FontSizePicker value={sizeValue} onChange={handleFontSize} onStepMixed={handleFontSizeStepMixed} />
           <ToolbarSeparator />
         </>
       )}
@@ -692,7 +697,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
                   value={familyValue}
                   onChange={handleFontFamily}
                 />
-                <FontSizePicker value={sizeValue} onChange={handleFontSize} />
+                <FontSizePicker value={sizeValue} onChange={handleFontSize} onStepMixed={handleFontSizeStepMixed} />
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Styles</DropdownMenuLabel>

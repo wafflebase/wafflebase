@@ -71,6 +71,15 @@ export type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
 export const FONT_SIZE_MIN = 1;
 export const FONT_SIZE_MAX = 400;
 
+/**
+ * Clamp a font size to the legal [FONT_SIZE_MIN, FONT_SIZE_MAX] range,
+ * rounding to the nearest integer. Shared by `FontSizePicker`'s own
+ * commit path and by callers driving `editor.stepSelectionFontSize`
+ * (issue #343) so both apply the same bounds.
+ */
+export const clampFontSize = (n: number): number =>
+  Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(n)));
+
 export const LINE_SPACING_PRESETS = [1.0, 1.15, 1.5, 2.0] as const;
 export const LINE_SPACING_MIN = 0.5;
 export const LINE_SPACING_MAX = 10.0;

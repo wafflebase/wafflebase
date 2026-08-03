@@ -95,10 +95,11 @@ describe("FontSizePicker", () => {
     expect(onChange).toHaveBeenCalledWith(11);
   });
 
-  test("+ button is a no-op when value is undefined and input is empty (mixed selection)", () => {
+  test("+ button is a no-op when value is undefined, input is empty, and no onStepMixed is given", () => {
     // Regression: previously `value ?? Number("")` collapsed to 0 and ±
     // committed FONT_SIZE_MIN, silently flattening every run in a mixed
-    // selection to the minimum size.
+    // selection to the minimum size. Without an onStepMixed handler this
+    // stays a no-op (the pre-issue-#343-fix contract).
     const onChange = vi.fn();
     const el = render(
       h(FontSizePicker, { value: undefined, onChange }),
@@ -111,6 +112,56 @@ describe("FontSizePicker", () => {
       ).click();
     });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test("+ button calls onStepMixed(1) instead of onChange when value is undefined and input is empty (mixed selection, issue #343)", () => {
+    const onChange = vi.fn();
+    const onStepMixed = vi.fn();
+    const el = render(
+      h(FontSizePicker, { value: undefined, onChange, onStepMixed }),
+    );
+    act(() => {
+      (
+        el.querySelector(
+          '[aria-label="Increase font size"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(onStepMixed).toHaveBeenCalledWith(1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test("− button calls onStepMixed(-1) on a mixed selection", () => {
+    const onChange = vi.fn();
+    const onStepMixed = vi.fn();
+    const el = render(
+      h(FontSizePicker, { value: undefined, onChange, onStepMixed }),
+    );
+    act(() => {
+      (
+        el.querySelector(
+          '[aria-label="Decrease font size"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(onStepMixed).toHaveBeenCalledWith(-1);
+  });
+
+  test("onStepMixed is not called when value is defined (uniform selection)", () => {
+    const onChange = vi.fn();
+    const onStepMixed = vi.fn();
+    const el = render(
+      h(FontSizePicker, { value: 12, onChange, onStepMixed }),
+    );
+    act(() => {
+      (
+        el.querySelector(
+          '[aria-label="Increase font size"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(onStepMixed).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith(13);
   });
 
   test("clamps to 1..400 on commit", () => {

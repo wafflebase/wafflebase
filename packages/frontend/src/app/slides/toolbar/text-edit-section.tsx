@@ -43,6 +43,7 @@ import {
   useResolvedFontSize,
   useResolvedFontFamily,
   ensureFontLink,
+  clampFontSize,
 } from '@/components/text-formatting';
 import { applySlideFontFamily } from './apply-font-family';
 
@@ -71,6 +72,10 @@ export function TextEditSection({ state, editor }: TextEditSectionProps) {
         value={sizeValue}
         onChange={(size) => {
           textEditor.applyStyle({ fontSize: size });
+          textEditor.focus();
+        }}
+        onStepMixed={(delta) => {
+          textEditor.stepSelectionFontSize(delta, clampFontSize);
           textEditor.focus();
         }}
       />
