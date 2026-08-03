@@ -4,6 +4,7 @@ export type {
   NoteTextChange,
   NoteRemoteChange,
   NotePeerSelection,
+  NoteSelection,
 } from './store/store.js';
 export { MemNoteStore } from './store/memory.js';
 export type { Unsubscribe } from './types.js';

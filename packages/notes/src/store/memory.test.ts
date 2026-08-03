@@ -76,6 +76,52 @@ describe('MemNoteStore', () => {
     s.redo();
     expect(seen).toEqual(['hello', 'hello!']);
   });
+  it('restores the pre-edit selection on undo and the post-edit on redo', () => {
+    const s = new MemNoteStore('hello');
+    // Mirror the editor flow: the live caret publishes before the edit, the
+    // batch records the post-edit caret.
+    s.setLocalSelection(5, 5);
+    s.batch(() => {
+      s.editText(5, 5, ' world');
+      s.recordSelectionForHistory({ anchor: 11, head: 11 });
+    });
+    expect(s.undo()).toEqual({ anchor: 5, head: 5 });
+    expect(s.getText()).toBe('hello');
+    expect(s.redo()).toEqual({ anchor: 11, head: 11 });
+    expect(s.getText()).toBe('hello world');
+  });
+  it('restores a ranged selection, not just a caret', () => {
+    const s = new MemNoteStore('hello world');
+    s.setLocalSelection(0, 5); // "hello" selected
+    s.batch(() => {
+      s.editText(0, 5, 'hi');
+      s.recordSelectionForHistory({ anchor: 2, head: 2 });
+    });
+    expect(s.undo()).toEqual({ anchor: 0, head: 5 });
+  });
+  it('pins the post-edit selection for redo through a later caret move', () => {
+    // The recorded post-edit caret is the redo restore point; a caret move
+    // between the edit and the undo must not drift it (matches the Yorkie
+    // store, which pins it into the change).
+    const s = new MemNoteStore('hello');
+    s.setLocalSelection(5, 5);
+    s.batch(() => {
+      s.editText(5, 5, '!');
+      s.recordSelectionForHistory({ anchor: 6, head: 6 });
+    });
+    s.setLocalSelection(0, 0); // move the caret after the edit, before undo
+    s.undo();
+    expect(s.redo()).toEqual({ anchor: 6, head: 6 });
+  });
+  it('returns null when no selection was recorded for the unit', () => {
+    const s = new MemNoteStore('hi');
+    s.editText(2, 2, '!'); // no caret tracked before the edit
+    expect(s.undo()).toBeNull();
+  });
+  it('returns null when there is nothing to undo or redo', () => {
+    expect(new MemNoteStore('x').undo()).toBeNull();
+    expect(new MemNoteStore('x').redo()).toBeNull();
+  });
   it('has no peers and no-op presence', () => {
     const s = new MemNoteStore('x');
     expect(s.getPeerSelections()).toEqual([]);

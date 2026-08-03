@@ -1,11 +1,17 @@
 import { indentWithTab } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
-import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Prec,
+  type Extension,
+} from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { CodeMirror, vim } from '@replit/codemirror-vim';
 import { basicSetup } from '@uiw/codemirror-extensions-basic-setup';
 import { xcodeDark, xcodeLight } from '@uiw/codemirror-theme-xcode';
-import type { NoteStore } from '../store/store.js';
+import type { NoteStore, NoteSelection } from '../store/store.js';
 import { noteStoreFacet, noteSync } from './note-sync.js';
 import {
   noteRemoteSelections,
@@ -23,6 +29,27 @@ import {
 } from './commands.js';
 
 export type ThemeMode = 'light' | 'dark';
+
+/**
+ * Restore the caret/selection returned by `store.undo()/redo()`. The reverted
+ * text has already been applied by the remote subscription without a selection
+ * (a peer edit carries none), so this puts the caret back where it belonged.
+ * Endpoints are clamped to the current document — a peer may have shortened it
+ * since the selection was recorded. A `null` selection leaves the caret as-is.
+ */
+function applyRestoredSelection(
+  view: EditorView,
+  sel: NoteSelection | null,
+): void {
+  if (!sel) return;
+  const len = view.state.doc.length;
+  const anchor = Math.min(Math.max(0, sel.anchor), len);
+  const head = Math.min(Math.max(0, sel.head), len);
+  view.dispatch({
+    selection: EditorSelection.range(anchor, head),
+    scrollIntoView: true,
+  });
+}
 
 /**
  * Route vim's `u` / `<C-r>` to the note store's Yorkie-native history.
@@ -50,7 +77,7 @@ function routeVimHistoryToStore(): void {
       // A read-only mount has nothing local to revert (and no write
       // permission), so it falls through with the rest.
       if (store && cm.cm6.state.facet(EditorView.editable)) {
-        store[kind]();
+        applyRestoredSelection(cm.cm6, store[kind]());
         return;
       }
       defaultVimHistory[kind](cm);
@@ -203,7 +230,11 @@ export function initialize(
   // the store's depth changed, and the resulting transaction may land before
   // the pop is visible, so we don't rely on the docChanged listener alone.
   const runHistory = (kind: 'undo' | 'redo') => {
-    store[kind]();
+    // The store applies the reverted text synchronously through the remote
+    // subscription (noteSync) before returning; the returned selection is the
+    // caret to restore, which that text transaction did not carry.
+    const restored = store[kind]();
+    applyRestoredSelection(view, restored);
     selectionCb?.(computeActiveFormats(view.state));
   };
   // Mirrors @codemirror/commands' historyKeymap, minus the selection-undo

@@ -16,6 +16,15 @@ export type NoteRemoteChange =
   | { type: 'edits'; changes: NoteTextChange[] }
   | { type: 'replace'; content: string };
 
+/**
+ * A CodeMirror selection, in character-index coordinates. `anchor` is the fixed
+ * end, `head` the moving end; `anchor === head` is a collapsed caret.
+ */
+export interface NoteSelection {
+  anchor: number;
+  head: number;
+}
+
 /** A peer's selection, in CodeMirror index coordinates. */
 export interface NotePeerSelection {
   clientID: string;
@@ -52,13 +61,26 @@ export interface NoteStore {
    */
   batch(fn: () => void): void;
   /**
+   * Record `selection` as the current batch's post-edit selection, folding it
+   * into the batch's undo unit so undo restores the pre-edit selection and redo
+   * restores this one. Called by the view from inside `batch()` once the edits
+   * are applied; a no-op when no undo unit is being recorded (e.g. an
+   * empty/remote-only batch).
+   */
+  recordSelectionForHistory(selection: NoteSelection): void;
+  /**
    * Revert the last local undo unit. The resulting text change is delivered
    * back through `subscribeRemote` (so the view applies it like any other
-   * out-of-band change) — not returned here. No-op when `canUndo()` is false.
+   * out-of-band change). Returns the selection to restore in the view (in
+   * CodeMirror index coordinates), or `null` when none was recorded. No-op
+   * (returns `null`) when `canUndo()` is false.
    */
-  undo(): void;
-  /** Re-apply the last undone unit. No-op when `canRedo()` is false. */
-  redo(): void;
+  undo(): NoteSelection | null;
+  /**
+   * Re-apply the last undone unit. Returns the selection to restore, or `null`.
+   * No-op (returns `null`) when `canRedo()` is false.
+   */
+  redo(): NoteSelection | null;
   /** Whether there is a local unit to undo (above the seeded baseline). */
   canUndo(): boolean;
   /** Whether there is an undone local unit to redo. */
