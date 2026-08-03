@@ -1722,9 +1722,68 @@ export function buildVerifierPrompt(finding, { rubric }) {
   return prompt;
 }
 
+/**
+ * Why a verification produced no verdict. `classifyResult` already computes this
+ * (`ask.mjs`), and both call sites used to throw it away with `.catch(() => null)`,
+ * so every distinct cause arrived as the same anonymous `errored++`.
+ *
+ * That mattered: on the round that motivated #614, 8 of 18 verifications died —
+ * every one of them an `error_max_turns` at exactly the presence ceiling — and the
+ * summary reported it in the same words it would have used for a quota outage. The
+ * ceiling is fixed; this is how anyone can see whether it stayed fixed, and whether
+ * what remains is transient (worth retrying) or structural (worth a code change).
+ *
+ * Mutates and returns `failures` so a caller can thread one array through a
+ * `.catch`. Total: an unrecognised error still records, as `unknown`.
+ */
+export function recordVerifierFailure(failures, err) {
+  const list = Array.isArray(failures) ? failures : [];
+  const kind = err && typeof err.kind === "string" ? err.kind : "unknown";
+  const status = err && (typeof err.status === "number" || typeof err.status === "string") ? err.status : null;
+  list.push({ kind, status });
+  return list;
+}
+
+/** Known `classifyResult` kinds, plus the bucket for anything it did not set. */
+const VERIFIER_FAILURE_KINDS = Object.freeze({ "api-error": "apiError", limit: "limit", "no-output": "noOutput" });
+
+/**
+ * Tally `recordVerifierFailure` records into the shape `lensStats` reports.
+ *
+ * Deliberately separate from `verifierTally`'s `errored`, and BOTH are kept. Their
+ * DIFFERENCE is the measurement: `errored` counts blocking findings that ended with
+ * no usable verdict, which includes `resolveClusterVerdict` handing back a folded
+ * wording's missing verdict — not an error at all. `errored - failures.total` is
+ * therefore the fold-null count, and collapsing the two would hide it. Same
+ * report-both idiom this file already uses for `refutedHighConfidence` vs `dropped`.
+ */
+export function verifierFailureCounts(failures) {
+  const out = { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 };
+  for (const f of Array.isArray(failures) ? failures : []) {
+    if (!f || typeof f !== "object") continue;
+    // Allowlist membership, not `in`: `kind: "constructor"` would otherwise walk
+    // the prototype chain and leave a NaN own key. Same untrusted-string hazard
+    // `confidenceCounts` documents.
+    const key = Object.hasOwn(VERIFIER_FAILURE_KINDS, f.kind) ? VERIFIER_FAILURE_KINDS[f.kind] : "unknown";
+    out[key]++;
+    out.total++;
+  }
+  return out;
+}
+
 async function verifyFinding(finding, { rubric, repo, model, sessionLog, lensId }) {
   const claimType = claimTypeOf(finding);
-  return askStructured({
+  // Retried, unlike before — detection samples have always had this (see the
+  // round loop) and the verifier never did, so a single transient 429 killed a
+  // verification outright and the finding rode to the gate unfiltered. Wrapped
+  // HERE rather than at the call sites so all three paths (fresh, folded
+  // wording, carried-forward prior) get it from one edit.
+  //
+  // Cannot burn budget on a ceiling: `withRetry` only retries
+  // `err.retryable === true`, and `classifyResult` marks every `limit` subtype
+  // and any session/usage limit non-retryable. Which is also why this is NOT
+  // what fixed the failures measured before #614 — those were all `limit`.
+  return withRetry(() => askStructured({
     systemPrompt:
       "You are an independent verifier. You did not write this code and did not raise this " +
       "finding. Establish the facts from the repository yourself rather than trusting the " +
@@ -1748,7 +1807,7 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, lensId 
     allowedTools: REVIEW_TOOLS,
     label: "review",
     logMeta: { lens: lensId, role: "verifier" },
-  });
+  }));
 }
 
 // --- io ----------------------------------------------------------------------
@@ -2016,10 +2075,17 @@ async function main() {
 
     // Verifier refute pass over blocking findings (rubric passed so it judges by
     // the lens's own definitions; keeps the finding on any uncertainty).
+    // Why a verification failed, for THIS lens this round. A flat array, not
+    // index-aligned to the findings: only counts are reported, and a flat push
+    // has no alignment invariant to break as the nested fold path below fans
+    // out. Merged with the prior-round pass into one `failures` tally.
+    const failures = [];
     const verifyBlocking = (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return Promise.resolve(null);
       return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id })
-        .catch(() => null); // error → keep the finding (fail toward blocking)
+        // Error → keep the finding (fail toward blocking), unchanged. What is new
+        // is that the reason survives instead of being swallowed by `() => null`.
+        .catch((err) => { recordVerifierFailure(failures, err); return null; });
     };
     const verdicts = await Promise.all(detected.map(async (f) => {
       const repVerdict = await verifyBlocking(f);
@@ -2053,7 +2119,9 @@ async function main() {
     const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id }); }
-      catch { return null; } // error → keep (fail toward blocking)
+      // Error → keep (fail toward blocking), unchanged; the reason is recorded
+      // into the same per-lens array the fresh pass uses.
+      catch (err) { recordVerifierFailure(failures, err); return null; }
     }));
     // Carried-forward findings are NOT routed. Their `line` was recorded against
     // a previous round's HEAD, and the fixer has rewritten the tree since; that
@@ -2133,6 +2201,12 @@ async function main() {
         absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
         unresolved: freshTally.unresolved + priorTally.unresolved,
         errored: freshTally.errored + priorTally.errored,
+        // Both passes' failures in one tally. `errored` is UNCHANGED and stays
+        // the count of blocking findings that ended with no usable verdict; this
+        // is the subset where a session actually threw, broken down by cause.
+        // `errored - failures.total` is therefore the fold-null count, which is
+        // not an error at all — see verifierFailureCounts.
+        failures: verifierFailureCounts(failures),
       },
       // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this
       // lens blocked this round" and compares it against the next round, so

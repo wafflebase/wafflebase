@@ -24,6 +24,8 @@ import {
   confidenceCounts,
   LENS_CLOSING_INSTRUCTION,
   verifierTally,
+  verifierFailureCounts,
+  recordVerifierFailure,
   classifyResult,
   withRetry,
   FILE_CLASSES,
@@ -496,6 +498,61 @@ test("at one sample per lens, the panel still shares ONE warm-up across five len
   assert.notEqual(key("docs"), key("correctness"), "the prose lens still stands alone, correctly");
 });
 
+// --- why a verification produced no verdict -------------------------------
+
+test("recordVerifierFailure: keeps the kind and status, and is total", () => {
+  const f = [];
+  recordVerifierFailure(f, { kind: "limit", status: null, message: "hit a run limit" });
+  recordVerifierFailure(f, { kind: "api-error", status: 429 });
+  // Anything `classifyResult` did not shape still records rather than vanishing —
+  // a swallowed failure is exactly what this replaces.
+  for (const junk of [undefined, null, new Error("boom"), { kind: 7 }, "nope"]) recordVerifierFailure(f, junk);
+  assert.deepEqual(f.slice(0, 2), [{ kind: "limit", status: null }, { kind: "api-error", status: 429 }]);
+  assert.equal(f.length, 7);
+  for (const rec of f.slice(2)) assert.equal(rec.kind, "unknown");
+  // A non-array is tolerated (returns a fresh list) rather than throwing inside
+  // a `.catch` — losing the count must never turn into losing the verdict.
+  assert.deepEqual(recordVerifierFailure(null, { kind: "limit" }), [{ kind: "limit", status: null }]);
+});
+
+test("verifierFailureCounts: buckets by kind, unknown catches the rest", () => {
+  const counts = verifierFailureCounts([
+    { kind: "api-error" }, { kind: "api-error" }, { kind: "limit" },
+    { kind: "no-output" }, { kind: "unknown" }, { kind: "constructor" },
+  ]);
+  assert.deepEqual(counts, { apiError: 2, limit: 1, noOutput: 1, unknown: 2, total: 6 });
+  // `kind: "constructor"` must not walk the prototype chain and leave a NaN own
+  // key — the same untrusted-string hazard confidenceCounts documents.
+  assert.deepEqual(Object.keys(counts).sort(), ["apiError", "limit", "noOutput", "total", "unknown"]);
+  for (const junk of [null, undefined, "x", 3, [null, 4, "s"], [{}]]) {
+    const c = verifierFailureCounts(junk);
+    assert.equal(typeof c.total, "number", JSON.stringify(junk));
+    assert.ok(Number.isFinite(c.total));
+  }
+  assert.equal(verifierFailureCounts([]).total, 0);
+});
+
+test("`errored` stays wider than `failures.total`, and the gap is the measurement", () => {
+  // Both are reported because their DIFFERENCE is the number nobody could see
+  // before: `errored` counts blocking findings that ended with no usable
+  // verdict, which includes resolveClusterVerdict handing back a folded
+  // wording's missing verdict — not a thrown session. Collapsing them would hide
+  // that, and make a fold look like an outage.
+  const findings = [
+    { severity: "major", summary: "a" },
+    { severity: "major", summary: "b" },
+    { severity: "minor", summary: "c" }, // never sent, so never counted
+  ];
+  const verdicts = [null, null, null];
+  const tally = verifierTally(findings, verdicts);
+  assert.equal(tally.sentToVerifier, 2);
+  assert.equal(tally.errored, 2, "both blocking findings ended with no verdict");
+  // Only ONE of them threw; the other was a fold with no verdict.
+  const failures = verifierFailureCounts(recordVerifierFailure([], { kind: "limit" }));
+  assert.equal(failures.total, 1);
+  assert.equal(tally.errored - failures.total, 1, "the remainder is the fold-null count");
+});
+
 test("runLens forwards the manifest effort, and the verifier does not", () => {
   // The one link unit tests cannot reach: runLens opens a session, so the only
   // way to observe the forward is the source. Asserted on the PROPERTY, per the
@@ -513,6 +570,33 @@ test("runLens forwards the manifest effort, and the verifier does not", () => {
   const verify = src.slice(src.indexOf("async function verifyFinding"));
   const body = verify.slice(0, verify.indexOf("\n}"));
   assert.ok(!/effort/.test(body), "verifyFinding must not set effort");
+});
+
+test("verifyFinding retries, and does so inside itself", () => {
+  // Detection samples have always been wrapped; the verifier never was, so a
+  // single transient 429 killed a verification and its finding rode to the gate
+  // unfiltered. Wrapped INSIDE verifyFinding rather than at the call sites so
+  // all three paths — fresh, folded wording, carried-forward prior — get it from
+  // one edit; a call-site wrapper would have to be repeated and would drift.
+  // Source-asserted because verifyFinding opens a session.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const verify = src.slice(src.indexOf("async function verifyFinding"));
+  const body = verify.slice(0, verify.indexOf("\n}"));
+  assert.match(body, /withRetry\(/, "verifyFinding must retry transient failures");
+});
+
+test("both verifier catch sites record the failure instead of swallowing it", () => {
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  // The fresh/fold path and the carried-forward path. Neither may go back to a
+  // bare `() => null` / `catch { }`, which is what made every distinct cause
+  // arrive as the same anonymous count.
+  assert.match(src, /\.catch\(\(err\) => \{ recordVerifierFailure\(failures, err\); return null; \}\)/);
+  assert.match(src, /catch \(err\) \{ recordVerifierFailure\(failures, err\); return null; \}/);
+  // Code lines only — the docblock above verifyFinding quotes the old
+  // `.catch(() => null)` to say what it replaced, and grepping the whole file
+  // would count that prose as a regression.
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  assert.ok(!/\.catch\(\(\) => null\)/.test(code), "no verifier catch may discard the error");
 });
 
 test("main() validates every manifest effort before spending a token", () => {
