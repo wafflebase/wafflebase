@@ -774,4 +774,45 @@ describe('initializeTextBox — verticalAnchor', () => {
     expect(cb.mock.calls.length).toBeGreaterThan(before);
     api.detach();
   });
+
+  /**
+   * Collapsed-caret font-size stepping (issue #343). `applyStyleImpl`
+   * no-ops without a selection, so the step stages the clamped size on
+   * the pending style instead; the summary merges pending so the toolbar
+   * reflects it immediately, and repeated steps accumulate off the
+   * staged value rather than re-reading the base run. Uses this
+   * describe's canvas shim so `initializeTextBox` can lay out real text.
+   */
+  it('stepSelectionFontSize at a collapsed caret stages the stepped size (issue #343)', () => {
+    // `clamp` is test-local (mirroring the frontend FONT_SIZE_MIN/MAX
+    // values) — this package has no dependency on the frontend catalog.
+    const clamp = (n: number) => Math.max(1, Math.min(400, Math.round(n)));
+    const block: Block = {
+      id: 'b1',
+      type: 'paragraph',
+      inlines: [{ text: 'abc', style: { fontSize: 11 } }],
+      style: {},
+    } as Block;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [block],
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+    // Collapsed caret (no selection): the summary merges the staged
+    // pending size, so the toolbar sees the stepped value immediately.
+    api.stepSelectionFontSize(1, clamp);
+    expect(api.getRangeStyleSummary().fontSize).toBe(12);
+    // A second step accumulates off the staged value, not the base run.
+    api.stepSelectionFontSize(1, clamp);
+    expect(api.getRangeStyleSummary().fontSize).toBe(13);
+    api.detach();
+  });
 });

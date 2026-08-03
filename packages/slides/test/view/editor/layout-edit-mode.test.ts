@@ -36,6 +36,7 @@ function makeMockMount() {
       getSelectionStyle: () => ({}),
       getRangeStyleSummary: () => ({}),
       applyStyle: () => {},
+      stepSelectionFontSize: () => {},
       clearInlineFormatting: () => {},
       applyBlockStyle: () => {},
       getBlockType: () => ({ type: 'paragraph' as const }),

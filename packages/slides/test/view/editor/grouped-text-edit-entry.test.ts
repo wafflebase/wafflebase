@@ -33,6 +33,7 @@ function makeCapturingMount(captured: { frame?: Frame }) {
       getSelectionStyle: () => ({}),
       getRangeStyleSummary: () => ({}),
       applyStyle: () => {},
+      stepSelectionFontSize: () => {},
       clearInlineFormatting: () => {},
       applyBlockStyle: () => {},
       getBlockType: () => ({ type: 'paragraph' as const }),

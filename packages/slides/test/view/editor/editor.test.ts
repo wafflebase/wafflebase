@@ -1266,6 +1266,7 @@ describe('z-order and rotate', () => {
         getSelectionStyle: () => ({}),
         getRangeStyleSummary: () => ({}),
         applyStyle: () => {},
+        stepSelectionFontSize: () => {},
         clearInlineFormatting: () => {},
         applyBlockStyle: () => {},
         getBlockType: () => ({ type: 'paragraph' as const }),
