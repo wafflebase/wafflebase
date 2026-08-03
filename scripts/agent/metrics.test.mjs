@@ -123,6 +123,10 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   assert.deepEqual(rolled.verifier, {
     sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1, dropped: 1, errored: 0,
     absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+    // Same append-only story once more: neither entry carries `failures`, so it
+    // rolls up all-zero rather than NaN. An all-zero total is what makes the
+    // renderer omit the line — "no data yet", not "nothing failed".
+    failures: { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 },
   });
   // Same append-only story for confidence: the first entry predates the field
   // entirely, so it contributes nothing — NOT four `unknown`s. Rounds recorded
@@ -134,7 +138,15 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   assert.deepEqual(aggregatePanelStats([]).verifier, {
     sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 0,
     absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+    failures: { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 },
   });
+  // Junk in the nested field coerces per-key rather than poisoning the tally —
+  // it is read from an append-only ledger, so a malformed entry must cost its
+  // own counts and nothing else.
+  assert.deepEqual(aggregatePanelStats([{ verifier: { failures: "junk" } }]).verifier.failures,
+    { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 });
+  assert.deepEqual(aggregatePanelStats([{ verifier: { failures: { limit: 2, total: 2 } } }]).verifier.failures,
+    { apiError: 0, limit: 2, noOutput: 0, unknown: 0, total: 2 });
   assert.deepEqual(aggregatePanelStats([]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
   assert.deepEqual(aggregatePanelStats([{ raisedConfidence: "junk" }]).raisedConfidence, { high: 0, medium: 0, low: 0, unknown: 0 });
   assert.deepEqual(aggregatePanelStats(null).agreementCounts, { identical: 0, partial: 0, disjoint: 0, single: 0 });
@@ -460,4 +472,76 @@ test("sweep filter: METRIC_PREFIX matches a record but NOT the summary marker", 
   });
   assert.ok(summary.includes(SUMMARY_MARKER));
   assert.ok(!summary.includes(METRIC_PREFIX));
+});
+
+test("renderSummary: verifier failures are broken down, and stay silent with no data", () => {
+  // The pre-#614 shape, which is what motivated this line: eight sessions dead
+  // on the presence turn ceiling, reported in the same words a quota outage
+  // would have used. `turn-limit` is what tells those apart.
+  const base = {
+    agg: { agents: [], sessions: 0, attempt: 1, turns: 0, tokens: 0, weightedTokens: 0, costUsd: 0, durationMs: 0 },
+    panelAgg: { agents: ["claude-opus-5"], sessions: 1, turns: 409, tokens: 1, weightedTokens: 1, costUsd: 11.71, durationMs: 60000 },
+  };
+  const stats = (verifier) => ({
+    agreementCounts: { identical: 0, partial: 0, disjoint: 0, single: 1 },
+    raised: { critical: 0, major: 2, minor: 0, nit: 0 },
+    raisedConfidence: { high: 2, medium: 0, low: 0, unknown: 0 },
+    kept: { critical: 0, major: 2, minor: 0, nit: 0 },
+    verifier,
+  });
+
+  const withFailures = renderSummary({
+    ...base,
+    panelStats: stats({
+      sentToVerifier: 18, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 8,
+      absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+      failures: { apiError: 1, limit: 6, noOutput: 1, unknown: 0, total: 8 },
+    }),
+  });
+  assert.match(withFailures, /Verifier ERRORED on 8 of 18/);
+  // Units are stated, because `errored` above counts findings and this counts
+  // sessions — nothing here may be derived from the difference.
+  assert.match(withFailures, /- Verifier failures: 8 session\(s\) threw — 1 api-error, 6 turn-limit, 1 no-output/);
+  assert.doesNotMatch(withFailures, /folded wording/);
+
+  // MORE sessions than errored findings: one clustered finding whose two folded
+  // wordings both threw. An earlier draft rendered `errored - total` here, which
+  // is -1. The line must render cleanly, with no remainder and no negative.
+  const clustered = renderSummary({
+    ...base,
+    panelStats: stats({
+      sentToVerifier: 5, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 1,
+      absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+      failures: { apiError: 0, limit: 2, noOutput: 0, unknown: 0, total: 2 },
+    }),
+  });
+  assert.match(clustered, /- Verifier failures: 2 session\(s\) threw — 0 api-error, 2 turn-limit, 0 no-output/);
+  assert.doesNotMatch(clustered, /folded wording/);
+  // Scoped to the failures line: a repo-wide /-\d/ would match "claude-opus-5".
+  const failuresLine = clustered.split("\n").find((l) => l.startsWith("- Verifier failures:"));
+  assert.doesNotMatch(failuresLine, /-\s*\d|\(\+/, `no negative or remainder in: ${failuresLine}`);
+
+  // FEWER sessions than errored findings — the other direction, also fine.
+  const fewer = renderSummary({
+    ...base,
+    panelStats: stats({
+      sentToVerifier: 5, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 3,
+      absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+      failures: { apiError: 1, limit: 0, noOutput: 0, unknown: 0, total: 1 },
+    }),
+  });
+  assert.match(fewer, /- Verifier failures: 1 session\(s\) threw — 1 api-error, 0 turn-limit, 0 no-output/);
+  assert.doesNotMatch(fewer, /folded wording/);
+
+  // A round recorded before this shipped carries no `failures` at all, and a
+  // healthy round has nothing to report. Both must render byte-identically to
+  // the same round without the field — an all-zero line would read as data.
+  const clean = { sentToVerifier: 4, refuted: 1, refutedHighConfidence: 1, dropped: 1, errored: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 };
+  const noField = renderSummary({ ...base, panelStats: stats({ ...clean }) });
+  const zeroField = renderSummary({
+    ...base,
+    panelStats: stats({ ...clean, failures: { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 } }),
+  });
+  assert.doesNotMatch(noField, /Verifier failures/);
+  assert.equal(zeroField, noField, "an all-zero failures tally must not add a line");
 });
