@@ -49,7 +49,7 @@ import {
   buildVerifierPrompt,
   panelEntry,
 } from "./review-panel.mjs";
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "./ask.mjs";
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY, EFFORT_LEVELS } from "./ask.mjs";
 import { classify, normalizeSeverity } from "./severity.mjs";
 
 // The lens scoping under test is the REAL manifest, not a copy of it. An
@@ -490,6 +490,39 @@ test("at one sample per lens, the panel still shares ONE warm-up across five len
   assert.equal(key("design-fit"), key("correctness"), "the issue spec must not split design-fit off");
   assert.equal(key("security"), key("correctness"), "extra classes must not split security off");
   assert.notEqual(key("docs"), key("correctness"), "the prose lens still stands alone, correctly");
+});
+
+test("runLens forwards the manifest effort, and the verifier does not", () => {
+  // The one link unit tests cannot reach: runLens opens a session, so the only
+  // way to observe the forward is the source. Asserted on the PROPERTY, per the
+  // convention above — a literal destructuring pin breaks the moment a field is
+  // added beside it. If this forward were dropped, every lens would quietly run
+  // at the SDK default and the manifest would be decorative.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  assert.match(src, /effort: lens\.effort/, "runLens must pass the manifest effort through");
+
+  // And verifyFinding must NOT. Lowering verifier effort looks like the safe
+  // place to save, and it is backwards: a weaker verifier refutes LESS (it must
+  // still reach refuted + high + a named ground + a real file:line to drop
+  // anything), so more findings survive to the fixer and the round gets more
+  // expensive. Pinned so "set effort everywhere" has to argue with a test.
+  const verify = src.slice(src.indexOf("async function verifyFinding"));
+  const body = verify.slice(0, verify.indexOf("\n}"));
+  assert.ok(!/effort/.test(body), "verifyFinding must not set effort");
+});
+
+test("main() validates every manifest effort before spending a token", () => {
+  // A typo must fail as a manifest error, loudly and for free. Inside the
+  // per-lens loop it would instead land in the fail-closed catch and be reported
+  // as a blocking "reviewer did not produce a valid verdict" finding — after the
+  // lenses ahead of it had already been paid for.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const main = src.slice(src.indexOf("async function main()"));
+  const load = main.indexOf("loadLenses(lensesDir)");
+  const firstSession = main.indexOf("sampleWithWarmup");
+  assert.ok(load > 0 && firstSession > load, "expected loadLenses before the first session");
+  assert.match(main.slice(load, firstSession), /assertEffort\(lens\.effort\)/,
+    "the manifest effort check must run between loadLenses and the first session");
 });
 
 test("main() decides cacheability from the session count before opening any session", () => {
@@ -1405,6 +1438,44 @@ test("lens rubrics are coverage-first, with no certainty clamp", () => {
     assert.match(md, /Report EVERY issue you find/, `${id}.md must instruct coverage-first`);
     assert.match(md, /[Nn]ever downgrade\s+severity/, `${id}.md must separate severity from doubt`);
     assert.match(md, /confidence/i, `${id}.md must tell the lens what confidence is for`);
+  }
+});
+
+test("every manifest effort is a level the SDK accepts", () => {
+  // Same manifest-walk construction as the clamp guard above: a new lens is
+  // covered by existing, not by remembering to extend a literal list. A typo
+  // here would otherwise be dropped by the SDK and the lens would silently run
+  // at the default `high` — a cost regression with nothing to see in the logs.
+  for (const lens of LENSES) {
+    if (lens.effort === undefined) continue; // unset is legal: take the SDK default
+    assert.ok(
+      EFFORT_LEVELS.includes(lens.effort),
+      `lens ${lens.id} has effort "${lens.effort}", not one of ${EFFORT_LEVELS.join(", ")}`,
+    );
+  }
+});
+
+test("security keeps the SDK default effort", () => {
+  // Every other lens has a backstop for a missed finding: the verifier re-checks
+  // blocking findings, test-adequacy is re-derivable from a failing suite, docs
+  // is prose. At samples: 1 a security miss has none, so it is the one lens where
+  // buying turns back is not worth the recall edge. Pinned so a later sweep that
+  // sets effort "on all lenses" has to argue with a test.
+  const security = LENSES.find((l) => l.id === "security");
+  assert.ok(security, "manifest lost the security lens");
+  assert.equal(security.effort, undefined);
+});
+
+test("effort cannot reach the shared cache prefix", () => {
+  // The panel's cross-lens warm-up keys on the prefix BYTES, so anything
+  // lens-specific in there collapses every shared group and silently turns
+  // caching off panel-wide. `effort` is a session option and must never become
+  // prompt text. #611 already made this structural by dropping the lens argument
+  // from lensCacheKey; this pins the property one level up, where a future
+  // "include effort in the prompt so the model knows" edit would land.
+  const base = buildLensSystemPrompt(PROMPT_IN);
+  for (const effort of EFFORT_LEVELS) {
+    assert.deepEqual(buildLensSystemPrompt({ ...PROMPT_IN, effort }), base, `effort ${effort} changed the prefix`);
   }
 });
 
