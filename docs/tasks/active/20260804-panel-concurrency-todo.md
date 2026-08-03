@@ -30,7 +30,8 @@ contradictory verdicts — correctness 1 major vs 2 major, docs success vs failu
 
 ## The change
 
-- [x] `concurrency: agent-review-panel-<head_branch>` with `cancel-in-progress`.
+- [x] `concurrency: agent-review-panel-<head_repo>-<head_branch>` with
+      `cancel-in-progress`.
       Cancel rather than queue: a superseded panel is reviewing a sha that is no
       longer the head, so its verdict is stale before it is written.
 - [x] Fixer `--max-turns` **80 → 200**, above `agent-implement`'s 150. The fixer
@@ -38,9 +39,11 @@ contradictory verdicts — correctness 1 major vs 2 major, docs success vs failu
       finding in one pass. The ceiling is a runaway backstop, not a budget —
       `MAX_REVIEW_ROUNDS` and the 45-minute job timeout bind first.
 - [x] The `stalled` page now distinguishes **three** states on a fixer failure:
-      branch advanced (applied, unreviewed), did not advance (nothing pushed), or
-      head unreadable (say so).
-- [x] `stalled` moved from `always()` to `!cancelled()` — see below.
+      the head moved (an unreviewed commit landed — without claiming who pushed it),
+      it did not move (nothing pushed), or it could not be read (say so).
+- [x] `stalled` moved from `always()` to `!cancelled()` — see below, plus a new
+      cancellation-safe `close-stuck-checks` job so that move does not strand
+      lens checks.
 - [x] Corrected a now-stale line in `harness-engineering.md` claiming a paged PR
       still re-reviews on every CI-green push; the gate's paged latch ended that.
 
@@ -57,18 +60,19 @@ every other part of the pipeline treats it as "a human owns this now".
 `!cancelled()` still fires on every genuine failure; a failed dependency is not a
 cancellation.
 
-Also checked: the remaining `always()` uses in this workflow are step-level, and
-the one that writes state (`Post per-lens check runs`) is self-healing — a
-superseded run's lens checks are overwritten by the newer run, since check runs are
-resolved latest-per-name.
+The stuck-check cleanup that rode on the same `always()` had to move with it —
+see the review response below. The remaining `always()` uses in this workflow are
+step-level, and the one that writes state (`Post per-lens check runs`) is
+self-healing: a superseded run's lens checks are overwritten by the newer run, since
+check runs resolve latest-per-name.
 
 ## Verification
 
 - [x] `pnpm verify:self` green (11/11); workflow parses.
 - [x] **The three-state reason logic extracted from the YAML and executed** — inline
       `github-script` JS can hold neither a test nor a linter, so it was run against
-      #648's real shape (moved → "applied and NOT reviewed"), a genuine no-push, and
-      an unreadable head.
+      #648's real shape, a genuine no-push, and an unreadable head — asserting the
+      output carries no unproven attribution.
 - [x] Group key contains no `run_id` — that is the mistake that makes a concurrency
       group match only itself and guard nothing.
 
@@ -81,3 +85,40 @@ is a trust question rather than a bug fix.
 
 #648 itself still needs unblocking by hand so one round can review `102e0fa73`.
 Nothing here does that.
+
+## Review response (CodeRabbit, #649)
+
+Three fixed, one skipped.
+
+- [x] **Fork branch-name collision could cancel a legitimate panel.** `concurrency`
+      is evaluated at the workflow level, *before* `gate` applies its
+      `head_repository.full_name == github.repository` fork check. Keyed on the
+      branch alone, anyone could fork this **public** repo, open a PR from a branch
+      named to match an in-flight agent branch, and have their CI completion cancel
+      the real panel — denial of review from an unprivileged position, with the
+      cancelling run then skipped by the gate so nothing records the review that
+      should have happened. The group now includes the head repository.
+- [x] **`!cancelled()` stranded the stuck-check cleanup.** That cleanup exists for
+      the "panel KILLED mid-run (timeout/**cancel**)" case and rode on `stalled`'s
+      `always()`. Moving `stalled` off `always()` removed it at exactly the moment
+      the concurrency guard made cancellation the *common* outcome — every
+      superseded round would have left six `agent-review-*` checks spinning forever.
+      Split into a `close-stuck-checks` job that runs on cancellation, never pages,
+      never labels, and holds `checks: write` alone. The two genuinely need opposite
+      cancellation behaviour, which is why bundling them created the regression.
+- [x] **My own fix still attributed the push.** "the branch DID advance … changes
+      were applied" claims the *fixer* pushed the *requested fix*, and this run can
+      observe neither. A human push and a concurrent run's fixer look identical from
+      here. It now states both shas and says a commit landed unreviewed, without
+      saying who or what — otherwise it is the same unproven claim as the sentence it
+      replaced, pointing the other way.
+
+**Skipped: wrapping the `pulls.list` lookup in try/catch and reusing `gate`'s PR
+number.** The `advanced` computation cannot throw (`typeof pr.head?.sha === 'string'`),
+so the new code path is already covered. A `pulls.list` throw failing the whole step
+is pre-existing behaviour with pre-existing consequences, and `gate` emits only the PR
+number — not the head sha this needs — so reusing it would still cost a second call.
+
+**Skipped: `#648` at line start rendering as a heading.** CommonMark requires
+whitespace after the `#` run, so `#648` is not an ATX heading; GitHub follows
+CommonMark and auto-links it as an issue reference, which is the intent.

@@ -930,7 +930,10 @@ Components:
   spurious page is the costlier error. Tuned via `STALL_REPEATS` /
   `STALL_SIMILARITY`.
 - **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
-  `concurrency` group keyed on the PR's head branch with `cancel-in-progress`.
+  `concurrency` group keyed on the head repository and branch, with
+  `cancel-in-progress`. The repository half is a security requirement: the group is
+  evaluated before `gate` applies its fork check, so a branch-only key would let a
+  fork PR named to match an in-flight agent branch cancel the real panel.
   Two CI completions close together (a re-run, or a push landing mid-round) used
   to start two full pipelines against the same branch, and it broke two PRs in
   distinguishable ways. **#605**: two panels finished in the *same second* with
@@ -944,13 +947,17 @@ Components:
   superseded panel is reviewing a sha that is no longer the head, so its verdict is
   stale before it is written.
 
-  Two consequences worth stating because each is a trap. The `stalled` job moved
-  from `always()` to `!cancelled()`: under `always()` a cancelled run still paged,
+  Three consequences worth stating because each is a trap. **`stalled` moved from
+  `always()` to `!cancelled()`**: under `always()` a cancelled run still paged,
   because a panel cancelled before it started reports `skipped`, which is one of
-  its trigger conditions — so the guard would have latched a PR to
-  `agent:blocked` at the moment a fresher round was starting, and the latch would
-  then stop that round. And the group key must not include `run_id`, or it matches
-  only itself and guards nothing.
+  its trigger conditions — so the guard would have latched a PR to `agent:blocked`
+  at the moment a fresher round was starting, and the latch would then stop that
+  round. **The stuck-check cleanup had to move out of `stalled`** into its own
+  `close-stuck-checks` job: it exists for the killed/cancelled case and rode on the
+  same `always()`, so leaving it there would have stranded six `agent-review-*`
+  checks in progress on every superseded round — the two need opposite cancellation
+  behaviour, which is why bundling them regressed. **The group key must not include
+  `run_id`**, or it matches only itself and guards nothing.
 - **The fixer's turn ceiling is 200**, above `agent-implement`'s 150. The fixer
   must first READ code it did not write, at locations the panel chose, then fix
   every finding in one pass because the prompt tells it to converge in one round.
@@ -959,8 +966,11 @@ Components:
   against a runaway loop, not a budget: `MAX_REVIEW_ROUNDS` and the 45-minute job
   timeout both bind well before 200 turns of useful work does.
 - **A page must not guess.** The `stalled` page distinguishes three states when the
-  fixer job fails — the branch advanced (changes applied, unreviewed), it did not
-  (nothing pushed), or the head could not be read (say so). The flat
+  fixer job fails — the head moved (an unreviewed commit landed), it did not
+  (nothing pushed), or the head could not be read (say so). It deliberately does not
+  say WHO moved it: a human push and a concurrent run's fixer are indistinguishable
+  from there, so "the fixer pushed the fix" would be the same unproven claim in the
+  other direction. The flat
   "the requested changes were not applied" was simply false on #648, and because a
   page is the one message a human is guaranteed to read, it sent the investigation
   after an unresponsive fixer instead of an unreviewed commit.

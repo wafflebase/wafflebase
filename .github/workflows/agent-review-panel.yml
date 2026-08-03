@@ -45,13 +45,24 @@ on:
 # ever appends a commit, and the round the cancellation belongs to is re-run by
 # the push that superseded it.
 #
-# Keyed on the PR's head BRANCH, which is what the `workflow_run` payload
-# carries; the PR number is not resolved until the `gate` job. Two different PRs
-# never share a branch, so this is per-PR in practice. `run_id` is deliberately
-# NOT in the key — that is the mistake that makes a concurrency group match only
-# itself and guard nothing.
+# Keyed on the head REPOSITORY and branch, both of which the `workflow_run`
+# payload carries; the PR number is not resolved until the `gate` job.
+#
+# The repository half is a security requirement, not tidiness. This repo is
+# PUBLIC, and `concurrency` is evaluated at the workflow level — BEFORE `gate`
+# applies its `head_repository.full_name == github.repository` fork check. Keyed
+# on the branch alone, anyone could fork, open a PR from a branch named to match
+# an in-flight agent branch, and have their CI completion CANCEL the legitimate
+# panel: denial of review from an unprivileged position, and the run that did the
+# cancelling would then be skipped by the gate, leaving no trace of a review that
+# should have happened. The same reasoning the paged latch in `gate` already
+# applies to its marker.
+#
+# `run_id` is deliberately NOT in the key — that is the mistake that makes a
+# concurrency group match only itself and guard nothing.
 concurrency:
-  group: agent-review-panel-${{ github.event.workflow_run.head_branch }}
+  group: >-
+    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 permissions: {}
@@ -1376,6 +1387,63 @@ jobs:
   # unmanaged/fork/disabled PR — only when a managed PR's pipeline actually broke.
   # A hard `gate` failure (managed unknown) also pages: better a spurious page than
   # a silently-skipped review on a PR that might have been managed.
+  # Close lens checks left spinning by a panel that did not finish.
+  #
+  # SPLIT OUT OF `stalled`, and the split is the point. This cleanup was written
+  # for the "panel KILLED mid-run (timeout/cancel)" case and used to ride on
+  # `stalled`'s `always()`. Moving `stalled` to `!cancelled()` — necessary, or a
+  # superseded run pages and latches the PR — would have taken this with it, at
+  # exactly the moment the concurrency guard above made cancellation the COMMON
+  # outcome rather than a rare one. Every superseded round would then leave six
+  # `agent-review-*` checks spinning forever.
+  #
+  # A separate job rather than a second condition on `stalled`, because the two
+  # need OPPOSITE cancellation behaviour: paging must not happen on a cancelled
+  # run, and cleanup must. Bundling them is what created the regression.
+  #
+  # It never pages, never labels, and holds `checks: write` alone — so running it
+  # on a cancelled run cannot produce the sticky state `stalled` was moved away
+  # from producing.
+  close-stuck-checks:
+    needs: [gate, review-panel]
+    # Skips a clean run (nothing is left open) and a never-started panel (nothing
+    # was ever opened). Everything else — cancelled, killed, timed out — is the
+    # case this exists for.
+    if: >-
+      always() &&
+      needs.review-panel.result != 'success' &&
+      needs.review-panel.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    steps:
+      # Best-effort; only touches UNFINISHED agent-review-* checks on this SHA.
+      # A newer run that has already opened its own checks on the same sha (a CI
+      # re-run keeps the sha) may briefly see them closed here, then updates the
+      # same check-run ids with its real verdicts — the transient failure is
+      # overwritten rather than left behind.
+      - name: Close stuck in-progress lens checks
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.checks.listForRef({
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+            });
+            for (const c of data.check_runs) {
+              if (!/^agent-review-/.test(c.name) || c.status === 'completed') continue;
+              await github.rest.checks.update({
+                owner: context.repo.owner, repo: context.repo.repo, check_run_id: c.id,
+                status: 'completed', conclusion: 'failure',
+                output: {
+                  title: `${c.name.replace(/^agent-review-/, '')}: panel stopped`,
+                  summary: 'The review panel stopped before this lens produced a verdict.',
+                },
+              });
+            }
+
   stalled:
     needs: [gate, deps, review-panel, promote, fix]
     # `!cancelled()`, NOT `always()`. This changed with the concurrency guard at
@@ -1448,6 +1516,13 @@ jobs:
             // as "pushed nothing" — that is the same false certainty in a
             // different place, and it would be wrong exactly when a human most
             // needs to know where to look.
+            //
+            // AND NO ATTRIBUTION. All this run can observe is that the head is no
+            // longer the sha it reviewed; it cannot see WHO moved it. A human push,
+            // or a concurrent run's fixer (the #648 shape), both look identical
+            // from here — so "the fixer pushed" and "the changes were applied"
+            // would be the same unproven claim the old sentence made, only
+            // pointing the other way. State the shas and let the human look.
             const reviewedSha = context.payload.workflow_run.head_sha;
             const headSha = typeof pr.head?.sha === 'string' ? pr.head.sha : '';
             const advanced = headSha === '' ? null : headSha !== reviewedSha;
@@ -1455,8 +1530,8 @@ jobs:
               advanced === null
                 ? "the fixer agent's job failed, and this run could not read the branch head to tell whether anything was pushed — check the branch before assuming the changes are missing"
                 : advanced
-                  ? `the fixer agent's job failed, but the branch DID advance to \`${headSha.slice(0, 9)}\` — changes were applied and have NOT been reviewed (a common cause is the fixer exhausting its turn budget after pushing)`
-                  : 'the fixer agent failed and pushed nothing, so the requested changes were not applied';
+                  ? `the fixer agent's job failed. The branch head is now \`${headSha.slice(0, 9)}\`, not the \`${reviewedSha.slice(0, 9)}\` this panel reviewed — a commit landed and has NOT been reviewed. Check whether it is the requested fix before assuming the changes are missing`
+                  : 'the fixer agent failed and the branch head is unchanged, so the requested changes were not applied';
             // First matching cause wins (fix/promote are downstream of the panel).
             const reason =
               r.fix === 'failure' ? fixReason
@@ -1471,34 +1546,6 @@ jobs:
             // The single-value label is set by the "Reconcile agent state" step
             // below — it re-derives state from the unforgeable signals (the paged
             // comment just posted → agent:blocked) and self-heals any drift.
-
-      # If the panel job was KILLED mid-run (timeout/cancel), the "Mark lens
-      # checks in progress" step's checks are still spinning — the always()
-      # finaliser in review-panel doesn't run on a job kill, only on a step
-      # failure. Close any that are still open so the PR shows a resolved state
-      # matching the paged comment above, not a spinner that never completes.
-      # Best-effort; only touches unfinished agent-review-* checks on this SHA.
-      - name: Close stuck in-progress lens checks
-        if: steps.page.outputs.pr != ''
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const sha = context.payload.workflow_run.head_sha;
-            const { data } = await github.rest.checks.listForRef({
-              owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
-            });
-            for (const c of data.check_runs) {
-              if (!/^agent-review-/.test(c.name) || c.status === 'completed') continue;
-              await github.rest.checks.update({
-                owner: context.repo.owner, repo: context.repo.repo, check_run_id: c.id,
-                status: 'completed', conclusion: 'failure',
-                output: {
-                  title: `${c.name.replace(/^agent-review-/, '')}: panel stopped`,
-                  summary: 'The review panel stopped before this lens produced a verdict. A human was paged.',
-                },
-              });
-            }
 
       # The panel died before producing verdicts, but earlier sessions
       # (kickoff / ci-fix) recorded effort — post the summary so the hand-off
