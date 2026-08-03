@@ -52,6 +52,7 @@ import {
   buildVerifierPrompt,
   panelEntry,
   stageDetailCaptureEnabled,
+  stageDetailDiffContentEnabled,
   buildStageDetail,
   writeStageDetail,
 } from "./review-panel.mjs";
@@ -2532,6 +2533,7 @@ test("buildStageDetail: records per-sample findings before the union collapses t
     scopeNote: "",
     samples: [{ findings: [a] }, { findings: [a, b] }],
     fresh: [], freshVerdicts: [], prior: [], priorVerdicts: [],
+    env: { STAGE_DETAIL_DIFF_CONTENT: "1" },
   });
   assert.deepEqual(detail.samples, [[a], [a, b]]);
   assert.equal(detail.lensDiff, "diff --git a/a.ts b/a.ts\n");
@@ -2582,10 +2584,166 @@ test("buildStageDetail: derives only — it never mutates its inputs", () => {
   assert.equal(JSON.stringify({ findings, verdicts }), before);
 });
 
-test("buildStageDetail: a missing lensDiff or scopeNote degrades to an empty string", () => {
-  // JSON with a stable shape matters more than a faithful `undefined`: a consumer
-  // reading `detail.lensDiff.length` must not have to guard the field's absence.
-  const detail = buildStageDetail({});
-  assert.deepEqual(detail, { lensDiff: "", scopeNote: "", samples: [], verifications: [] });
-  assert.equal(typeof JSON.parse(JSON.stringify(detail)).lensDiff, "string");
+test("buildStageDetail: the default payload is valid JSON of the expected shape, with no diff body", () => {
+  // The whole default shape in one assertion, so a field added or dropped here
+  // has to be a decision rather than an accident. `lensDiff` is ABSENT — see the
+  // omitted-vs-empty test below — and everything else still degrades to a stable
+  // value rather than to `undefined`.
+  const detail = buildStageDetail({ env: {} });
+  assert.deepEqual(detail, {
+    lensDiffSha256: EMPTY_SHA256,
+    lensDiffBytes: 0,
+    lensFiles: [],
+    scopeNote: "",
+    samples: [],
+    verifications: [],
+  });
+  // Survives a serialisation round-trip unchanged: this is written with
+  // `JSON.stringify` and read back by a collector, so a value that stringifies
+  // to something else (a BigInt, an undefined) would be a silent corpus bug.
+  assert.deepEqual(JSON.parse(JSON.stringify(detail)), detail);
+});
+
+// ---------------------------------------------------------------------------
+// Diff tiering. `lensDiff` is 76-97% of the capture and the only part of it
+// that is verbatim contributor-authored text, so the body is opt-in and the
+// default path carries a hash, a byte count and the routed file list instead —
+// enough to detect later that a re-derived slice is not the one the lens read.
+// ---------------------------------------------------------------------------
+
+// SHA-256 of the empty string, as a literal. Recomputing the expectation with
+// the same `createHash` call the implementation uses would assert only that
+// the function is deterministic; a known-answer constant is what makes these
+// tests catch a change to WHAT is hashed (a trim, a normalisation, a re-encode).
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+// SHA-256 of exactly `DIFF_FIXTURE` below, likewise a fixed known answer.
+const DIFF_FIXTURE_SHA256 = "0dff7bf2a46b0592a675f3d9f164883582c35b79ed2c93ff19963e063fe0cecb";
+const DIFF_FIXTURE = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "index 111..222 100644",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -1,2 +1,3 @@",
+  " const x = 1;",
+  "+const y = 2;",
+  "diff --git a/docs/b.md b/docs/b.md",
+  "index 333..444 100644",
+  "--- a/docs/b.md",
+  "+++ b/docs/b.md",
+  "@@ -1 +1,2 @@",
+  " # title",
+  "+more prose",
+  "",
+].join("\n");
+
+test("stageDetailDiffContentEnabled: unset, empty and whitespace all mean OFF", () => {
+  // The mirror image of the capture gate's trap, and the reason the two have
+  // opposite defaults on purpose. Bulky third-party content must not start
+  // riding along because a repo variable was never set; the capture itself must
+  // not stop running for the same reason.
+  assert.equal(stageDetailDiffContentEnabled({}), false, "absent must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: "" }), false, "empty string must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: "   " }), false, "whitespace must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: undefined }), false, "undefined must be OFF");
+  // Anything unrecognized also stays OFF — each gate falls to its OWN default
+  // on a value it cannot parse, which is why `banana` is ON for capture and OFF
+  // here rather than one of them being wrong.
+  for (const v of ["0", "false", "off", "banana", "yes", "2"]) {
+    assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: v }), false, `${v} must be OFF`);
+  }
+});
+
+test("stageDetailDiffContentEnabled: only an explicit on-word turns it ON", () => {
+  for (const v of ["1", "true", "on", "TRUE", "On", " true "]) {
+    assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: v }), true, `${v} must be ON`);
+  }
+});
+
+test("buildStageDetail: content OFF omits the diff body but still carries the hash", () => {
+  const detail = buildStageDetail({ lensDiff: DIFF_FIXTURE, samples: [], env: {} });
+  // Omitted, not empty. A consumer keys on `typeof detail.lensDiff === "string"`
+  // to decide whether it has a routed slice, so `""` would be read as "the lens
+  // reviewed nothing" and replayed against an empty diff, while an absent key
+  // lands on the pre-existing fallback for captures written before `lensDiff`.
+  assert.equal("lensDiff" in detail, false, "the body must be absent, not empty");
+  assert.equal(detail.lensDiffSha256, DIFF_FIXTURE_SHA256);
+  assert.equal(detail.lensDiffBytes, Buffer.byteLength(DIFF_FIXTURE, "utf8"));
+  assert.deepEqual(detail.lensFiles, ["src/a.ts", "docs/b.md"]);
+});
+
+test("buildStageDetail: content ON carries the body AND the same hash", () => {
+  // The hash is emitted in BOTH modes so the drift guard reads one field
+  // regardless of how the capture was configured — a replay that has the body
+  // can still prove it is the body production used.
+  const detail = buildStageDetail({ lensDiff: DIFF_FIXTURE, samples: [], env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal(detail.lensDiff, DIFF_FIXTURE, "the body must be byte-identical to the router's output");
+  assert.equal(detail.lensDiffSha256, DIFF_FIXTURE_SHA256, "the same hash as the OFF path");
+  assert.equal(detail.lensDiffBytes, Buffer.byteLength(DIFF_FIXTURE, "utf8"));
+  assert.deepEqual(detail.lensFiles, ["src/a.ts", "docs/b.md"]);
+});
+
+test("buildStageDetail: the hash is of the RAW slice — never trimmed or normalised", () => {
+  // The one property that makes the hash worth keeping. A slice re-derived later
+  // is compared byte-for-byte, so hashing anything but the router's exact output
+  // would report drift that did not happen and hide drift that did. Leading and
+  // trailing whitespace, CRLF line endings and a trailing newline must every one
+  // of them change the digest.
+  const base = "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  const variants = [base, ` ${base}`, `${base} `, `${base}\n`, base.replace(/\n/g, "\r\n"), base.trim()];
+  const digests = variants.map((v) => buildStageDetail({ lensDiff: v, env: {} }).lensDiffSha256);
+  assert.equal(new Set(digests).size, variants.length, "each byte-distinct slice must hash differently");
+  // And it is stable: the same bytes hash the same way on every call, in either
+  // mode, so a digest recorded today is comparable to one recorded next month.
+  assert.equal(digests[0], buildStageDetail({ lensDiff: base, env: {} }).lensDiffSha256);
+  assert.equal(digests[0], buildStageDetail({ lensDiff: base, env: { STAGE_DETAIL_DIFF_CONTENT: "on" } }).lensDiffSha256);
+});
+
+test("buildStageDetail: lensFiles and lensDiffBytes describe the slice, not the PR", () => {
+  // `lensFiles` is what keeps the scope-discipline metric computable once the
+  // body is gone, and it cannot be back-filled: `pulls/{n}/files` returns the
+  // PR's CURRENT diff, not the routed slice reviewed at this round. So it is
+  // derived from the slice itself, through the same splitter the router used.
+  const single = buildStageDetail({ lensDiff: "diff --git a/only.ts b/only.ts\n+x\n", env: {} });
+  assert.deepEqual(single.lensFiles, ["only.ts"]);
+  assert.equal(single.lensDiffBytes, Buffer.byteLength("diff --git a/only.ts b/only.ts\n+x\n", "utf8"));
+
+  // A multi-byte character costs its UTF-8 bytes, not its JS string length —
+  // the number has to be the size of what gets written, or corpus sizing lies.
+  const wide = buildStageDetail({ lensDiff: "diff --git a/i18n.ts b/i18n.ts\n+한글\n", env: {} });
+  assert.equal(wide.lensDiffBytes, Buffer.byteLength("diff --git a/i18n.ts b/i18n.ts\n+한글\n", "utf8"));
+  assert.ok(wide.lensDiffBytes > "diff --git a/i18n.ts b/i18n.ts\n+한글\n".length);
+
+  // An empty slice — the real `noNewHunks` case — is distinguishable from a
+  // missing capture by `lensDiffBytes: 0` plus the empty-string digest, which is
+  // exactly the discrimination that dropping the body would otherwise lose.
+  const empty = buildStageDetail({ lensDiff: "", env: {} });
+  assert.equal(empty.lensDiffBytes, 0);
+  assert.deepEqual(empty.lensFiles, []);
+  assert.equal(empty.lensDiffSha256, EMPTY_SHA256);
+});
+
+test("buildStageDetail: content ON still degrades a missing lensDiff to an empty string", () => {
+  // Unchanged from the merged behaviour: with the body requested, a caller that
+  // passes no slice gets `""` rather than `undefined`, so the field's type is
+  // stable whenever the key is present at all.
+  const detail = buildStageDetail({ env: { STAGE_DETAIL_DIFF_CONTENT: "true" } });
+  assert.equal(detail.lensDiff, "");
+  assert.equal(detail.lensDiffSha256, EMPTY_SHA256);
+});
+
+test("buildStageDetail: tiering changes serialisation only, never a verdict", () => {
+  // Both modes must derive from the same inputs without touching them, and must
+  // agree on every field that is not the diff body. If they ever disagreed
+  // elsewhere, the flag would be changing what the panel recorded about its own
+  // decisions rather than merely how much of the input rode along.
+  const findings = [{ severity: "major", file: "a.ts", summary: "s" }];
+  const verdicts = [{ verdict: "confirmed", confidence: "low" }];
+  const before = JSON.stringify({ findings, verdicts });
+  const args = { lensDiff: DIFF_FIXTURE, scopeNote: "n", samples: [{ findings }], fresh: findings, freshVerdicts: verdicts, prior: [], priorVerdicts: [] };
+  const off = buildStageDetail({ ...args, env: {} });
+  const on = buildStageDetail({ ...args, env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal(JSON.stringify({ findings, verdicts }), before, "neither mode may mutate its inputs");
+  const { lensDiff, ...onWithoutBody } = on;
+  assert.deepEqual(onWithoutBody, off, "the ONLY difference between the modes is the body");
+  assert.equal(lensDiff, DIFF_FIXTURE);
 });
