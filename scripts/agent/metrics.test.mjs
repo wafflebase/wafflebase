@@ -18,6 +18,9 @@ import {
   renderSummary,
   serializeRecord,
   parseMetricComment,
+  serializeSummaryData,
+  parseSummaryData,
+  dedupRecords,
   METRIC_PREFIX,
   SUMMARY_MARKER,
 } from "./metrics.mjs";
@@ -544,4 +547,45 @@ test("renderSummary: verifier failures are broken down, and stay silent with no 
   });
   assert.doesNotMatch(noField, /Verifier failures/);
   assert.equal(zeroField, noField, "an all-zero failures tally must not add a line");
+});
+
+// --- summary data block: fold-and-sweep round-trip -------------------------
+
+test("summary data block: serialize → parse round-trips the raw ledger", () => {
+  const records = [
+    { kind: "implement", sessionId: "a", turns: 10, tokens: 100 },
+    { kind: "review", sessionId: "b", turns: 20, tokens: 200 },
+  ];
+  const block = serializeSummaryData(records);
+  // Rides inside a summary comment, so it must be an HTML comment (renders blank)
+  // and must NOT collide with the per-session METRIC_PREFIX ("agent-metric ").
+  assert.ok(block.startsWith("<!-- agent-metrics-data "));
+  assert.equal(parseMetricComment(block), null); // not mistaken for a per-session record
+  assert.deepEqual(parseSummaryData(`## 🤖 Agent effort\n...\n${block}`), records);
+});
+
+test("parseSummaryData: no block / junk → [] (never throws)", () => {
+  assert.deepEqual(parseSummaryData(""), []);
+  assert.deepEqual(parseSummaryData("## summary, no data block"), []);
+  assert.deepEqual(parseSummaryData("<!-- agent-metrics-data {not json} -->"), []);
+  assert.deepEqual(parseSummaryData("<!-- agent-metrics-data 7 -->"), []); // non-array
+  for (const bad of [null, undefined, 7, {}]) assert.deepEqual(parseSummaryData(bad), []);
+});
+
+test("dedupRecords: collapses by sessionId, keeps first (chronological) order", () => {
+  const embedded = [{ sessionId: "a", turns: 1 }, { sessionId: "b", turns: 2 }];
+  const standalone = [{ sessionId: "b", turns: 2 }, { sessionId: "c", turns: 3 }];
+  // embedded (older) first, then this round's standalone; the duplicate 'b' from
+  // the standalone side is dropped so a round's spend is never double-counted.
+  assert.deepEqual(dedupRecords([...embedded, ...standalone]), [
+    { sessionId: "a", turns: 1 },
+    { sessionId: "b", turns: 2 },
+    { sessionId: "c", turns: 3 },
+  ]);
+});
+
+test("dedupRecords: records with no sessionId are all kept (no key to collapse)", () => {
+  const recs = [{ turns: 1 }, { turns: 2 }, { sessionId: "a" }, { sessionId: "a" }];
+  assert.deepEqual(dedupRecords(recs), [{ turns: 1 }, { turns: 2 }, { sessionId: "a" }]);
+  for (const bad of [null, undefined, "x", 7, {}]) assert.deepEqual(dedupRecords(bad), []);
 });
