@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotePreview } from './preview.js';
+import { resetMermaidStateForTests, type MermaidLike } from './mermaid.js';
 
 describe('NotePreview', () => {
   it('highlights fenced code blocks with the hljs class', () => {
@@ -215,5 +216,120 @@ describe('NotePreview', () => {
     expect(button?.textContent).toBe('Copied');
 
     preview.el.remove();
+  });
+});
+
+// Issue #625: a ```mermaid fence renders as a diagram, not a code block. The
+// engine is stubbed here — real mermaid needs SVG layout APIs jsdom lacks.
+describe('NotePreview mermaid fences', () => {
+  const DIAGRAM = '```mermaid\nflowchart LR\n  Editor --> Preview\n```';
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function stubEngine(
+    render: MermaidLike['render'] = async (_id, text) => ({
+      svg: `<svg data-text="${text.replace(/\n/g, '|')}"></svg>`,
+    }),
+  ) {
+    const engine: MermaidLike = { initialize: vi.fn(), render: vi.fn(render) };
+    return engine;
+  }
+
+  beforeEach(() => {
+    resetMermaidStateForTests();
+  });
+
+  it('emits a source-carrying placeholder, not a highlighted code block', () => {
+    const preview = new NotePreview({
+      mermaidLoader: async () => stubEngine(),
+    });
+    preview.render(DIAGRAM);
+
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block).toBeTruthy();
+    // Not a code block: no hljs markup and no copy button for a diagram.
+    expect(preview.el.querySelector('pre.note-code')).toBeNull();
+    expect(preview.el.querySelector('.note-copy-btn')).toBeNull();
+    // The escaped source is the pre-render fallback, so a diagram that has not
+    // rendered yet (or cannot) still reads as its markdown source.
+    expect(block?.querySelector('.note-mermaid-source')?.textContent).toBe(
+      'flowchart LR\n  Editor --> Preview\n',
+    );
+  });
+
+  it('replaces the placeholder with the rendered SVG', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block?.hasAttribute('data-mermaid-pending')).toBe(false);
+    expect(block?.querySelector('svg')).toBeTruthy();
+    expect(block?.querySelector('.note-mermaid-source')).toBeNull();
+    expect(engine.render).toHaveBeenCalledWith(
+      expect.any(String),
+      'flowchart LR\n  Editor --> Preview\n',
+    );
+  });
+
+  it('keeps the source visible and reports the error for invalid syntax', async () => {
+    const engine = stubEngine(async () => {
+      throw new Error('Parse error on line 2');
+    });
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render('```mermaid\nnot a diagram\n```');
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block?.getAttribute('data-mermaid-error')).toBe('true');
+    expect(block?.querySelector('.note-mermaid-source')?.textContent).toBe(
+      'not a diagram\n',
+    );
+    expect(
+      block?.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('Parse error on line 2');
+  });
+
+  it('leaves the source in place when the engine cannot be loaded', async () => {
+    const preview = new NotePreview({ mermaidLoader: async () => null });
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block?.querySelector('.note-mermaid-source')?.textContent).toContain(
+      'flowchart LR',
+    );
+  });
+
+  it('reuses a cached diagram across re-renders instead of re-rendering it', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    // The preview re-renders on every keystroke in split mode; an unchanged
+    // diagram must not re-run the layout engine, and must not flash back to
+    // its source (the cached SVG lands inside the synchronous render() call).
+    preview.render(`${DIAGRAM}\n\ntyping`);
+    expect(preview.el.querySelector('.note-mermaid svg')).toBeTruthy();
+    await flush();
+    expect(engine.render).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-renders the same diagram for the other theme', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    preview.setTheme('dark');
+    preview.render(DIAGRAM);
+    await flush();
+
+    // Mermaid bakes the palette into the SVG, so a theme switch is a cache miss.
+    expect(engine.render).toHaveBeenCalledTimes(2);
+    expect(engine.initialize).toHaveBeenLastCalledWith(
+      expect.objectContaining({ theme: 'dark', securityLevel: 'strict' }),
+    );
   });
 });

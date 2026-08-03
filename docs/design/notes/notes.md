@@ -323,6 +323,39 @@ is ever produced. `<details open>` renders expanded by default; a stray
 `</details>` with no matching open falls through and is escaped as literal
 text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
 
+#### Mermaid diagrams — shipped (issue #625)
+
+A ` ```mermaid ` fence renders as a diagram rather than a code block, matching
+GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
+`preview.ts` branches on the info string; everything else lives in
+`packages/notes/src/view/mermaid.ts`:
+
+- **Placeholder first, SVG later.** The fence emits a synchronous
+  `<div class="note-mermaid" data-mermaid-pending>` carrying the *escaped*
+  diagram source in a `<pre>`. `NotePreview.render()` then kicks
+  `renderMermaidBlocks()`, which swaps in the SVG. A diagram that has not
+  rendered yet, does not parse, or whose engine failed to load therefore
+  degrades to readable source instead of a blank block; a parse failure also
+  prepends the mermaid error message.
+- **Lazily imported.** `mermaid` (~3 MB, and it splits itself per diagram
+  type) is reached only through `import('mermaid')` inside that module, so it
+  costs the notes route nothing until a note actually contains a mermaid
+  fence — `notes-view-*.js` grew 2.25 kB. The measured chunk-count effect is
+  recorded in `harness.config.json`'s `maxChunkCountReason`.
+- **Cached per (source, theme).** Split mode re-renders on every keystroke;
+  outcomes (SVG *and* errors — a diagram is unparseable for most of the time
+  it is being typed) are memoized in a bounded, insertion-ordered map, and
+  cache hits are applied inside the synchronous `render()` call so an
+  unchanged diagram never flashes back to source. Mermaid bakes the palette
+  into its SVG, so the light/dark theme is part of the key and
+  `NoteEditorAPI.setTheme` repaints the preview.
+- **Security posture unchanged.** Mermaid runs `securityLevel: 'strict'`
+  (labels sanitized, `click` directives ignored) with `startOnLoad: false`,
+  so the preview's `html: false` "no raw note HTML in the DOM" rule still
+  holds.
+- Stale passes are dropped by re-checking `root.contains(el)` after the
+  await, so keystrokes during a load do not fight over the DOM.
+
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 
 CommonMark has a genuine ambiguity: a lone `-` on the line after a paragraph is
