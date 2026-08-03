@@ -1,5 +1,27 @@
-import type { NoteStore, NotePeerSelection, NoteRemoteChange } from './store.js';
+import type {
+  NoteStore,
+  NotePeerSelection,
+  NoteRemoteChange,
+  NoteSelection,
+} from './store.js';
 import type { Unsubscribe } from '../types.js';
+
+/** A full editor state: the text and the selection active in it. */
+interface MemState {
+  text: string;
+  selection: NoteSelection | null;
+}
+
+/**
+ * One undo unit as the transition it reverts: `before` is restored on undo,
+ * `after` on redo. Both are pinned at commit time so a later caret move can't
+ * corrupt the redo restore point (matching the Yorkie store, which pins the
+ * post-edit selection into the change via `{ addToHistory: true }`).
+ */
+interface MemUndoEntry {
+  before: MemState;
+  after: MemState;
+}
 
 /**
  * In-memory NoteStore for tests and non-collaborative use. Holds the markdown
@@ -13,11 +35,18 @@ import type { Unsubscribe } from '../types.js';
  */
 export class MemNoteStore implements NoteStore {
   private text: string;
-  private undoStack: string[] = [];
-  private redoStack: string[] = [];
+  private undoStack: MemUndoEntry[] = [];
+  private redoStack: MemUndoEntry[] = [];
   private batchDepth = 0;
-  /** Text as of the outermost `batch()` entry; null outside a batch. */
-  private batchBefore: string | null = null;
+  /** Editor state as of the outermost `batch()` entry (the pre-edit state). */
+  private batchBefore: MemState | null = null;
+  /**
+   * The post-edit selection pinned by `recordSelectionForHistory` for the open
+   * batch; null until recorded. Falls back to `currentSelection` at commit.
+   */
+  private batchAfterSelection: NoteSelection | null = null;
+  /** Latest known live caret, tracked by `setLocalSelection`. */
+  private currentSelection: NoteSelection | null = null;
   private listeners = new Set<(change: NoteRemoteChange) => void>();
 
   constructor(text = '') {
@@ -31,40 +60,63 @@ export class MemNoteStore implements NoteStore {
   editText(from: number, to: number, insert: string): void {
     // Outside a batch each edit is its own undo unit; inside one, `batch()`
     // has already captured the pre-state and records a single unit on exit.
-    if (this.batchDepth === 0) this.pushUndo(this.text);
+    if (this.batchDepth === 0) {
+      const before = this.currentState();
+      this.text = this.text.slice(0, from) + insert + this.text.slice(to);
+      this.pushUndo({ before, after: this.currentState() });
+      return;
+    }
     this.text = this.text.slice(0, from) + insert + this.text.slice(to);
   }
 
   batch(fn: () => void): void {
-    if (this.batchDepth++ === 0) this.batchBefore = this.text;
+    if (this.batchDepth++ === 0) {
+      this.batchBefore = this.currentState();
+      this.batchAfterSelection = null;
+    }
     try {
       fn();
     } finally {
       if (--this.batchDepth === 0) {
         // A batch that changed nothing records no undo unit (matches Yorkie,
         // where an empty `doc.update` pushes nothing).
-        if (this.batchBefore !== null && this.batchBefore !== this.text) {
-          this.pushUndo(this.batchBefore);
+        if (this.batchBefore !== null && this.batchBefore.text !== this.text) {
+          this.pushUndo({
+            before: this.batchBefore,
+            after: {
+              text: this.text,
+              // The pinned post-edit selection, not the live caret, which a
+              // later move would have drifted before redo.
+              selection: this.batchAfterSelection ?? this.currentSelection,
+            },
+          });
         }
         this.batchBefore = null;
+        this.batchAfterSelection = null;
       }
     }
   }
 
-  undo(): void {
-    const prev = this.undoStack.pop();
-    if (prev === undefined) return;
-    this.redoStack.push(this.text);
-    this.text = prev;
-    this.emit({ type: 'replace', content: this.text });
+  recordSelectionForHistory(selection: NoteSelection): void {
+    // Pin it for the batch's redo restore point, and track it live.
+    if (this.batchDepth > 0) this.batchAfterSelection = selection;
+    this.currentSelection = selection;
   }
 
-  redo(): void {
-    const next = this.redoStack.pop();
-    if (next === undefined) return;
-    this.undoStack.push(this.text);
-    this.text = next;
-    this.emit({ type: 'replace', content: this.text });
+  undo(): NoteSelection | null {
+    const unit = this.undoStack.pop();
+    if (unit === undefined) return null;
+    this.redoStack.push(unit);
+    this.restore(unit.before);
+    return unit.before.selection;
+  }
+
+  redo(): NoteSelection | null {
+    const unit = this.redoStack.pop();
+    if (unit === undefined) return null;
+    this.undoStack.push(unit);
+    this.restore(unit.after);
+    return unit.after.selection;
   }
 
   canUndo(): boolean {
@@ -82,8 +134,12 @@ export class MemNoteStore implements NoteStore {
     };
   }
 
-  setLocalSelection(_anchor: number, _head: number | null): void {
-    // no-op: no peers to publish to
+  setLocalSelection(anchor: number, head: number | null): void {
+    // No peers to publish to, but tracking the live caret here keeps
+    // `currentSelection` in step with the view so a batch captures the true
+    // pre-edit selection as its undo unit's restore point — the role Yorkie
+    // presence's live publisher plays for the collaborative store.
+    this.currentSelection = head === null ? null : { anchor, head };
   }
 
   getPeerSelections(): NotePeerSelection[] {
@@ -94,8 +150,20 @@ export class MemNoteStore implements NoteStore {
     return () => {};
   }
 
-  private pushUndo(before: string): void {
-    this.undoStack.push(before);
+  /** The current editor state (text + live caret). */
+  private currentState(): MemState {
+    return { text: this.text, selection: this.currentSelection };
+  }
+
+  /** Apply a stored state and echo the text to remote subscribers. */
+  private restore(state: MemState): void {
+    this.text = state.text;
+    this.currentSelection = state.selection;
+    this.emit({ type: 'replace', content: this.text });
+  }
+
+  private pushUndo(unit: MemUndoEntry): void {
+    this.undoStack.push(unit);
     // A fresh edit invalidates the redo branch, as in every linear history.
     this.redoStack.length = 0;
   }

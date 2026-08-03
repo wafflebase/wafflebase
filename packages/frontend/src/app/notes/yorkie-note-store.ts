@@ -1,8 +1,9 @@
-import type { Document, Presence } from '@yorkie-js/sdk';
+import type { Document, Presence, TextPosStructRange } from '@yorkie-js/sdk';
 import type {
   NoteStore,
   NotePeerSelection,
   NoteRemoteChange,
+  NoteSelection,
   Unsubscribe,
 } from '@wafflebase/notes';
 import type { YorkieNotesRoot, NotesPresence } from '@/types/notes-document';
@@ -44,9 +45,26 @@ export class YorkieNoteStore implements NoteStore {
    * down to a contentless document. Mirrors `YorkieDocStore.undoFloor`.
    */
   private readonly undoFloor: number;
+  /**
+   * The selection Yorkie reversed into presence for the in-flight undo/redo,
+   * captured the instant the op's event fires (see `captureHistorySelection`).
+   * Read and cleared by `runHistory`; null between ops.
+   */
+  private pendingHistorySelection: NoteSelection | null = null;
 
   constructor(private readonly doc: Document<YorkieNotesRoot, NotesPresence>) {
     this.undoFloor = doc.getUndoStackForTest().length;
+    // Snapshot the reversed selection the moment an undo/redo lands. Registered
+    // in the constructor so it runs BEFORE the view's `subscribeRemote`: once
+    // the view applies the reverted text, its live-cursor publisher republishes
+    // the current caret over the same `selection` presence key, clobbering
+    // Yorkie's reverse (the undo-vs-live-publisher race, cf.
+    // docs-intent-preserving-edits.md #609). Reading here, first, beats it.
+    doc.subscribe((event) => {
+      if (event.type === 'local-change' && event.source === 'undoredo') {
+        this.captureHistorySelection();
+      }
+    });
   }
 
   getText(): string {
@@ -90,17 +108,98 @@ export class YorkieNoteStore implements NoteStore {
     }
   }
 
-  undo(): void {
-    if (!this.canUndo()) return;
-    // Applies the reverse ops of this client's last change. The resulting text
-    // change comes back as a `local-change` with `source: 'undoredo'`, which
-    // `subscribeRemote` forwards to the view — so nothing is returned here.
-    this.doc.history.undo();
+  /**
+   * Record `selection` as the post-edit selection of the currently-open
+   * batch's Yorkie change, with `{ addToHistory: true }`. Yorkie stores the
+   * reverse (the presence — i.e. the pre-edit selection — that was live when
+   * this update opened) so `undo` restores the caret to where it sat before the
+   * edit, and `redo` re-applies this one. A no-op outside a batch: without an
+   * open update there is no change to fold it into, and writing presence on its
+   * own would manufacture a selection-only undo unit.
+   */
+  recordSelectionForHistory(selection: NoteSelection): void {
+    if (!this.activeRoot || !this.activePresence) return;
+    const content = this.activeRoot.content;
+    if (!content) return;
+    this.activePresence.set(
+      this.buildSelectionPresence(content, selection.anchor, selection.head),
+      { addToHistory: true },
+    );
   }
 
-  redo(): void {
-    if (!this.canRedo()) return;
-    this.doc.history.redo();
+  undo(): NoteSelection | null {
+    if (!this.canUndo()) return null;
+    // Applies the reverse ops of this client's last change. The text change
+    // comes back as a `local-change` with `source: 'undoredo'`, which
+    // `subscribeRemote` forwards to the view; the selection Yorkie reversed is
+    // captured by `captureHistorySelection` during that same event.
+    return this.runHistory(() => this.doc.history.undo());
+  }
+
+  redo(): NoteSelection | null {
+    if (!this.canRedo()) return null;
+    return this.runHistory(() => this.doc.history.redo());
+  }
+
+  /**
+   * Run a Yorkie history op and return the selection it reversed into presence.
+   * The value is captured DURING the op (by `captureHistorySelection`), not read
+   * back after: by the time `op()` returns, the view's live-cursor publisher has
+   * already overwritten the `selection` presence key.
+   */
+  private runHistory(op: () => void): NoteSelection | null {
+    this.pendingHistorySelection = null;
+    op();
+    const captured = this.pendingHistorySelection;
+    this.pendingHistorySelection = null;
+    return captured;
+  }
+
+  /**
+   * Snapshot the selection Yorkie reversed into presence for the in-flight
+   * undo/redo, in CodeMirror index coordinates. Reads the CRDT-stable
+   * `selection` posRange (survives a peer's concurrent edit) and resolves it
+   * against the current (already-reverted) content.
+   */
+  private captureHistorySelection(): void {
+    const content = this.doc.getRoot().content;
+    const posRange = this.readPresenceSelection();
+    if (!content || !posRange) {
+      this.pendingHistorySelection = null;
+      return;
+    }
+    const [from, to] = content.posRangeToIndexRange(posRange);
+    this.pendingHistorySelection = { anchor: from, head: to };
+  }
+
+  /** The `{ selection, cursor }` presence payload for a CodeMirror index range. */
+  private buildSelectionPresence(
+    content: NonNullable<YorkieNotesRoot['content']>,
+    anchor: number,
+    head: number,
+  ): Pick<NotesPresence, 'selection' | 'cursor'> {
+    const len = content.length;
+    const a = Math.min(Math.max(0, anchor), len);
+    const h = Math.min(Math.max(0, head), len);
+    const selection = content.indexRangeToPosRange([a, h]);
+    const cursor = content.posRangeToIndexRange(selection);
+    return { selection, cursor };
+  }
+
+  /**
+   * Read this client's `selection` presence posRange. Mirrors
+   * `YorkieDocStore.getPresenceCursorPos`: `getMyPresence()` works while
+   * attached, but returns `{}` offline/in tests, so fall back to
+   * `getPresenceForTest`.
+   */
+  private readPresenceSelection(): TextPosStructRange | undefined {
+    const fromPublic = this.doc.getMyPresence()?.selection ?? undefined;
+    if (fromPublic) return fromPublic;
+    const actorId = this.doc.getChangeID().getActorID();
+    if (actorId) {
+      return this.doc.getPresenceForTest(actorId)?.selection ?? undefined;
+    }
+    return undefined;
   }
 
   canUndo(): boolean {
@@ -177,11 +276,10 @@ export class YorkieNoteStore implements NoteStore {
         }
         return;
       }
-      const selection = content.indexRangeToPosRange([anchor, head]);
-      const cursor = content.posRangeToIndexRange(selection);
+      const payload = this.buildSelectionPresence(content, anchor, head);
       const prev = presence.get('selection');
-      if (JSON.stringify(prev) !== JSON.stringify(selection)) {
-        presence.set({ selection, cursor });
+      if (JSON.stringify(prev) !== JSON.stringify(payload.selection)) {
+        presence.set(payload);
       }
     };
     // Fold into the batch's ambient update when one is open; a nested

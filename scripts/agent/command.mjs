@@ -7,7 +7,7 @@
 // (one run of whitespace), so "@claude please review" is NOT `review` (it does
 // not contain the contiguous "@claude review") — it falls through to `reply`.
 //
-// Recognized verbs: fix | summarize (alias summarise) | review | loop.
+// Recognized verbs: fix | summarize (alias summarise) | review | loop | rerun.
 // If a comment contains more than one verb, the FIRST occurrence wins
 // (leftmost match — deterministic and documented).
 //
@@ -30,6 +30,7 @@ const VERB_TO_COMMAND = {
   summarise: "summarize", // en-GB spelling normalizes to the same command
   review: "review",
   loop: "loop",
+  rerun: "rerun", // clear a paged/blocked agent PR and re-engage the review→fix loop
 };
 
 // "@claude" + one run of whitespace + a recognized verb, as a whole word.
@@ -47,7 +48,7 @@ const MENTION_RE = /@claude(?![\w-])/i;
  * @param {string} body - the raw comment body.
  * @param {{surface?: 'issue'|'pr'}} [opts] - where the comment was posted; only
  *   affects the no-verb fallback (`reply` on a PR vs `help` on an issue).
- * @returns {{command: 'fix'|'summarize'|'review'|'loop'|'reply'|'help'|'none', rest: string}}
+ * @returns {{command: 'fix'|'summarize'|'review'|'loop'|'rerun'|'reply'|'help'|'none', rest: string}}
  *   `rest` is the text following the matched command (trimmed), for passing any
  *   extra instructions through to the agent; "" when there is no verb match.
  */
