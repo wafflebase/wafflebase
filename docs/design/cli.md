@@ -715,10 +715,53 @@ whole contract:
 
 `SystemError` carries both the `code` that lands in the JSON body and the
 `exitCode` that `outputError` applies, so the two can never drift. Every
-`fetch` in the CLI goes through `fetchOrThrow`, and every non-OK response
-through `httpError(status)`, so no API call can bypass the classification.
+`fetch` in the CLI goes through `fetchOrThrow`, and the status decides the
+class at every non-OK response: `throw httpError(status)` where the CLI
+writes the message, and `process.exitCode = exitCodeForStatus(status)` on
+the `content`/`export` paths that instead print the backend's own error
+envelope verbatim. That second path matters because a `401`
+`SESSION_EXPIRED` body is JSON — printing it must not make an expired
+session look like bad user input.
+
+`login` prints prose instead of the JSON envelope but reads the same
+table: `fetchLoginSession` classifies the exchange / `me` / `workspaces`
+responses through `exitCodeForStatus`, so a stale callback code (`400`)
+exits `1` while a rejected token or a broken server exits `2`. Anything
+not in the contract keeps its stack trace rather than being flattened to
+one line.
+
+Error messages carry a redacted URL (`redactUrl`): userinfo from
+`--server`/`WAFFLEBASE_SERVER` and presigned query strings from image
+URLs never reach stderr or CI logs; scheme, host and path do.
+
 `--quiet` suppresses the body but not the exit code — scripts branching on
 `$?` are the reason the contract exists.
+
+##### Export image fetching
+
+Exports (`docs export`, `slides export`) dereference the image `src`
+values found in the document, which are attacker-influenced — anyone who
+can edit or share a document picks them. `assertFetchableImageUrl` gates
+every one before it is requested: only `http:`, `https:` and `data:` are
+dereferenced (so `file:` can't read local files into the artifact), and
+loopback / RFC1918 / CGNAT / link-local hosts and the `.internal`
+`.local` suffixes are refused, which covers the cloud metadata service at
+`169.254.169.254`. The configured server is the one internal host still
+allowed, because `--server http://localhost:3000` is the normal dev
+setup. A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit
+`1` — the document is wrong, not the environment).
+
+##### Nonce-bound login callback
+
+`wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
+any local process — or any web page that guesses the port — can reach. So
+the code alone does not complete a login: the CLI generates a nonce, ships
+it as `?nonce=` on the `/auth/github` URL, the backend stores it in the
+CLI state and echoes it on the loopback redirect, and the CLI accepts only
+a callback whose nonce matches (constant-time compare). Mismatched
+requests get `403` and are ignored — they can neither complete nor cancel
+the pending login, so a hostile page cannot fix the CLI onto its own
+account.
 
 #### 8.2 Dry-Run
 

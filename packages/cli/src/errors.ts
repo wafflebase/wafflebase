@@ -57,6 +57,29 @@ export function httpError(status: number, message?: string): Error {
 }
 
 /**
+ * Strip the credential-bearing parts of a URL before it goes into an
+ * error message. `--server`/`WAFFLEBASE_SERVER` may carry userinfo
+ * (`https://user:pass@host`) and image `src` values routinely carry
+ * presigned tokens in the query string; both would otherwise land on
+ * stderr and in CI logs. Scheme, host and path are kept — that is what
+ * makes a network failure diagnosable.
+ */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.username = '';
+    u.password = '';
+    u.search = '';
+    u.hash = '';
+    return u.toString();
+  } catch {
+    // Not parseable (a typo'd `--server`, say). Drop everything that
+    // could hold a secret and keep the rest for the user to recognize.
+    return url.split(/[?#]/)[0].replace(/\/\/[^/@]*@/, '//');
+  }
+}
+
+/**
  * `fetch` rejects (rather than resolving non-OK) only when the request
  * never reached an HTTP server: DNS failure, refused connection, TLS
  * error, abort. All of those are system errors.
@@ -72,7 +95,7 @@ export async function fetchOrThrow(
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new SystemError(
       'NETWORK_ERROR',
-      `Request to ${url} failed: ${detail}`,
+      `Request to ${redactUrl(url)} failed: ${detail}`,
       { cause },
     );
   }

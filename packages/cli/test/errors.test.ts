@@ -7,6 +7,7 @@ import {
   exitCodeForStatus,
   fetchOrThrow,
   httpError,
+  redactUrl,
 } from '../src/errors.js';
 
 describe('exitCodeForStatus', () => {
@@ -83,6 +84,30 @@ describe('fetchOrThrow', () => {
     const init = { method: 'POST', headers: { A: 'b' } };
     await fetchOrThrow('http://x/y', init, impl);
     expect(impl).toHaveBeenCalledWith('http://x/y', init);
+  });
+});
+
+describe('redactUrl', () => {
+  it('drops userinfo credentials', () => {
+    expect(redactUrl('https://user:s3cret@api.example/api/v1/documents')).toBe(
+      'https://api.example/api/v1/documents',
+    );
+  });
+
+  it('drops the query string and fragment', () => {
+    expect(
+      redactUrl('https://cdn.example/img.png?X-Amz-Signature=deadbeef#frag'),
+    ).toBe('https://cdn.example/img.png');
+  });
+
+  it('keeps scheme, host and path so failures stay diagnosable', () => {
+    expect(redactUrl('http://127.0.0.1:9/api/v1/x')).toBe(
+      'http://127.0.0.1:9/api/v1/x',
+    );
+  });
+
+  it('still strips secrets from an unparseable URL', () => {
+    expect(redactUrl('//user:pw@host/path?token=abc')).toBe('//host/path');
   });
 });
 

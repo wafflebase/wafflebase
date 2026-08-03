@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -8,7 +9,44 @@ import {
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
-import { EXIT_SYSTEM_ERROR, SystemError, fetchOrThrow } from '../errors.js';
+import {
+  SystemError,
+  exitCodeFor,
+  exitCodeForStatus,
+  fetchOrThrow,
+} from '../errors.js';
+
+/**
+ * A login failure worth reporting as prose. The exit code comes from the
+ * same `exitCodeForStatus` table the API commands use, so a stale CLI
+ * code (400) stays a user error while a rejected token or a broken
+ * server (401/403/5xx) reports a system error.
+ */
+export class LoginError extends Error {
+  constructor(
+    readonly exitCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LoginError';
+  }
+}
+
+function loginHttpError(status: number, message: string): LoginError {
+  return new LoginError(exitCodeForStatus(status), message);
+}
+
+/**
+ * Exit code for a thrown login failure, or `null` when the throw is not
+ * part of the contract (a bug, a local filesystem fault) and should keep
+ * its stack trace instead of being flattened to one prose line.
+ */
+export function classifyLoginFailure(error: unknown): number | null {
+  if (error instanceof LoginError || error instanceof SystemError) {
+    return exitCodeFor(error);
+  }
+  return null;
+}
 
 export function registerLoginCommand(program: Command): void {
   program
@@ -17,17 +55,93 @@ export function registerLoginCommand(program: Command): void {
     .action(async function (this: Command) {
       // `login` prints prose rather than the JSON error body, but it
       // honors the same exit contract: a server that was never reached
-      // is a system error, not bad user input. Only `SystemError` is
-      // handled here — anything else is a bug or a local failure and
-      // keeps its stack trace, exactly as before.
+      // is a system error, bad input from the caller is not. Anything
+      // unclassified is a bug and keeps its stack trace, as before.
       try {
         await runLogin(this);
       } catch (e) {
-        if (!(e instanceof SystemError)) throw e;
-        console.error(e.message);
-        process.exit(e.exitCode);
+        const exitCode = classifyLoginFailure(e);
+        if (exitCode === null) throw e;
+        console.error((e as Error).message);
+        process.exit(exitCode);
       }
     });
+}
+
+interface LoginSession {
+  tokens: { accessToken: string; refreshToken: string };
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    photo: string | null;
+  };
+  workspaces: WorkspaceInfo[];
+}
+
+/**
+ * Trade the callback code for a session: tokens, then the user, then the
+ * workspace list. Split out of `runLogin` (which owns the browser and
+ * the local callback server) so the exit contract of the three HTTP
+ * steps is testable with a stubbed `fetch`.
+ */
+export async function fetchLoginSession(
+  server: string,
+  code: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<LoginSession> {
+  const exchangeRes = await fetchOrThrow(
+    `${server}/auth/cli/exchange`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    },
+    fetchImpl,
+  );
+
+  if (!exchangeRes.ok) {
+    throw loginHttpError(
+      exchangeRes.status,
+      `Token exchange failed (HTTP ${exchangeRes.status}). Try again with \`wafflebase login\`.`,
+    );
+  }
+
+  const tokens = (await exchangeRes.json()) as {
+    accessToken: string;
+    refreshToken: string;
+  };
+
+  const meRes = await fetchOrThrow(
+    `${server}/auth/me`,
+    { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
+    fetchImpl,
+  );
+
+  if (!meRes.ok) {
+    throw loginHttpError(
+      meRes.status,
+      `Failed to fetch user info (HTTP ${meRes.status}).`,
+    );
+  }
+
+  const user = (await meRes.json()) as LoginSession['user'];
+
+  const wsRes = await fetchOrThrow(
+    `${server}/workspaces`,
+    { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
+    fetchImpl,
+  );
+
+  if (!wsRes.ok) {
+    throw loginHttpError(
+      wsRes.status,
+      `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+    );
+  }
+
+  const workspaces = (await wsRes.json()) as WorkspaceInfo[];
+  return { tokens, user, workspaces };
 }
 
 async function runLogin(cmd: Command): Promise<void> {
@@ -46,11 +160,18 @@ async function runLogin(cmd: Command): Promise<void> {
     }
   }
 
-  // 2. Start local HTTP server
-  const { port, waitForCallback, close } = await startCallbackServer();
+  // 2. Start local HTTP server, bound to a nonce we generate here. The
+  // callback listener is reachable by anything running on the machine
+  // (and by any web page that guesses the port), so the code alone is
+  // not enough: without the nonce a hostile page could hand us its own
+  // code and fix our CLI onto the attacker's account. The server echoes
+  // the nonce back through the OAuth round trip and we only accept a
+  // callback that carries it.
+  const nonce = randomBytes(32).toString('base64url');
+  const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
   // 3. Build OAuth URL and open browser
-  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
   console.error(`Opening browser: ${oauthUrl}`);
   console.error('If the browser does not open, visit the URL above.');
 
@@ -69,55 +190,8 @@ async function runLogin(cmd: Command): Promise<void> {
     close();
   }
 
-  // 5. Exchange code for tokens
-  const exchangeRes = await fetchOrThrow(`${server}/auth/cli/exchange`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
-
-  if (!exchangeRes.ok) {
-    console.error(
-      'Token exchange failed. Try again with `wafflebase login`.',
-    );
-    process.exit(EXIT_SYSTEM_ERROR);
-  }
-
-  const tokens = (await exchangeRes.json()) as {
-    accessToken: string;
-    refreshToken: string;
-  };
-
-  // 6. Get user info
-  const meRes = await fetchOrThrow(`${server}/auth/me`, {
-    headers: { Authorization: `Bearer ${tokens.accessToken}` },
-  });
-
-  if (!meRes.ok) {
-    console.error('Failed to fetch user info.');
-    process.exit(EXIT_SYSTEM_ERROR);
-  }
-
-  const user = (await meRes.json()) as {
-    id: number;
-    username: string;
-    email: string;
-    photo: string | null;
-  };
-
-  // 7. Get workspace list
-  const wsRes = await fetchOrThrow(`${server}/workspaces`, {
-    headers: { Authorization: `Bearer ${tokens.accessToken}` },
-  });
-
-  if (!wsRes.ok) {
-    console.error(
-      `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
-    );
-    process.exit(EXIT_SYSTEM_ERROR);
-  }
-
-  const workspaces = (await wsRes.json()) as WorkspaceInfo[];
+  // 5-7. Exchange the code for tokens, then read the user and workspaces.
+  const { tokens, user, workspaces } = await fetchLoginSession(server, code);
 
   // 8. Select workspace
   let activeWorkspace = '';
@@ -166,7 +240,15 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-function startCallbackServer(): Promise<{
+/** Constant-time compare that tolerates differing lengths. */
+function nonceMatches(received: string, expected: string): boolean {
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function startCallbackServer(expectedNonce: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -194,6 +276,19 @@ function startCallbackServer(): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
+        return;
+      }
+
+      // Reject (without settling) anything that does not carry the nonce
+      // we handed the server: an unrelated local request or a hostile
+      // page must not be able to complete — or cancel — this login.
+      const nonce = url.searchParams.get('nonce');
+      if (!nonce || !nonceMatches(nonce, expectedNonce)) {
+        res.writeHead(403);
+        res.end('Invalid login nonce');
+        console.error(
+          'Ignored a callback with a missing or mismatched nonce. If this repeats, the server may predate nonce-bound CLI login.',
+        );
         return;
       }
 

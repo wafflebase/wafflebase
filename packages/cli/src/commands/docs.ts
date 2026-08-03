@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { httpError } from '../errors.js';
+import { exitCodeForStatus, httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
@@ -192,9 +192,11 @@ export function registerDocsCommand(program: Command) {
           const body = res.data as { error?: { code?: string; message?: string } } | null;
           if (body?.error) {
             // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field.
+            // so agents reading stderr can act on the `code` field. The
+            // status still decides the exit class — a 401 SESSION_EXPIRED
+            // body must not read as a user error just because it is JSON.
             console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
+            process.exitCode = exitCodeForStatus(res.status);
             return;
           }
           throw httpError(res.status);
@@ -254,7 +256,7 @@ export function registerDocsCommand(program: Command) {
           const body = res.data as { error?: { code?: string; message?: string } } | null;
           if (body?.error) {
             console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
+            process.exitCode = exitCodeForStatus(res.status);
             return;
           }
           throw httpError(res.status);
