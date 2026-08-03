@@ -145,6 +145,7 @@ describe("FontSizePicker", () => {
       ).click();
     });
     expect(onStepMixed).toHaveBeenCalledWith(-1);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   test("onStepMixed is not called when value is defined (uniform selection)", () => {
