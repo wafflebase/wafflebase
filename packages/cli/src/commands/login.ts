@@ -8,7 +8,7 @@ import {
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
-import { EXIT_SYSTEM_ERROR, exitCodeFor, fetchOrThrow } from '../errors.js';
+import { EXIT_SYSTEM_ERROR, SystemError, fetchOrThrow } from '../errors.js';
 
 export function registerLoginCommand(program: Command): void {
   program
@@ -16,13 +16,16 @@ export function registerLoginCommand(program: Command): void {
     .description('Log in via GitHub OAuth in the browser')
     .action(async function (this: Command) {
       // `login` prints prose rather than the JSON error body, but it
-      // honors the same exit contract: a browser/OAuth flow that never
-      // reached the server is a system error, not bad user input.
+      // honors the same exit contract: a server that was never reached
+      // is a system error, not bad user input. Only `SystemError` is
+      // handled here — anything else is a bug or a local failure and
+      // keeps its stack trace, exactly as before.
       try {
         await runLogin(this);
       } catch (e) {
-        console.error(e instanceof Error ? e.message : String(e));
-        process.exit(exitCodeFor(e));
+        if (!(e instanceof SystemError)) throw e;
+        console.error(e.message);
+        process.exit(e.exitCode);
       }
     });
 }

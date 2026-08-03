@@ -1,4 +1,5 @@
 import type { DocxImageFetcher } from '@wafflebase/docs';
+import { fetchOrThrow, httpError } from '../errors.js';
 
 export interface ImageFetcherOptions {
   /**
@@ -46,9 +47,10 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   return async (url: string): Promise<Blob> => {
     const resolved = resolveImageUrl(url, opts.serverBase);
-    const res = await fetchImpl(resolved);
+    const res = await fetchOrThrow(resolved, undefined, fetchImpl);
     if (!res.ok) {
-      throw new Error(
+      throw httpError(
+        res.status,
         `Image fetch failed: ${res.status} ${res.statusText} for ${resolved}`,
       );
     }
