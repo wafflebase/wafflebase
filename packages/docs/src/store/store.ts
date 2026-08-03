@@ -79,6 +79,22 @@ export interface DocStore {
     toOffset: number,
     style: Partial<InlineStyle>,
   ): void;
+  /**
+   * Apply inline style to multiple (possibly cross-block) character ranges
+   * as a single undo unit. Prefer this over looping `applyStyle()` whenever
+   * one user action must write several distinct ranges in one step (e.g.
+   * relative font-size stepping over a mixed selection) — a loop of
+   * `applyStyle()` calls produces one undo unit per call on stores (like
+   * `YorkieDocStore`) whose undo granularity is tied to the write itself.
+   */
+  applyStyles(
+    edits: Array<{
+      blockId: string;
+      fromOffset: number;
+      toOffset: number;
+      style: Partial<InlineStyle>;
+    }>,
+  ): void;
   /** Split a block at offset, creating a new block after it. */
   splitBlock(
     blockId: string,
