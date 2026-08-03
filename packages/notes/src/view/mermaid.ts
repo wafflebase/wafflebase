@@ -26,10 +26,7 @@ export type MermaidTheme = 'default' | 'dark';
  */
 export interface MermaidLike {
   initialize(config: Record<string, unknown>): void;
-  render(
-    id: string,
-    text: string,
-  ): Promise<{ svg: string; bindFunctions?: (el: Element) => void }>;
+  render(id: string, text: string): Promise<{ svg: string }>;
 }
 
 /** Resolves the mermaid engine, or `null` when it cannot be loaded. */
@@ -42,7 +39,7 @@ const PENDING_ATTR = 'data-mermaid-pending';
 const ERROR_ATTR = 'data-mermaid-error';
 
 /** Selects placeholders that still need a render attempt. */
-export const MERMAID_PENDING_SELECTOR = `.${BLOCK_CLASS}[${PENDING_ATTR}]`;
+const PENDING_SELECTOR = `.${BLOCK_CLASS}[${PENDING_ATTR}]`;
 
 type Rendered = { svg: string } | { error: string };
 
@@ -111,9 +108,7 @@ export async function renderMermaidBlocks(
   const load = options.load ?? loadMermaid;
 
   const pending: Array<{ el: Element; source: string; key: string }> = [];
-  for (const el of Array.from(
-    root.querySelectorAll(MERMAID_PENDING_SELECTOR),
-  )) {
+  for (const el of Array.from(root.querySelectorAll(PENDING_SELECTOR))) {
     const source = el.querySelector(`.${SOURCE_CLASS}`)?.textContent ?? '';
     const key = `${theme} ${source}`;
     const cached = renderCache.get(key);
