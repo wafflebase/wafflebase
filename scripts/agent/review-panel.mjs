@@ -1750,12 +1750,21 @@ const VERIFIER_FAILURE_KINDS = Object.freeze({ "api-error": "apiError", limit: "
 /**
  * Tally `recordVerifierFailure` records into the shape `lensStats` reports.
  *
- * Deliberately separate from `verifierTally`'s `errored`, and BOTH are kept. Their
- * DIFFERENCE is the measurement: `errored` counts blocking findings that ended with
- * no usable verdict, which includes `resolveClusterVerdict` handing back a folded
- * wording's missing verdict — not an error at all. `errored - failures.total` is
- * therefore the fold-null count, and collapsing the two would hide it. Same
- * report-both idiom this file already uses for `refutedHighConfidence` vs `dropped`.
+ * Deliberately separate from `verifierTally`'s `errored`, and BOTH are kept — but
+ * they are counted in DIFFERENT UNITS and must never be subtracted:
+ *
+ *   errored        — blocking FINDINGS that ended with no usable verdict
+ *   failures.total — verifier SESSIONS that threw
+ *
+ * One clustered finding can consume several sessions: the representative, then one
+ * per folded wording (only when the representative's verdict drops — see
+ * `resolveClusterVerdict`). So a cluster whose rep drops and whose two folds both
+ * throw records TWO failures and ONE errored finding, and the reverse also happens
+ * — a finding can end with no verdict having thrown nothing at all.
+ *
+ * Each is useful on its own: `errored` says how much of the gate went unfiltered,
+ * `failures` says what went wrong and therefore what to do about it. Neither
+ * derives from the other.
  */
 export function verifierFailureCounts(failures) {
   const out = { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 };
@@ -2201,11 +2210,10 @@ async function main() {
         absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
         unresolved: freshTally.unresolved + priorTally.unresolved,
         errored: freshTally.errored + priorTally.errored,
-        // Both passes' failures in one tally. `errored` is UNCHANGED and stays
-        // the count of blocking findings that ended with no usable verdict; this
-        // is the subset where a session actually threw, broken down by cause.
-        // `errored - failures.total` is therefore the fold-null count, which is
-        // not an error at all — see verifierFailureCounts.
+        // Both passes' failures in one tally. `errored` is UNCHANGED and stays a
+        // count of FINDINGS; this counts SESSIONS, and the two are not
+        // comparable — see verifierFailureCounts for why one clustered finding
+        // can throw several times.
         failures: verifierFailureCounts(failures),
       },
       // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this

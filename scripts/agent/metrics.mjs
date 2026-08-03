@@ -558,13 +558,18 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
       // the presence ceiling and read as an outage), `no-output` means the model
       // ran and produced nothing usable. Absent on rounds recorded before this
       // shipped, and omitted when nothing threw, so quiet rounds stay quiet.
+      // Counted in SESSIONS, while `errored` above counts FINDINGS — say so, and
+      // do not subtract them. One clustered finding can consume several verifier
+      // sessions (the representative, then one per folded wording), so the two
+      // move independently in both directions: three sessions can throw for one
+      // errored finding, and a finding can end with no verdict having thrown
+      // nothing. An earlier draft rendered `errored - total` as a "folded
+      // wording" remainder; that is arithmetic across two different units and it
+      // goes negative on exactly the cluster case above.
       ...(vf && vf.total
-        ? [`- Verifier failures: ${vf.apiError || 0} api-error, ${vf.limit || 0} turn-limit, `
-           + `${vf.noOutput || 0} no-output${vf.unknown ? `, ${vf.unknown} unknown` : ""}`
-           // The remainder is NOT an error: `resolveClusterVerdict` returns a
-           // folded wording's missing verdict, which lands in `errored` too.
-           // Naming it stops the two numbers looking like a contradiction.
-           + (v.errored > vf.total ? ` (+${v.errored - vf.total} folded wording(s) with no verdict)` : "")]
+        ? [`- Verifier failures: ${vf.total} session(s) threw — ${vf.apiError || 0} api-error, `
+           + `${vf.limit || 0} turn-limit, ${vf.noOutput || 0} no-output`
+           + `${vf.unknown ? `, ${vf.unknown} unknown` : ""}`]
         : []),
       // `dropped` ≤ `refutedHighConfidence`: a confident refutation only drops
       // the finding when it names a ground and cites what it read. The GAP is

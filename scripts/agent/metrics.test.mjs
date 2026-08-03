@@ -499,14 +499,30 @@ test("renderSummary: verifier failures are broken down, and stay silent with no 
     }),
   });
   assert.match(withFailures, /Verifier ERRORED on 8 of 18/);
-  assert.match(withFailures, /- Verifier failures: 1 api-error, 6 turn-limit, 1 no-output/);
-  // Every session threw, so there is no fold remainder to explain.
+  // Units are stated, because `errored` above counts findings and this counts
+  // sessions — nothing here may be derived from the difference.
+  assert.match(withFailures, /- Verifier failures: 8 session\(s\) threw — 1 api-error, 6 turn-limit, 1 no-output/);
   assert.doesNotMatch(withFailures, /folded wording/);
 
-  // `errored` counts blocking findings with no usable verdict, which also
-  // catches a folded wording whose verdict never arrived. Naming the remainder
-  // stops 3-vs-1 reading as a contradiction.
-  const withFolds = renderSummary({
+  // MORE sessions than errored findings: one clustered finding whose two folded
+  // wordings both threw. An earlier draft rendered `errored - total` here, which
+  // is -1. The line must render cleanly, with no remainder and no negative.
+  const clustered = renderSummary({
+    ...base,
+    panelStats: stats({
+      sentToVerifier: 5, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 1,
+      absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+      failures: { apiError: 0, limit: 2, noOutput: 0, unknown: 0, total: 2 },
+    }),
+  });
+  assert.match(clustered, /- Verifier failures: 2 session\(s\) threw — 0 api-error, 2 turn-limit, 0 no-output/);
+  assert.doesNotMatch(clustered, /folded wording/);
+  // Scoped to the failures line: a repo-wide /-\d/ would match "claude-opus-5".
+  const failuresLine = clustered.split("\n").find((l) => l.startsWith("- Verifier failures:"));
+  assert.doesNotMatch(failuresLine, /-\s*\d|\(\+/, `no negative or remainder in: ${failuresLine}`);
+
+  // FEWER sessions than errored findings — the other direction, also fine.
+  const fewer = renderSummary({
     ...base,
     panelStats: stats({
       sentToVerifier: 5, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 3,
@@ -514,7 +530,8 @@ test("renderSummary: verifier failures are broken down, and stay silent with no 
       failures: { apiError: 1, limit: 0, noOutput: 0, unknown: 0, total: 1 },
     }),
   });
-  assert.match(withFolds, /- Verifier failures: 1 api-error, 0 turn-limit, 0 no-output \(\+2 folded wording\(s\) with no verdict\)/);
+  assert.match(fewer, /- Verifier failures: 1 session\(s\) threw — 1 api-error, 0 turn-limit, 0 no-output/);
+  assert.doesNotMatch(fewer, /folded wording/);
 
   // A round recorded before this shipped carries no `failures` at all, and a
   // healthy round has nothing to report. Both must render byte-identically to

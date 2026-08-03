@@ -532,25 +532,38 @@ test("verifierFailureCounts: buckets by kind, unknown catches the rest", () => {
   assert.equal(verifierFailureCounts([]).total, 0);
 });
 
-test("`errored` stays wider than `failures.total`, and the gap is the measurement", () => {
-  // Both are reported because their DIFFERENCE is the number nobody could see
-  // before: `errored` counts blocking findings that ended with no usable
-  // verdict, which includes resolveClusterVerdict handing back a folded
-  // wording's missing verdict — not a thrown session. Collapsing them would hide
-  // that, and make a fold look like an outage.
-  const findings = [
-    { severity: "major", summary: "a" },
-    { severity: "major", summary: "b" },
-    { severity: "minor", summary: "c" }, // never sent, so never counted
-  ];
-  const verdicts = [null, null, null];
-  const tally = verifierTally(findings, verdicts);
-  assert.equal(tally.sentToVerifier, 2);
-  assert.equal(tally.errored, 2, "both blocking findings ended with no verdict");
-  // Only ONE of them threw; the other was a fold with no verdict.
-  const failures = verifierFailureCounts(recordVerifierFailure([], { kind: "limit" }));
-  assert.equal(failures.total, 1);
-  assert.equal(tally.errored - failures.total, 1, "the remainder is the fold-null count");
+test("`errored` and `failures.total` are different units and must not be subtracted", () => {
+  // errored counts FINDINGS, failures.total counts SESSIONS, and one clustered
+  // finding can consume several sessions. Worked example, which is the case that
+  // sinks any subtraction:
+  //
+  //   a finding with two folded wordings, whose representative verdict DROPS
+  //   → the caller re-verifies both folds (it only does so when the rep drops)
+  //   → both fold sessions throw            → failures.total = 2
+  //   → resolveClusterVerdict sees drops(null) === false for fold 0
+  //     and returns null, so the finding has no verdict → errored = 1
+  //
+  // errored - failures.total is -1 there. Reported side by side, never derived.
+  const rep = { severity: "major", summary: "clustered", mergedFrom: [{ severity: "major" }, { severity: "major" }] };
+  const foldVerdicts = [null, null]; // both fold sessions threw
+  const dropping = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.mjs:1"] };
+  const resolved = resolveClusterVerdict(rep, dropping, rep.mergedFrom, foldVerdicts);
+  assert.equal(resolved, null, "a fold with no verdict keeps the cluster (fail toward blocking)");
+
+  const tally = verifierTally([rep], [resolved]);
+  assert.equal(tally.errored, 1, "one FINDING ended with no verdict");
+  const failures = verifierFailureCounts([{ kind: "limit" }, { kind: "limit" }]);
+  assert.equal(failures.total, 2, "two SESSIONS threw");
+  assert.ok(failures.total > tally.errored, "sessions can exceed findings — the subtraction would go negative");
+});
+
+test("a finding can end with no verdict having thrown nothing", () => {
+  // The other direction, which is why the reverse subtraction is wrong too: a
+  // non-blocking finding is never sent, and a blocking one whose verification
+  // was simply never run carries a null verdict without any session throwing.
+  const tally = verifierTally([{ severity: "major", summary: "a" }], [null]);
+  assert.equal(tally.errored, 1);
+  assert.equal(verifierFailureCounts([]).total, 0);
 });
 
 test("runLens forwards the manifest effort, and the verifier does not", () => {
