@@ -12,6 +12,7 @@
     "verify:frontend:chunks": "node ./scripts/verify-frontend-chunks.mjs",
     "verify:frontend:visual": "pnpm frontend test:visual:browser",
     "verify:frontend:interaction": "pnpm frontend test:interaction",
+    "verify:hunt:oracles": "pnpm frontend test:hunt-oracles",
     "verify:browser:docker": "pnpm frontend test:browser:docker",
     "verify:browser:docker:update": "pnpm frontend test:visual:browser:docker:update",
     "verify:entropy": "node ./scripts/verify-entropy.mjs",
