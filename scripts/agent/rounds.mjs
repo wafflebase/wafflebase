@@ -10,6 +10,23 @@
 // identity behind fixer pushes has already changed once in this pipeline's
 // history, so parent count — not who pushed — is the durable signal.
 
+/**
+ * The marker that latches a PR as "handed to a human". Written by
+ * review-round-guard.mjs's `page()` and by the `stalled` job, and read back by
+ * BOTH of the pipeline's stop conditions:
+ *
+ *   - review-round-guard.mjs, to stop dispatching the fixer;
+ *   - agent-review-panel.yml's `gate` job, to stop running the panel at all.
+ *
+ * It lives here, exported, because those two readers are a JS module and a
+ * `github-script` step that cannot import one (the `gate` job does no checkout).
+ * The workflow therefore carries a literal copy, and `rounds.test.mjs` asserts
+ * the two are byte-identical — a drifted copy would not error, it would just
+ * silently stop latching, which is the failure mode this constant exists to
+ * prevent.
+ */
+export const PAGED_LATCH = "<!-- agent-review-paged -->";
+
 /** A commit is a "fixer" commit iff it has exactly one parent. */
 export function isFixerCommit(commit) {
   return Array.isArray(commit?.parents) && commit.parents.length === 1;
