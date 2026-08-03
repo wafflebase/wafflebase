@@ -909,9 +909,11 @@ Components:
   exhausted: `detectStalledRounds` needs `minRepeats + 1` = 3 rounds of evidence
   before it can report a stall, so no earlier non-convergence page is possible,
   and rounds 4-5 were a PR paying a full panel round each (~$12) on the way to a
-  page that was already inevitable. Note this bounds the **fixer**, not panel
-  spend: the guard runs in the `fix` job, so a paged PR still re-reviews on every
-  CI-green push. `scripts/agent/rounds.mjs`'s
+  page that was already inevitable. Note this bounds the **fixer** directly; panel
+  spend after a page is bounded separately, by the paged latch in the `gate` job
+  (the round guard runs in `fix`, downstream of `review-panel`, so on its own it
+  left a paged PR re-reviewing on every CI-green push — five rounds and $53.98 on
+  #605). `scripts/agent/rounds.mjs`'s
   `detectStalledRounds` (wired into
   `scripts/agent/review-round-guard.mjs`, checked BEFORE the round cap so the
   more specific reason wins) pages as soon as two consecutive round pairs both
@@ -927,6 +929,41 @@ Components:
   than manufacture a page, since `MAX_REVIEW_ROUNDS` still backstops and a
   spurious page is the costlier error. Tuned via `STALL_REPEATS` /
   `STALL_SIMILARITY`.
+- **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
+  `concurrency` group keyed on the PR's head branch with `cancel-in-progress`.
+  Two CI completions close together (a re-run, or a push landing mid-round) used
+  to start two full pipelines against the same branch, and it broke two PRs in
+  distinguishable ways. **#605**: two panels finished in the *same second* with
+  identical `external_id` and contradictory verdicts — correctness 1 major vs 2
+  major, docs success vs failure — twelve check runs for six lenses, last writer
+  wins. **#648**, worse because the panel dispatches a fixer: two fixers ran on
+  one branch for 21 overlapping minutes on the same nine findings; the later
+  converged in 76 turns and pushed, the earlier crossed its 80-turn ceiling and
+  failed, and `stalled` then paged *"the requested changes were not applied"* when
+  they had just been applied by the other run. Cancel rather than queue — a
+  superseded panel is reviewing a sha that is no longer the head, so its verdict is
+  stale before it is written.
+
+  Two consequences worth stating because each is a trap. The `stalled` job moved
+  from `always()` to `!cancelled()`: under `always()` a cancelled run still paged,
+  because a panel cancelled before it started reports `skipped`, which is one of
+  its trigger conditions — so the guard would have latched a PR to
+  `agent:blocked` at the moment a fresher round was starting, and the latch would
+  then stop that round. And the group key must not include `run_id`, or it matches
+  only itself and guards nothing.
+- **The fixer's turn ceiling is 200**, above `agent-implement`'s 150. The fixer
+  must first READ code it did not write, at locations the panel chose, then fix
+  every finding in one pass because the prompt tells it to converge in one round.
+  At 80 it died at exactly 81 turns on #648 while a concurrent duplicate landed
+  the same work in 76 — not a margin, a coin flip. The ceiling is a backstop
+  against a runaway loop, not a budget: `MAX_REVIEW_ROUNDS` and the 45-minute job
+  timeout both bind well before 200 turns of useful work does.
+- **A page must not guess.** The `stalled` page distinguishes three states when the
+  fixer job fails — the branch advanced (changes applied, unreviewed), it did not
+  (nothing pushed), or the head could not be read (say so). The flat
+  "the requested changes were not applied" was simply false on #648, and because a
+  page is the one message a human is guaranteed to read, it sent the investigation
+  after an unresponsive fixer instead of an unreviewed commit.
 
 Human gate (mechanical, not prompt-based): branch protection on `main` requires a
 human approving review + CI green + dismiss-stale-approvals; the `agent-implement`

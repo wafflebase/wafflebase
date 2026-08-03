@@ -21,6 +21,39 @@ on:
     workflows: ["CI"]
     types: [completed]
 
+# ONE panel per PR at a time. Without this, two CI completions close together
+# (a re-run, or a push landing while an earlier round is still in flight) start
+# two full pipelines against the same branch, and it has now broken two PRs in
+# distinguishable ways:
+#
+#   #605 — two panels finished in the SAME SECOND with identical `external_id`
+#          (same reviewed sha, same base, mode full) and CONTRADICTORY verdicts:
+#          correctness 1 major vs 2 major, docs success vs failure. Twelve check
+#          runs for six lenses; whichever wrote last became the truth.
+#   #648 — worse, because the panel dispatches a fixer. Two fixers ran on the
+#          same branch for 21 overlapping minutes on the same nine findings. The
+#          later one converged in 76 turns and pushed; the earlier one crossed
+#          its 80-turn ceiling and its job failed, which made `stalled` page
+#          "the requested changes were not applied" — false, they had just been
+#          applied by the other run. The paged latch then froze the PR, so the
+#          fix that DID land was never reviewed. ~$22 spent, a third of it on a
+#          duplicate that could only lose.
+#
+# CANCEL, not queue: a superseded panel is reviewing a sha that is no longer the
+# head, so its verdict is stale before it is written, and queueing would pay for
+# it in full and then discard it. Cancelling mid-fixer is safe — the fixer only
+# ever appends a commit, and the round the cancellation belongs to is re-run by
+# the push that superseded it.
+#
+# Keyed on the PR's head BRANCH, which is what the `workflow_run` payload
+# carries; the PR number is not resolved until the `gate` job. Two different PRs
+# never share a branch, so this is per-PR in practice. `run_id` is deliberately
+# NOT in the key — that is the mistake that makes a concurrency group match only
+# itself and guard nothing.
+concurrency:
+  group: agent-review-panel-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
 permissions: {}
 
 env:
@@ -1251,8 +1284,20 @@ jobs:
             push whose hook output is very large can report non-zero even though the
             ref advanced. If the remote head did not advance, push again before your
             turn ends.
+          # 200, up from 80. On #648 the fixer had nine blocking findings across
+          # 31 files and died at exactly 81 turns — while a concurrent duplicate
+          # doing the same work landed it in 76. That is not a comfortable margin,
+          # it is a coin flip, and the loser costs a full round plus a page.
+          #
+          # Higher than agent-implement's 150 on purpose: the implementer writes
+          # a change it planned itself, while the fixer must first READ code it
+          # did not write at locations the panel chose, then fix every finding in
+          # one pass because the prompt tells it to converge in one round. The
+          # ceiling is a backstop against a runaway loop, not a budget — cost is
+          # bounded by MAX_REVIEW_ROUNDS and the 45-minute job timeout, both of
+          # which bind well before 200 turns of useful work does.
           claude_args: >-
-            --max-turns 80
+            --max-turns 200
             --model claude-opus-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
@@ -1333,8 +1378,20 @@ jobs:
   # a silently-skipped review on a PR that might have been managed.
   stalled:
     needs: [gate, deps, review-panel, promote, fix]
+    # `!cancelled()`, NOT `always()`. This changed with the concurrency guard at
+    # the top of the file: a superseded run is now cancelled mid-flight, and under
+    # `always()` this job still fired — a panel cancelled before it started reports
+    # `skipped`, which is one of the trigger conditions below. That would page a
+    # human and latch the PR to `agent:blocked` at the exact moment a FRESHER round
+    # was starting, and the latch would then stop that round from ever running.
+    #
+    # A spurious page is the worst failure this job has, because the page is
+    # sticky: it is the signal every other part of the pipeline treats as "a human
+    # owns this now". `!cancelled()` still fires on every genuine failure — a
+    # failed dependency is not a cancellation — so nothing this job was built to
+    # catch is lost.
     if: >-
-      always() &&
+      !cancelled() &&
       (needs.gate.result == 'failure' ||
        (needs.gate.outputs.managed == 'true' &&
         (needs.deps.result == 'failure' ||
@@ -1374,9 +1431,35 @@ jobs:
               deps: process.env.DEPS_RESULT, panel: process.env.PANEL_RESULT,
               promote: process.env.PROMOTE_RESULT, fix: process.env.FIX_RESULT,
             };
+            // Did the branch move? `workflow_run.head_sha` is the sha this panel
+            // reviewed; `pr.head.sha` is the branch NOW. A fix job can fail with
+            // the changes already pushed — its own commit landed and a later step
+            // died, or (before the concurrency guard above) a duplicate run pushed
+            // while this one burned its turn ceiling.
+            //
+            // On #648 the flat "the requested changes were not applied" was simply
+            // FALSE: `102e0fa73` was on the branch and CI-green three minutes
+            // before this comment was written. That sentence then sent a human
+            // looking for an unresponsive fixer instead of an unreviewed commit,
+            // and the paged latch meant nothing ever reviewed it. A page is the
+            // one message a human is guaranteed to read, so it is the last place
+            // that should guess.
+            // Three states, not two. "We could not read the head" must not print
+            // as "pushed nothing" — that is the same false certainty in a
+            // different place, and it would be wrong exactly when a human most
+            // needs to know where to look.
+            const reviewedSha = context.payload.workflow_run.head_sha;
+            const headSha = typeof pr.head?.sha === 'string' ? pr.head.sha : '';
+            const advanced = headSha === '' ? null : headSha !== reviewedSha;
+            const fixReason =
+              advanced === null
+                ? "the fixer agent's job failed, and this run could not read the branch head to tell whether anything was pushed — check the branch before assuming the changes are missing"
+                : advanced
+                  ? `the fixer agent's job failed, but the branch DID advance to \`${headSha.slice(0, 9)}\` — changes were applied and have NOT been reviewed (a common cause is the fixer exhausting its turn budget after pushing)`
+                  : 'the fixer agent failed and pushed nothing, so the requested changes were not applied';
             // First matching cause wins (fix/promote are downstream of the panel).
             const reason =
-              r.fix === 'failure' ? 'the fixer agent failed, so the requested changes were not applied'
+              r.fix === 'failure' ? fixReason
               : r.promote === 'failure' ? 'the ready-gate (promotion) step errored'
               : r.panel === 'failure' ? 'the review-panel job failed to complete'
               : (r.panel === 'skipped' || r.deps === 'failure') ? 'the review panel could not start (dependency setup failed)'
