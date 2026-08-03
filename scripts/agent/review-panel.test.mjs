@@ -48,6 +48,8 @@ import {
   clusterFindings,
   clusterCounts,
   resolveClusterVerdict,
+  sameFinding,
+  planPriorVerifications,
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
@@ -611,6 +613,111 @@ test("both verifier catch sites record the failure instead of swallowing it", ()
   // would count that prose as a regression.
   const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
   assert.ok(!/\.catch\(\(\) => null\)/.test(code), "no verifier catch may discard the error");
+});
+
+// --- one verdict per claim, not one per list the claim appears in ----------
+
+test("sameFinding: dedupeFindings' key, and never looser than it", () => {
+  const f = (over) => ({ severity: "major", file: "a.ts", summary: "Missing null check", ...over });
+  // Case and surrounding whitespace are not the claim, exactly as in the key.
+  assert.ok(sameFinding(f(), f({ summary: "  MISSING NULL CHECK " })));
+  // Neither are the fields the carry-forward round trip rewrites anyway: it
+  // normalises severity and truncates evidence at 2000 chars, so requiring them
+  // would make this never fire on the one path it exists for.
+  assert.ok(sameFinding(f(), f({ severity: "critical", evidence: "line 12", searchedFor: ["x"] })));
+  assert.ok(!sameFinding(f(), f({ file: "b.ts" })), "a different file is a different claim");
+  assert.ok(!sameFinding(f(), f({ summary: "Missing bounds check" })));
+
+  // NEVER LOOSER THAN THE MERGE. Two findings this calls the same are two
+  // `dedupeFindings` was always going to collapse into one, which is the entire
+  // safety argument for skipping the second verification. The converse is not
+  // asserted: this is deliberately STRICTER in the two cases below.
+  const pairs = [
+    [f(), f()], [f(), f({ summary: " MISSING NULL CHECK" })], [f(), f({ file: "b.ts" })],
+    [f(), f({ summary: "other" })], [f(), f({ severity: "nit" })],
+  ];
+  for (const [a, b] of pairs) {
+    if (sameFinding(a, b)) assert.equal(dedupeFindings([a, b]).length, 1, `merge disagrees: ${b.file} ${b.summary}`);
+  }
+});
+
+test("sameFinding: claim type and empty summaries, where it is stricter than the key", () => {
+  const f = (over) => ({ severity: "major", file: "a.ts", summary: "No test covers parseX", ...over });
+  // Same words, opposite job. An absence claim is refuted by finding ONE
+  // counterexample and gets its own turn budget and its own dropping grounds, so
+  // a presence verdict cannot settle it however identically it is worded — and
+  // `dedupeFindings` WOULD collapse this pair, which is why it is checked here.
+  assert.ok(!sameFinding(f({ claimType: "absence" }), f()));
+  assert.ok(sameFinding(f({ claimType: "absence" }), f({ claimType: "absence" })));
+  assert.equal(dedupeFindings([f({ claimType: "absence" }), f()]).length, 1,
+    "the merge does collapse these — the claim-type guard is this rule's own");
+
+  // No summary, no claim to match on. `coerceFindings` rewrites a malformed
+  // summary to one shared placeholder, and two placeholders are not one defect.
+  assert.ok(!sameFinding(f({ summary: "" }), f({ summary: "" })));
+  // Both orders: the guard reads only the first argument, so symmetry rests on
+  // the keys differing in the other direction. It is the kind of thing that
+  // breaks silently, and an asymmetric "same" is a plan that depends on which
+  // list a finding happened to be in.
+  assert.ok(!sameFinding(f({ summary: "   " }), f()));
+  assert.ok(!sameFinding(f(), f({ summary: "   " })));
+  for (const junk of [null, undefined, "nope", 7, []]) {
+    assert.ok(!sameFinding(junk, f()), `junk must match nothing: ${JSON.stringify(junk)}`);
+    assert.ok(!sameFinding(f(), junk), `junk must match nothing: ${JSON.stringify(junk)}`);
+  }
+});
+
+test("planPriorVerifications: a re-found prior inherits its fresh twin's verdict", () => {
+  const detected = [
+    { severity: "major", file: "a.ts", summary: "Missing null check" },
+    { severity: "minor", file: "b.ts", summary: "Naming nit" },
+  ];
+  const prior = [
+    { severity: "major", file: "a.ts", summary: "  missing null check " }, // re-found → reuse
+    { severity: "major", file: "c.ts", summary: "Missing null check" },    // other file → verify
+    // The TRAP: the fresh twin is MINOR, so `verifyBlocking` never sent it and
+    // its verdict is null. Inheriting that would put a blocking finding on the
+    // gate unverified — `dedupeFindings` keeps the higher severity — where today
+    // it is checked. Reuse must require BOTH sides to be blocking.
+    { severity: "major", file: "b.ts", summary: "Naming nit" },
+    { severity: "nit", file: "a.ts", summary: "Missing null check" },      // never verified anyway
+  ];
+  const plan = planPriorVerifications(detected, prior);
+  assert.deepEqual(plan.reuseIdx, [0, -1, -1, -1]);
+  assert.deepEqual(plan.sentIdx, [1, 2, 3]);
+  // The two outputs are one decision expressed twice; nothing may fall between.
+  assert.equal(plan.reuseIdx.length, prior.length);
+  assert.deepEqual(plan.sentIdx, plan.reuseIdx.map((j, i) => (j < 0 ? i : -1)).filter((i) => i >= 0));
+});
+
+test("planPriorVerifications: claim type splits, and junk plans nothing", () => {
+  const absence = { severity: "major", file: "a.ts", summary: "No test covers parseX", claimType: "absence" };
+  const presence = { severity: "major", file: "a.ts", summary: "No test covers parseX" };
+  assert.deepEqual(planPriorVerifications([presence], [absence]).reuseIdx, [-1],
+    "a presence verdict must not settle an absence claim");
+  assert.deepEqual(planPriorVerifications([absence], [absence]).reuseIdx, [0]);
+
+  // Runs inside the per-lens path with a prior-findings file the panel does not
+  // control (`parsePriorFindings` only guarantees "objects"), so it must plan
+  // rather than throw. Everything unmatched simply gets verified, as today.
+  assert.deepEqual(planPriorVerifications(null, null), { reuseIdx: [], sentIdx: [] });
+  assert.deepEqual(planPriorVerifications([null, "x"], [null, {}, presence]).reuseIdx, [-1, -1, -1]);
+});
+
+test("the prior tally counts the SENT subset, not every prior finding", () => {
+  // The one link a unit test cannot reach: main() opens sessions. Two things must
+  // hold together or the change reports a saving it did not make — the verify
+  // loop must inherit on a match, and the tally must then exclude those. Tallying
+  // `priorForLens` would count one session twice in `sentToVerifier` and land a
+  // second `errored` on a finding the fresh pass already counted.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  // Code lines only: the docblocks below quote both shapes to explain them, and a
+  // whole-file grep would read that prose as the code it warns about.
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  assert.match(code, /if \(reuseIdx\[i\] >= 0\) return verdicts\[reuseIdx\[i\]\] \?\? null;/,
+    "the verify loop must inherit the fresh verdict on a match");
+  assert.match(code, /verifierTally\(\s*sentIdx\.map/, "the prior tally must read the sent subset");
+  assert.ok(!/verifierTally\(priorForLens/.test(code), "the prior tally must not read every prior finding");
 });
 
 test("main() validates every manifest effort before spending a token", () => {
@@ -2571,6 +2678,28 @@ test("buildStageDetail: verifications cover only what reached the verifier", () 
   const errored = buildStageDetail({ fresh: [major], freshVerdicts: [] });
   assert.equal(errored.verifications[0].verdict, null);
   assert.equal(errored.verifications[0].dropped, false);
+});
+
+test("buildStageDetail: an inherited prior verdict is marked as one", () => {
+  // The capture is the durable, replayable record of what the round did. A prior
+  // row whose verdict came from its fresh twin looks, unmarked, exactly like a
+  // row a session produced — so counting "prior-round verifications" in it would
+  // overstate the spend by precisely what the reuse saves.
+  const major = { severity: "major", file: "a.ts", summary: "blocking" };
+  const other = { severity: "major", file: "b.ts", summary: "also blocking" };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const detail = buildStageDetail({
+    fresh: [major], freshVerdicts: [keep],
+    prior: [major, other], priorVerdicts: [keep, keep], priorReuseIdx: [0, -1],
+  });
+  const prior = detail.verifications.filter((v) => v.population === "prior-round");
+  assert.equal(prior[0].reused, true, "the re-found one inherited its verdict");
+  // Absent, not false: every row written before this shipped, and every row that
+  // really was verified, keeps its exact previous shape.
+  assert.ok(!("reused" in prior[1]), "a genuinely verified prior row is unmarked");
+  assert.ok(!("reused" in detail.verifications.find((v) => v.population === "fresh")));
+  const noPlan = buildStageDetail({ prior: [major], priorVerdicts: [keep] });
+  assert.ok(!("reused" in noPlan.verifications[0]), "an omitted plan marks nothing");
 });
 
 test("buildStageDetail: derives only — it never mutates its inputs", () => {
