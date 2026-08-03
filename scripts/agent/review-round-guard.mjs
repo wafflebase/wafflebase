@@ -21,6 +21,7 @@ import {
   detectStalledRounds,
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
+  isPagedLatchComment,
 } from "./rounds.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
@@ -92,8 +93,11 @@ function page(msg) {
 // PAGED latch: paginate ALL comments (an iterating PR can exceed one page),
 // so a later page isn't missed and the fix loop doesn't re-fire after a human
 // was already paged.
+// AUTHOR-CHECKED: this repo is public, so a body test alone would let any
+// GitHub account stop the fix loop by pasting the marker. See
+// isPagedLatchComment.
 const comments = listAll(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`);
-if (comments.some((c) => (c.body ?? "").includes(PAGED))) {
+if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
   process.exit(0);
 }

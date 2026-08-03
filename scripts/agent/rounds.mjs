@@ -27,6 +27,42 @@
  */
 export const PAGED_LATCH = "<!-- agent-review-paged -->";
 
+/**
+ * Bot identities allowed to WRITE the latch. Both are real: the guard and the
+ * `stalled` job comment with `secrets.GITHUB_TOKEN` (`github-actions[bot]`),
+ * while the fix job's branch-head page uses the App token (`yorkie-agent[bot]`).
+ *
+ * A login allow-list is sound because GitHub reserves the `[bot]` suffix for
+ * Apps — no account can register one of these names.
+ */
+export const PAGE_AUTHOR_LOGINS = Object.freeze(["github-actions[bot]", "yorkie-agent[bot]"]);
+
+/** Associations that mean "has write access to this repo". */
+const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+/**
+ * Does this comment legitimately latch the PR as handed-to-a-human?
+ *
+ * The marker alone is NOT enough, and this repo is PUBLIC: anyone with a GitHub
+ * account can comment on a PR, so a body test on its own lets a stranger post
+ * `<!-- agent-review-paged -->` and permanently stop the fixer AND the review
+ * panel on any agent PR. Denial of review, from an unauthenticated position.
+ *
+ * `author_association` cannot carry this on its own — the writing bots report
+ * `CONTRIBUTOR`, the same value an arbitrary outside contributor gets. So trust
+ * is either an allow-listed bot login, or a human who actually has write access
+ * (a maintainer halting the pipeline by hand stays supported).
+ *
+ * Pure and total: any unknown shape is untrusted, which fails toward reviewing.
+ */
+export function isPagedLatchComment(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  if (!String(c.body ?? "").includes(PAGED_LATCH)) return false;
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  if (user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+  return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
+}
+
 /** A commit is a "fixer" commit iff it has exactly one parent. */
 export function isFixerCommit(commit) {
   return Array.isArray(commit?.parents) && commit.parents.length === 1;
