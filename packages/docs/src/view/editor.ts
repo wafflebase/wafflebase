@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
@@ -75,6 +75,17 @@ export interface EditorAPI {
   };
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
+  /**
+   * Step the font size of every inline run intersecting the current
+   * selection by `delta`, relative to each run's OWN effective size —
+   * not a single absolute value (contrast `applyStyle({ fontSize })`,
+   * which writes one value to the whole selection). `clamp` is
+   * caller-supplied: this package has no opinion on legal size bounds,
+   * the frontend passes FONT_SIZE_MIN/MAX. A collapsed caret has only
+   * one "current" value, so it steps that value directly via the same
+   * path as `applyStyle`. See docs-font-controls.md, issue #343.
+   */
+  stepSelectionFontSize(delta: number, clamp: (n: number) => number): void;
   /**
    * Strip all character-level inline styles (bold, italic, underline,
    * strikethrough, super/subscript, font size, font family, color,
@@ -1054,6 +1065,163 @@ export function initialize(
         }
       }
     }
+    render();
+    notifyStyleApplied();
+  }
+
+  /**
+   * Step the font size of every inline run intersecting the current
+   * selection by `delta`, relative to each run's own effective size.
+   * See the `EditorAPI.stepSelectionFontSize` doc comment and
+   * docs-font-controls.md (issue #343).
+   *
+   * Two passes: first a read-only walk collects `{blockId, from, to,
+   * size}` for every run — the same block/offset dispatch
+   * `getRangeStyleSummary` uses (cell-range rectangle, cross-block,
+   * same-cell multi-block, same-block). Then each collected run is
+   * styled individually. Styling never inserts/deletes text, so a
+   * block's character offsets stay valid across the whole apply pass —
+   * collecting everything up front avoids re-deriving run boundaries
+   * from a live inline array that a `store.applyStyle` call may have
+   * just split.
+   */
+  function stepSelectionFontSizeImpl(delta: number, clamp: (n: number) => number): void {
+    if (!(selection.hasSelection() && selection.range)) {
+      // Collapsed caret — only one "current" value exists, so step it
+      // directly through the existing single-value path (this also
+      // picks up any pending style from a prior click, matching
+      // getSelectionStyle's pending-merge behavior).
+      const merged = pending.has() && !selection.hasSelection()
+        ? { ...getSelectionStyleImpl(true), ...pending.get()! }
+        : getSelectionStyleImpl(true);
+      const current = merged.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+      applyStyleImpl({ fontSize: clamp(current + delta) });
+      return;
+    }
+
+    const range = selection.range;
+    const runs: Array<{ blockId: string; from: number; to: number; size: number }> = [];
+
+    const collectRunsInBlock = (blockId: string, from: number, to: number): void => {
+      const block = doc.findBlock(blockId);
+      if (!block) return;
+      const defaults = styleDefaultsForBlock(block);
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (inlineEnd > from && pos < to && inline.text.length > 0) {
+          const effective = { ...defaults, ...inline.style };
+          const size = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+          runs.push({
+            blockId,
+            from: Math.max(pos, from),
+            to: Math.min(inlineEnd, to),
+            size,
+          });
+        }
+        pos = inlineEnd;
+        if (pos >= to) break;
+      }
+    };
+
+    if (range.tableCellRange) {
+      const cr = range.tableCellRange;
+      const tableBlock = doc.findBlock(cr.blockId);
+      if (tableBlock?.tableData) {
+        const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+        const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+        const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
+        const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
+        for (let r = minRow; r <= maxRow; r++) {
+          for (let c = minCol; c <= maxCol; c++) {
+            const cell = tableBlock.tableData.rows[r]?.cells[c];
+            if (!cell || cell.colSpan === 0) continue;
+            for (const cb of cell.blocks) {
+              const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+              if (len > 0) collectRunsInBlock(cb.id, 0, len);
+            }
+          }
+        }
+      }
+    } else {
+      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+      const focusIdx = doc.getBlockIndex(range.focus.blockId);
+      if (anchorIdx >= 0 && focusIdx >= 0) {
+        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+        for (let i = startIdx; i <= endIdx; i++) {
+          const block = doc.getContextBlocks()[i];
+          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+          const from = i === startIdx ? startOff : 0;
+          const to = i === endIdx ? endOff : blockLen;
+          if (from < to) collectRunsInBlock(block.id, from, to);
+        }
+      } else {
+        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+        const focusCI = layout.blockParentMap.get(range.focus.blockId);
+        if (
+          anchorCI && focusCI &&
+          anchorCI.tableBlockId === focusCI.tableBlockId &&
+          anchorCI.rowIndex === focusCI.rowIndex &&
+          anchorCI.colIndex === focusCI.colIndex
+        ) {
+          const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+          const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+          const anchorBI = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
+          const focusBI = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
+          if (anchorBI >= 0 && focusBI >= 0) {
+            const [fromIdx, toIdx, fromOff, toOff] = anchorBI <= focusBI
+              ? [anchorBI, focusBI, range.anchor.offset, range.focus.offset]
+              : [focusBI, anchorBI, range.focus.offset, range.anchor.offset];
+            for (let i = fromIdx; i <= toIdx; i++) {
+              const cb = cell.blocks[i];
+              const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
+              const from = i === fromIdx ? fromOff : 0;
+              const to = i === toIdx ? toOff : len;
+              if (from < to) collectRunsInBlock(cb.id, from, to);
+            }
+          }
+        } else if (range.anchor.blockId === range.focus.blockId) {
+          const a = range.anchor.offset;
+          const b = range.focus.offset;
+          collectRunsInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+        }
+      }
+    }
+
+    const changed = runs
+      .map((run) => ({ run, next: clamp(run.size + delta) }))
+      .filter(({ run, next }) => next !== run.size && Number.isFinite(next));
+    if (changed.length === 0) return;
+
+    docStore.snapshot();
+    if ('setCursorForHistory' in docStore) {
+      (docStore as {
+        setCursorForHistory(
+          pos: { blockId: string; offset: number },
+          selection?: DocRange | null,
+        ): void;
+      }).setCursorForHistory(cursor.position, range ?? null);
+    }
+
+    const dirtyTop = new Set<string>();
+    docStore.applyStyles(
+      changed.map(({ run, next }) => ({
+        blockId: run.blockId,
+        fromOffset: run.from,
+        toOffset: run.to,
+        style: { fontSize: next },
+      })),
+    );
+    for (const { run } of changed) {
+      const ci = layout.blockParentMap.get(run.blockId);
+      dirtyTop.add(ci ? ci.tableBlockId : run.blockId);
+    }
+    for (const id of dirtyTop) markDirty(id);
+
+    doc.refresh();
     render();
     notifyStyleApplied();
   }
@@ -2795,6 +2963,7 @@ export function initialize(
       return result as Summary;
     },
     applyStyle: applyStyleImpl,
+    stepSelectionFontSize: stepSelectionFontSizeImpl,
     clearInlineFormatting: () => {
       // Reuse the applyStyle path so cell-range selections, snapshots,
       // and dirty-marking all flow through the same logic as ordinary
@@ -3720,7 +3889,7 @@ export function initialize(
   // remains the authoritative write boundary for viewer share tokens.
   if (readOnly) {
     const MUTATING_METHODS = [
-      'applyStyle', 'clearInlineFormatting', 'applyBlockStyle',
+      'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
       'undo', 'redo', 'setBlockType', 'setDocStyles',
       'updateStyleToMatch', 'resetNamedStyle', 'resetAllNamedStyles',
       'toggleList', 'indent', 'outdent', 'insertLink', 'removeLink',

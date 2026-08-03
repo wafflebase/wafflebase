@@ -215,6 +215,14 @@ export class MemDocStore implements DocStore {
     blocks[index] = applyInlineStyleHelper(blocks[index], fromOffset, toOffset, style);
   }
 
+  applyStyles(
+    edits: Array<{ blockId: string; fromOffset: number; toOffset: number; style: Partial<InlineStyle> }>,
+  ): void {
+    for (const edit of edits) {
+      this.applyStyle(edit.blockId, edit.fromOffset, edit.toOffset, edit.style);
+    }
+  }
+
   splitBlock(blockId: string, offset: number, newBlockId: string, newBlockType: BlockType): void {
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     const [before, after] = applySplitBlock(blocks[index], offset, newBlockId, newBlockType);

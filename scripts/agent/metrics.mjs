@@ -37,12 +37,21 @@ import { fileURLToPath } from "node:url";
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
 // other's records. `summarize` aggregates them into one human-readable SUMMARY,
 // posted FRESH at the bottom of the thread (the old summary is deleted, not
-// edited in place, so the up-to-date one isn't buried mid-thread). On the
-// terminal promote (`--final`) it also sweeps the hidden per-session records,
-// whose totals are now captured in the summary and which otherwise render as
-// empty comment boxes.
+// edited in place, so the up-to-date one isn't buried mid-thread). It also folds
+// the raw records INTO the summary as a hidden data block and then SWEEPS the
+// per-session comments every round — they otherwise render as empty comment
+// boxes that flood the thread, and their history is now preserved in the summary
+// (so a later re-run still re-aggregates the full ledger). The terminal promote
+// (`--final`) strips the data block for a clean final artifact and sweeps every
+// remaining record.
 export const METRIC_PREFIX = "<!-- agent-metric ";
 export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
+// Hidden data block appended to the summary, carrying the raw ledger as JSON so
+// the per-session comments can be swept without losing re-aggregation history.
+export const SUMMARY_DATA_MARKER = "<!-- agent-metrics-data ";
+// Keep summary body + data block under GitHub's 65 536-char comment cap. Records
+// that don't fit keep their standalone comment and fold in on a later round.
+export const SUMMARY_DATA_BUDGET = 55000;
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -644,6 +653,43 @@ export function parseMetricComment(body) {
   }
 }
 
+/** Serialize the cumulative ledger into the summary's hidden data block. */
+export function serializeSummaryData(records) {
+  return `${SUMMARY_DATA_MARKER}${JSON.stringify(records ?? [])} -->`;
+}
+
+/** Records embedded in a summary body; [] if none / unparseable. */
+export function parseSummaryData(body) {
+  const m = /<!-- agent-metrics-data ([\s\S]*?) -->/.exec(body || "");
+  if (!m) return [];
+  try {
+    const arr = JSON.parse(m[1]);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Dedup records by `sessionId`, keeping first occurrence so the caller's order
+ * (embedded/older first, then this round's standalone) is preserved — detectFlips
+ * depends on chronological order. Records with no `sessionId` (legacy) are all
+ * kept, since there is no key to collapse them on.
+ */
+export function dedupRecords(records) {
+  const seen = new Set();
+  const out = [];
+  for (const r of Array.isArray(records) ? records : []) {
+    const id = r && r.sessionId;
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    if (r) out.push(r);
+  }
+  return out;
+}
+
 // --- gh-backed CLI ---------------------------------------------------------
 
 export function gh(args) {
@@ -762,7 +808,15 @@ function cmdSummarize(args) {
   } catch (e) {
     return bail(`could not read metrics/PR for #${pr}: ${e.message}`);
   }
-  const records = comments.map((c) => parseMetricComment(c.body || "")).filter(Boolean);
+  // Records live in two places: this round's fresh per-session <!-- agent-metric -->
+  // comments (append-only, one per session), and the CUMULATIVE ledger embedded in
+  // the prior summary's data block. Earlier rounds' standalone comments were swept
+  // once folded into the summary, so the summary is now their only copy — read both
+  // and dedup by sessionId (embedded first = older → keeps chronological order for
+  // detectFlips).
+  const embedded = comments.flatMap((c) => parseSummaryData(c.body || ""));
+  const standalone = comments.map((c) => parseMetricComment(c.body || "")).filter(Boolean);
+  const records = dedupRecords([...embedded, ...standalone]);
   if (records.length === 0) return bail(`no metrics recorded for PR #${pr}; skipping summary`);
   // Code-fix agent (implement/ci-fix/review-fix) and review panel (review) are
   // kept as separate aggregates — see renderSummary's doc comment for why.
@@ -781,12 +835,33 @@ function cmdSummarize(args) {
   // relies on that, so pass it as-is without re-sorting.
   const flips = panelRecords.length ? detectFlips(panelRecords) : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
+  // Decide what raw ledger to persist inside the summary. On a non-final round we
+  // embed the cumulative records so the per-session comments can be swept without
+  // losing re-aggregation history; prior-embedded records are the summary's ONLY
+  // copy, so they are always kept, and fresh standalone records fold in while the
+  // block stays under the comment-size cap (any that don't fit keep their
+  // standalone comment and fold in later — no data is dropped). On --final the
+  // PR is terminal (no future re-aggregation), so we strip the block for a clean
+  // artifact and sweep every remaining record.
+  const isFinal = !!args.final;
+  const priorIds = new Set(embedded.map((r) => r && r.sessionId).filter(Boolean));
+  const embedList = [];
+  if (!isFinal) {
+    embedList.push(...embedded);
+    for (const r of standalone) {
+      if (r && r.sessionId && priorIds.has(r.sessionId)) continue; // already embedded
+      if (serializeSummaryData([...embedList, r]).length > SUMMARY_DATA_BUDGET) break;
+      embedList.push(r);
+    }
+  }
+  const embeddedIds = new Set(embedList.map((r) => r && r.sessionId).filter(Boolean));
   try {
     // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }));
+    const summary = renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope });
+    postComment(pr, isFinal ? summary : `${summary}\n${serializeSummaryData(embedList)}`);
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);
   }
@@ -795,20 +870,25 @@ function cmdSummarize(args) {
   for (const c of comments) {
     if ((c.body || "").includes(SUMMARY_MARKER)) safeDeleteComment(c.id);
   }
-  // On the TERMINAL promote (--final), sweep the hidden per-session agent-metric
-  // records: their totals are now captured in the summary, and each renders as an
-  // empty comment box that clutters the thread. Only on --final — a paged /
-  // non-terminal summary keeps them so a later re-run still aggregates the full
-  // history. (SUMMARY_MARKER never matches METRIC_PREFIX — "agent-metrics-" vs
-  // "agent-metric " — so this can't delete the summary we just posted.)
-  if (args.final) {
-    for (const c of comments) {
-      if ((c.body || "").includes(METRIC_PREFIX)) safeDeleteComment(c.id);
+  // Sweep the hidden per-session agent-metric comments EVERY round: each renders
+  // as an empty comment box that floods the thread. On --final, sweep them all
+  // (terminal — the summary captured their totals). Otherwise sweep only the
+  // records we actually folded into the summary's data block (embeddedIds), so a
+  // record left out by the size cap keeps its standalone copy and is not lost.
+  // (SUMMARY_MARKER "agent-metrics-" never matches METRIC_PREFIX "agent-metric ",
+  // so this can't touch the summary just posted.)
+  for (const c of comments) {
+    if (!(c.body || "").includes(METRIC_PREFIX)) continue;
+    if (isFinal) {
+      safeDeleteComment(c.id);
+      continue;
     }
+    const rec = parseMetricComment(c.body || "");
+    if (rec && rec.sessionId && embeddedIds.has(rec.sessionId)) safeDeleteComment(c.id);
   }
   console.log(
     `posted agent-effort summary for PR #${pr} (sessions=${agg.sessions} turns=${agg.turns} tokens=${agg.tokens})` +
-      (args.final ? " [final: reposted at bottom, swept per-session records]" : ""),
+      (isFinal ? " [final: reposted at bottom, swept all records]" : ` [folded ${embedList.length} record(s), swept per-session comments]`),
   );
 }
 

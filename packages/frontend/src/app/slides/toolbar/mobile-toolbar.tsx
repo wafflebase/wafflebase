@@ -64,6 +64,7 @@ import {
   useResolvedFontSize,
   useResolvedFontFamily,
   ensureFontLink,
+  clampFontSize,
 } from "@/components/text-formatting";
 import { applySlideFontFamily } from "./apply-font-family";
 import type { ToolbarState } from "./state";
@@ -541,6 +542,10 @@ function TextFormatSheet({
               value={sizeValue}
               onChange={(size) => {
                 textEditor.applyStyle({ fontSize: size });
+                textEditor.focus();
+              }}
+              onStepMixed={(delta) => {
+                textEditor.stepSelectionFontSize(delta, clampFontSize);
                 textEditor.focus();
               }}
             />

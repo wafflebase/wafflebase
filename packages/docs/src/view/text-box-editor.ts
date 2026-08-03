@@ -28,7 +28,7 @@
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import type { ColorResolver } from '../model/color.js';
 import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
-import { createEmptyBlock, CLEAR_INLINE_STYLE } from '../model/types.js';
+import { createEmptyBlock, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
@@ -245,6 +245,18 @@ export interface TextBoxEditorAPI {
 
   /** Apply inline style to the current selection. No-op when nothing is selected. */
   applyStyle(style: Partial<InlineStyle>): void;
+
+  /**
+   * Step the font size of every inline run intersecting the current
+   * selection by `delta`, relative to each run's own effective size —
+   * not a single absolute value. `clamp` is caller-supplied (this
+   * package has no opinion on legal size bounds). A collapsed caret has
+   * only one "current" value, so it stages that stepped value on the
+   * pending style (the next typed run picks it up) — `applyStyle`
+   * no-ops without a selection. Mirrors the docs `EditorAPI` method of
+   * the same name. See docs-font-controls.md, issue #343.
+   */
+  stepSelectionFontSize(delta: number, clamp: (n: number) => number): void;
 
   /**
    * Strip all character-level inline styles (bold, italic, underline,
@@ -815,6 +827,115 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     notifyStyleApplied();
   };
 
+  /**
+   * Step the font size of every inline run intersecting the current
+   * selection by `delta`, relative to each run's own effective size —
+   * not a single absolute value. See the full-document equivalent in
+   * `view/editor.ts` and docs-font-controls.md (issue #343). Simpler
+   * here: text-boxes have no tables/headers/footers, so the traversal
+   * is single-block or cross-block only, and there is no Yorkie undo
+   * history to stage (`docStore` here is always a `MemDocStore`; the
+   * slides Yorkie layer handles undo at a higher level).
+   */
+  const stepSelectionFontSizeImpl = (
+    delta: number,
+    clamp: (n: number) => number,
+  ): void => {
+    if (!selection.hasSelection() || !selection.range) {
+      // Mirrors `getSelectionStyle` above: the run at the caret, or the
+      // last run when the caret sits past the final inline.
+      const findCaretStyle = (): Partial<InlineStyle> => {
+        const block = doc.findBlock(cursor.position.blockId);
+        if (!block) return {};
+        let pos = 0;
+        for (const inline of block.inlines) {
+          const inlineEnd = pos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) return inline.style;
+          pos = inlineEnd;
+        }
+        const last = block.inlines[block.inlines.length - 1];
+        return last ? last.style : {};
+      };
+      // `applyStyleImpl` no-ops without a selection, so stage the stepped
+      // size on the pending style instead (the next typed run picks it up,
+      // matching the full docs editor). Merge any prior pending first so
+      // repeated ± clicks accumulate rather than re-reading the base run.
+      const base = {
+        ...findCaretStyle(),
+        ...(pending.has() ? pending.get()! : {}),
+      };
+      const current = base.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+      const next = clamp(current + delta);
+      if (!Number.isFinite(next) || next === current) return;
+      pending.set({ ...base, fontSize: next }, cursor.position);
+      requestRender();
+      notifyStyleApplied();
+      return;
+    }
+
+    const range = selection.range;
+    const runs: Array<{ blockId: string; from: number; to: number; size: number }> = [];
+
+    const collectRunsInBlock = (blockId: string, from: number, to: number): void => {
+      const block = doc.findBlock(blockId);
+      if (!block) return;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (inlineEnd > from && pos < to && inline.text.length > 0) {
+          const size = inline.style.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+          runs.push({
+            blockId,
+            from: Math.max(pos, from),
+            to: Math.min(inlineEnd, to),
+            size,
+          });
+        }
+        pos = inlineEnd;
+        if (pos >= to) break;
+      }
+    };
+
+    const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
+    const focusIdx = doc.getBlockIndex(range.focus.blockId);
+    if (anchorIdx >= 0 && focusIdx >= 0) {
+      const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
+        (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+        ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
+        : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
+      for (let i = startIdx; i <= endIdx; i++) {
+        const block = doc.document.blocks[i];
+        const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
+        const from = i === startIdx ? startOff : 0;
+        const to = i === endIdx ? endOff : blockLen;
+        if (from < to) collectRunsInBlock(block.id, from, to);
+      }
+    } else if (range.anchor.blockId === range.focus.blockId) {
+      const a = range.anchor.offset;
+      const b = range.focus.offset;
+      collectRunsInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+    }
+
+    const changed = runs
+      .map((run) => ({ run, next: clamp(run.size + delta) }))
+      .filter(({ run, next }) => next !== run.size && Number.isFinite(next));
+    if (changed.length === 0) return;
+
+    docStore.snapshot();
+    docStore.applyStyles(
+      changed.map(({ run, next }) => ({
+        blockId: run.blockId,
+        fromOffset: run.from,
+        toOffset: run.to,
+        style: { fontSize: next },
+      })),
+    );
+    doc.refresh();
+    layoutCache = undefined;
+    requestRender();
+    notifyStyleApplied();
+  };
+
   const api: TextBoxEditorAPI = {
     focus(): void {
       textEditor.focus();
@@ -877,16 +998,20 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     getSelectionStyle(): Partial<InlineStyle> {
       const block = doc.findBlock(cursor.position.blockId);
       if (!block) return {};
+      // A collapsed caret may carry a staged pending style (e.g. a font
+      // size stepped via `stepSelectionFontSize`); surface it so the
+      // toolbar reflects it before the next run is typed.
+      const staged = pending.has() ? pending.get()! : {};
       let pos = 0;
       for (const inline of block.inlines) {
         const inlineEnd = pos + inline.text.length;
         if (cursor.position.offset <= inlineEnd) {
-          return { ...inline.style };
+          return { ...inline.style, ...staged };
         }
         pos = inlineEnd;
       }
       const last = block.inlines[block.inlines.length - 1];
-      return last ? { ...last.style } : {};
+      return last ? { ...last.style, ...staged } : { ...staged };
     },
 
     getRangeStyleSummary: () => {
@@ -898,16 +1023,20 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       if (!selection.hasSelection() || !selection.range) {
         const block = doc.findBlock(cursor.position.blockId);
         if (!block) return {};
+        // Merge any staged pending style so a collapsed-caret font-size
+        // step (see `stepSelectionFontSize`) shows immediately in the
+        // toolbar, mirroring the full docs editor's summary.
+        const staged = pending.has() ? pending.get()! : {};
         let pos = 0;
         for (const inline of block.inlines) {
           const inlineEnd = pos + inline.text.length;
           if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style } as Summary;
+            return { ...inline.style, ...staged } as Summary;
           }
           pos = inlineEnd;
         }
         const last = block.inlines[block.inlines.length - 1];
-        return (last ? { ...last.style } : {}) as Summary;
+        return (last ? { ...last.style, ...staged } : { ...staged }) as Summary;
       }
 
       const range = selection.range;
@@ -1001,6 +1130,10 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
 
     applyStyle(style: Partial<InlineStyle>): void {
       applyStyleImpl(style);
+    },
+
+    stepSelectionFontSize(delta: number, clamp: (n: number) => number): void {
+      stepSelectionFontSizeImpl(delta, clamp);
     },
 
     clearInlineFormatting(): void {

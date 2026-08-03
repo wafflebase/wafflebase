@@ -145,7 +145,7 @@ const trimmed = (s) => String(s ?? "").trim();
 // A couple of incidentally-shared words is never a match, however short the
 // shorter summary is. Calibrated below: real same-defect pairs share 7-17
 // tokens; real different-defect pairs share at most 1.
-const MIN_SHARED_TOKENS = 3;
+export const MIN_SHARED_TOKENS = 3;
 
 /** Default similarity threshold — see the calibration note on `findingSimilarity`. */
 export const DEFAULT_SIMILARITY = 0.3;
