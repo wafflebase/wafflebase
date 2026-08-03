@@ -417,9 +417,15 @@ Components:
   agent address the finding (or push back with reasoning) in-thread. Restricted to
   `agent/`-authored PRs (the `is_agent` gate) — ordinary and `agent:managed` PRs
   are left to humans, since the arm only acts on branches it authored.
-- **Review panel** — `.github/workflows/agent-review-panel.yml`: on green CI for a
-  base-repo agent-managed PR (an `agent/` branch or an `agent:managed`-labelled PR;
-  fork-originated `workflow_run` events are rejected),
+- **Review panel** — `.github/workflows/agent-review-panel.yml`: triggered when CI
+  **starts** (`workflow_run: requested`) on a base-repo agent-managed PR (an
+  `agent/` branch or an `agent:managed`-labelled PR; fork-originated
+  `workflow_run` events are rejected), so review and CI run concurrently rather
+  than in series — worth ~13.5 min a round, since the panel (17.8 min median)
+  outlasts CI (13.5 min) and absorbs it. The CI conclusion is not dropped: a `ci`
+  job waits for it and gates the two PUSHING jobs (`promote`, `fix`), which is
+  what keeps this arm and the CI-fix arm mutually exclusive per CI run. On a red
+  CI both are skipped and `agent-iterate-ci.yml` takes the branch;
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy`, `blast-radius` (declared data-drivenly in
@@ -1024,7 +1030,7 @@ the back half changes; only this local front half is new.
 - **Local review is a convenience, not authority:** `spec-to-pr.mjs review` runs the
   same lenses over the working diff, but needs `CLAUDE_CODE_OAUTH_TOKEN` and degrades
   to a warn-and-skip when it is absent. The authoritative panel is still the cloud
-  one on green CI.
+  one, which now runs alongside CI rather than after it.
 - **Single-writer / branch ownership (the key risk):** the local session owns the
   branch only until the draft PR is created; after that the cloud loops push
   follow-up commits to it. The rebase-on-`main` happens BEFORE handoff (so the

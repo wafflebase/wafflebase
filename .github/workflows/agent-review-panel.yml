@@ -4,12 +4,19 @@
 # unforgeable `agent-review-<lens>` CHECK RUN per lens. The trusted script (run
 # from a `main` checkout) computes each verdict — the subagents only classify.
 #
-# Flow (only on green CI for base-repo agent-managed PRs — an autonomous `agent/`
-# branch, OR a human PR opted in via the `agent:managed` label / "@claude loop"):
+# Flow (base-repo agent-managed PRs — an autonomous `agent/` branch, OR a human
+# PR opted in via the `agent:managed` label / "@claude loop"):
 #   review-panel → per-lens check runs (fail-closed if a lens produces no verdict)
+#   ci           → waits for the CI run this rode in on; its conclusion gates the
+#                  two PUSHING jobs below (see the `ci` job for why)
 #   promote      → all lens checks success → ready gate (mark-ready --promote)
 #   fix          → any lens failed → feed combined findings to the author (bounded)
-#   stalled      → the panel job died → page a human
+#   stalled      → the panel job died, or the CI wait timed out → page a human
+#
+# The panel runs CONCURRENTLY WITH CI, not after it. Measured medians: CI on an
+# `agent/` branch 13.5 min, panel 17.8 min — serialised, that is ~31 min before
+# the fixer can start. Starting both together finishes the panel at 17.8 min and
+# absorbs the CI leg entirely, because the panel is the longer of the two.
 #
 # Trust: reviewers never execute branch code (SDK tools = Read/Grep/Glob only);
 # orchestrator + lenses come from the TRUSTED main checkout; check runs are
@@ -19,7 +26,21 @@ name: Agent Review Panel
 on:
   workflow_run:
     workflows: ["CI"]
-    types: [completed]
+    # `requested` (CI STARTED), not `completed` — this is the whole latency change.
+    #
+    # `requested` ONLY, deliberately. Subscribing to both would run the entire
+    # panel twice per CI run, at ~$12 a time. The conclusion this used to gate on
+    # has not been dropped; the `ci` job below waits for it and gates the two
+    # PUSHING jobs on it instead.
+    #
+    # Still `workflow_run`, which is a SECURITY boundary and not just a trigger:
+    # it always executes the workflow definition from the DEFAULT BRANCH. A
+    # `push`/`pull_request` trigger would run the branch's own copy of this file
+    # — with `checks:write`, the permission the "check runs are
+    # author-unforgeable" property rests on. The agent App cannot push
+    # `.github/workflows/**`, but an `agent:managed` human PR can. Do not swap
+    # this trigger for `push` or `pull_request`.
+    types: [requested]
 
 permissions: {}
 
@@ -46,9 +67,10 @@ jobs:
   # skipped for unmanaged PRs while still letting labelled human branches in.
   # Fork PRs are excluded here (the auto-fix loop cannot push to a fork).
   gate:
+    # No `conclusion` clause: on a `requested` event there is no conclusion yet.
+    # It is read in the `ci` job instead, and still gates every push.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -139,6 +161,83 @@ jobs:
             }
             core.setOutput('pr', prNumber);
             core.setOutput('managed', String(managed));
+
+  # Wait for the CI run this round rode in on, and report its conclusion.
+  #
+  # This is where the `conclusion == 'success'` that used to sit in the trigger
+  # now lives. It is the SAME discriminator on the SAME run, read later — so the
+  # mutex it enforces is unchanged: `agent-iterate-ci.yml` fires on `failure` and
+  # pushes a CI fix, the `fix` job below runs only on `success` and pushes a
+  # review fix, and for any one CI run exactly one of them still proceeds. Both
+  # push to the same branch, which is why that property is load-bearing and why
+  # this job exists rather than the gate simply being deleted.
+  #
+  # Runs in PARALLEL with deps + review-panel (all three only need `gate`), so
+  # the wait is nearly free: the panel's 17.8 min median outlasts CI's 13.5, so
+  # CI has usually concluded several minutes before there is anything to gate.
+  #
+  # Read-only — `actions: read` and nothing else. It cannot touch the PR.
+  ci:
+    needs: [gate]
+    if: needs.gate.outputs.managed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+    outputs:
+      conclusion: ${{ steps.wait.outputs.conclusion }}
+    steps:
+      - name: Wait for the triggering CI run
+        id: wait
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Mirrors `ciRunDecision` in scripts/agent/checks.mjs, which is where
+            // the rule is unit-tested — a github-script step has no checkout and
+            // cannot import it. checks.test.mjs pins the three outcomes.
+            const decide = (run) => {
+              if (!run || typeof run !== 'object' || Array.isArray(run)) return 'skip';
+              if (run.status !== 'completed') return 'wait';
+              return run.conclusion === 'success' ? 'proceed' : 'skip';
+            };
+            const runId = context.payload.workflow_run.id;
+            // 35 min against a 13.5 min median. Generous on purpose: overshooting
+            // costs free public-runner minutes in a job that is already parked,
+            // while undershooting pages a human for a slow-but-fine CI run.
+            const DEADLINE_MS = 35 * 60 * 1000;
+            const POLL_MS = 20 * 1000;
+            const started = Date.now();
+            let decision = 'wait', run = null;
+            while (Date.now() - started < DEADLINE_MS) {
+              try {
+                const { data } = await github.rest.actions.getWorkflowRun({
+                  owner: context.repo.owner, repo: context.repo.repo, run_id: runId,
+                });
+                run = data;
+                // INSIDE the try, on purpose. Only a response that actually
+                // arrived may produce a decision. Deciding after the catch would
+                // hand `decide` a null on the first failed lookup, and its
+                // fail-closed answer for junk is `skip` — so one transient 502
+                // would silently skip promote/fix with nothing paged. A failed
+                // lookup is not an answer; it just costs one poll.
+                decision = decide(run);
+                if (decision !== 'wait') break;
+              } catch (e) {
+                core.warning(`CI run lookup failed, retrying: ${e.message}`);
+              }
+              await new Promise((r) => setTimeout(r, POLL_MS));
+            }
+            if (decision === 'wait') {
+              // The ONLY paging case. A `skip` is an ordinary red CI, which
+              // agent-iterate-ci.yml already owns; failing on that would page on
+              // every routine CI failure. Not knowing is different — nothing else
+              // is watching for it, so it fails the job and `stalled` picks it up.
+              core.setFailed(`CI run ${runId} did not conclude within ${DEADLINE_MS / 60000} min`);
+              return;
+            }
+            const conclusion = decision === 'proceed' ? 'success' : String((run || {}).conclusion ?? 'unknown');
+            core.setOutput('conclusion', conclusion);
+            core.notice(`CI run ${runId}: ${conclusion} → ${decision === 'proceed' ? 'promote/fix may run' : 'promote/fix skipped'}`);
 
   # Install the Agent SDK in an UNPRIVILEGED job (no secrets, no environment, no
   # checks:write) and hand the tree to the review job as an artifact. This keeps
@@ -810,8 +909,18 @@ jobs:
           retention-days: 30
 
   promote:
-    needs: review-panel
-    if: needs.review-panel.outputs.blocked == 'false' && needs.review-panel.outputs.pr != ''
+    # `ci` as well as `review-panel`, and this one is a CORRECTNESS requirement
+    # rather than a saving. `mark-ready.mjs` re-derives CI green itself from the
+    # Actions API (`ciPassed`, gate 1) — it never trusted this workflow's trigger.
+    # A run that concluded nothing yet reads as NOT green, so without the wait
+    # this job would evaluate mid-CI, fail gate 1, exit **1**, log "leaving as
+    # draft" and SUCCEED. No page, no promotion — and nothing re-runs the panel,
+    # so a PR that should have merged would sit as a draft forever. Waiting is
+    # what makes the answer meaningful instead of merely early.
+    needs: [review-panel, ci]
+    if: >-
+      needs.ci.outputs.conclusion == 'success' &&
+      needs.review-panel.outputs.blocked == 'false' && needs.review-panel.outputs.pr != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -904,8 +1013,16 @@ jobs:
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR" --final
 
   fix:
-    needs: review-panel
-    if: needs.review-panel.outputs.blocked == 'true' && needs.review-panel.outputs.pr != ''
+    # `ci` as well as `review-panel`. THIS is the job the CI conclusion has always
+    # really been guarding: it pushes to the branch, and so does the CI-fix arm.
+    # Requiring `success` here keeps the two arms mutually exclusive per CI run,
+    # exactly as the old `conclusion == 'success'` trigger did. On a red CI this
+    # is skipped — not failed — because agent-iterate-ci.yml is already handling
+    # that branch and will push a fix that starts a fresh round.
+    needs: [review-panel, ci]
+    if: >-
+      needs.ci.outputs.conclusion == 'success' &&
+      needs.review-panel.outputs.blocked == 'true' && needs.review-panel.outputs.pr != ''
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: agent
@@ -1325,19 +1442,26 @@ jobs:
   #     set or another tooling error — reds the job with no comment/label), and
   #   - fix ran and FAILED (the fixer agent errored — e.g. claude-code-action
   #     refusing a bot-initiated run — so no fix was pushed and no fresh cycle
-  #     starts). Without this, a failed fix silently stalls a blocked PR.
+  #     starts). Without this, a failed fix silently stalls a blocked PR, and
+  #   - `ci` FAILED, meaning the CI run never concluded inside the wait deadline.
+  #     Note the asymmetry: a RED CI is not a stall and must not page — `ci`
+  #     succeeds, reports the conclusion, promote/fix skip, and
+  #     agent-iterate-ci.yml pushes a fix that starts a fresh round. Only "we
+  #     never found out" pages, because that is the one state no other workflow
+  #     is watching for.
   # Gating on the `gate` job's managed flag (instead of repeating the enable/fork/
   # branch checks) means we do NOT page when the panel was skipped for being an
   # unmanaged/fork/disabled PR — only when a managed PR's pipeline actually broke.
   # A hard `gate` failure (managed unknown) also pages: better a spurious page than
   # a silently-skipped review on a PR that might have been managed.
   stalled:
-    needs: [gate, deps, review-panel, promote, fix]
+    needs: [gate, ci, deps, review-panel, promote, fix]
     if: >-
       always() &&
       (needs.gate.result == 'failure' ||
        (needs.gate.outputs.managed == 'true' &&
         (needs.deps.result == 'failure' ||
+         needs.ci.result == 'failure' ||
          needs.review-panel.result == 'failure' ||
          needs.review-panel.result == 'skipped' ||
          needs.promote.result == 'failure' ||
@@ -1357,6 +1481,7 @@ jobs:
           # So the message names the stage that actually failed, instead of
           # always blaming the review panel (it now also fires on promote/fix).
           DEPS_RESULT: ${{ needs.deps.result }}
+          CI_RESULT: ${{ needs.ci.result }}
           PANEL_RESULT: ${{ needs.review-panel.result }}
           PROMOTE_RESULT: ${{ needs.promote.result }}
           FIX_RESULT: ${{ needs.fix.result }}
@@ -1371,7 +1496,7 @@ jobs:
             if (!pr) return;
             core.setOutput('pr', String(pr.number));
             const r = {
-              deps: process.env.DEPS_RESULT, panel: process.env.PANEL_RESULT,
+              deps: process.env.DEPS_RESULT, ci: process.env.CI_RESULT, panel: process.env.PANEL_RESULT,
               promote: process.env.PROMOTE_RESULT, fix: process.env.FIX_RESULT,
             };
             // First matching cause wins (fix/promote are downstream of the panel).
@@ -1380,6 +1505,11 @@ jobs:
               : r.promote === 'failure' ? 'the ready-gate (promotion) step errored'
               : r.panel === 'failure' ? 'the review-panel job failed to complete'
               : (r.panel === 'skipped' || r.deps === 'failure') ? 'the review panel could not start (dependency setup failed)'
+              // A red CI does NOT reach here — `ci` succeeds and reports the
+              // conclusion, promote/fix skip, and agent-iterate-ci.yml takes the
+              // branch. `ci` FAILING means the run never concluded within the
+              // deadline, so nothing knows whether this PR is safe to push to.
+              : r.ci === 'failure' ? 'the CI run never concluded, so the pipeline could not tell whether it was safe to push'
               : 'the pipeline stopped without completing';
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,

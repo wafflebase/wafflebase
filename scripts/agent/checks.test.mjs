@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -76,4 +76,86 @@ test("allRequiredPassed: an EMPTY required set is vacuously true", () => {
   // on an empty required-check set unless --allow-no-checks is passed.
   assert.equal(allRequiredPassed([], []).allPassed, true);
   assert.equal(allRequiredPassed([fail("x")], []).allPassed, true);
+});
+
+// --- the CI conclusion, read late instead of at trigger time ---------------
+
+test("ciRunDecision: proceed only on a COMPLETED success", () => {
+  assert.equal(ciRunDecision({ status: "completed", conclusion: "success" }), "proceed");
+  // Still running, in every spelling GitHub uses. `wait` is not `proceed`: a
+  // caller that treated it as one would push a review fix while CI is mid-flight
+  // and the CI arm might still claim this branch.
+  for (const status of ["queued", "in_progress", "requested", "waiting", "pending"]) {
+    assert.equal(ciRunDecision({ status, conclusion: null }), "wait", status);
+  }
+  // A conclusion that arrives before `completed` does not shortcut the wait —
+  // status is the authority on whether the run is over.
+  assert.equal(ciRunDecision({ status: "in_progress", conclusion: "success" }), "wait");
+});
+
+test("ciRunDecision: everything that is not a success is a skip, not a page", () => {
+  // The pushing jobs stay out of it, which leaves the PR exactly where the old
+  // `conclusion == 'success'` trigger left it. `failure` in particular is NOT a
+  // stall — agent-iterate-ci.yml fires on precisely that and owns the branch.
+  for (const conclusion of ["failure", "cancelled", "timed_out", "neutral", "action_required", "stale", "skipped", null, undefined, ""]) {
+    assert.equal(ciRunDecision({ status: "completed", conclusion }), "skip", String(conclusion));
+  }
+  // Junk fails CLOSED. This value comes from an API response the workflow does
+  // not control, and the expensive, irreversible thing downstream is a push.
+  for (const junk of [null, undefined, "completed", 7, [], true]) {
+    assert.equal(ciRunDecision(junk), "skip", JSON.stringify(junk) ?? "undefined");
+  }
+  // An object with nothing on it is not "still running" — no status means no
+  // evidence, and no evidence must not become an indefinite poll.
+  assert.equal(ciRunDecision({}), "wait");
+});
+
+test("ciRunDecision: the three outcomes are exhaustive and disjoint", () => {
+  // The YAML mirrors this rule inline (github-script steps cannot import local
+  // modules — no checkout in that job), so the contract has to be pinned
+  // somewhere runnable. A fourth return value would silently mean "not
+  // proceed, not wait" to a caller written against three.
+  const seen = new Set();
+  for (const status of ["completed", "in_progress", "queued", undefined]) {
+    for (const conclusion of ["success", "failure", null, undefined]) {
+      seen.add(ciRunDecision({ status, conclusion }));
+    }
+  }
+  seen.add(ciRunDecision(null));
+  assert.deepEqual([...seen].sort(), ["proceed", "skip", "wait"]);
+});
+
+test("the panel workflow subscribes ONLY to `requested`, and mirrors ciRunDecision", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"), "utf8");
+  // Code lines only. The comments around this change quote both the old
+  // `types: [completed]` trigger and the `conclusion == 'success'` clause it
+  // replaced, to say what moved where — and a whole-file grep would read that
+  // explanation as the thing it warns about. Same trap as #630 and #640.
+  const code = yml.split("\n").filter((l) => !/^\s*(#|\/\/)/.test(l)).join("\n");
+
+  // Subscribing to `completed` AS WELL would run the entire panel twice per CI
+  // run — ~$12 each — because both events fire for every run. The conclusion is
+  // not lost by dropping it: the `ci` job waits for it, which is the next two
+  // assertions.
+  assert.match(code, /types: \[requested\]/, "the panel must start when CI starts");
+  assert.ok(!/types: \[[^\]]*completed/.test(code), "subscribing to `completed` too would double every round");
+
+  // The inline copy of the rule. A `github-script` step has no checkout and
+  // cannot import checks.mjs, so this logic necessarily exists twice; pinning
+  // the copy is what keeps it ONE rule rather than two that drift.
+  assert.match(code, /if \(!run \|\| typeof run !== 'object' \|\| Array\.isArray\(run\)\) return 'skip';/);
+  assert.match(code, /if \(run\.status !== 'completed'\) return 'wait';/);
+  assert.match(code, /return run\.conclusion === 'success' \? 'proceed' : 'skip';/);
+
+  // Both PUSHING jobs consume it. This is the mutex the old trigger enforced:
+  // agent-iterate-ci.yml owns a red CI, these two own a green one, and exactly
+  // one of them proceeds per CI run. A job that pushed without this clause could
+  // commit to a branch the CI-fix arm is also committing to.
+  const gated = code.match(/needs\.ci\.outputs\.conclusion == 'success'/g) || [];
+  assert.equal(gated.length, 2, "promote and fix must each require a green CI");
+  for (const job of ["promote", "fix"]) {
+    assert.match(code, new RegExp(`${job}:\\n(.|\\n)*?needs: \\[review-panel, ci\\]`),
+      `${job} must depend on the ci job`);
+  }
 });
