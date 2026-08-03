@@ -112,7 +112,7 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
       raised: { critical: 0, major: 2, minor: 0, nit: 1 },
       raisedConfidence: { high: 1, medium: 1, low: 1, unknown: 0 },
       kept: { critical: 0, major: 1, minor: 0, nit: 1 },
-      verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1, dropped: 1 },
+      verifier: { sentToVerifier: 2, refuted: 1, refutedHighConfidence: 1, dropped: 1, reusedPriorVerdicts: 2 },
     },
   ];
   const rolled = aggregatePanelStats(entries);
@@ -126,6 +126,10 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   assert.deepEqual(rolled.verifier, {
     sentToVerifier: 3, refuted: 1, refutedHighConfidence: 1, dropped: 1, errored: 0,
     absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+    // Only the second entry carries it: 2 + a missing field, not 2 + NaN. Rounds
+    // that predate the reuse really did re-verify every carried-forward finding,
+    // so 0 is the honest contribution rather than merely the safe one.
+    reusedPriorVerdicts: 2,
     // Same append-only story once more: neither entry carries `failures`, so it
     // rolls up all-zero rather than NaN. An all-zero total is what makes the
     // renderer omit the line — "no data yet", not "nothing failed".
@@ -140,7 +144,7 @@ test("aggregatePanelStats: rolls up lens/round entries — agreement, severity-w
   // tolerant of junk/empty input — never throws, never blocks recording
   assert.deepEqual(aggregatePanelStats([]).verifier, {
     sentToVerifier: 0, refuted: 0, refutedHighConfidence: 0, dropped: 0, errored: 0,
-    absenceRaised: 0, absenceRefuted: 0, unresolved: 0,
+    absenceRaised: 0, absenceRefuted: 0, unresolved: 0, reusedPriorVerdicts: 0,
     failures: { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 },
   });
   // Junk in the nested field coerces per-key rather than poisoning the tally —
@@ -547,6 +551,34 @@ test("renderSummary: verifier failures are broken down, and stay silent with no 
   });
   assert.doesNotMatch(noField, /Verifier failures/);
   assert.equal(zeroField, noField, "an all-zero failures tally must not add a line");
+});
+
+test("renderSummary: reused prior verdicts are reported, and silent when there are none", () => {
+  const base = {
+    agg: { agents: [], sessions: 0, attempt: 1, turns: 0, tokens: 0, weightedTokens: 0, costUsd: 0, durationMs: 0 },
+    panelAgg: { agents: ["claude-opus-5"], sessions: 1, turns: 409, tokens: 1, weightedTokens: 1, costUsd: 11.71, durationMs: 60000 },
+  };
+  const stats = (verifier) => ({
+    agreementCounts: { identical: 0, partial: 0, disjoint: 0, single: 1 },
+    raised: { critical: 0, major: 2, minor: 0, nit: 0 },
+    raisedConfidence: { high: 2, medium: 0, low: 0, unknown: 0 },
+    kept: { critical: 0, major: 2, minor: 0, nit: 0 },
+    verifier,
+  });
+  const clean = { sentToVerifier: 10, refuted: 1, refutedHighConfidence: 1, dropped: 1, errored: 0, absenceRaised: 0, absenceRefuted: 0, unresolved: 0 };
+
+  // Without this line a falling `Sent to verifier` is ambiguous between "the
+  // reuse is working" and "the lenses raised less" — opposite conclusions.
+  const reused = renderSummary({ ...base, panelStats: stats({ ...clean, reusedPriorVerdicts: 4 }) });
+  assert.match(reused, /- Prior findings re-found this round: 4 \(verified once, not twice\)/);
+
+  // Round 1 has no prior findings at all, and a round recorded before the reuse
+  // existed carries no field. Both must stay byte-identical to today's output —
+  // a `: 0` line every first round would be noise, not data.
+  const noField = renderSummary({ ...base, panelStats: stats({ ...clean }) });
+  const zeroField = renderSummary({ ...base, panelStats: stats({ ...clean, reusedPriorVerdicts: 0 }) });
+  assert.doesNotMatch(noField, /re-found this round/);
+  assert.equal(zeroField, noField, "zero reuse must not add a line");
 });
 
 // --- summary data block: fold-and-sweep round-trip -------------------------

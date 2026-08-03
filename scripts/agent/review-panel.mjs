@@ -550,7 +550,7 @@ export function dedupeFindings(findings) {
   const byKey = new Map();
   const order = [];
   for (const f of findings) {
-    const key = `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
+    const key = findingKey(f);
     if (!byKey.has(key)) {
       byKey.set(key, f);
       order.push(key);
@@ -560,6 +560,15 @@ export function dedupeFindings(findings) {
   }
   return order.map((k) => byKey.get(k));
 }
+
+/**
+ * `dedupeFindings`' collision key: file plus case- and whitespace-insensitive
+ * summary. Extracted so `sameFinding` can be built ON it rather than beside it —
+ * a second copy of this expression could drift looser than the merge it is
+ * supposed to agree with, and that drift is what would let a verification be
+ * skipped for a finding the merge then keeps separately.
+ */
+const findingKey = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
 
 /** 0=critical … 3=nit. Lower is more severe. */
 const severityRank = (f) => KNOWN.indexOf(normalizeSeverity(f && f.severity));
@@ -867,6 +876,105 @@ export function resolveClusterVerdict(rep, repVerdict, foldFindings, foldVerdict
     if (!drops(foldVerdicts?.[i], folds[i])) return foldVerdicts?.[i] ?? null; // a fold survives → keep
   }
   return repVerdict; // every blocking fold also refuted (or none gated) → drop stands
+}
+
+/**
+ * Are these two findings the SAME CLAIM, such that one verdict settles both?
+ *
+ * Deliberately `dedupeFindings`' own key (`findingKey`) and nothing looser. That
+ * is the whole safety argument: two findings sharing this key are ALREADY
+ * collapsed into one downstream — `main()` runs `dedupeFindings([...kept,
+ * ...priorKept])` — so at most one of them was ever going to survive the round.
+ * Verifying both was paying twice for one surviving finding, by construction.
+ *
+ * NOT `findingSimilarity` / `clusterFindings`. Fuzzy matching is safe when the
+ * consequence is a merge (nothing is lost — every folded wording still rides in
+ * `mergedFrom` and is rendered), and unsafe when the consequence is that a
+ * verification does not happen: a near-miss there means a verdict about one
+ * defect silently settles a different one, with nothing rendered to make the
+ * mistake visible.
+ *
+ * CLAIM TYPE is the one field added on top of the key, because it is not a
+ * matter of wording. It selects the verifier's whole procedure (hunt for a
+ * counterexample vs. look the code up), its turn budget, and which
+ * `refutationGround`s `isDroppingVerdict` will act on. A presence verdict must
+ * never settle an absence claim, however identically the two are worded.
+ *
+ * `severity`, `evidence` and `searchedFor` are deliberately NOT in the rule.
+ * They change the prompt's framing, not the claim being judged, and requiring
+ * them would make this match essentially never fire: the carry-forward round
+ * trip normalises severity and truncates evidence at 2000 chars
+ * (`agent-review-panel.yml`), so a prior copy differs from its fresh twin in
+ * those fields as a matter of routine. A rule that never fires is not a safe
+ * rule, it is a dead one that looks safe.
+ *
+ * An empty summary matches nothing, itself included. `coerceFindings` rewrites a
+ * malformed summary to a shared placeholder, and two placeholders in one file
+ * are not one claim — that is exactly the case where the text carries no
+ * information to match ON.
+ */
+export function sameFinding(a, b) {
+  if (!a || typeof a !== "object" || !b || typeof b !== "object") return false;
+  if (!String(a.summary ?? "").trim()) return false;
+  if (claimTypeOf(a) !== claimTypeOf(b)) return false;
+  return findingKey(a) === findingKey(b);
+}
+
+/**
+ * Which carried-forward findings still need a verifier session of their own.
+ *
+ * On every round ≥ 2 the panel verified each prior-round blocking finding
+ * unconditionally, having just verified this round's FRESH detections
+ * separately. A still-open defect the fresh pass re-found was therefore verified
+ * TWICE in the same round, in two wordings — the same duplicate spend
+ * `clusterFindings` was introduced to remove, one axis over. On #605 round 3
+ * that was up to 13 redundant sessions.
+ *
+ * Returns, index-aligned to `prior`:
+ *   reuseIdx[i] — index into `detected` whose verdict finding i inherits, or -1
+ *   sentIdx     — the indices with no match, i.e. the ones this round verifies
+ *
+ * Reuse requires BOTH sides to be blocking. The prior side because a
+ * non-blocking prior is never verified anyway, so calling it a reuse would
+ * report a saving that did not happen. The `detected` side because that is the
+ * trap: a blocking prior matching a MINOR fresh twin would inherit that twin's
+ * `null` — never verified, since `verifyBlocking` skips non-blockers — and
+ * `dedupeFindings` keeps the higher severity, so the blocking finding would
+ * reach the gate unverified where today it is checked. Requiring both closes it.
+ *
+ * WHAT THIS CHANGES, stated rather than left to be discovered. Today the two
+ * copies get two INDEPENDENT verdicts and the OR of them decides: whichever copy
+ * survives `keepUnrefuted` wins the `dedupeFindings` slot, so the finding lives
+ * if EITHER session kept it. After this, one verdict decides both. On the same
+ * text that only differs when two sessions disagree — which is model noise, not
+ * a second opinion worth paying for — but it moves the outcome in both
+ * directions: a fresh refutation now also drops the prior copy that would have
+ * survived, and a fresh confirmation now keeps a prior copy that would have been
+ * dropped (and which, carrying no novelty lane, outranks a `backlog` fresh twin
+ * at dedup). This is the same call #591/#601 already made when clustering moved
+ * ahead of verification — one defect, one verdict — applied to the fresh-vs-prior
+ * axis. It needs no `resolveClusterVerdict`-style bound because the match here is
+ * exact rather than fuzzy: there is no distinct wording that could have merged in.
+ *
+ * A matched fresh verdict of `null` IS reused rather than re-verified. It is
+ * tempting to treat the prior copy as a second attempt, but that would be a
+ * retry policy expressed as an accident of a finding appearing in two lists —
+ * available to duplicates and to nothing else. The retry policy lives in
+ * `withRetry` inside `verifyFinding`, where it applies to every verification;
+ * `classifyResult` marks the non-retryable kinds non-retryable on purpose. The
+ * fail direction is unchanged either way: no verdict keeps the finding.
+ *
+ * First match wins, and `detected` has a deterministic order, so the plan does
+ * not depend on iteration accidents.
+ */
+export function planPriorVerifications(detected, prior) {
+  const fresh = Array.isArray(detected) ? detected : [];
+  const list = Array.isArray(prior) ? prior : [];
+  const blocking = (f) => BLOCKING.has(normalizeSeverity(f && f.severity));
+  const reuseIdx = list.map((p) =>
+    blocking(p) ? fresh.findIndex((f) => blocking(f) && sameFinding(p, f)) : -1);
+  const sentIdx = reuseIdx.map((j, i) => (j < 0 ? i : -1)).filter((i) => i >= 0);
+  return { reuseIdx, sentIdx };
 }
 
 /**
@@ -2125,8 +2233,15 @@ async function main() {
     // and a still-present one is confirmed (kept). Because applyVerifications
     // drops only on high-confidence `refuted`, a prior finding survives unless
     // it's confidently resolved — even if this round's fresh pass missed it.
+    //
+    // A prior finding the fresh pass ALREADY re-found this round is not verified
+    // a second time — it inherits its fresh twin's verdict. `sameFinding` is
+    // `dedupeFindings`' own key plus claim type, so a reused pair is one the
+    // merge below was always going to collapse into a single finding anyway.
     const priorForLens = priorFindings.filter((p) => p.lens === lens.id);
-    const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
+    const { reuseIdx, sentIdx } = planPriorVerifications(detected, priorForLens);
+    const priorVerdicts = await Promise.all(priorForLens.map(async (f, i) => {
+      if (reuseIdx[i] >= 0) return verdicts[reuseIdx[i]] ?? null;
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id }); }
       // Error → keep (fail toward blocking), unchanged; the reason is recorded
@@ -2183,6 +2298,10 @@ async function main() {
       freshVerdicts: verdicts,
       prior: priorForLens,
       priorVerdicts,
+      // Which prior verdicts no session produced. Without it the capture shows a
+      // verdict on every prior row and a later pass counting "prior-round
+      // verifications" would over-count by exactly what this change saves.
+      priorReuseIdx: reuseIdx,
     }));
 
     // Reliability signals for this round: did the samples agree (fresh pass
@@ -2192,7 +2311,17 @@ async function main() {
     // actually sent to the verifier (post-cluster), so `sentToVerifier` counts
     // distinct defects rather than wordings.
     const freshTally = verifierTally(detected, verdicts);
-    const priorTally = verifierTally(priorForLens, priorVerdicts);
+    // The SENT SUBSET, not every prior finding. `priorVerdicts` now carries
+    // inherited verdicts for the re-found ones, and tallying those would count
+    // one session twice — `sentToVerifier` would report no saving on the round
+    // this change exists to make cheaper, and a reused `null` would land a
+    // second `errored` on a finding the fresh pass already counted. Both arrays
+    // are indexed through the SAME `sentIdx`, so they cannot drift apart the way
+    // two separately-filtered copies would.
+    const priorTally = verifierTally(
+      sentIdx.map((i) => priorForLens[i]),
+      sentIdx.map((i) => priorVerdicts[i]),
+    );
     lensStats.push({
       id: lens.id,
       // 0/0 when detection was skipped for want of new hunks — reporting the
@@ -2211,6 +2340,11 @@ async function main() {
         absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
         unresolved: freshTally.unresolved + priorTally.unresolved,
         errored: freshTally.errored + priorTally.errored,
+        // Carried-forward findings this round's fresh pass re-found, so one
+        // verdict settled both. Counted because the saving is otherwise
+        // invisible: `sentToVerifier` falls, but so does it when a round simply
+        // raises fewer findings, and the two readings call for opposite actions.
+        reusedPriorVerdicts: reuseIdx.filter((j) => j >= 0).length,
         // Both passes' failures in one tally. `errored` is UNCHANGED and stays a
         // count of FINDINGS; this counts SESSIONS, and the two are not
         // comparable — see verifierFailureCounts for why one clustered finding
@@ -2391,23 +2525,32 @@ function lensDiffMetadata(routedDiff) {
  *   verdict and whether it dropped. `dropped` is recomputed through the real
  *   `isDroppingVerdict` rather than restated, so it cannot drift from the gate.
  *   `verdict: null` means the verifier errored and the finding was kept.
+ * - `priorReuseIdx` — `planPriorVerifications`' plan, which marks the prior rows
+ *   whose verdict was INHERITED from a fresh twin rather than produced by a
+ *   session of their own (`reused: true`). Without it the capture is indistinguishable
+ *   from one where every prior finding was verified, and counting rows in it
+ *   would overstate what the round actually spent.
  * - `fresh` must be the POST-cluster findings (`detected`), not the union:
  *   restatement clustering moved ahead of verification in #591/#601, so `verdicts`
  *   is index-aligned to what was clustered. Passing the union here would pair
  *   findings with other findings' verdicts.
  */
-export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts, env = process.env }) {
-  const rows = (population, findings, verdicts) =>
+export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts, priorReuseIdx, env = process.env }) {
+  const rows = (population, findings, verdicts, reuseIdx) =>
     (Array.isArray(findings) ? findings : []).map((f, i) => {
       const verdict = (Array.isArray(verdicts) ? verdicts : [])[i] ?? null;
-      return { population, finding: f, verdict, dropped: isDroppingVerdict(verdict, { claimType: claimTypeOf(f) }) };
+      const row = { population, finding: f, verdict, dropped: isDroppingVerdict(verdict, { claimType: claimTypeOf(f) }) };
+      // Present ONLY on a reused row, so every capture written before this — and
+      // every row that really was verified — keeps its exact previous shape.
+      if ((Array.isArray(reuseIdx) ? reuseIdx : [])[i] >= 0) row.reused = true;
+      return row;
     });
   // Only blocking findings are ever sent to the verifier, so the same filter that
   // gates `verifyBlocking` gates what is recorded — a minor finding has no verdict
   // to report and a `verdict: null` row for it would read as a verifier error.
   const verifications = [
     ...rows("fresh", fresh, freshVerdicts),
-    ...rows("prior-round", prior, priorVerdicts),
+    ...rows("prior-round", prior, priorVerdicts, priorReuseIdx),
   ].filter((v) => BLOCKING.has(normalizeSeverity(v.finding?.severity)));
   // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
   // whole PR diff. It is what makes a capture replayable: a later pass can feed a
