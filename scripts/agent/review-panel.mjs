@@ -2074,6 +2074,34 @@ async function main() {
     // check and stop reaching the fixer.
     const gating = gatingFindings(merged);
 
+    // Record WHAT THIS LENS DID, as data, before any of it is flattened for
+    // humans. Placed here on purpose: verification is complete (so every verdict
+    // exists) and nothing has been written yet, so this reads the same values the
+    // check run is about to be built from.
+    //
+    // The counters below say HOW MANY findings each stage moved. Nothing says which
+    // sample raised what, or how the verifier ruled on each one — and the channels
+    // that survive the job cannot be back-filled into it. `output.text` on the
+    // check run is blocking-only (it drops the whole `backlog` lane) and truncates
+    // trailing findings at the 60k cap; `review-state.mjs` states outright that it
+    // is designed to lose data. `output.summary` is prose whose shape has drifted
+    // every few PRs. So the panel's own decisions are, today, unscoreable after the
+    // fact — which is the same gap #608's corpus was opened to close, one stage
+    // earlier and at zero model cost.
+    //
+    // Read-only and best-effort. `buildStageDetail` derives; `writeStageDetail`
+    // swallows. Neither can change `merged`, `gating` or the conclusion.
+    writeStageDetail(lensOut, buildStageDetail({
+      lensDiff,
+      scopeNote,
+      samples: ok,
+      // `detected`, not `findings`: post-cluster, index-aligned with `verdicts`.
+      fresh: detected,
+      freshVerdicts: verdicts,
+      prior: priorForLens,
+      priorVerdicts,
+    }));
+
     // Reliability signals for this round: did the samples agree (fresh pass
     // only — prior-round re-checks aren't a sampling question), and what did
     // the verifier do across BOTH the fresh and prior-round re-check passes.
@@ -2166,6 +2194,93 @@ async function main() {
   const blockers = panel.filter((p) => p.blocking && p.applicable);
   if (blockers.length > 0 && blockers.every((p) => p.infraError)) {
     process.stderr.write(`PANEL_INFRA_ERROR: ${blockers[0].infraError}\n`);
+  }
+}
+
+/**
+ * Is per-lens stage-detail capture on? **Default ON** — this reads as an opt-OUT,
+ * which is the inverse of `AGENT_PIPELINE_ENABLED`'s `== 'true'` opt-in, and the
+ * inversion is the whole reason this is a function with tests instead of a
+ * truthiness check at the call site.
+ *
+ * A GitHub repo variable that has never been set arrives as the **empty string**,
+ * not as absent — the same semantics the panel workflow already documents for
+ * `REVIEW_MODE`/`SINCE_SHA` ("When narrowing did not happen both are EMPTY
+ * STRINGS, which review-panel.mjs reads as absent"). So `if (env.X)` would resolve
+ * unset to OFF and the capture would silently never run, on every repository that
+ * had not explicitly opted in — a diagnostic that is quietly absent is worse than
+ * one that is loudly broken. Unset, empty and whitespace therefore all mean ON;
+ * only an explicit off-word turns it off.
+ */
+export function stageDetailCaptureEnabled(env = process.env) {
+  const raw = String(env.STAGE_DETAIL_CAPTURE ?? "").trim().toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off");
+}
+
+/**
+ * What this lens actually did this round, as data — the input a later scoring pass
+ * needs and that no existing channel carries.
+ *
+ * Pure and read-only over its arguments on purpose: this function is the reason a
+ * reviewer can be sure capture changes no verdict. It derives, copies and returns;
+ * it cannot reach the findings the panel goes on to gate on.
+ *
+ * - `samples` — the raw per-sample findings, BEFORE `unionSamples` and before
+ *   `clusterFindings`. Per-sample detection is otherwise unrecoverable:
+ *   `lensStats.agreement` keeps a score, not the findings it scored.
+ * - `verifications` — one record per finding that reached the verifier, with the
+ *   verdict and whether it dropped. `dropped` is recomputed through the real
+ *   `isDroppingVerdict` rather than restated, so it cannot drift from the gate.
+ *   `verdict: null` means the verifier errored and the finding was kept.
+ * - `fresh` must be the POST-cluster findings (`detected`), not the union:
+ *   restatement clustering moved ahead of verification in #591/#601, so `verdicts`
+ *   is index-aligned to what was clustered. Passing the union here would pair
+ *   findings with other findings' verdicts.
+ */
+export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts }) {
+  const rows = (population, findings, verdicts) =>
+    (Array.isArray(findings) ? findings : []).map((f, i) => {
+      const verdict = (Array.isArray(verdicts) ? verdicts : [])[i] ?? null;
+      return { population, finding: f, verdict, dropped: isDroppingVerdict(verdict, { claimType: claimTypeOf(f) }) };
+    });
+  // Only blocking findings are ever sent to the verifier, so the same filter that
+  // gates `verifyBlocking` gates what is recorded — a minor finding has no verdict
+  // to report and a `verdict: null` row for it would read as a verifier error.
+  const verifications = [
+    ...rows("fresh", fresh, freshVerdicts),
+    ...rows("prior-round", prior, priorVerdicts),
+  ].filter((v) => BLOCKING.has(normalizeSeverity(v.finding?.severity)));
+  return {
+    // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
+    // whole PR diff. It is what makes a capture replayable: a later pass can feed a
+    // lens exactly what it saw. Also the bulk of the file, by a wide margin.
+    lensDiff: typeof lensDiff === "string" ? lensDiff : "",
+    // The incremental-scope prompt addendum; "" in full mode. Recorded because it
+    // is part of the prompt, so a round is not reproducible without it.
+    scopeNote: typeof scopeNote === "string" ? scopeNote : "",
+    samples: (Array.isArray(samples) ? samples : []).map((r) => (Array.isArray(r?.findings) ? r.findings : [])),
+    verifications,
+  };
+}
+
+/**
+ * Write one lens's stage detail, or don't. Returns whether it landed.
+ *
+ * **This must never fail a review.** The capture is a diagnostic; the round is the
+ * product. Every failure mode — a full disk, a read-only mount, a value
+ * `JSON.stringify` refuses — degrades to "this run has no capture" and is logged,
+ * never to a thrown error inside `Promise.all(allLenses.map(...))`, which would
+ * take out the whole panel and turn an instrumentation bug into a review outage.
+ */
+export function writeStageDetail(lensOut, detail, env = process.env) {
+  if (!stageDetailCaptureEnabled(env)) return false;
+  try {
+    mkdirSync(lensOut, { recursive: true });
+    writeFileSync(path.join(lensOut, "stage-detail.json"), JSON.stringify(detail) + "\n");
+    return true;
+  } catch (err) {
+    console.log(`stage-detail capture failed (continuing): ${err.message}`);
+    return false;
   }
 }
 

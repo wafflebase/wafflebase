@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -48,6 +49,9 @@ import {
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
+  stageDetailCaptureEnabled,
+  buildStageDetail,
+  writeStageDetail,
 } from "./review-panel.mjs";
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY, EFFORT_LEVELS } from "./ask.mjs";
 import { classify, normalizeSeverity } from "./severity.mjs";
@@ -2340,4 +2344,151 @@ test("clusterFindings: re-clustering a merged finding keeps every folded wording
   assert.ok(kept.has(a) && kept.has(b), "a re-cluster dropped one of the folded wordings");
   // And the collapsed count reflects the flattened total, not just this pass.
   assert.deepEqual(clusterCounts(second), { clustered: 1, collapsed: 2 });
+});
+
+// ---------------------------------------------------------------------------
+// Stage-detail capture. Instrumentation, so every test here is really a claim
+// that it CANNOT affect a review: the gate defaults on rather than silently off,
+// the payload only derives, and a failed write is swallowed.
+// ---------------------------------------------------------------------------
+
+test("stageDetailCaptureEnabled: unset, empty and whitespace all mean ON", () => {
+  // The trap this function exists for. A GitHub repo variable that was never set
+  // reaches the runner as the EMPTY STRING, not as absent — so the ordinary
+  // `if (env.X)` feature-flag shape would resolve "nobody configured it" to OFF
+  // and the capture would never run anywhere, silently. Default ON means an
+  // unconfigured repo captures; only an explicit off-word stops it.
+  assert.equal(stageDetailCaptureEnabled({}), true, "absent must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: "" }), true, "empty string must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: "   " }), true, "whitespace must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: undefined }), true, "undefined must be ON");
+  // Anything affirmative, and anything unrecognized, also stays ON — an
+  // unparseable value must not disable a diagnostic that defaults to enabled.
+  for (const v of ["1", "true", "on", "yes", "TRUE", "banana"]) {
+    assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: v }), true, `${v} must be ON`);
+  }
+});
+
+test("stageDetailCaptureEnabled: only an explicit off-word turns it OFF", () => {
+  for (const v of ["0", "false", "off", "FALSE", "Off", " false "]) {
+    assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: v }), false, `${v} must be OFF`);
+  }
+});
+
+test("writeStageDetail: writes into the lens out dir when enabled", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    const lensOut = path.join(dir, "correctness");
+    assert.equal(writeStageDetail(lensOut, { samples: [], verifications: [] }, {}), true);
+    const written = JSON.parse(readFileSync(path.join(lensOut, "stage-detail.json"), "utf8"));
+    assert.deepEqual(written, { samples: [], verifications: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeStageDetail: disabled writes nothing at all", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    const lensOut = path.join(dir, "correctness");
+    assert.equal(writeStageDetail(lensOut, { samples: [] }, { STAGE_DETAIL_CAPTURE: "false" }), false);
+    // Not merely an empty file — the lens out dir is not even created, so an
+    // OFF run is byte-identical to today's behaviour.
+    assert.throws(() => readFileSync(path.join(lensOut, "stage-detail.json"), "utf8"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeStageDetail: a failed write NEVER propagates", () => {
+  // The one property that matters operationally. This runs inside
+  // `Promise.all(allLenses.map(...))`, so a throw here would abort the whole
+  // panel — an instrumentation bug becoming a review outage. Two real failure
+  // shapes, no mocking: an unusable path, and a value JSON.stringify refuses.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    // `lensOut` under a regular FILE → mkdirSync fails ENOTDIR.
+    const notADir = path.join(dir, "occupied");
+    writeFileSync(notADir, "i am a file\n");
+    assert.equal(writeStageDetail(path.join(notADir, "correctness"), { samples: [] }, {}), false);
+
+    // A circular structure → JSON.stringify throws TypeError.
+    const circular = { samples: [] };
+    circular.self = circular;
+    assert.equal(writeStageDetail(path.join(dir, "security"), circular, {}), false);
+
+    // A BigInt → JSON.stringify throws too, on a different code path.
+    assert.equal(writeStageDetail(path.join(dir, "design-fit"), { n: 1n }, {}), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildStageDetail: records per-sample findings before the union collapses them", () => {
+  // `unionSamples` dedupes across samples and `lensStats.agreement` keeps only a
+  // score, so which sample raised what is unrecoverable afterwards. That is the
+  // per-sample detection signal this capture exists to preserve.
+  const a = { severity: "major", file: "a.ts", summary: "same defect" };
+  const b = { severity: "nit", file: "b.ts", summary: "only sample 2" };
+  const detail = buildStageDetail({
+    lensDiff: "diff --git a/a.ts b/a.ts\n",
+    scopeNote: "",
+    samples: [{ findings: [a] }, { findings: [a, b] }],
+    fresh: [], freshVerdicts: [], prior: [], priorVerdicts: [],
+  });
+  assert.deepEqual(detail.samples, [[a], [a, b]]);
+  assert.equal(detail.lensDiff, "diff --git a/a.ts b/a.ts\n");
+  assert.equal(detail.scopeNote, "");
+  // A sample with no `findings` array contributes an empty list, never a crash
+  // and never a `null` row a consumer would have to special-case.
+  assert.deepEqual(
+    buildStageDetail({ samples: [{}, { findings: null }, null] }).samples,
+    [[], [], []],
+  );
+});
+
+test("buildStageDetail: verifications cover only what reached the verifier", () => {
+  // `verifyBlocking` sends critical/major only, so recording a minor finding here
+  // would show a `verdict: null` row that reads as a verifier error when in fact
+  // the verifier was never asked.
+  const major = { severity: "major", file: "a.ts", summary: "blocking" };
+  const nit = { severity: "nit", file: "a.ts", summary: "not blocking" };
+  const drop = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.ts:12"] };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const detail = buildStageDetail({
+    samples: [],
+    fresh: [major, nit], freshVerdicts: [drop, null],
+    prior: [major], priorVerdicts: [keep],
+  });
+  assert.equal(detail.verifications.length, 2, "the nit must not be recorded");
+  assert.deepEqual(detail.verifications.map((v) => v.population), ["fresh", "prior-round"]);
+  // `dropped` is recomputed through the real gate rather than restated, so the
+  // capture cannot disagree with what the panel actually did.
+  assert.equal(detail.verifications[0].dropped, true);
+  assert.equal(detail.verifications[1].dropped, false);
+  // A blocking finding the verifier ERRORED on is recorded with a null verdict —
+  // that is the "kept because we could not check it" case, and it has to be
+  // distinguishable from a confirmation.
+  const errored = buildStageDetail({ fresh: [major], freshVerdicts: [] });
+  assert.equal(errored.verifications[0].verdict, null);
+  assert.equal(errored.verifications[0].dropped, false);
+});
+
+test("buildStageDetail: derives only — it never mutates its inputs", () => {
+  // The claim the review cares about most: capture cannot change a verdict. The
+  // payload builder is pure, so the findings the panel goes on to gate on are
+  // untouched by having been recorded.
+  const findings = [{ severity: "major", file: "a.ts", summary: "s" }];
+  const verdicts = [{ verdict: "confirmed", confidence: "low" }];
+  const before = JSON.stringify({ findings, verdicts });
+  buildStageDetail({ lensDiff: "d", scopeNote: "n", samples: [{ findings }], fresh: findings, freshVerdicts: verdicts, prior: [], priorVerdicts: [] });
+  assert.equal(JSON.stringify({ findings, verdicts }), before);
+});
+
+test("buildStageDetail: a missing lensDiff or scopeNote degrades to an empty string", () => {
+  // JSON with a stable shape matters more than a faithful `undefined`: a consumer
+  // reading `detail.lensDiff.length` must not have to guard the field's absence.
+  const detail = buildStageDetail({});
+  assert.deepEqual(detail, { lensDiff: "", scopeNote: "", samples: [], verifications: [] });
+  assert.equal(typeof JSON.parse(JSON.stringify(detail)).lensDiff, "string");
 });
