@@ -713,9 +713,13 @@ Components:
        every subsequent round. Two guards prevent it: the panel workflow persists
        an empty `output.text` for any lens whose `panelEntry` carries `infraError`,
        and `scripts/agent/prior-findings.mjs` drops any carried record flagged
-       `infra` on read (so the guarantee holds on both panel paths regardless of
-       producer). The lens still fails closed via its check `conclusion`; only the
-       bogus re-check input is suppressed.
+       `infra` — or matching the stable "Review could not run — Claude API/quota
+       error" message prefix, which also catches records persisted BEFORE the flag
+       existed — on read (so the guarantee holds on both panel paths regardless of
+       producer, and a PR already contaminated by a pre-fix 429 round self-heals on
+       its next round instead of re-surfacing the error forever). The lens still
+       fails closed via its check `conclusion`; only the bogus re-check input is
+       suppressed.
 
     3. **Out-of-diff review.** The two measures above both re-read the *same
        artifact*, so neither finds a defect the diff does not contain. A Major

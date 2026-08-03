@@ -40,19 +40,22 @@ test("tagPriorFindings: absent output is NOT 'found nothing'; junk never throws"
   );
 });
 
-test("tagPriorFindings: an infra/quota record (infra:true) is never carried forward", () => {
-  // A lens that hit a 429 session limit writes a synthetic { infra: true } record
-  // so it fails closed. That is not a code finding — carrying it into the next
-  // round would make the panel re-check "the review could not run", and the
-  // verifier (biased to keep) cannot refute it. It must be dropped on read.
+test("tagPriorFindings: an infra/quota record is never carried forward", () => {
+  // A lens that hit a 429 session limit writes a synthetic infra record so it
+  // fails closed. That is not a code finding — carrying it into the next round
+  // would make the panel re-check "the review could not run", and the verifier
+  // (biased to keep) cannot refute it. It must be dropped on read — whether it
+  // carries the { infra: true } flag (records written after the fix) OR only the
+  // stable message prefix (records persisted BEFORE the flag existed — a PR
+  // already contaminated by a pre-fix 429 round, which is how #632 got stuck).
   const runs = new Map([
     ["agent-review-correctness", { output: { text: JSON.stringify([
       { severity: "major", summary: "Review could not run — Claude API/quota error (429): You've hit your session limit", infra: true },
       { severity: "major", summary: "real blocker" },
     ]) } }],
-    // A whole lens whose only record is the infra one → carries nothing.
+    // Legacy record: no `infra` flag, matched by the message prefix alone.
     ["agent-review-security", { output: { text: JSON.stringify([
-      { severity: "major", summary: "Review could not run — Claude API/quota error", infra: true },
+      { severity: "major", summary: "Review could not run — Claude API/quota error (429): You've hit your session limit · resets 3:40am (UTC)" },
     ]) } }],
   ]);
   assert.deepEqual(tagPriorFindings(runs), [

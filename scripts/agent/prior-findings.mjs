@@ -27,6 +27,18 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { latestLensRuns } from "./review-state.mjs";
 import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 
+// Stable PREFIX of the synthetic record review-panel.mjs writes when a lens hits
+// an API/quota outage (its `summaryText`: "Review could not run — Claude API/quota
+// error…"). Matched below so records persisted BEFORE the `infra: true` flag
+// existed are still dropped. It is script output, not model text, so a real
+// finding cannot begin with it — keep the two in sync if the message ever changes.
+export const INFRA_SENTINEL = "Review could not run — Claude API/quota error";
+
+/** A carried record that is really an infra/quota outage, not a code finding. */
+function isInfraRecord(f) {
+  return !!f && (f.infra === true || (typeof f.summary === "string" && f.summary.startsWith(INFRA_SENTINEL)));
+}
+
 /**
  * Turn `{ lensCheckName -> check run }` into a flat, lens-tagged findings array.
  *
@@ -62,10 +74,13 @@ export function tagPriorFindings(runsByLens) {
       // Drop the synthesised INFRA record a lens writes when it hits an API/quota
       // outage (e.g. a 429 session limit): the reviewer never ran, so "Review
       // could not run …" is not a finding to re-check, and the verifier (biased to
-      // keep) cannot refute it on grounded evidence. The panel workflow already
-      // persists none for an infra lens; this is the read-side backstop so the
-      // guarantee holds regardless of which producer wrote the check output.
-      if (f && f.infra === true) continue;
+      // keep) cannot refute it on grounded evidence. Matches the `infra` flag AND
+      // the stable message prefix, so a record persisted BEFORE the flag existed
+      // (a PR contaminated by a pre-fix 429 round) is dropped too rather than
+      // re-surfacing every round. The panel workflow already persists none for an
+      // infra lens; this is the read-side backstop so the guarantee holds
+      // regardless of which producer wrote the check output.
+      if (isInfraRecord(f)) continue;
       // `lens` last: a finding cannot spoof its own origin by carrying a `lens`
       // key, since these come from a previous round's model output.
       if (f && typeof f === "object" && !Array.isArray(f)) out.push({ ...f, lens });
