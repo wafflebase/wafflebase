@@ -732,6 +732,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
+      papaparse:
+        specifier: ^5.4.1
+        version: 5.5.2
     devDependencies:
       '@types/papaparse':
         specifier: ^5.3.14
@@ -751,9 +754,6 @@ importers:
       lint-staged:
         specifier: ^15.2.7
         version: 15.5.1
-      papaparse:
-        specifier: ^5.4.1
-        version: 5.5.2
       prettier:
         specifier: ^3.3.2
         version: 3.5.3
