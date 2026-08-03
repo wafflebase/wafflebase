@@ -1512,10 +1512,15 @@ async function runLens(lens, { rubric, diff, extraDiff, issue, repo, sessionLog,
     schema: LENS_SCHEMA,
     sessionLog,
     allowedTools: REVIEW_TOOLS,
-    // Optional per-lens turn ceiling. Omitted = the SDK default, which is what
-    // the repo-walking lenses (blast-radius, correctness) need. A lens whose
-    // rubric only asks it to check the prose in front of it does not, and an
-    // unbounded budget there is spend with nothing to show for it.
+    // Optional per-lens turn ceiling; omitted = the SDK default. Currently NO
+    // lens sets one. The docs lens used to cap at 8 on the theory that prose
+    // review is a shallow lookup, but it kept dying on `error_max_turns` at that
+    // ceiling — failing the blocking lens closed and PAGING a human — exactly as
+    // the verifier's `presence: 8` did before it was raised (see
+    // VERIFIER_MAX_TURNS). Locating the prose, reading enough around it to judge
+    // accuracy, and citing a `file:line` costs more than 8 turns, so docs now runs
+    // at the default like every other lens. Keep the knob for a future lens that
+    // genuinely is bounded, but do not re-cap on a cost hunch: a page is worse.
     maxTurns: lens.maxTurns,
     // Optional per-lens reasoning effort, same manifest-driven shape as
     // `maxTurns` above. Omitted = the SDK default (`high`). This is the panel's

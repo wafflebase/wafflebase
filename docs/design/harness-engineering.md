@@ -459,7 +459,7 @@ Components:
   from that diff, so a verifier reading the same diff inherits its misreadings
   and confirms them — the correlated-error failure of naive review panels. It
   instead re-establishes the facts from the repository itself (Read/Grep/Glob
-  against the branch checkout, capped at 8 turns), is told to distrust the
+  against the branch checkout, capped at 20 turns), is told to distrust the
   finding's quoted evidence, and receives only the cumulative changed-FILE list
   so it can tell new code from pre-existing. Dropping is **grounded, not
   asserted** (`isDroppingVerdict`): the verdict must be an explicit `refuted`, at

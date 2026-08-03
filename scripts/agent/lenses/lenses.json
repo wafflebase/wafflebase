@@ -71,7 +71,6 @@
     "scopeClasses": ["prose"],
     "model": "claude-sonnet-5",
     "samples": 1,
-    "effort": "medium",
-    "maxTurns": 8
+    "effort": "medium"
   }
 ]
