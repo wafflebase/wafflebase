@@ -1317,6 +1317,65 @@ corpus, `critical` demonstrably in use, ≤ 2 rounds to converge) becomes
 *measurable*. Not yet built: a `harvest --report` roll-up, scheduled harvesting,
 and the paired shadow-mode comparison Phase 9's merge-eligibility line feeds.
 
+### Phase 28: Structured Rebuttal + Independent Adjudicator
+
+**Principle:** Mechanical Enforcement — the author may *claim*, only the trusted
+path may *decide*.
+
+**The gap, demonstrated live on #564.** The fixer prompt has always said "if you
+believe a finding is wrong, reply in the PR thread with your reasoning" — and
+nothing consumed that reply. `scripts/agent/review-panel.mjs` receives the diff,
+the changed files, the issue spec and the prior findings; it never received a word
+the author wrote. On #564 the fixer posted a correct, evidenced rebuttal (the App
+cannot push `.github/workflows/**`, with the literal push error) at 06:46. The
+07:05 panel never saw it and re-raised the same finding, twice more.
+
+**The channel.** The fixer posts a structured record as a hidden PR comment
+(`<!-- agent-rebuttal … -->`), mirroring the metrics ledger — it holds
+`issues:write`, so this is a channel it can actually use, and author-writability
+is fine because a rebuttal is only a claim. `scripts/agent/rebuttal.mjs post`
+writes it, so the format cannot drift from the parser: a model hand-writing JSON
+inside an HTML comment fails in a way that looks exactly like agreement.
+
+**The decision.** The panel job (trusted, `ref: main`) reads rebuttals as
+untrusted data, fenced like the diff, and runs an **adjudicator** subagent per
+disputed finding — fresh context, not the fixer, not the lens that raised it.
+`isOverturningVerdict` is the mirror of `isDroppingVerdict`: an explicit
+`overturned`, `high` confidence, an enumerated ground, and at least one
+`file.ext:line` the adjudicator actually read. Anything less upholds.
+
+**Persuasion must never be a bypass**, and the fail direction is asymmetric in
+four places to make that structural rather than hoped-for: an unparseable
+rebuttal is ignored, an *ambiguous* match is refused (a rebuttal that fits two
+findings equally well names neither), an errored session upholds, and an
+ungrounded verdict upholds. A rebuttal can only ever lose.
+
+**Undeliverable is not wrong.** There is deliberately no overturn ground for "I
+cannot make this change" — #564's rebuttal was *true* and the finding was still
+correct and still needed doing, by a human. Such a rebuttal is upheld, re-raised,
+rebutted again, and pages at two. An overturn ground for inability would let a PR
+merge with the work declared impossible.
+
+**Bounded.** A finding disputed `MAX_REBUTTAL_ROUNDS` (2) times and upheld both
+times pages a human, checked in `scripts/agent/review-round-guard.mjs` *before* convergence
+because it is the more specific reason. The counter also catches the shape the
+plan did not name — overturned in one round, re-raised the next, disputed again —
+because both mean the loop cannot settle the question by itself.
+
+The count travels on the finding through the check run's `output.text`, the
+**unforgeable** channel, not through the author's own comments. Paging is the safe
+direction, so a forged count would only summon an unnecessary human — but a bound
+the disputing party can move is not a bound.
+
+Inert by default: `--rebuttals` absent means an empty list, which short-circuits
+before any session opens, so a panel invoked without it is the panel that existed
+before this.
+
+Not yet built: an adjudication record in the metrics comment (the outcome is
+visible only in the check body today), and any measurement of how often a
+rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
+should not have happened is a false negative like any other.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:

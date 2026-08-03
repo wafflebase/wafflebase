@@ -465,6 +465,23 @@ jobs:
           --lenses .trusted/scripts/agent/lenses/lenses.json
           --out /tmp/prior-findings.json
 
+      # The author's structured rebuttals of earlier findings, as hidden PR
+      # comments. UNTRUSTED DATA: the fixer writes these, and everything
+      # downstream treats them as a claim to be grounded rather than as evidence.
+      # The TRUSTED copy of the reader runs here (.trusted, not the branch), so a
+      # branch cannot change what counts as a rebuttal — only what one says.
+      #
+      # continue-on-error plus a script that returns [] on any failure: an
+      # unreadable side-channel must degrade to "nobody disputed anything", which
+      # is exactly the pre-#608 behaviour, never to a failed panel.
+      - name: Read author rebuttals
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: node .trusted/scripts/agent/rebuttal.mjs read "$PR" --out /tmp/rebuttals.json
+
       # Advisory single-value state: mark the PR "under automated review" while the
       # panel runs. Best-effort; the label is a projection, never a gate. Runs the
       # TRUSTED copy from .trusted (checked out above), not the branch's copy.
@@ -578,6 +595,7 @@ jobs:
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --rebuttals /tmp/rebuttals.json
           --base-sha "$BASE_SHA"
           --head-sha "$HEAD_SHA"
           --review-mode "$REVIEW_MODE"
@@ -670,7 +688,16 @@ jobs:
                   // it every repeat round tells the verifier to "search from
                   // scratch", losing the complementary-search value. Advisory —
                   // never gates (see verifyFinding), so it is safe to carry.
-                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), claimType: f.claimType === 'absence' ? 'absence' : undefined, searchedFor: Array.isArray(f.searchedFor) ? f.searchedFor.filter((s) => typeof s === 'string' && s.trim()).slice(0, 20).map((s) => trim(s, 300)) : undefined, mergedFrom: Array.isArray(f.mergedFrom) && f.mergedFrom.length ? f.mergedFrom.slice(0, 5).map((m) => ({ severity: norm(m.severity), summary: trim(m.summary, 500) })) : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000) }));
+                  // `adjudication.upheld` rides along because THIS is the
+                  // unforgeable channel the rebuttal bound is counted from:
+                  // review-round-guard.mjs reads it back to page when a finding
+                  // has been disputed twice and upheld twice. Only the integer is
+                  // carried — the adjudicator's prose reason is for the human
+                  // summary, and shipping it here would spend the 60k budget on
+                  // text no consumer reads. Carried on folded wordings too, so a
+                  // rebutted wording clustered into a fresh representative keeps
+                  // its history (see upheldCount).
+                  .map((f) => ({ severity: norm(f.severity), file: trim(f.file, 300), claimType: f.claimType === 'absence' ? 'absence' : undefined, searchedFor: Array.isArray(f.searchedFor) ? f.searchedFor.filter((s) => typeof s === 'string' && s.trim()).slice(0, 20).map((s) => trim(s, 300)) : undefined, mergedFrom: Array.isArray(f.mergedFrom) && f.mergedFrom.length ? f.mergedFrom.slice(0, 5).map((m) => ({ severity: norm(m.severity), summary: trim(m.summary, 500), adjudication: Number.isInteger(m.adjudication?.upheld) ? { upheld: m.adjudication.upheld } : undefined })) : undefined, summary: trim(f.summary, 2000), evidence: trim(f.evidence, 2000), adjudication: Number.isInteger(f.adjudication?.upheld) ? { upheld: f.adjudication.upheld } : undefined }));
                 // Keep output.text VALID JSON within the 60k limit: NEVER slice the
                 // serialized string (that yields JSON the next round can't parse).
                 // Fields are trimmed above; drop trailing findings until it fits.
@@ -1172,12 +1199,34 @@ jobs:
               requires touching others; do not refactor unrelated code.
             - Run `pnpm verify:fast` ONCE at the end to confirm green — not after
               every edit.
-            - If you believe a finding is wrong, do NOT change code for it; reply
-              in the PR thread with your reasoning per CONTRIBUTING.md. A reply
-              does NOT resolve the finding — nothing consumes it, the next round
-              will raise it again, and only an independent adjudication or a human
-              can clear it. Never treat a disputed finding as settled, and never
-              treat one as satisfying the merge gate.
+            - If you believe a finding is wrong, do NOT change code for it. File a
+              STRUCTURED rebuttal, which the next panel round reads and hands to an
+              independent adjudicator:
+
+              ```
+              node ./scripts/agent/rebuttal.mjs post ${{ needs.review-panel.outputs.pr }} \
+                --lens <lens-id> --file <path/from/the/finding> \
+                --summary "<the finding's own wording, copied>" \
+                --claim "<why the finding is wrong>" \
+                --evidence path/to/file.ts:123 --evidence other.ts:45
+              ```
+
+              Copy the finding's `--summary` verbatim; that is how the adjudicator
+              is matched to the right finding, and a paraphrase that drifts too far
+              matches nothing. `--evidence` must be `file:line` locations the
+              adjudicator can read for itself — an assertion with no location
+              cannot overturn anything.
+
+              A rebuttal does NOT resolve the finding. It is a CLAIM: an
+              independent adjudicator re-reads the code and upholds by default,
+              overturning only on a grounded, located refutation. Never treat a
+              disputed finding as settled, and never treat one as satisfying the
+              merge gate.
+
+              "I cannot make this change" is NOT grounds to overturn — a correct
+              finding you cannot act on is still correct. File the rebuttal anyway
+              so the standstill is recorded and a human is paged; then deliver
+              everything else and say in the PR body which criteria need a human.
 
             Append a follow-up commit (do NOT force-push); the commit message must
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not

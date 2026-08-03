@@ -55,6 +55,13 @@ import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./no
 // Jaccard for exactly this restatement pattern. A second, hand-tuned copy would
 // be the drift `REFUTATION_GROUNDS` and `CITATION` both exist to avoid.
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
+import {
+  ADJUDICATOR_SCHEMA,
+  buildAdjudicatorPrompt,
+  isOverturningVerdict,
+  matchRebuttal,
+  upheldCount,
+} from "./rebuttal.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1831,6 +1838,109 @@ export function buildVerifierPrompt(finding, { rubric }) {
   return prompt;
 }
 
+/** How many turns an adjudicator gets. Matched to the presence verifier's post-#614
+ *  ceiling: it does the same job — read the cited code and decide — plus one extra
+ *  claim to check, and the 8-turn ceiling it inherited was demonstrably too tight
+ *  (every one of #605's eight failures came in at exactly 9 turns). */
+export const ADJUDICATOR_MAX_TURNS = 20;
+
+/**
+ * Ask an independent adjudicator whether a disputed finding is wrong.
+ *
+ * Deliberately a sibling of `verifyFinding` rather than a mode of it. The two ask
+ * different questions of different evidence — the verifier asks "is this defect
+ * really in the code", the adjudicator asks "is this ARGUMENT good enough to
+ * remove it" — and only the adjudicator is handed author-written text. Folding
+ * them together would put an untrusted string on the verifier's path, which is
+ * the one path in the panel that has never had one.
+ */
+async function adjudicateFinding(finding, rebuttal, { repo, model, sessionLog, lensId }) {
+  return askStructured({
+    systemPrompt:
+      "You are an independent adjudicator. You did not write this code, you did not raise " +
+      "this finding, and you did not write the dispute. The dispute is a CLAIM by the party " +
+      "who wants the finding removed — check it against the repository rather than crediting " +
+      "it. Overturning removes a finding from the merge gate, so overturn only with a named " +
+      "ground and cited locations. When in doubt, uphold.",
+    prompt: buildAdjudicatorPrompt(finding, rebuttal),
+    model,
+    repo,
+    schema: ADJUDICATOR_SCHEMA,
+    sessionLog,
+    maxTurns: ADJUDICATOR_MAX_TURNS,
+    allowedTools: REVIEW_TOOLS,
+    label: "review",
+    logMeta: { lens: lensId, role: "adjudicator" },
+  });
+}
+
+/**
+ * Run the adjudication pass over one lens's GATING findings.
+ *
+ * Gating only: a demoted or backlog finding blocks nothing, so buying a session to
+ * argue about it spends money to change no outcome.
+ *
+ * Returns the findings that still gate, plus a tally. An overturned finding is
+ * annotated and REMOVED; an upheld one carries its count forward on
+ * `adjudication.upheld`, which is the field the check run persists and the round
+ * guard reads to page.
+ *
+ * Every failure path keeps the finding: no rebuttal, no match, an ambiguous match,
+ * a thrown session, an ungrounded verdict. That is the same direction as
+ * `keepUnrefuted`, and it is the whole reason a rebuttal is safe to accept from
+ * the author at all.
+ */
+export async function adjudicateRebuttals(
+  gating,
+  // `adjudicate` is INJECTED for the same reason `api` is in gh-checks.mjs: the
+  // decisions worth pinning here are the wiring ones — an overturn drops, an
+  // ungrounded verdict keeps, an errored session keeps, the count increments —
+  // and a version reachable only through a real SDK session would leave every one
+  // of them untested. `isOverturningVerdict` is the judgement; this is the plumbing
+  // around it, and the plumbing is where a fail-open would hide.
+  { rebuttals, repo, model, sessionLog, lensId, adjudicate = adjudicateFinding },
+) {
+  const tally = { matched: 0, overturned: 0, upheld: 0, errored: 0 };
+  if (!Array.isArray(rebuttals) || rebuttals.length === 0 || !Array.isArray(gating)) {
+    return { findings: Array.isArray(gating) ? gating : [], dropped: [], tally };
+  }
+  const out = [];
+  // The ORIGINAL objects that were overturned. Returned rather than derived by the
+  // caller: an upheld finding is re-created with an `adjudication` field, so its
+  // identity changes too, and an identity diff would read every upheld finding as
+  // dropped — removing from the summary exactly the findings that survived.
+  const dropped = [];
+  for (const f of gating) {
+    const r = matchRebuttal(f, rebuttals);
+    if (!r) {
+      out.push(f);
+      continue;
+    }
+    tally.matched++;
+    let v = null;
+    try {
+      v = await adjudicate(f, r, { repo, model, sessionLog, lensId });
+    } catch {
+      tally.errored++; // and fall through to uphold — an errored session argues nothing
+    }
+    if (isOverturningVerdict(v)) {
+      tally.overturned++;
+      dropped.push(f);
+      continue;
+    }
+    tally.upheld++;
+    out.push({
+      ...f,
+      adjudication: {
+        upheld: upheldCount(f) + 1,
+        verdict: v ? String(v.verdict ?? "") : "errored",
+        reason: typeof v?.reason === "string" ? v.reason.slice(0, 500) : "",
+      },
+    });
+  }
+  return { findings: out, dropped, tally };
+}
+
 /**
  * Why a verification produced no verdict. `classifyResult` already computes this
  * (`ask.mjs`), and both call sites used to throw it away with `.catch(() => null)`,
@@ -2007,6 +2117,27 @@ async function main() {
   const priorFindings = args["prior-findings"] && existsSync(args["prior-findings"])
     ? parsePriorFindings(readFileSync(args["prior-findings"], "utf8"))
     : [];
+
+  // The author's structured rebuttals, written by the fixer as hidden PR comments
+  // and collected by rebuttal.mjs. ABSENT IS THE DEFAULT AND MEANS "adjudicate
+  // nothing" — an empty list short-circuits `adjudicateRebuttals` before any
+  // session opens, so a panel invoked without this flag is byte-for-byte the panel
+  // that existed before it.
+  //
+  // Parsed with the same fail-quiet discipline as prior findings: this is an
+  // OPTIONAL side-channel written by the untrusted party, and the panel must never
+  // fail because it was malformed. A rebuttal that cannot be read is a rebuttal
+  // that was not made, which leaves the finding standing.
+  let rebuttals = [];
+  if (args.rebuttals && existsSync(args.rebuttals)) {
+    try {
+      const raw = JSON.parse(readFileSync(args.rebuttals, "utf8"));
+      rebuttals = Array.isArray(raw) ? raw.filter((r) => r && typeof r === "object") : [];
+    } catch (err) {
+      console.error(`could not read --rebuttals '${args.rebuttals}' (${err.message}); adjudicating none.`);
+    }
+  }
+  if (rebuttals.length > 0) console.log(`rebuttals: ${rebuttals.length} to adjudicate`);
 
   // Split ONCE, not per lens. Each lens then gets the subset of blocks its
   // `scopeClasses` claim (diffForLens). This is a pure transform of the diff
@@ -2270,7 +2401,28 @@ async function main() {
     // backlog ones stay in `merged` so the summary still reports them (with the
     // base location that justifies the demotion) — they simply stop failing the
     // check and stop reaching the fixer.
-    const gating = gatingFindings(merged);
+    const gatingRaw = gatingFindings(merged);
+
+    // Part 3: adjudicate the author's rebuttals against what would gate.
+    // `rebuttals` is EMPTY unless --rebuttals was passed, and an empty list
+    // short-circuits before any session opens — so an un-wired panel behaves
+    // exactly as it did before this existed.
+    const adjudged = await adjudicateRebuttals(gatingRaw, {
+      rebuttals, repo, model: lens.model, sessionLog, lensId: lens.id,
+    });
+    const gating = adjudged.findings;
+    if (adjudged.tally.matched > 0) {
+      console.log(
+        `${lens.id}: adjudicated ${adjudged.tally.matched} rebutted finding(s) — ` +
+          `${adjudged.tally.overturned} overturned, ${adjudged.tally.upheld} upheld` +
+          (adjudged.tally.errored ? ` (${adjudged.tally.errored} session error(s), upheld)` : ""),
+      );
+    }
+    // An overturned finding must leave the human-readable summary too, or the
+    // check body would still list a finding the gate no longer holds — the exact
+    // "reads as a full review" confusion the unverified note exists to prevent.
+    const overturnedOut = new Set(adjudged.dropped);
+    const mergedAfter = overturnedOut.size ? merged.filter((f) => !overturnedOut.has(f)) : merged;
 
     // Record WHAT THIS LENS DID, as data, before any of it is flattened for
     // humans. Placed here on purpose: verification is complete (so every verdict
@@ -2362,12 +2514,12 @@ async function main() {
       // is how often git could not place a finding at all — if that is high the
       // gate is inert, and the cause (no --base-sha, a shallow clone, findings
       // with no location) is worth chasing rather than trusting the demotions.
-      lanes: laneCounts(merged),
+      lanes: laneCounts(mergedAfter),
       // Restatement collapsed this round. `collapsed` is the count inflation that
       // used to reach the PR comment and the fixer's checklist as separate work
       // items; a persistently high number means the lenses are re-describing the
       // same defects rather than that the PR has that many problems.
-      clusters: clusterCounts(merged),
+      clusters: clusterCounts(mergedAfter),
     });
 
     // A review whose verification did not run must not read like one where it
@@ -2381,7 +2533,7 @@ async function main() {
       console.log(`${lens.id}: verifier errored on ${verifierErrors}/${verifierSent} finding(s) — those are UNVERIFIED`);
     }
     // Advisory lenses report findings but never block.
-    const { conclusion } = writeVerdict(lensOut, lens, merged, summary, {
+    const { conclusion } = writeVerdict(lensOut, lens, mergedAfter, summary, {
       valid: true,
       conclusion: blocking ? undefined : "success",
       advisory: !blocking,

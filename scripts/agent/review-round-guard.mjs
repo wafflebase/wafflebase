@@ -23,6 +23,7 @@ import {
   PAGED_LATCH,
   isPagedLatchComment,
 } from "./rounds.mjs";
+import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -164,7 +165,32 @@ for (const c of commits.filter((x) => (x.checkRuns ?? []).some(isLensRun)).slice
   }
 }
 
-const stall = detectStalledRounds(groupReviewRounds(commits, requiredCheckNames), {
+const rounds = groupReviewRounds(commits, requiredCheckNames);
+
+// ARGUED TO A STANDSTILL, checked before convergence for the same reason the
+// infra branch is checked before `allValid`: the more specific reason wins, and
+// "the author disputed this twice and an independent adjudicator upheld it both
+// times" tells a human far more than "the panel keeps re-raising findings".
+//
+// The count is read from the check runs' `output.text` — the unforgeable channel
+// the panel writes — not from the author's own rebuttal comments. Counting those
+// would let the author drive the page. Paging is the SAFE direction, so a forged
+// extra count costs only an unnecessary human look; but a bound the disputing
+// party can move is not a bound, and it would be the one number in this file that
+// the party it constrains gets to choose.
+const latestRound = rounds.length ? rounds[rounds.length - 1] : null;
+const exhausted = exhaustedFindings(latestRound?.findings);
+if (exhausted.length > 0) {
+  page(
+    `A finding has been disputed ${MAX_REBUTTAL_ROUNDS} times and upheld every time by an ` +
+      `independent adjudicator. The loop cannot settle this by itself — either the finding is ` +
+      `right and the author cannot act on it, or it is wrong in a way the adjudicator cannot see. ` +
+      `Standstill: ${exhausted.slice(0, 5).join("; ")}. A human should decide on PR #${pr}.`,
+  );
+  process.exit(0);
+}
+
+const stall = detectStalledRounds(rounds, {
   minRepeats: stallRepeats,
   similarity: stallSimilarity,
 });

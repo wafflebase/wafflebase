@@ -300,6 +300,17 @@ jobs:
           --lenses .trusted/scripts/agent/lenses/lenses.json
           --out /tmp/prior-findings.json
 
+      # Same untrusted side-channel the gating panel reads, for the same reason:
+      # an on-demand review that re-raised a finding an adjudicator has already
+      # overturned would contradict the gating panel on the same PR, and a human
+      # reading the advisory comment has no way to tell which one is current.
+      - name: Read author rebuttals (align with the gating panel)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.authorize.outputs.pr }}
+        run: node .trusted/scripts/agent/rebuttal.mjs read "$PR" --out /tmp/rebuttals.json
+
       - name: Run review panel
         id: panel
         # A crash must not fail the job — the aggregate step below then posts a
@@ -310,14 +321,16 @@ jobs:
           # Via env, never interpolated into the `run:` string — this step holds
           # the Claude token. Same rule as the twin step in agent-review-panel.yml.
           BASE_SHA: ${{ steps.diff.outputs.base }}
-        # --prior-findings is tolerant of a missing file (existsSync guard in
-        # review-panel.mjs → treated as []), so a skipped/failed read step is safe.
+        # --prior-findings and --rebuttals are both tolerant of a missing file
+        # (existsSync guard in review-panel.mjs → treated as []), so a
+        # skipped/failed read step above is safe.
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
           --issue-file /tmp/issue.txt
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
+          --rebuttals /tmp/rebuttals.json
           --base-sha "$BASE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses

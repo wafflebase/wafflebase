@@ -282,7 +282,20 @@ export function groupReviewRounds(commits, lensCheckNames) {
           partial = true;
           continue;
         }
-        findings.push({ lens, severity: f.severity, file: f.file, summary: f.summary });
+        // `adjudication` rides along even though convergence never reads it:
+        // review-round-guard.mjs reaches the rebuttal bound THROUGH this
+        // projection, and a narrow projection that silently drops the field is
+        // indistinguishable from "nothing was ever disputed" — the page simply
+        // never fires. Inert for stall detection, which keys on lens/file/summary
+        // and counts by severity.
+        findings.push({
+          lens,
+          severity: f.severity,
+          file: f.file,
+          summary: f.summary,
+          ...(f.adjudication ? { adjudication: f.adjudication } : {}),
+          ...(Array.isArray(f.mergedFrom) ? { mergedFrom: f.mergedFrom } : {}),
+        });
       }
     }
     rounds.push({ sha: c.sha, findings, partial });
