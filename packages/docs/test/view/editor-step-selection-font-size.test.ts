@@ -15,7 +15,16 @@ const EMPTY = normalizeBlockStyle({});
  * docs-font-controls.md, "`±` on a mixed-size selection...".
  */
 
+// Saved originals so the shim can be torn down after each test — otherwise
+// the mocked getContext / ResizeObserver leak into later tests in the worker.
+let origGetContext: typeof HTMLCanvasElement.prototype.getContext | undefined;
+let origResizeObserver: unknown;
+let shimInstalled = false;
+
 function installCanvasShim(): void {
+  origGetContext = HTMLCanvasElement.prototype.getContext;
+  origResizeObserver = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver;
+  shimInstalled = true;
   const ctxHandler: ProxyHandler<object> = {
     get(_t, prop) {
       if (prop === 'measureText') {
@@ -79,6 +88,14 @@ describe('EditorAPI.stepSelectionFontSize', () => {
   afterEach(() => {
     for (const editor of editors.splice(0)) editor.dispose();
     document.body.innerHTML = '';
+    // Restore the browser APIs the shim replaced so they don't leak.
+    if (shimInstalled) {
+      HTMLCanvasElement.prototype.getContext =
+        origGetContext as typeof HTMLCanvasElement.prototype.getContext;
+      (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
+        origResizeObserver;
+      shimInstalled = false;
+    }
   });
 
   function setupEditor(blocks: Block[]): { editor: EditorAPI; store: MemDocStore } {
@@ -137,6 +154,30 @@ describe('EditorAPI.stepSelectionFontSize', () => {
     expect(inlines[0].style.fontSize).toBe(10);
     expect(inlines[1].style.fontSize).toBe(21);
     expect(inlines[2].style.fontSize).toBe(30);
+  });
+
+  test('steps only the selected sub-range when the selection starts/ends mid-run, splitting each partially-covered run', () => {
+    // Two runs, "aaaa"@10 and "bbbb"@20. Select offsets 2..6 — the anchor
+    // sits inside the first run and the focus inside the second run, so
+    // neither boundary lands on a run edge.
+    const block = multiRunPara([['aaaa', 10], ['bbbb', 20]]);
+    const { editor, store } = setupEditor([block]);
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 2 },
+      focus: { blockId: block.id, offset: 6 },
+    });
+
+    editor.stepSelectionFontSize(1, clamp);
+
+    // Each partially-covered run splits: the selected half steps, the
+    // unselected half keeps its original size.
+    const inlines = store.getDocument().blocks[0].inlines;
+    expect(inlines.map((i) => [i.text, i.style.fontSize])).toEqual([
+      ['aa', 10],
+      ['aa', 11],
+      ['bb', 21],
+      ['bb', 20],
+    ]);
   });
 
   test('resolves an unset run to the docs default (11) before stepping', () => {
