@@ -612,7 +612,18 @@ jobs:
               // output.text so the NEXT round's "Read prior findings" step can
               // re-check them (Part 2). output.summary stays the human-readable body.
               let findingsText = '[]';
-              try {
+              // A lens that hit an API/quota outage (e.g. a 429 session limit)
+              // never actually reviewed — its only "finding" is the synthesised
+              // "Review could not run …" record written to fail closed. That is
+              // NOT a code finding: carrying it forward makes the NEXT round
+              // re-check "the review could not run" as a blocker, and the verifier
+              // (biased to keep) cannot refute it on grounded evidence. So persist
+              // an empty carry-forward for an infra lens; its check still fails via
+              // `conclusion` above, so nothing promotes. `p.infraError` is the same
+              // signal the honest-paging path uses, so the two cannot disagree.
+              if (p && p.infraError) {
+                findingsText = '[]';
+              } else try {
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
                 const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
                 const trim = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
