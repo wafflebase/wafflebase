@@ -425,7 +425,7 @@ Components:
   outlasts CI (13.5 min) and absorbs it. The CI conclusion is not dropped: a `ci`
   job waits for it and gates the two PUSHING jobs (`promote`, `fix`), which is
   what keeps this arm and the CI-fix arm mutually exclusive per CI run. On a red
-  CI both are skipped and `agent-iterate-ci.yml` takes the branch;
+  CI both are skipped and `.github/workflows/agent-iterate-ci.yml` takes the branch;
   ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy`, `blast-radius` (declared data-drivenly in
