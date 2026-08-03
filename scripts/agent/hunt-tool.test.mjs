@@ -439,3 +439,40 @@ test("a shapeless secret straddling the truncation boundary is still redacted", 
     );
   });
 });
+
+test("a safety refusal is recorded, so charged-but-never-run is visible", async () => {
+  // The first live run charged 26 probes and journalled 23, and nothing explained
+  // the gap: a probe blocked by assertSafeArgv is charged (the charge precedes
+  // validation on purpose, so malformed calls cannot keep an exhausted session
+  // alive) but never runs and never appears as a budget refusal. A session that
+  // spent half its budget on denied commands read exactly like one that probed
+  // freely.
+  const budget = createProbeBudget({ maxProbes: 10 });
+  const journal = [];
+  let ran = 0;
+  const call = createProbeTool({
+    charter: { mutating: false },
+    bin: "/x",
+    scratch: "/tmp",
+    budget,
+    journal,
+    runner: (argv) => {
+      ran++;
+      return { argv, exitCode: 0, signal: null, stdout: "", stderr: "", timedOut: false, spawnError: null };
+    },
+  });
+
+  await call({ argv: ["schema"] });
+  await call({ argv: ["api-keys", "revoke", "k1"] }); // hard-denied
+  await call({ argv: ["login"] }); // hard-denied
+  await call({ argv: ["schema"] });
+
+  assert.equal(ran, 2, "only the two safe commands reach the runner");
+  assert.equal(journal.length, 2, "the journal records what RAN");
+  assert.equal(budget.used, 4, "all four were charged — the charge precedes validation");
+  assert.deepEqual(
+    budget.refusals.map((r) => r.kind),
+    ["unsafe-argv", "unsafe-argv"],
+    "and both refusals are recorded, so charged minus journalled is explained",
+  );
+});

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -23,6 +24,8 @@ import {
   confidenceCounts,
   LENS_CLOSING_INSTRUCTION,
   verifierTally,
+  verifierFailureCounts,
+  recordVerifierFailure,
   classifyResult,
   withRetry,
   FILE_CLASSES,
@@ -48,8 +51,11 @@ import {
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
+  stageDetailCaptureEnabled,
+  buildStageDetail,
+  writeStageDetail,
 } from "./review-panel.mjs";
-import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "./ask.mjs";
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY, EFFORT_LEVELS } from "./ask.mjs";
 import { classify, normalizeSeverity } from "./severity.mjs";
 
 // The lens scoping under test is the REAL manifest, not a copy of it. An
@@ -490,6 +496,134 @@ test("at one sample per lens, the panel still shares ONE warm-up across five len
   assert.equal(key("design-fit"), key("correctness"), "the issue spec must not split design-fit off");
   assert.equal(key("security"), key("correctness"), "extra classes must not split security off");
   assert.notEqual(key("docs"), key("correctness"), "the prose lens still stands alone, correctly");
+});
+
+// --- why a verification produced no verdict -------------------------------
+
+test("recordVerifierFailure: keeps the kind and status, and is total", () => {
+  const f = [];
+  recordVerifierFailure(f, { kind: "limit", status: null, message: "hit a run limit" });
+  recordVerifierFailure(f, { kind: "api-error", status: 429 });
+  // Anything `classifyResult` did not shape still records rather than vanishing —
+  // a swallowed failure is exactly what this replaces.
+  for (const junk of [undefined, null, new Error("boom"), { kind: 7 }, "nope"]) recordVerifierFailure(f, junk);
+  assert.deepEqual(f.slice(0, 2), [{ kind: "limit", status: null }, { kind: "api-error", status: 429 }]);
+  assert.equal(f.length, 7);
+  for (const rec of f.slice(2)) assert.equal(rec.kind, "unknown");
+  // A non-array is tolerated (returns a fresh list) rather than throwing inside
+  // a `.catch` — losing the count must never turn into losing the verdict.
+  assert.deepEqual(recordVerifierFailure(null, { kind: "limit" }), [{ kind: "limit", status: null }]);
+});
+
+test("verifierFailureCounts: buckets by kind, unknown catches the rest", () => {
+  const counts = verifierFailureCounts([
+    { kind: "api-error" }, { kind: "api-error" }, { kind: "limit" },
+    { kind: "no-output" }, { kind: "unknown" }, { kind: "constructor" },
+  ]);
+  assert.deepEqual(counts, { apiError: 2, limit: 1, noOutput: 1, unknown: 2, total: 6 });
+  // `kind: "constructor"` must not walk the prototype chain and leave a NaN own
+  // key — the same untrusted-string hazard confidenceCounts documents.
+  assert.deepEqual(Object.keys(counts).sort(), ["apiError", "limit", "noOutput", "total", "unknown"]);
+  for (const junk of [null, undefined, "x", 3, [null, 4, "s"], [{}]]) {
+    const c = verifierFailureCounts(junk);
+    assert.equal(typeof c.total, "number", JSON.stringify(junk));
+    assert.ok(Number.isFinite(c.total));
+  }
+  assert.equal(verifierFailureCounts([]).total, 0);
+});
+
+test("`errored` and `failures.total` are different units and must not be subtracted", () => {
+  // errored counts FINDINGS, failures.total counts SESSIONS, and one clustered
+  // finding can consume several sessions. Worked example, which is the case that
+  // sinks any subtraction:
+  //
+  //   a finding with two folded wordings, whose representative verdict DROPS
+  //   → the caller re-verifies both folds (it only does so when the rep drops)
+  //   → both fold sessions throw            → failures.total = 2
+  //   → resolveClusterVerdict sees drops(null) === false for fold 0
+  //     and returns null, so the finding has no verdict → errored = 1
+  //
+  // errored - failures.total is -1 there. Reported side by side, never derived.
+  const rep = { severity: "major", summary: "clustered", mergedFrom: [{ severity: "major" }, { severity: "major" }] };
+  const foldVerdicts = [null, null]; // both fold sessions threw
+  const dropping = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.mjs:1"] };
+  const resolved = resolveClusterVerdict(rep, dropping, rep.mergedFrom, foldVerdicts);
+  assert.equal(resolved, null, "a fold with no verdict keeps the cluster (fail toward blocking)");
+
+  const tally = verifierTally([rep], [resolved]);
+  assert.equal(tally.errored, 1, "one FINDING ended with no verdict");
+  const failures = verifierFailureCounts([{ kind: "limit" }, { kind: "limit" }]);
+  assert.equal(failures.total, 2, "two SESSIONS threw");
+  assert.ok(failures.total > tally.errored, "sessions can exceed findings — the subtraction would go negative");
+});
+
+test("a finding can end with no verdict having thrown nothing", () => {
+  // The other direction, which is why the reverse subtraction is wrong too: a
+  // non-blocking finding is never sent, and a blocking one whose verification
+  // was simply never run carries a null verdict without any session throwing.
+  const tally = verifierTally([{ severity: "major", summary: "a" }], [null]);
+  assert.equal(tally.errored, 1);
+  assert.equal(verifierFailureCounts([]).total, 0);
+});
+
+test("runLens forwards the manifest effort, and the verifier does not", () => {
+  // The one link unit tests cannot reach: runLens opens a session, so the only
+  // way to observe the forward is the source. Asserted on the PROPERTY, per the
+  // convention above — a literal destructuring pin breaks the moment a field is
+  // added beside it. If this forward were dropped, every lens would quietly run
+  // at the SDK default and the manifest would be decorative.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  assert.match(src, /effort: lens\.effort/, "runLens must pass the manifest effort through");
+
+  // And verifyFinding must NOT. Lowering verifier effort looks like the safe
+  // place to save, and it is backwards: a weaker verifier refutes LESS (it must
+  // still reach refuted + high + a named ground + a real file:line to drop
+  // anything), so more findings survive to the fixer and the round gets more
+  // expensive. Pinned so "set effort everywhere" has to argue with a test.
+  const verify = src.slice(src.indexOf("async function verifyFinding"));
+  const body = verify.slice(0, verify.indexOf("\n}"));
+  assert.ok(!/effort/.test(body), "verifyFinding must not set effort");
+});
+
+test("verifyFinding retries, and does so inside itself", () => {
+  // Detection samples have always been wrapped; the verifier never was, so a
+  // single transient 429 killed a verification and its finding rode to the gate
+  // unfiltered. Wrapped INSIDE verifyFinding rather than at the call sites so
+  // all three paths — fresh, folded wording, carried-forward prior — get it from
+  // one edit; a call-site wrapper would have to be repeated and would drift.
+  // Source-asserted because verifyFinding opens a session.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const verify = src.slice(src.indexOf("async function verifyFinding"));
+  const body = verify.slice(0, verify.indexOf("\n}"));
+  assert.match(body, /withRetry\(/, "verifyFinding must retry transient failures");
+});
+
+test("both verifier catch sites record the failure instead of swallowing it", () => {
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  // The fresh/fold path and the carried-forward path. Neither may go back to a
+  // bare `() => null` / `catch { }`, which is what made every distinct cause
+  // arrive as the same anonymous count.
+  assert.match(src, /\.catch\(\(err\) => \{ recordVerifierFailure\(failures, err\); return null; \}\)/);
+  assert.match(src, /catch \(err\) \{ recordVerifierFailure\(failures, err\); return null; \}/);
+  // Code lines only — the docblock above verifyFinding quotes the old
+  // `.catch(() => null)` to say what it replaced, and grepping the whole file
+  // would count that prose as a regression.
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  assert.ok(!/\.catch\(\(\) => null\)/.test(code), "no verifier catch may discard the error");
+});
+
+test("main() validates every manifest effort before spending a token", () => {
+  // A typo must fail as a manifest error, loudly and for free. Inside the
+  // per-lens loop it would instead land in the fail-closed catch and be reported
+  // as a blocking "reviewer did not produce a valid verdict" finding — after the
+  // lenses ahead of it had already been paid for.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const main = src.slice(src.indexOf("async function main()"));
+  const load = main.indexOf("loadLenses(lensesDir)");
+  const firstSession = main.indexOf("sampleWithWarmup");
+  assert.ok(load > 0 && firstSession > load, "expected loadLenses before the first session");
+  assert.match(main.slice(load, firstSession), /assertEffort\(lens\.effort\)/,
+    "the manifest effort check must run between loadLenses and the first session");
 });
 
 test("main() decides cacheability from the session count before opening any session", () => {
@@ -1408,6 +1542,44 @@ test("lens rubrics are coverage-first, with no certainty clamp", () => {
   }
 });
 
+test("every manifest effort is a level the SDK accepts", () => {
+  // Same manifest-walk construction as the clamp guard above: a new lens is
+  // covered by existing, not by remembering to extend a literal list. A typo
+  // here would otherwise be dropped by the SDK and the lens would silently run
+  // at the default `high` — a cost regression with nothing to see in the logs.
+  for (const lens of LENSES) {
+    if (lens.effort === undefined) continue; // unset is legal: take the SDK default
+    assert.ok(
+      EFFORT_LEVELS.includes(lens.effort),
+      `lens ${lens.id} has effort "${lens.effort}", not one of ${EFFORT_LEVELS.join(", ")}`,
+    );
+  }
+});
+
+test("security keeps the SDK default effort", () => {
+  // Every other lens has a backstop for a missed finding: the verifier re-checks
+  // blocking findings, test-adequacy is re-derivable from a failing suite, docs
+  // is prose. At samples: 1 a security miss has none, so it is the one lens where
+  // buying turns back is not worth the recall edge. Pinned so a later sweep that
+  // sets effort "on all lenses" has to argue with a test.
+  const security = LENSES.find((l) => l.id === "security");
+  assert.ok(security, "manifest lost the security lens");
+  assert.equal(security.effort, undefined);
+});
+
+test("effort cannot reach the shared cache prefix", () => {
+  // The panel's cross-lens warm-up keys on the prefix BYTES, so anything
+  // lens-specific in there collapses every shared group and silently turns
+  // caching off panel-wide. `effort` is a session option and must never become
+  // prompt text. #611 already made this structural by dropping the lens argument
+  // from lensCacheKey; this pins the property one level up, where a future
+  // "include effort in the prompt so the model knows" edit would land.
+  const base = buildLensSystemPrompt(PROMPT_IN);
+  for (const effort of EFFORT_LEVELS) {
+    assert.deepEqual(buildLensSystemPrompt({ ...PROMPT_IN, effort }), base, `effort ${effort} changed the prefix`);
+  }
+});
+
 // The rubrics are only half the prompt. `runLens` appends this block AFTER the
 // rubric and the diff, so it is the last thing the lens reads and wins ties —
 // and it is where the real clamp was hiding, in the one place nobody editing a
@@ -2269,4 +2441,151 @@ test("clusterFindings: re-clustering a merged finding keeps every folded wording
   assert.ok(kept.has(a) && kept.has(b), "a re-cluster dropped one of the folded wordings");
   // And the collapsed count reflects the flattened total, not just this pass.
   assert.deepEqual(clusterCounts(second), { clustered: 1, collapsed: 2 });
+});
+
+// ---------------------------------------------------------------------------
+// Stage-detail capture. Instrumentation, so every test here is really a claim
+// that it CANNOT affect a review: the gate defaults on rather than silently off,
+// the payload only derives, and a failed write is swallowed.
+// ---------------------------------------------------------------------------
+
+test("stageDetailCaptureEnabled: unset, empty and whitespace all mean ON", () => {
+  // The trap this function exists for. A GitHub repo variable that was never set
+  // reaches the runner as the EMPTY STRING, not as absent — so the ordinary
+  // `if (env.X)` feature-flag shape would resolve "nobody configured it" to OFF
+  // and the capture would never run anywhere, silently. Default ON means an
+  // unconfigured repo captures; only an explicit off-word stops it.
+  assert.equal(stageDetailCaptureEnabled({}), true, "absent must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: "" }), true, "empty string must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: "   " }), true, "whitespace must be ON");
+  assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: undefined }), true, "undefined must be ON");
+  // Anything affirmative, and anything unrecognized, also stays ON — an
+  // unparseable value must not disable a diagnostic that defaults to enabled.
+  for (const v of ["1", "true", "on", "yes", "TRUE", "banana"]) {
+    assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: v }), true, `${v} must be ON`);
+  }
+});
+
+test("stageDetailCaptureEnabled: only an explicit off-word turns it OFF", () => {
+  for (const v of ["0", "false", "off", "FALSE", "Off", " false "]) {
+    assert.equal(stageDetailCaptureEnabled({ STAGE_DETAIL_CAPTURE: v }), false, `${v} must be OFF`);
+  }
+});
+
+test("writeStageDetail: writes into the lens out dir when enabled", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    const lensOut = path.join(dir, "correctness");
+    assert.equal(writeStageDetail(lensOut, { samples: [], verifications: [] }, {}), true);
+    const written = JSON.parse(readFileSync(path.join(lensOut, "stage-detail.json"), "utf8"));
+    assert.deepEqual(written, { samples: [], verifications: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeStageDetail: disabled writes nothing at all", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    const lensOut = path.join(dir, "correctness");
+    assert.equal(writeStageDetail(lensOut, { samples: [] }, { STAGE_DETAIL_CAPTURE: "false" }), false);
+    // Not merely an empty file — the lens out dir is not even created, so an
+    // OFF run is byte-identical to today's behaviour.
+    assert.throws(() => readFileSync(path.join(lensOut, "stage-detail.json"), "utf8"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeStageDetail: a failed write NEVER propagates", () => {
+  // The one property that matters operationally. This runs inside
+  // `Promise.all(allLenses.map(...))`, so a throw here would abort the whole
+  // panel — an instrumentation bug becoming a review outage. Two real failure
+  // shapes, no mocking: an unusable path, and a value JSON.stringify refuses.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-"));
+  try {
+    // `lensOut` under a regular FILE → mkdirSync fails ENOTDIR.
+    const notADir = path.join(dir, "occupied");
+    writeFileSync(notADir, "i am a file\n");
+    assert.equal(writeStageDetail(path.join(notADir, "correctness"), { samples: [] }, {}), false);
+
+    // A circular structure → JSON.stringify throws TypeError.
+    const circular = { samples: [] };
+    circular.self = circular;
+    assert.equal(writeStageDetail(path.join(dir, "security"), circular, {}), false);
+
+    // A BigInt → JSON.stringify throws too, on a different code path.
+    assert.equal(writeStageDetail(path.join(dir, "design-fit"), { n: 1n }, {}), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildStageDetail: records per-sample findings before the union collapses them", () => {
+  // `unionSamples` dedupes across samples and `lensStats.agreement` keeps only a
+  // score, so which sample raised what is unrecoverable afterwards. That is the
+  // per-sample detection signal this capture exists to preserve.
+  const a = { severity: "major", file: "a.ts", summary: "same defect" };
+  const b = { severity: "nit", file: "b.ts", summary: "only sample 2" };
+  const detail = buildStageDetail({
+    lensDiff: "diff --git a/a.ts b/a.ts\n",
+    scopeNote: "",
+    samples: [{ findings: [a] }, { findings: [a, b] }],
+    fresh: [], freshVerdicts: [], prior: [], priorVerdicts: [],
+  });
+  assert.deepEqual(detail.samples, [[a], [a, b]]);
+  assert.equal(detail.lensDiff, "diff --git a/a.ts b/a.ts\n");
+  assert.equal(detail.scopeNote, "");
+  // A sample with no `findings` array contributes an empty list, never a crash
+  // and never a `null` row a consumer would have to special-case.
+  assert.deepEqual(
+    buildStageDetail({ samples: [{}, { findings: null }, null] }).samples,
+    [[], [], []],
+  );
+});
+
+test("buildStageDetail: verifications cover only what reached the verifier", () => {
+  // `verifyBlocking` sends critical/major only, so recording a minor finding here
+  // would show a `verdict: null` row that reads as a verifier error when in fact
+  // the verifier was never asked.
+  const major = { severity: "major", file: "a.ts", summary: "blocking" };
+  const nit = { severity: "nit", file: "a.ts", summary: "not blocking" };
+  const drop = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.ts:12"] };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const detail = buildStageDetail({
+    samples: [],
+    fresh: [major, nit], freshVerdicts: [drop, null],
+    prior: [major], priorVerdicts: [keep],
+  });
+  assert.equal(detail.verifications.length, 2, "the nit must not be recorded");
+  assert.deepEqual(detail.verifications.map((v) => v.population), ["fresh", "prior-round"]);
+  // `dropped` is recomputed through the real gate rather than restated, so the
+  // capture cannot disagree with what the panel actually did.
+  assert.equal(detail.verifications[0].dropped, true);
+  assert.equal(detail.verifications[1].dropped, false);
+  // A blocking finding the verifier ERRORED on is recorded with a null verdict —
+  // that is the "kept because we could not check it" case, and it has to be
+  // distinguishable from a confirmation.
+  const errored = buildStageDetail({ fresh: [major], freshVerdicts: [] });
+  assert.equal(errored.verifications[0].verdict, null);
+  assert.equal(errored.verifications[0].dropped, false);
+});
+
+test("buildStageDetail: derives only — it never mutates its inputs", () => {
+  // The claim the review cares about most: capture cannot change a verdict. The
+  // payload builder is pure, so the findings the panel goes on to gate on are
+  // untouched by having been recorded.
+  const findings = [{ severity: "major", file: "a.ts", summary: "s" }];
+  const verdicts = [{ verdict: "confirmed", confidence: "low" }];
+  const before = JSON.stringify({ findings, verdicts });
+  buildStageDetail({ lensDiff: "d", scopeNote: "n", samples: [{ findings }], fresh: findings, freshVerdicts: verdicts, prior: [], priorVerdicts: [] });
+  assert.equal(JSON.stringify({ findings, verdicts }), before);
+});
+
+test("buildStageDetail: a missing lensDiff or scopeNote degrades to an empty string", () => {
+  // JSON with a stable shape matters more than a faithful `undefined`: a consumer
+  // reading `detail.lensDiff.length` must not have to guard the field's absence.
+  const detail = buildStageDetail({});
+  assert.deepEqual(detail, { lensDiff: "", scopeNote: "", samples: [], verifications: [] });
+  assert.equal(typeof JSON.parse(JSON.stringify(detail)).lensDiff, "string");
 });

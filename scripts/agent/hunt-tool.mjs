@@ -89,6 +89,19 @@ export function createProbeBudget({ maxProbes = 40, totalTimeoutMs = 600_000, no
       return [...refusals];
     },
     /**
+     * Record a refusal the BUDGET did not make.
+     *
+     * A probe blocked by `assertSafeArgv` is charged (the charge happens first, so
+     * a stream of malformed calls cannot keep an exhausted session alive) but never
+     * runs. Without this, that probe is invisible: it does not appear in the journal
+     * and it is not a budget refusal, so a session that spent half its budget on
+     * denied commands reads exactly like one that probed freely. The first live run
+     * showed 26 charged against 23 journalled with no explanation anywhere.
+     */
+    noteRefusal(kind, detail) {
+      refusals.push({ kind, detail });
+    },
+    /**
      * Reserve one probe. Returns `{ok:false, why}` instead of throwing, and does
      * NOT consume the reservation when it refuses — a refused call must not push
      * the budget further toward exhaustion.
@@ -302,6 +315,7 @@ export function createProbeTool({
             : null,
       });
     } catch (err) {
+      budget.noteRefusal?.("unsafe-argv", err.message);
       return say(
         `Refused: ${err.message}\n\n` +
           "This is a hard limit, not a suggestion. Choose a different command; do not " +
@@ -327,6 +341,7 @@ export function createProbeTool({
     } catch (err) {
       // A fixture path escaping the scratch lands here. Still a readable refusal,
       // not a thrown tool call.
+      budget.noteRefusal?.("unsafe-fixture", err.message);
       return say(`Refused: ${err.message}`, { isError: true });
     }
 

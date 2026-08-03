@@ -43,7 +43,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
-import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "./ask.mjs";
+import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
@@ -1519,11 +1519,23 @@ async function runLens(lens, { rubric, diff, extraDiff, issue, repo, sessionLog,
     schema: LENS_SCHEMA,
     sessionLog,
     allowedTools: REVIEW_TOOLS,
-    // Optional per-lens turn ceiling. Omitted = the SDK default, which is what
-    // the repo-walking lenses (blast-radius, correctness) need. A lens whose
-    // rubric only asks it to check the prose in front of it does not, and an
-    // unbounded budget there is spend with nothing to show for it.
+    // Optional per-lens turn ceiling; omitted = the SDK default. Currently NO
+    // lens sets one. The docs lens used to cap at 8 on the theory that prose
+    // review is a shallow lookup, but it kept dying on `error_max_turns` at that
+    // ceiling — failing the blocking lens closed and PAGING a human — exactly as
+    // the verifier's `presence: 8` did before it was raised (see
+    // VERIFIER_MAX_TURNS). Locating the prose, reading enough around it to judge
+    // accuracy, and citing a `file:line` costs more than 8 turns, so docs now runs
+    // at the default like every other lens. Keep the knob for a future lens that
+    // genuinely is bounded, but do not re-cap on a cost hunch: a page is worse.
     maxTurns: lens.maxTurns,
+    // Optional per-lens reasoning effort, same manifest-driven shape as
+    // `maxTurns` above. Omitted = the SDK default (`high`). This is the panel's
+    // main cost dial: spend tracks agentic turns, and effort is what moves them.
+    // Deliberately NOT set on the verifier (see verifyFinding) — a weaker
+    // verifier refutes less, so more findings survive to the fixer and the round
+    // gets more expensive, not less.
+    effort: lens.effort,
     label: "review",
     logMeta: { lens: lens.id, role: "detection" },
   });
@@ -1820,9 +1832,77 @@ export async function adjudicateRebuttals(
   return { findings: out, dropped, tally };
 }
 
+/**
+ * Why a verification produced no verdict. `classifyResult` already computes this
+ * (`ask.mjs`), and both call sites used to throw it away with `.catch(() => null)`,
+ * so every distinct cause arrived as the same anonymous `errored++`.
+ *
+ * That mattered: on the round that motivated #614, 8 of 18 verifications died —
+ * every one of them an `error_max_turns` at exactly the presence ceiling — and the
+ * summary reported it in the same words it would have used for a quota outage. The
+ * ceiling is fixed; this is how anyone can see whether it stayed fixed, and whether
+ * what remains is transient (worth retrying) or structural (worth a code change).
+ *
+ * Mutates and returns `failures` so a caller can thread one array through a
+ * `.catch`. Total: an unrecognised error still records, as `unknown`.
+ */
+export function recordVerifierFailure(failures, err) {
+  const list = Array.isArray(failures) ? failures : [];
+  const kind = err && typeof err.kind === "string" ? err.kind : "unknown";
+  const status = err && (typeof err.status === "number" || typeof err.status === "string") ? err.status : null;
+  list.push({ kind, status });
+  return list;
+}
+
+/** Known `classifyResult` kinds, plus the bucket for anything it did not set. */
+const VERIFIER_FAILURE_KINDS = Object.freeze({ "api-error": "apiError", limit: "limit", "no-output": "noOutput" });
+
+/**
+ * Tally `recordVerifierFailure` records into the shape `lensStats` reports.
+ *
+ * Deliberately separate from `verifierTally`'s `errored`, and BOTH are kept — but
+ * they are counted in DIFFERENT UNITS and must never be subtracted:
+ *
+ *   errored        — blocking FINDINGS that ended with no usable verdict
+ *   failures.total — verifier SESSIONS that threw
+ *
+ * One clustered finding can consume several sessions: the representative, then one
+ * per folded wording (only when the representative's verdict drops — see
+ * `resolveClusterVerdict`). So a cluster whose rep drops and whose two folds both
+ * throw records TWO failures and ONE errored finding, and the reverse also happens
+ * — a finding can end with no verdict having thrown nothing at all.
+ *
+ * Each is useful on its own: `errored` says how much of the gate went unfiltered,
+ * `failures` says what went wrong and therefore what to do about it. Neither
+ * derives from the other.
+ */
+export function verifierFailureCounts(failures) {
+  const out = { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 };
+  for (const f of Array.isArray(failures) ? failures : []) {
+    if (!f || typeof f !== "object") continue;
+    // Allowlist membership, not `in`: `kind: "constructor"` would otherwise walk
+    // the prototype chain and leave a NaN own key. Same untrusted-string hazard
+    // `confidenceCounts` documents.
+    const key = Object.hasOwn(VERIFIER_FAILURE_KINDS, f.kind) ? VERIFIER_FAILURE_KINDS[f.kind] : "unknown";
+    out[key]++;
+    out.total++;
+  }
+  return out;
+}
+
 async function verifyFinding(finding, { rubric, repo, model, sessionLog, lensId }) {
   const claimType = claimTypeOf(finding);
-  return askStructured({
+  // Retried, unlike before — detection samples have always had this (see the
+  // round loop) and the verifier never did, so a single transient 429 killed a
+  // verification outright and the finding rode to the gate unfiltered. Wrapped
+  // HERE rather than at the call sites so all three paths (fresh, folded
+  // wording, carried-forward prior) get it from one edit.
+  //
+  // Cannot burn budget on a ceiling: `withRetry` only retries
+  // `err.retryable === true`, and `classifyResult` marks every `limit` subtype
+  // and any session/usage limit non-retryable. Which is also why this is NOT
+  // what fixed the failures measured before #614 — those were all `limit`.
+  return withRetry(() => askStructured({
     systemPrompt:
       "You are an independent verifier. You did not write this code and did not raise this " +
       "finding. Establish the facts from the repository yourself rather than trusting the " +
@@ -1846,7 +1926,7 @@ async function verifyFinding(finding, { rubric, repo, model, sessionLog, lensId 
     allowedTools: REVIEW_TOOLS,
     label: "review",
     logMeta: { lens: lensId, role: "verifier" },
-  });
+  }));
 }
 
 // --- io ----------------------------------------------------------------------
@@ -1957,6 +2037,19 @@ async function main() {
   const fileBlocks = sliceDiffByFile(diff);
 
   const allLenses = loadLenses(lensesDir);
+  // Validate every manifest `effort` BEFORE the first token is spent. Without
+  // this a typo (`"hgih"`) would not surface until that lens opened its session,
+  // partway through a round that has already paid for the lenses ahead of it —
+  // and `assertEffort` throwing there lands in the per-lens catch, which reports
+  // it as a blocking "reviewer did not produce a valid verdict" finding rather
+  // than as the manifest error it is. Failing here is loud, free and honest.
+  for (const lens of allLenses) {
+    try {
+      assertEffort(lens.effort);
+    } catch (err) {
+      throw new Error(`lenses.json: lens "${lens.id}" has an invalid \`effort\` — ${err.message}`);
+    }
+  }
   // panel[] is the AUTHORITATIVE lens list the workflow + mark-ready consume —
   // one entry per manifest lens (applicable or skipped), so the three-way drift
   // between lenses.json / the workflow / mark-ready is removed.
@@ -2073,7 +2166,16 @@ async function main() {
       // be actively misleading. It lands in `confidenceCounts`' `unknown` bucket,
       // which is literally accurate and keeps the raised/confidence rows
       // reconciling.
-      const failFindings = [{ severity: "major", summary: summaryText }];
+      // `infra: true` marks this as a synthesised INFRASTRUCTURE record (an
+      // API/quota outage, e.g. a 429 session limit), not a code finding. It is
+      // written so the lens fails closed, but it must never be carried into the
+      // next round as a "finding" to re-check — the reviewer never ran, so there
+      // is nothing to re-verify, and the verifier (biased to keep) cannot refute
+      // "the review could not run" on grounded evidence. prior-findings.mjs drops
+      // any finding carrying this flag, and the panel workflow persists none for a
+      // lens with `infraError` set. A genuine no-verdict (model ran, produced
+      // nothing) is NOT infra and stays a normal fail-closed blocker.
+      const failFindings = [{ severity: "major", summary: summaryText, ...(infra ? { infra: true } : {}) }];
       writeVerdict(lensOut, lens, failFindings, infra ? "(review did not run — infrastructure/quota error)" : "(no valid verdict — failing closed)", { valid: false });
       panel.push(panelEntry(lens, {
         blocking, applicable: true, conclusion: "failure", valid: false,
@@ -2113,10 +2215,17 @@ async function main() {
 
     // Verifier refute pass over blocking findings (rubric passed so it judges by
     // the lens's own definitions; keeps the finding on any uncertainty).
+    // Why a verification failed, for THIS lens this round. A flat array, not
+    // index-aligned to the findings: only counts are reported, and a flat push
+    // has no alignment invariant to break as the nested fold path below fans
+    // out. Merged with the prior-round pass into one `failures` tally.
+    const failures = [];
     const verifyBlocking = (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return Promise.resolve(null);
       return verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id })
-        .catch(() => null); // error → keep the finding (fail toward blocking)
+        // Error → keep the finding (fail toward blocking), unchanged. What is new
+        // is that the reason survives instead of being swallowed by `() => null`.
+        .catch((err) => { recordVerifierFailure(failures, err); return null; });
     };
     const verdicts = await Promise.all(detected.map(async (f) => {
       const repVerdict = await verifyBlocking(f);
@@ -2150,7 +2259,9 @@ async function main() {
     const priorVerdicts = await Promise.all(priorForLens.map(async (f) => {
       if (!BLOCKING.has(normalizeSeverity(f.severity))) return null;
       try { return await verifyFinding(f, { rubric: lens.rubric, repo, model: lens.model, sessionLog, lensId: lens.id }); }
-      catch { return null; } // error → keep (fail toward blocking)
+      // Error → keep (fail toward blocking), unchanged; the reason is recorded
+      // into the same per-lens array the fresh pass uses.
+      catch (err) { recordVerifierFailure(failures, err); return null; }
     }));
     // Carried-forward findings are NOT routed. Their `line` was recorded against
     // a previous round's HEAD, and the fixer has rewritten the tree since; that
@@ -2197,6 +2308,34 @@ async function main() {
     const overturnedOut = new Set(adjudged.dropped);
     const mergedAfter = overturnedOut.size ? merged.filter((f) => !overturnedOut.has(f)) : merged;
 
+    // Record WHAT THIS LENS DID, as data, before any of it is flattened for
+    // humans. Placed here on purpose: verification is complete (so every verdict
+    // exists) and nothing has been written yet, so this reads the same values the
+    // check run is about to be built from.
+    //
+    // The counters below say HOW MANY findings each stage moved. Nothing says which
+    // sample raised what, or how the verifier ruled on each one — and the channels
+    // that survive the job cannot be back-filled into it. `output.text` on the
+    // check run is blocking-only (it drops the whole `backlog` lane) and truncates
+    // trailing findings at the 60k cap; `review-state.mjs` states outright that it
+    // is designed to lose data. `output.summary` is prose whose shape has drifted
+    // every few PRs. So the panel's own decisions are, today, unscoreable after the
+    // fact — which is the same gap #608's corpus was opened to close, one stage
+    // earlier and at zero model cost.
+    //
+    // Read-only and best-effort. `buildStageDetail` derives; `writeStageDetail`
+    // swallows. Neither can change `merged`, `gating` or the conclusion.
+    writeStageDetail(lensOut, buildStageDetail({
+      lensDiff,
+      scopeNote,
+      samples: ok,
+      // `detected`, not `findings`: post-cluster, index-aligned with `verdicts`.
+      fresh: detected,
+      freshVerdicts: verdicts,
+      prior: priorForLens,
+      priorVerdicts,
+    }));
+
     // Reliability signals for this round: did the samples agree (fresh pass
     // only — prior-round re-checks aren't a sampling question), and what did
     // the verifier do across BOTH the fresh and prior-round re-check passes.
@@ -2223,6 +2362,11 @@ async function main() {
         absenceRefuted: freshTally.absenceRefuted + priorTally.absenceRefuted,
         unresolved: freshTally.unresolved + priorTally.unresolved,
         errored: freshTally.errored + priorTally.errored,
+        // Both passes' failures in one tally. `errored` is UNCHANGED and stays a
+        // count of FINDINGS; this counts SESSIONS, and the two are not
+        // comparable — see verifierFailureCounts for why one clustered finding
+        // can throw several times.
+        failures: verifierFailureCounts(failures),
       },
       // GATING findings only. `metrics.mjs::detectFlips` reads `kept` as "this
       // lens blocked this round" and compares it against the next round, so
@@ -2289,6 +2433,93 @@ async function main() {
   const blockers = panel.filter((p) => p.blocking && p.applicable);
   if (blockers.length > 0 && blockers.every((p) => p.infraError)) {
     process.stderr.write(`PANEL_INFRA_ERROR: ${blockers[0].infraError}\n`);
+  }
+}
+
+/**
+ * Is per-lens stage-detail capture on? **Default ON** — this reads as an opt-OUT,
+ * which is the inverse of `AGENT_PIPELINE_ENABLED`'s `== 'true'` opt-in, and the
+ * inversion is the whole reason this is a function with tests instead of a
+ * truthiness check at the call site.
+ *
+ * A GitHub repo variable that has never been set arrives as the **empty string**,
+ * not as absent — the same semantics the panel workflow already documents for
+ * `REVIEW_MODE`/`SINCE_SHA` ("When narrowing did not happen both are EMPTY
+ * STRINGS, which review-panel.mjs reads as absent"). So `if (env.X)` would resolve
+ * unset to OFF and the capture would silently never run, on every repository that
+ * had not explicitly opted in — a diagnostic that is quietly absent is worse than
+ * one that is loudly broken. Unset, empty and whitespace therefore all mean ON;
+ * only an explicit off-word turns it off.
+ */
+export function stageDetailCaptureEnabled(env = process.env) {
+  const raw = String(env.STAGE_DETAIL_CAPTURE ?? "").trim().toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off");
+}
+
+/**
+ * What this lens actually did this round, as data — the input a later scoring pass
+ * needs and that no existing channel carries.
+ *
+ * Pure and read-only over its arguments on purpose: this function is the reason a
+ * reviewer can be sure capture changes no verdict. It derives, copies and returns;
+ * it cannot reach the findings the panel goes on to gate on.
+ *
+ * - `samples` — the raw per-sample findings, BEFORE `unionSamples` and before
+ *   `clusterFindings`. Per-sample detection is otherwise unrecoverable:
+ *   `lensStats.agreement` keeps a score, not the findings it scored.
+ * - `verifications` — one record per finding that reached the verifier, with the
+ *   verdict and whether it dropped. `dropped` is recomputed through the real
+ *   `isDroppingVerdict` rather than restated, so it cannot drift from the gate.
+ *   `verdict: null` means the verifier errored and the finding was kept.
+ * - `fresh` must be the POST-cluster findings (`detected`), not the union:
+ *   restatement clustering moved ahead of verification in #591/#601, so `verdicts`
+ *   is index-aligned to what was clustered. Passing the union here would pair
+ *   findings with other findings' verdicts.
+ */
+export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts }) {
+  const rows = (population, findings, verdicts) =>
+    (Array.isArray(findings) ? findings : []).map((f, i) => {
+      const verdict = (Array.isArray(verdicts) ? verdicts : [])[i] ?? null;
+      return { population, finding: f, verdict, dropped: isDroppingVerdict(verdict, { claimType: claimTypeOf(f) }) };
+    });
+  // Only blocking findings are ever sent to the verifier, so the same filter that
+  // gates `verifyBlocking` gates what is recorded — a minor finding has no verdict
+  // to report and a `verdict: null` row for it would read as a verifier error.
+  const verifications = [
+    ...rows("fresh", fresh, freshVerdicts),
+    ...rows("prior-round", prior, priorVerdicts),
+  ].filter((v) => BLOCKING.has(normalizeSeverity(v.finding?.severity)));
+  return {
+    // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
+    // whole PR diff. It is what makes a capture replayable: a later pass can feed a
+    // lens exactly what it saw. Also the bulk of the file, by a wide margin.
+    lensDiff: typeof lensDiff === "string" ? lensDiff : "",
+    // The incremental-scope prompt addendum; "" in full mode. Recorded because it
+    // is part of the prompt, so a round is not reproducible without it.
+    scopeNote: typeof scopeNote === "string" ? scopeNote : "",
+    samples: (Array.isArray(samples) ? samples : []).map((r) => (Array.isArray(r?.findings) ? r.findings : [])),
+    verifications,
+  };
+}
+
+/**
+ * Write one lens's stage detail, or don't. Returns whether it landed.
+ *
+ * **This must never fail a review.** The capture is a diagnostic; the round is the
+ * product. Every failure mode — a full disk, a read-only mount, a value
+ * `JSON.stringify` refuses — degrades to "this run has no capture" and is logged,
+ * never to a thrown error inside `Promise.all(allLenses.map(...))`, which would
+ * take out the whole panel and turn an instrumentation bug into a review outage.
+ */
+export function writeStageDetail(lensOut, detail, env = process.env) {
+  if (!stageDetailCaptureEnabled(env)) return false;
+  try {
+    mkdirSync(lensOut, { recursive: true });
+    writeFileSync(path.join(lensOut, "stage-detail.json"), JSON.stringify(detail) + "\n");
+    return true;
+  } catch (err) {
+    console.log(`stage-detail capture failed (continuing): ${err.message}`);
+    return false;
   }
 }
 

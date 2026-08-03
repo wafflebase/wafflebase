@@ -459,7 +459,7 @@ Components:
   from that diff, so a verifier reading the same diff inherits its misreadings
   and confirms them — the correlated-error failure of naive review panels. It
   instead re-establishes the facts from the repository itself (Read/Grep/Glob
-  against the branch checkout, capped at 8 turns), is told to distrust the
+  against the branch checkout, capped at 20 turns), is told to distrust the
   finding's quoted evidence, and receives only the cumulative changed-FILE list
   so it can tell new code from pre-existing. Dropping is **grounded, not
   asserted** (`isDroppingVerdict`): the verdict must be an explicit `refuted`, at
@@ -702,6 +702,26 @@ Components:
        it can't vanish just because a later fresh pass missed it (only because it
        was actually fixed, cited). Unresolved priors merge (deduped) into the
        round's findings.
+
+       **Infra errors are excluded from carry-forward.** A lens that hit an
+       API/quota outage (e.g. a 429 session limit) never reviewed; it writes a
+       synthetic `{ infra: true }` "Review could not run …" record only to fail
+       closed. That record is *not* a code finding — carrying it into the next
+       round would make the panel re-check "the review could not run" as a
+       blocker, and the biased-to-keep verifier cannot refute it on grounded
+       evidence (there is no code claim to disprove), so it would persist across
+       every subsequent round. Two guards prevent it: the panel workflow persists
+       an empty `output.text` for any lens whose `panelEntry` carries `infraError`,
+       and `scripts/agent/prior-findings.mjs` drops any carried record so flagged on
+       read (so the guarantee holds on both panel paths regardless of producer). The
+       discriminator is the script-set `infra: true` flag — authoritative because,
+       unlike a finding's `summary`, a model cannot forge it. A shape-guarded legacy
+       fallback (the stable "Review could not run …" prefix **and** no `file`, which
+       every genuine finding cites) also catches records persisted before the flag
+       existed, so a PR already contaminated by a pre-fix 429 round self-heals on its
+       next round rather than re-surfacing the error forever — without ever letting
+       model text suppress a real blocker. The lens still fails closed via its check
+       `conclusion`; only the bogus re-check input is suppressed.
 
     3. **Out-of-diff review.** The two measures above both re-read the *same
        artifact*, so neither finds a defect the diff does not contain. A Major

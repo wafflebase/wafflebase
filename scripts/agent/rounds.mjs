@@ -10,6 +10,59 @@
 // identity behind fixer pushes has already changed once in this pipeline's
 // history, so parent count — not who pushed — is the durable signal.
 
+/**
+ * The marker that latches a PR as "handed to a human". Written by
+ * review-round-guard.mjs's `page()` and by the `stalled` job, and read back by
+ * BOTH of the pipeline's stop conditions:
+ *
+ *   - review-round-guard.mjs, to stop dispatching the fixer;
+ *   - agent-review-panel.yml's `gate` job, to stop running the panel at all.
+ *
+ * It lives here, exported, because those two readers are a JS module and a
+ * `github-script` step that cannot import one (the `gate` job does no checkout).
+ * The workflow therefore carries a literal copy, and `rounds.test.mjs` asserts
+ * the two are byte-identical — a drifted copy would not error, it would just
+ * silently stop latching, which is the failure mode this constant exists to
+ * prevent.
+ */
+export const PAGED_LATCH = "<!-- agent-review-paged -->";
+
+/**
+ * Bot identities allowed to WRITE the latch. Both are real: the guard and the
+ * `stalled` job comment with `secrets.GITHUB_TOKEN` (`github-actions[bot]`),
+ * while the fix job's branch-head page uses the App token (`yorkie-agent[bot]`).
+ *
+ * A login allow-list is sound because GitHub reserves the `[bot]` suffix for
+ * Apps — no account can register one of these names.
+ */
+export const PAGE_AUTHOR_LOGINS = Object.freeze(["github-actions[bot]", "yorkie-agent[bot]"]);
+
+/** Associations that mean "has write access to this repo". */
+const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+/**
+ * Does this comment legitimately latch the PR as handed-to-a-human?
+ *
+ * The marker alone is NOT enough, and this repo is PUBLIC: anyone with a GitHub
+ * account can comment on a PR, so a body test on its own lets a stranger post
+ * `<!-- agent-review-paged -->` and permanently stop the fixer AND the review
+ * panel on any agent PR. Denial of review, from an unauthenticated position.
+ *
+ * `author_association` cannot carry this on its own — the writing bots report
+ * `CONTRIBUTOR`, the same value an arbitrary outside contributor gets. So trust
+ * is either an allow-listed bot login, or a human who actually has write access
+ * (a maintainer halting the pipeline by hand stays supported).
+ *
+ * Pure and total: any unknown shape is untrusted, which fails toward reviewing.
+ */
+export function isPagedLatchComment(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  if (!String(c.body ?? "").includes(PAGED_LATCH)) return false;
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  if (user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+  return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
+}
+
 /** A commit is a "fixer" commit iff it has exactly one parent. */
 export function isFixerCommit(commit) {
   return Array.isArray(commit?.parents) && commit.parents.length === 1;
@@ -92,7 +145,7 @@ const trimmed = (s) => String(s ?? "").trim();
 // A couple of incidentally-shared words is never a match, however short the
 // shorter summary is. Calibrated below: real same-defect pairs share 7-17
 // tokens; real different-defect pairs share at most 1.
-const MIN_SHARED_TOKENS = 3;
+export const MIN_SHARED_TOKENS = 3;
 
 /** Default similarity threshold — see the calibration note on `findingSimilarity`. */
 export const DEFAULT_SIMILARITY = 0.3;

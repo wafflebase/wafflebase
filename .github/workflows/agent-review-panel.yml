@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       pull-requests: read
+      issues: read # the paged latch is an ISSUE comment on the PR
     outputs:
       managed: ${{ steps.gate.outputs.managed }}
       pr: ${{ steps.gate.outputs.pr }}
@@ -81,6 +82,60 @@ jobs:
               }
             } catch (e) {
               core.warning(`Could not resolve PR labels (${e.message}); using branch-prefix only.`);
+            }
+            // PAGED LATCH — the pipeline has already handed this PR to a human.
+            // review-round-guard.mjs reads the same marker to stop dispatching
+            // the fixer, but it runs in `fix`, DOWNSTREAM of `review-panel`, so
+            // until now a paged PR still re-reviewed on every CI-green push:
+            // six lenses plus verification, ~$12 a round, for verdicts nothing
+            // consumes. On #605 that was five rounds and $53.98 after the page,
+            // and it merged manually without ever using them.
+            //
+            // Folded into `managed` rather than exposed as its own output, and
+            // that is load-bearing: `stalled` fires on
+            // `managed == 'true' && review-panel.result == 'skipped'`, so a
+            // separate flag would make every paged PR post a SECOND page. This
+            // belongs in the same category as unmanaged/fork/disabled — reasons
+            // the panel legitimately does not run — which is exactly what the
+            // comment above `stalled` already says that check is for.
+            //
+            // AUTHOR-CHECKED, and that is load-bearing: this repo is PUBLIC, so
+            // matching on the marker alone would let ANY GitHub account post
+            // '<!-- agent-review-paged -->' and permanently stop the review
+            // panel on any agent PR — denial of review from an unauthenticated
+            // position. Trust is an allow-listed bot login (GitHub reserves the
+            // '[bot]' suffix for Apps, so these cannot be registered), or a
+            // human with write access, which keeps "a maintainer halts it by
+            // hand" working. author_association alone is NOT enough: the writing
+            // bots report CONTRIBUTOR, same as any outside contributor.
+            //
+            // Literal copy of PAGED_LATCH / PAGE_AUTHOR_LOGINS / the predicate
+            // in scripts/agent/rounds.mjs; this job does no checkout, so it
+            // cannot import. rounds.test.mjs asserts the copies match.
+            const PAGED_LATCH = '<!-- agent-review-paged -->';
+            const PAGE_AUTHOR_LOGINS = ['github-actions[bot]', 'yorkie-agent[bot]'];
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const isPagedLatchComment = (c) => {
+              if (!String((c || {}).body ?? '').includes(PAGED_LATCH)) return false;
+              const user = (c || {}).user || {};
+              if (user.type === 'Bot' && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+              return TRUSTED_ASSOCIATIONS.includes(String((c || {}).author_association ?? ''));
+            };
+            if (managed && prNumber) {
+              try {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner, repo, issue_number: Number(prNumber), per_page: 100,
+                });
+                if (comments.some(isPagedLatchComment)) {
+                  core.notice(`PR #${prNumber} was already paged to a human — skipping the review panel.`);
+                  managed = false;
+                }
+              } catch (e) {
+                // Fails OPEN, matching the label lookup above. Not knowing
+                // whether a PR was paged must cost a review round, never skip
+                // one: a missed review is worse than a wasted one.
+                core.warning(`Could not read comments (${e.message}); reviewing as if not paged.`);
+              }
             }
             core.setOutput('pr', prNumber);
             core.setOutput('managed', String(managed));
@@ -438,6 +493,48 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
         run: node .trusted/scripts/agent/set-state.mjs "$PR" reviewing
 
+      # Flip each lens check to in_progress NOW, before the ~35-min orchestrator
+      # run, so the PR shows the review is running instead of the PREVIOUS round's
+      # stale conclusion (a red X that looks like a fresh failure). Runs AFTER
+      # "Read prior findings" / "Resolve review scope" on purpose: those read the
+      # previous round's checks (findings carry-forward + incremental pointer),
+      # and creating these empty in_progress checks any earlier would make them
+      # the "latest" per lens and clobber both. The ids are handed to the post
+      # step below, which UPDATES these same runs to their final conclusion — one
+      # run per lens, so there is never a duplicate or an orphaned spinner.
+      # Best-effort: a failure here must not fail the panel (the post step falls
+      # back to creating fresh checks; the stalled job closes any left spinning).
+      - name: Mark lens checks in progress
+        id: inprogress
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sha = context.payload.workflow_run.head_sha;
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            const ids = {};
+            for (const lens of manifest) {
+              try {
+                const { data } = await github.rest.checks.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: `agent-review-${lens.id}`, head_sha: sha, status: 'in_progress',
+                  started_at: new Date().toISOString(),
+                  output: {
+                    title: `${lens.id}: reviewing…`,
+                    summary: 'The review panel is running this lens. This will be replaced with the verdict when it finishes.',
+                  },
+                });
+                ids[`agent-review-${lens.id}`] = data.id;
+              } catch (e) {
+                core.warning(`could not mark agent-review-${lens.id} in_progress: ${e.message}`);
+              }
+            }
+            // Hand the run ids to the post step (same runner → RUNNER_TEMP persists)
+            // so it UPDATES these checks rather than creating parallel ones.
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/lens-check-ids.json`, JSON.stringify(ids));
+
       - name: Run review panel
         if: steps.pr.outputs.number != ''
         # continue-on-error: a crash must not skip the needs-gated promote/fix
@@ -469,6 +566,17 @@ jobs:
           # SHA the check runs below are attested against, so the pointer and the
           # attestation cannot drift apart.
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # Per-lens stage-detail capture (uploaded as an artifact below).
+          # DEFAULT ON — an opt-OUT, deliberately the inverse of
+          # AGENT_PIPELINE_ENABLED's `== 'true'` opt-in. Passed RAW, with no
+          # `&& ... || ...` default applied here, because an unset repo variable
+          # interpolates to the EMPTY STRING (the same semantics the BASE_SHA /
+          # SINCE_SHA pair documents above) and the script resolves empty,
+          # whitespace and absent alike to ON. Only an explicit `0`/`false`/`off`
+          # in the repo variable disables it. Deciding the default here instead
+          # would put the inverted logic in a YAML expression that no test can
+          # reach; `stageDetailCaptureEnabled` is tested.
+          STAGE_DETAIL_CAPTURE: ${{ vars.AGENT_STAGE_DETAIL_CAPTURE }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
@@ -506,6 +614,10 @@ jobs:
             let panel = [];
             try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
             const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
+            // Run ids of the in_progress checks opened by "Mark lens checks in
+            // progress"; empty if that step was skipped/errored (then we create).
+            let inProgressIds = {};
+            try { inProgressIds = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/lens-check-ids.json`, 'utf8')); } catch {}
             let blocked = false, allValid = true;
             const required = [];
             const infraDetails = []; // lens infraError messages (API/quota — reviewer never ran)
@@ -529,7 +641,18 @@ jobs:
               // output.text so the NEXT round's "Read prior findings" step can
               // re-check them (Part 2). output.summary stays the human-readable body.
               let findingsText = '[]';
-              try {
+              // A lens that hit an API/quota outage (e.g. a 429 session limit)
+              // never actually reviewed — its only "finding" is the synthesised
+              // "Review could not run …" record written to fail closed. That is
+              // NOT a code finding: carrying it forward makes the NEXT round
+              // re-check "the review could not run" as a blocker, and the verifier
+              // (biased to keep) cannot refute it on grounded evidence. So persist
+              // an empty carry-forward for an infra lens; its check still fails via
+              // `conclusion` above, so nothing promotes. `p.infraError` is the same
+              // signal the honest-paging path uses, so the two cannot disagree.
+              if (p && p.infraError) {
+                findingsText = '[]';
+              } else try {
                 const v = JSON.parse(fs.readFileSync(`.agent-review/${lens.id}/verdict.json`, 'utf8'));
                 const norm = (s) => { const x = String(s ?? '').toLowerCase().trim(); return ['critical', 'major', 'minor', 'nit'].includes(x) ? x : 'major'; };
                 const trim = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
@@ -572,24 +695,37 @@ jobs:
                   findingsText = JSON.stringify(blockers);
                 }
               } catch {}
-              await github.rest.checks.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
-                // Incremental review's state channel: what this lens reviewed, so
-                // the NEXT round can narrow to what came after it. Present only
-                // when the orchestrator decided this lens produced a real verdict
-                // (see `panelEntry`) — the write rule is enforced there, in tested
-                // code, rather than re-derived from `conclusion` here where it
-                // could drift. `undefined` omits the field, which is what makes a
-                // crashed or skipped lens force a full round next time.
-                //
-                // Why not output.text: that field is trimmed to fit 60k BY DROPPING
-                // FINDINGS (just below). It is designed to lose data, and a value
-                // deciding whether code gets reviewed must not live in a lossy
-                // channel. external_id is a fixed 255-char slot nothing else writes.
-                external_id: p && p.reviewState ? p.reviewState : undefined,
-                output: { title: `${lens.id}: ${conclusion}${scopeSuffix}`, summary: summary.slice(0, 60000), text: findingsText },
-              });
+              const output = { title: `${lens.id}: ${conclusion}${scopeSuffix}`, summary: summary.slice(0, 60000), text: findingsText };
+              // Incremental review's state channel: what this lens reviewed, so
+              // the NEXT round can narrow to what came after it. Present only
+              // when the orchestrator decided this lens produced a real verdict
+              // (see `panelEntry`) — the write rule is enforced there, in tested
+              // code, rather than re-derived from `conclusion` here where it
+              // could drift. `undefined` omits the field, which is what makes a
+              // crashed or skipped lens force a full round next time.
+              //
+              // Why not output.text: that field is trimmed to fit 60k BY DROPPING
+              // FINDINGS (just below). It is designed to lose data, and a value
+              // deciding whether code gets reviewed must not live in a lossy
+              // channel. external_id is a fixed 255-char slot nothing else writes.
+              const external_id = p && p.reviewState ? p.reviewState : undefined;
+              // Prefer UPDATING the in_progress check opened at panel start: one
+              // run per lens transitions in_progress → completed, so the PR shows
+              // a live spinner while the panel runs and never a duplicate or a
+              // stuck spinner. Fall back to create when that step didn't run.
+              const existingId = inProgressIds[`agent-review-${lens.id}`];
+              if (existingId) {
+                await github.rest.checks.update({
+                  owner: context.repo.owner, repo: context.repo.repo, check_run_id: existingId,
+                  status: 'completed', conclusion, external_id, output,
+                });
+              } else {
+                await github.rest.checks.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
+                  external_id, output,
+                });
+              }
             }
             core.setOutput('blocked', String(blocked));
             core.setOutput('all_valid', String(allValid));
@@ -617,6 +753,44 @@ jobs:
             .agent-review/review-lens-stats.json
           if-no-files-found: ignore
           retention-days: 1
+
+      # What each lens actually did this round: per-sample findings before the
+      # union, and the verifier's verdict on every blocking finding. Nothing else
+      # keeps this. The check runs persist only what GATES (`output.text` is
+      # critical/major, drops the `backlog` lane, and drops trailing findings to
+      # fit 60k — review-state.mjs calls that channel "DESIGNED to lose data"),
+      # and `review-lens-stats.json` above keeps counts, not the findings counted.
+      # So panel tuning decisions cannot currently be scored after the fact, which
+      # is the gap #608's feedback corpus exists to close — this records its input.
+      #
+      # A SEPARATE step from the execution log above, on purpose. Those two files
+      # are an intra-run hand-off to promote/fix and their 1-day retention is
+      # chosen to match that lifetime; this one has to outlive the run to be worth
+      # capturing. Extending that step would silently change the hand-off's
+      # semantics, and upload-artifact@v4 rejects a duplicate name within a run,
+      # so the name differs too.
+      #
+      # An artifact rather than a comment or a commit for the same reason the
+      # execution log is one: this job's SDK cwd is the untrusted branch checkout,
+      # so it is not granted the write scopes that would let it push this data
+      # anywhere itself. Anything that collects these belongs in its own job.
+      #
+      # Size tracks diff size and nothing else — `lensDiff` is 76-97% of each
+      # file. Measured over real PRs: ~25 KB per run for a 10 KB diff, ~105 KB for
+      # 17 KB, and ~2 MB for a 470 KB diff (the largest in the last 40 commits).
+      # upload-artifact deflates, and diffs compress ~3x, so the worst case above
+      # stores as ~0.6 MB.
+      - name: Upload per-lens stage detail
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-panel-stage-detail
+          path: .agent-review/*/stage-detail.json
+          # Absent whenever capture is disabled, or a lens was skipped, or the
+          # orchestrator crashed before writing — none of which is an error here.
+          if-no-files-found: ignore
+          retention-days: 30
 
   promote:
     needs: review-panel
@@ -1108,6 +1282,8 @@ jobs:
             printf '%s\n' \
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
+              '' \
+              'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
@@ -1155,7 +1331,7 @@ jobs:
       pull-requests: write
       issues: write
       actions: read # set-state reconcile reads the CI workflow-run conclusion
-      checks: read # set-state reconcile reads the lens check-run conclusions
+      checks: write # close any lens checks left in_progress by a killed panel job
     steps:
       - name: Page a human
         id: page
@@ -1190,11 +1366,39 @@ jobs:
               : 'the pipeline stopped without completing';
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
-              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.`,
+              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.\n\nThe review panel will not run again on this PR, so the \`agent-review-*\` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.`,
             });
             // The single-value label is set by the "Reconcile agent state" step
             // below — it re-derives state from the unforgeable signals (the paged
             // comment just posted → agent:blocked) and self-heals any drift.
+
+      # If the panel job was KILLED mid-run (timeout/cancel), the "Mark lens
+      # checks in progress" step's checks are still spinning — the always()
+      # finaliser in review-panel doesn't run on a job kill, only on a step
+      # failure. Close any that are still open so the PR shows a resolved state
+      # matching the paged comment above, not a spinner that never completes.
+      # Best-effort; only touches unfinished agent-review-* checks on this SHA.
+      - name: Close stuck in-progress lens checks
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.checks.listForRef({
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+            });
+            for (const c of data.check_runs) {
+              if (!/^agent-review-/.test(c.name) || c.status === 'completed') continue;
+              await github.rest.checks.update({
+                owner: context.repo.owner, repo: context.repo.repo, check_run_id: c.id,
+                status: 'completed', conclusion: 'failure',
+                output: {
+                  title: `${c.name.replace(/^agent-review-/, '')}: panel stopped`,
+                  summary: 'The review panel stopped before this lens produced a verdict. A human was paged.',
+                },
+              });
+            }
 
       # The panel died before producing verdicts, but earlier sessions
       # (kickoff / ci-fix) recorded effort — post the summary so the hand-off

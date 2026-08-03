@@ -27,6 +27,38 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { latestLensRuns } from "./review-state.mjs";
 import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } from "./gh-checks.mjs";
 
+// Stable PREFIX of the synthetic record review-panel.mjs writes when a lens hits
+// an API/quota outage (its `summaryText`: "Review could not run — Claude API/quota
+// error…"). Used ONLY for the legacy fallback below — see isInfraRecord.
+export const INFRA_SENTINEL = "Review could not run — Claude API/quota error";
+
+/**
+ * A carried record that is really an infra/quota outage, not a code finding.
+ *
+ * `infra: true` is the AUTHORITATIVE signal: the producer (review-panel.mjs) sets
+ * it on the synthesised record, so — unlike `summary`, which is model output — a
+ * model or prompt-injected finding cannot forge it. That flag is the shared
+ * producer/consumer discriminator; prefer it for everything written after it
+ * existed.
+ *
+ * The message-prefix branch is a LEGACY fallback only, for records persisted
+ * BEFORE the flag existed (e.g. a PR contaminated by a pre-fix 429 round, like
+ * #632, whose App-owned check runs cannot be rewritten). Because `summary` is
+ * model-controlled, the prefix alone must NOT mark a record infra — otherwise a
+ * real finding that merely quotes this text could be silently dropped, or an
+ * injected finding could suppress itself from re-check. So the fallback also
+ * requires the synthetic record's shape: no `file`. Every genuine finding cites a
+ * `file`; the synthetic record carries only `{ severity, summary }`. A real
+ * blocker beginning with the legacy text therefore stays a blocker. Remove this
+ * branch once no pre-fix-contaminated PRs remain open.
+ */
+function isInfraRecord(f) {
+  if (!f || typeof f !== "object") return false;
+  if (f.infra === true) return true;
+  const noFile = f.file === undefined || f.file === null || f.file === "";
+  return noFile && typeof f.summary === "string" && f.summary.startsWith(INFRA_SENTINEL);
+}
+
 /**
  * Turn `{ lensCheckName -> check run }` into a flat, lens-tagged findings array.
  *
@@ -59,6 +91,16 @@ export function tagPriorFindings(runsByLens) {
     }
     if (!Array.isArray(parsed)) continue;
     for (const f of parsed) {
+      // Drop the synthesised INFRA record a lens writes when it hits an API/quota
+      // outage (e.g. a 429 session limit): the reviewer never ran, so "Review
+      // could not run …" is not a finding to re-check, and the verifier (biased to
+      // keep) cannot refute it on grounded evidence. `isInfraRecord` keys on the
+      // script-set `infra` flag (authoritative), with a shape-guarded legacy
+      // prefix fallback for records persisted before the flag existed — never on
+      // model text alone, so a genuine finding is never suppressed. The panel
+      // workflow already persists none for an infra lens; this is the read-side
+      // backstop so the guarantee holds regardless of which producer wrote it.
+      if (isInfraRecord(f)) continue;
       // `lens` last: a finding cannot spoof its own origin by carrying a `lens`
       // key, since these come from a previous round's model output.
       if (f && typeof f === "object" && !Array.isArray(f)) out.push({ ...f, lens });

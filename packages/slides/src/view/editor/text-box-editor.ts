@@ -250,6 +250,13 @@ export interface SlidesTextBoxEditor {
     subscript?: boolean | 'mixed';
   };
   applyStyle(style: Partial<InlineStyle>): void;
+  /**
+   * Step the font size of every inline run intersecting the current
+   * selection by `delta`, relative to each run's own effective size.
+   * Delegates straight to the underlying docs `EditorAPI`. See
+   * docs-font-controls.md (issue #343).
+   */
+  stepSelectionFontSize(delta: number, clamp: (n: number) => number): void;
   clearInlineFormatting(): void;
   applyBlockStyle(style: Partial<BlockStyle>): void;
   getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
@@ -596,6 +603,9 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     },
     applyStyle(style: Partial<InlineStyle>): void {
       api.applyStyle(style);
+    },
+    stepSelectionFontSize(delta: number, clamp: (n: number) => number): void {
+      api.stepSelectionFontSize(delta, clamp);
     },
     clearInlineFormatting(): void {
       api.clearInlineFormatting();

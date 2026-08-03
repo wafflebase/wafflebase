@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isFixerCommit,
   countFailedReviewRounds,
@@ -8,7 +11,124 @@ import {
   repeatRatio,
   groupReviewRounds,
   detectStalledRounds,
+  PAGED_LATCH,
+  PAGE_AUTHOR_LOGINS,
+  isPagedLatchComment,
 } from "./rounds.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PANEL_WORKFLOW = readFileSync(
+  path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"),
+  "utf8",
+);
+
+// --- the paged latch, shared between a module and a github-script step -------
+//
+// The latch is the pipeline's stop condition and has TWO readers:
+// review-round-guard.mjs (stops the fixer) and the `gate` job (stops the panel).
+// `gate` does no checkout, so it cannot import PAGED_LATCH and carries a literal
+// copy. A drifted copy does not error — it just silently stops latching, so the
+// panel would keep re-reviewing a PR that was handed to a human. Hence a test.
+
+test("PAGED_LATCH is the exact marker, pinned as a literal", () => {
+  // Deliberately not derived from the module: the point is that changing the
+  // marker must break a test rather than quietly un-latch every open PR.
+  assert.equal(PAGED_LATCH, "<!-- agent-review-paged -->");
+});
+
+test("the gate job's literal copy of the latch matches the module", () => {
+  assert.ok(
+    PANEL_WORKFLOW.includes(`const PAGED_LATCH = '${PAGED_LATCH}';`),
+    "agent-review-panel.yml's gate job must carry a byte-identical copy of PAGED_LATCH",
+  );
+  // The author allow-list is half the rule; a copy that drifted to a smaller set
+  // would silently stop honouring a real page, and a larger one re-opens the
+  // spoof this check exists to close.
+  for (const login of PAGE_AUTHOR_LOGINS) {
+    assert.ok(PANEL_WORKFLOW.includes(`'${login}'`), `gate job must trust ${login}`);
+  }
+  assert.ok(
+    PANEL_WORKFLOW.includes("const isPagedLatchComment = (c) =>"),
+    "gate job must author-check the latch, not match the marker alone",
+  );
+});
+
+// --- who may write the latch ------------------------------------------------
+//
+// wafflebase/wafflebase is PUBLIC. Matching on the marker alone lets any GitHub
+// account post it and permanently stop both the fix loop and the review panel,
+// which is denial of review from an unauthenticated position.
+
+test("isPagedLatchComment: an untrusted author cannot latch the PR", () => {
+  const body = `${PAGED_LATCH}\n🛑 nice pipeline you have there`;
+  const untrusted = [
+    { body, user: { login: "drive-by", type: "User" }, author_association: "NONE" },
+    { body, user: { login: "drive-by", type: "User" }, author_association: "CONTRIBUTOR" },
+    { body, user: { login: "drive-by", type: "User" }, author_association: "FIRST_TIME_CONTRIBUTOR" },
+    // A human cannot register a '[bot]' login, but pin that the TYPE is checked
+    // too rather than the name alone.
+    { body, user: { login: "github-actions[bot]", type: "User" }, author_association: "NONE" },
+    // An unrelated App is a Bot, but not one of ours.
+    { body, user: { login: "coderabbitai[bot]", type: "Bot" }, author_association: "CONTRIBUTOR" },
+  ];
+  for (const c of untrusted) {
+    assert.equal(isPagedLatchComment(c), false, JSON.stringify(c.user) + " " + c.author_association);
+  }
+});
+
+test("isPagedLatchComment: the real writers, and a maintainer by hand, do latch", () => {
+  const body = `${PAGED_LATCH}\n🛑 paged`;
+  // Both observed in production: the guard and `stalled` comment as
+  // github-actions[bot]; the fix job's branch-head page uses the App token.
+  for (const login of PAGE_AUTHOR_LOGINS) {
+    assert.equal(
+      isPagedLatchComment({ body, user: { login, type: "Bot" }, author_association: "CONTRIBUTOR" }),
+      true,
+      login,
+    );
+  }
+  // Halting the pipeline by hand stays supported for anyone with write access.
+  for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(
+      isPagedLatchComment({ body, user: { login: "a-maintainer", type: "User" }, author_association: assoc }),
+      true,
+      assoc,
+    );
+  }
+});
+
+test("isPagedLatchComment: no marker, or junk, is never a latch", () => {
+  const trusted = { user: { login: PAGE_AUTHOR_LOGINS[0], type: "Bot" }, author_association: "OWNER" };
+  assert.equal(isPagedLatchComment({ ...trusted, body: "just a normal comment" }), false);
+  assert.equal(isPagedLatchComment({ ...trusted, body: "" }), false);
+  assert.equal(isPagedLatchComment({ ...trusted }), false, "absent body");
+  for (const junk of [null, undefined, 42, "string", [], { body: null }, { body: PAGED_LATCH }]) {
+    assert.equal(isPagedLatchComment(junk), false, JSON.stringify(junk));
+  }
+});
+
+test("every site that writes the latch also says the panel has stopped", () => {
+  // Writing the latch now freezes the agent-review-* checks, so a page that
+  // does not say so leaves a human waiting for verdicts that will never come.
+  // Three writers today: the guard's page() (in review-round-guard.mjs), the
+  // fix job's branch-head-did-not-advance path, and the stalled job.
+  const HANDOFF = "The review panel will not run again on this PR";
+  const guard = readFileSync(path.join(HERE, "review-round-guard.mjs"), "utf8");
+  assert.ok(guard.includes(HANDOFF), "review-round-guard.mjs page() must carry the handoff note");
+
+  // In the workflow, count latch WRITES (the marker emitted into a comment body)
+  // and require as many handoff sentences. Two kinds of line mention the marker
+  // without writing it and must not be counted: the gate job's read-side
+  // `const PAGED_LATCH =`, and prose — both `#` YAML comments and `//` JS
+  // comments, since the rationale above the gate check quotes the marker.
+  const isProse = (l) => /^\s*(#|\/\/)/.test(l);
+  const writes = PANEL_WORKFLOW.split("\n").filter(
+    (l) => l.includes(PAGED_LATCH) && !l.includes("const PAGED_LATCH") && !isProse(l),
+  ).length;
+  const notes = PANEL_WORKFLOW.split(HANDOFF).length - 1;
+  assert.ok(writes > 0, "expected the workflow to write the latch somewhere");
+  assert.equal(notes, writes, `each of the ${writes} latch write(s) needs a handoff note`);
+});
 
 const fixer = (sha, checkRuns = []) => ({ sha, parents: [{ sha: "p1" }], checkRuns });
 const merge = (sha, checkRuns = []) => ({ sha, parents: [{ sha: "p1" }, { sha: "p2" }], checkRuns });

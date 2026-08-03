@@ -43,6 +43,13 @@ Cite the runs that demonstrate the crash: `probeRefs` is the 0-based indices of
 your own runs this session, and `failingRef` is the one that crashed. You cannot
 cite a run you did not perform.
 
+Write every file reference as a **repo-root-relative path**, in prose as well as in
+`citations` — `packages/cli/src/commands/schema.ts:33`, never `schema.ts:33`. The
+gate only validates the `citations` array, so a bare filename in `expected` or
+`observed` passes review and then lands in a filed issue as something a reader
+cannot open. The first live run produced exactly that: correct paths in
+`citations`, `schema.ts:33` and `status.ts:8` in the prose beside them.
+
 Fruitful things to try, all backend-free:
 
 - Missing required arguments; too many arguments.

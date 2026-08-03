@@ -7,7 +7,9 @@ import {
   askStructured,
   assertAllowedTools,
   assertBoundaryMatchesSdk,
+  assertEffort,
   buildSessionOptions,
+  EFFORT_LEVELS,
   PERMITTED_TOOLS,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
   classifyResult,
@@ -153,8 +155,44 @@ test("buildSessionOptions: pins the read-only session shape", () => {
   // Omitted rather than passed as undefined, so the SDK default applies.
   assert.ok(!("maxTurns" in o), "an unset ceiling must not appear at all");
   assert.equal(buildSessionOptions({ schema: {}, maxTurns: 8, allowedTools: ["Read"] }).maxTurns, 8);
+  // Same rule for effort: absent means "take the SDK default", not "high".
+  assert.ok(!("effort" in o), "an unset effort must not appear at all");
+  assert.equal(
+    buildSessionOptions({ schema: {}, effort: "medium", allowedTools: ["Read"] }).effort,
+    "medium",
+  );
   // The gate still runs here — this is the one place it is reached.
   assert.throws(() => buildSessionOptions({ schema: {}, allowedTools: ["Bash"] }), /is not permitted/);
+});
+
+test("EFFORT_LEVELS pins the SDK's levels as a literal", () => {
+  // Deliberately NOT derived from the SDK: this repo's agent test lane runs with
+  // the SDK absent. If a level is ever removed upstream, a literal list turns
+  // that into a failing assertion rather than a session that silently falls back
+  // to the default — the same silent-cost-regression shape assertBoundaryMatchesSdk
+  // exists to catch. Matches `EffortLevel` at sdk.d.ts:539 in the pinned 0.3.217.
+  assert.deepEqual([...EFFORT_LEVELS], ["low", "medium", "high", "xhigh", "max"]);
+});
+
+test("assertEffort: unset passes through, anything unrecognised throws", () => {
+  assert.equal(assertEffort(undefined), undefined);
+  for (const level of EFFORT_LEVELS) assert.equal(assertEffort(level), level);
+  // Strict on purpose. A dropped-and-defaulted value is a COST regression with
+  // no error, no changed output and nothing in the logs, so every ambiguity
+  // fails loudly instead: casing, whitespace, near-misses and wrong types.
+  for (const bad of ["MEDIUM", " medium", "med", "hgih", "", null, 0, 3, true, [], {}]) {
+    assert.throws(() => assertEffort(bad), /effort/, JSON.stringify(bad));
+  }
+});
+
+test("buildSessionOptions: an invalid effort throws before a session is opened", () => {
+  // Ordering matters — the same reason the tool grant is validated first. This
+  // runs with the SDK unresolvable, so reaching the throw proves nothing had to
+  // be imported to get there.
+  assert.throws(
+    () => buildSessionOptions({ schema: {}, effort: "hgih", allowedTools: ["Read"] }),
+    /effort/,
+  );
 });
 
 test("buildSessionOptions: an array systemPrompt reaches the SDK VERBATIM", () => {

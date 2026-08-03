@@ -11,6 +11,9 @@
  * pick — never on every keystroke. Typed values that clamp to the current
  * value are skipped to avoid spurious updates. An undefined `value`
  * renders an empty input so mixed selections don't pin a misleading size.
+ * The exception is ± on a mixed selection: it fires `onStepMixed(delta)`
+ * instead, so the caller can step each run relative to its own size
+ * (Google Docs parity, issue #343) rather than needing one absolute value.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -24,6 +27,7 @@ import {
   FONT_SIZE_PRESETS,
   FONT_SIZE_MIN,
   FONT_SIZE_MAX,
+  clampFontSize,
 } from "./font-catalog";
 
 interface FontSizePickerProps {
@@ -31,15 +35,21 @@ interface FontSizePickerProps {
   value: number | undefined;
   /** Fired only on commit (Enter, blur, ±, preset pick). */
   onChange: (size: number) => void;
+  /**
+   * Fired instead of `onChange` when `±` is pressed on a mixed-size
+   * selection (`value === undefined` and the input is empty) — steps
+   * each run in the selection relative to its own size rather than
+   * collapsing the selection to one value. Omit to keep `±` a no-op on
+   * a mixed selection (the pre-issue-#343-fix behavior).
+   */
+  onStepMixed?: (delta: number) => void;
   disabled?: boolean;
 }
-
-const clamp = (n: number) =>
-  Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(n)));
 
 export function FontSizePicker({
   value,
   onChange,
+  onStepMixed,
   disabled,
 }: FontSizePickerProps) {
   const [draft, setDraft] = useState<string>(
@@ -59,7 +69,7 @@ export function FontSizePicker({
   }, [value]);
 
   const commit = (n: number) => {
-    const clamped = clamp(n);
+    const clamped = clampFontSize(n);
     setDraft(String(clamped));
     if (clamped !== value) onChange(clamped);
   };
@@ -78,15 +88,18 @@ export function FontSizePicker({
   };
 
   const step = (delta: number) => {
-    // Refuse to step when the picker is rendering an empty input
-    // (mixed selection with no draft). Without this guard
-    // `value ?? Number("")` collapses to `0` and ± would commit
-    // FONT_SIZE_MIN to the entire selection, silently flattening the
-    // mixed runs to the smallest legal size.
-    if (value === undefined && draft.trim() === "") return;
+    // Mixed selection with no draft: `value ?? Number("")` would
+    // collapse to `0` and ± would commit FONT_SIZE_MIN to the entire
+    // selection, silently flattening the mixed runs to the smallest
+    // legal size (issue #343). Step each run relative to its own size
+    // instead; without a handler, stay a no-op.
+    if (value === undefined && draft.trim() === "") {
+      onStepMixed?.(delta);
+      return;
+    }
     const base = value ?? Number(draft);
     if (!Number.isFinite(base)) return;
-    const next = clamp(base + delta);
+    const next = clampFontSize(base + delta);
     if (next === base) return;
     commit(next);
   };

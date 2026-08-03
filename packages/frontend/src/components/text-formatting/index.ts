@@ -5,6 +5,9 @@ export { TextParagraphGroup } from "./text-paragraph-group";
 export { FontFamilyPicker } from "./font-family-picker.tsx";
 export {
   FONT_CATALOG,
+  FONT_SIZE_MIN,
+  FONT_SIZE_MAX,
+  clampFontSize,
   ensureFontLink,
   ensureGoogleFontsLink,
   useGoogleFontsLink,

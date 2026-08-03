@@ -253,6 +253,13 @@ export function aggregatePanelStats(entries) {
   // they coerce to 0 — but a non-zero value means those findings were never
   // filtered at all, which is the difference between a review and a raw dump.
   let errored = 0;
+  // WHY those sessions threw, split by `classifyResult`'s kind. Absent from
+  // pre-instrumentation entries, which contribute nothing — so an all-zero
+  // `failures` means "no data yet", and the renderer omits the line rather than
+  // implying zero failures. `errored` above stays the wider count: it also
+  // includes a folded wording whose verdict was never produced, which never
+  // threw and so is deliberately not represented here.
+  const failures = { apiError: 0, limit: 0, noOutput: 0, unknown: 0, total: 0 };
   // Novelty gate. Absent from entries written before it existed, which coerce to
   // 0 — an all-zero row reads as "the gate never fired", the honest reading for
   // both a pre-instrumentation round and a round where it ran inert.
@@ -283,6 +290,9 @@ export function aggregatePanelStats(entries) {
     absenceRefuted += Number(e.verifier && e.verifier.absenceRefuted) || 0;
     unresolved += Number(e.verifier && e.verifier.unresolved) || 0;
     errored += Number(e.verifier && e.verifier.errored) || 0;
+    for (const k of Object.keys(failures)) {
+      failures[k] += Number(e.verifier && e.verifier.failures && e.verifier.failures[k]) || 0;
+    }
     laneBlocking += Number(e.lanes && e.lanes.blocking) || 0;
     laneBacklog += Number(e.lanes && e.lanes.backlog) || 0;
     laneUnknownOrigin += Number(e.lanes && e.lanes.unknownOrigin) || 0;
@@ -291,7 +301,7 @@ export function aggregatePanelStats(entries) {
   }
   return {
     agreementCounts, raised, raisedConfidence, kept,
-    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved },
+    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved, failures },
     lanes: { blocking: laneBlocking, backlog: laneBacklog, unknownOrigin: laneUnknownOrigin },
     clusters: { clustered, collapsed },
   };
@@ -503,6 +513,9 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
     const rc = panelStats?.raisedConfidence || {};
     const k = panelStats?.kept || {};
     const v = panelStats?.verifier || {};
+  // Absent on every round recorded before this shipped, so `?? {}` is what keeps
+  // those rendering byte-identically rather than gaining an all-zero line.
+  const vf = v.failures || {};
     const l = panelStats?.lanes || {};
     const c = panelStats?.clusters || {};
     const sampledRounds = (ac.identical || 0) + (ac.partial || 0) + (ac.disjoint || 0);
@@ -538,6 +551,25 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
       // apart, and a large value invalidates every number under it.
       ...(v.errored
         ? [`- ⚠️ Verifier ERRORED on ${v.errored} of ${v.sentToVerifier || 0} — those findings are UNFILTERED, not confirmed`]
+        : []),
+      // WHY they errored, which decides what to do about it: `api-error` is
+      // transient and already retried, `turn-limit` means a ceiling is too low
+      // for the work (the #614 failure — 8 of 18 verifications died at exactly
+      // the presence ceiling and read as an outage), `no-output` means the model
+      // ran and produced nothing usable. Absent on rounds recorded before this
+      // shipped, and omitted when nothing threw, so quiet rounds stay quiet.
+      // Counted in SESSIONS, while `errored` above counts FINDINGS — say so, and
+      // do not subtract them. One clustered finding can consume several verifier
+      // sessions (the representative, then one per folded wording), so the two
+      // move independently in both directions: three sessions can throw for one
+      // errored finding, and a finding can end with no verdict having thrown
+      // nothing. An earlier draft rendered `errored - total` as a "folded
+      // wording" remainder; that is arithmetic across two different units and it
+      // goes negative on exactly the cluster case above.
+      ...(vf && vf.total
+        ? [`- Verifier failures: ${vf.total} session(s) threw — ${vf.apiError || 0} api-error, `
+           + `${vf.limit || 0} turn-limit, ${vf.noOutput || 0} no-output`
+           + `${vf.unknown ? `, ${vf.unknown} unknown` : ""}`]
         : []),
       // `dropped` ≤ `refutedHighConfidence`: a confident refutation only drops
       // the finding when it names a ground and cites what it read. The GAP is

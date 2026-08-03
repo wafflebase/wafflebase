@@ -58,6 +58,7 @@ import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
 import { ORIGINS } from "./novelty.mjs";
 import { latestLensRuns, parseReviewState } from "./review-state.mjs";
 import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
+import { bestMatch } from "./finding-match.mjs";
 import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -255,7 +256,219 @@ export function classifyCodeRabbitComment(body) {
   const category = headerWords(m[1]);
   // First bolded line after the header is CodeRabbit's one-line title.
   const title = /\*\*(.+?)\*\*/s.exec(str(body))?.[1]?.replace(/\s+/g, " ").trim() ?? "";
-  return { category, severity, lens: CR_CATEGORY_TO_LENS.get(category) ?? "", summary: title };
+  return {
+    category,
+    severity,
+    lens: CR_CATEGORY_TO_LENS.get(category) ?? "",
+    summary: title,
+    detail: codeRabbitDetail(body),
+  };
+}
+
+// Where a CodeRabbit body stops being prose. Verified against every inline
+// finding on #548, #594 and #639: the body is always header → bolded title →
+// prose → structured blocks, and prose never resumes after the first block.
+const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
+
+/**
+ * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
+ * prose under it, stopping at the first `<details>`, fence or HTML comment.
+ *
+ * Two failure modes sit either side of this, and the boundary is what avoids both.
+ *
+ * The title ALONE is too thin. `summaryTokens` reduces a real one — "Guard public
+ * mutation APIs at the read-only boundary." — to six tokens, and `findingSimilarity`
+ * scores containment over the SMALLER token set, so two incidentally shared words
+ * would clear the 0.3 bar. (`tokenOverlap` keeps `MIN_SHARED_TOKENS` for the same
+ * reason; this is the other half of that defence.)
+ *
+ * The WHOLE body is worse, and worse in the dangerous direction. Every comment ends
+ * with a `🤖 Prompt for AI Agents` block opening with the same boilerplate sentence
+ * — "Verify each finding against current code. Fix only still-valid issues…" —
+ * which alone contributes `code`, `fix`, `issues`, `changes`, `validate` to every
+ * single comparison, plus committable-suggestion blocks that dump literal source.
+ * Against a ~15-token panel summary that inflates containment on the vocabulary
+ * every finding in the file already shares, producing false matches exactly where
+ * the panel had the most findings — i.e. eating real misses where they are densest.
+ *
+ * The full body still reaches the ANCHOR layer (harvestPr passes it as `evidence`),
+ * because `extractAnchor` mines structured items — backticked identifiers, the
+ * `around lines N - M` range — where more text is strictly better.
+ */
+export function codeRabbitDetail(body) {
+  const text = str(body);
+  const cut = text.search(CR_PROSE_END);
+  return (cut === -1 ? text : text.slice(0, cut))
+    .replace(CR_HEADER, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// --- the panel's findings, as posted on a human PR ---------------------------
+//
+// `@claude review` runs the SAME lens panel on a human PR, and records no check
+// runs at all — agent-review-on-demand.yml says so four times over ("purely
+// advisory: it records NO check runs", `checks: read` and never `checks: write`).
+// Its findings exist only as markdown in the comment it posts. `panelVerdictAt`
+// reads check runs exclusively, so that entire population was invisible here: 14
+// PRs carrying 1-38 blocking findings each, against 27 PRs' worth of CodeRabbit
+// blockers, none of it reachable.
+//
+// So this reads the comment. It is a SECOND source for the same fact, not a
+// replacement — `harvestPr` prefers check runs where they exist, because they are
+// structured JSON rather than a rendering of it, and falls back to this.
+
+/** The machine anchor `agent-review-on-demand.yml` writes as the comment's first
+ *  line. The sha is the commit the panel actually reviewed. */
+const PANEL_COMMENT_RE = /^<!--\s*agent-review:([0-9a-f]{40})\s*-->/;
+
+/** The searchable substring of that anchor, used by `listCandidatePrs` to find the
+ *  PRs a panel reviewed on demand. Kept beside the regex it belongs to so the two
+ *  cannot drift; GitHub's comment search cannot express the sha, and does not need
+ *  to — `parsePanelComment` re-checks the full anchor and the author on read. */
+const PANEL_COMMENT_TAG = "agent-review:";
+
+/**
+ * Who may author a panel comment. EXACT logins, and this is a security gate, not
+ * tidiness — the same discipline as `CODERABBIT_LOGINS`, for a sharper reason.
+ *
+ * Findings parsed here can SUPPRESS a CodeRabbit candidate. So anyone able to
+ * forge a panel comment could silence real misses by posting text that matches
+ * them — a deletion with no trace in the corpus. Matching on the marker alone is
+ * not enough: any user can write that HTML comment. It must come from the App.
+ *
+ * Not hypothetical at this parse level: #578 carries a CODERABBIT comment whose
+ * body contains "Review panel", so a content-only match already mis-fires on real
+ * data before anyone tries.
+ */
+const PANEL_LOGINS = new Set(["yorkie-agent[bot]", "app/yorkie-agent"]);
+
+// `renderSummaryMd` emits `### <heading> (<n>)` then one `- ` row per finding.
+// Only the two BLOCKING headings are read; `Minor (non-blocking)`,
+// `Nit (non-blocking)` and the demoted section all terminate a run of rows.
+const PANEL_SECTION_RE = /^###\s+(Critical|Major|Minor|Nit|Demoted)\b/;
+const PANEL_LENS_RE = /review:\s+\*\*/;
+// `- \`file\` — summary`, the shape `section()` writes when a finding has a file.
+// The em-dash is what `section()` emits; en-dash and hyphen are tolerated because
+// this is a rendering being read back, not a wire format.
+const PANEL_FINDING_RE = /^[-*]\s+`([^`]+)`\s*[—–-]\s*(.+)$/;
+
+/**
+ * Blocking findings from one panel comment body, or `null` if it is not one.
+ *
+ * Blocking ONLY, for the same reason `panelVerdictAt` filters: a CodeRabbit
+ * blocker "already raised" by a minor note is not a gate hit, and suppressing it
+ * on that basis would hide a real miss behind a passing remark.
+ *
+ * The trailing `_(verifier could not settle this)_` marker and the `<details>`
+ * block of merged wordings are left in the summary text rather than stripped. They
+ * are words the panel wrote about this finding, `summaryTokens` discards the
+ * punctuation, and a stripper is one more thing to keep in step with the renderer.
+ *
+ * `file` keeps the rendered locator with any `:line` suffix removed, and the whole
+ * locator is repeated into `evidence` so `extractAnchor` still sees the line
+ * numbers — they are the sharpest location signal in the row.
+ */
+export function parsePanelComment(body) {
+  const text = str(body);
+  const m = PANEL_COMMENT_RE.exec(text);
+  if (!m) return null;
+  const findings = [];
+  let severity = null;
+  for (const line of text.split("\n")) {
+    // A new lens's verdict line ends the previous lens's last section.
+    if (PANEL_LENS_RE.test(line)) { severity = null; continue; }
+    const sec = PANEL_SECTION_RE.exec(line);
+    if (sec) {
+      const h = sec[1].toLowerCase();
+      severity = h === "critical" || h === "major" ? h : null;
+      continue;
+    }
+    if (/^###/.test(line)) { severity = null; continue; }
+    if (severity === null) continue;
+    const row = PANEL_FINDING_RE.exec(line);
+    if (!row) continue;
+    const locator = row[1];
+    findings.push({
+      severity,
+      file: locator.replace(/:[\d\s\-–—]+$/, ""),
+      summary: row[2].trim(),
+      evidence: `at ${locator}`,
+    });
+  }
+  return { reviewedSha: m[1], findings };
+}
+
+/**
+ * The panel's blocking findings across every on-demand review on this PR, or
+ * `null` if it was never reviewed that way.
+ *
+ * The UNION of all reviews, not the newest. The record's claim is "the panel did
+ * not raise this", and a finding the panel raised in an earlier review is one the
+ * panel raised — filing it as a miss would put a false row in an eval corpus,
+ * which this module's header calls worse than not tuning at all. That direction
+ * does widen the suppression surface, which is why every suppression is counted
+ * and logged with the finding it matched.
+ */
+export function panelFindingsFromComments(comments) {
+  let seen = false;
+  let reviewedSha = "";
+  const findings = [];
+  for (const c of Array.isArray(comments) ? comments : []) {
+    if (!PANEL_LOGINS.has(str(c?.user?.login))) continue;
+    const parsed = parsePanelComment(c?.body);
+    if (!parsed) continue;
+    seen = true;
+    if (!reviewedSha) reviewedSha = parsed.reviewedSha;
+    findings.push(...parsed.findings);
+  }
+  return seen ? { reviewedSha, findings } : null;
+}
+
+/** Verdicts `attributeToPanel` can reach. `""` is a fourth state and means the
+ *  question was never asked — see `attributeToPanel`. */
+export const MATCH_VERDICTS = new Set(["match", "maybe", "no"]);
+
+/**
+ * Did the panel already raise this CodeRabbit finding, in different words?
+ *
+ * `blockers` is the panel's blocking findings, or `null` when we could not
+ * establish them (no readable check runs). Those are different questions and get
+ * different answers: `null` yields verdict `""` — "not asked" — which emits the
+ * candidate exactly as this module did before matching existed. An empty ARRAY is
+ * a real answer: the panel raised nothing blocking, so a CodeRabbit blocker is by
+ * definition unmatched.
+ *
+ * Both sides are compared LENS-NEUTRAL. CodeRabbit's lens is a category→lens guess
+ * that is often `""`, and `findingSimilarity` scores any lens mismatch 0 outright.
+ * `clusterFindings` already solved this upstream with a `{ ...f, lens: "" }` copy;
+ * this is the same move, not a second one. The deeper reason is that a defect the
+ * panel raised under a DIFFERENT lens is still a defect the panel raised.
+ *
+ * FAIL DIRECTION — `maybe`, deliberately in the middle. Suppressing on error would
+ * silently drop a real miss, which is the one loss this corpus cannot recover
+ * later; emitting unflagged would restore the noise the matcher exists to remove.
+ * `maybe` honours "never throw" without choosing either.
+ */
+export function attributeToPanel(finding, blockers) {
+  if (!Array.isArray(blockers)) return { verdict: "", score: 0, matchedSummary: "" };
+  try {
+    const neutral = (f) => ({
+      lens: "",
+      file: str(f?.file),
+      summary: str(f?.summary),
+      evidence: str(f?.evidence),
+    });
+    const best = bestMatch(neutral(finding), blockers.map(neutral), { crossSource: true });
+    if (!best) return { verdict: "no", score: 0, matchedSummary: "" };
+    return {
+      verdict: best.result.verdict,
+      score: Math.round(best.result.score * 100) / 100,
+      matchedSummary: str(best.candidate.summary),
+    };
+  } catch (err) {
+    return { verdict: "maybe", score: 0, matchedSummary: "", error: err.message };
+  }
 }
 
 /**
@@ -292,10 +505,18 @@ export function toMissRecord(fields) {
     severity: f.severity == null || f.severity === "" ? "" : normalizeSeverity(f.severity),
     origin: ORIGINS.includes(f.origin) ? f.origin : "unknown",
     summary: str(f.summary),
+    // The match fields live INSIDE `panelSaw` rather than at the top level: they
+    // are three more things we know about what the panel saw, and `schema` is
+    // `wafflebase/miss@1`. They are present on every record, empty on the paths
+    // that never ask the question, because a corpus read in diffs is easier to
+    // scan when every line has the same shape.
     panelSaw: {
       reviewedSha: str(saw.reviewedSha),
       conclusion: str(saw.conclusion),
       blockingFindings: Number.isFinite(Number(saw.blockingFindings)) ? Number(saw.blockingFindings) : 0,
+      matchVerdict: MATCH_VERDICTS.has(saw.matchVerdict) ? saw.matchVerdict : "",
+      matchScore: Number.isFinite(Number(saw.matchScore)) ? Number(saw.matchScore) : 0,
+      matchedSummary: str(saw.matchedSummary),
     },
     verifiedBy: str(f.verifiedBy),
     notes: str(f.notes),
@@ -381,7 +602,14 @@ export function dedupeById(records) {
 
 /**
  * What the panel concluded on a given commit: `{reviewedSha, conclusion,
- * blockingFindings}`.
+ * blockingFindings, blockers}`.
+ *
+ * `blockers` is the blocking findings THEMSELVES, and it is the whole reason
+ * signature 2 can be more than a guess. This function used to compute the count
+ * and drop the findings on the floor, so the CodeRabbit path could say the panel
+ * raised three blockers but never whether one of them was the comment in hand —
+ * every CodeRabbit blocker was filed as a miss by construction. `blockingFindings`
+ * stays a count because callers and the record format depend on it.
  *
  * `reviewedSha` comes from the lens run's `external_id` (incremental review's
  * state pointer) rather than from the commit the run is attached to, because on a
@@ -411,7 +639,16 @@ export function panelVerdictAt(runsByLens) {
       break;
     }
   }
-  return { reviewedSha, conclusion, blockingFindings: classify(findings).blockingCount };
+  const classified = classify(findings);
+  return {
+    reviewedSha,
+    conclusion,
+    blockingFindings: classified.blockingCount,
+    // The BLOCKING subset only. A CodeRabbit blocker "already raised" by a nit the
+    // panel filed is not a gate hit, and matching against non-blocking findings
+    // would suppress a real gate miss on the strength of a passing remark.
+    blockers: classified.findings.filter((f) => BLOCKING.has(f.severity)),
+  };
 }
 
 // --- gh-backed collection ----------------------------------------------------
@@ -450,21 +687,35 @@ function readyForReviewAt(pr, api) {
  * Propose miss records for one PR. NEVER throws: every collection step is
  * individually caught and degrades to fewer candidates.
  *
- * Returns `{records, skipped}` — `skipped` is a human-readable reason when the PR
- * could not be examined at all, so the CLI can say WHY a PR produced nothing.
- * "Zero candidates" and "could not look" must never print the same way; the whole
- * point of the corpus is that an empty result is a claim, not a default.
+ * Returns `{records, skipped, suppressed}` — `skipped` is a human-readable reason
+ * when the PR could not be examined at all, so the CLI can say WHY a PR produced
+ * nothing. "Zero candidates" and "could not look" must never print the same way;
+ * the whole point of the corpus is that an empty result is a claim, not a default.
+ *
+ * THE TWO SIGNATURES HAVE DIFFERENT PRECONDITIONS, and conflating them cost this
+ * module its best data. Signature 1 is defined relative to a hand-off — "a human
+ * changed reviewable code AFTER the panel approved" is meaningless without the
+ * moment it approved — and only an agent PR promoted by `mark-ready.mjs` has one.
+ * Signature 2 needs neither: "CodeRabbit flagged something our panel reviewed and
+ * did not raise" is exactly as true on a human PR reviewed via `@claude review`,
+ * where `handoffAt` is not merely unknown but MEANINGLESS — nothing was handed off.
+ *
+ * Gating both on `isAgentPr` plus a hand-off marker excluded, measurably: 18 of 33
+ * agent PRs (opened ready, so they have neither a marker nor a `ready_for_review`
+ * event), and every human PR — which is where the on-demand panel reviews and the
+ * bulk of CodeRabbit's blocking findings both live. So each signature now checks
+ * only what it actually needs, and `skipped` is set only when nothing could be
+ * examined at all.
  */
 export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}) {
   const records = [];
-  let meta;
-  try {
-    meta = api(["api", `repos/{owner}/{repo}/pulls/${pr}`]);
-  } catch (err) {
-    return { records, skipped: `could not read PR #${pr} (${err.message})` };
-  }
-  if (!isAgentPr(meta)) return { records, skipped: `#${pr} is not an agent PR` };
+  // CodeRabbit comments the matcher attributed to a panel finding, so they were
+  // NOT filed. Reported by the CLI: a suppression nobody can see is a deletion.
+  let suppressed = 0;
 
+  // Comments come FIRST and are load-bearing twice over: they carry the hand-off
+  // marker (signature 1's cutoff) and the on-demand panel's findings (signature
+  // 2's comparison set). One call, both facts.
   let comments = [];
   try {
     comments = listComments(pr, api);
@@ -478,20 +729,18 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     log(`#${pr}: could not read the timeline (${err.message}).`);
   }
   const handoffAt = handoffTime({ comments, readyForReviewAt: ready });
-  if (!handoffAt) {
-    return { records, skipped: `#${pr} has no hand-off marker and no ready_for_review event` };
-  }
 
-  // The verdict that LET THE PR THROUGH: the newest lens runs on or before the
-  // handoff. Runs from later rounds would describe a panel that had already seen
-  // the human's fix.
   let prCommits = [];
   try {
     prCommits = listCommits(pr, api);
   } catch (err) {
     log(`#${pr}: could not list commits (${err.message}); no human-fix candidates from this PR.`);
   }
-  const cutoff = Date.parse(handoffAt);
+  // `handoffAt` may be null now that signature 2 no longer requires one. NaN makes
+  // every `at <= cutoff` false, so `beforeHandoff` empties and `headAtHandoff` goes
+  // undefined — the same "could not establish it" state as an unreadable commit
+  // list. Stated rather than relied upon, because it is load-bearing.
+  const cutoff = handoffAt === null ? NaN : Date.parse(handoffAt);
   const beforeHandoff = prCommits.filter((c) => {
     const at = Date.parse(str(c?.commit?.committer?.date));
     return Number.isFinite(at) && at <= cutoff;
@@ -511,17 +760,63 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   // looking at and we could not read what it concluded. Collapsing both into ""
   // would make an API hiccup indistinguishable from a PR with no panel at all.
   let panelSaw = { reviewedSha: str(headAtHandoff?.sha), conclusion: "", blockingFindings: 0 };
+  // `null`, not `[]`: "we could not establish the panel's findings" is a different
+  // claim from "the panel raised none", and `attributeToPanel` answers them
+  // differently. Collapsing them would let an API hiccup read as a clean panel.
+  let panelBlockers = null;
   if (headAtHandoff?.sha) {
     try {
       const runs = commitCheckRuns(headAtHandoff.sha, { api });
       const verdict = panelVerdictAt(withFullOutput(latestLensRuns(runs, names), { api, log }));
-      panelSaw = { ...verdict, reviewedSha: verdict.reviewedSha || headAtHandoff.sha };
+      panelSaw = {
+        reviewedSha: verdict.reviewedSha || headAtHandoff.sha,
+        conclusion: verdict.conclusion,
+        blockingFindings: verdict.blockingFindings,
+      };
+      // Only a lens run that actually EXISTED is an answer. `conclusion === ""` is
+      // `panelVerdictAt`'s own signal for "no lens runs on this commit", and its
+      // `blockers` is then an empty array meaning "nothing to read" — not "the panel
+      // raised nothing". Treating those alike is what kept the on-demand comment
+      // below unreachable: a commit with zero lens runs looked like a clean panel.
+      if (verdict.conclusion !== "") panelBlockers = verdict.blockers;
     } catch (err) {
       log(`#${pr}: could not read the panel's verdict (${err.message}); recording it as unknown.`);
     }
   }
 
-  // Signature 1 — human commits after handoff.
+  // FALLBACK to the on-demand panel's comment, and only a fallback: check runs are
+  // the structured record, this is a rendering of one, so it is read exactly when
+  // there is no structured record to prefer. `panelBlockers === null` is the test
+  // rather than `.length === 0` — an autonomous panel that genuinely raised nothing
+  // has already answered the question, and overwriting that with a comment from a
+  // different review would answer a different one.
+  if (panelBlockers === null) {
+    const fromComment = panelFindingsFromComments(comments);
+    if (fromComment) {
+      panelBlockers = fromComment.findings;
+      // Only fill what is still blank. A sha established from the commit list is
+      // more precise than the comment's, and `conclusion` stays "" because an
+      // advisory review reached no gate conclusion — that is not a missing value.
+      panelSaw = {
+        ...panelSaw,
+        reviewedSha: panelSaw.reviewedSha || fromComment.reviewedSha,
+        blockingFindings: panelSaw.blockingFindings || fromComment.findings.length,
+      };
+      log(
+        `#${pr}: no lens check runs; using the on-demand panel comment ` +
+          `(${fromComment.findings.length} blocking finding(s)) as the comparison set.`,
+      );
+    }
+  }
+
+  // Signature 1 — human commits after handoff. Requires `handoffAt`: without the
+  // moment the panel let go, "after" has no referent and every commit on the PR
+  // would qualify. `isHumanFollowupCommit` returns false on an unusable cutoff, so
+  // this loop is already a no-op then; the guard is here to say so out loud and to
+  // keep the reason next to the code that depends on it.
+  if (handoffAt === null) {
+    log(`#${pr}: no hand-off marker and no ready_for_review event; no human-fix candidates (CodeRabbit signature still runs).`);
+  }
   for (const c of prCommits) {
     if (!isHumanFollowupCommit(c, handoffAt)) continue;
     let files = [];
@@ -538,7 +833,7 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         label: "miss",
         source: "human-fix",
         pr,
-        handoffAt,
+        handoffAt: str(handoffAt),
         evidence: { commitSha: c.sha, url: str(c.html_url) },
         files,
         summary: str(c.commit?.message).split("\n")[0],
@@ -549,13 +844,36 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   }
 
   // Signature 2 — CodeRabbit findings the panel did not raise.
+  //
+  // REQUIRES evidence that the panel reviewed this PR, and that requirement is what
+  // makes widening the population safe. "The panel did not raise this" is only a
+  // claim about the panel if the panel looked; on a PR it never reviewed, every
+  // CodeRabbit blocker files as a miss and the corpus fills with rows measuring
+  // nothing.
+  //
+  // The evidence is EMPIRICAL — readable lens check runs, or a trusted on-demand
+  // comment — and authorship is deliberately not part of it. `isAgentPr` looks like
+  // a third signal ("the pipeline reviews every agent PR by construction") and it is
+  // wrong: of 11 agent PRs carrying CodeRabbit blockers, 9 have no `agent-review-*`
+  // check run on any commit, only `verify-*` and codecov. They match `isAgentPr` by
+  // branch prefix but never went through the panel — the same 18-of-33 population
+  // that has no hand-off marker because it was opened ready rather than promoted.
+  // Trusting authorship would have filed 15 rows about a reviewer that never looked.
+  //
+  // Withholding is also the RECOVERABLE direction. No row is written, so a later
+  // harvest re-proposes the candidate once the evidence exists; a wrong row, once
+  // curated, is permanent.
+  const panelReviewed = panelBlockers !== null;
   let reviewComments = [];
   try {
     reviewComments = listReviewComments(pr, api);
   } catch (err) {
     log(`#${pr}: could not list review comments (${err.message}).`);
   }
-  for (const rc of reviewComments) {
+  if (!panelReviewed && reviewComments.length > 0) {
+    log(`#${pr}: ${reviewComments.length} review comment(s) but no evidence the panel ever reviewed this PR; no CodeRabbit candidates.`);
+  }
+  for (const rc of panelReviewed ? reviewComments : []) {
     // EXACT login, not a prefix. `startsWith("coderabbitai")` also accepts
     // `coderabbitai-x`, and anyone can register that name and comment on a public
     // PR — which would let a stranger write rows into the corpus. Curation is the
@@ -566,13 +884,36 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     if (!finding) continue;
     const files = interestingFiles([str(rc.path)]);
     if (files.length === 0) continue;
+
+    // `rc.path` RAW, not the filtered `files` above: `interestingFiles` exists to
+    // decide what may carry a miss, and reusing it here would silently hand the
+    // matcher an empty file — i.e. no location evidence — for a comment we have a
+    // path for. The panel side's `file` may legitimately be empty (the infra-record
+    // shape), which `locationScore` reads as absent rather than as a match.
+    // Prose for the token comparison, the whole body for the anchor layer.
+    const attribution = attributeToPanel(
+      { file: str(rc.path), summary: finding.detail, evidence: str(rc.body) },
+      panelBlockers,
+    );
+    if (attribution.verdict === "match") {
+      // Counted and logged rather than dropped in silence. A matcher that quietly
+      // eats candidates is indistinguishable from a PR nobody reviewed, and this
+      // is the number that says whether the matcher is earning its place.
+      suppressed++;
+      log(
+        `#${pr}: CodeRabbit comment ${rc.id} restates a panel finding ` +
+          `(score ${attribution.score}: "${attribution.matchedSummary}"); not filed as a miss.`,
+      );
+      continue;
+    }
+
     records.push(
       toMissRecord({
         id: candidateId("coderabbit", pr, rc.id),
         label: "miss",
         source: "coderabbit",
         pr,
-        handoffAt,
+        handoffAt: str(handoffAt),
         evidence: {
           commitSha: str(rc.original_commit_id || rc.commit_id),
           commentId: String(rc.id ?? ""),
@@ -582,12 +923,34 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         lens: finding.lens,
         severity: finding.severity,
         summary: finding.summary,
-        panelSaw,
-        notes: `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding`,
+        panelSaw: {
+          ...panelSaw,
+          matchVerdict: attribution.verdict,
+          matchScore: attribution.score,
+          matchedSummary: attribution.matchedSummary,
+        },
+        notes:
+          `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding` +
+          (attribution.verdict === "maybe"
+            ? ` — MAYBE already raised by the panel${attribution.error ? ` (matcher failed: ${attribution.error})` : ""}; needs a human decision`
+            : ""),
       }),
     );
   }
-  return { records, skipped: "" };
+  // `skipped` is reserved for "could not look", never "looked and found nothing".
+  // Nothing was examinable when there was no hand-off (so signature 1 could not
+  // run) AND no CodeRabbit review comment reached the matcher (so signature 2 had
+  // no input). Anything else produced a real, reportable zero.
+  const noSignature1 = handoffAt === null;
+  const noSignature2 = !panelReviewed || reviewComments.length === 0;
+  return {
+    records,
+    skipped:
+      noSignature1 && noSignature2
+        ? `#${pr} has no hand-off marker and no panel review to compare CodeRabbit against — nothing to examine`
+        : "",
+    suppressed,
+  };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -602,6 +965,9 @@ function loadLensNames() {
 }
 
 const PR_LIST_LIMIT = 200;
+
+/** GitHub's search API maximum. Asking for more is a 422, not a clamp. */
+const SEARCH_PAGE_LIMIT = 100;
 
 /**
  * Merged agent PRs to examine. `--since` is passed straight to GitHub's search
@@ -624,7 +990,44 @@ export function listCandidatePrs({ since, api, log = console.error }) {
         `window were NOT examined. Narrow --since and run again.`,
     );
   }
-  return all.filter(isAgentPr).map((p) => p.number);
+  const numbers = new Set(all.filter(isAgentPr).map((p) => p.number));
+
+  // Plus every PR the panel reviewed on demand. `isAgentPr` is the wrong question
+  // for signature 2 — "did our panel review this" is the right one, and a human PR
+  // someone ran `@claude review` on is as much a panel subject as an agent PR. That
+  // population is unreachable through `pr list` (authorship and branch name say
+  // nothing about it), so it is found by the marker the panel itself writes.
+  //
+  // ONE search call, and its failure is survivable by design: the agent PRs above
+  // are already in hand, so a search outage costs this run the on-demand PRs and
+  // nothing else. Same fail direction as every other read here.
+  try {
+    // `gh` expands `{owner}/{repo}` in an endpoint PATH, not inside a `-f` value, so
+    // the slug is resolved explicitly. Routed through the injected `api` (rather
+    // than hunt.mjs's direct `execFileSync`) so this stays testable.
+    const slug = str(api(["repo", "view", "--json", "nameWithOwner"])?.nameWithOwner);
+    if (slug === "") throw new Error("could not resolve owner/repo");
+    const found = api([
+      "api", "-X", "GET", "search/issues",
+      "-f", `q=repo:${slug} is:pr "${PANEL_COMMENT_TAG}" in:comments${since ? ` merged:>=${since}` : ""}`,
+      // The search API caps `per_page` at 100 regardless of what is asked, and a
+      // larger value is a 422 rather than a clamp.
+      "-f", `per_page=${SEARCH_PAGE_LIMIT}`,
+    ]);
+    const items = Array.isArray(found?.items) ? found.items : [];
+    if (Number(found?.total_count) > items.length) {
+      log(
+        `harvest: ${found.total_count} on-demand-reviewed PR(s) matched but only ${items.length} ` +
+          `were returned, so some were NOT examined. Narrow --since and run again.`,
+      );
+    }
+    let added = 0;
+    for (const it of items) if (Number.isFinite(it?.number) && !numbers.has(it.number)) { numbers.add(it.number); added++; }
+    if (added > 0) log(`harvest: ${added} additional PR(s) carry an on-demand panel review.`);
+  } catch (err) {
+    log(`harvest: could not search for on-demand-reviewed PRs (${err.message}); agent PRs only.`);
+  }
+  return [...numbers];
 }
 
 function cmdHarvest(args) {
@@ -647,10 +1050,18 @@ function cmdHarvest(args) {
   }
 
   const found = [];
+  let suppressed = 0;
   for (const pr of prs) {
-    const { records, skipped } = harvestPr(pr, { api, names });
-    if (skipped) console.error(`harvest: skipped ${skipped}`);
-    found.push(...records);
+    const result = harvestPr(pr, { api, names });
+    if (result.skipped) console.error(`harvest: skipped ${result.skipped}`);
+    found.push(...result.records);
+    suppressed += result.suppressed ?? 0;
+  }
+  if (suppressed > 0) {
+    console.error(
+      `harvest: ${suppressed} CodeRabbit finding(s) attributed to a panel finding and NOT filed. ` +
+        `Each one is named above with the panel finding it matched.`,
+    );
   }
 
   const existingText = existsSync(MISSES_PATH) ? readFileSync(MISSES_PATH, "utf8") : "";
