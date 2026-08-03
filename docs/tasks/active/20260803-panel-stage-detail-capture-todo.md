@@ -315,9 +315,9 @@ the input can be recovered, and keep the **content** only when replay is intende
   rather than patched, and the corresponding *Fail directions* row above is
   superseded by the one below.
 - **The estimated 5–10× reduction holds only at the bottom of the range.** Measured
-  below: 4.7× on the smallest PR and 69× on the largest. The default payload is
-  bounded by finding count, not by diff size, so the ratio is not a constant — it
-  grows with exactly the diffs that were the problem.
+  below: 4.7× on the smallest PR and 69× on the largest. The default payload
+  scales with file count and finding count rather than with diff bytes, so the
+  ratio is not a constant — it grows with exactly the diffs that were the problem.
 
 ## Fail directions
 
@@ -380,6 +380,15 @@ what makes the comparison a like-for-like one:
 | 204.6 KB (#588) | 6 | 1002.2 KB | **18.4 KB** | 54.5× | 3.3 KB |
 | 470.7 KB (#622) | 6 | 2029.5 KB | **29.5 KB** | 68.7× | 5.5 KB |
 
-The default payload no longer tracks diff size at all — it tracks findings. The
-2 MB worst case becomes 29.5 KB, and the storage question the collector job was
-going to have to answer mostly stops being a question.
+What the default path drops is the diff's **volume**, not its every trace. The
+payload still carries `lensFiles`, which grows with the number of files routed to
+each lens, and on these four samples that term is 2%, 6%, 16% and **48%** of the
+payload respectively (2, 25, 86 and 284 routed paths). On a wide PR the file list
+is the single largest thing left in the file.
+
+So the honest claim is the narrow one: the payload no longer scales with how much
+was *written*, only with how many files were touched and how many findings were
+raised. Growth is sub-linear rather than absent — 5.7× more payload across 49×
+more diff. That is still the result worth having: the 2 MB worst case becomes
+29.5 KB, which turns the collector job's storage question into a much smaller one
+without pretending it has disappeared.

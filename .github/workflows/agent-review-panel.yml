@@ -767,8 +767,9 @@ jobs:
       # upload-artifact deflates, and diffs compress ~3x, so that worst case
       # stores as ~0.6 MB. On the DEFAULT path the body is replaced by a hash, a
       # byte count and the routed file list, which collapses those same four runs
-      # to 5.2 / 13.7 / 18.4 / 29.5 KB — 4.7x to 69x smaller, and bounded by the
-      # finding count rather than by diff size.
+      # to 5.2 / 13.7 / 18.4 / 29.5 KB — 4.7x to 69x smaller. It still grows with
+      # the number of files routed to each lens (`lensFiles` is 48% of that last
+      # figure), but no longer with how much was written inside them.
       - name: Upload per-lens stage detail
         if: always() && steps.pr.outputs.number != ''
         continue-on-error: true

@@ -2728,7 +2728,24 @@ test("buildStageDetail: content ON still degrades a missing lensDiff to an empty
   // stable whenever the key is present at all.
   const detail = buildStageDetail({ env: { STAGE_DETAIL_DIFF_CONTENT: "true" } });
   assert.equal(detail.lensDiff, "");
+  // The metadata is emitted in this mode too, and describes the same "" the body
+  // does — the two halves of the payload cannot disagree about what was reviewed.
   assert.equal(detail.lensDiffSha256, EMPTY_SHA256);
+  assert.equal(detail.lensDiffBytes, 0);
+  assert.deepEqual(detail.lensFiles, []);
+});
+
+test("buildStageDetail: content ON keeps an EMPTY slice as a present, empty body", () => {
+  // The other side of the omitted-vs-empty rule, and the reason the OFF path had
+  // to omit rather than empty. A lens whose routed slice really is "" (the
+  // `noNewHunks` case) must serialise with `lensDiff` PRESENT and empty, so a
+  // reader can tell "this lens reviewed nothing" apart from "this capture does
+  // not carry bodies" — a distinction that collapses if "" is used for both.
+  const detail = buildStageDetail({ lensDiff: "", samples: [], env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal("lensDiff" in detail, true, "an empty slice is still a recorded slice");
+  assert.equal(detail.lensDiff, "");
+  assert.equal(detail.lensDiffBytes, 0);
+  assert.deepEqual(detail.lensFiles, []);
 });
 
 test("buildStageDetail: tiering changes serialisation only, never a verdict", () => {
