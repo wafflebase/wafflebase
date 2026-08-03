@@ -1962,7 +1962,16 @@ async function main() {
       // be actively misleading. It lands in `confidenceCounts`' `unknown` bucket,
       // which is literally accurate and keeps the raised/confidence rows
       // reconciling.
-      const failFindings = [{ severity: "major", summary: summaryText }];
+      // `infra: true` marks this as a synthesised INFRASTRUCTURE record (an
+      // API/quota outage, e.g. a 429 session limit), not a code finding. It is
+      // written so the lens fails closed, but it must never be carried into the
+      // next round as a "finding" to re-check — the reviewer never ran, so there
+      // is nothing to re-verify, and the verifier (biased to keep) cannot refute
+      // "the review could not run" on grounded evidence. prior-findings.mjs drops
+      // any finding carrying this flag, and the panel workflow persists none for a
+      // lens with `infraError` set. A genuine no-verdict (model ran, produced
+      // nothing) is NOT infra and stays a normal fail-closed blocker.
+      const failFindings = [{ severity: "major", summary: summaryText, ...(infra ? { infra: true } : {}) }];
       writeVerdict(lensOut, lens, failFindings, infra ? "(review did not run — infrastructure/quota error)" : "(no valid verdict — failing closed)", { valid: false });
       panel.push(panelEntry(lens, {
         blocking, applicable: true, conclusion: "failure", valid: false,

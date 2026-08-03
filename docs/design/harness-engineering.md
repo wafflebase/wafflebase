@@ -703,6 +703,20 @@ Components:
        was actually fixed, cited). Unresolved priors merge (deduped) into the
        round's findings.
 
+       **Infra errors are excluded from carry-forward.** A lens that hit an
+       API/quota outage (e.g. a 429 session limit) never reviewed; it writes a
+       synthetic `{ infra: true }` "Review could not run …" record only to fail
+       closed. That record is *not* a code finding — carrying it into the next
+       round would make the panel re-check "the review could not run" as a
+       blocker, and the biased-to-keep verifier cannot refute it on grounded
+       evidence (there is no code claim to disprove), so it would persist across
+       every subsequent round. Two guards prevent it: the panel workflow persists
+       an empty `output.text` for any lens whose `panelEntry` carries `infraError`,
+       and `scripts/agent/prior-findings.mjs` drops any carried record flagged
+       `infra` on read (so the guarantee holds on both panel paths regardless of
+       producer). The lens still fails closed via its check `conclusion`; only the
+       bogus re-check input is suppressed.
+
     3. **Out-of-diff review.** The two measures above both re-read the *same
        artifact*, so neither finds a defect the diff does not contain. A Major
        correctness bug shipped through review on exactly that shape: a new

@@ -40,6 +40,26 @@ test("tagPriorFindings: absent output is NOT 'found nothing'; junk never throws"
   );
 });
 
+test("tagPriorFindings: an infra/quota record (infra:true) is never carried forward", () => {
+  // A lens that hit a 429 session limit writes a synthetic { infra: true } record
+  // so it fails closed. That is not a code finding — carrying it into the next
+  // round would make the panel re-check "the review could not run", and the
+  // verifier (biased to keep) cannot refute it. It must be dropped on read.
+  const runs = new Map([
+    ["agent-review-correctness", { output: { text: JSON.stringify([
+      { severity: "major", summary: "Review could not run — Claude API/quota error (429): You've hit your session limit", infra: true },
+      { severity: "major", summary: "real blocker" },
+    ]) } }],
+    // A whole lens whose only record is the infra one → carries nothing.
+    ["agent-review-security", { output: { text: JSON.stringify([
+      { severity: "major", summary: "Review could not run — Claude API/quota error", infra: true },
+    ]) } }],
+  ]);
+  assert.deepEqual(tagPriorFindings(runs), [
+    { severity: "major", summary: "real blocker", lens: "correctness" },
+  ]);
+});
+
 test("lensCheckNames: manifest ids → check names; junk → []", () => {
   assert.deepEqual(lensCheckNames([{ id: "correctness" }, { id: "blast-radius" }]),
     ["agent-review-correctness", "agent-review-blast-radius"]);

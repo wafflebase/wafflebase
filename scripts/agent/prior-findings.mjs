@@ -59,6 +59,13 @@ export function tagPriorFindings(runsByLens) {
     }
     if (!Array.isArray(parsed)) continue;
     for (const f of parsed) {
+      // Drop the synthesised INFRA record a lens writes when it hits an API/quota
+      // outage (e.g. a 429 session limit): the reviewer never ran, so "Review
+      // could not run …" is not a finding to re-check, and the verifier (biased to
+      // keep) cannot refute it on grounded evidence. The panel workflow already
+      // persists none for an infra lens; this is the read-side backstop so the
+      // guarantee holds regardless of which producer wrote the check output.
+      if (f && f.infra === true) continue;
       // `lens` last: a finding cannot spoof its own origin by carrying a `lens`
       // key, since these come from a previous round's model output.
       if (f && typeof f === "object" && !Array.isArray(f)) out.push({ ...f, lens });
