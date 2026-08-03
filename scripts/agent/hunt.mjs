@@ -831,7 +831,11 @@ async function cmdRun(args) {
     for (const sample of sampleResults) {
       if (!sample) continue;
       const { out, journal, probeCount, refusals } = sample;
-      stats.probesRun += probeCount;
+      // What RAN, not what was charged. A probe refused on safety is charged (the
+      // charge precedes validation on purpose) but never executes, so counting
+      // charges here overstated activity by exactly the refusals — 26 vs 23 on the
+      // first live run, with the gap explained nowhere.
+      stats.probesRun += journal.length;
       stats.probeRefusals += refusals.length;
 
       // Resolve each candidate's journal REFERENCES into the `probes` shape the
