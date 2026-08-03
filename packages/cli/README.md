@@ -112,7 +112,10 @@ wafflebase schema cell.get          # → sheets.cells.get
   command-specific `code` agents can branch on; everything else
   reports `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
-  mismatch), `2` system error (network, auth).
+  mismatch), `2` system error — an unreachable server
+  (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),
+  or a server fault (`SERVER_ERROR`, HTTP 5xx). The class is decided
+  where the failure is raised, so `--quiet` reports it too.
 
 ## Skills (for AI agents)
 

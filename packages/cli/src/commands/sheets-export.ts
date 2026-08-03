@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient } from './root.js';
 import { outputError } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { formatCsv } from '../output/csv.js';
 import { formatJson } from '../output/json.js';
 
@@ -39,7 +40,7 @@ export function registerSheetsExportCommand(parent: Command) {
         const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
         if (!res.ok) {
           const msg = (res.data as { error?: { message?: string } })?.error?.message;
-          throw new Error(msg ?? `HTTP ${res.status}`);
+          throw httpError(res.status, msg);
         }
 
         const fmt = detectFormat(file, localOpts.fileFormat);

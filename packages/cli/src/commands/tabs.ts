@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient } from './root.js';
 import { output, outputError } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 
 export function registerTabsCommand(parent: Command) {
   const tab = parent.command('tabs').alias('tab').description('Manage tabs');
@@ -12,7 +13,7 @@ export function registerTabsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).listTabs(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);

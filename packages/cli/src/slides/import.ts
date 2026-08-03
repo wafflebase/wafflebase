@@ -11,6 +11,7 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
+import { exitCodeForStatus } from '../errors.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -189,7 +190,7 @@ export async function runSlidesImport(
     const res = await client.putSlidesContent(replace, deck);
     if (!res.ok) {
       io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-      return { exitCode: 1 };
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(
       JSON.stringify(
@@ -232,7 +233,7 @@ export async function runSlidesImport(
   const created = await client.createDocument(inferredTitle, 'slides');
   if (!created.ok) {
     io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
@@ -249,7 +250,7 @@ export async function runSlidesImport(
   const put = await client.putSlidesContent(newId, deck);
   if (!put.ok) {
     io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(

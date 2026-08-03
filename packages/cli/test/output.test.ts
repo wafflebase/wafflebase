@@ -4,6 +4,7 @@ import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { format, outputError } from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
+import { SystemError, httpError } from '../src/errors.js';
 
 describe('formatJson', () => {
   it('pretty-prints JSON', () => {
@@ -138,5 +139,30 @@ describe('outputError', () => {
     outputError(new InvalidDocxError('bad zip'), true);
     expect(stderrSpy).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
+  });
+
+  it('exits 2 for a system error', () => {
+    outputError(new SystemError('NETWORK_ERROR', 'fetch failed'), false);
+    const body = getEmittedBody();
+    expect(body.error.code).toBe('NETWORK_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('exits 2 for an auth failure surfaced by httpError', () => {
+    outputError(httpError(401), false);
+    expect(getEmittedBody().error.code).toBe('AUTH_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('still exits 1 for a 404, which is a user error', () => {
+    outputError(httpError(404), false);
+    expect(getEmittedBody().error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('classifies system errors under quiet too', () => {
+    outputError(new SystemError('NETWORK_ERROR', 'fetch failed'), true);
+    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
   });
 });

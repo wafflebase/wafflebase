@@ -8,136 +8,149 @@ import {
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
+import { EXIT_SYSTEM_ERROR, exitCodeFor, fetchOrThrow } from '../errors.js';
 
 export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
     .action(async function (this: Command) {
-      const parentOpts = this.optsWithGlobals<{ server?: string }>();
-      const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
-
-      // 1. Check existing session
-      const existing = loadSession();
-      if (existing) {
-        const answer = await ask(
-          `Logged in as ${existing.user.username}. Continue? [Y/n] `,
-        );
-        if (answer.toLowerCase() === 'n') {
-          console.log('Cancelled.');
-          return;
-        }
-      }
-
-      // 2. Start local HTTP server
-      const { port, waitForCallback, close } = await startCallbackServer();
-
-      // 3. Build OAuth URL and open browser
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
-      console.error(`Opening browser: ${oauthUrl}`);
-      console.error('If the browser does not open, visit the URL above.');
-
+      // `login` prints prose rather than the JSON error body, but it
+      // honors the same exit contract: a browser/OAuth flow that never
+      // reached the server is a system error, not bad user input.
       try {
-        const open = (await import('open')).default;
-        await open(oauthUrl);
-      } catch {
-        // Browser open failed — URL was already printed
+        await runLogin(this);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        process.exit(exitCodeFor(e));
       }
-
-      // 4. Wait for callback
-      let code: string;
-      try {
-        code = await waitForCallback();
-      } finally {
-        close();
-      }
-
-      // 5. Exchange code for tokens
-      const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
-      });
-
-      if (!exchangeRes.ok) {
-        console.error(
-          'Token exchange failed. Try again with `wafflebase login`.',
-        );
-        process.exit(1);
-      }
-
-      const tokens = (await exchangeRes.json()) as {
-        accessToken: string;
-        refreshToken: string;
-      };
-
-      // 6. Get user info
-      const meRes = await fetch(`${server}/auth/me`, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
-
-      if (!meRes.ok) {
-        console.error('Failed to fetch user info.');
-        process.exit(1);
-      }
-
-      const user = (await meRes.json()) as {
-        id: number;
-        username: string;
-        email: string;
-        photo: string | null;
-      };
-
-      // 7. Get workspace list
-      const wsRes = await fetch(`${server}/workspaces`, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
-
-      if (!wsRes.ok) {
-        console.error(
-          `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
-        );
-        process.exit(1);
-      }
-
-      const workspaces = (await wsRes.json()) as WorkspaceInfo[];
-
-      // 8. Select workspace
-      let activeWorkspace = '';
-      if (workspaces.length === 0) {
-        console.log('No workspaces found.');
-      } else if (workspaces.length === 1) {
-        activeWorkspace = workspaces[0].id;
-        console.log(`Workspace: ${workspaces[0].name}`);
-      } else {
-        console.log('Select a workspace:');
-        workspaces.forEach((ws, i) => {
-          console.log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
-        });
-        const choice = await ask('Enter number: ');
-        const idx = parseInt(choice, 10) - 1;
-        if (idx >= 0 && idx < workspaces.length) {
-          activeWorkspace = workspaces[idx].id;
-        } else {
-          activeWorkspace = workspaces[0].id;
-          console.log(`Invalid choice, using ${workspaces[0].name}.`);
-        }
-      }
-
-      // 9. Save session
-      const session: Session = {
-        server,
-        user,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: decodeJwtExpiry(tokens.accessToken),
-        activeWorkspace,
-        workspaces,
-      };
-
-      saveSession(session);
-      console.log(`Logged in as ${user.username}.`);
     });
+}
+
+async function runLogin(cmd: Command): Promise<void> {
+  const parentOpts = cmd.optsWithGlobals<{ server?: string }>();
+  const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
+
+  // 1. Check existing session
+  const existing = loadSession();
+  if (existing) {
+    const answer = await ask(
+      `Logged in as ${existing.user.username}. Continue? [Y/n] `,
+    );
+    if (answer.toLowerCase() === 'n') {
+      console.log('Cancelled.');
+      return;
+    }
+  }
+
+  // 2. Start local HTTP server
+  const { port, waitForCallback, close } = await startCallbackServer();
+
+  // 3. Build OAuth URL and open browser
+  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+  console.error(`Opening browser: ${oauthUrl}`);
+  console.error('If the browser does not open, visit the URL above.');
+
+  try {
+    const open = (await import('open')).default;
+    await open(oauthUrl);
+  } catch {
+    // Browser open failed — URL was already printed
+  }
+
+  // 4. Wait for callback
+  let code: string;
+  try {
+    code = await waitForCallback();
+  } finally {
+    close();
+  }
+
+  // 5. Exchange code for tokens
+  const exchangeRes = await fetchOrThrow(`${server}/auth/cli/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+
+  if (!exchangeRes.ok) {
+    console.error(
+      'Token exchange failed. Try again with `wafflebase login`.',
+    );
+    process.exit(EXIT_SYSTEM_ERROR);
+  }
+
+  const tokens = (await exchangeRes.json()) as {
+    accessToken: string;
+    refreshToken: string;
+  };
+
+  // 6. Get user info
+  const meRes = await fetchOrThrow(`${server}/auth/me`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+  });
+
+  if (!meRes.ok) {
+    console.error('Failed to fetch user info.');
+    process.exit(EXIT_SYSTEM_ERROR);
+  }
+
+  const user = (await meRes.json()) as {
+    id: number;
+    username: string;
+    email: string;
+    photo: string | null;
+  };
+
+  // 7. Get workspace list
+  const wsRes = await fetchOrThrow(`${server}/workspaces`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}` },
+  });
+
+  if (!wsRes.ok) {
+    console.error(
+      `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+    );
+    process.exit(EXIT_SYSTEM_ERROR);
+  }
+
+  const workspaces = (await wsRes.json()) as WorkspaceInfo[];
+
+  // 8. Select workspace
+  let activeWorkspace = '';
+  if (workspaces.length === 0) {
+    console.log('No workspaces found.');
+  } else if (workspaces.length === 1) {
+    activeWorkspace = workspaces[0].id;
+    console.log(`Workspace: ${workspaces[0].name}`);
+  } else {
+    console.log('Select a workspace:');
+    workspaces.forEach((ws, i) => {
+      console.log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
+    });
+    const choice = await ask('Enter number: ');
+    const idx = parseInt(choice, 10) - 1;
+    if (idx >= 0 && idx < workspaces.length) {
+      activeWorkspace = workspaces[idx].id;
+    } else {
+      activeWorkspace = workspaces[0].id;
+      console.log(`Invalid choice, using ${workspaces[0].name}.`);
+    }
+  }
+
+  // 9. Save session
+  const session: Session = {
+    server,
+    user,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: decodeJwtExpiry(tokens.accessToken),
+    activeWorkspace,
+    workspaces,
+  };
+
+  saveSession(session);
+  console.log(`Logged in as ${user.username}.`);
 }
 
 function ask(prompt: string): Promise<string> {

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runNotesImport } from '../notes/import.js';
 import {
@@ -33,7 +34,7 @@ export function registerNotesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -60,7 +61,7 @@ export function registerNotesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, 'note');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -74,7 +75,7 @@ export function registerNotesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -92,7 +93,7 @@ export function registerNotesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -110,7 +111,7 @@ export function registerNotesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -149,7 +150,7 @@ export function registerNotesCommand(program: Command) {
             process.exitCode = 1;
             return;
           }
-          throw new Error(`HTTP ${res.status}`);
+          throw httpError(res.status);
         }
 
         runNotesContent({
@@ -204,7 +205,7 @@ export function registerNotesCommand(program: Command) {
             process.exitCode = 1;
             return;
           }
-          throw new Error(`HTTP ${res.status}`);
+          throw httpError(res.status);
         }
         runNotesContent({
           note: res.data,

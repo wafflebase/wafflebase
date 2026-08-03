@@ -702,6 +702,24 @@ Exit codes: `0` success, `1` user error (bad input, not found),
 `2` system error (network, auth). Agents can branch on the exit code
 without parsing the error body.
 
+The class is decided where the failure is raised, not sniffed out of the
+message text at the output site — `packages/cli/src/errors.ts` holds the
+whole contract:
+
+| Failure | `error.code` | Exit |
+| --- | --- | --- |
+| `fetch` never reached an HTTP server (DNS, refused, TLS) | `NETWORK_ERROR` | `2` |
+| HTTP 401 / 403 | `AUTH_ERROR` | `2` |
+| HTTP 5xx | `SERVER_ERROR` | `2` |
+| HTTP 400 / 404 / 409, bad flags, type mismatch | command-specific or `ERROR` | `1` |
+
+`SystemError` carries both the `code` that lands in the JSON body and the
+`exitCode` that `outputError` applies, so the two can never drift. Every
+`fetch` in the CLI goes through `fetchOrThrow`, and every non-OK response
+through `httpError(status)`, so no API call can bypass the classification.
+`--quiet` suppresses the body but not the exit code — scripts branching on
+`$?` are the reason the contract exists.
+
 #### 8.2 Dry-Run
 
 `--dry-run` validates inputs, resolves the target API endpoint, and
