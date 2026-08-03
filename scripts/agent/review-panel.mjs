@@ -39,6 +39,7 @@
 // installed. `classifyResult`/`withRetry` live there too and are re-exported from
 // here for existing importers.
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2457,6 +2458,77 @@ export function stageDetailCaptureEnabled(env = process.env) {
 }
 
 /**
+ * Does the capture carry the raw `lensDiff` CONTENT? **Default OFF** — the
+ * deliberate inverse of `stageDetailCaptureEnabled` directly above, which
+ * defaults ON.
+ *
+ * **The asymmetry is the design, not an oversight — please do not "fix" the two
+ * into agreement.** They are opposite because what they gate is opposite:
+ * capture is a few KB of our own generated data and is useful on every round, so
+ * it must not depend on anyone having configured it. The diff body is 76–97% of
+ * the payload and is verbatim contributor-authored text from a possibly-forked
+ * branch, and it has exactly one consumer — a replay that feeds a lens the bytes
+ * it actually saw. Content that is bulky, third-party and useful only on demand
+ * is precisely the thing that should be requested rather than defaulted, so the
+ * routine pipeline carries `lensDiffSha256` instead and stays first-party.
+ *
+ * Same empty-string discipline as the capture gate, in the other direction. A
+ * GitHub repo variable that has never been set arrives as the EMPTY STRING, not
+ * as absent, so unset / `""` / whitespace all resolve here to **OFF** — and so
+ * does any value that is not an on-word, exactly as an unrecognized value there
+ * falls to that gate's ON. Both gates fail toward their own default; only an
+ * explicit `1`/`true`/`on` turns this one on.
+ */
+export function stageDetailDiffContentEnabled(env = process.env) {
+  const raw = String(env.STAGE_DETAIL_DIFF_CONTENT ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "on";
+}
+
+/**
+ * What stands in for the diff body once it stops riding along: enough to detect
+ * that a slice re-derived later is NOT the one the lens read, and to size a
+ * corpus, at a few dozen bytes instead of a few hundred KB.
+ *
+ * Re-deriving the slice from the SHAs is not a substitute for either field, and
+ * the reason is the router rather than anything about retention: the slice is the
+ * output of the file-class router (#582) applied to the diff, and that router has
+ * changed once already and can change again. Re-deriving with a newer one yields
+ * different bytes than production used, SILENTLY, no matter how perfectly the
+ * commit was preserved. Hence a hash — drift stays *detectable* even when the
+ * exact input cannot be reproduced.
+ *
+ * The hash is over the RAW router output — no trim, no normalisation, no
+ * re-encoding — because the whole point is byte-comparability. A hash of
+ * anything other than what the lens read is worse than no hash: it would report
+ * drift on a slice that never moved and hide it on one that did.
+ *
+ * `createHash` is the one part of this that can fail for a reason unrelated to
+ * the payload (a crypto policy that refuses SHA-256), and `buildStageDetail`
+ * runs OUTSIDE `writeStageDetail`'s try/catch — it is evaluated as an argument
+ * to it — so a throw here would escape into `Promise.all(allLenses.map(...))`
+ * and take out the panel. On doubt the hash is simply absent; the round is the
+ * product, the capture is not. `Buffer.byteLength` and `sliceDiffByFile` stay
+ * outside the guard on purpose: both are total over a string, and the router
+ * already runs the latter over the whole diff on every round.
+ */
+function lensDiffMetadata(routedDiff) {
+  const meta = {
+    lensDiffBytes: Buffer.byteLength(routedDiff, "utf8"),
+    // The paths present in the ROUTED slice, split by the same function the
+    // router itself used, so this cannot drift from what the lens saw. This is
+    // the part that is genuinely unrecoverable later: `pulls/{n}/files` returns
+    // the PR's CURRENT diff, never the slice reviewed at this round. It is also
+    // what keeps the scope-discipline metric computable once the body is gone.
+    lensFiles: sliceDiffByFile(routedDiff).map((b) => b.path).filter(Boolean),
+  };
+  try {
+    return { lensDiffSha256: createHash("sha256").update(routedDiff, "utf8").digest("hex"), ...meta };
+  } catch {
+    return meta;
+  }
+}
+
+/**
  * What this lens actually did this round, as data — the input a later scoring pass
  * needs and that no existing channel carries.
  *
@@ -2476,7 +2548,7 @@ export function stageDetailCaptureEnabled(env = process.env) {
  *   is index-aligned to what was clustered. Passing the union here would pair
  *   findings with other findings' verdicts.
  */
-export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts }) {
+export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts, env = process.env }) {
   const rows = (population, findings, verdicts) =>
     (Array.isArray(findings) ? findings : []).map((f, i) => {
       const verdict = (Array.isArray(verdicts) ? verdicts : [])[i] ?? null;
@@ -2489,11 +2561,24 @@ export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVer
     ...rows("fresh", fresh, freshVerdicts),
     ...rows("prior-round", prior, priorVerdicts),
   ].filter((v) => BLOCKING.has(normalizeSeverity(v.finding?.severity)));
+  // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
+  // whole PR diff. It is what makes a capture replayable: a later pass can feed a
+  // lens exactly what it saw. It is also the bulk of the file, by a wide margin,
+  // which is why its CONTENT is now tiered behind an opt-in flag and the default
+  // path carries only the metadata below.
+  const routedDiff = typeof lensDiff === "string" ? lensDiff : "";
   return {
-    // The ROUTED slice this lens reviewed (its file-class subset, #582) — NOT the
-    // whole PR diff. It is what makes a capture replayable: a later pass can feed a
-    // lens exactly what it saw. Also the bulk of the file, by a wide margin.
-    lensDiff: typeof lensDiff === "string" ? lensDiff : "",
+    // OMITTED, not `""`, when content is off. The distinction is load-bearing:
+    // `""` is a real value the router produces for a lens whose slice is empty,
+    // and a consumer keying on `typeof detail.lensDiff === "string"` would take
+    // that literally and replay the lens against nothing. An ABSENT key is the
+    // shape captures written before `lensDiff` existed already have, and the
+    // existing consumer path for those falls back to the full PR diff — so
+    // omission lands on a route that is already there rather than a new one.
+    ...(stageDetailDiffContentEnabled(env) ? { lensDiff: routedDiff } : {}),
+    // Always emitted, in BOTH modes, so the drift guard reads the same field
+    // whether or not the body came with it.
+    ...lensDiffMetadata(routedDiff),
     // The incremental-scope prompt addendum; "" in full mode. Recorded because it
     // is part of the prompt, so a round is not reproducible without it.
     scopeNote: typeof scopeNote === "string" ? scopeNote : "",

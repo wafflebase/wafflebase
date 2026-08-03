@@ -18,6 +18,7 @@
     "test:visual:browser": "node ./scripts/verify-visual-browser.mjs",
     "test:visual:browser:update": "UPDATE_VISUAL_BROWSER_BASELINE=true node ./scripts/verify-visual-browser.mjs",
     "test:interaction": "node ./scripts/verify-interaction-browser.mjs",
+    "test:hunt-oracles": "node ./scripts/verify-hunt-oracles.mjs",
     "test:webkit": "node ./scripts/verify-webkit-browser.mjs",
     "test:visual:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh visual",
     "test:visual:browser:docker:update": "bash ../../scripts/run-browser-tests-docker.sh visual:update",

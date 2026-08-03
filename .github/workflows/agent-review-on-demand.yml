@@ -467,10 +467,12 @@ jobs:
             echo "no review execution log; skipping metrics"
           fi
 
-      # NOT --final: --final sweeps EVERY hidden agent-metric record on the PR,
-      # which on an agent-managed PR would delete the autonomous pipeline's own
-      # ledger mid-flight. On-demand review only appends its own record and
-      # reposts the summary fresh at the bottom.
+      # NOT --final: --final is the TERMINAL promote — it strips the summary's
+      # hidden data block and sweeps every record, which on an agent-managed PR
+      # would drop the autonomous pipeline's ledger mid-flight. Plain summarize
+      # folds the ledger into the summary's data block and sweeps only the empty
+      # per-session comments it preserved there, so on-demand review cleans up the
+      # thread without losing the pipeline's history.
       - name: Post agent-effort summary
         if: steps.panel.outcome == 'success'
         continue-on-error: true

@@ -577,6 +577,18 @@ jobs:
           # would put the inverted logic in a YAML expression that no test can
           # reach; `stageDetailCaptureEnabled` is tested.
           STAGE_DETAIL_CAPTURE: ${{ vars.AGENT_STAGE_DETAIL_CAPTURE }}
+          # Whether that capture carries the raw routed DIFF BODY as well.
+          # DEFAULT OFF — an opt-IN, and deliberately the OPPOSITE default to
+          # STAGE_DETAIL_CAPTURE directly above. Not an inconsistency: capture is
+          # a few KB of first-party data useful on every round, while the diff
+          # body is 76-97% of the payload and is verbatim contributor text from a
+          # possibly-forked branch, useful only when a lens is actually being
+          # replayed. The default path keeps `lensDiffSha256` + `lensFiles`
+          # instead, which is enough to detect that a re-derived slice drifted.
+          # Passed RAW for the same empty-string reason as above; the script
+          # resolves empty, whitespace and absent alike to OFF, and only an
+          # explicit `1`/`true`/`on` turns it on.
+          STAGE_DETAIL_DIFF_CONTENT: ${{ vars.AGENT_STAGE_DETAIL_DIFF_CONTENT }}
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
           --diff-file /tmp/pr.diff
@@ -775,11 +787,16 @@ jobs:
       # so it is not granted the write scopes that would let it push this data
       # anywhere itself. Anything that collects these belongs in its own job.
       #
-      # Size tracks diff size and nothing else — `lensDiff` is 76-97% of each
-      # file. Measured over real PRs: ~25 KB per run for a 10 KB diff, ~105 KB for
-      # 17 KB, and ~2 MB for a 470 KB diff (the largest in the last 40 commits).
-      # upload-artifact deflates, and diffs compress ~3x, so the worst case above
-      # stores as ~0.6 MB.
+      # Size tracks diff size and nothing else while AGENT_STAGE_DETAIL_DIFF_CONTENT
+      # is on — `lensDiff` is 76-97% of each file. Measured over real PRs with the
+      # body included: ~25 KB per run for a 10 KB diff, ~105 KB for 17 KB, and
+      # ~2 MB for a 470 KB diff (the largest in the last 40 commits).
+      # upload-artifact deflates, and diffs compress ~3x, so that worst case
+      # stores as ~0.6 MB. On the DEFAULT path the body is replaced by a hash, a
+      # byte count and the routed file list, which collapses those same four runs
+      # to 5.2 / 13.7 / 18.4 / 29.5 KB — 4.7x to 69x smaller. It still grows with
+      # the number of files routed to each lens (`lensFiles` is 48% of that last
+      # figure), but no longer with how much was written inside them.
       - name: Upload per-lens stage detail
         if: always() && steps.pr.outputs.number != ''
         continue-on-error: true
