@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       pull-requests: read
+      issues: read # the paged latch is an ISSUE comment on the PR
     outputs:
       managed: ${{ steps.gate.outputs.managed }}
       pr: ${{ steps.gate.outputs.pr }}
@@ -81,6 +82,60 @@ jobs:
               }
             } catch (e) {
               core.warning(`Could not resolve PR labels (${e.message}); using branch-prefix only.`);
+            }
+            // PAGED LATCH — the pipeline has already handed this PR to a human.
+            // review-round-guard.mjs reads the same marker to stop dispatching
+            // the fixer, but it runs in `fix`, DOWNSTREAM of `review-panel`, so
+            // until now a paged PR still re-reviewed on every CI-green push:
+            // six lenses plus verification, ~$12 a round, for verdicts nothing
+            // consumes. On #605 that was five rounds and $53.98 after the page,
+            // and it merged manually without ever using them.
+            //
+            // Folded into `managed` rather than exposed as its own output, and
+            // that is load-bearing: `stalled` fires on
+            // `managed == 'true' && review-panel.result == 'skipped'`, so a
+            // separate flag would make every paged PR post a SECOND page. This
+            // belongs in the same category as unmanaged/fork/disabled — reasons
+            // the panel legitimately does not run — which is exactly what the
+            // comment above `stalled` already says that check is for.
+            //
+            // AUTHOR-CHECKED, and that is load-bearing: this repo is PUBLIC, so
+            // matching on the marker alone would let ANY GitHub account post
+            // '<!-- agent-review-paged -->' and permanently stop the review
+            // panel on any agent PR — denial of review from an unauthenticated
+            // position. Trust is an allow-listed bot login (GitHub reserves the
+            // '[bot]' suffix for Apps, so these cannot be registered), or a
+            // human with write access, which keeps "a maintainer halts it by
+            // hand" working. author_association alone is NOT enough: the writing
+            // bots report CONTRIBUTOR, same as any outside contributor.
+            //
+            // Literal copy of PAGED_LATCH / PAGE_AUTHOR_LOGINS / the predicate
+            // in scripts/agent/rounds.mjs; this job does no checkout, so it
+            // cannot import. rounds.test.mjs asserts the copies match.
+            const PAGED_LATCH = '<!-- agent-review-paged -->';
+            const PAGE_AUTHOR_LOGINS = ['github-actions[bot]', 'yorkie-agent[bot]'];
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const isPagedLatchComment = (c) => {
+              if (!String((c || {}).body ?? '').includes(PAGED_LATCH)) return false;
+              const user = (c || {}).user || {};
+              if (user.type === 'Bot' && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+              return TRUSTED_ASSOCIATIONS.includes(String((c || {}).author_association ?? ''));
+            };
+            if (managed && prNumber) {
+              try {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner, repo, issue_number: Number(prNumber), per_page: 100,
+                });
+                if (comments.some(isPagedLatchComment)) {
+                  core.notice(`PR #${prNumber} was already paged to a human — skipping the review panel.`);
+                  managed = false;
+                }
+              } catch (e) {
+                // Fails OPEN, matching the label lookup above. Not knowing
+                // whether a PR was paged must cost a review round, never skip
+                // one: a missed review is worse than a wasted one.
+                core.warning(`Could not read comments (${e.message}); reviewing as if not paged.`);
+              }
             }
             core.setOutput('pr', prNumber);
             core.setOutput('managed', String(managed));
@@ -1059,6 +1114,8 @@ jobs:
             printf '%s\n' \
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
+              '' \
+              'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
@@ -1141,7 +1198,7 @@ jobs:
               : 'the pipeline stopped without completing';
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
-              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.`,
+              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.\n\nThe review panel will not run again on this PR, so the \`agent-review-*\` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.`,
             });
             // The single-value label is set by the "Reconcile agent state" step
             // below — it re-derives state from the unforgeable signals (the paged

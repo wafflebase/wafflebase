@@ -20,6 +20,8 @@ import {
   groupReviewRounds,
   detectStalledRounds,
   DEFAULT_SIMILARITY,
+  PAGED_LATCH,
+  isPagedLatchComment,
 } from "./rounds.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
@@ -45,7 +47,10 @@ if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   process.exit(2);
 }
 
-const PAGED = "<!-- agent-review-paged -->";
+// Imported, not re-declared: agent-review-panel.yml's `gate` job now reads the
+// same latch to stop running the panel, so a second literal here would be a
+// second thing to keep in sync. See PAGED_LATCH's docblock in rounds.mjs.
+const PAGED = PAGED_LATCH;
 
 function setOutput(name, value) {
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
@@ -64,8 +69,18 @@ function listAll(path) {
   return ghJson(["api", path, "--paginate"]);
 }
 
+// Appended to every page. The latch does not just stop the fixer any more —
+// agent-review-panel.yml's `gate` job reads it too and stops running the panel,
+// so from here on there are no fresh lens verdicts and nothing will flip the
+// PR to ready. Saying so is the difference between a handoff and a PR that
+// looks like it is still being worked on.
+const HANDOFF_NOTE =
+  "\n\nThe review panel will not run again on this PR, so the " +
+  "`agent-review-*` checks are now frozen at their current state and the ready " +
+  "gate will not promote it. Review and merge it manually.";
+
 function page(msg) {
-  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}`]);
+  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${HANDOFF_NOTE}`]);
   // Labeling is intentionally NOT done here: the single-value state machine
   // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
   // output) runs set-state.mjs, which atomically strips every lifecycle label
@@ -78,8 +93,11 @@ function page(msg) {
 // PAGED latch: paginate ALL comments (an iterating PR can exceed one page),
 // so a later page isn't missed and the fix loop doesn't re-fire after a human
 // was already paged.
+// AUTHOR-CHECKED: this repo is public, so a body test alone would let any
+// GitHub account stop the fix loop by pasting the marker. See
+// isPagedLatchComment.
 const comments = listAll(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`);
-if (comments.some((c) => (c.body ?? "").includes(PAGED))) {
+if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
   process.exit(0);
 }
