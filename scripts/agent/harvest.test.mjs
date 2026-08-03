@@ -12,6 +12,8 @@ import {
   interestingFiles,
   fileClassesOf,
   classifyCodeRabbitComment,
+  codeRabbitDetail,
+  attributeToPanel,
   toMissRecord,
   candidateId,
   parseJsonl,
@@ -200,6 +202,8 @@ test("classifyCodeRabbitComment: reads the header this repo actually emits", () 
     severity: "major",
     lens: "correctness",
     summary: "Guard public mutation APIs at the read-only boundary.",
+    detail:
+      "**Guard public mutation APIs at the read-only boundary.** This flag only protects event handlers.",
   });
   assert.equal(classifyCodeRabbitComment(CR_MAJOR_SECURITY).lens, "security");
 });
@@ -237,11 +241,19 @@ const FIELD_ORDER = [
   "lens", "severity", "origin", "summary", "panelSaw", "verifiedBy", "notes",
 ];
 
+/** `panelSaw` with nothing established and no attribution attempted. */
+const EMPTY_PANEL_SAW = {
+  reviewedSha: "", conclusion: "", blockingFindings: 0,
+  matchVerdict: "", matchScore: 0, matchedSummary: "",
+};
+
 test("toMissRecord: field order is stable, because the corpus is read in diffs", () => {
   assert.deepEqual(Object.keys(toMissRecord({})), FIELD_ORDER);
   assert.deepEqual(Object.keys(toMissRecord({ id: "x", pr: 1, files: ["a.ts"] })), FIELD_ORDER);
   assert.deepEqual(Object.keys(toMissRecord({}).evidence), ["commitSha", "commentId", "url"]);
-  assert.deepEqual(Object.keys(toMissRecord({}).panelSaw), ["reviewedSha", "conclusion", "blockingFindings"]);
+  assert.deepEqual(Object.keys(toMissRecord({}).panelSaw), [
+    "reviewedSha", "conclusion", "blockingFindings", "matchVerdict", "matchScore", "matchedSummary",
+  ]);
 });
 
 test("toMissRecord: junk coerces to safe defaults rather than throwing", () => {
@@ -252,7 +264,7 @@ test("toMissRecord: junk coerces to safe defaults rather than throwing", () => {
   assert.equal(r.origin, "unknown");
   assert.equal(r.pr, 0);
   assert.deepEqual(r.files, []);
-  assert.deepEqual(r.panelSaw, { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(r.panelSaw, EMPTY_PANEL_SAW);
   for (const bad of [null, undefined, "x", 7]) assert.equal(toMissRecord(bad).schema, SCHEMA);
 });
 
@@ -322,7 +334,12 @@ test("panelVerdictAt: one failing lens means the panel did NOT let it through", 
     ["agent-review-correctness", { conclusion: "success", output: { text: "[]" } }],
     ["agent-review-test-adequacy", { conclusion: "failure", output: { text: '[{"severity":"major","summary":"vacuous test"}]' } }],
   ]);
-  assert.deepEqual(panelVerdictAt(runs), { reviewedSha: "", conclusion: "failure", blockingFindings: 1 });
+  assert.deepEqual(panelVerdictAt(runs), {
+    reviewedSha: "", conclusion: "failure", blockingFindings: 1,
+    // `normalizeFindings` keeps every field it was handed and names the four it
+    // knows, so an absent file/evidence surfaces as undefined rather than "".
+    blockers: [{ severity: "major", summary: "vacuous test", file: undefined, evidence: undefined, lens: "test-adequacy" }],
+  });
 });
 
 test("panelVerdictAt: reviewedSha comes from external_id, not the commit it hangs off", () => {
@@ -347,7 +364,9 @@ test("panelVerdictAt: reviewedSha comes from external_id, not the commit it hang
 });
 
 test("panelVerdictAt: no lens runs is '', which is not the same as success", () => {
-  assert.deepEqual(panelVerdictAt(new Map()), { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(panelVerdictAt(new Map()), {
+    reviewedSha: "", conclusion: "", blockingFindings: 0, blockers: [],
+  });
   for (const bad of [null, undefined, {}]) assert.equal(panelVerdictAt(bad).conclusion, "");
 });
 
@@ -399,7 +418,7 @@ test("harvestPr: proposes both signatures, and only from reviewable code", () =>
   assert.equal(fix.summary, "Guard EditorAPI.paste()"); // first line only
   assert.equal(fix.handoffAt, HANDOFF);
   // the verdict that LET THE PR THROUGH — the runs on the head commit at handoff
-  assert.deepEqual(fix.panelSaw, { reviewedSha: SHA_BASE, conclusion: "success", blockingFindings: 0 });
+  assert.deepEqual(fix.panelSaw, { ...EMPTY_PANEL_SAW, reviewedSha: SHA_BASE, conclusion: "success" });
 
   const cr = records.find((r) => r.source === "coderabbit");
   assert.equal(cr.lens, "correctness");
@@ -414,6 +433,151 @@ test("harvestPr: EVERY harvested candidate is unverified", () => {
   const { records } = harvestPr(548, { api: fakeApi(), log: () => {}, names: NAMES });
   assert.ok(records.length > 0);
   for (const r of records) assert.equal(r.verifiedBy, "");
+});
+
+// --- finding-level attribution (signature 2) ---------------------------------
+
+test("codeRabbitDetail: title + prose, stopping at the first structured block", () => {
+  // Verified against the real bodies on #548/#594/#639: header → bolded title →
+  // prose → blocks, and prose never resumes afterwards.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_",
+    "",
+    "**Guard the read-only boundary.**",
+    "",
+    "`EditorAPI.paste()` mutates the store regardless of the flag.",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "```",
+    "Verify each finding against current code. Fix only still-valid issues.",
+    "```",
+    "</details>",
+    "",
+    "<!-- This is an auto-generated comment by CodeRabbit -->",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Guard the read-only boundary/);
+  assert.match(detail, /EditorAPI\.paste/);
+  // The boilerplate every comment repeats must NOT reach the token comparison —
+  // it would contribute `code`, `fix`, `issues`, `validate` to every pair.
+  assert.doesNotMatch(detail, /Verify each finding/);
+  assert.doesNotMatch(detail, /Functional Correctness/); // the header line is dropped
+});
+
+/** A panel check-run whose findings are `findings`. */
+const panelRun = (findings) => ({
+  [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [
+    { check_runs: [{ id: 1, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "failure", completed_at: "2026-07-24T15:40:00Z", output: { text: JSON.stringify(findings) } }] },
+  ],
+  [`repos/{owner}/{repo}/check-runs/1`]: { id: 1, name: "agent-review-correctness", conclusion: "failure", output: { text: JSON.stringify(findings) } },
+});
+
+/** One CodeRabbit review comment on #548. */
+const crComment = (body, path = "packages/docs/src/view/text-editor.ts") => ({
+  [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+    { id: 999, user: { login: "coderabbitai[bot]" }, path, original_commit_id: SHA_BASE, html_url: "https://x/d", body },
+  ],
+});
+
+test("harvestPr: a CodeRabbit finding the panel already raised is SUPPRESSED, and said so", () => {
+  // The whole point of the matcher. Before it, this comment was filed as a miss
+  // because the only thing known about the panel was a count.
+  const logged = [];
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Public mutation APIs are not guarded at the read-only boundary, so EditorAPI.paste() still mutates the store" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
+  assert.equal(suppressed, 1);
+  assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
+  // Visible, not silent: the log names the panel finding it was attributed to.
+  assert.ok(logged.some((m) => /restates a panel finding/.test(m) && /Public mutation APIs/.test(m)));
+});
+
+test("harvestPr: a CodeRabbit finding the panel did NOT raise still emits, unflagged", () => {
+  // The panel's only blocker is in a different file and shares no vocabulary:
+  // no location tie and no shared anchor, which is the one shape L2 calls `no`.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/sheets/src/formula/calculator.ts", summary: "Pagination recomputes every page on each keystroke, which stalls long documents" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "no");
+  assert.equal(cr.panelSaw.matchedSummary, "");
+  assert.doesNotMatch(cr.notes, /MAYBE/);
+});
+
+test("harvestPr: same file, unrelated defect → emitted as `maybe`, never suppressed", () => {
+  // A known and deliberate property: co-location in one file is partial evidence,
+  // so it reaches `maybe` rather than `no`. Both verdicts EMIT — the difference is
+  // only whether a curator is asked to look — so the cost of the conservative call
+  // is one line of reading, and the cost of the other direction is a lost miss.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Pagination recomputes every page on each keystroke, which stalls long documents" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "maybe");
+});
+
+test("harvestPr: an ambiguous CodeRabbit finding emits FLAGGED for the curator", () => {
+  // Same file and a shared symbol, but the summaries share almost no vocabulary.
+  // Location is necessary and never sufficient, so this is a `maybe` — emitted,
+  // because suppressing it could lose a real miss.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Pagination recomputes every page on each keystroke", evidence: "`pasteContent` is on that path" }]),
+    ...crComment("_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_\n\n**Unrelated wording entirely.**\n\nSomething about `pasteContent` here."),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "maybe");
+  assert.match(cr.notes, /MAYBE already raised by the panel/);
+});
+
+test("harvestPr: an unreadable panel verdict is NOT ASKED, not answered `no`", () => {
+  // `blockers` is null rather than [] when the check runs could not be read. The
+  // candidate still emits — exactly as before matching existed — but the record
+  // does not claim the matcher looked and found nothing.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: new Error("502"),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "");
+  assert.equal(cr.panelSaw.conclusion, "");
+});
+
+test("attributeToPanel: a matcher failure resolves to `maybe` — never a throw, never a suppression", () => {
+  // The fail direction, and it is deliberately in the middle. Suppressing on
+  // error would silently drop a real miss; emitting unflagged would restore the
+  // noise the matcher exists to remove.
+  const exploding = [{ get summary() { throw new Error("boom"); } }];
+  const r = attributeToPanel({ file: "a.ts", summary: "anything", evidence: "" }, exploding);
+  assert.equal(r.verdict, "maybe");
+  assert.equal(r.error, "boom");
+});
+
+test("attributeToPanel: null blockers is 'not asked'; an empty array is a real answer", () => {
+  const finding = { file: "a.ts", summary: "the guard is missing on the paste path", evidence: "" };
+  assert.equal(attributeToPanel(finding, null).verdict, "");
+  assert.equal(attributeToPanel(finding, []).verdict, "no");
+});
+
+test("attributeToPanel: compares LENS-NEUTRAL, so a lens mismatch cannot fake a miss", () => {
+  // CodeRabbit's lens is a category guess and is often "". `findingSimilarity`
+  // scores any lens mismatch 0 outright, so comparing on the raw lens would file
+  // every CodeRabbit blocker the panel raised under a different lens as a miss.
+  const cr = { lens: "", file: "a.ts", summary: "Blank skip in Arguments.iterate makes MIN and MAX return the wrong aggregate", evidence: "" };
+  const panel = [{ lens: "test-adequacy", severity: "major", file: "a.ts", summary: "Blank skip in Arguments.iterate makes MIN and MAX return the wrong aggregate", evidence: "" }];
+  assert.equal(attributeToPanel(cr, panel).verdict, "match");
 });
 
 test("harvestPr: ignores CodeRabbit replies and non-CodeRabbit authors", () => {
@@ -457,7 +621,7 @@ test("harvestPr: every commit after the handoff leaves panelSaw EMPTY, not wrong
   });
   const fix = records.find((r) => r.source === "human-fix");
   assert.ok(fix, "the candidate is still proposed");
-  assert.deepEqual(fix.panelSaw, { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(fix.panelSaw, EMPTY_PANEL_SAW);
 });
 
 test("harvestPr: 'could not look' never reads the same as 'nothing found'", () => {

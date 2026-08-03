@@ -58,6 +58,7 @@ import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
 import { ORIGINS } from "./novelty.mjs";
 import { latestLensRuns, parseReviewState } from "./review-state.mjs";
 import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
+import { bestMatch } from "./finding-match.mjs";
 import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -255,7 +256,98 @@ export function classifyCodeRabbitComment(body) {
   const category = headerWords(m[1]);
   // First bolded line after the header is CodeRabbit's one-line title.
   const title = /\*\*(.+?)\*\*/s.exec(str(body))?.[1]?.replace(/\s+/g, " ").trim() ?? "";
-  return { category, severity, lens: CR_CATEGORY_TO_LENS.get(category) ?? "", summary: title };
+  return {
+    category,
+    severity,
+    lens: CR_CATEGORY_TO_LENS.get(category) ?? "",
+    summary: title,
+    detail: codeRabbitDetail(body),
+  };
+}
+
+// Where a CodeRabbit body stops being prose. Verified against every inline
+// finding on #548, #594 and #639: the body is always header → bolded title →
+// prose → structured blocks, and prose never resumes after the first block.
+const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
+
+/**
+ * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
+ * prose under it, stopping at the first `<details>`, fence or HTML comment.
+ *
+ * Two failure modes sit either side of this, and the boundary is what avoids both.
+ *
+ * The title ALONE is too thin. `summaryTokens` reduces a real one — "Guard public
+ * mutation APIs at the read-only boundary." — to six tokens, and `findingSimilarity`
+ * scores containment over the SMALLER token set, so two incidentally shared words
+ * would clear the 0.3 bar. (`tokenOverlap` keeps `MIN_SHARED_TOKENS` for the same
+ * reason; this is the other half of that defence.)
+ *
+ * The WHOLE body is worse, and worse in the dangerous direction. Every comment ends
+ * with a `🤖 Prompt for AI Agents` block opening with the same boilerplate sentence
+ * — "Verify each finding against current code. Fix only still-valid issues…" —
+ * which alone contributes `code`, `fix`, `issues`, `changes`, `validate` to every
+ * single comparison, plus committable-suggestion blocks that dump literal source.
+ * Against a ~15-token panel summary that inflates containment on the vocabulary
+ * every finding in the file already shares, producing false matches exactly where
+ * the panel had the most findings — i.e. eating real misses where they are densest.
+ *
+ * The full body still reaches the ANCHOR layer (harvestPr passes it as `evidence`),
+ * because `extractAnchor` mines structured items — backticked identifiers, the
+ * `around lines N - M` range — where more text is strictly better.
+ */
+export function codeRabbitDetail(body) {
+  const text = str(body);
+  const cut = text.search(CR_PROSE_END);
+  return (cut === -1 ? text : text.slice(0, cut))
+    .replace(CR_HEADER, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Verdicts `attributeToPanel` can reach. `""` is a fourth state and means the
+ *  question was never asked — see `attributeToPanel`. */
+export const MATCH_VERDICTS = new Set(["match", "maybe", "no"]);
+
+/**
+ * Did the panel already raise this CodeRabbit finding, in different words?
+ *
+ * `blockers` is the panel's blocking findings, or `null` when we could not
+ * establish them (no readable check runs). Those are different questions and get
+ * different answers: `null` yields verdict `""` — "not asked" — which emits the
+ * candidate exactly as this module did before matching existed. An empty ARRAY is
+ * a real answer: the panel raised nothing blocking, so a CodeRabbit blocker is by
+ * definition unmatched.
+ *
+ * Both sides are compared LENS-NEUTRAL. CodeRabbit's lens is a category→lens guess
+ * that is often `""`, and `findingSimilarity` scores any lens mismatch 0 outright.
+ * `clusterFindings` already solved this upstream with a `{ ...f, lens: "" }` copy;
+ * this is the same move, not a second one. The deeper reason is that a defect the
+ * panel raised under a DIFFERENT lens is still a defect the panel raised.
+ *
+ * FAIL DIRECTION — `maybe`, deliberately in the middle. Suppressing on error would
+ * silently drop a real miss, which is the one loss this corpus cannot recover
+ * later; emitting unflagged would restore the noise the matcher exists to remove.
+ * `maybe` honours "never throw" without choosing either.
+ */
+export function attributeToPanel(finding, blockers) {
+  if (!Array.isArray(blockers)) return { verdict: "", score: 0, matchedSummary: "" };
+  try {
+    const neutral = (f) => ({
+      lens: "",
+      file: str(f?.file),
+      summary: str(f?.summary),
+      evidence: str(f?.evidence),
+    });
+    const best = bestMatch(neutral(finding), blockers.map(neutral), { crossSource: true });
+    if (!best) return { verdict: "no", score: 0, matchedSummary: "" };
+    return {
+      verdict: best.result.verdict,
+      score: Math.round(best.result.score * 100) / 100,
+      matchedSummary: str(best.candidate.summary),
+    };
+  } catch (err) {
+    return { verdict: "maybe", score: 0, matchedSummary: "", error: err.message };
+  }
 }
 
 /**
@@ -292,10 +384,18 @@ export function toMissRecord(fields) {
     severity: f.severity == null || f.severity === "" ? "" : normalizeSeverity(f.severity),
     origin: ORIGINS.includes(f.origin) ? f.origin : "unknown",
     summary: str(f.summary),
+    // The match fields live INSIDE `panelSaw` rather than at the top level: they
+    // are three more things we know about what the panel saw, and `schema` is
+    // `wafflebase/miss@1`. They are present on every record, empty on the paths
+    // that never ask the question, because a corpus read in diffs is easier to
+    // scan when every line has the same shape.
     panelSaw: {
       reviewedSha: str(saw.reviewedSha),
       conclusion: str(saw.conclusion),
       blockingFindings: Number.isFinite(Number(saw.blockingFindings)) ? Number(saw.blockingFindings) : 0,
+      matchVerdict: MATCH_VERDICTS.has(saw.matchVerdict) ? saw.matchVerdict : "",
+      matchScore: Number.isFinite(Number(saw.matchScore)) ? Number(saw.matchScore) : 0,
+      matchedSummary: str(saw.matchedSummary),
     },
     verifiedBy: str(f.verifiedBy),
     notes: str(f.notes),
@@ -381,7 +481,14 @@ export function dedupeById(records) {
 
 /**
  * What the panel concluded on a given commit: `{reviewedSha, conclusion,
- * blockingFindings}`.
+ * blockingFindings, blockers}`.
+ *
+ * `blockers` is the blocking findings THEMSELVES, and it is the whole reason
+ * signature 2 can be more than a guess. This function used to compute the count
+ * and drop the findings on the floor, so the CodeRabbit path could say the panel
+ * raised three blockers but never whether one of them was the comment in hand —
+ * every CodeRabbit blocker was filed as a miss by construction. `blockingFindings`
+ * stays a count because callers and the record format depend on it.
  *
  * `reviewedSha` comes from the lens run's `external_id` (incremental review's
  * state pointer) rather than from the commit the run is attached to, because on a
@@ -411,7 +518,16 @@ export function panelVerdictAt(runsByLens) {
       break;
     }
   }
-  return { reviewedSha, conclusion, blockingFindings: classify(findings).blockingCount };
+  const classified = classify(findings);
+  return {
+    reviewedSha,
+    conclusion,
+    blockingFindings: classified.blockingCount,
+    // The BLOCKING subset only. A CodeRabbit blocker "already raised" by a nit the
+    // panel filed is not a gate hit, and matching against non-blocking findings
+    // would suppress a real gate miss on the strength of a passing remark.
+    blockers: classified.findings.filter((f) => BLOCKING.has(f.severity)),
+  };
 }
 
 // --- gh-backed collection ----------------------------------------------------
@@ -457,13 +573,16 @@ function readyForReviewAt(pr, api) {
  */
 export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}) {
   const records = [];
+  // CodeRabbit comments the matcher attributed to a panel finding, so they were
+  // NOT filed. Reported by the CLI: a suppression nobody can see is a deletion.
+  let suppressed = 0;
   let meta;
   try {
     meta = api(["api", `repos/{owner}/{repo}/pulls/${pr}`]);
   } catch (err) {
-    return { records, skipped: `could not read PR #${pr} (${err.message})` };
+    return { records, skipped: `could not read PR #${pr} (${err.message})`, suppressed };
   }
-  if (!isAgentPr(meta)) return { records, skipped: `#${pr} is not an agent PR` };
+  if (!isAgentPr(meta)) return { records, skipped: `#${pr} is not an agent PR`, suppressed };
 
   let comments = [];
   try {
@@ -479,7 +598,7 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   }
   const handoffAt = handoffTime({ comments, readyForReviewAt: ready });
   if (!handoffAt) {
-    return { records, skipped: `#${pr} has no hand-off marker and no ready_for_review event` };
+    return { records, skipped: `#${pr} has no hand-off marker and no ready_for_review event`, suppressed };
   }
 
   // The verdict that LET THE PR THROUGH: the newest lens runs on or before the
@@ -511,11 +630,20 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   // looking at and we could not read what it concluded. Collapsing both into ""
   // would make an API hiccup indistinguishable from a PR with no panel at all.
   let panelSaw = { reviewedSha: str(headAtHandoff?.sha), conclusion: "", blockingFindings: 0 };
+  // `null`, not `[]`: "we could not establish the panel's findings" is a different
+  // claim from "the panel raised none", and `attributeToPanel` answers them
+  // differently. Collapsing them would let an API hiccup read as a clean panel.
+  let panelBlockers = null;
   if (headAtHandoff?.sha) {
     try {
       const runs = commitCheckRuns(headAtHandoff.sha, { api });
       const verdict = panelVerdictAt(withFullOutput(latestLensRuns(runs, names), { api, log }));
-      panelSaw = { ...verdict, reviewedSha: verdict.reviewedSha || headAtHandoff.sha };
+      panelSaw = {
+        reviewedSha: verdict.reviewedSha || headAtHandoff.sha,
+        conclusion: verdict.conclusion,
+        blockingFindings: verdict.blockingFindings,
+      };
+      panelBlockers = verdict.blockers;
     } catch (err) {
       log(`#${pr}: could not read the panel's verdict (${err.message}); recording it as unknown.`);
     }
@@ -566,6 +694,29 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     if (!finding) continue;
     const files = interestingFiles([str(rc.path)]);
     if (files.length === 0) continue;
+
+    // `rc.path` RAW, not the filtered `files` above: `interestingFiles` exists to
+    // decide what may carry a miss, and reusing it here would silently hand the
+    // matcher an empty file — i.e. no location evidence — for a comment we have a
+    // path for. The panel side's `file` may legitimately be empty (the infra-record
+    // shape), which `locationScore` reads as absent rather than as a match.
+    // Prose for the token comparison, the whole body for the anchor layer.
+    const attribution = attributeToPanel(
+      { file: str(rc.path), summary: finding.detail, evidence: str(rc.body) },
+      panelBlockers,
+    );
+    if (attribution.verdict === "match") {
+      // Counted and logged rather than dropped in silence. A matcher that quietly
+      // eats candidates is indistinguishable from a PR nobody reviewed, and this
+      // is the number that says whether the matcher is earning its place.
+      suppressed++;
+      log(
+        `#${pr}: CodeRabbit comment ${rc.id} restates a panel finding ` +
+          `(score ${attribution.score}: "${attribution.matchedSummary}"); not filed as a miss.`,
+      );
+      continue;
+    }
+
     records.push(
       toMissRecord({
         id: candidateId("coderabbit", pr, rc.id),
@@ -582,12 +733,21 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         lens: finding.lens,
         severity: finding.severity,
         summary: finding.summary,
-        panelSaw,
-        notes: `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding`,
+        panelSaw: {
+          ...panelSaw,
+          matchVerdict: attribution.verdict,
+          matchScore: attribution.score,
+          matchedSummary: attribution.matchedSummary,
+        },
+        notes:
+          `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding` +
+          (attribution.verdict === "maybe"
+            ? ` — MAYBE already raised by the panel${attribution.error ? ` (matcher failed: ${attribution.error})` : ""}; needs a human decision`
+            : ""),
       }),
     );
   }
-  return { records, skipped: "" };
+  return { records, skipped: "", suppressed };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -647,10 +807,18 @@ function cmdHarvest(args) {
   }
 
   const found = [];
+  let suppressed = 0;
   for (const pr of prs) {
-    const { records, skipped } = harvestPr(pr, { api, names });
-    if (skipped) console.error(`harvest: skipped ${skipped}`);
-    found.push(...records);
+    const result = harvestPr(pr, { api, names });
+    if (result.skipped) console.error(`harvest: skipped ${result.skipped}`);
+    found.push(...result.records);
+    suppressed += result.suppressed ?? 0;
+  }
+  if (suppressed > 0) {
+    console.error(
+      `harvest: ${suppressed} CodeRabbit finding(s) attributed to a panel finding and NOT filed. ` +
+        `Each one is named above with the panel finding it matched.`,
+    );
   }
 
   const existingText = existsSync(MISSES_PATH) ? readFileSync(MISSES_PATH, "utf8") : "";
