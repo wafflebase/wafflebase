@@ -84,6 +84,37 @@ describe('initialize', () => {
     container.remove();
   });
 
+  it('restores the caret the store returns after undo/redo', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // Seed one undo unit directly so the pre/post-edit carets are known without
+    // depending on the view holding focus (the live-caret publisher is
+    // focus-gated, which jsdom cannot satisfy).
+    const store = new MemNoteStore('hello world');
+    store.setLocalSelection(3, 3); // pre-edit caret
+    store.batch(() => {
+      store.editText(3, 3, 'X');
+      store.recordSelectionForHistory({ anchor: 4, head: 4 }); // post-edit caret
+    });
+    const api = initialize(container, store, 'light');
+    const view = EditorView.findFromDOM(container)!;
+    expect(api.getText()).toBe('helXlo world');
+
+    api.undo();
+    // The reverted text arrives as a selection-less remote transaction; the
+    // caret lands at 3 only because the store's returned selection is applied.
+    expect(api.getText()).toBe('hello world');
+    expect(view.state.selection.main.anchor).toBe(3);
+    expect(view.state.selection.main.head).toBe(3);
+
+    api.redo();
+    expect(api.getText()).toBe('helXlo world');
+    expect(view.state.selection.main.head).toBe(4);
+
+    api.dispose();
+    container.remove();
+  });
+
   it('does not re-push an undo result into the store', () => {
     // Regression guard for the echo loop: the store's undo arrives as a
     // remote-tagged transaction, which noteSync must not send back as a

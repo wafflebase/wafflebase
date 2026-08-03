@@ -51,27 +51,61 @@ class NoteSyncPluginValue implements cmView.PluginValue {
     }
   }
 
+  /** User-event kinds that count as a local edit reaching the store. */
+  private static readonly EDIT_EVENTS = ['input', 'delete', 'move', 'undo', 'redo'];
+
+  private isLocalEdit(tr: cmState.Transaction): boolean {
+    // 'undo'/'redo' stay in the list purely as a safety net: CodeMirror's own
+    // history is disabled (Yorkie owns undo), so nothing should emit them — but
+    // if something did, the edit must still reach the store rather than
+    // silently desync the view from the model.
+    return (
+      !tr.annotation(cmState.Transaction.remote) &&
+      NoteSyncPluginValue.EDIT_EVENTS.some((e) => tr.isUserEvent(e))
+    );
+  }
+
   update(update: cmView.ViewUpdate): void {
     if (!update.docChanged) return;
+    // Publish the pre-edit caret (this update's start selection) before the
+    // batch opens, so the edit's undo unit reverses to it. Yorkie records the
+    // reverse from presence live at the moment the batch's change opens, so the
+    // pre-edit caret must already be published — the live-cursor publisher runs
+    // AFTER this plugin and would otherwise leave presence empty on the first
+    // edit after mount. Only for a real local edit; a remote/undo-applied
+    // update must not touch our history.
+    const hasLocalEdit = update.transactions.some(
+      (tr) => this.isLocalEdit(tr) && !tr.changes.empty,
+    );
+    if (hasLocalEdit) {
+      const pre = update.startState.selection.main;
+      this.store.setLocalSelection(pre.anchor, pre.head);
+    }
     // One ViewUpdate = one undo unit. `batch()` collapses every edit below
     // into a single store change, so a multi-change transaction (or a command
     // that dispatches several, e.g. insertTable) undoes in one step instead of
     // unwinding change by change. An update whose transactions are all
     // filtered out below leaves the batch empty, which records nothing.
     this.store.batch(() => {
+      let edited = false;
       for (const tr of update.transactions) {
-        if (tr.annotation(cmState.Transaction.remote)) continue;
-        // 'undo'/'redo' stay in the list purely as a safety net: CodeMirror's
-        // own history is disabled (Yorkie owns undo), so nothing should emit
-        // them — but if something did, the edit must still reach the store
-        // rather than silently desync the view from the model.
-        const events = ['input', 'delete', 'move', 'undo', 'redo'];
-        if (!events.some((e) => tr.isUserEvent(e))) continue;
+        if (!this.isLocalEdit(tr)) continue;
         let adj = 0;
         tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
           const insertText = inserted.toJSON().join('\n');
           this.store.editText(fromA + adj, toA + adj, insertText);
           adj += insertText.length - (toA - fromA);
+          edited = true;
+        });
+      }
+      // Fold the post-edit caret into this batch's undo unit so a later undo
+      // restores the pre-edit selection (and redo this one). Only when the
+      // batch actually edited: an empty/remote-only batch must record no unit.
+      if (edited) {
+        const sel = update.state.selection.main;
+        this.store.recordSelectionForHistory({
+          anchor: sel.anchor,
+          head: sel.head,
         });
       }
     });
