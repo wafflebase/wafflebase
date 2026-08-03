@@ -46,20 +46,38 @@ test("tagPriorFindings: an infra/quota record is never carried forward", () => {
   // would make the panel re-check "the review could not run", and the verifier
   // (biased to keep) cannot refute it. It must be dropped on read — whether it
   // carries the { infra: true } flag (records written after the fix) OR only the
-  // stable message prefix (records persisted BEFORE the flag existed — a PR
-  // already contaminated by a pre-fix 429 round, which is how #632 got stuck).
+  // stable message prefix with the synthetic shape (records persisted BEFORE the
+  // flag existed — a PR contaminated by a pre-fix 429 round, which stuck #632).
   const runs = new Map([
+    // Mixed check: the synthetic infra record AND a real finding — the infra one
+    // is dropped, the real finding is preserved (CodeRabbit: real prior findings
+    // followed by an infrastructure failure must survive).
     ["agent-review-correctness", { output: { text: JSON.stringify([
       { severity: "major", summary: "Review could not run — Claude API/quota error (429): You've hit your session limit", infra: true },
-      { severity: "major", summary: "real blocker" },
+      { severity: "major", file: "src/a.ts", summary: "real blocker" },
     ]) } }],
-    // Legacy record: no `infra` flag, matched by the message prefix alone.
+    // Legacy record: no `infra` flag, matched by prefix + synthetic shape (no file).
     ["agent-review-security", { output: { text: JSON.stringify([
       { severity: "major", summary: "Review could not run — Claude API/quota error (429): You've hit your session limit · resets 3:40am (UTC)" },
     ]) } }],
   ]);
   assert.deepEqual(tagPriorFindings(runs), [
-    { severity: "major", summary: "real blocker", lens: "correctness" },
+    { severity: "major", file: "src/a.ts", summary: "real blocker", lens: "correctness" },
+  ]);
+});
+
+test("tagPriorFindings: a REAL finding is not suppressed by mimicking the infra text", () => {
+  // `summary` is model output. A genuine finding whose summary happens to begin
+  // with the infra sentinel (or one an injected diff crafts to look like it) must
+  // stay a blocker: it cites a `file`, which the script-authored synthetic record
+  // never does, and only `infra: true` (script-set) is authoritative on its own.
+  const runs = new Map([
+    ["agent-review-security", { output: { text: JSON.stringify([
+      { severity: "critical", file: "src/auth.ts", summary: "Review could not run — Claude API/quota error is logged with the raw token" },
+    ]) } }],
+  ]);
+  assert.deepEqual(tagPriorFindings(runs), [
+    { severity: "critical", file: "src/auth.ts", summary: "Review could not run — Claude API/quota error is logged with the raw token", lens: "security" },
   ]);
 });
 

@@ -29,14 +29,34 @@ import { gh, prCommitsWithCheckRuns, allCheckRuns, withFullOutput, parseArgs } f
 
 // Stable PREFIX of the synthetic record review-panel.mjs writes when a lens hits
 // an API/quota outage (its `summaryText`: "Review could not run — Claude API/quota
-// error…"). Matched below so records persisted BEFORE the `infra: true` flag
-// existed are still dropped. It is script output, not model text, so a real
-// finding cannot begin with it — keep the two in sync if the message ever changes.
+// error…"). Used ONLY for the legacy fallback below — see isInfraRecord.
 export const INFRA_SENTINEL = "Review could not run — Claude API/quota error";
 
-/** A carried record that is really an infra/quota outage, not a code finding. */
+/**
+ * A carried record that is really an infra/quota outage, not a code finding.
+ *
+ * `infra: true` is the AUTHORITATIVE signal: the producer (review-panel.mjs) sets
+ * it on the synthesised record, so — unlike `summary`, which is model output — a
+ * model or prompt-injected finding cannot forge it. That flag is the shared
+ * producer/consumer discriminator; prefer it for everything written after it
+ * existed.
+ *
+ * The message-prefix branch is a LEGACY fallback only, for records persisted
+ * BEFORE the flag existed (e.g. a PR contaminated by a pre-fix 429 round, like
+ * #632, whose App-owned check runs cannot be rewritten). Because `summary` is
+ * model-controlled, the prefix alone must NOT mark a record infra — otherwise a
+ * real finding that merely quotes this text could be silently dropped, or an
+ * injected finding could suppress itself from re-check. So the fallback also
+ * requires the synthetic record's shape: no `file`. Every genuine finding cites a
+ * `file`; the synthetic record carries only `{ severity, summary }`. A real
+ * blocker beginning with the legacy text therefore stays a blocker. Remove this
+ * branch once no pre-fix-contaminated PRs remain open.
+ */
 function isInfraRecord(f) {
-  return !!f && (f.infra === true || (typeof f.summary === "string" && f.summary.startsWith(INFRA_SENTINEL)));
+  if (!f || typeof f !== "object") return false;
+  if (f.infra === true) return true;
+  const noFile = f.file === undefined || f.file === null || f.file === "";
+  return noFile && typeof f.summary === "string" && f.summary.startsWith(INFRA_SENTINEL);
 }
 
 /**
@@ -74,12 +94,12 @@ export function tagPriorFindings(runsByLens) {
       // Drop the synthesised INFRA record a lens writes when it hits an API/quota
       // outage (e.g. a 429 session limit): the reviewer never ran, so "Review
       // could not run …" is not a finding to re-check, and the verifier (biased to
-      // keep) cannot refute it on grounded evidence. Matches the `infra` flag AND
-      // the stable message prefix, so a record persisted BEFORE the flag existed
-      // (a PR contaminated by a pre-fix 429 round) is dropped too rather than
-      // re-surfacing every round. The panel workflow already persists none for an
-      // infra lens; this is the read-side backstop so the guarantee holds
-      // regardless of which producer wrote the check output.
+      // keep) cannot refute it on grounded evidence. `isInfraRecord` keys on the
+      // script-set `infra` flag (authoritative), with a shape-guarded legacy
+      // prefix fallback for records persisted before the flag existed — never on
+      // model text alone, so a genuine finding is never suppressed. The panel
+      // workflow already persists none for an infra lens; this is the read-side
+      // backstop so the guarantee holds regardless of which producer wrote it.
       if (isInfraRecord(f)) continue;
       // `lens` last: a finding cannot spoof its own origin by carrying a `lens`
       // key, since these come from a previous round's model output.

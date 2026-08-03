@@ -712,14 +712,16 @@ Components:
        evidence (there is no code claim to disprove), so it would persist across
        every subsequent round. Two guards prevent it: the panel workflow persists
        an empty `output.text` for any lens whose `panelEntry` carries `infraError`,
-       and `scripts/agent/prior-findings.mjs` drops any carried record flagged
-       `infra` — or matching the stable "Review could not run — Claude API/quota
-       error" message prefix, which also catches records persisted BEFORE the flag
-       existed — on read (so the guarantee holds on both panel paths regardless of
-       producer, and a PR already contaminated by a pre-fix 429 round self-heals on
-       its next round instead of re-surfacing the error forever). The lens still
-       fails closed via its check `conclusion`; only the bogus re-check input is
-       suppressed.
+       and `scripts/agent/prior-findings.mjs` drops any carried record so flagged on
+       read (so the guarantee holds on both panel paths regardless of producer). The
+       discriminator is the script-set `infra: true` flag — authoritative because,
+       unlike a finding's `summary`, a model cannot forge it. A shape-guarded legacy
+       fallback (the stable "Review could not run …" prefix **and** no `file`, which
+       every genuine finding cites) also catches records persisted before the flag
+       existed, so a PR already contaminated by a pre-fix 429 round self-heals on its
+       next round rather than re-surfacing the error forever — without ever letting
+       model text suppress a real blocker. The lens still fails closed via its check
+       `conclusion`; only the bogus re-check input is suppressed.
 
     3. **Out-of-diff review.** The two measures above both re-read the *same
        artifact*, so neither finds a defect the diff does not contain. A Major
