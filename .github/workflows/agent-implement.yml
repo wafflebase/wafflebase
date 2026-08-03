@@ -368,6 +368,6 @@ jobs:
               body: [
                 "👋 Did you mean **`@claude fix`**? Commenting `@claude fix` on this issue starts an autonomous run that opens a draft PR.",
                 "",
-                "On a **pull request** you can also use `@claude review`, `@claude summarize`, or `@claude loop`.",
+                "On a **pull request** you can also use `@claude review`, `@claude summarize`, `@claude loop`, or `@claude rerun` (un-stick a paged agent PR).",
               ].join("\n"),
             });
