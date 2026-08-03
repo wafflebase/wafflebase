@@ -70,6 +70,15 @@ function parseArgs(argv) {
   if (!Number.isInteger(out.attempts) || out.attempts < 1) {
     throw new Error(`hunt-ui-runner: --attempts must be a positive integer, got ${out.attempts}`);
   }
+  // `Number("abc")` is NaN, and an unvalidated NaN reaches Vite's `strictPort` listen
+  // or Playwright's timeout as a confusing failure far from the typo that caused it.
+  // Port 0 is allowed and meaningful: it asks the OS for a free port (see below).
+  if (!Number.isInteger(out.port) || out.port < 0 || out.port > 65535) {
+    throw new Error(`hunt-ui-runner: --port must be an integer in 0..65535, got ${out.port}`);
+  }
+  if (!Number.isFinite(out.timeoutMs) || out.timeoutMs <= 0) {
+    throw new Error(`hunt-ui-runner: --timeout-ms must be a positive number, got ${out.timeoutMs}`);
+  }
   return out;
 }
 
@@ -129,8 +138,11 @@ async function resolveTarget(page, target) {
   }
   if (target && typeof target.reader === "string") {
     const point = await readValue(page, target.reader, target.args ?? []);
-    if (!point || typeof point.x !== "number" || typeof point.y !== "number") {
-      throw new Error(`target reader ${target.reader} did not return {x,y}, got ${JSON.stringify(point)}`);
+    // Number.isFinite, NOT typeof: `typeof NaN === "number"`, so a `typeof` check
+    // waves NaN coordinates straight through to `page.mouse.click(NaN, NaN)` and the
+    // failure surfaces as an opaque Playwright error instead of naming the reader.
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      throw new Error(`target reader ${target.reader} did not return finite {x,y}, got ${JSON.stringify(point)}`);
     }
     return { kind: "point", point };
   }
@@ -282,18 +294,25 @@ if (!Array.isArray(plan.actions) || plan.actions.length === 0) {
 }
 
 const playwright = await loadPlaywright();
+// `--port 0` asks the OS for a free port, and that is what `runUiPlan` passes.
+// Samples run concurrently from PR 4 onward, and a fixed port under `strictPort`
+// makes the second runner fail to boot. A pinned port stays the default for manual
+// runs, where a stable URL is worth more than concurrency.
+const ephemeralPort = args.port === 0;
 const server = await createServer({
   configFile: path.resolve(frontendRoot, "vite.config.ts"),
   root: frontendRoot,
   logLevel: "silent",
-  server: { host: HOST, port: args.port, strictPort: true },
+  server: { host: HOST, port: args.port, strictPort: !ephemeralPort },
 });
 
 let browser;
 let result;
 try {
   await server.listen();
-  const baseUrl = `http://${HOST}:${args.port}`;
+  const listening = server.httpServer?.address();
+  const actualPort = listening && typeof listening === "object" ? listening.port : args.port;
+  const baseUrl = `http://${HOST}:${actualPort}`;
   browser = await playwright.chromium.launch({ headless: true });
 
   const attempts = [];

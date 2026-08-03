@@ -19,7 +19,7 @@
 // pipeline downstream assumes the action list is the complete causal history. If you
 // need to change something, that is an action, not a reader.
 
-import type { Block, EditorAPI, Inline, InlineStyle } from "@wafflebase/docs";
+import type { Block, EditorAPI, InlineStyle } from "@wafflebase/docs";
 import { parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
@@ -115,7 +115,7 @@ function runsOf(editor: EditorAPI): RunSnapshot[] {
   const blocks: Block[] = editor.getDoc().getContextBlocks();
   const out: RunSnapshot[] = [];
   blocks.forEach((block, blockIndex) => {
-    for (const inline of block.inlines as Inline[]) {
+    for (const inline of block.inlines) {
       const style: InlineStyle = inline.style ?? {};
       out.push({
         blockIndex,
@@ -221,11 +221,31 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
       const sref = asString(args, 0, "sheet.cellCenter");
       const { spreadsheet, host } = requireSheet(state);
       const rect = spreadsheet.getCellRect(parseRef(sref));
-      const hostRect = host.getBoundingClientRect();
-      return {
-        x: Math.round(hostRect.left + rect.left + rect.width / 2),
-        y: Math.round(hostRect.top + rect.top + rect.height / 2),
-      };
+      // Origin is the GRID CANVAS, not the mount container. `getCellRect` is
+      // canvas-relative, and the engine paints a band of its own chrome above the
+      // canvas — measured at 43px here (container top 41, canvas top 84). Adding the
+      // container's origin instead puts every point that many pixels high, which
+      // silently lands clicks one or two rows off: asking for C3 selected C1.
+      //
+      // `getCellCenterClientPoint` in the interaction harness has the same formula
+      // and the same error; it goes unnoticed there because that lane only ever
+      // `mouse.move`s to the point for a wheel event, and a scroll does not care
+      // which row it starts on. Nothing in this repo has clicked a cell by
+      // coordinate before, so this is the first use that could expose it.
+      const canvas = host.querySelector("canvas");
+      if (!canvas) {
+        refuse(`sheet.cellCenter(${sref}) has no grid canvas to measure against — is the sheet mounted?`);
+      }
+      const origin = canvas.getBoundingClientRect();
+      const x = Math.round(origin.left + rect.left + rect.width / 2);
+      const y = Math.round(origin.top + rect.top + rect.height / 2);
+      // Refuse here rather than hand back NaN. A caller clicking at NaN gets an
+      // opaque Playwright error pointing at the mouse, not at the cell reference or
+      // the unmeasurable host that actually caused it.
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        refuse(`sheet.cellCenter(${sref}) resolved to a non-finite point (${x}, ${y}) — is the grid laid out?`);
+      }
+      return { x, y };
     },
   };
 }

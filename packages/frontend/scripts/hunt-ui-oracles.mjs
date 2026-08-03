@@ -65,12 +65,21 @@ export const DOM_INVARIANT_SCAN = /* js */ `(hostTestId) => {
 
   const host = document.querySelector('[data-testid="' + hostTestId + '"]');
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const bad = /\\b(undefined|NaN|\\[object Object\\])\\b/;
+  // Per-alternative boundaries, NOT one \\b(...)\\b around the group. \\b asserts a
+  // word/non-word transition, and '[' and ']' are both non-word, so the grouped form
+  // required a word character immediately outside the brackets: "[object Object]"
+  // and "value: [object Object]" both MISSED, and only "x[object Object]y" matched.
+  // The bracket literals are self-delimiting and need no boundary of their own.
+  const bad = /\\bundefined\\b|\\bNaN\\b|\\[object Object\\]/;
   let node;
   while ((node = walker.nextNode())) {
     if (host && host.contains(node)) continue;
     const text = (node.nodeValue || '').trim();
     if (text && bad.test(text)) {
+      // One finding per action, deliberately. This is a DETECTOR: the verdict is the
+      // same whether one label or five render "undefined", \`uiObservedKey\` collapses
+      // repeats of a rule to a single entry anyway, and an unbounded walk over a
+      // large DOM would put the whole page into the observation.
       findings.push({ kind: 'dom-invariant', rule: 'placeholder-text', detail: text.slice(0, 120) });
       break;
     }
@@ -79,12 +88,31 @@ export const DOM_INVARIANT_SCAN = /* js */ `(hostTestId) => {
   return findings;
 }`;
 
-/** Run the DOM invariant scan once. A navigation mid-scan is not a defect. */
+/**
+ * Errors that mean "the page moved under us", not "the scan is broken".
+ *
+ * A navigation, a closed context or a detached frame mid-scan is expected — the next
+ * action re-scans. Anything else is the scan itself failing.
+ */
+const TRANSIENT_EVAL_ERROR =
+  /Execution context was destroyed|Target (page, context or browser has been )?closed|frame (was )?detached|Navigation/i;
+
+/**
+ * Run the DOM invariant scan once.
+ *
+ * A blanket `catch { return [] }` here would be the exact failure this whole lane
+ * exists to prevent: a syntax error in `DOM_INVARIANT_SCAN` would make the oracle
+ * return "no findings" forever, and a run with a dead detector is indistinguishable
+ * from a clean run. So only the transient cases are swallowed; a real scan failure
+ * propagates and takes the attempt down loudly.
+ */
 export async function scanDomInvariants(page, hostTestId) {
   try {
     return await page.evaluate(`(${DOM_INVARIANT_SCAN})(${JSON.stringify(hostTestId)})`);
-  } catch {
-    return [];
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    if (TRANSIENT_EVAL_ERROR.test(message)) return [];
+    throw new Error(`hunt-ui-oracles: DOM invariant scan failed — ${message}`);
   }
 }
 

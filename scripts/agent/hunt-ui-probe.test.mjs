@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -69,6 +72,24 @@ test("assertSafeActionPlan refuses a click target whose reader escapes the names
     () => assertSafeActionPlan({ actions: [{ type: "click", target: { reader: "eval.point" } }] }),
     /must start with one of/,
   );
+});
+
+// `button` and `clickCount` reach Playwright verbatim. An unvalidated button fails
+// inside the driver instead of at validation, and a huge clickCount does not fail at
+// all — it hangs.
+test("assertSafeActionPlan refuses an unsupported mouse button", () => {
+  const withButton = (button) => ({ actions: [{ type: "click", target: { role: "button", name: "x" }, button }] });
+  assert.equal(assertSafeActionPlan(withButton("right")), true);
+  assert.throws(() => assertSafeActionPlan(withButton("scroll")), /button must be one of/);
+  assert.throws(() => assertSafeActionPlan(withButton(1)), /button must be one of/);
+});
+
+test("assertSafeActionPlan bounds clickCount", () => {
+  const withCount = (clickCount) => ({ actions: [{ type: "click", target: { role: "button", name: "x" }, clickCount }] });
+  assert.equal(assertSafeActionPlan(withCount(2)), true);
+  assert.throws(() => assertSafeActionPlan(withCount(1_000_000)), /clickCount must be an integer in 1\.\.3/);
+  assert.throws(() => assertSafeActionPlan(withCount(0)), /clickCount must be an integer in 1\.\.3/);
+  assert.throws(() => assertSafeActionPlan(withCount(1.5)), /clickCount must be an integer in 1\.\.3/);
 });
 
 test("assertSafeActionPlan refuses a goto to an unknown surface", () => {
@@ -231,4 +252,30 @@ test("runUiPlan throws when the driver cannot produce a result", () => {
     () => runUiPlan(okPlan, { repoRoot: "/definitely/not/a/repo", timeoutMs: 5000 }),
     /runner produced no readable result|runner failed/,
   );
+});
+
+// The other failure path: the driver ran, wrote a well-formed result, and reported
+// `ok: false`. Distinct from the unreadable-output case above and separately
+// reachable, so it gets its own stub rather than being assumed equivalent.
+test("runUiPlan throws when the driver reports its own failure", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "wb-hunt-ui-stub-"));
+  try {
+    const scriptDir = path.join(root, "packages", "frontend", "scripts");
+    mkdirSync(scriptDir, { recursive: true });
+    // A stand-in for the real runner: parses --out and reports a driver-level
+    // failure, exactly as the runner does when Vite or Chromium cannot start.
+    writeFileSync(
+      path.join(scriptDir, "hunt-ui-runner.mjs"),
+      [
+        'import { writeFileSync } from "node:fs";',
+        'const argv = process.argv.slice(2);',
+        'const out = argv[argv.indexOf("--out") + 1];',
+        'writeFileSync(out, JSON.stringify({ ok: false, error: "stub driver failure", attempts: [] }));',
+        "process.exit(1);",
+      ].join("\n"),
+    );
+    assert.throws(() => runUiPlan(okPlan, { repoRoot: root, timeoutMs: 20_000 }), /runner failed: stub driver failure/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

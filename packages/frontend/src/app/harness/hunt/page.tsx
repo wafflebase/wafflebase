@@ -128,16 +128,49 @@ export default function HuntHarnessPage() {
     let spreadsheet: Spreadsheet | undefined;
     let docEditor: EditorAPI | undefined;
 
+    /**
+     * This mount's OWN container, not the shared host.
+     *
+     * Two facts collide here, and the isolation is what keeps them apart.
+     *
+     * First, the sheet branch awaits before it can assign `spreadsheet`, so an
+     * unmount landing mid-await leaves the teardown's `spreadsheet?.cleanup()` with
+     * nothing to clean; the promise then resolves into a live engine — RAF loop and
+     * listeners — that nothing ever disposes. StrictMode's mount/unmount/remount
+     * makes that the normal dev path.
+     *
+     * Second, and this is what makes the obvious fix wrong: disposing that abandoned
+     * engine tears down whatever DOM it was given, and by then the NEXT mount has
+     * already painted into the same host. Cleaning up the stale engine therefore
+     * deletes the live canvas. Measured, not theorised — the first attempt at this
+     * fix left the sheet surface with no canvas at all, which the bridge readers
+     * cannot see because they read the engine rather than the DOM.
+     *
+     * Giving every mount its own child means a stale cleanup operates on a node that
+     * was already detached, and the live mount is untouched.
+     */
+    const container = document.createElement("div");
+    container.style.width = "100%";
+    container.style.height = "100%";
+
+    const disposeMounted = () => {
+      docEditor?.dispose();
+      docEditor = undefined;
+      spreadsheet?.cleanup();
+      spreadsheet = undefined;
+      container.remove();
+    };
+
     async function mount() {
       setStatus("loading");
-      host!.innerHTML = "";
+      host!.replaceChildren(container);
       try {
         if (surface === "doc") {
           const store = new MemDocStore();
           store.setDocument(seedDocument());
-          docEditor = initializeDocs(host!, store, "light", /* readOnly */ false);
-          if (disposed) return;
-          controller.setDoc({ editor: docEditor, host: host! });
+          docEditor = initializeDocs(container, store, "light", /* readOnly */ false);
+          if (disposed) return disposeMounted();
+          controller.setDoc({ editor: docEditor, host: container });
           setEditor(docEditor);
         } else {
           const store = new MemStore(seedGrid());
@@ -145,12 +178,12 @@ export default function HuntHarnessPage() {
           await store.setDimensionSize("column", 2, 160);
           await store.setDimensionSize("column", 3, 180);
           await store.setDimensionSize("column", 4, 260);
-          spreadsheet = await initializeSheet(host!, { theme: "light", store });
-          if (disposed) return;
+          spreadsheet = await initializeSheet(container, { theme: "light", store });
+          if (disposed) return disposeMounted();
           await spreadsheet.focusCell({ r: 1, c: 1 });
-          controller.setSheet({ spreadsheet, store, host: host! });
+          controller.setSheet({ spreadsheet, store, host: container });
         }
-        if (disposed) return;
+        if (disposed) return disposeMounted();
         // Ready is set LAST, after the surface is mounted and registered. The driver
         // gates on it, so flipping it earlier would let a probe act on a half-built
         // page and record the resulting mess as a defect.
@@ -168,9 +201,9 @@ export default function HuntHarnessPage() {
       disposed = true;
       setEditor(null);
       controller.dispose();
-      docEditor?.dispose();
-      spreadsheet?.cleanup();
-      host.innerHTML = "";
+      // Removes only THIS mount's container; a later mount's container is a sibling
+      // this closure never sees, so teardown cannot reach across into it.
+      disposeMounted();
     };
   }, [surface]);
 

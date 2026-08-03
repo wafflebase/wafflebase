@@ -53,6 +53,10 @@ export const UI_READER_PREFIXES = Object.freeze(["doc.", "sheet.", "dom."]);
 const DEFAULT_ATTEMPTS = 1;
 /** Beyond this a value is keyed by hash — a `dom.snapshot` must not become the key. */
 const MAX_INLINE_VALUE_CHARS = 200;
+/** Mouse buttons Playwright accepts. */
+const CLICK_BUTTONS = Object.freeze(["left", "right", "middle"]);
+/** Enough for a triple-click; anything more is a typo or a hang. */
+const MAX_CLICK_COUNT = 3;
 
 // --- plan validation ---------------------------------------------------------
 
@@ -105,6 +109,19 @@ export function assertSafeActionPlan(plan) {
         break;
       case "click":
         assertTarget(action.target, where);
+        // `button` and `clickCount` are forwarded straight to Playwright, so an
+        // unvalidated value fails inside the browser driver rather than at plan
+        // validation — and `clickCount: 1e6` would not fail at all, it would hang.
+        // The vocabulary is closed everywhere else; these two were the gap.
+        if (action.button !== undefined && !CLICK_BUTTONS.includes(action.button)) {
+          bad(`${where} button must be one of ${CLICK_BUTTONS.join(", ")}, got ${JSON.stringify(action.button)}`);
+        }
+        if (
+          action.clickCount !== undefined &&
+          (!Number.isInteger(action.clickCount) || action.clickCount < 1 || action.clickCount > MAX_CLICK_COUNT)
+        ) {
+          bad(`${where} clickCount must be an integer in 1..${MAX_CLICK_COUNT}, got ${JSON.stringify(action.clickCount)}`);
+        }
         break;
       case "type":
         if (typeof action.text !== "string") bad(`${where} needs a string \`text\``);
@@ -201,11 +218,15 @@ export function uiObservedKey(observation) {
 /**
  * One key for a whole attempt.
  *
- * Position-independent comparison is deliberate: `replay()` keys only the LAST
- * observation, which for a CLI probe is the failing one but for a UI plan usually is
- * not — the failing action is commonly mid-sequence with reads after it. Folding
- * every observation in means a divergence anywhere in the plan is a divergence,
- * which is the property replay actually needs.
+ * `replay()` keys only the LAST observation, which for a CLI probe is the failing one
+ * but for a UI plan usually is not — the failing action is commonly mid-sequence with
+ * reads after it. Folding every observation in means a divergence ANYWHERE in the
+ * plan is a divergence, which is the property replay actually needs.
+ *
+ * Order is significant: the per-observation keys are joined in sequence, so the same
+ * outcomes in a different order hash differently. That is intended — two attempts of
+ * one plan execute the same actions in the same order, and if they did not, that is
+ * itself a divergence worth catching.
  */
 export function uiPlanKey(observations) {
   const parts = (Array.isArray(observations) ? observations : []).map(uiObservedKey);
@@ -236,11 +257,14 @@ export function oraclesFired(observations) {
  * observations. Infrastructure trouble must not be able to present itself as "the
  * app did nothing", which is a shape a caller could mistake for a finding.
  */
-export function runUiPlan(plan, { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, runner = null } = {}) {
+export function runUiPlan(
+  plan,
+  { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, port = 0, runner = null } = {},
+) {
   assertSafeActionPlan(plan);
   if (!Number.isInteger(attempts) || attempts < 1) bad(`attempts must be a positive integer, got ${attempts}`);
 
-  if (typeof runner === "function") return runner(plan, { repoRoot, attempts });
+  if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port });
 
   const runnerPath = path.join(repoRoot, UI_RUNNER_REL);
   return withScratch((dir) => {
@@ -250,7 +274,10 @@ export function runUiPlan(plan, { repoRoot, attempts = DEFAULT_ATTEMPTS, timeout
 
     const res = spawnSync(
       process.execPath,
-      [runnerPath, "--plan", planFile, "--out", outFile, "--attempts", String(attempts)],
+      // Port 0 by default: the OS picks a free one. The runner's own default is a
+      // fixed port for reproducible manual runs, but two concurrent samples on a
+      // fixed port make the second fail to boot, and PR 4 runs samples concurrently.
+      [runnerPath, "--plan", planFile, "--out", outFile, "--attempts", String(attempts), "--port", String(port)],
       {
         cwd: path.join(repoRoot, "packages", "frontend"),
         timeout: timeoutMs,
