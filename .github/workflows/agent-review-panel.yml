@@ -476,6 +476,48 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
         run: node .trusted/scripts/agent/set-state.mjs "$PR" reviewing
 
+      # Flip each lens check to in_progress NOW, before the ~35-min orchestrator
+      # run, so the PR shows the review is running instead of the PREVIOUS round's
+      # stale conclusion (a red X that looks like a fresh failure). Runs AFTER
+      # "Read prior findings" / "Resolve review scope" on purpose: those read the
+      # previous round's checks (findings carry-forward + incremental pointer),
+      # and creating these empty in_progress checks any earlier would make them
+      # the "latest" per lens and clobber both. The ids are handed to the post
+      # step below, which UPDATES these same runs to their final conclusion — one
+      # run per lens, so there is never a duplicate or an orphaned spinner.
+      # Best-effort: a failure here must not fail the panel (the post step falls
+      # back to creating fresh checks; the stalled job closes any left spinning).
+      - name: Mark lens checks in progress
+        id: inprogress
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sha = context.payload.workflow_run.head_sha;
+            const manifest = JSON.parse(fs.readFileSync('.trusted/scripts/agent/lenses/lenses.json', 'utf8'));
+            const ids = {};
+            for (const lens of manifest) {
+              try {
+                const { data } = await github.rest.checks.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: `agent-review-${lens.id}`, head_sha: sha, status: 'in_progress',
+                  started_at: new Date().toISOString(),
+                  output: {
+                    title: `${lens.id}: reviewing…`,
+                    summary: 'The review panel is running this lens. This will be replaced with the verdict when it finishes.',
+                  },
+                });
+                ids[`agent-review-${lens.id}`] = data.id;
+              } catch (e) {
+                core.warning(`could not mark agent-review-${lens.id} in_progress: ${e.message}`);
+              }
+            }
+            // Hand the run ids to the post step (same runner → RUNNER_TEMP persists)
+            // so it UPDATES these checks rather than creating parallel ones.
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/lens-check-ids.json`, JSON.stringify(ids));
+
       - name: Run review panel
         if: steps.pr.outputs.number != ''
         # continue-on-error: a crash must not skip the needs-gated promote/fix
@@ -543,6 +585,10 @@ jobs:
             let panel = [];
             try { panel = JSON.parse(fs.readFileSync('.agent-review/panel.json', 'utf8')); } catch {}
             const byId = Object.fromEntries(panel.map((p) => [p.id, p]));
+            // Run ids of the in_progress checks opened by "Mark lens checks in
+            // progress"; empty if that step was skipped/errored (then we create).
+            let inProgressIds = {};
+            try { inProgressIds = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/lens-check-ids.json`, 'utf8')); } catch {}
             let blocked = false, allValid = true;
             const required = [];
             const infraDetails = []; // lens infraError messages (API/quota — reviewer never ran)
@@ -600,24 +646,37 @@ jobs:
                   findingsText = JSON.stringify(blockers);
                 }
               } catch {}
-              await github.rest.checks.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
-                // Incremental review's state channel: what this lens reviewed, so
-                // the NEXT round can narrow to what came after it. Present only
-                // when the orchestrator decided this lens produced a real verdict
-                // (see `panelEntry`) — the write rule is enforced there, in tested
-                // code, rather than re-derived from `conclusion` here where it
-                // could drift. `undefined` omits the field, which is what makes a
-                // crashed or skipped lens force a full round next time.
-                //
-                // Why not output.text: that field is trimmed to fit 60k BY DROPPING
-                // FINDINGS (just below). It is designed to lose data, and a value
-                // deciding whether code gets reviewed must not live in a lossy
-                // channel. external_id is a fixed 255-char slot nothing else writes.
-                external_id: p && p.reviewState ? p.reviewState : undefined,
-                output: { title: `${lens.id}: ${conclusion}${scopeSuffix}`, summary: summary.slice(0, 60000), text: findingsText },
-              });
+              const output = { title: `${lens.id}: ${conclusion}${scopeSuffix}`, summary: summary.slice(0, 60000), text: findingsText };
+              // Incremental review's state channel: what this lens reviewed, so
+              // the NEXT round can narrow to what came after it. Present only
+              // when the orchestrator decided this lens produced a real verdict
+              // (see `panelEntry`) — the write rule is enforced there, in tested
+              // code, rather than re-derived from `conclusion` here where it
+              // could drift. `undefined` omits the field, which is what makes a
+              // crashed or skipped lens force a full round next time.
+              //
+              // Why not output.text: that field is trimmed to fit 60k BY DROPPING
+              // FINDINGS (just below). It is designed to lose data, and a value
+              // deciding whether code gets reviewed must not live in a lossy
+              // channel. external_id is a fixed 255-char slot nothing else writes.
+              const external_id = p && p.reviewState ? p.reviewState : undefined;
+              // Prefer UPDATING the in_progress check opened at panel start: one
+              // run per lens transitions in_progress → completed, so the PR shows
+              // a live spinner while the panel runs and never a duplicate or a
+              // stuck spinner. Fall back to create when that step didn't run.
+              const existingId = inProgressIds[`agent-review-${lens.id}`];
+              if (existingId) {
+                await github.rest.checks.update({
+                  owner: context.repo.owner, repo: context.repo.repo, check_run_id: existingId,
+                  status: 'completed', conclusion, external_id, output,
+                });
+              } else {
+                await github.rest.checks.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: `agent-review-${lens.id}`, head_sha: sha, status: 'completed', conclusion,
+                  external_id, output,
+                });
+              }
             }
             core.setOutput('blocked', String(blocked));
             core.setOutput('all_valid', String(allValid));
@@ -1163,7 +1222,7 @@ jobs:
       pull-requests: write
       issues: write
       actions: read # set-state reconcile reads the CI workflow-run conclusion
-      checks: read # set-state reconcile reads the lens check-run conclusions
+      checks: write # close any lens checks left in_progress by a killed panel job
     steps:
       - name: Page a human
         id: page
@@ -1203,6 +1262,34 @@ jobs:
             // The single-value label is set by the "Reconcile agent state" step
             // below — it re-derives state from the unforgeable signals (the paged
             // comment just posted → agent:blocked) and self-heals any drift.
+
+      # If the panel job was KILLED mid-run (timeout/cancel), the "Mark lens
+      # checks in progress" step's checks are still spinning — the always()
+      # finaliser in review-panel doesn't run on a job kill, only on a step
+      # failure. Close any that are still open so the PR shows a resolved state
+      # matching the paged comment above, not a spinner that never completes.
+      # Best-effort; only touches unfinished agent-review-* checks on this SHA.
+      - name: Close stuck in-progress lens checks
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.checks.listForRef({
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+            });
+            for (const c of data.check_runs) {
+              if (!/^agent-review-/.test(c.name) || c.status === 'completed') continue;
+              await github.rest.checks.update({
+                owner: context.repo.owner, repo: context.repo.repo, check_run_id: c.id,
+                status: 'completed', conclusion: 'failure',
+                output: {
+                  title: `${c.name.replace(/^agent-review-/, '')}: panel stopped`,
+                  summary: 'The review panel stopped before this lens produced a verdict. A human was paged.',
+                },
+              });
+            }
 
       # The panel died before producing verdicts, but earlier sessions
       # (kickoff / ci-fix) recorded effort — post the summary so the hand-off
