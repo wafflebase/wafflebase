@@ -137,6 +137,29 @@ export function sumExecutions(messages, kind = "review") {
   };
 }
 
+/**
+ * The panel's TRUE wall-clock duration for one round, from review-panel.mjs's
+ * `review-timing.json` (written next to the execution log). This exists because
+ * the flat sum of `duration_ms` over the execution log is NOT wall-clock: the
+ * panel runs its lenses — and each lens's samples + verifier calls —
+ * CONCURRENTLY, so summing overcounts by the concurrency factor (a ~12-min panel
+ * was reported as 36-63). When the timing file is present and sane, its `wallMs`
+ * is the real elapsed time; absent or malformed → null, and the caller keeps the
+ * summed value (unchanged for pre-instrumentation logs). `timingPath` overrides
+ * the sibling default (for tests / explicit `--timing`).
+ */
+export function readWallMs(executionPath, timingPath) {
+  const p = timingPath
+    || (executionPath ? path.join(path.dirname(executionPath), "review-timing.json") : null);
+  if (!p) return null;
+  try {
+    const ms = Number(JSON.parse(readFileSync(p, "utf8"))?.wallMs);
+    return Number.isFinite(ms) && ms > 0 ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Per-message usage tally (raw + weighted tokens, turns, cost). */
 function messageUsage(m) {
   const u = (m && m.usage) || {};
@@ -770,6 +793,11 @@ function cmdRecord(args) {
     rec = sumExecutions(messages, kind);
     if (rec.calls === 0) return bail("no result messages in the review execution log");
     delete rec.calls;
+    // Prefer the panel's real wall-clock over the concurrency-inflated sum of
+    // per-call duration_ms (see readWallMs). Falls back to the summed value when
+    // the timing file is absent (older logs / a crash before it was written).
+    const wallMs = readWallMs(args.execution, args.timing);
+    if (wallMs != null) rec.durationMs = wallMs;
     // Per-lens / detection-vs-verifier token split from the SAME messages. Carried
     // on the record so `summarize` can aggregate it across rounds. Empty object on
     // an un-instrumented log — harmless, just yields no attribution table.

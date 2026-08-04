@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseExecution,
   sumExecutions,
+  readWallMs,
   attributionBreakdown,
   aggregateAttribution,
   aggregate,
@@ -73,6 +74,35 @@ test("sumExecutions: sums EVERY result message (not last-wins like parseExecutio
   assert.equal(empty.calls, 0);
   assert.equal(empty.turns, 0);
   assert.equal(sumExecutions("garbage").calls, 0);
+});
+
+test("readWallMs: reads wallMs from review-timing.json sibling of the execution log", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = (await import("node:path")).default;
+  const dir = mkdtempSync(path.join(tmpdir(), "wallms-"));
+  const exec = path.join(dir, "review-execution.json");
+  writeFileSync(exec, "[]");
+
+  // No timing file yet → null (caller keeps the summed duration).
+  assert.equal(readWallMs(exec), null);
+
+  // Sibling present and sane → its wallMs.
+  writeFileSync(path.join(dir, "review-timing.json"), JSON.stringify({ wallMs: 12 * 60000 }));
+  assert.equal(readWallMs(exec), 12 * 60000);
+
+  // Explicit timingPath overrides the sibling default.
+  const explicit = path.join(dir, "other.json");
+  writeFileSync(explicit, JSON.stringify({ wallMs: 5000 }));
+  assert.equal(readWallMs(exec, explicit), 5000);
+
+  // Non-positive / malformed / missing → null (fail-safe, never throws).
+  writeFileSync(path.join(dir, "review-timing.json"), JSON.stringify({ wallMs: 0 }));
+  assert.equal(readWallMs(exec), null);
+  writeFileSync(path.join(dir, "review-timing.json"), "not json");
+  assert.equal(readWallMs(exec), null);
+  assert.equal(readWallMs(path.join(dir, "nope", "review-execution.json")), null);
+  assert.equal(readWallMs(null), null);
 });
 
 test("aggregate: sums across sessions; attempt counts review-fix rounds + 1", () => {
