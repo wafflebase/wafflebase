@@ -161,12 +161,21 @@ jobs:
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
             }
 
+            // The <!-- agent-rerun --> marker is the RESUME POINT, not decoration:
+            // review-round-guard.mjs counts fix attempts only from the newest one, so
+            // un-sticking a PR gives the loop its full MAX_REVIEW_ROUNDS back instead
+            // of resuming a count that was already at the cap. Without it, clearing
+            // the latch buys exactly one panel round and an immediate re-page — which
+            // is what #648 did when it was un-stuck by hand. Kept in the RESULT
+            // comment (rather than a second one) so un-sticking stays one comment, and
+            // hidden rather than prose because the prose will be reworded.
             core.setOutput('outcome',
+              `<!-- agent-rerun -->\n` +
               `🔁 Rerun engaged — cleared ${clearedLatch} paged marker(s) and dropped \`agent:blocked\`. ` +
               (reran
                 ? "Re-running CI now; the review panel will run again and can promote or fix this PR."
                 : "No CI run to re-run — the panel will engage on the next CI run.") +
-              " Still bounded by the pipeline's round/attempt caps, and a human approval is required to merge.");
+              " The fixer's round budget restarts from here; a human approval is still required to merge.");
 
       # Edit the placeholder into the final result. always() so a failure in the
       # clear step still replaces the "working on it" note instead of stranding it.

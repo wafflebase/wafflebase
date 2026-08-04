@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  isFixerCommit,
+  isSingleParentCommit,
   countFailedReviewRounds,
   summaryTokens,
   findingSimilarity,
@@ -14,6 +14,8 @@ import {
   PAGED_LATCH,
   PAGE_AUTHOR_LOGINS,
   isPagedLatchComment,
+  rerunPointFrom,
+  RERUN_MARKER,
 } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -135,12 +137,12 @@ const merge = (sha, checkRuns = []) => ({ sha, parents: [{ sha: "p1" }, { sha: "
 const failingRun = (name = "agent-review-correctness") => ({ name, app: { slug: "github-actions" }, conclusion: "failure" });
 const passingRun = (name = "agent-review-correctness") => ({ name, app: { slug: "github-actions" }, conclusion: "success" });
 
-test("isFixerCommit: one parent → true; merge (2) or root (0) → false", () => {
-  assert.equal(isFixerCommit({ parents: [{ sha: "a" }] }), true);
-  assert.equal(isFixerCommit({ parents: [{ sha: "a" }, { sha: "b" }] }), false);
-  assert.equal(isFixerCommit({ parents: [] }), false);
-  assert.equal(isFixerCommit({}), false);
-  assert.equal(isFixerCommit(undefined), false);
+test("isSingleParentCommit: one parent → true; merge (2) or root (0) → false", () => {
+  assert.equal(isSingleParentCommit({ parents: [{ sha: "a" }] }), true);
+  assert.equal(isSingleParentCommit({ parents: [{ sha: "a" }, { sha: "b" }] }), false);
+  assert.equal(isSingleParentCommit({ parents: [] }), false);
+  assert.equal(isSingleParentCommit({}), false);
+  assert.equal(isSingleParentCommit(undefined), false);
 });
 
 test("countFailedReviewRounds: PR #521 shape — 3 fixer + 3 merge, same failing check → 3, not 6", () => {
@@ -354,4 +356,126 @@ test("groupReviewRounds: other-app check ignored; newest run per lens wins", () 
   const older = run("agent-review-correctness", [{ severity: "major", file: "a.ts", summary: "OLD" }], { completed_at: "2026-07-27T05:00:00Z" });
   const newer = run("agent-review-correctness", [{ severity: "major", file: "a.ts", summary: "NEW" }], { completed_at: "2026-07-27T07:00:00Z" });
   assert.deepEqual(groupReviewRounds([commit("c1", [older, newer])], NAMES)[0].findings.map((x) => x.summary), ["NEW"]);
+});
+
+// --- the rerun resume point -------------------------------------------------
+
+const human = (body, over = {}) => ({
+  body, created_at: "2026-08-04T10:00:00Z",
+  user: { login: "harrykim8672", type: "User" }, author_association: "MEMBER", ...over,
+});
+const rerunResult = (over = {}) => ({
+  body: `${RERUN_MARKER}\n🔁 Rerun engaged — cleared 1 paged marker(s)`,
+  created_at: "2026-08-04T09:30:00Z",
+  user: { login: "github-actions[bot]", type: "Bot" }, author_association: "CONTRIBUTOR", ...over,
+});
+
+test("rerunPointFrom: the newest rerun wins; no rerun is null", () => {
+  assert.equal(rerunPointFrom([]), null);
+  assert.equal(rerunPointFrom([human("just a comment")]), null);
+  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00Z");
+  assert.equal(
+    rerunPointFrom([rerunResult(), rerunResult({ created_at: "2026-08-04T14:00:00Z" })]),
+    "2026-08-04T14:00:00Z",
+  );
+  assert.equal(rerunPointFrom([rerunResult({ created_at: "nonsense" })]), null);
+  for (const bad of [null, undefined, "x", 7]) assert.equal(rerunPointFrom(bad), null);
+});
+
+test("rerunPointFrom: a stranger cannot grant the loop a fresh budget", () => {
+  // Public repo, and this marker RESETS the fix-attempt cap — a body test alone
+  // would let any account hand the fixer unlimited attempts.
+  assert.equal(rerunPointFrom([rerunResult({ user: { login: "drive-by", type: "User" }, author_association: "NONE" })]), null);
+  assert.equal(rerunPointFrom([rerunResult({ user: { login: "coderabbitai[bot]", type: "Bot" }, author_association: "CONTRIBUTOR" })]), null);
+  // The workflow's own bot, and a maintainer by hand, both may.
+  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00Z");
+  assert.equal(
+    rerunPointFrom([rerunResult({ user: { login: "a-maintainer", type: "User" }, author_association: "OWNER" })]),
+    "2026-08-04T09:30:00Z",
+  );
+});
+
+test("agent-rerun.yml writes the marker the guard reads", () => {
+  // The marker is a contract between a workflow and a module that cannot import
+  // it. A drifted copy does not error — the budget silently never resets, and the
+  // PR re-pages after one round exactly as it did before this existed.
+  const rerunWorkflow = readFileSync(
+    path.join(HERE, "..", "..", ".github", "workflows", "agent-rerun.yml"),
+    "utf8",
+  );
+  assert.ok(
+    rerunWorkflow.includes(RERUN_MARKER),
+    "agent-rerun.yml must emit RERUN_MARKER into its result comment",
+  );
+});
+
+// --- the round count, against #648's real shape ------------------------------
+
+const ROUND_NAMES = ["agent-review-correctness", "agent-review-security"];
+const lensRun = (conclusion, completed_at) => ({
+  name: "agent-review-correctness", app: { slug: "github-actions" }, conclusion, completed_at,
+});
+const commitAt = (sha, date, runs) => ({
+  sha, parents: [{ sha: "p" }], commit: { committer: { date } }, checkRuns: runs,
+});
+
+// The exact shape of PR #648: the implement agent pushes its work, self-reviews,
+// fixes what it found and pushes AGAIN — two commits before the panel has ever
+// spoken — then the fix loop pushes once. The old count returned 3 and tripped a
+// cap of 3 after a SINGLE fix attempt.
+const PR648 = [
+  commitAt("cde0fad48", "2026-08-03T09:31:22Z", [lensRun("failure", "2026-08-03T10:05:15Z")]),
+  commitAt("1d9e19dee", "2026-08-03T09:43:53Z", [lensRun("failure", "2026-08-03T10:11:28Z")]),
+  commitAt("102e0fa73", "2026-08-03T10:32:17Z", [lensRun("failure", "2026-08-03T17:42:33Z")]),
+];
+
+test("countFailedReviewRounds: commits predating the FIRST verdict are not fix attempts", () => {
+  // A commit committed before the panel first spoke cannot be a response to it.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES), 1);
+});
+
+test("countFailedReviewRounds: a retry moves the floor, granting a fresh budget", () => {
+  // #648 after a maintainer hands it back: the pre-retry attempt no longer counts,
+  // so the loop gets its full MAX_REVIEW_ROUNDS again instead of re-paging on the
+  // first round.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), 0);
+  // A post-retry failure does count.
+  const after = [...PR648, commitAt("aaaaaaaaa", "2026-08-03T18:30:00Z", [lensRun("failure", "2026-08-03T18:45:00Z")])];
+  assert.equal(countFailedReviewRounds(after, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), 1);
+  // A retry OLDER than the first verdict must not widen the count back out.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: "2026-08-03T08:00:00Z" }), 1);
+});
+
+test("countFailedReviewRounds: FAILS TOWARD COUNTING when the floor is unknowable", () => {
+  // This number feeds a CAP. Over-counting pages a round early, which `@claude
+  // retry` undoes; under-counting means the cap never trips and the loop is
+  // unbounded, recoverable only if someone notices. So missing timestamps must
+  // not silently disable the bound.
+  //
+  // No verdict timestamps anywhere → no floor → every failing commit counts,
+  // exactly as before this refinement. (This is the PR #521 fixture's shape.)
+  const noStamps = PR648.map((c) => ({
+    ...c,
+    checkRuns: c.checkRuns.map((r) => ({ ...r, completed_at: undefined })),
+  }));
+  assert.equal(countFailedReviewRounds(noStamps, ROUND_NAMES), 3);
+  // A floor exists, but ONE commit has no committer date → it cannot be proven to
+  // predate the floor, so it counts.
+  const undated = [PR648[0], { ...PR648[1], commit: {} }, PR648[2]];
+  assert.equal(countFailedReviewRounds(undated, ROUND_NAMES), 2);
+  // Genuinely nothing to count.
+  const noRuns = PR648.map((c) => ({ ...c, checkRuns: [] }));
+  assert.equal(countFailedReviewRounds(noRuns, ROUND_NAMES), 0);
+  for (const bad of [null, undefined, "x", 7]) assert.equal(countFailedReviewRounds(bad, ROUND_NAMES), 0);
+  assert.equal(countFailedReviewRounds(PR648, []), 0);
+});
+
+test("countFailedReviewRounds: merges and passing rounds still do not count", () => {
+  const merge = { ...PR648[2], parents: [{ sha: "a" }, { sha: "b" }] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], merge], ROUND_NAMES), 0);
+  const passed = { ...PR648[2], checkRuns: [lensRun("success", "2026-08-03T17:42:33Z")] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], passed], ROUND_NAMES), 0);
+  // A same-named check from another app cannot inflate the count.
+  const foreign = { ...PR648[2], checkRuns: [{ ...lensRun("failure", "2026-08-03T17:42:33Z"), app: { slug: "other" } }] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], foreign], ROUND_NAMES), 0);
 });

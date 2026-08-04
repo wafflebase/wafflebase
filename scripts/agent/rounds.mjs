@@ -63,26 +63,118 @@ export function isPagedLatchComment(comment) {
   return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
 }
 
-/** A commit is a "fixer" commit iff it has exactly one parent. */
-export function isFixerCommit(commit) {
+/**
+ * Hidden marker `agent-rerun.yml` writes when a maintainer un-sticks a PR.
+ *
+ * `@claude rerun` (#650) already clears the paged latch and re-runs CI — it
+ * DELETES the paged comments outright, so nothing here needs to out-date them.
+ * What it could not do is give the loop its budget back: its own summary says
+ * the PR is "still bounded by the pipeline's round/attempt caps", which on a PR
+ * that reached the cap means one panel round and an immediate re-page. This
+ * marker is the resume point that fixes that.
+ *
+ * A hidden marker rather than the visible prose, because the prose is a message
+ * to a human and will be reworded; and on the RESULT comment rather than a new
+ * one, so un-sticking stays a single comment in the thread.
+ */
+export const RERUN_MARKER = "<!-- agent-rerun -->";
+
+/**
+ * ISO timestamp of the newest rerun, or null.
+ *
+ * Author-checked for the same reason the paged latch is: this repo is PUBLIC, and
+ * the marker GRANTS the loop a fresh budget. A body test alone would let any
+ * account post it and hand the fixer unlimited attempts. Only the workflow's own
+ * bot, or a human with write access, may move the floor.
+ */
+export function rerunPointFrom(comments) {
+  const stamps = (Array.isArray(comments) ? comments : [])
+    .filter((c) => {
+      const o = c && typeof c === "object" ? c : {};
+      if (!String(o.body ?? "").includes(RERUN_MARKER)) return false;
+      const user = o.user && typeof o.user === "object" ? o.user : {};
+      if (user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+      return TRUSTED_ASSOCIATIONS.has(String(o.author_association ?? ""));
+    })
+    .map((c) => String(c.created_at ?? ""))
+    .filter((s) => s !== "" && Number.isFinite(Date.parse(s)))
+    .sort();
+  return stamps.length ? stamps[stamps.length - 1] : null;
+}
+
+/** A commit has exactly one parent — i.e. it is not a merge commit.
+ *
+ * NOT "was pushed by the fixer", which is what the old name (`isFixerCommit`)
+ * claimed and what every caller read it as. It cannot know that: the check is
+ * deliberately identity-independent, because the bot identity behind fixer
+ * pushes has already changed once in this pipeline's history. See
+ * `countFailedReviewRounds` for what actually separates a fix attempt from the
+ * implementer's own commits. */
+export function isSingleParentCommit(commit) {
   return Array.isArray(commit?.parents) && commit.parents.length === 1;
 }
 
+/** Earliest completed panel verdict anywhere on the PR, or null. */
+function firstVerdictAt(commits, names) {
+  const stamps = [];
+  for (const c of Array.isArray(commits) ? commits : []) {
+    for (const r of c?.checkRuns ?? []) {
+      if (!names.has(r?.name)) continue;
+      const t = String(r?.completed_at ?? "");
+      if (t !== "" && Number.isFinite(Date.parse(t))) stamps.push(t);
+    }
+  }
+  stamps.sort();
+  return stamps.length ? stamps[0] : null;
+}
+
 /**
- * Count commits that are BOTH a fixer commit AND carry a failing required
- * lens check-run from OUR panel (exact name match + producing app, so a
- * same-named check from some other installed app can't inflate the count).
+ * How many times has the FIX LOOP tried and failed?
  *
- * `commits`: Array<{ sha, parents, checkRuns: Array<{name, app, conclusion}> }>
- * `requiredCheckNames`: string[]
+ * This used to count every single-parent commit carrying a failing lens verdict,
+ * which is not the same thing and was wrong on every agent PR measured. The
+ * implement workflow pushes its work, self-reviews, fixes what it found, and
+ * pushes AGAIN — two commits, each triggering CI, each drawing its own panel
+ * round. Both were counted as failed fix rounds before the fix loop had run once.
+ * On #648 and #605 alike that silently consumed exactly 2 of the budget, so when
+ * #615 lowered `MAX_REVIEW_ROUNDS` from 5 to 3 believing it was trimming a
+ * wasteful tail, the real effect was to cut the loop from three attempts to ONE.
+ * #648 then reported "requested changes 3 times without converging" after a
+ * single fix attempt.
+ *
+ * A commit committed BEFORE the panel first spoke cannot be a response to it.
+ * That is the whole discriminator, it needs no identity, and it is already in the
+ * data. `since` moves the floor forward again after a maintainer's `@claude rerun`, so a
+ * hand-back grants a fresh budget rather than resuming one already spent.
  */
-export function countFailedReviewRounds(commits, requiredCheckNames) {
+export function countFailedReviewRounds(commits, requiredCheckNames, { since = null } = {}) {
   const names = new Set(requiredCheckNames ?? []);
   const isFailingLensRun = (r) =>
     names.has(r.name) && r.app?.slug === "github-actions" && r.conclusion === "failure";
-  return (commits ?? []).filter(
-    (c) => isFixerCommit(c) && (c.checkRuns ?? []).some(isFailingLensRun),
-  ).length;
+  const first = firstVerdictAt(commits, names);
+  const s = typeof since === "string" && Number.isFinite(Date.parse(since)) ? since : null;
+  const floor = first === null ? null : s && s > first ? s : first;
+  // `Array.isArray`, not `?? []`: a non-array truthy value (a string from a
+  // mis-wired caller) passes the nullish guard and then throws on `.filter`,
+  // which fails the guard STEP rather than the round count — and a thrown guard
+  // is a dead fix job, not a conservative one.
+  return (Array.isArray(commits) ? commits : []).filter((c) => {
+    if (!isSingleParentCommit(c)) return false;
+    if (!(c.checkRuns ?? []).some(isFailingLensRun)) return false;
+    // FAILS TOWARD COUNTING, and the direction matters more here than the
+    // precision does. This number feeds a CAP: over-counting pages a round early,
+    // which a maintainer can undo with `@claude rerun`, while under-counting means
+    // the cap never trips and the loop is unbounded — recoverable only if someone
+    // happens to notice. So a commit whose position cannot be established counts,
+    // and if no verdict timestamp exists anywhere the whole floor is abandoned and
+    // every failing commit counts, exactly as before this refinement.
+    if (floor === null) return true;
+    // Committer date, not author date: a rebased commit keeps an author date that
+    // can predate a verdict it plainly followed.
+    const at = String(c?.commit?.committer?.date ?? "");
+    if (at === "" || !Number.isFinite(Date.parse(at))) return true;
+    return at > floor;
+  }).length;
 }
 
 // --- convergence detection ---------------------------------------------------

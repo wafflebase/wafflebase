@@ -22,6 +22,7 @@ import {
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
   isPagedLatchComment,
+  rerunPointFrom,
 } from "./rounds.mjs";
 import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
 
@@ -102,6 +103,14 @@ if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
   process.exit(0);
 }
+// `@claude rerun` (#650) deletes the paged comments, so the latch above is
+// already clear by the time we get here. What it cannot do on its own is give the
+// budget back — its summary says the PR is "still bounded by the pipeline's
+// round/attempt caps", which on a PR that reached the cap means one panel round
+// and an immediate re-page. That is exactly what #648 did when it was un-stuck by
+// hand. The marker rerun leaves behind moves the round floor forward.
+const rerunAt = rerunPointFrom(comments);
+if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 
 // API/quota outage (every blocking lens failed on an API error) → the reviewer
 // never ran. Page with the REAL reason and DO NOT dispatch the fixer or count a
@@ -209,10 +218,11 @@ if (stall.stalled) {
   process.exit(0);
 }
 
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames);
+const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
 if (failedRounds >= max) {
   page(
-    `The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`,
+    `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
+      `${retryAt ? " since the last retry" : ""}. A human should take over on PR #${pr}.`,
   );
   process.exit(0);
 }

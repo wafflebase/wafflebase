@@ -935,6 +935,36 @@ Components:
   than manufacture a page, since `MAX_REVIEW_ROUNDS` still backstops and a
   spurious page is the costlier error. Tuned via `STALL_REPEATS` /
   `STALL_SIMILARITY`.
+- **`MAX_REVIEW_ROUNDS` counts FIX ATTEMPTS, not panel rounds.** It used to count
+  every single-parent commit carrying a failing lens verdict, which is not the
+  same thing and was wrong on every agent PR measured. The implement workflow
+  pushes its work, self-reviews, fixes what it found, and pushes AGAIN — two
+  commits, each drawing its own panel round, both counted as failed fix rounds
+  before the fix loop had run once. On #648 and #605 alike that consumed exactly
+  2 of the budget, so lowering the cap from 5 to 3 cut the loop from three real
+  attempts to **one**; #648 then reported "requested changes 3 times without
+  converging" after a single fix attempt. The discriminator is already in the
+  data: *a commit committed before the panel first spoke cannot be a response to
+  it*. `isFixerCommit` was renamed `isSingleParentCommit`, because that is all it
+  ever tested and the old name is what made the miscount look correct.
+
+  It **fails toward counting**: a commit whose position cannot be established
+  counts, and with no verdict timestamps anywhere the floor is abandoned entirely.
+  Over-counting pages a round early, which a retry undoes; under-counting means
+  the cap never trips and the loop is unbounded.
+- **`@claude rerun` now restores the fix budget too.** #650 added the command: it
+  deletes the paged comments, drops `agent:blocked` and re-runs CI. What it could
+  not do is give the loop its attempts back — its own summary said the PR was
+  "still bounded by the pipeline's round/attempt caps", which on a PR that reached
+  the cap means one panel round and an immediate re-page. That is exactly what
+  #648 did when it was un-stuck by hand. It now writes a hidden `RERUN_MARKER`
+  into its result comment, and `scripts/agent/review-round-guard.mjs` counts fix
+  attempts only from the newest one.
+
+  The marker is **author-checked** like the paged latch, and for a sharper reason:
+  the latch only ever stops work, while this GRANTS budget, so on a public repo a
+  body test alone would let any account hand the fixer unlimited attempts. Only
+  the workflow's own bot or a human with write access may move the floor.
 - **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
   `concurrency` group keyed on the head repository and branch, with
   `cancel-in-progress`. The repository half is a security requirement: the group is
