@@ -1,9 +1,18 @@
-import { classifyUploadKind, SKIP_REASON, type UploadKind } from "./upload-kind";
+import {
+  classifyUploadKind,
+  CLIENT_PARSE_MAX_BYTES,
+  SKIP_REASON,
+  type UploadKind,
+} from "./upload-kind";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
+import {
+  importCsvFile,
+  importSheetViaBackend,
+} from "@/app/spreadsheet/csv-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
-import { uploadFile } from "@/api/files";
+import { uploadFile, uploadImportFile } from "@/api/files";
 import { createDocument, deleteDocument } from "@/api/documents";
 import { createWorkspaceDocument } from "@/api/workspaces";
 import { applyImportedContent as applyImportedContentDefault } from "./apply-imported-content";
@@ -146,10 +155,15 @@ export function removeItem(id: string): void {
  * Remove a row from the panel, cleaning up any remote resource it orphaned.
  *
  * An errored item may have already created its backend document (docId set)
- * before failing to apply content — an empty orphan. Deleting the document
- * also releases any blob it referenced. Dropping the row without this would
- * leak an empty "Imported …" document into the workspace. Best-effort: a
- * failed delete still removes the local row (the user asked to dismiss it).
+ * before failing to apply content — an empty orphan. Dropping the row without
+ * this would leak an empty "Imported …" document into the workspace.
+ * Best-effort: a failed delete still removes the local row (the user asked to
+ * dismiss it).
+ *
+ * A staged import blob (`fileId` on a backend-parsed sheet) is NOT released by
+ * that delete: the sheet stores cells, never a `fileId`, so the document holds
+ * no reference to reclaim. Those are collected by the `imports/` expiry rule
+ * instead — see `FileService.ensureImportExpiry`.
  */
 export function dismissItem(id: string): void {
   const item = items.find((it) => it.id === id);
@@ -199,9 +213,12 @@ interface DocRef {
 
 export interface UploadDeps {
   importXlsx: typeof importXlsx;
+  importCsvFile: typeof importCsvFile;
+  importSheetViaBackend: typeof importSheetViaBackend;
   importDocx: typeof importDocx;
   importPptxFile: typeof importPptxFile;
   uploadFile: typeof uploadFile;
+  uploadImportFile: typeof uploadImportFile;
   createDoc: (
     workspaceId: string | undefined,
     payload: {
@@ -219,9 +236,12 @@ export interface UploadDeps {
 
 const defaultDeps: UploadDeps = {
   importXlsx,
+  importCsvFile,
+  importSheetViaBackend,
   importDocx,
   importPptxFile,
   uploadFile,
+  uploadImportFile,
   createDoc: (ws, payload) =>
     ws ? createWorkspaceDocument(ws, payload) : createDocument(payload),
   getDocumentPath: getDocumentPathDefault,
@@ -235,8 +255,8 @@ let activeDeps: UploadDeps = defaultDeps;
 // host can refresh the list, surface a failure, or warn about a lossy import.
 let onItemSettledCb: ((item: UploadItem) => void) | undefined;
 
-function stripExt(name: string, ext: string, fallback: string): string {
-  return name.replace(new RegExp(`\\.${ext}$`, "i"), "") || fallback;
+function stripExt(name: string, fallback: string): string {
+  return name.replace(/\.[^.]+$/, "") || fallback;
 }
 
 /**
@@ -310,6 +330,54 @@ function rateLimitBackoffMs(err: unknown, attempt: number): number | null {
   return Math.min(1000 * 2 ** attempt, 15000);
 }
 
+/**
+ * A CSV too large to parse in the browser is parsed by the backend. Upload the
+ * blob at most once per item and persist its id *before* the parse, exactly as
+ * the pdf/image branch does, so a retry whose earlier failure was in the
+ * preview reuses the blob instead of orphaning it with a second upload.
+ *
+ * `detail` carries the wording because neither stage has a denominator: the
+ * blob upload reports no progress and the server parse is one opaque request.
+ * Without it the row shows a bare spinner for the whole round trip — the case
+ * `UploadItem.detail` exists for.
+ */
+async function importSheetViaBackendUpload(
+  item: UploadItem,
+  file: File,
+  workspaceId: string,
+) {
+  const d = activeDeps;
+  patchItem(item.id, { status: "uploading", detail: "Uploading…" });
+  try {
+    let fileId = item.fileId;
+    if (!fileId) {
+      // Not `uploadFile`: data blobs go to the workspace-scoped import route,
+      // which is the only one whose size ceiling admits them.
+      ({ id: fileId } = await d.uploadImportFile(workspaceId, file));
+      patchItem(item.id, { fileId });
+    }
+    patchItem(item.id, { status: "parsing", detail: "Parsing on server…" });
+    try {
+      return await d.importSheetViaBackend(workspaceId, fileId);
+    } catch (err) {
+      // 410: the staged blob expired (they live a day) or was otherwise
+      // reclaimed. The id is spent, so drop it — without this every later
+      // Retry re-previews an id the server can never resolve again, and the
+      // row can never recover. Cleared here rather than in `retry` because
+      // this is the only place that knows the id died rather than the parse.
+      if ((err as { status?: number } | null)?.status === 410) {
+        patchItem(item.id, { fileId: undefined });
+      }
+      throw err;
+    }
+  } finally {
+    // The shared tail below reports its own status; leaving `detail` set
+    // (from either stage) would pin it over the document-creation stage, or
+    // strand it on an upload failure the outer error handling never clears.
+    patchItem(item.id, { detail: undefined });
+  }
+}
+
 async function runItem(item: UploadItem): Promise<void> {
   const d = activeDeps;
   const file = item.file!;
@@ -326,21 +394,51 @@ async function runItem(item: UploadItem): Promise<void> {
       try {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
-          const { document } = await d.importXlsx(file);
-          const title = stripExt(item.fileName, "xlsx", "Imported Sheet");
+          // The queue only routes by `kind`; the sheet formats split here.
+          // `.tsv` joins `.csv` because the importer guesses the delimiter.
+          const isCsv = /\.(csv|tsv)$/i.test(item.fileName);
+          const oversized = isCsv && file.size > CLIENT_PARSE_MAX_BYTES;
+          // XLSX stays in the browser at any size: it has no backend parser
+          // (`read_csv` cannot open a workbook) and the client path works.
+          // The preview is workspace-scoped for authorization, so an item
+          // enqueued outside a workspace (the `/documents` route) has nowhere
+          // to send the blob — and past the threshold the browser cannot read
+          // the file either, so say so rather than dying inside `File.text()`.
+          if (oversized && !item.workspaceId) {
+            throw new Error(
+              "This file is too large to import outside a workspace.",
+            );
+          }
+          const large =
+            oversized && item.workspaceId
+              ? await importSheetViaBackendUpload(item, file, item.workspaceId)
+              : undefined;
+          // `??` short-circuits, so the client parser never runs for a large CSV.
+          const parsed =
+            large ??
+            (isCsv ? await d.importCsvFile(file) : await d.importXlsx(file));
+          const { document } = parsed;
+          const title = stripExt(item.fileName, "Imported Sheet");
           const created = await getOrCreateDoc(item, { title, type: "sheet" });
           // Persist the parsed content into the Yorkie doc now (see
           // apply-imported-content.ts) so "done" means it is actually saved —
           // not merely stashed in memory awaiting an editor mount.
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "sheet", document });
-          finish(item.id, created);
+          // The cap lives in the engine, so a client-parsed file can be
+          // truncated too — the warning belongs to both paths, not just the
+          // backend one. XLSX has no cap yet and reports neither field.
+          const truncation =
+            "truncated" in parsed && parsed.truncated
+              ? `Only the first ${parsed.rowCount.toLocaleString()} rows were imported.`
+              : undefined;
+          finish(item.id, created, truncation);
         } else if (item.kind === "doc") {
           patchItem(item.id, { status: "parsing" });
           const { doc } = await d.importDocx(file, ({ done, total }) =>
             patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "docx", "Imported Document");
+          const title = stripExt(item.fileName, "Imported Document");
           const created = await getOrCreateDoc(item, { title, type: "doc" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "doc", document: doc });
@@ -352,7 +450,7 @@ async function runItem(item: UploadItem): Promise<void> {
             ({ done, total }) =>
               patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "pptx", "Imported Presentation");
+          const title = stripExt(item.fileName, "Imported Presentation");
           const created = await getOrCreateDoc(item, { title, type: "slides" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "slides", document });
@@ -363,10 +461,8 @@ async function runItem(item: UploadItem): Promise<void> {
           finish(item.id, created, warning);
         } else if (item.kind === "pdf" || item.kind === "image") {
           patchItem(item.id, { status: "uploading" });
-          const dot = item.fileName.lastIndexOf(".");
-          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
           const fallback = item.kind === "pdf" ? "Untitled PDF" : "Untitled Image";
-          const title = stripExt(item.fileName, ext, fallback);
+          const title = stripExt(item.fileName, fallback);
           // Upload the blob at most once per item: persist the returned fileId
           // immediately so a retry whose earlier failure was in createDoc reuses
           // the blob instead of orphaning it with a second upload.
