@@ -124,31 +124,85 @@ export function isAgentPr(pr) {
 }
 
 /**
- * When the pipeline handed this PR to humans (ISO string), or null.
+ * When `mark-ready.mjs` posted its hand-off marker (ISO string), or null.
  *
  * FIRST marker comment, not the last: a PR that is un-readied and re-promoted has
  * two, and the human work we are looking for starts at the first one.
  *
- * The `readyForReviewAt` fallback is load-bearing rather than belt-and-braces.
- * `mark-ready.mjs` posts the hand-off comment inside a `try/catch` AFTER the PR is
- * already flipped to ready, explicitly so a failed comment cannot fail a
- * successful promotion — which means a genuinely promoted PR can carry no marker
- * at all. Keying only on the comment would make those PRs invisible to the
- * harvester, and invisible is the one failure a corpus cannot recover from later.
+ * A CORROBORATING signal only — `panelApprovedAt` prefers the panel's own check
+ * runs and reaches for this when it has none. The marker genuinely means "the panel
+ * approved" (that is the only thing that posts it), but it can be absent from a PR
+ * that really was promoted: `mark-ready.mjs` posts it inside a `try/catch` AFTER
+ * flipping the PR ready, so a failed comment cannot fail a successful promotion.
  *
- * Returns null when neither is present. Callers must treat null as "cannot
- * classify this PR" and skip it LOUDLY, never as "handed off at time zero" —
- * that would make every commit on the PR a candidate.
+ * `ready_for_review` USED TO BE the fallback here and has been removed outright, not
+ * demoted. It answers a different question — "when did this PR leave draft" — and
+ * fires whether or not the panel ever spoke, so on a manually-readied PR it made
+ * every subsequent human commit a candidate. It was also unreachable for the 18 of
+ * 33 agent PRs opened ready rather than promoted, i.e. it over-fired on the PRs it
+ * covered and covered none of the PRs it was reached for. The timeline request it
+ * needed is gone with it.
  */
-export function handoffTime({ comments = [], readyForReviewAt = null } = {}) {
+export function markerHandoffAt(comments = []) {
   const marked = (Array.isArray(comments) ? comments : [])
     .filter((c) => str(c?.body).includes(HANDOFF_MARKER))
     .map((c) => str(c?.created_at))
     .filter((t) => t !== "" && Number.isFinite(Date.parse(t)))
     .sort();
-  if (marked.length > 0) return marked[0];
-  const ready = str(readyForReviewAt);
-  return ready !== "" && Number.isFinite(Date.parse(ready)) ? ready : null;
+  return marked.length > 0 ? marked[0] : null;
+}
+
+/**
+ * When the panel APPROVED this PR (ISO string), or null.
+ *
+ * The panel's own check runs are the primary source, and the reason is that they
+ * are the only signal which is present whenever the panel ran, carries a server
+ * timestamp, and means what we need it to mean:
+ *
+ * |                                  | marker comment | ready_for_review | check runs |
+ * |----------------------------------|----------------|------------------|------------|
+ * | present whenever the panel ran   | no (try/catch) | no               | YES        |
+ * | survives a rebase / force-push   | yes            | yes              | YES        |
+ * | means "the panel approved"       | yes            | NO               | YES        |
+ *
+ * That third row is why `ready_for_review` is gone, and the first is why the marker
+ * cannot be primary. The second row is the one that matters most in practice:
+ * `completed_at` is stamped by GitHub on the check run, so a rebase that rewrites
+ * every committer date on the PR cannot move it. The previous implementation keyed
+ * the cutoff off a comment and then compared it against committer dates, so a
+ * force-push after promotion pushed every commit past the cutoff, emptied the
+ * before-handoff set, and left signature 2 with no comparison set at all.
+ *
+ * The FIRST all-success round, not the newest, and this is the one place where the
+ * obvious choice is actively self-defeating. Every human fix pushed after an approval
+ * opens a new round, and that round then approves too — so keying on the newest
+ * approval moves the cutoff PAST the very commits the signature exists to catch.
+ * Measured on #548: the newest-approval cutoff lands on 2026-07-28, four days after
+ * the three human fixes of 2026-07-25, and loses all three — including the rows a
+ * human has already curated into `misses.jsonl`.
+ *
+ * So this matches `markerHandoffAt`'s "FIRST marker, not the last" for the same
+ * reason: the human work being looked for starts the first time the panel said the PR
+ * was fine. A later re-approval does not un-say it.
+ *
+ * Rounds with `conclusion: "failure"` or `""` are not approvals, which is also what
+ * keeps ADVISORY rounds out — an `@claude review` round carries `conclusion: ""`
+ * because it reached no gate conclusion (see `panelRounds`).
+ *
+ * Returns null when the panel never approved. Callers must treat null as "cannot
+ * classify", never as "approved at time zero" — that would make every commit on the
+ * PR a candidate, which is precisely the over-fire this replaces.
+ */
+export function panelApprovedAt(rounds, markerAt = null) {
+  // Ordered by PARSED TIME, for the reason `panelRoundAt` gives.
+  const approvals = (Array.isArray(rounds) ? rounds : [])
+    .filter((r) => str(r?.conclusion) === "success")
+    .map((r) => str(r?.completedAt))
+    .filter((t) => t !== "" && Number.isFinite(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  if (approvals.length > 0) return approvals[0];
+  const marker = str(markerAt);
+  return marker !== "" && Number.isFinite(Date.parse(marker)) ? marker : null;
 }
 
 /**
@@ -425,6 +479,45 @@ export function panelFindingsFromComments(comments) {
   return seen ? { reviewedSha, findings } : null;
 }
 
+/**
+ * Each on-demand review as a ROUND, in the same shape `panelRounds` produces.
+ *
+ * The point of expressing an advisory review this way is that everything downstream
+ * — ordering, `roundsUpTo`, `panelApprovedAt`, `panelSaw` — then works on one kind of
+ * thing. The previous code treated this channel as a whole-PR fallback, so an
+ * on-demand PR got a single comparison set for every CodeRabbit finding on it no
+ * matter which commit each was about; as a round it gets the same per-commit
+ * treatment the gating arm does, for free.
+ *
+ * `conclusion` is `""`, and that is not a missing value — an advisory review reaches
+ * no gate conclusion. It is also what keeps these rounds out of `panelApprovedAt`,
+ * which selects on `"success"`: an `@claude review` is not an approval and must never
+ * become signature 1's cutoff.
+ *
+ * `blockers` is carried already-parsed, so these rounds cost no second request. The
+ * `index` is where the reviewed commit sits on the PR, or -1 when that commit is no
+ * longer on the branch (see `roundsUpTo` for what -1 buys).
+ */
+export function commentRounds(comments, commits) {
+  const out = [];
+  for (const c of Array.isArray(comments) ? comments : []) {
+    if (!PANEL_LOGINS.has(str(c?.user?.login))) continue;
+    const parsed = parsePanelComment(c?.body);
+    if (!parsed) continue;
+    const sha = str(parsed.reviewedSha);
+    out.push({
+      sha,
+      index: commitIndex(commits, sha),
+      conclusion: "",
+      reviewedSha: sha,
+      completedAt: str(c?.created_at),
+      blockers: parsed.findings,
+      advisory: true,
+    });
+  }
+  return out;
+}
+
 /** Verdicts `attributeToPanel` can reach. `""` is a fourth state and means the
  *  question was never asked — see `attributeToPanel`. */
 export const MATCH_VERDICTS = new Set(["match", "maybe", "no"]);
@@ -621,9 +714,27 @@ export function dedupeById(records) {
  * per-lens because the question a miss record asks is "did the panel let this
  * through", and one failing lens means it did not.
  */
-export function panelVerdictAt(runsByLens) {
-  const runs = runsByLens instanceof Map ? runsByLens : new Map(Object.entries(runsByLens ?? {}));
-  const findings = tagPriorFindings(runs);
+const asRunMap = (runsByLens) =>
+  runsByLens instanceof Map ? runsByLens : new Map(Object.entries(runsByLens ?? {}));
+
+/**
+ * The CHEAP half of a verdict: `{reviewedSha, conclusion, completedAt}`.
+ *
+ * Split out because it is answerable from the check-runs LIST response, which omits
+ * `output.text` — so establishing WHICH commits the panel reviewed costs one call per
+ * commit, and the per-run refetch that carries the findings is spent only on the
+ * rounds a candidate is actually compared against. See `harvestPr`.
+ *
+ * Not merely an optimisation. `conclusion`'s aggregate rule is load-bearing ("one
+ * failing lens means the panel did not let it through") and this keeps it in ONE
+ * place rather than growing a second copy for the cheap path to use.
+ *
+ * `completedAt` is the LATEST `completed_at` across the lens runs, because the round
+ * is not over until its last lens is. It falls back to `started_at` on the same
+ * per-run basis `latestLensRuns` orders by, and to `""` when neither parses.
+ */
+export function panelRoundAt(runsByLens) {
+  const runs = asRunMap(runsByLens);
   const conclusions = [...runs.values()].map((r) => str(r?.conclusion));
   const conclusion =
     conclusions.length === 0 ? "" : conclusions.includes("failure") ? "failure" : "success";
@@ -639,7 +750,51 @@ export function panelVerdictAt(runsByLens) {
       break;
     }
   }
-  const classified = classify(findings);
+  // Compared as PARSED TIMES, not as strings. Lexicographic order happens to work for
+  // the `…Z` form GitHub returns and silently stops working for any offset form, which
+  // is the kind of latent bug a timestamp comparison should not have.
+  let completedAt = "";
+  let latest = -Infinity;
+  for (const r of runs.values()) {
+    const t = str(r?.completed_at) || str(r?.started_at);
+    const at = Date.parse(t);
+    if (t !== "" && Number.isFinite(at) && at > latest) {
+      latest = at;
+      completedAt = t;
+    }
+  }
+  return { reviewedSha, conclusion, completedAt };
+}
+
+/**
+ * What the panel concluded on a given commit: `{reviewedSha, conclusion,
+ * blockingFindings, blockers}`.
+ *
+ * `blockers` is the blocking findings THEMSELVES, and it is the whole reason
+ * signature 2 can be more than a guess. This function used to compute the count
+ * and drop the findings on the floor, so the CodeRabbit path could say the panel
+ * raised three blockers but never whether one of them was the comment in hand —
+ * every CodeRabbit blocker was filed as a miss by construction. `blockingFindings`
+ * stays a count because callers and the record format depend on it.
+ *
+ * `reviewedSha` comes from the lens run's `external_id` (incremental review's
+ * state pointer) rather than from the commit the run is attached to, because on a
+ * narrowed round those differ — the run hangs off the head commit while the
+ * verdict covers only the delta. The commit sha is the fallback.
+ *
+ * `conclusion` is the AGGREGATE: `failure` if any lens failed, `success` only if
+ * at least one ran and none failed, `""` if none ran. Aggregate rather than
+ * per-lens because the question a miss record asks is "did the panel let this
+ * through", and one failing lens means it did not.
+ *
+ * The return shape deliberately does NOT carry `panelRoundAt`'s `completedAt`:
+ * three callers `deepEqual` this object, and a field they do not use would make them
+ * assert about the timestamp of a fixture.
+ */
+export function panelVerdictAt(runsByLens) {
+  const runs = asRunMap(runsByLens);
+  const { reviewedSha, conclusion } = panelRoundAt(runs);
+  const classified = classify(tagPriorFindings(runs));
   return {
     reviewedSha,
     conclusion,
@@ -649,6 +804,94 @@ export function panelVerdictAt(runsByLens) {
     // would suppress a real gate miss on the strength of a passing remark.
     blockers: classified.findings.filter((f) => BLOCKING.has(f.severity)),
   };
+}
+
+/**
+ * Position of a sha in the PR's commit list, or -1.
+ *
+ * The list is chronological, so the index is an ordering usable for "at or before".
+ * -1 means the sha is not on the PR at all, which is a real and reachable state: a
+ * force-push rewrites history and leaves a CodeRabbit comment's
+ * `original_commit_id` pointing at a commit no longer reachable from the branch.
+ */
+export function commitIndex(commits, sha) {
+  const want = str(sha);
+  if (want === "") return -1;
+  return (Array.isArray(commits) ? commits : []).findIndex((c) => str(c?.sha) === want);
+}
+
+/**
+ * Every ROUND of review on this PR: one entry per commit the panel concluded on,
+ * chronological, each `{sha, index, conclusion, reviewedSha, completedAt, runs}`.
+ *
+ * `runs` is the `latestLensRuns` map for that commit, kept so the caller can spend
+ * the expensive per-run refetch later without listing the commit's checks again.
+ *
+ * PURE, with `runsFor(sha)` injected: the whole ordering decision is testable
+ * without an API, which is the same reason `prior-findings.mjs` injects its `api`.
+ *
+ * A commit whose checks cannot be READ yields an `unreadable: true` round rather
+ * than nothing, and the distinction is load-bearing in two directions at once. It
+ * must not count as evidence the panel reviewed anything — so it carries
+ * `conclusion: ""`, which keeps it out of `panelApprovedAt` and makes `blockersOf`
+ * refuse it — but the SHA is a fact we hold regardless, and dropping the round would
+ * throw it away. "We know which commit the panel was looking at and we could not
+ * read what it concluded" is a more honest record than an empty one, and it is what
+ * tells an API hiccup apart from a PR the panel never touched.
+ *
+ * A commit with no lens runs AT ALL is not a round; that is a real, readable answer
+ * ("the panel did not review this commit"), not a failure. Either way the walk
+ * continues, so one bad commit never costs the rest of the PR.
+ */
+export function panelRounds(commits, runsFor, { log = () => {} } = {}) {
+  const rounds = [];
+  const list = Array.isArray(commits) ? commits : [];
+  for (let index = 0; index < list.length; index++) {
+    const sha = str(list[index]?.sha);
+    if (sha === "") continue;
+    let runs;
+    try {
+      runs = asRunMap(typeof runsFor === "function" ? runsFor(sha) : null);
+    } catch (err) {
+      log(`could not read the panel's verdict at ${sha} (${err.message}); recording it as unknown.`);
+      rounds.push({ sha, index, conclusion: "", reviewedSha: "", completedAt: "", unreadable: true });
+      continue;
+    }
+    if (runs.size === 0) continue;
+    const { reviewedSha, conclusion, completedAt } = panelRoundAt(runs);
+    if (conclusion === "") continue; // no lens actually completed here
+    rounds.push({ sha, index, conclusion, reviewedSha, completedAt, runs });
+  }
+  return rounds;
+}
+
+/**
+ * The rounds a finding on `index` may be compared against: every round AT OR BEFORE
+ * it, newest last. `index < 0` (a sha not on the PR) yields ALL rounds.
+ *
+ * "At or before" is the correction this exists for. The comparison set used to be a
+ * single set computed from the hand-off commit and then applied to every CodeRabbit
+ * finding regardless of which commit it was about — so on a multi-round PR a finding
+ * could be checked against a verdict the panel reached AFTER it, and suppressed as
+ * "already raised" by a finding that did not exist yet.
+ *
+ * ONE rule covers both unplaceable directions: **what cannot be placed cannot be
+ * excluded.** An `index < 0` finding sees every round; a round with `index < 0` (an
+ * advisory review of a commit no longer on the branch) is eligible for every finding.
+ * Both widen the set, and widening can only ever over-suppress a finding the panel
+ * really did raise somewhere on this PR — whereas narrowing on a guess files a miss
+ * against a reviewer that did raise it. The same middle-of-the-road direction
+ * `attributeToPanel` takes with `maybe`, and it is logged either way.
+ *
+ * The UNION rather than the newest single round, which is deliberate and unchanged
+ * from the behaviour `panelFindingsFromComments` documented: the record's claim is
+ * "the panel did not raise this", and a finding raised in an earlier round is one the
+ * panel raised. Narrowing to one round would file those as misses.
+ */
+export function roundsUpTo(rounds, index) {
+  const all = Array.isArray(rounds) ? rounds : [];
+  if (index < 0) return [...all];
+  return all.filter((r) => Number(r?.index) < 0 || Number(r?.index) <= index);
 }
 
 // --- gh-backed collection ----------------------------------------------------
@@ -676,12 +919,17 @@ function commitFiles(sha, api) {
   return Array.isArray(out?.files) ? out.files : [];
 }
 
-/** The `ready_for_review` timeline event's timestamp, or "". */
-function readyForReviewAt(pr, api) {
-  const events = api(["api", "--paginate", `repos/{owner}/{repo}/issues/${pr}/timeline?per_page=100`]);
-  const hit = (Array.isArray(events) ? events : []).find((e) => e?.event === "ready_for_review");
-  return str(hit?.created_at);
-}
+/**
+ * How many of a PR's commits to read check runs for.
+ *
+ * One LIST call each, so this is the only place this module's cost grows with PR
+ * size. Set well above the real distribution rather than tuned to it: the widest PR
+ * this corpus has looked at carries 9 commits, and `pulls/{n}/commits` itself stops
+ * at 250. A PR past this cap loses its OLDEST rounds, so a CodeRabbit finding down
+ * there is compared against a wider set than it should be (see `roundsUpTo`) — which
+ * is why exceeding it is logged rather than absorbed.
+ */
+const ROUND_WALK_LIMIT = 100;
 
 /**
  * Propose miss records for one PR. NEVER throws: every collection step is
@@ -693,19 +941,27 @@ function readyForReviewAt(pr, api) {
  * the whole point of the corpus is that an empty result is a claim, not a default.
  *
  * THE TWO SIGNATURES HAVE DIFFERENT PRECONDITIONS, and conflating them cost this
- * module its best data. Signature 1 is defined relative to a hand-off — "a human
- * changed reviewable code AFTER the panel approved" is meaningless without the
- * moment it approved — and only an agent PR promoted by `mark-ready.mjs` has one.
- * Signature 2 needs neither: "CodeRabbit flagged something our panel reviewed and
+ * module its best data twice over.
+ *
+ * Signature 1 is defined relative to an approval — "a human changed reviewable code
+ * AFTER the panel approved" is meaningless without the moment it approved. Signature
+ * 2 needs no approval at all: "CodeRabbit flagged something our panel reviewed and
  * did not raise" is exactly as true on a human PR reviewed via `@claude review`,
- * where `handoffAt` is not merely unknown but MEANINGLESS — nothing was handed off.
+ * where nothing was ever handed off.
  *
  * Gating both on `isAgentPr` plus a hand-off marker excluded, measurably: 18 of 33
  * agent PRs (opened ready, so they have neither a marker nor a `ready_for_review`
  * event), and every human PR — which is where the on-demand panel reviews and the
- * bulk of CodeRabbit's blocking findings both live. So each signature now checks
- * only what it actually needs, and `skipped` is set only when nothing could be
- * examined at all.
+ * bulk of CodeRabbit's blocking findings both live.
+ *
+ * The second conflation survived that fix and is what this rewrite removes:
+ * signature 2 still reached the panel's findings THROUGH signature 1's cutoff. The
+ * comparison set was read from whichever commit was head at hand-off, so a PR with
+ * no hand-off produced no comparison set and withheld every CodeRabbit candidate —
+ * even with perfectly readable check runs on every commit. `panelRounds` now
+ * establishes the review history directly from the check runs, `roundsUpTo` resolves
+ * a comparison set PER COMMENT, and the cutoff is one more thing derived from that
+ * history rather than the thing it all depends on.
  */
 export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}) {
   const records = [];
@@ -714,111 +970,159 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   let suppressed = 0;
 
   // Comments come FIRST and are load-bearing twice over: they carry the hand-off
-  // marker (signature 1's cutoff) and the on-demand panel's findings (signature
-  // 2's comparison set). One call, both facts.
+  // marker (signature 1's corroborating cutoff) and every on-demand review, which
+  // `commentRounds` turns into rounds. One call, both facts.
   let comments = [];
   try {
     comments = listComments(pr, api);
   } catch (err) {
-    log(`#${pr}: could not list comments (${err.message}); trying the timeline only.`);
+    log(`#${pr}: could not list comments (${err.message}); no marker and no advisory rounds from this PR.`);
   }
-  let ready = "";
-  try {
-    ready = readyForReviewAt(pr, api);
-  } catch (err) {
-    log(`#${pr}: could not read the timeline (${err.message}).`);
-  }
-  const handoffAt = handoffTime({ comments, readyForReviewAt: ready });
 
   let prCommits = [];
   try {
     prCommits = listCommits(pr, api);
   } catch (err) {
-    log(`#${pr}: could not list commits (${err.message}); no human-fix candidates from this PR.`);
+    log(`#${pr}: could not list commits (${err.message}); no rounds and no human-fix candidates from this PR.`);
   }
-  // `handoffAt` may be null now that signature 2 no longer requires one. NaN makes
-  // every `at <= cutoff` false, so `beforeHandoff` empties and `headAtHandoff` goes
-  // undefined — the same "could not establish it" state as an unreadable commit
-  // list. Stated rather than relied upon, because it is load-bearing.
-  const cutoff = handoffAt === null ? NaN : Date.parse(handoffAt);
-  const beforeHandoff = prCommits.filter((c) => {
-    const at = Date.parse(str(c?.commit?.committer?.date));
-    return Number.isFinite(at) && at <= cutoff;
-  });
-  // NO fallback to the PR's last commit. If every commit post-dates the handoff
-  // (a force-push or rebase after promotion rewrites committer dates), the last
-  // commit is one the panel saw only AFTER the human's fix — recording its verdict
-  // would describe a panel that had already been shown the answer. An empty
-  // `panelSaw` says "we could not establish what the panel saw", which is true; a
-  // post-handoff sha would be a wrong measurement that reads as a right one.
-  const headAtHandoff = beforeHandoff[beforeHandoff.length - 1];
+  if (prCommits.length > ROUND_WALK_LIMIT) {
+    log(
+      `#${pr}: ${prCommits.length} commits exceeds the ${ROUND_WALK_LIMIT}-commit round walk; ` +
+        `the oldest were NOT read, so a CodeRabbit finding on one is compared against a wider set than it should be.`,
+    );
+  }
+  const walked = prCommits.slice(0, ROUND_WALK_LIMIT);
 
-  // The sha is known for certain the moment we have the commit list, so it is
-  // recorded OUTSIDE the check-run fetch. Only `conclusion` and
-  // `blockingFindings` depend on the API call, and leaving those empty while the
-  // sha is present says exactly what happened: we know which commit the panel was
-  // looking at and we could not read what it concluded. Collapsing both into ""
-  // would make an API hiccup indistinguishable from a PR with no panel at all.
-  let panelSaw = { reviewedSha: str(headAtHandoff?.sha), conclusion: "", blockingFindings: 0 };
-  // `null`, not `[]`: "we could not establish the panel's findings" is a different
-  // claim from "the panel raised none", and `attributeToPanel` answers them
-  // differently. Collapsing them would let an API hiccup read as a clean panel.
-  let panelBlockers = null;
-  if (headAtHandoff?.sha) {
+  // PHASE 1 — which commits did the panel conclude on, and when. One check-runs
+  // LIST call per commit; the list response omits `output.text`, so this establishes
+  // the review history WITHOUT paying for the findings. Advisory reviews join as
+  // rounds of their own, already carrying their findings.
+  const rounds = [
+    ...panelRounds(walked, (sha) => latestLensRuns(commitCheckRuns(sha, { api }), names), {
+      log: (m) => log(`#${pr}: ${m}`),
+    }),
+    ...commentRounds(comments, walked),
+  ].sort((a, b) => a.index - b.index || (Date.parse(str(a.completedAt)) || 0) - (Date.parse(str(b.completedAt)) || 0));
+
+  // The cutoff, from the panel's own check runs — not from a comment, and no longer
+  // from `ready_for_review` at all. See `panelApprovedAt` for why that ordering is
+  // the whole point of this function.
+  const approvedAt = panelApprovedAt(rounds, markerHandoffAt(comments));
+  if (approvedAt === null && rounds.length > 0) {
+    log(`#${pr}: the panel reviewed this PR but never approved it; no human-fix candidates (the CodeRabbit signature still runs).`);
+  }
+
+  // PHASE 2 — the findings, fetched per round and ONLY for rounds a candidate is
+  // actually compared against. `withFullOutput` is one request per lens run, so this
+  // is the expensive half; caching by sha keeps a PR with many CodeRabbit comments
+  // from re-fetching the same round once per comment.
+  const blockersBySha = new Map();
+  const blockersOf = (round) => {
+    // An advisory round parsed its findings out of the comment already.
+    if (Array.isArray(round?.blockers)) return round.blockers;
+    // A round whose checks could not be listed has no findings to read and MUST NOT
+    // resolve to `[]`. Falling through would hand `withFullOutput` an absent `runs`,
+    // get an empty map back, and report "this round raised nothing blocking" about a
+    // round nobody has seen — filing every CodeRabbit finding on the PR as a miss.
+    if (round?.unreadable) return null;
+    const key = str(round?.sha);
+    if (blockersBySha.has(key)) return blockersBySha.get(key);
+    let out = null;
     try {
-      const runs = commitCheckRuns(headAtHandoff.sha, { api });
-      const verdict = panelVerdictAt(withFullOutput(latestLensRuns(runs, names), { api, log }));
-      panelSaw = {
-        reviewedSha: verdict.reviewedSha || headAtHandoff.sha,
-        conclusion: verdict.conclusion,
-        blockingFindings: verdict.blockingFindings,
-      };
-      // Only a lens run that actually EXISTED is an answer. `conclusion === ""` is
-      // `panelVerdictAt`'s own signal for "no lens runs on this commit", and its
-      // `blockers` is then an empty array meaning "nothing to read" — not "the panel
-      // raised nothing". Treating those alike is what kept the on-demand comment
-      // below unreachable: a commit with zero lens runs looked like a clean panel.
-      if (verdict.conclusion !== "") panelBlockers = verdict.blockers;
+      out = panelVerdictAt(withFullOutput(round.runs, { api, log })).blockers;
     } catch (err) {
-      log(`#${pr}: could not read the panel's verdict (${err.message}); recording it as unknown.`);
+      log(`#${pr}: could not read the panel's findings at ${key} (${err.message}); recording it as unknown.`);
     }
-  }
+    blockersBySha.set(key, out);
+    return out;
+  };
 
-  // FALLBACK to the on-demand panel's comment, and only a fallback: check runs are
-  // the structured record, this is a rendering of one, so it is read exactly when
-  // there is no structured record to prefer. `panelBlockers === null` is the test
-  // rather than `.length === 0` — an autonomous panel that genuinely raised nothing
-  // has already answered the question, and overwriting that with a comment from a
-  // different review would answer a different one.
-  if (panelBlockers === null) {
-    const fromComment = panelFindingsFromComments(comments);
-    if (fromComment) {
-      panelBlockers = fromComment.findings;
-      // Only fill what is still blank. A sha established from the commit list is
-      // more precise than the comment's, and `conclusion` stays "" because an
-      // advisory review reached no gate conclusion — that is not a missing value.
-      panelSaw = {
-        ...panelSaw,
-        reviewedSha: panelSaw.reviewedSha || fromComment.reviewedSha,
-        blockingFindings: panelSaw.blockingFindings || fromComment.findings.length,
-      };
-      log(
-        `#${pr}: no lens check runs; using the on-demand panel comment ` +
-          `(${fromComment.findings.length} blocking finding(s)) as the comparison set.`,
-      );
+  /**
+   * The panel's blocking findings a candidate at `index` may be compared against, or
+   * `null` when that cannot be established.
+   *
+   * `null` vs `[]` is the same distinction it has always been, now decided per
+   * candidate: `[]` is a real answer ("the panel reviewed this and raised nothing
+   * blocking"), `null` is the absence of one. A single unreadable round in the
+   * eligible set collapses the whole set to `null` — a union missing one round would
+   * claim the panel raised nothing where it may have raised exactly this.
+   *
+   * GATING AND ADVISORY ROUNDS ARE UNIONED, not ranked, and that is a change from the
+   * fallback ordering this replaces. The record's claim is "the panel did not raise
+   * this", and `@claude review` runs the SAME lens panel — so a finding it raised is a
+   * finding the panel raised, whether or not a gating round also covered that commit.
+   * Ranking check runs above the comment made sense when there was one set per PR and
+   * the question was which rendering of ONE round to trust; across rounds it would
+   * discard real findings and file them as misses.
+   *
+   * It does widen the suppression surface, which is the direction
+   * `panelFindingsFromComments` already chose and for the same reason: a finding the
+   * panel raised in an earlier round is one the panel raised. The mitigation is
+   * unchanged — every suppression is counted and logged with the finding it matched.
+   */
+  const comparisonSetAt = (index) => {
+    const eligible = roundsUpTo(rounds, index);
+    if (eligible.length === 0) return null;
+    const out = [];
+    for (const r of eligible) {
+      const b = blockersOf(r);
+      if (b === null) return null;
+      out.push(...b);
     }
-  }
+    return out;
+  };
 
-  // Signature 1 — human commits after handoff. Requires `handoffAt`: without the
-  // moment the panel let go, "after" has no referent and every commit on the PR
-  // would qualify. `isHumanFollowupCommit` returns false on an unusable cutoff, so
-  // this loop is already a no-op then; the guard is here to say so out loud and to
-  // keep the reason next to the code that depends on it.
-  if (handoffAt === null) {
-    log(`#${pr}: no hand-off marker and no ready_for_review event; no human-fix candidates (CodeRabbit signature still runs).`);
+  /**
+   * What the panel had concluded as of `index`, for the record's `panelSaw`.
+   *
+   * The GATING round wins here, and only here. This is where "check runs are the
+   * structured record and the comment is a rendering of one" is actually observable
+   * in the output: a gating round carries a real `conclusion` and an `external_id`
+   * state pointer, an advisory one carries `""` and the comment's sha. Letting an
+   * advisory round supply these would report `conclusion: ""` for a PR the panel
+   * demonstrably passed, which is a wrong measurement rather than a missing one.
+   *
+   * The COMPARISON SET above does not work this way, on purpose — see
+   * `comparisonSetAt`. Which round is the better witness to "what did the panel
+   * conclude" and which findings count as "the panel raised this" are two different
+   * questions, and the old single-set code could only answer them the same way.
+   */
+  const panelSawAt = (index, blockers) => {
+    const eligible = roundsUpTo(rounds, index);
+    const newest = eligible.filter((r) => !r?.advisory).at(-1) ?? eligible.at(-1);
+    return {
+      // The round's own state pointer when it has one, else the commit it hung off.
+      reviewedSha: str(newest?.reviewedSha) || str(newest?.sha),
+      conclusion: str(newest?.conclusion),
+      blockingFindings: Array.isArray(blockers) ? blockers.length : 0,
+    };
+  };
+
+  // Signature 1's anchor is the round that FIRST approved — the same round
+  // `panelApprovedAt` takes its timestamp from, so the record's `handoffAt` and its
+  // `panelSaw` describe one event rather than two. Not the newest round: a push after
+  // approval opens rounds that say nothing about the approval the human reacted to,
+  // and one of them re-approving is what would drag the cutoff past their fix.
+  const approvingRound = rounds
+    .filter((r) => str(r?.conclusion) === "success")
+    .sort((a, b) => (Date.parse(str(a.completedAt)) || 0) - (Date.parse(str(b.completedAt)) || 0))[0];
+
+  // Signature 1 — human commits after the panel approved. Requires `approvedAt`:
+  // without the moment the panel let go, "after" has no referent and every commit on
+  // the PR would qualify. `isHumanFollowupCommit` returns false on an unusable
+  // cutoff, so this loop is already a no-op then; the guard is here to say so out
+  // loud and to keep the reason next to the code that depends on it.
+  //
+  // The cutoff is a check-run `completed_at`, which is why a rebase no longer breaks
+  // this: it rewrites the committer dates on the left of the comparison but cannot
+  // touch the timestamp on the right.
+  const sig1PanelSaw = panelSawAt(approvingRound ? approvingRound.index : -1,
+    approvingRound ? blockersOf(approvingRound) : null);
+  if (approvedAt === null && rounds.length === 0) {
+    log(`#${pr}: no panel round and no hand-off marker; no human-fix candidates (the CodeRabbit signature still runs).`);
   }
   for (const c of prCommits) {
-    if (!isHumanFollowupCommit(c, handoffAt)) continue;
+    if (!isHumanFollowupCommit(c, approvedAt)) continue;
     let files = [];
     try {
       files = interestingFiles(commitFiles(c.sha, api));
@@ -833,11 +1137,11 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         label: "miss",
         source: "human-fix",
         pr,
-        handoffAt: str(handoffAt),
+        handoffAt: str(approvedAt),
         evidence: { commitSha: c.sha, url: str(c.html_url) },
         files,
         summary: str(c.commit?.message).split("\n")[0],
-        panelSaw,
+        panelSaw: sig1PanelSaw,
         notes: "candidate: a human changed reviewable code after the panel approved",
       }),
     );
@@ -863,17 +1167,28 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
   // Withholding is also the RECOVERABLE direction. No row is written, so a later
   // harvest re-proposes the candidate once the evidence exists; a wrong row, once
   // curated, is permanent.
-  const panelReviewed = panelBlockers !== null;
+  //
+  // The evidence is now resolved PER COMMENT rather than once per PR, and that is the
+  // correction this change exists for. The comparison set used to come from whichever
+  // commit was head at hand-off, and was then applied to every CodeRabbit finding on
+  // the PR — so on a multi-round PR a finding could be checked against a verdict the
+  // panel reached AFTER it and suppressed as "already raised" by a finding that did
+  // not exist yet. It also meant no hand-off (18 of 33 agent PRs) left the set at
+  // `null` and withheld every candidate on a PR whose check runs were sitting right
+  // there, readable. Signature 2 never needed a hand-off; now it does not consult one.
   let reviewComments = [];
   try {
     reviewComments = listReviewComments(pr, api);
   } catch (err) {
     log(`#${pr}: could not list review comments (${err.message}).`);
   }
-  if (!panelReviewed && reviewComments.length > 0) {
+  // An unreadable round is not evidence of anything — it is the absence of evidence
+  // with a sha attached — so this counts only rounds we could actually read.
+  if (rounds.filter((r) => !r?.unreadable).length === 0 && reviewComments.length > 0) {
     log(`#${pr}: ${reviewComments.length} review comment(s) but no evidence the panel ever reviewed this PR; no CodeRabbit candidates.`);
   }
-  for (const rc of panelReviewed ? reviewComments : []) {
+  let panelReviewed = false;
+  for (const rc of rounds.length === 0 ? [] : reviewComments) {
     // EXACT login, not a prefix. `startsWith("coderabbitai")` also accepts
     // `coderabbitai-x`, and anyone can register that name and comment on a public
     // PR — which would let a stranger write rows into the corpus. Curation is the
@@ -884,6 +1199,26 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     if (!finding) continue;
     const files = interestingFiles([str(rc.path)]);
     if (files.length === 0) continue;
+
+    // WHICH COMMIT this finding is about, so it is compared against what the panel
+    // had concluded by then and not against a later round. `original_commit_id` is
+    // the commit the comment was first written on; `commit_id` is where GitHub
+    // currently places it, and is the fallback.
+    const at = commitIndex(walked, str(rc.original_commit_id || rc.commit_id));
+    if (at < 0) {
+      log(
+        `#${pr}: CodeRabbit comment ${rc.id} sits on a commit that is no longer on the PR; ` +
+          `comparing it against every round (see roundsUpTo — what cannot be placed cannot be excluded).`,
+      );
+    }
+    const panelBlockers = comparisonSetAt(at);
+    if (panelBlockers === null) {
+      // No round at or before this comment, or one of them was unreadable. Either
+      // way there is no basis for "the panel did not raise this".
+      log(`#${pr}: no readable panel round at or before CodeRabbit comment ${rc.id}; withheld.`);
+      continue;
+    }
+    panelReviewed = true;
 
     // `rc.path` RAW, not the filtered `files` above: `interestingFiles` exists to
     // decide what may carry a miss, and reusing it here would silently hand the
@@ -913,7 +1248,7 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         label: "miss",
         source: "coderabbit",
         pr,
-        handoffAt: str(handoffAt),
+        handoffAt: str(approvedAt),
         evidence: {
           commitSha: str(rc.original_commit_id || rc.commit_id),
           commentId: String(rc.id ?? ""),
@@ -924,7 +1259,7 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         severity: finding.severity,
         summary: finding.summary,
         panelSaw: {
-          ...panelSaw,
+          ...panelSawAt(at, panelBlockers),
           matchVerdict: attribution.verdict,
           matchScore: attribution.score,
           matchedSummary: attribution.matchedSummary,
@@ -938,16 +1273,16 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     );
   }
   // `skipped` is reserved for "could not look", never "looked and found nothing".
-  // Nothing was examinable when there was no hand-off (so signature 1 could not
-  // run) AND no CodeRabbit review comment reached the matcher (so signature 2 had
-  // no input). Anything else produced a real, reportable zero.
-  const noSignature1 = handoffAt === null;
-  const noSignature2 = !panelReviewed || reviewComments.length === 0;
+  // Nothing was examinable when the panel never approved (so signature 1 could not
+  // run) AND no CodeRabbit comment reached the matcher with a round behind it (so
+  // signature 2 had no input). Anything else produced a real, reportable zero.
+  const noSignature1 = approvedAt === null;
+  const noSignature2 = !panelReviewed;
   return {
     records,
     skipped:
       noSignature1 && noSignature2
-        ? `#${pr} has no hand-off marker and no panel review to compare CodeRabbit against — nothing to examine`
+        ? `#${pr} has no panel approval and no panel round to compare CodeRabbit against — nothing to examine`
         : "",
     suppressed,
   };

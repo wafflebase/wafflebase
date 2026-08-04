@@ -7,7 +7,13 @@ import {
   SOURCES,
   MISSES_PATH,
   isAgentPr,
-  handoffTime,
+  markerHandoffAt,
+  panelApprovedAt,
+  commitIndex,
+  panelRounds,
+  roundsUpTo,
+  commentRounds,
+  panelRoundAt,
   isHumanFollowupCommit,
   interestingFiles,
   fileClassesOf,
@@ -50,9 +56,13 @@ test("isAgentPr: a human PR on a non-agent branch is not one; junk never throws"
   for (const bad of [null, undefined, "x", 7, []]) assert.equal(isAgentPr(bad), false);
 });
 
-// --- handoffTime -------------------------------------------------------------
+// --- markerHandoffAt / panelApprovedAt ---------------------------------------
 
-test("handoffTime: the FIRST marker comment wins", () => {
+const round = (over = {}) => ({
+  sha: "a".repeat(40), index: 0, conclusion: "success", reviewedSha: "", completedAt: "2026-07-24T15:40:00Z", ...over,
+});
+
+test("markerHandoffAt: the FIRST marker comment wins", () => {
   const comments = [
     { body: `${HANDOFF_MARKER}\n## re-promoted`, created_at: "2026-07-26T00:00:00Z" },
     { body: "unrelated chatter", created_at: "2026-07-24T00:00:00Z" },
@@ -60,32 +70,173 @@ test("handoffTime: the FIRST marker comment wins", () => {
   ];
   // A PR that is un-readied and re-promoted has two markers. The human work this
   // corpus is looking for starts at the first one.
-  assert.equal(handoffTime({ comments }), "2026-07-24T15:48:28Z");
+  assert.equal(markerHandoffAt(comments), "2026-07-24T15:48:28Z");
 });
 
-test("handoffTime: falls back to ready_for_review when the marker comment is missing", () => {
-  // NOT belt-and-braces. mark-ready.mjs posts the hand-off comment inside a
-  // try/catch AFTER flipping the PR to ready, so a genuinely promoted PR can carry
-  // no marker at all — and a PR the harvester cannot see is a miss nothing can
-  // recover later. On #548 the two timestamps were 3 seconds apart.
+test("markerHandoffAt: null with no usable marker; junk never throws", () => {
+  assert.equal(markerHandoffAt([]), null);
+  assert.equal(markerHandoffAt(), null);
+  assert.equal(markerHandoffAt([{ body: HANDOFF_MARKER, created_at: "not a date" }]), null);
+  assert.equal(markerHandoffAt([{ body: HANDOFF_MARKER }]), null);
+  for (const bad of [null, "x", 7]) assert.equal(markerHandoffAt(bad), null);
+});
+
+test("panelApprovedAt: the panel's own check run beats the marker comment", () => {
+  // The check run is the primary source because it is the only signal present
+  // WHENEVER the panel ran. The marker is posted in a try/catch after the PR is
+  // already flipped ready, so a genuinely promoted PR can carry none.
   assert.equal(
-    handoffTime({ comments: [{ body: "no marker here", created_at: "2026-07-24T00:00:00Z" }], readyForReviewAt: "2026-07-24T15:48:25Z" }),
-    "2026-07-24T15:48:25Z",
-  );
-  // marker present → it wins over the event
-  assert.equal(
-    handoffTime({ comments: [{ body: HANDOFF_MARKER, created_at: "2026-07-24T15:48:28Z" }], readyForReviewAt: "2026-07-24T15:48:25Z" }),
-    "2026-07-24T15:48:28Z",
+    panelApprovedAt([round({ completedAt: "2026-07-24T15:40:00Z" })], "2026-07-24T15:48:28Z"),
+    "2026-07-24T15:40:00Z",
   );
 });
 
-test("handoffTime: null when there is no handoff at all, and on unusable timestamps", () => {
-  assert.equal(handoffTime({}), null);
-  assert.equal(handoffTime(), null);
-  assert.equal(handoffTime({ comments: [{ body: HANDOFF_MARKER, created_at: "not a date" }] }), null);
-  assert.equal(handoffTime({ comments: [{ body: HANDOFF_MARKER }] }), null);
-  assert.equal(handoffTime({ readyForReviewAt: "nonsense" }), null);
-  for (const bad of [null, "x", 7]) assert.equal(handoffTime({ comments: bad }), null);
+test("panelApprovedAt: the FIRST approval, because the newest one is self-defeating", () => {
+  // The trap this exists to avoid. Every human fix pushed after an approval opens a
+  // new round, and that round approves too — so a newest-approval cutoff moves PAST
+  // the very commits the signature is looking for.
+  //
+  // Measured on #548: newest-approval lands on 2026-07-28, four days after the three
+  // human fixes of 2026-07-25, and loses all three — including rows already curated
+  // into misses.jsonl. Same rule as markerHandoffAt's "FIRST marker, not the last":
+  // a later re-approval does not un-say the first one.
+  const rounds = [
+    round({ index: 0, completedAt: "2026-07-24T15:40:00Z" }),
+    round({ index: 1, completedAt: "2026-07-28T01:00:56Z" }),
+  ];
+  assert.equal(panelApprovedAt(rounds), "2026-07-24T15:40:00Z");
+  // Order in the array must not matter — it is the timestamps that decide.
+  assert.equal(panelApprovedAt([...rounds].reverse()), "2026-07-24T15:40:00Z");
+});
+
+test("panelApprovedAt: only success is an approval — failure, unread and ADVISORY are not", () => {
+  assert.equal(panelApprovedAt([round({ conclusion: "failure" })]), null);
+  assert.equal(panelApprovedAt([round({ conclusion: "" })]), null);
+  // An `@claude review` round carries conclusion "" precisely so it can never
+  // become signature 1's cutoff: it is advice, not a gate decision.
+  assert.equal(panelApprovedAt(commentRounds([], [])), null);
+  // …and a failing round does not suppress an earlier real approval.
+  assert.equal(
+    panelApprovedAt([round({ index: 0, completedAt: "2026-07-24T15:40:00Z" }), round({ index: 1, conclusion: "failure", completedAt: "2026-07-26T09:00:00Z" })]),
+    "2026-07-24T15:40:00Z",
+  );
+});
+
+test("panelApprovedAt: falls back to the marker, and to null; junk never throws", () => {
+  assert.equal(panelApprovedAt([], "2026-07-24T15:48:28Z"), "2026-07-24T15:48:28Z");
+  assert.equal(panelApprovedAt([]), null);
+  assert.equal(panelApprovedAt([], "nonsense"), null);
+  assert.equal(panelApprovedAt([round({ completedAt: "not a date" })], null), null);
+  for (const bad of [null, "x", 7]) assert.equal(panelApprovedAt(bad), null);
+});
+
+// --- panelRoundAt / panelRounds / commitIndex / roundsUpTo -------------------
+
+const lensRun = (over = {}) => ({
+  name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed",
+  conclusion: "success", completed_at: "2026-07-24T15:40:00Z", ...over,
+});
+
+test("panelRoundAt: completedAt is the LATEST lens, because the round is not over until its last one", () => {
+  const runs = new Map([
+    ["agent-review-correctness", lensRun({ completed_at: "2026-07-24T15:38:00Z" })],
+    ["agent-review-test-adequacy", lensRun({ completed_at: "2026-07-24T15:41:00Z" })],
+  ]);
+  assert.equal(panelRoundAt(runs).completedAt, "2026-07-24T15:41:00Z");
+  // started_at is the per-run fallback latestLensRuns itself orders by
+  assert.equal(panelRoundAt(new Map([["x", { conclusion: "success", started_at: "2026-07-24T15:00:00Z" }]])).completedAt, "2026-07-24T15:00:00Z");
+  // unusable timestamps degrade to "", never to NaN or a throw
+  assert.equal(panelRoundAt(new Map([["x", { conclusion: "success", completed_at: "nope" }]])).completedAt, "");
+  assert.equal(panelRoundAt(null).completedAt, "");
+  // Ordered by PARSED TIME, not lexicographically. These two strings sort the wrong
+  // way as text and the right way as instants, so a string comparison fails here.
+  const offsets = new Map([
+    ["a", { conclusion: "success", completed_at: "2026-07-24T09:00:00-06:00" }], // 15:00Z
+    ["b", { conclusion: "success", completed_at: "2026-07-24T14:00:00Z" }],
+  ]);
+  assert.equal(panelRoundAt(offsets).completedAt, "2026-07-24T09:00:00-06:00");
+  assert.equal(
+    panelApprovedAt([round({ completedAt: "2026-07-24T14:00:00Z" }), round({ completedAt: "2026-07-24T09:00:00-06:00" })]),
+    "2026-07-24T14:00:00Z", // the earlier INSTANT, though it sorts later as text
+  );
+});
+
+test("panelRoundAt: shares the aggregate conclusion rule rather than copying it", () => {
+  // One failing lens means the panel did not let it through — the same rule
+  // panelVerdictAt reports, from the same function, so the cheap path used to
+  // establish rounds can never disagree with the expensive one used to read them.
+  const runs = new Map([["a", lensRun()], ["b", lensRun({ conclusion: "failure" })]]);
+  assert.equal(panelRoundAt(runs).conclusion, "failure");
+  assert.equal(panelVerdictAt(runs).conclusion, "failure");
+  assert.equal(panelRoundAt(new Map()).conclusion, "");
+  assert.equal(panelVerdictAt(new Map()).conclusion, "");
+});
+
+test("commitIndex: position on the PR, and -1 for a commit that is not on it", () => {
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }];
+  assert.equal(commitIndex(commits, "b".repeat(40)), 1);
+  // A force-push leaves a CodeRabbit comment's original_commit_id pointing at a
+  // commit no longer reachable from the branch. That is a real state, not junk.
+  assert.equal(commitIndex(commits, "c".repeat(40)), -1);
+  assert.equal(commitIndex(commits, ""), -1);
+  for (const bad of [null, "x", 7]) assert.equal(commitIndex(bad, "a".repeat(40)), -1);
+});
+
+test("panelRounds: only commits the panel CONCLUDED on become rounds", () => {
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }, { sha: "c".repeat(40) }];
+  const rounds = panelRounds(commits, (sha) => {
+    if (sha === "a".repeat(40)) return new Map([["agent-review-correctness", lensRun()]]);
+    if (sha === "b".repeat(40)) return new Map(); // no lens runs at all → not a round
+    return new Map([["agent-review-correctness", lensRun({ conclusion: "failure", completed_at: "2026-07-25T10:00:00Z" })]]);
+  });
+  assert.deepEqual(rounds.map((r) => [r.index, r.conclusion]), [[0, "success"], [2, "failure"]]);
+});
+
+test("panelRounds: an unreadable commit keeps its SHA but is never evidence", () => {
+  // Two directions at once. The round must not count as "the panel reviewed this" —
+  // so conclusion "" keeps it out of panelApprovedAt and `unreadable` makes the
+  // comparison set refuse it — but the sha is a fact we hold either way, and it is
+  // what tells an API hiccup apart from a PR the panel never touched.
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }];
+  const logged = [];
+  const rounds = panelRounds(commits, (sha) => {
+    if (sha === "a".repeat(40)) throw new Error("502");
+    return new Map([["agent-review-correctness", lensRun()]]);
+  }, { log: (m) => logged.push(m) });
+  assert.deepEqual(rounds.map((r) => [r.index, r.conclusion, r.unreadable ?? false]), [[0, "", true], [1, "success", false]]);
+  assert.equal(rounds[0].sha, "a".repeat(40));
+  assert.ok(logged.some((m) => /could not read the panel's verdict at a{40} \(502\)/.test(m)));
+  // It is not an approval, and the readable round beside it still is.
+  assert.equal(panelApprovedAt([rounds[0]]), null);
+  assert.equal(panelApprovedAt(rounds), "2026-07-24T15:40:00Z");
+});
+
+test("roundsUpTo: what cannot be PLACED cannot be EXCLUDED", () => {
+  const rounds = [round({ index: 0 }), round({ index: 2 }), round({ index: -1, sha: "z".repeat(40) })];
+  // A finding on commit 1 sees round 0 — and the unplaceable round, which cannot be
+  // ruled out on evidence — but NOT round 2, which the panel reached afterwards.
+  assert.deepEqual(roundsUpTo(rounds, 1).map((r) => r.index), [0, -1]);
+  // An unplaceable finding sees everything.
+  assert.deepEqual(roundsUpTo(rounds, -1).map((r) => r.index), [0, 2, -1]);
+  // Both directions widen: narrowing on a guess would file a miss against a
+  // reviewer that did raise it, which is the unrecoverable error.
+  assert.deepEqual(roundsUpTo(rounds, 5).map((r) => r.index), [0, 2, -1]);
+  for (const bad of [null, "x", 7]) assert.deepEqual(roundsUpTo(bad, 0), []);
+});
+
+test("commentRounds: an advisory review is a round, with conclusion \"\"", () => {
+  const sha = "a".repeat(40);
+  const body = `<!-- agent-review:${sha} -->\ncorrectness review: **changes requested**\n\n### Major (1)\n\n- \`pkg/x.ts:10\` — a real defect\n`;
+  const rounds = commentRounds([{ user: { login: "yorkie-agent[bot]" }, body, created_at: "2026-07-24T16:00:00Z" }], [{ sha }]);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].index, 0);
+  assert.equal(rounds[0].conclusion, ""); // advisory: reached no gate conclusion
+  assert.equal(rounds[0].advisory, true);
+  assert.equal(rounds[0].blockers.length, 1); // findings already parsed — no second request
+  // Author-gated before anything is parsed: these findings can suppress a candidate.
+  assert.deepEqual(commentRounds([{ user: { login: "harrykim8672" }, body }], [{ sha }]), []);
+  // Reviewed a commit no longer on the PR → unplaceable, which roundsUpTo handles.
+  assert.equal(commentRounds([{ user: { login: "yorkie-agent[bot]" }, body }], [{ sha: "b".repeat(40) }])[0].index, -1);
 });
 
 // --- isHumanFollowupCommit ---------------------------------------------------
@@ -418,8 +569,11 @@ test("harvestPr: proposes both signatures, and only from reviewable code", () =>
   assert.deepEqual(fix.files, ["packages/docs/src/view/text-editor.ts"]);
   assert.deepEqual(fix.fileClasses, ["code"]);
   assert.equal(fix.summary, "Guard EditorAPI.paste()"); // first line only
-  assert.equal(fix.handoffAt, HANDOFF);
-  // the verdict that LET THE PR THROUGH — the runs on the head commit at handoff
+  // The CHECK RUN's completed_at, not the marker comment's created_at (15:48:28Z).
+  // The panel's own run is the primary source now; the marker is a fallback for a
+  // PR that has no readable round at all.
+  assert.equal(fix.handoffAt, "2026-07-24T15:40:00Z");
+  // the verdict that LET THE PR THROUGH — the round that approved
   assert.deepEqual(fix.panelSaw, { ...EMPTY_PANEL_SAW, reviewedSha: SHA_BASE, conclusion: "success" });
 
   const cr = records.find((r) => r.source === "coderabbit");
@@ -713,8 +867,12 @@ test("harvestPr: with no check runs, the on-demand comment becomes the compariso
   const { records, suppressed } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
   assert.equal(suppressed, 1);
   assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
-  assert.ok(logged.some((m) => /using the on-demand panel comment/.test(m)));
   assert.ok(logged.some((m) => /restates a panel finding/.test(m)));
+  // No "using the on-demand comment as a fallback" line any more, and its absence is
+  // the point: an advisory review is now a ROUND like any other rather than a
+  // whole-PR substitute reached only when check runs are missing. There is nothing to
+  // announce, because nothing was substituted.
+  assert.ok(!logged.some((m) => /using the on-demand panel comment/.test(m)));
 });
 
 test("harvestPr: real check runs WIN over the comment", () => {
@@ -781,12 +939,19 @@ test("harvestPr: every commit after the handoff leaves panelSaw EMPTY, not wrong
 });
 
 test("harvestPr: 'could not look' never reads the same as 'nothing found'", () => {
-  // Nothing examinable: no hand-off (signature 1 cannot run) AND no review
-  // comments (signature 2 has no input). Only this shape sets `skipped`.
+  // Nothing examinable: NO PANEL ROUND (so there is no approval for signature 1 and
+  // nothing for signature 2 to compare against) and no review comments. Only this
+  // shape sets `skipped`.
+  //
+  // Dropping the check runs is now part of the fixture, and that is the change: with
+  // them present this PR IS examinable — a successful round is an approval, and the
+  // human commit after it is a candidate — even with no marker comment anywhere. That
+  // is the 18-of-33 agent PRs the old marker-only cutoff could not see.
   const nothing = harvestPr(548, {
     api: fakeApi({
       "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
       "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+      [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
     }),
     log: () => {},
     names: NAMES,
@@ -794,41 +959,61 @@ test("harvestPr: 'could not look' never reads the same as 'nothing found'", () =
   assert.deepEqual(nothing.records, []);
   assert.match(nothing.skipped, /nothing to examine/);
 
-  // No hand-off, but an on-demand panel review: signature 1 is silently
-  // inapplicable, signature 2 runs against the comment, and the record carries
-  // handoffAt "" rather than a guess. This is the shape the relaxation exists for.
-  const noHandoff = harvestPr(548, {
+  // The same PR WITH its check runs: no marker, no ready_for_review, still harvested.
+  const noMarker = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  assert.equal(noMarker.skipped, "");
+  assert.equal(noMarker.records.filter((r) => r.source === "human-fix").length, 1);
+  assert.equal(noMarker.records[0].handoffAt, "2026-07-24T15:40:00Z");
+
+  // An ADVISORY review and nothing else: signature 1 is silently inapplicable —
+  // `@claude review` is not an approval — signature 2 runs against the comment round,
+  // and the record carries handoffAt "" rather than a guess. This is the shape the
+  // relaxation exists for, and it is now expressed by the absence of a SUCCESS round
+  // rather than the absence of a marker comment.
+  const advisoryOnly = harvestPr(548, {
     api: fakeApi({
       "repos/{owner}/{repo}/issues/548/comments?per_page=100": [
         { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
       ],
+      [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
       ...crComment(CR_MAJOR_CORRECTNESS),
     }),
     log: () => {},
     names: NAMES,
   });
-  assert.equal(noHandoff.skipped, "");
-  assert.equal(noHandoff.records.filter((r) => r.source === "human-fix").length, 0);
-  assert.equal(noHandoff.records.filter((r) => r.source === "coderabbit").length, 1);
-  assert.equal(noHandoff.records[0].handoffAt, "");
-  assert.equal(noHandoff.records[0].panelSaw.matchVerdict, "no");
+  assert.equal(advisoryOnly.skipped, "");
+  assert.equal(advisoryOnly.records.filter((r) => r.source === "human-fix").length, 0);
+  assert.equal(advisoryOnly.records.filter((r) => r.source === "coderabbit").length, 1);
+  assert.equal(advisoryOnly.records[0].handoffAt, "");
+  assert.equal(advisoryOnly.records[0].panelSaw.matchVerdict, "no");
 
-  // KNOWN LIMITATION, asserted so it cannot change silently: without a hand-off
-  // there is no `headAtHandoff`, so lens CHECK RUNS are never read — only the
-  // comment path reaches signature 2 here. It costs nothing measurable today (the
-  // no-hand-off population has no lens runs on any commit either) and is recorded
-  // in the task doc's "Not built".
-  const noHandoffNoComment = harvestPr(548, {
+  // THE LIMITATION THIS CHANGE REMOVES, now asserted in the opposite direction.
+  // It used to read: "without a hand-off there is no `headAtHandoff`, so lens CHECK
+  // RUNS are never read — only the comment path reaches signature 2 here." That was
+  // signature 2 depending on signature 1's cutoff, and it withheld every CodeRabbit
+  // candidate on a PR whose check runs were readable the whole time.
+  const noMarkerNoComment = harvestPr(548, {
     api: fakeApi({ "repos/{owner}/{repo}/issues/548/comments?per_page=100": [] }),
     log: () => {},
     names: NAMES,
   });
-  assert.equal(noHandoffNoComment.records.filter((r) => r.source === "coderabbit").length, 0);
+  assert.equal(noMarkerNoComment.records.filter((r) => r.source === "coderabbit").length, 1);
+  // …and it is compared against the CHECK RUNS, not a comment there is none of.
+  const fromRuns = noMarkerNoComment.records.find((r) => r.source === "coderabbit");
+  assert.equal(fromRuns.panelSaw.conclusion, "success");
+  assert.equal(fromRuns.panelSaw.reviewedSha, SHA_BASE);
 
-  // An unreadable COMMITS list costs the check-run path — `headAtHandoff` is derived
-  // from it — so the panel cannot be established and signature 2 withholds too.
-  // Documented rather than worked around: it is the recoverable direction, and a
-  // re-harvest re-proposes the candidate.
+  // An unreadable COMMITS list costs the check-run path — rounds are walked over it —
+  // so the panel cannot be established and signature 2 withholds too. Documented
+  // rather than worked around: it is the recoverable direction, and a re-harvest
+  // re-proposes the candidate.
   const noCommits = harvestPr(548, {
     api: fakeApi({ "repos/{owner}/{repo}/pulls/548/commits?per_page=100": new Error("502") }),
     log: () => {},
@@ -851,6 +1036,118 @@ test("harvestPr: 'could not look' never reads the same as 'nothing found'", () =
     names: NAMES,
   });
   assert.equal(noCommitsWithPanel.records.filter((r) => r.source === "coderabbit").length, 1);
+});
+
+// --- the four cutoff bugs, one test each ------------------------------------
+//
+// Each of these FAILS on the marker-based cutoff this replaces. They are the reason
+// the change exists, so they are named after the failure rather than the mechanism.
+
+test("cutoff bug 1: no marker anywhere still harvests, from the check runs", () => {
+  // Measured population: 18 of 33 agent PRs were opened ready rather than promoted,
+  // so they carry neither a hand-off marker nor a `ready_for_review` event. The old
+  // cutoff had nothing to key on, which silenced signature 1 AND — because signature
+  // 2 read the panel through signature 1's commit — every CodeRabbit candidate too.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+    "repos/{owner}/{repo}/issues/548/timeline?per_page=100": [],
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, skipped } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(skipped, "");
+  assert.deepEqual(records.map((r) => r.source).sort(), ["coderabbit", "human-fix"]);
+  assert.equal(records.find((r) => r.source === "human-fix").handoffAt, "2026-07-24T15:40:00Z");
+});
+
+test("cutoff bug 2: a manually-readied PR the panel never approved harvests NOTHING", () => {
+  // `ready_for_review` fires whether or not the panel ever spoke, so keying the
+  // cutoff off it made every later human commit a candidate on a PR no reviewer had
+  // passed. The signal is gone; the absence of a SUCCESS round is now what decides.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+    // The event that used to be the fallback cutoff, now ignored entirely.
+    "repos/{owner}/{repo}/issues/548/timeline?per_page=100": [
+      { event: "ready_for_review", created_at: "2026-07-24T15:48:25Z" },
+    ],
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
+    "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+  });
+  const { records, skipped } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.deepEqual(records, []);
+  assert.match(skipped, /no panel approval/);
+});
+
+test("cutoff bug 3: a rebase after approval no longer erases the comparison set", () => {
+  // The sharpest one. A force-push rewrites every committer date on the PR, so with a
+  // comment-based cutoff EVERY commit post-dated it, `beforeHandoff` emptied, and the
+  // check runs were never read — leaving signature 2 with no comparison set on a PR
+  // whose verdict was sitting right there. `completed_at` is stamped by GitHub on the
+  // check run and a rebase cannot move it.
+  const rebased = [
+    { sha: SHA_BASE, parents: [{ sha: "0" }], author: { type: "Bot" }, commit: { message: "agent work", committer: { date: "2026-07-30T00:00:00Z" } } },
+    { sha: SHA_FIX, parents: [{ sha: SHA_BASE }], author: { login: "harrykim8672", type: "User" }, html_url: "https://x/commit", commit: { message: "Guard EditorAPI.paste()", committer: { date: "2026-07-30T00:01:00Z" } } },
+  ];
+  const api = fakeApi({
+    "repos/{owner}/{repo}/pulls/548/commits?per_page=100": rebased,
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  // The CodeRabbit candidate is compared against the real verdict, not withheld.
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.ok(cr, "the CodeRabbit candidate must survive a rebase");
+  assert.equal(cr.panelSaw.conclusion, "success");
+  assert.equal(cr.panelSaw.reviewedSha, SHA_BASE);
+});
+
+test("cutoff bug 4: a finding is compared against what the panel knew BY THEN", () => {
+  // The comparison set used to be ONE set per PR, read from whichever commit was head
+  // at hand-off, and applied to every CodeRabbit finding regardless of which commit it
+  // was about. That is wrong in both directions, and which one you get depends only on
+  // where the hand-off commit happens to sit:
+  //
+  //   - hand-off commit EARLIER than the finding → the set misses rounds the panel had
+  //     already reached, so a genuine restatement is filed as a miss. Measured: that is
+  //     what this fixture produced before the change (`suppressed: 0` on 4b).
+  //   - hand-off commit LATER than the finding → the set includes rounds that did not
+  //     exist yet, so a real miss is suppressed by a finding from the future.
+  //
+  // The first costs a false row, the second costs a real one. Anchoring per comment
+  // removes both, and the two halves below pin the boundary from either side: the panel
+  // raises the defect only at SHA_FIX, so the same comment must be a miss on SHA_BASE
+  // and a restatement on SHA_FIX.
+  //
+  // 4a is a REGRESSION GUARD rather than a fixed bug — the old code also left it
+  // unsuppressed, for the wrong reason. It is here because the new per-comment logic is
+  // the thing that could newly over-suppress it.
+  const laterRound = {
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [
+      { id: 1, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "success", completed_at: "2026-07-24T15:40:00Z", output: { text: "[]" } },
+    ] }],
+    [`repos/{owner}/{repo}/commits/${SHA_FIX}/check-runs?per_page=100`]: [{ check_runs: [
+      { id: 2, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "failure", completed_at: "2026-07-26T09:00:00Z" },
+    ] }],
+    "repos/{owner}/{repo}/check-runs/1": { id: 1, name: "agent-review-correctness", conclusion: "success", output: { text: "[]" } },
+    "repos/{owner}/{repo}/check-runs/2": { id: 2, name: "agent-review-correctness", conclusion: "failure", output: { text: JSON.stringify([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Guard public mutation APIs at the read-only boundary: EditorAPI.paste() reaches TextEditor.pasteContent() unguarded and mutates a viewer-mode document.", evidence: "" }]) } },
+  };
+  const onEarly = harvestPr(548, {
+    api: fakeApi({ ...laterRound, ...crComment(CR_MAJOR_CORRECTNESS) }),
+    log: () => {}, names: NAMES,
+  });
+  assert.equal(onEarly.suppressed, 0, "a later round cannot suppress an earlier finding");
+  assert.equal(onEarly.records.filter((r) => r.source === "coderabbit").length, 1);
+
+  // The identical comment, moved onto the commit the panel raised it at.
+  const onLate = harvestPr(548, {
+    api: fakeApi({
+      ...laterRound,
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [
+        { id: 999, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_FIX, html_url: "https://x/d", body: CR_MAJOR_CORRECTNESS },
+      ],
+    }),
+    log: () => {}, names: NAMES,
+  });
+  assert.equal(onLate.suppressed, 1, "at or after the round that raised it, it IS a restatement");
+  assert.equal(onLate.records.filter((r) => r.source === "coderabbit").length, 0);
 });
 
 test("harvestPr: one failed sub-request costs its own candidates, not the PR's", () => {
