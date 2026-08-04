@@ -2832,6 +2832,90 @@ test("buildStageDetail: derives only — it never mutates its inputs", () => {
   assert.equal(JSON.stringify({ findings, verdicts }), before);
 });
 
+test("buildStageDetail: a fresh row carries the lane the gate routed on", () => {
+  // The lane is the gate's decision, and `backlog` is the one field in a capture
+  // that is unrecoverable rather than merely absent: it comes from `noveltyOf`,
+  // a blame of the tree as it stood during the review. `discarded` survives
+  // without this (it is `dropped` under another name), so a capture missing lanes
+  // cannot be told apart from one where nothing was demoted — which is exactly
+  // the difference between a finding that gated and one waved past.
+  const relocated = { severity: "major", file: "a.ts", summary: "moved, not added" };
+  const added = { severity: "major", file: "b.ts", summary: "genuinely new" };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const novelties = [
+    { origin: "relocated", addedBy: "a".repeat(40), contentSha: null, alsoAt: "old.ts:4" },
+    { origin: "added", addedBy: "b".repeat(40), contentSha: null, alsoAt: null },
+  ];
+  const annotated = annotateFindings([relocated, added], [keep, keep], novelties);
+  const detail = buildStageDetail({
+    fresh: annotated, freshVerdicts: [keep, keep], prior: [], priorVerdicts: [],
+  });
+  const lanes = detail.verifications.map((v) => v.finding.lane);
+  assert.deepEqual(lanes, ["backlog", "blocking"]);
+  // Both were CONFIRMED, so `dropped` is false on both — the proof that the lane
+  // carries information no other recorded field does.
+  assert.deepEqual(detail.verifications.map((v) => v.dropped), [false, false]);
+  // The novelty itself rides along, so a later pass can see WHY it was demoted
+  // rather than having to trust the label.
+  assert.equal(detail.verifications[0].finding.novelty.origin, "relocated");
+  // A non-blocking finding has no lane, by design — `annotateFindings` returns it
+  // untouched. Absence there is not missing data, and a reader must not read it
+  // as `blocking`.
+  const nit = { severity: "nit", file: "c.ts", summary: "style" };
+  assert.ok(!("lane" in annotateFindings([nit], [null], [null])[0]));
+});
+
+test("buildStageDetail: the annotated array preserves verdict alignment; the kept array would not", () => {
+  // `annotateFindings` MAPS — same length, same order — which is what makes it a
+  // drop-in for `detected` at the capture call site. The obvious wrong fix is to
+  // pass `kept`, the post-`keepUnrefuted` array: it is annotated too, so lanes
+  // would appear and the capture would look correct while every row after the
+  // first drop is paired with another finding's verdict.
+  const a = { severity: "major", file: "a.ts", summary: "refuted one" };
+  const b = { severity: "major", file: "b.ts", summary: "confirmed one" };
+  const drop = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.ts:1"] };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const verdicts = [drop, keep];
+  const annotated = annotateFindings([a, b], verdicts, [null, null]);
+  assert.equal(annotated.length, 2, "annotation must not filter");
+  const rows = buildStageDetail({ fresh: annotated, freshVerdicts: verdicts }).verifications;
+  assert.deepEqual(rows.map((v) => [v.finding.summary, v.dropped]),
+    [["refuted one", true], ["confirmed one", false]]);
+  // The misalignment the above rules out, stated as the thing it would produce:
+  // `kept` has dropped row 0, so its row 0 is `b` — which would then be paired
+  // with `drop` and recorded as a refuted finding the panel actually gated on.
+  const kept = keepUnrefuted(annotated);
+  assert.deepEqual(kept.map((f) => f.summary), ["confirmed one"]);
+  assert.equal(buildStageDetail({ fresh: kept, freshVerdicts: verdicts }).verifications[0].dropped, true,
+    "documents the bug passing `kept` would cause, so the call-site guard below has a reason");
+});
+
+test("the capture is wired to the ANNOTATED fresh findings, not the raw ones", () => {
+  // Read from the source, and only because the behaviour is genuinely out of
+  // reach: this call site lives inside `main`'s per-lens closure, which is not
+  // exported and needs a git repo plus live model sessions to enter. The tests
+  // above pin what `buildStageDetail` does with an annotated array; nothing but
+  // this can pin that the panel HANDS it one.
+  //
+  // Structural rather than a literal match, per the inertness note at the top of
+  // this file: the variable name is read out of the source instead of hardcoded,
+  // so renaming it keeps this green and reverting to the unannotated array does
+  // not.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const assigned = src.match(/const\s+(\w+)\s*=\s*annotateFindings\(\s*detected\s*,/);
+  assert.ok(assigned, "the fresh annotation must be assigned to a name the capture can reach");
+  const [, name] = assigned;
+  const call = src.match(/buildStageDetail\(\{[\s\S]*?\n\s*\}\)/);
+  assert.ok(call, "buildStageDetail call site not found");
+  const fresh = call[0].match(/^\s*fresh:\s*(\w+),/m);
+  assert.ok(fresh, "the call site must pass `fresh` as a plain identifier");
+  assert.equal(fresh[1], name,
+    `fresh: must be the annotated array (${name}); passing \`detected\` loses the lane forever`);
+  // And it must not be the filtered one — that is the misalignment the test above
+  // demonstrates, and it is the mistake a reader "simplifying" this would make.
+  assert.notEqual(fresh[1], "kept");
+});
+
 test("buildStageDetail: the default payload is valid JSON of the expected shape, with no diff body", () => {
   // The whole default shape in one assertion, so a field added or dropped here
   // has to be a decision rather than an accident. `lensDiff` is ABSENT — see the
