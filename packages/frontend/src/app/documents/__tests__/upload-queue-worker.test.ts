@@ -737,7 +737,11 @@ describe("upload-queue worker", () => {
 
       const current = q.getSnapshot()[0];
       expect(current.status).toBe("done");
-      expect(current.warning).toBe("Only the first 5,000 rows were imported.");
+      // `runItem` formats with `toLocaleString()` and pins no locale, so the
+      // thousands separator belongs to the runner, not to us.
+      expect(current.warning).toBe(
+        `Only the first ${(5000).toLocaleString()} rows were imported.`,
+      );
     });
 
     it("reuses the uploaded blob when a failed preview is retried", async () => {

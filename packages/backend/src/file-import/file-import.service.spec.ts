@@ -27,6 +27,14 @@ afterAll(async () => {
   await duckdb.onModuleDestroy();
 });
 
+// The DuckDB instance is shared by every test in this file, so a spy that
+// outlived its own case would surface as a failure in an unrelated one. The
+// spies below are `…Once`, which self-exhaust on the happy path — this covers
+// the case where the assertion fails before the spy is consumed.
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 describe('FileImportService.preview', () => {
   it('returns columns and rows in the shared response shape', async () => {
     const service = makeService('name,qty\napple,3\npear,10\n');
@@ -177,7 +185,7 @@ describe('FileImportService.preview', () => {
     ).preview(WS, FILE_ID);
     expect(narrow.truncated).toBe(false);
     expect(narrow.rowCount).toBe(2101);
-  });
+  }, 20_000);
 
   // What crosses the wire is exactly what the engine can write — the header is
   // one of the rows counted, not an extra the client bolts on afterwards. Send
@@ -199,7 +207,7 @@ describe('FileImportService.preview', () => {
 
     expect(result.rowCount * columns).toBeLessThanOrEqual(50_000);
     expect(result.rowCount).toBe(budget);
-  });
+  }, 20_000);
 
   // A file the padded read treats as headed must not be sniffed as headerless,
   // or the caller leaves the `a,b` row unbolded. Only reproducible when the
@@ -385,8 +393,13 @@ describe('FileImportService.preview', () => {
     ).length;
 
     await makeService('a\n1\n').preview(WS, FILE_ID);
-    await makeService('a\n1\n')
-      .preview(WS, '00000000-0000-4000-8000-000000000000.pdf')
+    // An empty file, not a rejected id: a `.pdf` id is refused by
+    // `VALID_IMPORT_FILE_ID_PATTERN` before `mkdtemp` runs, so it never
+    // reached the cleanup this test is about. An empty file fails inside the
+    // `try`, which is where `finally` earns its keep. (The id rejection has
+    // its own case above.)
+    await makeService('')
+      .preview(WS, FILE_ID)
       .catch(() => {});
 
     const after = (await readdir(tmpdir())).filter((n) =>

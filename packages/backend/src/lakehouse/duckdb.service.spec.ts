@@ -47,6 +47,22 @@ describe('DuckDbService.withReadSlot', () => {
     expect(order).toEqual([1, 2, 3]);
   });
 
+  // A parse failure is an ordinary outcome — a malformed file reaches this
+  // path in normal use. If the release ever left `finally`, the FIFO chain
+  // would stop advancing and every later import would hang for the process
+  // lifetime rather than fail, surfacing as "slow" rather than as an error.
+  it('releases the slot when the body throws', async () => {
+    await expect(
+      duckdb.withReadSlot(() => Promise.reject(new Error('parse failed'))),
+    ).rejects.toThrow('parse failed');
+
+    const result = await duckdb.withReadSlot(() =>
+      duckdb.readSchema('csv', path),
+    );
+
+    expect(result.hasHeader).toBe(true);
+  }, 20_000);
+
   it('does not let a second request start before the first finishes both its schema and table reads', async () => {
     const events: string[] = [];
 
