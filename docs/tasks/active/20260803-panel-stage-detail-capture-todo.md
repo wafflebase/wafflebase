@@ -610,3 +610,152 @@ no new scope. The on-demand job's permissions are byte-identical before and afte
       advisory one, and would double-count one head sha as two rounds. Recoverable
       from run metadata (`event: issue_comment` versus the panel's `workflow_run`).
       Not a blocker here; it must be settled in the collector.
+
+---
+
+# Follow-up: record the lane the gate routed on
+
+Two lines. The capture records every finding that reached the verifier and what the
+verifier said, and omits the one thing the **gate** decided: which lane the finding
+was routed to. That field cannot be added later, which is the only reason this is
+worth its own change rather than waiting for a consumer to need it.
+
+## The problem
+
+`annotateFindings` attaches `lane` — `blocking`, `discarded` or `backlog` — and it
+returns copies (`{ ...f, lane }`), which is what makes it safe. The capture is handed
+the array that went *in*:
+
+```js
+const kept = keepUnrefuted(
+  annotateFindings(detected, verdicts, await noveltiesFor(detected)),  // labels land here
+);
+…
+writeStageDetail(lensOut, buildStageDetail({ fresh: detected, … }));   // this gets the unlabelled array
+```
+
+The annotated array is never named, so nothing else can reach it.
+
+Two of the three lanes survive that loss; one does not.
+
+| lane | in a capture written today | why |
+|---|---|---|
+| `discarded` | **recoverable** | `dropped` on each row is `isDroppingVerdict` over the recorded verdict — the same predicate, already stored |
+| `blocking` | **recoverable** | it is the residue: neither dropped nor demoted |
+| `backlog` | **gone** | set from `novelty.origin`, which is a `git blame -C -C -C` of the tree *as it stood during the review* |
+
+`backlog` is why this cannot wait. The blame runs against the branch under review;
+once that branch moves the answer is unobtainable, and the artifact expires at 30
+days regardless. So a capture written without the lane is indistinguishable from one
+where nothing was demoted — which is the difference between *"this finding blocked
+the PR"* and *"this finding was waved past."* That is the whole question a gate is
+scored on, and #608 opened this corpus on the grounds that nothing records it.
+
+This is the third follow-up on the same capture, and all three are the same shape: a
+producer gap found by trying to consume the output. Worth naming as the expected
+case rather than a run of bad luck.
+
+## The change
+
+```js
+const annotatedFresh = annotateFindings(detected, verdicts, await noveltiesFor(detected));
+const kept = keepUnrefuted(annotatedFresh);
+…
+fresh: annotatedFresh,   // was: fresh: detected
+```
+
+No new argument, no new field computed anywhere, no additional `git blame` — the
+novelties were already awaited on that line for the gate's own use. `annotateFindings`
+**maps**, so the array is the same length in the same order as `detected`, which is
+what lets it stand in without disturbing the `freshVerdicts` pairing.
+
+`novelty` rides along with the lane, so a later pass can read *why* a finding was
+demoted instead of trusting the label.
+
+### Why `fresh` only
+
+`prior` is deliberately left raw. Prior-round findings are annotated with `null`
+novelties on purpose — probing a stale line offset could permanently demote a
+still-open blocker — so their lane is fully derivable from the verdict already on the
+row. Annotating them would add a field carrying nothing a reader could not compute.
+
+### Why not compute the lane inside `buildStageDetail`
+
+It would be a second router, able to disagree with the first. `routeFinding` is the
+one routing rule and the gate's own; the capture records its output rather than
+re-deriving it. Same reason `dropped` is recomputed through the real
+`isDroppingVerdict` instead of being restated.
+
+### The reader contract, stated because absence is ambiguous
+
+A **missing** lane means *unknown*, never *blocking*. Every capture written before
+this has no lane at all, and a consumer defaulting absence to `blocking` would score
+demoted findings as gating ones — the exact error this change exists to prevent,
+reintroduced at the other end. Non-blocking findings are the one exception:
+`annotateFindings` returns them untouched by design, so for a minor or nit, absence
+is not missing data.
+
+## Fail directions
+
+- **The capture stays best-effort.** Unchanged: `buildStageDetail` is still pure and
+  still runs as an argument to `writeStageDetail`, whose `catch` swallows everything.
+- **Gating is untouched.** `kept` is still what flows to the merge, the cluster and
+  the verdict. The new name is read by the capture only.
+- **A misalignment would be silent, so it is pinned.** Passing `kept` — the filtered
+  array — would also carry lanes and look right, while pairing every row after the
+  first drop with another finding's verdict. There is a test whose whole job is that
+  this is not what happens.
+
+## Explicit non-goal
+
+**No behaviour change.** No lens, no verifier, no lane assignment, no gate decision,
+no check run, no permission. The routing this records already happened on every round;
+the only difference is that it is now written down.
+
+**No collector, still.** Nothing reads `stage-detail.json`. This makes the artifact
+worth reading; it does not read it.
+
+**Nothing recovered retroactively.** Captures from before this — of which there are
+zero, per the section above — would not gain the field, and the blame they would need
+is already gone.
+
+## Verification
+
+- [x] `node --test "scripts/agent/*.test.mjs"` — **666 tests, 0 fail**, against 663 on
+      `upstream/main` (`d02973a14`). Exactly +3. Both numbers are given for each SDK
+      state, because the skip count moves with it and a single figure would not
+      reproduce:
+
+      | Agent SDK | branch | `upstream/main` |
+      |---|---|---|
+      | installed | 666 tests, 665 pass, 1 skipped | 663 / 662 / 1 |
+      | absent (the `agent:tests` lane) | 666 tests, 660 pass, 6 skipped | 663 / 657 / 6 |
+
+      Measured from the committed tree (`git archive`), not the working copy.
+- [x] `eslint scripts` — clean, exit 0, on the lockfile's pinned `eslint@9.24.0`.
+- [x] **The call-site guard fails on both wrong wirings and survives a rename**, which
+      is the property a source-reading test has to earn:
+
+      | tree | result |
+      |---|---|
+      | `fresh: detected` (= today) | **fails** — "passing `detected` loses the lane forever" |
+      | `fresh: kept` (the plausible wrong fix) | **fails** |
+      | the variable renamed, wiring intact | **passes** — the name is read from the source, not hardcoded |
+
+      Read from source only because this call site is unreachable otherwise: it lives
+      inside `main`'s per-lens closure, which is not exported and needs a git repo and
+      live model sessions to enter. What `buildStageDetail` does with an annotated
+      array is tested directly.
+- [x] **The lane carries information no other field does.** In the lane test both
+      findings are `confirmed`, so `dropped` is `false` on both, and the lanes still
+      come out `["backlog", "blocking"]`.
+- [x] **Size, measured.** +198 bytes per blocking fresh finding worst case (a
+      `relocated` origin with both shas and an `alsoAt`), +94 in the ordinary
+      non-demoted case. Against a per-lens capture of 5–30 KB that is under 1%, and it
+      is orthogonal to the diff tiering above.
+- [x] **Purity holds.** The existing "derives only — it never mutates its inputs" test
+      is unchanged and still passes; `annotateFindings` copies, so the findings the
+      panel gates on are the same objects they were.
+- [ ] **The field itself, in a real artifact.** Blocked on the same thing as the
+      section above: no capture has left a runner yet. The first one to arrive should
+      show a `lane` on every blocking fresh row and none on a minor.

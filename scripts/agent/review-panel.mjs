@@ -2354,9 +2354,15 @@ async function main() {
       const foldVerdicts = await Promise.all(folds.map(verifyBlocking));
       return resolveClusterVerdict(f, repVerdict, folds, foldVerdicts);
     }));
-    const kept = keepUnrefuted(
-      annotateFindings(detected, verdicts, await noveltiesFor(detected)),
-    );
+    // Named, rather than passed straight into `keepUnrefuted`, because the
+    // stage-detail capture below needs the ANNOTATED findings and cannot rebuild
+    // them: `annotateFindings` returns copies, so the `lane` it assigns exists
+    // only here. Index-aligned with `verdicts` exactly as `detected` is —
+    // `annotateFindings` maps, so it neither reorders nor filters — which is what
+    // lets the capture take this in place of `detected` without touching the
+    // verdict pairing.
+    const annotatedFresh = annotateFindings(detected, verdicts, await noveltiesFor(detected));
+    const kept = keepUnrefuted(annotatedFresh);
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
     // against the CURRENT diff, biased-to-keep. verifyFinding asks "is this
@@ -2445,9 +2451,22 @@ async function main() {
       lensDiff,
       scopeNote,
       samples: ok,
-      // `detected`, not `findings`: post-cluster, index-aligned with `verdicts`.
-      fresh: detected,
+      // `annotatedFresh`, not `findings`: post-cluster, index-aligned with
+      // `verdicts`, and carrying the `lane`/`novelty` the gate actually routed on.
+      //
+      // The lane is the one thing here that CANNOT be recovered later. `discarded`
+      // could be — `dropped` below is the same predicate — but `backlog` comes from
+      // `noveltyOf`, which is a `git blame` against the tree as it stood during the
+      // review. Once the branch moves there is nothing left to blame, so a capture
+      // written without it can never be told apart from one where nothing was
+      // demoted. That is the difference between "this finding gated" and "this
+      // finding was waved past", which is the whole question a gate is scored on.
+      fresh: annotatedFresh,
       freshVerdicts: verdicts,
+      // Deliberately NOT annotated. Prior-round findings are routed with `null`
+      // novelties on purpose (see the call site), so their lane is derivable from
+      // the verdict already recorded on each row — annotating here would add a
+      // field that says nothing the reader could not compute.
       prior: priorForLens,
       priorVerdicts,
       // Which prior verdicts no session produced. Without it the capture shows a
@@ -2682,10 +2701,21 @@ function lensDiffMetadata(routedDiff) {
  *   session of their own (`reused: true`). Without it the capture is indistinguishable
  *   from one where every prior finding was verified, and counting rows in it
  *   would overstate what the round actually spent.
- * - `fresh` must be the POST-cluster findings (`detected`), not the union:
- *   restatement clustering moved ahead of verification in #591/#601, so `verdicts`
- *   is index-aligned to what was clustered. Passing the union here would pair
- *   findings with other findings' verdicts.
+ * - `fresh` must be the POST-cluster findings, not the union: restatement clustering
+ *   moved ahead of verification in #591/#601, so `verdicts` is index-aligned to what
+ *   was clustered. Passing the union here would pair findings with other findings'
+ *   verdicts. Pass the ANNOTATED array (`annotatedFresh`), which is the same list in
+ *   the same order — `annotateFindings` maps — and additionally carries `lane` and
+ *   `novelty`.
+ * - `lane`/`novelty` on a fresh row are the gate's own routing decision, and the only
+ *   part of a capture that is unrecoverable in principle rather than merely absent.
+ *   `lane: "discarded"` is recomputable from `dropped`; `lane: "backlog"` is not — it
+ *   comes from a `git blame` of the tree under review, so it expires with the branch.
+ *   A reader must therefore treat a MISSING lane as "unknown", never as "blocking":
+ *   every capture written before this existed has no lane at all, and reading absence
+ *   as blocking would silently score demoted findings as gating ones.
+ *   Non-blocking findings never carry a lane by design (`annotateFindings` returns
+ *   them untouched) — for those, absence is not missing data.
  */
 export function buildStageDetail({ lensDiff, scopeNote, samples, fresh, freshVerdicts, prior, priorVerdicts, priorReuseIdx, env = process.env }) {
   const rows = (population, findings, verdicts, reuseIdx) =>
