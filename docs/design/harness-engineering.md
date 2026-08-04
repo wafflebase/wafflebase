@@ -394,7 +394,12 @@ Components:
     the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
     comment, records NO check runs and drives no promote/fix, so it never touches
     the merge gate. Works on any PR incl. forks (read-only). PR author OR
-    maintainer, throttled per head SHA.
+    maintainer, throttled per head SHA. The comment ends with a collapsed
+    **"Prompt for AI Agents"** fold (`scripts/agent/ai-prompt.mjs`) — the blocking
+    (critical/major, non-demoted) findings rendered as a fenced, copy-pasteable fix
+    instruction, so a maintainer can hand the whole review to their own coding agent
+    in one click (a fenced code block IS GitHub's native copy button). Empty and
+    omitted when nothing blocks.
   - `@claude loop` (PR) → `.github/workflows/agent-loop.yml`: MAINTAINER-ONLY;
     labels the PR `agent:managed` and re-runs CI to opt it into the full
     review→fix→promote machinery. Same-repo branches only (the fixer can't push to

@@ -418,6 +418,19 @@ jobs:
           # carries the pulls read too. Read-only — no write to the PR itself.
           permission-pull-requests: read
 
+      # Build the collapsed "Prompt for AI Agents" section from the blocking
+      # (critical/major) findings in each lens's verdict.json. Fail-safe by design
+      # (writes an empty file when nothing blocks or the panel never ran), runs the
+      # TRUSTED main copy, and continue-on-error so it can never fail the review.
+      # The comment step below reads /tmp/ai-prompt.md best-effort.
+      - name: Build the AI-agent prompt section
+        if: always()
+        continue-on-error: true
+        run: >-
+          node .trusted/scripts/agent/ai-prompt.mjs
+          --review-dir .agent-review
+          --out /tmp/ai-prompt.md
+
       # EDIT the "running" placeholder authorize posted (comment_id) into the
       # findings — aggregate panel.json + each lens's summary.md. No check runs;
       # advisory only. Fails closed to a note if the panel crashed. If the
@@ -493,13 +506,24 @@ jobs:
                   + ' · novelty: ' + lanes('backlog') + ' relocated, ' + lanes('unknownOrigin') + ' unplaceable</sub>';
               }
             } catch { /* stats absent (crash before write) — say nothing rather than guess */ }
+            // Collapsed, copy-pasteable "Prompt for AI Agents" fold — the blocking
+            // findings rendered as a fix instruction (built by the trusted
+            // ai-prompt.mjs step above). Empty when nothing blocks or the panel
+            // never ran; best-effort read so a missing file never strands the
+            // comment. It rides ABOVE `note` so the one-line disclaimer stays last,
+            // and is re-appended on truncation because it is the actionable part.
+            let promptSection = '';
+            try {
+              const p = fs.readFileSync('/tmp/ai-prompt.md', 'utf8').trim();
+              if (p) promptSection = `\n\n${p}`;
+            } catch { /* no prompt file (nothing blocked, or panel crashed) */ }
             const note = '\n\n_Advisory only — this on-demand review records no status checks and does not gate merge; a human approval is still required._';
-            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${tally}${note}`;
+            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${tally}${promptSection}${note}`;
             // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
-            // `tally` is re-appended after the cut, like `note`: a body long
-            // enough to truncate is one with many findings, which is exactly when
-            // "were these actually verified?" matters most.
-            if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + tally + note;
+            // `tally` + `promptSection` are re-appended after the cut, like `note`:
+            // a body long enough to truncate is one with many findings, which is
+            // exactly when "were these verified?" and the fix prompt matter most.
+            if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + tally + promptSection + note;
             await publish(body);
 
       # Record this review's cost/reliability into the PR metric ledger and post
