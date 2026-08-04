@@ -158,6 +158,26 @@ test("maxProbes is enforced, and an exhausted session runs nothing more", async 
   assert.deepEqual(budget.refusals.map((r) => r.kind), ["maxProbes"]);
 });
 
+// The budget is built before the session opens, and the explorer also holds
+// Read/Grep/Glob. A clock started at construction therefore bounds THINKING, not
+// probing. Live consequence: a sample was refused on its first `run` call with
+// "Session probe time exhausted (939s of 600s)" having executed zero probes,
+// because it read the CLI source first — which the charter explicitly asks it to do.
+test("the clock starts at the FIRST probe, not when the budget is built", async () => {
+  let now = 1_000;
+  const budget = createProbeBudget({ maxProbes: 100, totalTimeoutMs: 5_000, now: () => now });
+  // A long stretch of non-probe work: reading source, forming a hypothesis.
+  now += 900_000;
+  const { call } = makeServer({ budget });
+  const first = await call({ argv: ["schema"] });
+  assert.equal(first.isError, false, "the opening probe must never be refused for time it did not spend");
+  assert.deepEqual(budget.refusals, []);
+  // And the bound still applies once probing has actually begun.
+  now += 6_000;
+  assert.equal((await call({ argv: ["schema"] })).isError, true);
+  assert.deepEqual(budget.refusals.map((x) => x.kind), ["totalTimeoutMs"]);
+});
+
 test("totalTimeoutMs is enforced independently of probe count", async () => {
   // An injected clock, so a wall-clock bound is testable without waiting for it.
   let now = 1_000;

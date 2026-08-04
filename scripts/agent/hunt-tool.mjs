@@ -78,7 +78,20 @@ const MAX_STREAM_CHARS = 20_000;
  * `now` is injectable so a test can exhaust the clock without waiting.
  */
 export function createProbeBudget({ maxProbes = 40, totalTimeoutMs = 600_000, now = Date.now } = {}) {
-  const started = now();
+  // The clock starts at the FIRST probe, not at construction.
+  //
+  // This budget is created before the session opens, and the explorer also holds
+  // Read/Grep/Glob — so a clock started here bounds thinking and file reading, not
+  // probing. A live run made the consequence unmissable: a `contract` sample was
+  // refused on its very first `run` call with "Session probe time exhausted (939s
+  // of 600s)" having executed ZERO probes, because it had spent fifteen minutes
+  // reading the CLI source first. A `crash` sample lost its last two probes the
+  // same way. Three of that run's seven refusals were this, and the charter that
+  // starved reported nothing at all.
+  //
+  // Reading the source before probing is behaviour the charters actively ask for,
+  // so the budget must not punish it. What needs bounding is the probe loop.
+  let started = null;
   let used = 0;
   const refusals = [];
   return {
@@ -116,6 +129,9 @@ export function createProbeBudget({ maxProbes = 40, totalTimeoutMs = 600_000, no
             "No further commands can run. Report what you have found, or return zero candidates.",
         };
       }
+      // First charge starts the clock, and is always admitted on time: a session
+      // must never be refused its opening probe, which is what happened before.
+      if (started === null) started = now();
       const elapsed = now() - started;
       if (elapsed >= totalTimeoutMs) {
         refusals.push({ kind: "totalTimeoutMs", elapsed });
