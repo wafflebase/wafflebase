@@ -13,6 +13,7 @@ import { YorkieModule } from './yorkie/yorkie.module';
 import { ApiV1Module } from './api/v1/api-v1.module';
 import { ImageModule } from './image/image.module';
 import { FileModule } from './file/file.module';
+import { FileImportModule } from './file-import/file-import.module';
 import { HealthModule } from './health/health.module';
 import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -107,6 +108,7 @@ import { MiroModule } from './miro/miro.module';
     ApiV1Module,
     ImageModule,
     FileModule,
+    FileImportModule,
     HealthModule,
     UserDocStylesModule,
     AnalyticsModule,
