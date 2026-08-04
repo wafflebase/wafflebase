@@ -71,6 +71,7 @@ import {
   redactSecrets,
   withScratch,
   DEFAULT_PROBE_TIMEOUT_MS,
+  NO_SERVER,
 } from "./hunt-probe.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -647,9 +648,20 @@ async function cmdPreflight(args) {
   // says exactly what it means instead of leaning on `mutating ⟹ needsBackend`.
   const backendCharters = allCharters.filter((c) => c.needsBackend).map((c) => c.id);
   const mutatingCharters = allCharters.filter((c) => c.mutating).map((c) => c.id);
+  const huntServer = process.env.WAFFLEBASE_HUNT_SERVER ?? "";
+  // Where probes will actually send traffic, stated for EVERY run rather than only
+  // when a backend charter is selected. The old wording said "no server configured"
+  // and stopped there, which reads as "nothing will be contacted" — while the CLI
+  // was quietly falling back to its production default. Say the destination out
+  // loud; it is the one line that would have caught that immediately.
+  notes.push(
+    huntServer
+      ? `probes will reach WAFFLEBASE_HUNT_SERVER (${huntServer}) — a REAL deployment`
+      : `probes are pinned to ${NO_SERVER} (nothing listens there) — no network egress. ` +
+        "Set WAFFLEBASE_HUNT_SERVER to point them at a real backend.",
+  );
   if (backendCharters.length > 0) {
-    const server = process.env.WAFFLEBASE_HUNT_SERVER ?? "";
-    const stack = await checkStack(server);
+    const stack = await checkStack(huntServer);
     (stack.up ? notes : warnings).push(
       stack.up
         ? `backend reachable (${stack.detail}) — ${backendCharters.join(", ")} can run`
@@ -951,6 +963,10 @@ async function cmdRun(args) {
         attempts: 3,
         observedKey,
         runAttempt: () => probeOnce(cand, { bin, charter, cfg: charterContext.cfg }).observations ?? [],
+        // The SAME index the claim was keyed on above. Omitting it made `replay`
+        // fall back to the last observation, so any candidate whose failing probe
+        // sat mid-sequence compared two different probes and never reproduced.
+        failingIndex: cand.failingIndex,
       });
 
       const fp = fingerprint({ charterId: charter.id, argv: cand.probes[cand.failingIndex].argv, oracle: cand.oracle, observed });
