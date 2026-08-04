@@ -1521,6 +1521,36 @@ belt-and-braces: the first version spread `js.configs.recommended` and then set
 `eslint scripts` still exited 0. A config that lints nothing reports success, so
 the tests assert on the resolved rule set — `no-undef` is `error`, and every
 upstream recommended rule survives the local override.
+### Label writes on a PR need `pull-requests: write`
+
+Not `issues: write`. A pull request is an issue for most of the API — its
+**comments** are reachable with `issues: write` — but its **labels** are not, and
+the mismatch produced two silent failures that looked like success:
+
+- **`@claude rerun` announced dropping `agent:blocked` and did not.** The job held
+  `pull-requests: read`, so `deleteComment` succeeded ("cleared 1 paged marker(s)")
+  and `removeLabel` failed with `Resource not accessible by integration` — while the
+  summary claimed the drop unconditionally. Observed on #632 and #648: both said
+  they had dropped the label, and both stayed blocked.
+- **`agent:reviewing` has never existed.** The `review-panel` job had the same
+  `pull-requests: read`, and `scripts/agent/set-state.mjs` is fail-safe (any API
+  error logs and exits 0), so the "Set state → reviewing" step reported success from
+  the day it was written. #648, #632, #605 and #633 all show
+  implementing → fixing → blocked with no reviewing state in between.
+
+Both are fixed by the grant. Two things generalise:
+
+**Fail-safe writes need their outcome reported.** `scripts/agent/set-state.mjs` exiting 0 on error
+is the right call for a label that gates nothing — it must never fail the pipeline —
+but it means a broken grant is indistinguishable from a working one. The rerun
+summary now reports which of *dropped* / *was not set* / *could not drop* actually
+happened, rather than asserting the happy path.
+
+**Jobs that write labels with the default `GITHUB_TOKEN` are enumerable**, and were
+enumerated: `iterate` inherits the grant workflow-level, `fix` and `stalled` declare
+it, and the two above were the only gaps. `agent-implement`'s label write is not in
+this class — it happens inside the agent's prompt using the App token, whose
+installation permissions the workflow block does not govern.
 
 ## Harness Policy
 

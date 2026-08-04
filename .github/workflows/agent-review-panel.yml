@@ -326,12 +326,24 @@ jobs:
     permissions:
       contents: read # read-only toward the PR
       checks: write # record per-lens verdicts
-      # issues:write is used ONLY by the trusted "Set state → reviewing" run-step
-      # to set the advisory agent:reviewing label (labels use the issues API). The
-      # SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
-      # only), so this does not widen what prompt-injected branch code can reach.
+      # issues:write + pull-requests:write are used ONLY by the trusted
+      # "Set state → reviewing" run-step to set the advisory agent:reviewing label.
+      #
+      # pull-requests:WRITE is required, and its absence made this step silently
+      # dead. Labels on a PULL REQUEST need it; `issues: write` covers a PR's
+      # COMMENTS but not its labels — the old comment here claimed "labels use the
+      # issues API", which is the misconception behind the bug. `set-state.mjs` is
+      # fail-safe and exits 0 on any API error, so the step reported success while
+      # `agent:reviewing` never once appeared: #648/#632/#605/#633 all show
+      # implementing → fixing → blocked with no reviewing state between them. The
+      # same missing grant is why `@claude rerun` announced dropping
+      # `agent:blocked` on #632 and #648 and left it in place.
+      #
+      # The SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
+      # only), so neither grant widens what prompt-injected branch code can reach —
+      # the same argument issues:write already rested on.
       issues: write # design-fit reads the issue spec + set advisory agent:reviewing
-      pull-requests: read
+      pull-requests: write # label writes on a PR need this, not issues:write
     outputs:
       pr: ${{ steps.pr.outputs.number }}
       blocked: ${{ steps.panel.outputs.blocked }}
