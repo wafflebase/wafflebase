@@ -108,7 +108,6 @@ test("parseArgs: flags in any position, and no prototype write", () => {
 // --- collectPrior: the API half ---------------------------------------------
 
 const COMMITS = ["api", "--paginate", "repos/{owner}/{repo}/pulls/581/commits?per_page=100"];
-const isCheckRuns = (args) => args[1].includes("/check-runs");
 const isFullRun = (args) => /\/check-runs\/\d+$/.test(args[1]);
 const findings = (n) => JSON.stringify([{ severity: "major", summary: n }]);
 const run = (name, id, over = {}) => ({

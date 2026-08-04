@@ -68,7 +68,7 @@ export function extractFileRefs(content, sourceName) {
     }
 
     // Extract backtick-wrapped paths
-    const backtickPattern = /`([a-zA-Z0-9@/_.\-]+\.[a-zA-Z0-9]+)`/g;
+    const backtickPattern = /`([a-zA-Z0-9@/_.-]+\.[a-zA-Z0-9]+)`/g;
     let match;
     while ((match = backtickPattern.exec(line)) !== null) {
       const ref = match[1];

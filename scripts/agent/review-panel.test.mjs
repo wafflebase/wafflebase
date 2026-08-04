@@ -1349,7 +1349,7 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   // ALSO called by the cacheability pre-pass (countPrefixSessions), which handles
   // a skip by `continue`-ing. Matching the first call site would inspect that one
   // and report main()'s routing as missing.
-  const branch = /const plan = lensReviewPlan\(lens, changedFiles, fileBlocks\);\s*\n\s*if \(plan\.skip\) \{[\s\S]*?\n    \}/.exec(src);
+  const branch = /const plan = lensReviewPlan\(lens, changedFiles, fileBlocks\);\s*\n\s*if \(plan\.skip\) \{[\s\S]*?\n {4}\}/.exec(src);
   assert.ok(branch, "main() no longer routes lens skipping through lensReviewPlan");
   assert.match(branch[0], /conclusion: "skipped"/);
   assert.match(branch[0], /applicable: false/,
