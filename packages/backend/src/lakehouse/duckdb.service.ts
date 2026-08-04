@@ -263,10 +263,18 @@ export class DuckDbService implements OnModuleDestroy {
     // queries at once — so they overlap instead of paying their latency
     // twice. Both run under the same single-slot `withReadSlot` hold: they
     // are two connections against one reservation, not two reservations.
-    const [readConn, sniffConn] = await Promise.all([
-      instance.connect(),
-      instance.connect(),
-    ]);
+    const readConn = await instance.connect();
+    // Opened one at a time, not as a pair: if the second `connect()` fails
+    // once the first has opened, nothing below closes it — the `try` is never
+    // entered, so its `finally` never arms — and a leaked connection holds
+    // native resources for the process lifetime. Only the `connect()` calls
+    // are serialized; the two queries below still overlap, which is the point
+    // the comment above makes, and `connect()` on an in-memory instance costs
+    // nothing.
+    const sniffConn = await instance.connect().catch((error) => {
+      readConn.closeSync();
+      throw error;
+    });
     try {
       const [result, sniffed] = await Promise.all([
         readConn.run(`SELECT * FROM ${READER_SQL[format]} LIMIT 0`, [path]),
