@@ -1545,12 +1545,31 @@ The panel now subscribes to `[requested, completed]`, and the `gate` job admits
 | `completed` | 2+ | yes | a re-run, where `requested` never fires |
 
 That keeps one panel per CI run, so subscribing to both does not double the ~$12
-round. Two existing properties make it safe rather than merely intended: the
-`concurrency` group cancels a superseded run, so even if `requested` did fire on a
-re-run the later event would collapse the pair to one; and the `ci` job's
-`decide()` returns `proceed` immediately for an already-completed successful run,
-so the `completed`-triggered path does not sit waiting for a conclusion it already
-has.
+round.
+
+**The concurrency group has to be partitioned to match, and getting this wrong
+disables the panel entirely.** `concurrency` is claimed at the workflow level — at
+RUN CREATION, before any job's `if:` is evaluated. With one undifferentiated group,
+a fresh CI run's `completed` event creates a second run that cancels the panel the
+`requested` event started ~13 minutes earlier, **mid-review**; the second run then
+refuses the event and skips every job. No verdicts recorded, and `stalled` is
+`!cancelled()`, so no page either. The panel takes ~14 min against CI's ~13, so the
+collision is near-certain rather than occasional. A job-level `if:` cannot protect a
+group that was already claimed on its behalf.
+
+So the group carries a suffix: runs that will be refused (`completed` on attempt 1)
+land in a `noop` lane where cancelling each other costs nothing, and every run that
+will actually review shares `active` — which preserves what the guard exists for
+(#605's two same-second contradictory verdicts, #648's two fixers on one branch).
+The partition and the gate's admission rule are written separately and must agree,
+so `scripts/agent/checks.test.mjs` evaluates both across all four event/attempt
+combinations and fails if they diverge, including a check that the partition is not
+degenerate — a group that always answered `active` would pass a same-answer test
+while restoring the bug.
+
+The `ci` job's `decide()` returns `proceed` immediately for an already-completed
+successful run, so the `completed`-triggered path does not sit waiting for a
+conclusion it already has.
 
 **A trigger is part of a command's contract.** `@claude rerun` re-runs CI *in order
 to* fire the panel; narrowing what the panel listens to broke the command without

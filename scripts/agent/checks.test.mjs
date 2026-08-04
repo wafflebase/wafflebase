@@ -153,6 +153,52 @@ test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () =
     "the gate must admit `completed` only for re-runs, or every round doubles",
   );
 
+  // THE CONCURRENCY GROUP MUST AGREE WITH THE GATE, and they are written
+  // separately — a suffix expression and a job `if:` — so this evaluates both.
+  //
+  // Why it matters more than tidiness: `concurrency` is claimed at RUN CREATION,
+  // before any `if:` runs. With one undifferentiated group, a fresh CI run's
+  // `completed` event creates a second run that cancels the panel the `requested`
+  // event started ~13 minutes earlier, mid-review — then refuses the event itself
+  // and skips every job. No verdicts, and `stalled` is `!cancelled()` so no page.
+  // The review control would stop working, silently, on every PR.
+  //
+  // So refused runs must land in a DIFFERENT group from working ones, and "refused"
+  // has to mean the same thing in both places.
+  {
+    const gateIf = (yml.match(/^ {2}gate:\n(?:.*\n)*? {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+    assert.ok(gateIf, "could not extract the gate's if: expression");
+    // `.+` not `\S+`: the group is one folded line containing spaces inside `${{ }}`.
+    const group = (yml.match(/group: >-\n\s*(.+)/) || [])[1];
+    assert.ok(group, "could not extract the concurrency group");
+
+    const toJs = (s) =>
+      s.replace(/github\.event\.workflow_run\.run_attempt/g, "ATTEMPT")
+       .replace(/github\.event\.action/g, "ACTION")
+       .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "'r'")
+       .replace(/github\.repository/g, "'r'")
+       .replace(/github\.event\.workflow_run\.head_branch/g, "'b'")
+       .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
+    const admits = new Function("ACTION", "ATTEMPT", `return (${toJs(gateIf)});`);
+    const suffix = (group.match(/\$\{\{ ([^}]*'noop'[^}]*) \}\}\s*$/) || [])[1];
+    assert.ok(suffix, "the group must carry a noop/active partition suffix");
+    const partition = new Function("ACTION", "ATTEMPT", `return (${toJs(suffix)});`);
+
+    for (const [action, attempt] of [["requested", 1], ["requested", 2], ["completed", 1], ["completed", 2]]) {
+      const works = Boolean(admits(action, attempt));
+      const lane = partition(action, attempt);
+      assert.equal(
+        lane,
+        works ? "active" : "noop",
+        `${action}/attempt ${attempt}: gate ${works ? "admits" : "refuses"} but the group says ${lane}`,
+      );
+    }
+    // And prove the partition is not degenerate — a group that always says "active"
+    // would pass a same-answer check while restoring the cancellation bug.
+    assert.equal(partition("requested", 1), "active");
+    assert.equal(partition("completed", 1), "noop");
+  }
+
   // The inline copy of the rule. A `github-script` step has no checkout and
   // cannot import checks.mjs, so this logic necessarily exists twice; pinning
   // the copy is what keeps it ONE rule rather than two that drift.

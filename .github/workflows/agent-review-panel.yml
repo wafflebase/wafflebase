@@ -91,9 +91,30 @@ on:
 #
 # `run_id` is deliberately NOT in the key — that is the mistake that makes a
 # concurrency group match only itself and guard nothing.
+# The trailing segment PARTITIONS the group by whether this run will do any work,
+# and without it subscribing to `completed` disables the review panel outright.
+#
+# `concurrency` is claimed at the workflow level — at RUN CREATION, before any job's
+# `if:` is evaluated. So on a fresh CI run: `requested` starts the panel, CI finishes
+# ~13 minutes later, `completed` creates a second run in the same group, and
+# `cancel-in-progress` KILLS THE PANEL MID-REVIEW. The second run's gate then refuses
+# the event and every job skips, so no verdicts are recorded — and `stalled` is
+# `!cancelled()`, so nothing pages either. The panel takes ~14 min against CI's ~13,
+# so that collision is near-certain rather than occasional. A job-level `if:` cannot
+# protect a group that was already claimed on its behalf.
+#
+# So the runs that will be REFUSED (`completed` on attempt 1 — `requested` already
+# started that round) get their own `noop` group, where cancelling each other costs
+# nothing. Every run that will actually review shares `active`, which keeps the
+# property this guard exists for: #605 had two panels finish in the same second with
+# contradictory verdicts, and #648 had two fixers on one branch for 21 minutes.
+#
+# The partition MUST agree with the gate's admission rule below, and the two are
+# written separately — so checks.test.mjs evaluates both across all four
+# event/attempt combinations and fails if they disagree.
 concurrency:
   group: >-
-    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ (github.event.action == 'completed' && github.event.workflow_run.run_attempt == 1) && 'noop' || 'active' }}
   cancel-in-progress: true
 
 permissions: {}
