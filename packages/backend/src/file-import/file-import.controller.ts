@@ -82,10 +82,15 @@ export class FileImportController {
     // on an `x.csv` cannot move this upload into the image category — where it
     // would meet a 25 MB cap after being buffered against a 200 MB one, and be
     // stored at the bucket root instead of the expiring `imports/` prefix.
-    return this.fileService.upload(file.buffer, file.mimetype, file.originalname, {
-      category: 'data',
-      workspaceId,
-    });
+    return this.fileService.upload(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+      {
+        category: 'data',
+        workspaceId,
+      },
+    );
   }
 
   /**

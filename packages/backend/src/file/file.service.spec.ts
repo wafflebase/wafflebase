@@ -90,27 +90,34 @@ describe('FileService.upload data files', () => {
     // Same unreliable type, but an extension nothing here can read. Only the
     // extension is honoured, never the browser's claim.
     await expect(
-      svc.upload(Buffer.from('x'), 'application/vnd.ms-excel', 'sales.xls', { category: 'data', workspaceId: 'ws1' }),
+      svc.upload(Buffer.from('x'), 'application/vnd.ms-excel', 'sales.xls', {
+        category: 'data',
+        workspaceId: 'ws1',
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('stores and reads a data blob under the expiring imports/ prefix', async () => {
     const svc = makeService();
     const send = withFakeS3(svc);
-    const { id } = await svc.upload(
-      Buffer.from('a,b'),
-      'text/csv',
-      'a.csv',
-      { category: 'data', workspaceId: 'ws1' },
-    );
+    const { id } = await svc.upload(Buffer.from('a,b'), 'text/csv', 'a.csv', {
+      category: 'data',
+      workspaceId: 'ws1',
+    });
     // The id itself stays unprefixed — the document DTOs validate its bare
     // shape — so every access has to resolve to the same prefixed key.
     expect(id).not.toContain(IMPORT_KEY_PREFIX);
-    expect(send.mock.calls[0][0].input.Key).toBe(`${IMPORT_KEY_PREFIX}ws1/${id}`);
+    expect(send.mock.calls[0][0].input.Key).toBe(
+      `${IMPORT_KEY_PREFIX}ws1/${id}`,
+    );
     await svc.getObject(id, 'ws1');
-    expect(send.mock.calls[1][0].input.Key).toBe(`${IMPORT_KEY_PREFIX}ws1/${id}`);
+    expect(send.mock.calls[1][0].input.Key).toBe(
+      `${IMPORT_KEY_PREFIX}ws1/${id}`,
+    );
     await svc.delete(id, 'ws1');
-    expect(send.mock.calls[2][0].input.Key).toBe(`${IMPORT_KEY_PREFIX}ws1/${id}`);
+    expect(send.mock.calls[2][0].input.Key).toBe(
+      `${IMPORT_KEY_PREFIX}ws1/${id}`,
+    );
   });
 
   // The category is what a route states, not what the payload claims. Without
@@ -130,7 +137,9 @@ describe('FileService.upload data files', () => {
     );
 
     expect(id).toMatch(/\.csv$/);
-    expect(send.mock.calls[0][0].input.Key).toBe(`${IMPORT_KEY_PREFIX}ws1/${id}`);
+    expect(send.mock.calls[0][0].input.Key).toBe(
+      `${IMPORT_KEY_PREFIX}ws1/${id}`,
+    );
   });
 
   // `POST /files` has no workspace check and shares this service, so it must
@@ -252,7 +261,10 @@ describe('FileService import expiry rule', () => {
     const rules = lifecyclePut(send)![0].input.LifecycleConfiguration.Rules;
     expect(rules).toHaveLength(2);
     expect(rules[1]).toEqual(
-      expect.objectContaining({ ID: 'expire-staged-imports', Status: 'Enabled' }),
+      expect.objectContaining({
+        ID: 'expire-staged-imports',
+        Status: 'Enabled',
+      }),
     );
   });
 

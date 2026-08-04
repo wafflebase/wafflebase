@@ -129,7 +129,6 @@ function keyFor(id: string, workspaceId?: string): string {
   return `${IMPORT_KEY_PREFIX}${workspaceId}/${id}`;
 }
 
-
 @Injectable()
 export class FileService implements OnModuleInit {
   private s3: S3Client;
@@ -343,7 +342,10 @@ export class FileService implements OnModuleInit {
     workspaceId?: string,
   ): Promise<{ body: Uint8Array; contentType: string }> {
     const response = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: keyFor(id, workspaceId) }),
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: keyFor(id, workspaceId),
+      }),
     );
     const body = response.Body
       ? await (

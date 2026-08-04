@@ -192,7 +192,10 @@ describe('FileImportService.preview', () => {
       Array.from({ length: columns }, (_, c) => `v${r}_${c}`).join(','),
     ).join('\n');
 
-    const result = await makeService(`${header}\n${rows}\n`).preview(WS, FILE_ID);
+    const result = await makeService(`${header}\n${rows}\n`).preview(
+      WS,
+      FILE_ID,
+    );
 
     expect(result.rowCount * columns).toBeLessThanOrEqual(50_000);
     expect(result.rowCount).toBe(budget);
@@ -217,7 +220,10 @@ describe('FileImportService.preview', () => {
   // every header silently loses its bold. Merging the two constants back into
   // one is the mistake this pins.
   it('sniffs a header even though the reader is told there is none', async () => {
-    const result = await makeService('name,qty\napple,3\n').preview(WS, FILE_ID);
+    const result = await makeService('name,qty\napple,3\n').preview(
+      WS,
+      FILE_ID,
+    );
 
     expect(result.hasHeader).toBe(true);
     expect(result.rows[0]).toEqual({ column0: 'name', column1: 'qty' });
@@ -229,14 +235,17 @@ describe('FileImportService.preview', () => {
     ['a duplicate header name', 'a,a,b\n1,2,3\n', ['a', 'a', 'b']],
     ['an empty header cell', 'name,,qty\nx,y,3\n', ['name', null, 'qty']],
     ['a leading blank line', '\nname,qty\napple,3\n', ['name', 'qty']],
-  ])('keeps the file its own header text with %s', async (_l, csv, expected) => {
-    const result = await makeService(csv).preview(WS, FILE_ID);
+  ])(
+    'keeps the file its own header text with %s',
+    async (_l, csv, expected) => {
+      const result = await makeService(csv).preview(WS, FILE_ID);
 
-    expect(Object.values(result.rows[0])).toEqual(expected);
-    // ...and exactly once: the blank-line case used to report the header and
-    // then hand it back again as the first data row.
-    expect(Object.values(result.rows[1] ?? {})).not.toEqual(expected);
-  });
+      expect(Object.values(result.rows[0])).toEqual(expected);
+      // ...and exactly once: the blank-line case used to report the header and
+      // then hand it back again as the first data row.
+      expect(Object.values(result.rows[1] ?? {})).not.toEqual(expected);
+    },
+  );
 
   // The client states the delimiter for `.tsv` rather than guessing, because
   // one comma in a tab-separated field defeats papaparse's detector. The reader
@@ -340,7 +349,9 @@ describe('FileImportService.preview', () => {
   // object. A 500 with a raw SDK message tells the client nothing; a 410 tells
   // it the id is spent, which is what makes it re-upload instead of looping.
   it('reports a blob that no longer exists as gone', async () => {
-    const missing = Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
+    const missing = Object.assign(new Error('NoSuchKey'), {
+      name: 'NoSuchKey',
+    });
     const service = new FileImportService(
       {
         getObjectStream: () => Promise.reject(missing),
@@ -363,7 +374,9 @@ describe('FileImportService.preview', () => {
       duckdb,
     );
 
-    await expect(service.preview(WS, FILE_ID)).rejects.toThrow('connection reset');
+    await expect(service.preview(WS, FILE_ID)).rejects.toThrow(
+      'connection reset',
+    );
   });
 
   it('leaves no temp directory behind, on success or failure', async () => {
