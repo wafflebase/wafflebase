@@ -947,8 +947,27 @@ jobs:
         with:
           name: review-panel-stage-detail
           path: .agent-review/*/stage-detail.json
+          # REQUIRED, and not for the files themselves — for the DIRECTORY.
+          # upload-artifact resolves a glob with @actions/glob, whose search root
+          # is the pattern's non-wildcard prefix: `.agent-review`. With hidden
+          # files excluded (the v4 default) the globber skips any traversed item
+          # whose basename starts with a dot — including that root — so it never
+          # reads the directory and the whole subtree is invisible. It reports
+          # "No files were found", which if-no-files-found: ignore then swallows.
+          #
+          # The execution-log step above needs no such line only because it names
+          # its files literally: each search root is then the FILE, and no hidden
+          # component is ever inspected. Two steps reading the same directory,
+          # with opposite outcomes, is the shape of this bug. `ci.yml`'s
+          # `.harness-reports/` upload already carries this flag for the same
+          # reason; #641 shipped without it and produced no artifact on any of the
+          # five real panel runs that followed.
+          include-hidden-files: true
           # Absent whenever capture is disabled, or a lens was skipped, or the
           # orchestrator crashed before writing — none of which is an error here.
+          # It CANNOT stand in for the line above: a silent zero-file upload and a
+          # legitimately empty one look identical from here, which is why this was
+          # invisible for five rounds.
           if-no-files-found: ignore
           retention-days: 30
 

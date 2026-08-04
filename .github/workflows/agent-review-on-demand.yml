@@ -321,6 +321,19 @@ jobs:
           # Via env, never interpolated into the `run:` string — this step holds
           # the Claude token. Same rule as the twin step in agent-review-panel.yml.
           BASE_SHA: ${{ steps.diff.outputs.base }}
+          # Per-lens stage-detail capture, PASSED RAW and for parity with the twin
+          # step in agent-review-panel.yml — not as a way to switch it on. Both
+          # resolve an UNSET repo variable in the script (capture ON, diff content
+          # OFF), which is what this job already got by passing neither.
+          #
+          # Passing them is what stops the two producers from drifting once someone
+          # DOES set one: without these lines `AGENT_STAGE_DETAIL_CAPTURE=false`
+          # would silence the gating capture while this one kept writing, and
+          # `..._DIFF_CONTENT=true` would have one producer emit `lensDiff` and the
+          # other silently omit it — a difference no consumer could see in the
+          # payload.
+          STAGE_DETAIL_CAPTURE: ${{ vars.AGENT_STAGE_DETAIL_CAPTURE }}
+          STAGE_DETAIL_DIFF_CONTENT: ${{ vars.AGENT_STAGE_DETAIL_DIFF_CONTENT }}
         # --prior-findings and --rebuttals are both tolerant of a missing file
         # (existsSync guard in review-panel.mjs → treated as []), so a
         # skipped/failed read step above is safe.
@@ -335,6 +348,54 @@ jobs:
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
+
+      # The SAME capture the gating panel uploads (#641), from the same writer, at
+      # the same name, path and retention. Deliberately not a second format: the
+      # panel already wrote these files on every on-demand round and the runner
+      # then deleted them, so this is a route out, not new data.
+      #
+      # #641 listed this under "Not built", on the grounds that "advisory
+      # `@claude review` invocations are not the population a tuning corpus should
+      # be scored on". That reasoning holds for scoring the GATE and not for the
+      # measurement this feeds. Severity-weighted precision has `minor`/`nit`
+      # buckets and the independent reviewer we compare against is nit-heavy, so
+      # separating "we missed it" from "we found it and called it minor" needs the
+      # panel's NON-BLOCKING findings — and `samples` is the only channel that
+      # carries them (its sibling `verifications` is blocking-only, and every
+      # permanent channel — check-run output.text, the rendered comment — is
+      # critical/major). Measured over all 17 real on-demand comments: 249 blocking
+      # against 387 non-blocking. Advisory rounds are not scored AS gate decisions;
+      # their per-sample severities are the comparison data.
+      #
+      # Safe from this job, for reasons already established rather than new ones.
+      # upload-artifact needs no write scope, so nothing here widens what this
+      # deliberately read-only job can reach (`checks: read`, never write). The glob
+      # cannot pick up a branch-planted `.agent-review/evil/stage-detail.json`
+      # because "Clear stale verdicts" above does `rm -rf .agent-review` before the
+      # panel runs. The gating `review-panel` job has the identical property — its
+      # SDK cwd is the untrusted branch checkout too — and already uploads two
+      # artifacts.
+      #
+      # No `steps.pr` guard, unlike the gating twin: that one resolves a PR number
+      # from a workflow_run payload that may not have one, while an issue_comment
+      # event always carries `needs.authorize.outputs.pr`.
+      - name: Upload per-lens stage detail
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-panel-stage-detail
+          path: .agent-review/*/stage-detail.json
+          # REQUIRED — see the twin step in agent-review-panel.yml for the
+          # mechanism. Without it the glob's search root is the dot-directory
+          # `.agent-review`, which @actions/glob skips before reading it, and this
+          # step silently uploads nothing.
+          include-hidden-files: true
+          # Absent whenever capture is disabled, or every lens skipped, or the panel
+          # crashed before writing — none of which is an error here. This is also
+          # why the flag above cannot be inferred from a green run.
+          if-no-files-found: ignore
+          retention-days: 30
 
       # Post the comment with a GitHub App token, NOT the default GITHUB_TOKEN.
       # This workflow runs on ANY PR incl. forks, and for a run triggered by an

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2603,6 +2603,125 @@ test("writeStageDetail: disabled writes nothing at all", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/**
+ * Parse every `actions/upload-artifact` step out of the real workflows.
+ *
+ * Comment lines are dropped first. These workflows carry more prose than YAML and
+ * the comments quote `path:` and the flag being asserted here by name, so a
+ * whole-file grep would answer out of the explanation instead of the config —
+ * the same trap #630, #640 and #651 each had to work around.
+ */
+function uploadArtifactSteps() {
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const steps = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8")
+      .split("\n")
+      .filter((l) => !/^\s*#/.test(l));
+    for (let i = 0; i < lines.length; i++) {
+      const at = lines[i].indexOf("uses: actions/upload-artifact");
+      if (at < 0) continue;
+      // The step body: every following line indented deeper than this key, or at
+      // the same depth (its sibling keys, e.g. `with:`). A shallower line is the
+      // next step or the next job.
+      const body = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (!lines[j].trim()) { body.push(lines[j]); continue; }
+        const indent = lines[j].search(/\S/);
+        if (indent < at || /^\s*- /.test(lines[j].slice(0, at + 2))) break;
+        body.push(lines[j]);
+      }
+      // `name:` may precede `uses:`, so look backwards for the step's label too.
+      let name = "";
+      for (let j = i - 1; j >= 0 && !name; j--) {
+        if (!lines[j].trim()) continue;
+        const m = /^\s*-?\s*name:\s*(.+?)\s*$/.exec(lines[j]);
+        if (m) name = m[1];
+        else if (lines[j].search(/\S/) < at) break;
+      }
+      // `path:` is a scalar on one line, or a block scalar whose entries follow.
+      const paths = [];
+      for (let j = 0; j < body.length; j++) {
+        const m = /^(\s*)path:\s*(.*)$/.exec(body[j]);
+        if (!m) continue;
+        const [, indent, inline] = m;
+        if (inline && !/^[|>]/.test(inline)) { paths.push(inline.replace(/^["']|["']$/g, "")); continue; }
+        for (let k = j + 1; k < body.length; k++) {
+          if (!body[k].trim()) continue;
+          if (body[k].search(/\S/) <= indent.length) break;
+          paths.push(body[k].trim().replace(/^["']|["']$/g, ""));
+        }
+      }
+      steps.push({
+        file, name, paths,
+        includeHidden: body.some((l) => /^\s*include-hidden-files:\s*true\s*$/.test(l)),
+      });
+    }
+  }
+  return steps;
+}
+
+test("every upload-artifact step that GLOBS a hidden path opts hidden files back in", () => {
+  // #641 shipped `path: .agent-review/*/stage-detail.json` without
+  // `include-hidden-files: true` and uploaded nothing on five consecutive real
+  // panel runs. The files were written; the glob never saw them.
+  //
+  // upload-artifact resolves globs with @actions/glob, whose search root is the
+  // pattern's non-wildcard prefix — here the DIRECTORY `.agent-review`. With
+  // hidden files excluded (the v4 default) the globber skips any traversed item
+  // whose basename starts with a dot, the root included, so it never reads the
+  // directory at all. `if-no-files-found: ignore` then swallows the report.
+  //
+  // A literal file path is immune, which is the trap: the sibling
+  // `review-panel-execution` step names its two files outright, so each search
+  // root is the FILE and no hidden component is ever inspected. Two steps reading
+  // the same hidden directory in the same job, one working and one silent, is
+  // what made this look like a write bug rather than an upload bug.
+  const risky = (p) => {
+    // Only a glob or a directory makes the globber WALK; a named file is handed
+    // straight to stat.
+    if (!/[*?[]/.test(p) && !p.endsWith("/")) return false;
+    return p.split("/").some((seg) => seg.startsWith(".") && seg !== "." && seg !== "..");
+  };
+
+  const steps = uploadArtifactSteps();
+  // Guard the parser itself: an upload step that silently stopped being found
+  // would make every assertion below vacuous.
+  assert.ok(steps.length >= 8, `expected to find the upload steps, found ${steps.length}`);
+  assert.ok(steps.every((s) => s.paths.length > 0), `every upload step must declare a path: ${JSON.stringify(steps.filter((s) => !s.paths.length))}`);
+
+  for (const step of steps) {
+    for (const p of step.paths) {
+      if (!risky(p)) continue;
+      assert.ok(
+        step.includeHidden,
+        `${step.file} "${step.name}" globs the hidden path ${p} without include-hidden-files: true — it will upload nothing, silently`,
+      );
+    }
+  }
+
+  // Named, so a rename or a path rewrite still fails loudly here rather than going
+  // quiet in production for another five rounds. `filter`, not `find`: BOTH panels
+  // upload this capture and a `find` would assert about whichever workflow the
+  // directory listing happened to yield first, leaving the other free to regress.
+  // Asserting the pair is also what pins the PARITY — one name, one path, one
+  // retention, from two producers — which is the property a collector depends on.
+  const stage = steps.filter((s) => s.name === "Upload per-lens stage detail");
+  assert.deepEqual(
+    stage.map((s) => s.file).sort(),
+    ["agent-review-on-demand.yml", "agent-review-panel.yml"],
+    "both the gating and the on-demand panel must upload the stage-detail capture",
+  );
+  for (const s of stage) {
+    assert.deepEqual(s.paths, [".agent-review/*/stage-detail.json"], `${s.file}: the capture path must match the other producer`);
+    assert.ok(s.includeHidden, `${s.file}: the stage-detail upload must set include-hidden-files: true`);
+  }
+
+  // The invariant has to hold for a REASON, not by coincidence: at least one
+  // upload in the repo must be a hidden glob, or the loop above proves nothing.
+  assert.ok(steps.some((s) => s.paths.some(risky)), "no hidden-path upload found — this test would be vacuous");
 });
 
 test("writeStageDetail: a failed write NEVER propagates", () => {
