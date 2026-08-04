@@ -1484,6 +1484,44 @@ visible only in the check body today), and any measurement of how often a
 rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
 should not have happened is a false negative like any other.
 
+### Phase 29: Lint the agent control plane
+
+**Principle:** Mechanical Enforcement — the cheapest check that could have caught it.
+
+`verify:fast` lints `packages/frontend` and nothing else, so `scripts/**` — the
+~30 modules that decide whether a PR may merge — had **no static analysis at
+all**. The only thing between a typo and `main` was `node --test`, and only over
+paths a test happens to reach.
+
+#657 shipped `retryAt`, an undeclared identifier on the round-cap page path,
+straight through green CI: no test exercises that page, so the guard would have
+thrown a `ReferenceError` exactly when it was supposed to latch a PR. The review
+panel caught it, which is the expensive way to catch a typo.
+
+`eslint.config.mjs` at the repo root, scoped to `scripts/**/*.mjs`, wired into
+`verify:fast` so it fails in about a second rather than after the build chain.
+Three notes on the shape:
+
+- **`js.configs.recommended`, not a hand-picked rule list.** The whole directory
+  produced ten violations against the full baseline — eight dead bindings, two
+  redundant regex escapes — all fixed in the same commit. A curated subset has to
+  justify each omission, and the omissions are where the next silent bug lives.
+- **Rooted at the top level, not in `scripts/agent/`.** That directory is an
+  npm-managed island whose tree is `npm ci`'d and uploaded as an artifact on every
+  panel run; adding a linter to it would bloat that artifact for a check that never
+  runs there.
+- **`eslint`, `@eslint/js` and `globals` are root devDependencies**, not borrowed
+  from `packages/frontend` by pnpm hoisting. Hoisting is not a contract, and the
+  failure mode of losing it is this lint silently not running — the exact shape of
+  the gap it closes.
+
+The config is itself under test (`scripts/agent/lint-config.test.mjs`). That is not
+belt-and-braces: the first version spread `js.configs.recommended` and then set
+`rules`, which **replaced** the recommended set and left `no-undef` disabled.
+`eslint scripts` still exited 0. A config that lints nothing reports success, so
+the tests assert on the resolved rule set — `no-undef` is `error`, and every
+upstream recommended rule survives the local override.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:

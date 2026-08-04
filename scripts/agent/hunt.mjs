@@ -27,7 +27,7 @@
 //
 // `preflight` returns before the SDK is imported, so it works without `npm ci`.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { repoScopedEnv } from "./git-env.mjs";
 import path from "node:path";
@@ -51,7 +51,7 @@ import {
   LEDGER_KEY_VERSION,
 } from "./hunt-fingerprint.mjs";
 import { renderDeferrals, loadScopedDocs, renderIssues, fetchIssues } from "./hunt-corpus.mjs";
-import { resolveHuntWorkspace, HUNT_WORKSPACE_VAR, seedPrefix, isSeeded } from "./hunt-workspace.mjs";
+import { resolveHuntWorkspace, seedPrefix, isSeeded } from "./hunt-workspace.mjs";
 import {
   createProbeBudget,
   createProbeServer,
@@ -861,7 +861,7 @@ async function cmdRun(args) {
     const samples = [];
     for (const sample of sampleResults) {
       if (!sample) continue;
-      const { out, journal, probeCount, refusals } = sample;
+      const { out, journal, refusals } = sample;
       // What RAN, not what was charged. A probe refused on safety is charged (the
       // charge precedes validation on purpose) but never executes, so counting
       // charges here overstated activity by exactly the refusals — 26 vs 23 on the

@@ -59,7 +59,7 @@ function shQuote(token) {
   const s = String(token ?? "");
   // Only [A-Za-z0-9_./=:-] is safe bare; everything else gets single-quoted, and
   // an embedded single quote is closed, escaped, reopened ('\'').
-  if (/^[A-Za-z0-9_.\/=:@-]+$/.test(s)) return s;
+  if (/^[A-Za-z0-9_./=:@-]+$/.test(s)) return s;
   return `'${s.split("'").join(`'\\''`)}'`;
 }
 
