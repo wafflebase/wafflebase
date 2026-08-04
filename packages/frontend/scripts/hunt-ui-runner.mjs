@@ -169,10 +169,33 @@ async function waitForReady(page, url) {
   );
 }
 
-function clip(value) {
-  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
-  if (typeof text !== "string") return text;
-  return text.length > MAX_VALUE_CHARS ? `${text.slice(0, MAX_VALUE_CHARS)}\n…[truncated]` : text;
+/**
+ * Bound a reader value WITHOUT corrupting it.
+ *
+ * Values leaving here are compared, not just displayed: `hunt-ui-expect.mjs` checks
+ * a prediction against `actual`, and `@read:<i>` resolves a baseline out of an
+ * earlier observation. So the obvious "truncate to N chars" is unsafe in a way a
+ * display-only clip is not — `[11,18,32]` cut short is a different array, and
+ * comparing against it produces a confident WRONG answer rather than no answer.
+ * Stringifying is equally unsafe: `each-greater-than` against `"[11,18,32]"` is
+ * unevaluable, so every numeric prediction would silently stop working.
+ *
+ * An oversized value therefore becomes a marker object instead of a shortened one.
+ * The protocol treats that as unevaluable — no comparison, and no finding — which is
+ * the fail-quiet direction. Formatting for a model to read is a separate concern and
+ * belongs at the tool boundary, where clipping is harmless.
+ */
+function boundValue(value) {
+  if (value === undefined) return null;
+  let json;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    return { __unserializable: true };
+  }
+  if (json === undefined) return null;
+  if (json.length <= MAX_VALUE_CHARS) return value;
+  return { __oversized: true, chars: json.length };
 }
 
 async function runAction(page, action, baseUrl, timeoutMs) {
@@ -269,13 +292,41 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
       // Give async errors from this action a chance to land before draining. Without
       // it a rejection scheduled by the click is attributed to the NEXT action.
       await page.waitForTimeout(30);
+
+      // THE PREDICTION READ, performed in the SAME round-trip as the action.
+      //
+      // Atomicity is the entire point. If the caller had to issue a separate read to
+      // find out what happened, it could act, look at the result, and only then
+      // decide what it had "expected" — which is the difference between a prediction
+      // and a rationalisation. Submitting `expect` with the action and reading here
+      // means the outcome is fixed before the caller sees anything.
+      //
+      // The runner does NOT compare. It reports `actual` and nothing more; the
+      // verdict is `hunt-ui-expect.mjs`'s to render, in pure code the tests can
+      // exercise without a browser.
+      let actual = null;
+      let actualError = null;
+      if (action.expect && typeof action.expect.read === "string") {
+        try {
+          actual = await readValue(page, action.expect.read, action.expect.args ?? []);
+        } catch (err) {
+          // A failed prediction read is not a failed action, and must not be
+          // reported as one — the action may well have succeeded. It leaves `actual`
+          // null, which the protocol treats as unevaluable rather than a violation.
+          actualError = String(err?.message ?? err);
+        }
+      }
+
       const domFindings = await scanDomInvariants(page, HOST_TESTID);
       observations.push({
         index,
         action,
         ok: error === null,
         error,
-        value: result ? clip(result.value) : null,
+        value: result ? boundValue(result.value) : null,
+        // Present only when the action carried a prediction, so an observation
+        // without one is distinguishable from one whose read returned null.
+        ...(action.expect ? { actual: boundValue(actual), actualError } : {}),
         oracles: [...oracles.drain(), ...domFindings],
       });
     }

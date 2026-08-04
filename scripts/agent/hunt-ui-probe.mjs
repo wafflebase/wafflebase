@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { scrubVolatile } from "./hunt-fingerprint.mjs";
+import { checkExpectationShape } from "./hunt-ui-expect.mjs";
 import { withScratch } from "./hunt-probe.mjs";
 
 /** Relative to the repo root — the driver, which is where playwright resolves. */
@@ -100,6 +101,15 @@ export function assertSafeActionPlan(plan) {
     if (!action || typeof action !== "object") bad(`${where} must be an object, got ${JSON.stringify(action)}`);
     if (!UI_ACTION_TYPES.includes(action.type)) {
       bad(`${where} has unknown type ${JSON.stringify(action.type)}; valid: ${UI_ACTION_TYPES.join(", ")}`);
+    }
+    // A prediction is validated HERE, before a browser boots, for the same reason
+    // the action vocabulary is: a shape problem should surface at the plan rather
+    // than eight seconds later inside Playwright. The reader also goes through the
+    // same namespace check as any other, so `expect.read` is not a way around it.
+    if (action.expect !== undefined) {
+      const problems = checkExpectationShape(action.expect);
+      if (problems.length > 0) bad(`${where} prediction is malformed: ${problems.join("; ")}`);
+      assertReader(action.expect.read, `${where} prediction`);
     }
     switch (action.type) {
       case "goto":

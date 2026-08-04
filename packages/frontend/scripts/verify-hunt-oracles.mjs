@@ -191,6 +191,42 @@ async function checkCellTargeting(page, baseUrl) {
   return problems;
 }
 
+/**
+ * Undo capability, checked because a prediction that assumes it produces a
+ * confident FALSE finding when it is absent.
+ *
+ * Measured live: `MemStore.undo()` is a no-op ("No-op for memory store (no history
+ * tracking)") while `MemDocStore` keeps real undo/redo stacks. So the same
+ * prediction is sound on the doc surface and unsound on the sheet surface, and the
+ * bridge exposes `canUndo` so a caller can tell which it is looking at.
+ *
+ * This asserts the POSITIVE capability only — that docs really can undo after an
+ * edit. It deliberately does NOT assert that sheets cannot: that is a limitation
+ * worth fixing, not a contract worth freezing, and pinning it would make an
+ * improvement look like a regression. The sheet value is reported, not enforced.
+ */
+async function checkUndoCapability(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const before = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+  if (before !== false) problems.push(`doc.canUndo should be false on a freshly seeded document, got ${JSON.stringify(before)}`);
+  await page.getByRole("textbox").first().click();
+  await page.keyboard.type("Q");
+  await page.waitForTimeout(50);
+  const after = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+  if (after !== true) problems.push(`doc.canUndo should be true after an edit, got ${JSON.stringify(after)}`);
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const sheetCanUndo = await page.evaluate(() => window.__WB_HUNT__.read("sheet.canUndo"));
+  if (typeof sheetCanUndo !== "boolean") problems.push(`sheet.canUndo must answer with a boolean, got ${JSON.stringify(sheetCanUndo)}`);
+  else console.log(`[verify:hunt-oracles] sheet.canUndo reports ${sheetCanUndo} (MemStore has no history — informational)`);
+
+  return problems;
+}
+
 async function loadPlaywright() {
   try {
     const mod = await import("playwright");
@@ -300,10 +336,16 @@ try {
     colorScheme: "light",
   });
   try {
-    const problems = await checkCellTargeting(await targetingContext.newPage(), baseUrl);
+    const page = await targetingContext.newPage();
+    const problems = await checkCellTargeting(page, baseUrl);
     for (const p of problems) failures.push(`cell targeting: ${p}`);
     if (problems.length === 0) {
       console.log(`[verify:hunt-oracles] cell clicks land correctly: ${TARGETING_CELLS.join(", ")}`);
+    }
+    const undoProblems = await checkUndoCapability(page, baseUrl);
+    for (const p of undoProblems) failures.push(`undo capability: ${p}`);
+    if (undoProblems.length === 0) {
+      console.log("[verify:hunt-oracles] doc.canUndo tracks a real undo stack");
     }
   } finally {
     await targetingContext.close();
