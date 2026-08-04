@@ -49,8 +49,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      pull-requests: read # resolve the PR (head repo/branch/labels)
-      issues: write # delete the paged comment, drop agent:blocked, post the note
+      # WRITE, not read. Label operations on a PULL REQUEST need
+      # `pull-requests: write`; `issues: write` covers its COMMENTS but not its
+      # labels, so with `read` the paged comments were deleted successfully and
+      # `removeLabel` failed with "Resource not accessible by integration" — while
+      # the summary below still announced it had dropped the label. Observed on #632
+      # and #648: both reported success and stayed `agent:blocked`.
+      pull-requests: write # resolve the PR, and drop agent:blocked
+      issues: write # delete the paged comment, post the note
       actions: write # re-run CI to re-fire the panel
     concurrency:
       group: agent-rerun-${{ github.event.issue.number }}
@@ -140,10 +146,22 @@ jobs:
 
             // Drop the single-value blocked label (best-effort; a fresh round re-derives
             // the correct state). removeLabel 404s if it isn't set — that's fine.
+            //
+            // The OUTCOME IS RECORDED, not assumed. This used to warn on failure and
+            // then announce success regardless, so #632 and #648 both said "dropped
+            // agent:blocked" while staying blocked — a message a human reads and
+            // believes, contradicted by the label right next to it. A summary must
+            // report what happened, not what was attempted.
+            let labelDropped = null; // true | false | null (was not set)
             try {
               await github.rest.issues.removeLabel({ owner, repo, issue_number: pr_number, name: 'agent:blocked' });
+              labelDropped = true;
             } catch (e) {
-              if (e.status !== 404) core.warning(`Could not remove agent:blocked (${e.message}).`);
+              if (e.status === 404) labelDropped = null;
+              else {
+                labelDropped = false;
+                core.warning(`Could not remove agent:blocked (${e.message}).`);
+              }
             }
 
             // Re-run the latest CI run for the head SHA so the panel fires again: on
@@ -162,7 +180,12 @@ jobs:
             }
 
             core.setOutput('outcome',
-              `🔁 Rerun engaged — cleared ${clearedLatch} paged marker(s) and dropped \`agent:blocked\`. ` +
+              `🔁 Rerun engaged — cleared ${clearedLatch} paged marker(s). ` +
+              (labelDropped === true
+                ? 'Dropped `agent:blocked`. '
+                : labelDropped === null
+                  ? '`agent:blocked` was not set. '
+                  : '⚠️ Could NOT drop `agent:blocked` — remove it by hand; the loop is otherwise unblocked. ') +
               (reran
                 ? "Re-running CI now; the review panel will run again and can promote or fix this PR."
                 : "No CI run to re-run — the panel will engage on the next CI run.") +

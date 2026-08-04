@@ -26,12 +26,22 @@ name: Agent Review Panel
 on:
   workflow_run:
     workflows: ["CI"]
-    # `requested` (CI STARTED), not `completed` — this is the whole latency change.
+    # `requested` (CI STARTED) is the latency change: the panel and CI run in
+    # parallel instead of in series. The conclusion this used to gate on has not
+    # been dropped; the `ci` job below waits for it and gates the two PUSHING jobs.
     #
-    # `requested` ONLY, deliberately. Subscribing to both would run the entire
-    # panel twice per CI run, at ~$12 a time. The conclusion this used to gate on
-    # has not been dropped; the `ci` job below waits for it and gates the two
-    # PUSHING jobs on it instead.
+    # `completed` is here ONLY to cover RE-RUNS, and the `gate` job below admits it
+    # only when `run_attempt > 1` — so a fresh CI run still starts exactly one panel
+    # (on `requested`), and subscribing to both does not double the ~$12 round.
+    #
+    # Why it is needed: re-running an existing CI run does NOT emit `requested` —
+    # that fires when a run is CREATED, and a re-run reuses the run id. `@claude
+    # rerun`'s last act is `reRunWorkflow` on the PR's CI run, so from the moment
+    # this trigger became `requested`-only, rerun re-ran CI and re-engaged NOTHING
+    # while still reporting "Re-running CI now; the review panel will run again".
+    # Observed on #632 and #648: CI genuinely re-ran (06:01 → 06:15, success) and no
+    # panel run was created, while `Agent Iterate (CI)` — which listens to
+    # `completed` — fired for both.
     #
     # Still `workflow_run`, which is a SECURITY boundary and not just a trigger:
     # it always executes the workflow definition from the DEFAULT BRANCH. A
@@ -40,7 +50,7 @@ on:
     # author-unforgeable" property rests on. The agent App cannot push
     # `.github/workflows/**`, but an `agent:managed` human PR can. Do not swap
     # this trigger for `push` or `pull_request`.
-    types: [requested]
+    types: [requested, completed]
 
 # ONE panel per PR at a time. Without this, two CI completions close together
 # (a re-run, or a push landing while an earlier round is still in flight) start
@@ -81,9 +91,30 @@ on:
 #
 # `run_id` is deliberately NOT in the key — that is the mistake that makes a
 # concurrency group match only itself and guard nothing.
+# The trailing segment PARTITIONS the group by whether this run will do any work,
+# and without it subscribing to `completed` disables the review panel outright.
+#
+# `concurrency` is claimed at the workflow level — at RUN CREATION, before any job's
+# `if:` is evaluated. So on a fresh CI run: `requested` starts the panel, CI finishes
+# ~13 minutes later, `completed` creates a second run in the same group, and
+# `cancel-in-progress` KILLS THE PANEL MID-REVIEW. The second run's gate then refuses
+# the event and every job skips, so no verdicts are recorded — and `stalled` is
+# `!cancelled()`, so nothing pages either. The panel takes ~14 min against CI's ~13,
+# so that collision is near-certain rather than occasional. A job-level `if:` cannot
+# protect a group that was already claimed on its behalf.
+#
+# So the runs that will be REFUSED (`completed` on attempt 1 — `requested` already
+# started that round) get their own `noop` group, where cancelling each other costs
+# nothing. Every run that will actually review shares `active`, which keeps the
+# property this guard exists for: #605 had two panels finish in the same second with
+# contradictory verdicts, and #648 had two fixers on one branch for 21 minutes.
+#
+# The partition MUST agree with the gate's admission rule below, and the two are
+# written separately — so checks.test.mjs evaluates both across all four
+# event/attempt combinations and fails if they disagree.
 concurrency:
   group: >-
-    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ (github.event.action == 'completed' && github.event.workflow_run.run_attempt == 1) && 'noop' || 'active' }}
   cancel-in-progress: true
 
 permissions: {}
@@ -113,9 +144,17 @@ jobs:
   gate:
     # No `conclusion` clause: on a `requested` event there is no conclusion yet.
     # It is read in the `ci` job instead, and still gates every push.
+    #
+    # The action clause is what keeps subscribing to both events from doubling the
+    # cost. A fresh CI run emits `requested` (attempt 1) and later `completed`
+    # (attempt 1) — the first starts the panel, the second is refused here. A RE-RUN
+    # emits only `completed`, with `run_attempt > 1`, which is the one case that
+    # needs admitting and the reason `@claude rerun` re-engages the loop at all.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.action == 'requested' ||
+       github.event.workflow_run.run_attempt > 1)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -326,12 +365,24 @@ jobs:
     permissions:
       contents: read # read-only toward the PR
       checks: write # record per-lens verdicts
-      # issues:write is used ONLY by the trusted "Set state → reviewing" run-step
-      # to set the advisory agent:reviewing label (labels use the issues API). The
-      # SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
-      # only), so this does not widen what prompt-injected branch code can reach.
+      # issues:write + pull-requests:write are used ONLY by the trusted
+      # "Set state → reviewing" run-step to set the advisory agent:reviewing label.
+      #
+      # pull-requests:WRITE is required, and its absence made this step silently
+      # dead. Labels on a PULL REQUEST need it; `issues: write` covers a PR's
+      # COMMENTS but not its labels — the old comment here claimed "labels use the
+      # issues API", which is the misconception behind the bug. `set-state.mjs` is
+      # fail-safe and exits 0 on any API error, so the step reported success while
+      # `agent:reviewing` never once appeared: #648/#632/#605/#633 all show
+      # implementing → fixing → blocked with no reviewing state between them. The
+      # same missing grant is why `@claude rerun` announced dropping
+      # `agent:blocked` on #632 and #648 and left it in place.
+      #
+      # The SDK step never receives a GitHub token (its env is CLAUDE_CODE_OAUTH_TOKEN
+      # only), so neither grant widens what prompt-injected branch code can reach —
+      # the same argument issues:write already rested on.
       issues: write # design-fit reads the issue spec + set advisory agent:reviewing
-      pull-requests: read
+      pull-requests: write # label writes on a PR need this, not issues:write
     outputs:
       pr: ${{ steps.pr.outputs.number }}
       blocked: ${{ steps.panel.outputs.blocked }}

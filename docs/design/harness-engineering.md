@@ -1521,6 +1521,90 @@ belt-and-braces: the first version spread `js.configs.recommended` and then set
 `eslint scripts` still exited 0. A config that lints nothing reports success, so
 the tests assert on the resolved rule set — `no-undef` is `error`, and every
 upstream recommended rule survives the local override.
+### A re-run does not emit `workflow_run: requested`
+
+`requested` fires when a workflow run is **created**. A re-run reuses the run id, so
+it emits only `completed` — and `@claude rerun`'s last act is `reRunWorkflow` on the
+PR's CI run.
+
+So from the moment the panel's trigger became `requested`-only, `@claude rerun`
+re-ran CI and re-engaged **nothing**, while still reporting *"Re-running CI now; the
+review panel will run again"*. Observed on #632 and #648: CI genuinely re-ran
+(`run_started_at` 06:01, success at 06:15) and no panel run was created, while
+`.github/workflows/agent-iterate-ci.yml` — which listens to `completed` — fired for
+both. The command's mechanism had been silently uncoupled from the trigger it
+depends on.
+
+The panel now subscribes to `[requested, completed]`, and the `gate` job admits
+`completed` **only when `run_attempt > 1`**:
+
+| event | attempt | admitted | why |
+|---|---|---|---|
+| `requested` | 1 | yes | fresh CI — the parallel-start path |
+| `completed` | 1 | **no** | `requested` already started this round |
+| `completed` | 2+ | yes | a re-run, where `requested` never fires |
+
+That keeps one panel per CI run, so subscribing to both does not double the ~$12
+round.
+
+**The concurrency group has to be partitioned to match, and getting this wrong
+disables the panel entirely.** `concurrency` is claimed at the workflow level — at
+RUN CREATION, before any job's `if:` is evaluated. With one undifferentiated group,
+a fresh CI run's `completed` event creates a second run that cancels the panel the
+`requested` event started ~13 minutes earlier, **mid-review**; the second run then
+refuses the event and skips every job. No verdicts recorded, and `stalled` is
+`!cancelled()`, so no page either. The panel takes ~14 min against CI's ~13, so the
+collision is near-certain rather than occasional. A job-level `if:` cannot protect a
+group that was already claimed on its behalf.
+
+So the group carries a suffix: runs that will be refused (`completed` on attempt 1)
+land in a `noop` lane where cancelling each other costs nothing, and every run that
+will actually review shares `active` — which preserves what the guard exists for
+(#605's two same-second contradictory verdicts, #648's two fixers on one branch).
+The partition and the gate's admission rule are written separately and must agree,
+so `scripts/agent/checks.test.mjs` evaluates both across all four event/attempt
+combinations and fails if they diverge, including a check that the partition is not
+degenerate — a group that always answered `active` would pass a same-answer test
+while restoring the bug.
+
+The `ci` job's `decide()` returns `proceed` immediately for an already-completed
+successful run, so the `completed`-triggered path does not sit waiting for a
+conclusion it already has.
+
+**A trigger is part of a command's contract.** `@claude rerun` re-runs CI *in order
+to* fire the panel; narrowing what the panel listens to broke the command without
+touching it, and nothing failed — the rerun reported success both times.
+
+### Label writes on a PR need `pull-requests: write`
+
+Not `issues: write`. A pull request is an issue for most of the API — its
+**comments** are reachable with `issues: write` — but its **labels** are not, and
+the mismatch produced two silent failures that looked like success:
+
+- **`@claude rerun` announced dropping `agent:blocked` and did not.** The job held
+  `pull-requests: read`, so `deleteComment` succeeded ("cleared 1 paged marker(s)")
+  and `removeLabel` failed with `Resource not accessible by integration` — while the
+  summary claimed the drop unconditionally. Observed on #632 and #648: both said
+  they had dropped the label, and both stayed blocked.
+- **`agent:reviewing` has never existed.** The `review-panel` job had the same
+  `pull-requests: read`, and `scripts/agent/set-state.mjs` is fail-safe (any API
+  error logs and exits 0), so the "Set state → reviewing" step reported success from
+  the day it was written. #648, #632, #605 and #633 all show
+  implementing → fixing → blocked with no reviewing state in between.
+
+Both are fixed by the grant. Two things generalise:
+
+**Fail-safe writes need their outcome reported.** `scripts/agent/set-state.mjs` exiting 0 on error
+is the right call for a label that gates nothing — it must never fail the pipeline —
+but it means a broken grant is indistinguishable from a working one. The rerun
+summary now reports which of *dropped* / *was not set* / *could not drop* actually
+happened, rather than asserting the happy path.
+
+**Jobs that write labels with the default `GITHUB_TOKEN` are enumerable**, and were
+enumerated: `iterate` inherits the grant workflow-level, `fix` and `stalled` declare
+it, and the two above were the only gaps. `agent-implement`'s label write is not in
+this class — it happens inside the agent's prompt using the App token, whose
+installation permissions the workflow block does not govern.
 
 ## Harness Policy
 
