@@ -29,11 +29,18 @@
 //   keepUnrefuted         drops only on a refute     a crashed verifier reports
 //
 // The replacements below (`huntSeverity`, `coerceCandidates`, `dedupeCandidates`,
-// `intersectSamples`, `isFilingVerdict`) are the same five ideas with the failure
-// direction flipped. (The panel's null-verdict behaviour now lives in
+// `isFilingVerdict`) are those ideas with the failure direction flipped. There was a
+// fifth, `intersectSamples`, inverting `unionSamples` by keeping only what >=2
+// samples agreed on. It is gone: once the probe budget stopped starving samples they
+// explored deeply enough to diverge, and it discarded 6 of 6 reproducing findings
+// over citations one line apart. Precision now rests on replay and the panel.
+//
+// (The panel's null-verdict behaviour now lives in
 // `annotateFindings`/`keepUnrefuted`, which drop a finding only on a concrete
-// refutation — so a verdict that never arrived still KEEPS it there.) They are NOT thin wrappers — do not "simplify" them back
-// into their panel counterparts.
+// refutation — so a verdict that never arrived still KEEPS it there.)
+//
+// The survivors are NOT thin wrappers — do not "simplify" them back into their
+// panel counterparts.
 //
 // What IS safely shared, because it is polarity-neutral: `CITATION` from
 // citation.mjs (the repo's own shared home for it), `globToRegExp` from
@@ -280,70 +287,6 @@ export function sameDefect(locsA, locsB) {
   return false;
 }
 
-/**
- * INTERSECT independent explorer samples: keep only candidates that ≥2 samples
- * found. The inverse of `unionSamples`, and the cheapest precision lever here.
- *
- * The panel unions because a bug any sample spots is worth blocking on. Hunting
- * inverts that: a candidate only one sample produced is exactly the profile of a
- * one-off confabulation, and dropping it costs nothing. Fewer than 2 successful
- * samples therefore yields NOTHING — with one sample there is no agreement to
- * measure, and "no agreement" must not read as "agreed".
- *
- * `locationsOf` maps a candidate to its in-scope code-location SET (see
- * `codeLocations`) — NOT a fingerprint. Comparison is by location overlap, not
- * by prose, so two samples describing the same defect in different words still
- * agree.
- */
-export function intersectSamples(sampleCandidateLists, locationsOf, { minAgreement = 2 } = {}) {
-  const lists = (Array.isArray(sampleCandidateLists) ? sampleCandidateLists : []).filter(Array.isArray);
-  const dropped = [];
-  if (lists.length < minAgreement) {
-    // Report every candidate that is being discarded for lack of a second
-    // opinion. Returning a bare [] here is what made the first live run
-    // unexplainable: the funnel said "9 proposed → 0 agreed" with an empty drop
-    // table, which reads identically to "the explorer found nothing".
-    for (const list of lists) {
-      for (const c of list) {
-        dropped.push({ candidate: c, why: `only ${lists.length} sample(s) succeeded; need ${minAgreement} to compare` });
-      }
-    }
-    return { kept: [], dropped };
-  }
-  // `locationsOf` returns the candidate's in-scope code-location SET (see
-  // codeLocations). Matching is greedy clustering by overlap: take an unclaimed
-  // candidate as the anchor, then claim at most one overlapping candidate per
-  // OTHER sample. One-per-sample is what stops a sample that raised three
-  // near-identical candidates from satisfying the threshold by itself.
-  const pools = lists.map((list) => list.map((c) => ({ c, locs: locationsOf(c), taken: false })));
-  const kept = [];
-  for (let i = 0; i < pools.length; i++) {
-    for (const anchor of pools[i]) {
-      if (anchor.taken) continue;
-      anchor.taken = true;
-      if (!anchor.locs || anchor.locs.size === 0) {
-        dropped.push({ candidate: anchor.c, why: "no in-scope code citation that locates a line — cannot be matched across samples" });
-        continue;
-      }
-      let agreeing = 1;
-      for (let j = i + 1; j < pools.length; j++) {
-        const match = pools[j].find((o) => !o.taken && o.locs && sameDefect(anchor.locs, o.locs));
-        if (match) {
-          match.taken = true;
-          agreeing++;
-        }
-      }
-      if (agreeing >= minAgreement) kept.push(anchor.c);
-      else {
-        dropped.push({
-          candidate: anchor.c,
-          why: `only ${agreeing} of ${lists.length} samples cited an overlapping location (need ${minAgreement})`,
-        });
-      }
-    }
-  }
-  return { kept, dropped };
-}
 
 // --- citations --------------------------------------------------------------
 

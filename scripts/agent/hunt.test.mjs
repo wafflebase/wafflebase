@@ -221,22 +221,22 @@ test("renderReport: a pipe in a title cannot break the drop table", () => {
 
 // --- the agreement measurement -----------------------------------------------
 
-test("renderReport: shows reproduced-but-solo candidates, not just a count", () => {
-  // The whole point of applying agreement AFTER replay. A count cannot tell you
-  // whether 2-of-3 agreement is discarding real defects; four readable candidates
-  // can. If this section ever silently stops rendering, the measurement is gone
-  // and the funnel looks like agreement costs nothing.
+test("renderReport: shows cap-truncated candidates, not just a count", () => {
+  // A bound on how much gets verified is only honest if what it dropped can be
+  // READ. If this section ever silently stops rendering, a truncated run becomes
+  // indistinguishable from a thorough one. (Successor to the agreement-cost
+  // section this replaced when cross-sample agreement was removed.)
   const md = renderReport({
     runId: "r1",
     headSha: "abc1234",
     charters: ["contract"],
     reported: [],
-    stats: { proposed: 9, unique: 7, novel: 7, reproduced: 5, corroborated: 2, soloReproduced: 3, reported: 0 },
+    stats: { proposed: 9, unique: 7, novel: 7, reproduced: 5, refutedAfterReplay: 2, cappedUnverified: 3, reported: 0 },
     dropped: [
       {
         title: "--format yaml prints undefined",
-        why: "proposed by only one sample — replay: reproduced",
-        agreement: "solo",
+        why: "verification cap reached (4 per charter) — NOT recorded, will be retried next run",
+        capped: true,
         reproduced: true,
         claimed: {
           oracle: "contract",
@@ -247,23 +247,24 @@ test("renderReport: shows reproduced-but-solo candidates, not just a count", () 
           docCitation: "docs/design/cli.md:714",
         },
       },
-      { title: "flaky one", why: "proposed by only one sample — replay: diverged (nondeterministic)", agreement: "solo", reproduced: false },
-      { title: "corroborated but broken", why: "replay: not-reproduced", agreement: "corroborated", reproduced: false },
+      { title: "flaky one", why: "replay: diverged (nondeterministic)", capped: true, reproduced: false },
+      { title: "panel said no", why: "verifier 0 refuted the candidate", reproduced: false },
     ],
   });
 
-  assert.match(md, /## Reproduced but not corroborated \(1\)/, "must show the count of judgeable candidates");
+  assert.match(md, /## Reproduced but not verified — cap reached \(1\)/, "must show the count of judgeable candidates");
   assert.match(md, /--format yaml prints undefined/);
   assert.match(md, /valid YAML on stdout/, "expected/observed are what makes it judgeable by hand");
   assert.match(md, /packages\/cli\/src\/output\/formatter\.ts:37/);
   assert.match(md, /docs\/design\/cli\.md:714/);
   // A solo candidate that did NOT reproduce is not judgeable and must not appear
   // in this section — it would dilute exactly the signal being measured.
-  assert.equal(/### flaky one/.test(md), false, "non-reproduced solo must not be promoted");
-  assert.equal(/### corroborated but broken/.test(md), false, "corroborated drops belong in the plain table");
+  assert.equal(/### flaky one/.test(md), false, "a capped candidate that did not reproduce is not judgeable");
+  assert.equal(/### panel said no/.test(md), false, "panel refutations belong in the plain table, not here");
   // ...but everything still appears in the full drop table.
   assert.match(md, /## Dropped \(3\)/);
-  assert.match(md, /\| soloReproduced \| 3 \|/, "the funnel must carry the measurement too");
+  assert.match(md, /\| cappedUnverified \| 3 \|/, "the funnel must carry the measurement too");
+  assert.match(md, /\| refutedAfterReplay \| 2 \|/, "and the precision signal that replaced agreement");
 });
 
 test("renderReport: redacts secrets carried by DROPPED candidates", () => {
@@ -277,12 +278,12 @@ test("renderReport: redacts secrets carried by DROPPED candidates", () => {
     headSha: "abc1234",
     charters: ["contract"],
     reported: [],
-    stats: { proposed: 1, soloReproduced: 1 },
+    stats: { proposed: 1, cappedUnverified: 1 },
     dropped: [
       {
         title: "leaky",
-        why: "proposed by only one sample — replay: reproduced",
-        agreement: "solo",
+        why: "verification cap reached (4 per charter)",
+        capped: true,
         reproduced: true,
         secrets: ["s3cr3t-workspace-key"],
         claimed: { oracle: "contract", severity: "major", expected: "ok", observed: "sent s3cr3t-workspace-key upstream", citations: [] },

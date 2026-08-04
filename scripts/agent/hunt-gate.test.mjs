@@ -6,7 +6,6 @@ import {
   huntSeverity,
   coerceCandidates,
   dedupeCandidates,
-  intersectSamples,
   codeLocations,
   citationPath,
   citationInScope,
@@ -263,63 +262,6 @@ test("dedupeCandidates: keeps the first, never escalates severity", () => {
   assert.equal(out[0].severity, "nit", "the first wins; severity is never merged upward");
   // An unusable fingerprint drops the candidate rather than grouping it.
   assert.deepEqual(dedupeCandidates([{ fp: "" }, { fp: null }], fp), []);
-});
-
-test("intersectSamples: requires OVERLAPPING evidence, the inverse of unionSamples", () => {
-  // The matcher now receives each candidate's in-scope code-location SET.
-  const locs = (c) => new Set(c.locs);
-  const s1 = [{ locs: ["a.ts:1"], title: "x" }, { locs: ["b.ts:2"], title: "y" }];
-  const s2 = [{ locs: ["a.ts:1"], title: "x-again" }, { locs: ["c.ts:3"], title: "z" }];
-  const out = intersectSamples([s1, s2], locs);
-  assert.deepEqual(out.kept.map((c) => c.title), ["x"], "only the overlapping candidate survives");
-
-  // One sample is NOT agreement — unionSamples would return everything here.
-  assert.deepEqual(intersectSamples([s1], locs).kept, []);
-  assert.deepEqual(intersectSamples([], locs).kept, []);
-  assert.deepEqual(intersectSamples(null, locs).kept, []);
-});
-
-test("REGRESSION: agreement is OVERLAP, not equality — the two-live-run fix", () => {
-  const locs = (c) => new Set(c.locs);
-  // Real shape from run 2: same defect, overlapping but NOT identical evidence,
-  // listed in different order. Hashing any identity of these missed the match.
-  const a = { title: "exit 2 never produced", locs: ["packages/cli/src/output/formatter.ts:46", "packages/cli/src/output/formatter.ts:39", "packages/cli/src/commands/docs.ts:84"] };
-  const b = { title: "documented exit code 2 never set", locs: ["packages/cli/src/output/formatter.ts:39", "packages/cli/src/output/formatter.ts:46"] };
-  assert.equal(intersectSamples([[a], [b]], locs).kept.length, 1, "overlapping evidence = same defect");
-
-  // ...but a shared FILE is deliberately NOT enough. formatter.ts really does hold
-  // two distinct defects; keying on file alone would hide one of them.
-  const envelope = { title: "envelope omits `command`", locs: ["packages/cli/src/output/formatter.ts:43"] };
-  assert.equal(intersectSamples([[a], [envelope]], locs).kept.length, 0, "same file, different lines = different defects");
-});
-
-test("intersectSamples: explains every drop instead of discarding silently", () => {
-  // Run 1 reported "9 proposed -> 0 agreed" with an EMPTY drop table, which reads
-  // identically to "the explorer found nothing". A funnel that cannot explain its
-  // own biggest gap is useless for calibration.
-  const locs = (c) => new Set(c.locs);
-  const out = intersectSamples([[{ locs: ["a.ts:1"], title: "solo" }], [{ locs: ["z.ts:9"], title: "other" }]], locs);
-  assert.deepEqual(out.kept, []);
-  assert.equal(out.dropped.length, 2, "both unmatched candidates accounted for");
-  for (const d of out.dropped) {
-    assert.match(d.why, /only 1 of 2 samples cited an overlapping location/);
-    assert.ok(d.candidate, "the candidate is carried so the report can name it");
-  }
-
-  const thin = intersectSamples([[{ locs: ["a.ts:1"], title: "a" }]], locs);
-  assert.equal(thin.dropped.length, 1);
-  assert.match(thin.dropped[0].why, /only 1 sample\(s\) succeeded/);
-
-  const unlocatable = intersectSamples([[{ locs: [], title: "vague" }], [{ locs: [], title: "vague2" }]], locs);
-  assert.equal(unlocatable.kept.length, 0);
-  assert.match(unlocatable.dropped[0].why, /no in-scope code citation/);
-});
-
-test("intersectSamples: one sample cannot satisfy the threshold by itself", () => {
-  // Three near-identical candidates from ONE sample must not look like agreement.
-  const locs = (c) => new Set(c.locs);
-  const dupes = [{ locs: ["a.ts:1"], title: "p" }, { locs: ["a.ts:1"], title: "q" }, { locs: ["a.ts:1"], title: "r" }];
-  assert.equal(intersectSamples([dupes, [{ locs: ["z.ts:1"] }]], locs).kept.length, 0);
 });
 
 test("codeLocations: in-scope located citations only", () => {
