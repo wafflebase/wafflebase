@@ -259,7 +259,8 @@ wafflebase docs import revision.docx --replace <doc-id> --dry-run
 | `--yes` | Skip the confirmation prompt under `--replace` | `false` |
 
 `--replace` without `--yes` on a non-TTY shell exits 1 with
-`{"error":{"code":"CONFIRMATION_REQ"}}`.
+`{"error":{"code":"CONFIRMATION_REQ"}}`. `--dry-run` is exempt — a
+preview writes nothing, so it neither prompts nor needs `--yes`.
 
 ## sheets (aliases: sheet, spreadsheet, spreadsheets)
 

@@ -721,7 +721,9 @@ Per-command dry-run notes:
 
 - `docs content`, `docs export`: print the GET request that would be issued.
 - `docs import` (default): preview both POST (create) and PUT (push content).
-- `docs import --replace`: preview the PUT only; `--yes` is ignored.
+- `docs import --replace`: preview the PUT only; `--yes` is ignored — the
+  destructive-action confirmation is skipped entirely, so the preview also
+  works non-interactively. Same for `notes import` / `slides import`.
 
 #### 8.3 Schema Introspection
 
@@ -939,6 +941,7 @@ is the agent interface. This approach has key advantages:
 | `--pages` with `--format docx`                      | 0    | (stderr warn)       | "DOCX has no page concept — exporting full document"               |
 | `--replace` without `--yes` on a TTY                | (interactive prompt) | — | "This will replace content of <doc-id>. Continue? [y/N]"          |
 | `--replace` without `--yes` on non-TTY              | 1    | CONFIRMATION_REQ    | "Refusing to overwrite without --yes in non-TTY"                   |
+| `--replace --dry-run` without `--yes`               | 0    | —                   | (no prompt, no gate — a preview writes nothing)                     |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
 | Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
