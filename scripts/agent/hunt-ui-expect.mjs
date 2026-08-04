@@ -102,9 +102,72 @@ const INPUT_REF = /^@input:(\d+)$/;
 
 /** Longest quote `checkGround` will look for in a page snapshot (ground C). */
 const MAX_QUOTE_CHARS = 200;
+/**
+ * Ground B's `source` is model-supplied and goes into `CITATION`, whose
+ * `[^\s:]+\.[A-Za-z0-9_]+` prefix backtracks on a long non-matching run. Bounded for
+ * the same reason ground C's quote is.
+ */
+const MAX_SOURCE_CHARS = 300;
 
 function isRef(value) {
   return typeof value === "string" && (READ_REF.test(value) || INPUT_REF.test(value));
+}
+
+/**
+ * Is this value a stand-in the runner emitted because it could not deliver the real
+ * one? `boundValue` substitutes `{__oversized}` / `{__unserializable}` rather than a
+ * truncated value, precisely so nothing compares against a corrupted one.
+ *
+ * NOTHING IMPLEMENTED THIS UNTIL A REVIEW CAUGHT IT. Both this module's header and
+ * the runner's `boundValue` docblock asserted the protocol treated these as
+ * unevaluable; it did not. `equals` compared the marker as an ordinary object, so an
+ * oversized read against a resolved ground-A baseline produced `violated` and an
+ * ELIGIBLE candidate — a false finding manufactured by a value the runner had
+ * already declared it could not measure. Two markers compared to each other were
+ * worse: `equals` said `held`, hiding a real difference.
+ *
+ * A prose invariant that nothing enforces is not an invariant.
+ */
+export function isUnusableValue(value) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value.__oversized === true || value.__unserializable === true)
+  );
+}
+
+/** Beyond this, a serialized reader value is replaced by a marker. */
+export const MAX_VALUE_CHARS = 20_000;
+
+/**
+ * Bound a reader value WITHOUT corrupting it. The producer half of the marker
+ * contract, deliberately in the SAME module as `isUnusableValue`.
+ *
+ * It began life in the runner, which is how the two halves drifted: the runner's
+ * docblock promised the protocol treated markers as unevaluable, the protocol had never
+ * heard of them, and no single file was wrong on its own. Producer and predicate now
+ * live side by side, so that particular disagreement is not expressible.
+ *
+ * Why a marker rather than a shortened value: what leaves the runner is COMPARED, not
+ * just displayed. `[11,18,32]` cut short is a different array, and comparing against it
+ * yields a confident WRONG answer instead of no answer. Stringifying is equally unsafe —
+ * `each-greater-than` against `"[11,18,32]"` is unevaluable, so every numeric prediction
+ * would quietly stop working. Formatting for a model to read is a separate concern that
+ * belongs at the tool boundary, where clipping is harmless.
+ */
+export function boundValue(value) {
+  if (value === undefined) return null;
+  let json;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    // A circular structure, or a BigInt. Either way it cannot cross the process
+    // boundary, so it must not masquerade as a value that did.
+    return { __unserializable: true };
+  }
+  if (json === undefined) return null;
+  if (json.length <= MAX_VALUE_CHARS) return value;
+  return { __oversized: true, chars: json.length };
 }
 
 // --- shape ------------------------------------------------------------------
@@ -155,7 +218,7 @@ export function checkExpectationShape(expect) {
  * an unresolvable reference costs the candidate rather than raising: dropping is
  * safe, and a reference nobody can follow is exactly what must not become a report.
  */
-export function resolveExpectationRefs(expect, journal) {
+export function resolveExpectationRefs(expect, journal, { atIndex = null } = {}) {
   const entries = Array.isArray(journal) ? journal : [];
   const raw = expect?.value;
 
@@ -164,13 +227,31 @@ export function resolveExpectationRefs(expect, journal) {
     return { value: raw, trace: null };
   }
 
+  /**
+   * A baseline must come from a step STRICTLY BEFORE the one predicting against it.
+   *
+   * Without this, an action can reference its own journal entry, and the degenerate
+   * case is unconditionally reportable: a `read` action carrying
+   * `not-equals @read:<its own index>` compares the same reading to itself, so it
+   * violates every single time while passing every grounding check — traceable,
+   * same-reader, deterministic on replay. A defect generator with a valid passport.
+   *
+   * `atIndex` is optional because the ordering can only be checked when the caller
+   * knows which step is predicting. When it is absent the check cannot run, which is
+   * why the orchestrator (PR 4) must pass it.
+   */
+  const before = (i) => atIndex === null || !Number.isInteger(atIndex) || i < atIndex;
+
   const read = READ_REF.exec(raw);
   if (read) {
     const i = Number(read[1]);
+    if (!before(i)) return null;
     const entry = entries[i];
     if (!entry || entry.action?.type !== "read") return null;
     // A read that failed observed nothing, so it cannot be a baseline.
     if (entry.ok !== true) return null;
+    // Nor can a value the runner could not deliver.
+    if (isUnusableValue(entry.value)) return null;
     return {
       value: entry.value,
       trace: { kind: "read", index: i, reader: entry.action?.reader ?? null },
@@ -180,6 +261,7 @@ export function resolveExpectationRefs(expect, journal) {
   const input = INPUT_REF.exec(raw);
   if (input) {
     const i = Number(input[1]);
+    if (!before(i)) return null;
     const entry = entries[i];
     if (!entry || entry.action?.type !== "type") return null;
     if (entry.ok !== true) return null;
@@ -192,9 +274,28 @@ export function resolveExpectationRefs(expect, journal) {
 
 // --- evaluation -------------------------------------------------------------
 
-/** Deep-ish equality over JSON-shaped reader values. */
+/**
+ * Deep equality over JSON-shaped reader values, key-order independent.
+ *
+ * Two fixes over the naive `JSON.stringify(a ?? null)`. Object key ORDER is not
+ * semantic — `doc.styleSummary` is assembled by the editor and two runs need not agree
+ * on ordering — so keys are sorted before comparing, or a reordering would read as a
+ * violation. And `undefined` is NOT collapsed into `null`: an unset style and a
+ * present-but-null value are different observations, and `?? null` merged them.
+ */
+function stable(value) {
+  if (value === undefined) return "\u0000undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function sameValue(a, b) {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return stable(a) === stable(b);
 }
 
 function numbersOf(value) {
@@ -225,6 +326,16 @@ export function evaluateExpectation(expect, actual, expectedValue) {
   const op = expect?.op;
   if (!EXPECT_OPS.includes(op)) return { verdict: "unevaluable", detail: `unknown op ${JSON.stringify(op)}` };
 
+  // BEFORE any operator runs. A marker means the runner could not deliver the value,
+  // so there is nothing to compare on that side — and every operator below is total
+  // over objects, so without this guard each one would happily return a verdict.
+  if (isUnusableValue(actual)) {
+    return { verdict: "unevaluable", detail: `read value is unusable: ${JSON.stringify(actual)}` };
+  }
+  if (isUnusableValue(expectedValue)) {
+    return { verdict: "unevaluable", detail: `baseline value is unusable: ${JSON.stringify(expectedValue)}` };
+  }
+
   switch (op) {
     case "equals":
       return sameValue(actual, expectedValue)
@@ -240,8 +351,15 @@ export function evaluateExpectation(expect, actual, expectedValue) {
     case "not-contains": {
       const wants = op === "contains";
       let has;
-      if (typeof actual === "string") has = actual.includes(String(expectedValue));
-      else if (Array.isArray(actual)) has = actual.some((x) => sameValue(x, expectedValue));
+      if (typeof actual === "string") {
+        // No String(expectedValue). Coercing turned a type error into a comparison —
+        // an object became "[object Object]" and then genuinely "was not present",
+        // reporting `violated` for what is really a malformed prediction.
+        if (typeof expectedValue !== "string") {
+          return { verdict: "unevaluable", detail: `${op} against a string needs a string, got ${typeof expectedValue}` };
+        }
+        has = actual.includes(expectedValue);
+      } else if (Array.isArray(actual)) has = actual.some((x) => sameValue(x, expectedValue));
       else return { verdict: "unevaluable", detail: `${op} needs a string or array, read ${typeof actual}` };
       if (has === wants) return { verdict: "held", detail: wants ? "present" : "absent" };
       return {
@@ -262,6 +380,12 @@ export function evaluateExpectation(expect, actual, expectedValue) {
       // which is unevaluable rather than a violation.
       if (got.length !== want.length) {
         return { verdict: "unevaluable", detail: `length changed ${want.length} -> ${got.length}` };
+      }
+      // `[].every(...)` is true, so an empty comparison would report `held` — a pass
+      // asserting nothing. Saying so is more useful than a vacuous success, and it
+      // catches the case where a selection reader legitimately returned nothing.
+      if (got.length === 0) {
+        return { verdict: "unevaluable", detail: `${op} over an empty list asserts nothing` };
       }
       const ok = got.every((n, i) => (op === "each-greater-than" ? n > want[i] : n < want[i]));
       return ok
@@ -290,7 +414,7 @@ export function evaluateExpectation(expect, actual, expectedValue) {
  * so the run log can show what a candidate was admitted on rather than only what
  * killed one.
  */
-export function checkGround(expect, { journal = [], snapshot = "", charter = {} } = {}) {
+export function checkGround(expect, { journal = [], snapshot = "", charter = {}, atIndex = null } = {}) {
   const ground = expect?.ground;
 
   if (ground === "D") {
@@ -310,7 +434,7 @@ export function checkGround(expect, { journal = [], snapshot = "", charter = {} 
         why: "ground A requires `value` to be an @read:/@input: reference, not a literal — a literal is the model's own belief",
       };
     }
-    const resolved = resolveExpectationRefs(expect, journal);
+    const resolved = resolveExpectationRefs(expect, journal, { atIndex });
     if (!resolved) {
       return { eligible: false, why: `ground A reference ${JSON.stringify(expect.value)} does not resolve to a successful journal entry` };
     }
@@ -332,6 +456,16 @@ export function checkGround(expect, { journal = [], snapshot = "", charter = {} 
     // citation and what counts as in scope, so "evidence" means one thing across
     // both hunters.
     const source = expect?.source;
+    if (typeof source === "string" && source.length > MAX_SOURCE_CHARS) {
+      return { eligible: false, why: `ground B source is ${source.length} chars; keep it under ${MAX_SOURCE_CHARS}` };
+    }
+    // `docs/design/../../etc/x:1` matches a `docs/design/**` glob while pointing
+    // elsewhere. Nothing here reads the path from disk, so this is a misleading-citation
+    // guard rather than a traversal one — but a citation that does not mean what it
+    // says is not evidence.
+    if (typeof source === "string" && source.split("/").includes("..")) {
+      return { eligible: false, why: `ground B source must not contain ".." (got ${JSON.stringify(source)})` };
+    }
     if (typeof source !== "string" || !CITATION.test(source)) {
       return { eligible: false, why: `ground B \`source\` must locate a line (file.ext:123), got ${JSON.stringify(source)}` };
     }
@@ -369,18 +503,38 @@ export function checkGround(expect, { journal = [], snapshot = "", charter = {} 
  * run log can distinguish "predicted wrongly" from "predicted on a basis we do not
  * accept" — two very different things that a single boolean would merge.
  */
-export function assessExpectation(expect, actual, { journal = [], snapshot = "", charter = {} } = {}) {
+export function assessExpectation(
+  expect,
+  actual,
+  { journal = [], snapshot = "", charter = {}, actualError = null, atIndex = null } = {},
+) {
   const shape = checkExpectationShape(expect);
   if (shape.length > 0) {
     return { verdict: "unevaluable", eligible: false, why: `malformed prediction: ${shape.join("; ")}`, detail: null };
   }
 
-  const resolved = resolveExpectationRefs(expect, journal);
+  // A prediction read that THREW measured nothing, so there is nothing to judge.
+  //
+  // The runner emitted `actualError` for exactly this and nothing consumed it, which
+  // left a browser failure looking like a defect: `actual` came back null, `equals`
+  // against a resolved baseline said `violated`, and ground A having traced, the
+  // candidate was eligible. Infrastructure trouble manufacturing a report is the
+  // fail-quiet inversion this module's header forbids.
+  //
+  // Keyed on `actualError` and NOT on `actual === null`, deliberately: null is a
+  // legitimate reading. `sheet.cellValue` of an empty cell is null, and so is
+  // `doc.selection` with nothing selected. Treating null as unevaluable would silently
+  // blind the hunter to every defect about emptiness.
+  if (actualError) {
+    return { verdict: "unevaluable", eligible: false, why: `prediction read failed: ${actualError}`, detail: null };
+  }
+
+  const resolved = resolveExpectationRefs(expect, journal, { atIndex });
   if (!resolved) {
     return {
       verdict: "unevaluable",
       eligible: false,
-      why: `reference ${JSON.stringify(expect.value)} does not resolve to a successful journal entry`,
+      why: `reference ${JSON.stringify(expect.value)} does not resolve to a successful EARLIER journal entry`,
       detail: null,
     };
   }
@@ -392,6 +546,6 @@ export function assessExpectation(expect, actual, { journal = [], snapshot = "",
     return { verdict, eligible: false, why: verdict === "held" ? "prediction held" : detail, detail };
   }
 
-  const ground = checkGround(expect, { journal, snapshot, charter });
+  const ground = checkGround(expect, { journal, snapshot, charter, atIndex });
   return { verdict, eligible: ground.eligible, why: ground.why, detail, trace: resolved.trace };
 }

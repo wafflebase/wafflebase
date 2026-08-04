@@ -212,11 +212,24 @@ async function checkUndoCapability(page, baseUrl) {
   await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
   const before = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
   if (before !== false) problems.push(`doc.canUndo should be false on a freshly seeded document, got ${JSON.stringify(before)}`);
-  await page.getByRole("textbox").first().click();
+  // NOT getByRole("textbox"): on the doc surface that resolves to the editor's hidden
+  // IME textarea — `position:fixed;top:0;left:0;width:1px;height:1px;opacity:0`
+  // (docs/src/view/text-editor.ts:416-425). Clicking a 1x1 invisible element pinned at
+  // the viewport origin happens to work, but it is a caret-placement path no other
+  // lane in this repo uses, and Playwright's visibility/stability checks on it are a
+  // plausible 30s timeout that would fail the whole lane. The canvas is the real
+  // target and is what a user clicks.
+  await page.locator(`[data-testid="${HOST_TESTID}"] canvas`).first().click();
   await page.keyboard.type("Q");
   await page.waitForTimeout(50);
   const after = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
-  if (after !== true) problems.push(`doc.canUndo should be true after an edit, got ${JSON.stringify(after)}`);
+  if (after !== true) {
+    problems.push(
+      `doc.canUndo should be true after an edit, got ${JSON.stringify(after)} — this is either a broken ` +
+        "bridge reader (harness fault) or a real docs undo regression (product fault); check MemDocStore's " +
+        "undo stack before assuming the harness.",
+    );
+  }
 
   await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
   await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
@@ -368,4 +381,6 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log(`[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting passed.`);
+console.log(
+  `[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting + undo capability passed.`,
+);

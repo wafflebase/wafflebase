@@ -222,7 +222,13 @@ export function uiObservedKey(observation) {
       .sort()
       .join(",") || "none";
   const err = o.ok === true ? "none" : classifyUiError(o.error);
-  return `act:${type}${reader ? `(${reader})` : ""}|ok:${o.ok === true}|err:${err}|oracles:${oracles}|value:${valueKey(o.value)}`;
+  // `actual` participates for the same reason `value` does, and more urgently: it is
+  // the value a prediction verdict RESTS on. Leaving it out made replay — the
+  // determinism gate that exists to kill phantom repros — blind to the one number a
+  // violation was computed from, so a flaky prediction outcome sailed through 3/3
+  // identical attempts. `actualError` is folded in as a class, not a message.
+  const predicted = "actual" in o ? `|actual:${valueKey(o.actual)}|aerr:${o.actualError ? classifyUiError(o.actualError) : "none"}` : "";
+  return `act:${type}${reader ? `(${reader})` : ""}|ok:${o.ok === true}|err:${err}|oracles:${oracles}|value:${valueKey(o.value)}${predicted}`;
 }
 
 /**

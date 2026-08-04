@@ -285,10 +285,18 @@ export function installHuntBridge(): HuntBridgeController {
     surface: () => state.surface,
     readers: () => Object.keys(readers).sort(),
     read: async (name, args = []) => {
-      const reader = readers[name];
-      if (!reader) {
+      // `Object.hasOwn`, not `readers[name]`. A plain object literal inherits from
+      // Object.prototype, so `readers["toString"]`, `["constructor"]` and
+      // `["valueOf"]` all resolve to inherited FUNCTIONS and were invoked instead of
+      // refused. Harmless in effect here — nothing dangerous is reachable that way —
+      // but a reader registry whose membership test is a prototype-chain lookup is not
+      // the closed set this design claims, and the closed set is the safety property.
+      // `hasOwnProperty.call`, not `Object.hasOwn` — this file compiles under a
+      // pre-ES2022 lib target.
+      if (!Object.prototype.hasOwnProperty.call(readers, name)) {
         refuse(`unknown reader ${JSON.stringify(name)}. Valid readers: ${Object.keys(readers).sort().join(", ")}`);
       }
+      const reader = readers[name];
       // Awaited here so a rejected reader surfaces as a refusal from `read` rather
       // than as an unhandled rejection inside the page — which the crash oracle
       // would then report as a defect in the app under test.

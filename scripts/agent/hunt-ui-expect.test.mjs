@@ -6,6 +6,9 @@ import {
   checkExpectationShape,
   checkGround,
   evaluateExpectation,
+  boundValue,
+  isUnusableValue,
+  MAX_VALUE_CHARS,
   resolveExpectationRefs,
   EXPECT_GROUNDS,
   EXPECT_OPS,
@@ -279,4 +282,186 @@ test("assessExpectation: no ground can make an unevaluable comparison reportable
     assert.equal(got.verdict, "unevaluable", `ground ${ground}`);
     assert.equal(got.eligible, false, `ground ${ground} must not be eligible on an unevaluable comparison`);
   }
+});
+
+// --- review findings, each pinned -------------------------------------------
+
+// The contract the runner's `boundValue` docblock asserted and nothing implemented.
+// An oversized read against a resolved ground-A baseline produced `violated` and an
+// ELIGIBLE candidate: a false finding built from a value the runner had already said
+// it could not measure.
+test("REGRESSION: an oversized/unserializable marker is unevaluable, never a verdict", () => {
+  const marker = { __oversized: true, chars: 25_000 };
+  assert.equal(isUnusableValue(marker), true);
+  assert.equal(isUnusableValue({ __unserializable: true }), true);
+  assert.equal(isUnusableValue([11, 18, 32]), false);
+  assert.equal(isUnusableValue(null), false, "null is a legitimate reader value, not a marker");
+
+  // Either side unusable → no comparison, whatever the operator.
+  for (const op of EXPECT_OPS) {
+    assert.equal(evaluateExpectation(A({ op }), marker, [11, 18, 32]).verdict, "unevaluable", `actual, ${op}`);
+    assert.equal(evaluateExpectation(A({ op }), [11, 18, 32], marker).verdict, "unevaluable", `baseline, ${op}`);
+  }
+  // Two markers previously reported `held` for equals — worse than a false violation,
+  // because it hid a real difference.
+  assert.equal(evaluateExpectation(A({ op: "equals" }), marker, marker).verdict, "unevaluable");
+  assert.equal(evaluateExpectation(A({ op: "not-equals" }), marker, marker).verdict, "unevaluable");
+
+  // And end to end: not eligible, so it cannot become a report.
+  const got = assessExpectation(A(), marker, { journal: JOURNAL, charter: CHARTER });
+  assert.equal(got.verdict, "unevaluable");
+  assert.equal(got.eligible, false);
+});
+
+test("REGRESSION: a marker can never serve as a @read baseline", () => {
+  const journal = [{ action: { type: "read", reader: "doc.fontSizes" }, ok: true, value: { __oversized: true, chars: 9 } }];
+  assert.equal(resolveExpectationRefs(A(), journal), null);
+});
+
+// The runner emits `actualError` when the prediction read throws, and nothing consumed
+// it — so a browser failure surfaced as `actual: null`, compared cleanly to a resolved
+// baseline, and became an eligible candidate. Infrastructure manufacturing a report.
+test("REGRESSION: a failed prediction read is unevaluable, not a violation", () => {
+  const got = assessExpectation(A({ op: "equals", read: "sheet.cellValue" }), null, {
+    journal: JOURNAL,
+    charter: CHARTER,
+    actualError: "hunt bridge is not installed",
+  });
+  assert.equal(got.verdict, "unevaluable");
+  assert.equal(got.eligible, false);
+  assert.match(got.why, /prediction read failed/);
+});
+
+// The discriminator is `actualError`, NOT `actual === null`. Null is a real reading —
+// an empty cell, an absent selection — and treating it as unevaluable would blind the
+// hunter to every defect about emptiness.
+test("a legitimate null reading is still judged", () => {
+  const journal = [{ action: { type: "read", reader: "sheet.cellValue" }, ok: true, value: "10" }];
+  const e = { read: "sheet.cellValue", op: "equals", value: "@read:0", ground: "A", because: "x" };
+  const got = assessExpectation(e, null, { journal, charter: CHARTER });
+  assert.equal(got.verdict, "violated", "cell went from 10 to empty — that is a real observation");
+  assert.equal(got.eligible, true);
+});
+
+// A `read` action carrying `not-equals @read:<its own index>` compares a reading to
+// itself, so it violated every time while passing every grounding check — traceable,
+// same-reader, and deterministic on replay.
+test("REGRESSION: a reference must point BEFORE the predicting action", () => {
+  const e = { read: "doc.text", op: "not-equals", value: "@read:0", ground: "A", because: "x" };
+  const journal = [{ action: { type: "read", reader: "doc.text", expect: e }, ok: true, value: "hello" }];
+
+  // Self-reference: refused once the caller says which step is predicting.
+  assert.equal(resolveExpectationRefs(e, journal, { atIndex: 0 }), null);
+  const selfRef = assessExpectation(e, "hello", { journal, charter: CHARTER, atIndex: 0 });
+  assert.equal(selfRef.eligible, false);
+  assert.match(selfRef.why, /EARLIER/);
+
+  // A forward reference is refused too.
+  assert.equal(resolveExpectationRefs({ ...e, value: "@read:5" }, journal, { atIndex: 2 }), null);
+  // And a genuinely earlier one still resolves.
+  const later = [...journal, { action: { type: "key", key: "x" }, ok: true, value: null }];
+  assert.ok(resolveExpectationRefs(e, later, { atIndex: 1 }));
+});
+
+test("contains does not coerce a non-string expectation", () => {
+  // String({}) is "[object Object]", which then genuinely "was not present" — turning
+  // a malformed prediction into a violation.
+  const e = A({ op: "contains", read: "doc.text" });
+  assert.equal(evaluateExpectation(e, "some text", { a: 1 }).verdict, "unevaluable");
+  assert.equal(evaluateExpectation(e, "some text", 42).verdict, "unevaluable");
+  assert.equal(evaluateExpectation(e, "some text", "text").verdict, "held");
+});
+
+test("each-* over an empty list is unevaluable, not a vacuous pass", () => {
+  // [].every(...) is true, so this used to report `held` while asserting nothing.
+  assert.equal(evaluateExpectation(A(), [], []).verdict, "unevaluable");
+});
+
+test("sameValue is key-order independent and keeps undefined distinct from null", () => {
+  const e = A({ op: "equals", read: "doc.styleSummary" });
+  // Reader-assembled objects need not agree on key order between runs.
+  assert.equal(evaluateExpectation(e, { bold: true, fontSize: 11 }, { fontSize: 11, bold: true }).verdict, "held");
+  // An unset style and a present-null are different observations.
+  assert.equal(evaluateExpectation(e, { fontSize: undefined }, { fontSize: null }).verdict, "violated");
+});
+
+test("ground B bounds its source and rejects traversal", () => {
+  const long = `${"a".repeat(400)}.md:1`;
+  const bounded = checkGround(A({ ground: "B", source: long }), { journal: JOURNAL, charter: CHARTER });
+  assert.equal(bounded.eligible, false);
+  assert.match(bounded.why, /chars; keep it under/);
+
+  const traversal = checkGround(A({ ground: "B", source: "docs/design/../../etc/passwd:1" }), {
+    journal: JOURNAL,
+    charter: CHARTER,
+  });
+  assert.equal(traversal.eligible, false);
+  assert.match(traversal.why, /must not contain/);
+});
+
+test("the ground-C quote ceiling is enforced", () => {
+  const quote = "x".repeat(201);
+  const got = checkGround(A({ ground: "C", source: quote }), { journal: JOURNAL, snapshot: quote, charter: CHARTER });
+  assert.equal(got.eligible, false);
+  assert.match(got.why, /keep it under 200/);
+});
+
+test("an @input-based ground A is eligible", () => {
+  // The other half of ground A: the app should reflect what the agent typed.
+  const e = { read: "doc.text", op: "contains", value: "@input:1", ground: "A", because: "typed text appears" };
+  const got = assessExpectation(e, "before hello world after", { journal: JOURNAL, charter: CHARTER, atIndex: 4 });
+  assert.equal(got.verdict, "held");
+  const violated = assessExpectation(e, "nothing landed", { journal: JOURNAL, charter: CHARTER, atIndex: 4 });
+  assert.equal(violated.verdict, "violated");
+  assert.equal(violated.eligible, true);
+});
+
+test("checkExpectationShape requires args to be an array", () => {
+  assert.match(checkExpectationShape(A({ args: "A1" })).join(" "), /`args` must be an array/);
+  assert.deepEqual(checkExpectationShape(A({ args: ["A1"] })), []);
+});
+
+// --- boundValue: the producer half of the marker contract --------------------
+
+// Untestable while it lived in the Playwright driver (importing that boots Vite), which
+// is how it came to promise a behaviour the protocol did not implement.
+test("boundValue keeps a normal value exactly as-is", () => {
+  for (const v of [[11, 18, 32], "hello", 42, true, null, { a: 1 }]) {
+    assert.deepEqual(boundValue(v), v);
+  }
+});
+
+test("boundValue normalises undefined to null", () => {
+  // JSON.stringify(undefined) is undefined, which would drop the field entirely and
+  // make "the reader returned nothing" indistinguishable from "there was no read".
+  assert.equal(boundValue(undefined), null);
+});
+
+test("boundValue substitutes a marker rather than truncating", () => {
+  const big = "x".repeat(MAX_VALUE_CHARS + 1);
+  const got = boundValue(big);
+  assert.equal(got.__oversized, true);
+  assert.ok(got.chars > MAX_VALUE_CHARS);
+  // The point of the marker: nothing downstream can mistake it for the value.
+  assert.equal(isUnusableValue(got), true);
+  assert.equal(typeof got === "string", false, "a shortened string would compare wrongly");
+});
+
+test("boundValue marks an unserializable value instead of throwing", () => {
+  const circular = {};
+  circular.self = circular;
+  const got = boundValue(circular);
+  assert.deepEqual(got, { __unserializable: true });
+  assert.equal(isUnusableValue(got), true);
+});
+
+test("boundValue's markers round-trip to unevaluable, end to end", () => {
+  // The contract that was asserted in prose and implemented nowhere: what the producer
+  // emits, the evaluator must refuse to judge.
+  const big = boundValue("y".repeat(MAX_VALUE_CHARS + 1));
+  const journal = [{ action: { type: "read", reader: "doc.text" }, ok: true, value: "small" }];
+  const e = { read: "doc.text", op: "equals", value: "@read:0", ground: "A", because: "x" };
+  const got = assessExpectation(e, big, { journal, charter: CHARTER, atIndex: 1 });
+  assert.equal(got.verdict, "unevaluable");
+  assert.equal(got.eligible, false);
 });

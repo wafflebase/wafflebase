@@ -39,6 +39,12 @@ import { createServer } from "vite";
 // SAME code this runs. A verification script with its own copy would prove only
 // that the copy works.
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
+// `boundValue` lives with `isUnusableValue` in the protocol module, so the producer of
+// the oversized/unserializable markers and the predicate that recognises them cannot
+// drift. They did drift once: this file promised the protocol treated markers as
+// unevaluable and the protocol had never heard of them. Importing across the boundary
+// is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
+import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -50,8 +56,6 @@ const HOST_TESTID = "hunt-harness-host";
 
 /** Per-action ceiling. A hung action must not hang the run. */
 const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
-/** Cap on one serialized read value, so a `dom.snapshot` cannot dominate the output. */
-const MAX_VALUE_CHARS = 20_000;
 
 // --- argument parsing --------------------------------------------------------
 
@@ -109,7 +113,54 @@ async function loadPlaywright() {
  * else is the page's own bridge. Routing on the prefix keeps the two namespaces from
  * having to know about each other.
  */
+/**
+ * Reader namespaces, duplicated here ON PURPOSE.
+ *
+ * `hunt-ui-probe.mjs` validates these too, but it runs in a different PROCESS — this
+ * driver is invocable directly, and a trusted executor whose only namespace check
+ * lives in an out-of-process validator is not actually bounded. Cheap defence in
+ * depth; the authoritative reader list is still the bridge's.
+ */
+const READER_PREFIXES = ["doc.", "sheet.", "dom."];
+
+function assertReaderName(name) {
+  if (typeof name !== "string" || !READER_PREFIXES.some((p) => name.startsWith(p))) {
+    throw new Error(`reader ${JSON.stringify(name)} must start with one of ${READER_PREFIXES.join(", ")}`);
+  }
+}
+
+/**
+ * Read a value once the UI has stopped changing.
+ *
+ * A single fixed sleep was the only settling window, and a prediction read is not a
+ * display concern — a stale value read a few milliseconds early becomes `violated`,
+ * which becomes an eligible candidate. Because the prediction is deliberately bundled
+ * with its action (so the caller cannot look before committing), the caller has no way
+ * to insert a wait of its own, so the settling has to happen here.
+ *
+ * Two consecutive equal reads is the signal, not a longer sleep: it returns as soon as
+ * the value is stable rather than always paying the worst case, and it does not
+ * silently pass a value that is still moving when the deadline expires — the caller
+ * gets the last read either way, but a still-moving value will then diverge across
+ * replay attempts and be dropped as non-deterministic, which is the correct outcome.
+ */
+async function readSettled(page, name, args, deadlineMs) {
+  const deadline = Date.now() + deadlineMs;
+  let previous = await readValue(page, name, args);
+  let serialized = JSON.stringify(previous ?? null);
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(25);
+    const next = await readValue(page, name, args);
+    const nextSerialized = JSON.stringify(next ?? null);
+    if (nextSerialized === serialized) return next;
+    previous = next;
+    serialized = nextSerialized;
+  }
+  return previous;
+}
+
 async function readValue(page, name, args) {
+  assertReaderName(name);
   if (name === "dom.snapshot") {
     return await page.locator("body").ariaSnapshot();
   }
@@ -169,34 +220,6 @@ async function waitForReady(page, url) {
   );
 }
 
-/**
- * Bound a reader value WITHOUT corrupting it.
- *
- * Values leaving here are compared, not just displayed: `hunt-ui-expect.mjs` checks
- * a prediction against `actual`, and `@read:<i>` resolves a baseline out of an
- * earlier observation. So the obvious "truncate to N chars" is unsafe in a way a
- * display-only clip is not — `[11,18,32]` cut short is a different array, and
- * comparing against it produces a confident WRONG answer rather than no answer.
- * Stringifying is equally unsafe: `each-greater-than` against `"[11,18,32]"` is
- * unevaluable, so every numeric prediction would silently stop working.
- *
- * An oversized value therefore becomes a marker object instead of a shortened one.
- * The protocol treats that as unevaluable — no comparison, and no finding — which is
- * the fail-quiet direction. Formatting for a model to read is a separate concern and
- * belongs at the tool boundary, where clipping is harmless.
- */
-function boundValue(value) {
-  if (value === undefined) return null;
-  let json;
-  try {
-    json = JSON.stringify(value);
-  } catch {
-    return { __unserializable: true };
-  }
-  if (json === undefined) return null;
-  if (json.length <= MAX_VALUE_CHARS) return value;
-  return { __oversized: true, chars: json.length };
-}
 
 async function runAction(page, action, baseUrl, timeoutMs) {
   switch (action.type) {
@@ -291,6 +314,10 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
       }
       // Give async errors from this action a chance to land before draining. Without
       // it a rejection scheduled by the click is attributed to the NEXT action.
+      //
+      // This is the ORACLE window only. It is deliberately NOT the prediction window:
+      // a fixed sleep is fine for "did anything throw" and wrong for "what is the value
+      // now", so the prediction read settles on its own below.
       await page.waitForTimeout(30);
 
       // THE PREDICTION READ, performed in the SAME round-trip as the action.
@@ -308,7 +335,7 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
       let actualError = null;
       if (action.expect && typeof action.expect.read === "string") {
         try {
-          actual = await readValue(page, action.expect.read, action.expect.args ?? []);
+          actual = await readSettled(page, action.expect.read, action.expect.args ?? [], timeoutMs);
         } catch (err) {
           // A failed prediction read is not a failed action, and must not be
           // reported as one — the action may well have succeeded. It leaves `actual`
