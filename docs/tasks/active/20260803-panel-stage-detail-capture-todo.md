@@ -392,3 +392,221 @@ raised. Growth is sub-linear rather than absent — 5.7× more payload across 49
 more diff. That is still the result worth having: the 2 MB worst case becomes
 29.5 KB, which turns the collector job's storage question into a much smaller one
 without pretending it has disappeared.
+
+---
+
+# Follow-up: route the capture out — from both panels
+
+Two changes that are one change. The capture has never left a runner: the upload
+step could not see the files it was pointed at. Fixing that also settles where the
+second producer's copy goes, because the fix is the reason a naive copy of the step
+would have failed the same way.
+
+1. **The glob never matched.** `.agent-review` is a dot-directory, and
+   `upload-artifact` excludes hidden paths by default. Five real panel runs, zero
+   artifacts.
+2. **`agent-review-on-demand.yml` now uploads the same capture.** #641 left this
+   under "Not built"; the reason it gives holds for scoring the gate and not for the
+   measurement this feeds. See "Why the second producer" below.
+
+They ship together because the invariant test written for (1) is what proves (2)
+correct — it scans every workflow's upload steps, so the new step is covered with no
+additional test, and would have failed without the flag.
+
+## The problem
+
+The section above closes with a prediction: *"the first managed PR after this
+merges will produce the artifact."* It did not, and neither did the four after it.
+Every panel run since #641 merged that provably reached the lenses —
+`30799533061`, `30803409664`, `30803718950`, `30836949850`, `30837818619` — logged
+
+```
+No files were found with the provided path: .agent-review/*/stage-detail.json.
+```
+
+Five rounds of capture, zero rows collected.
+
+Nothing in the script is at fault, and the same job proves it. In run
+`30837818619` all six lenses reported `success`, so each one passed the
+unconditional `writeStageDetail` call — it sits after the skip and fail-closed
+returns and before the verdict write, so a lens that produced a verdict went
+through it. `STAGE_DETAIL_CAPTURE` echoes **empty**, which
+`stageDetailCaptureEnabled` resolves to ON exactly as the fail-direction table
+above intends. No `stage-detail capture failed (continuing)` line, so nothing
+threw. And the per-lens directories demonstrably held real content: each check
+run's `output.summary` is 836–2,838 characters read straight out of
+`.agent-review/<lens>/summary.md`, written by `writeVerdict` into the *same*
+`lensOut` from the *same* `mkdirSync`.
+
+The fault is in the glob. `upload-artifact` resolves patterns through
+`@actions/glob` with `excludeHiddenFiles: !include-hidden-files`, and
+`include-hidden-files` defaults to **false**. The globber's search root is the
+pattern's non-wildcard prefix — for `.agent-review/*/stage-detail.json` that is the
+**directory** `.agent-review` — and its traversal skips any item whose basename
+starts with a dot:
+
+```js
+// @actions/glob/lib/internal-globber.js
+if (options.excludeHiddenFiles && path.basename(item.path).match(/^\./)) {
+  continue;
+}
+```
+
+The root is the first item on the stack. It is skipped before `readdir`, so the
+entire subtree is never enumerated. Not "the files were filtered out" — the
+directory was never opened.
+
+What made this read as a write bug for so long is the sibling step. **The
+execution-log upload, in the same job, from the same hidden directory, works.**
+It names its two files literally, so each search root is the *file*, whose basename
+is not hidden, and no hidden component is ever inspected. One step succeeding and
+one step silent, three lines apart in the same YAML, is the whole reason the
+evidence pointed at `writeStageDetail`.
+
+`ci.yml`'s `.harness-reports/` upload already carries `include-hidden-files: true`
+for precisely this reason. #641 did not carry it across.
+
+## The change
+
+- [x] `include-hidden-files: true` on the `Upload per-lens stage detail` step, with
+      the mechanism written down at the point of use — the flag reads as being
+      about *files* and is in fact about the *directory*, which is why copying the
+      step elsewhere without it will fail the same way.
+- [x] Amend the `if-no-files-found: ignore` comment to say what it cannot do. It is
+      still correct (capture off, or every lens skipped, are both normal), but it
+      is also what turned this into five silent rounds, and the next reader deserves
+      both halves.
+- [x] One test, in `review-panel.test.mjs` beside the `writeStageDetail` tests:
+      parse every `upload-artifact` step out of the real workflows and require
+      `include-hidden-files: true` on any path that makes the globber **walk** (a
+      wildcard, or a trailing `/`) through a dot-prefixed segment. Comment lines are
+      stripped first, the same trap #630/#640/#651 each hit; a literal file path is
+      correctly exempt, because that is genuinely immune.
+- [x] The same step in `agent-review-on-demand.yml`'s `review` job, after the panel
+      runs and before the comment is posted — so the capture survives even when the
+      comment step fails. Same name, path, retention and flag.
+- [x] `STAGE_DETAIL_CAPTURE` / `STAGE_DETAIL_DIFF_CONTENT` on the on-demand panel
+      step, passed RAW. A **no-op today** — both repo variables are unset, which is
+      the same ON/OFF pair this job already resolved by passing neither. What it buys
+      is that the two producers cannot drift the moment someone sets one.
+- [x] The test asserts the **pair**, not one step: two producers, one name, one
+      path, both flagged. `filter`, not `find` — with two identically-named steps a
+      `find` would assert about whichever file the directory listing yielded first
+      and leave the other free to regress.
+
+## Why the second producer
+
+#641 filed on-demand parity under "Not built": *"advisory `@claude review`
+invocations are not the population a tuning corpus should be scored on."* That is
+right about scoring **the gate** and does not apply to the measurement this feeds.
+
+Severity-weighted precision has `minor` and `nit` buckets and the independent
+reviewer we compare against is nit-heavy, so separating *"we missed it"* from *"we
+found it and called it minor"* requires the panel's **non-blocking** findings.
+`samples` is the only channel that carries them — its own sibling `verifications` is
+blocking-only, and every permanent channel (check-run `output.text`, the rendered
+comment) is critical/major. Measured over all 17 real on-demand comments: **249
+blocking against 387 non-blocking** (25 critical / 224 major / 315 minor / 72 nit).
+
+So advisory rounds are still not scored as gate decisions. Their per-sample
+severities are the comparison data, which is a different use and the one that was
+otherwise uncomputable.
+
+Uploading from that job needs no new permission and grants none: `upload-artifact`
+requires no scope, and the job keeps `checks: read` with no `checks: write`. The glob
+cannot pick up a branch-planted `.agent-review/evil/stage-detail.json` because
+"Clear stale verdicts" does `rm -rf .agent-review` before the panel runs. The gating
+`review-panel` job has the identical property — its SDK cwd is the untrusted branch
+checkout too — and already uploads two artifacts.
+
+## Corrected from the plan
+
+- **"Ruled out: hidden-file exclusion, because the sibling upload succeeded from
+  the same hidden directory."** Wrong, and wrong in the most useful way — the
+  sibling's immunity *is* the mechanism, not evidence against it. A glob and a
+  literal path resolve through different code in `getSearchPaths`, so "same
+  directory, same job, one worked" says nothing about the other.
+- **"A throwaway diagnostic PR is the next step."** Not needed. `@actions/glob` is
+  40 lines of readable traversal and the option is a published input; a local
+  repro against the real package answered it in one run, and no CI round was spent.
+- **"Perhaps no panel ran after #641 merged."** They ran. Most `agent-review-panel`
+  workflow runs carry **no artifacts at all**, because the `gate` job exits before
+  `review-panel` starts — so a run list is not a panel list. The five above are the
+  ones holding `review-panel-execution`, which is proof the job reached the
+  uploads.
+
+## Fail directions
+
+| path | on doubt | why |
+|---|---|---|
+| the upload glob | **upload**, including dot-prefixed paths | the population is written by this pipeline into a directory this pipeline chose. There is no untrusted content to exclude here: the branch's own `.agent-review` is `rm -rf`-ed before the panel runs, and `include-hidden-files` still only admits paths the pattern already matched |
+| `if-no-files-found` | stays `ignore` | unchanged and still right — an empty capture is normal. The lesson is not to make it warn, it is that a *tolerant* step needs its precondition pinned by a test rather than watched by a human |
+| the new test | **fails loudly** | it is the only thing standing between a future hidden-path upload and another five silent rounds. It asserts the parser found ≥8 of the repo's 11 upload steps and that at least one hidden glob exists, so it can never pass by finding nothing |
+| the on-demand upload step | `if: always()`, `continue-on-error` | it must not be able to fail an advisory review. It sits before the comment step so a capture survives a failed comment, and after the panel so there is something to capture |
+| the on-demand `STAGE_DETAIL_*` pair | passed **raw**, resolved in the script | the same reason #641 gives for the gating twin: a `&& 'x' \|\| 'y'` default in YAML puts the inverted logic where no test can reach it. `stageDetailCaptureEnabled` is tested; a workflow expression is not |
+
+## Explicit non-goal
+
+**No script change, and no change to what is captured.** `writeStageDetail`,
+`buildStageDetail`, the gate and the payload are all untouched and were never
+wrong. Both producers already wrote these files; only the route out is new. The five
+lost rounds are not recoverable and are not worth trying to recover: they are five
+rows of a corpus that will have thousands.
+
+**No collector, still.** Nothing reads `stage-detail.json` after this. Two producers
+instead of one is the point of doing them together — the collector gains a second
+source with no new case to handle.
+
+**No advisory round is made gating.** No check run, no conclusion, no required check,
+no new scope. The on-demand job's permissions are byte-identical before and after.
+
+## Verification
+
+- [x] **The mechanism, reproduced locally.** `@actions/glob@0.5.0` against a
+      `.agent-review/{correctness,docs}/stage-detail.json` fixture, with
+      `upload-artifact`'s own glob options:
+
+      | pattern | excludeHiddenFiles | files found |
+      |---|---|---|
+      | `.agent-review/*/stage-detail.json` | `true` (today) | **0** |
+      | `.agent-review/*/stage-detail.json` | `false` (fixed) | 2 |
+      | the two literal execution-log paths | `true` | 2 |
+      | the two literal execution-log paths | `false` | 2 |
+
+      The debug output names the cause outright: the glob's search path is the
+      directory `.agent-review`, the literal paths' search paths are the files.
+      This is the production log, both steps, exactly.
+- [x] **Artifact layout after the fix.** One search path, so `search.ts` returns
+      `rootDirectory: searchPaths[0]` — the artifact holds
+      `<lens>/stage-detail.json`, which is the layout the collector was planned
+      against. Unchanged by this fix; confirmed, not assumed.
+- [x] `node --test "scripts/agent/*.test.mjs"` — **658 tests, 657 pass, 0 fail, 1
+      skipped**; 657/656 on `upstream/main` (`dfc7ec674`).
+- [x] **The test fails on all three regressions**, each naming the right file:
+
+      | tree | assertion that fires |
+      |---|---|
+      | the gating step without the flag (= #641 as shipped) | `agent-review-panel.yml "Upload per-lens stage detail" globs the hidden path … without include-hidden-files: true` |
+      | the on-demand step without the flag (= a naive copy) | same message, `agent-review-on-demand.yml` |
+      | the on-demand step deleted | `both the gating and the on-demand panel must upload the stage-detail capture` |
+
+      The middle row is why these ship together: the test written for the bug is what
+      makes the parity step correct, with nothing added.
+- [x] The invariant holds across every existing upload step: `ci.yml`'s
+      `.harness-reports/` already sets the flag; `docker-publish.yml`'s
+      `${{ runner.temp }}/digests/*` has no hidden segment; every
+      `claude-execution-output.json` and `.tgz` upload is a literal path.
+- [x] **Both workflows parse**, and the on-demand `review` job's permissions are
+      unchanged: `{contents: read, pull-requests: read, checks: read, issues: write}`
+      — no `checks: write`, no addition.
+- [ ] **The artifact itself, from either producer.** Still unverified end-to-end and
+      cannot be from here: the gating side needs one managed PR to run the panel, the
+      on-demand side one `@claude review`. The number to check against the size table
+      is the largest per-lens file, which is the check #641 asked for and never got.
+- [ ] **Two producers, one artifact name — a collector requirement, recorded now.**
+      `stage-detail.json` carries no field naming the workflow that wrote it, so a
+      collector resolving "artifacts named `review-panel-stage-detail` for PR X"
+      gets both producers with nothing in the payload to tell a gating round from an
+      advisory one, and would double-count one head sha as two rounds. Recoverable
+      from run metadata (`event: issue_comment` versus the panel's `workflow_run`).
+      Not a blocker here; it must be settled in the collector.
