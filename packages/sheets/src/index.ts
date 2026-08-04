@@ -218,6 +218,12 @@ import {
   importXlsxWorkbook,
 } from './import/xlsx-importer';
 import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
+import {
+  importCsv,
+  importTable,
+  MAX_IMPORT_CELLS,
+} from './import/csv-importer';
+import type { ImportedTable } from './import/csv-importer';
 
 export {
   initialize,
@@ -344,6 +350,9 @@ export {
   isAnchorAlive,
   importXlsxFile,
   importXlsxWorkbook,
+  importCsv,
+  importTable,
+  MAX_IMPORT_CELLS,
 };
 
 export type {
@@ -412,6 +421,7 @@ export type {
   Thread,
   ImportedXlsxSheet,
   XlsxFileLike,
+  ImportedTable,
 };
 
 export {

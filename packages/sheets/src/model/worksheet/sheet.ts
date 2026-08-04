@@ -60,7 +60,7 @@ import {
 } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
-import { inferInput, applyInferredFormat, type InferredInput } from './input';
+import { inferInput, applyInferredFormat, toStoredValue } from './input';
 import {
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
@@ -967,21 +967,6 @@ export class Sheet {
   }
 
   /**
-   * `toStoredValue` converts inferred non-formula input to normalized storage value.
-   */
-  private toStoredValue(inferred: Exclude<InferredInput, { type: 'formula' }>): string {
-    switch (inferred.type) {
-      case 'number':
-        return inferred.value.toString();
-      case 'date':
-      case 'text':
-        return inferred.value;
-      case 'boolean':
-        return inferred.value ? 'TRUE' : 'FALSE';
-    }
-  }
-
-  /**
    * `applyInputInferenceToGrid` normalizes pasted external cell input values.
    */
   private applyInputInferenceToGrid(grid: Grid): Grid {
@@ -997,7 +982,7 @@ export class Sheet {
       const base =
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
-          : { v: this.toStoredValue(inferred) };
+          : { v: toStoredValue(inferred) };
       normalized.set(sref, compactCell(base, style));
     }
     return normalized;
@@ -1047,7 +1032,7 @@ export class Sheet {
       const base =
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
-          : { v: this.toStoredValue(inferred) };
+          : { v: toStoredValue(inferred) };
       const cell = compactCell(base, style);
 
       // If the cell is effectively empty (no value, no formula, no style), delete it.

@@ -306,6 +306,25 @@ export function inferInput(
 }
 
 /**
+ * `toStoredValue` converts inferred non-formula input to the normalized storage
+ * value. Shared by the typing/paste path and the CSV importer so the same text
+ * always lands as the same cell.
+ */
+export function toStoredValue(
+  inferred: Exclude<InferredInput, { type: 'formula' }>,
+): string {
+  switch (inferred.type) {
+    case 'number':
+      return inferred.value.toString();
+    case 'date':
+    case 'text':
+      return inferred.value;
+    case 'boolean':
+      return inferred.value ? 'TRUE' : 'FALSE';
+  }
+}
+
+/**
  * `applyInferredFormat` applies inferred format metadata onto an existing style.
  */
 export function applyInferredFormat(
