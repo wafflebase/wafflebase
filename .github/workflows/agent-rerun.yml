@@ -166,7 +166,9 @@ jobs:
               (reran
                 ? "Re-running CI now; the review panel will run again and can promote or fix this PR."
                 : "No CI run to re-run — the panel will engage on the next CI run.") +
-              " Still bounded by the pipeline's round/attempt caps, and a human approval is required to merge.");
+              " The review→fix round budget restarts from here; the CI-fix arm's own" +
+              " attempt bound (counted from prior failed CI runs) is NOT reset, and a human" +
+              " approval is still required to merge.");
 
       # Edit the placeholder into the final result. always() so a failure in the
       # clear step still replaces the "working on it" note instead of stranding it.

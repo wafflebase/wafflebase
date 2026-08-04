@@ -17,11 +17,13 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import {
   countFailedReviewRounds,
+  fixAttemptCommits,
   groupReviewRounds,
   detectStalledRounds,
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
   isPagedLatchComment,
+  rerunPointFrom,
 } from "./rounds.mjs";
 import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
 
@@ -102,6 +104,14 @@ if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
   process.exit(0);
 }
+// `@claude rerun` (#650) deletes the paged comments, so the latch above is
+// already clear by the time we get here. What it cannot do on its own is give the
+// budget back — its summary says the PR is "still bounded by the pipeline's
+// round/attempt caps", which on a PR that reached the cap means one panel round
+// and an immediate re-page. That is exactly what #648 did when it was un-stuck by
+// hand. The marker rerun leaves behind moves the round floor forward.
+const rerunAt = rerunPointFrom(comments);
+if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 
 // API/quota outage (every blocking lens failed on an API error) → the reviewer
 // never ran. Page with the REAL reason and DO NOT dispatch the fixer or count a
@@ -167,6 +177,17 @@ for (const c of commits.filter((x) => (x.checkRuns ?? []).some(isLensRun)).slice
 
 const rounds = groupReviewRounds(commits, requiredCheckNames);
 
+// The stall detector gets FIX-ATTEMPT rounds only, for the same reason the round
+// cap counts them: `groupReviewRounds` over every commit includes the two the
+// implement workflow pushes before the panel has ever spoken, so with three rounds
+// of "evidence" available immediately the stall door could cut the loop to one real
+// attempt — the very failure the round-cap fix closed, arriving through the other
+// bound. `fixAttemptCommits` is the same predicate, exposed so both agree.
+const stallRounds = groupReviewRounds(
+  fixAttemptCommits(commits, requiredCheckNames, { since: rerunAt }),
+  requiredCheckNames,
+);
+
 // ARGUED TO A STANDSTILL, checked before convergence for the same reason the
 // infra branch is checked before `allValid`: the more specific reason wins, and
 // "the author disputed this twice and an independent adjudicator upheld it both
@@ -178,8 +199,26 @@ const rounds = groupReviewRounds(commits, requiredCheckNames);
 // extra count costs only an unnecessary human look; but a bound the disputing
 // party can move is not a bound, and it would be the one number in this file that
 // the party it constrains gets to choose.
+// Computed BEFORE the three page paths below, because all three are bounds on the
+// loop and a hand-back has to reset all three. Only the round cap honoured the
+// rerun floor at first, which left the earlier two pages looking at pre-rerun
+// history — so `@claude rerun` on a PR that had already stalled or exhausted its
+// rebuttals re-paged on the very first post-rerun round. That is the exact "one
+// panel round and an immediate re-page" this change exists to end, arriving through
+// a different door.
+const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
+// A hand-back buys the loop at least one attempt before the softer bounds may fire
+// again. The round cap needs no such rule — its count already starts at the rerun.
+// The other two cannot be filtered as cleanly: the stall detector reads rounds
+// whose findings carry no timestamp, and the rebuttal count is an integer riding
+// forward on the finding with no provenance at all. "At least one post-rerun
+// attempt" is the honest common denominator, and it fails toward paging: it delays
+// these two by exactly one round, never disables them.
+const heldByRerun = rerunAt !== null && failedRounds === 0;
+if (heldByRerun) console.error("rerun: holding the stall/standstill pages for one attempt");
+
 const latestRound = rounds.length ? rounds[rounds.length - 1] : null;
-const exhausted = exhaustedFindings(latestRound?.findings);
+const exhausted = heldByRerun ? [] : exhaustedFindings(latestRound?.findings);
 if (exhausted.length > 0) {
   page(
     `A finding has been disputed ${MAX_REBUTTAL_ROUNDS} times and upheld every time by an ` +
@@ -190,12 +229,12 @@ if (exhausted.length > 0) {
   process.exit(0);
 }
 
-const stall = detectStalledRounds(rounds, {
+const stall = detectStalledRounds(stallRounds, {
   minRepeats: stallRepeats,
   similarity: stallSimilarity,
 });
 console.error(`convergence: ${stall.reason} (stalls=${stall.stalls}, rounds=${stall.rounds})`);
-if (stall.stalled) {
+if (stall.stalled && !heldByRerun) {
   const named = stall.repeated
     .slice(0, 5)
     .map((f) => `\`${f.file || "?"}\` — ${String(f.summary ?? "").slice(0, 160)}`)
@@ -209,10 +248,10 @@ if (stall.stalled) {
   process.exit(0);
 }
 
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames);
 if (failedRounds >= max) {
   page(
-    `The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`,
+    `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
+      `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
   );
   process.exit(0);
 }

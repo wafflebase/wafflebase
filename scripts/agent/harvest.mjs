@@ -51,7 +51,7 @@
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isFixerCommit } from "./rounds.mjs";
+import { isSingleParentCommit } from "./rounds.mjs";
 import { classifyFile } from "./review-panel.mjs";
 import { HANDOFF_MARKER, hasDisclosureTrailer } from "./disclosure.mjs";
 import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
@@ -156,7 +156,7 @@ export function handoffTime({ comments = [], readyForReviewAt = null } = {}) {
  *
  * Four conditions, each excluding a different non-miss:
  *   - lands after `handoffAt` — before it, the panel had not spoken yet;
- *   - single-parent (`isFixerCommit`) — a `git merge main` to resolve conflicts
+ *   - single-parent (`isSingleParentCommit`) — a `git merge main` to resolve conflicts
  *     is not a fix, and it drags in every unrelated file on main;
  *   - no autonomous-disclosure trailer — the review-fix loop's own commits land
  *     after handoff too on a re-opened round, and they are the panel WORKING;
@@ -176,7 +176,7 @@ export function isHumanFollowupCommit(commit, handoffAt) {
   if (!Number.isFinite(cutoff)) return false; // no handoff → cannot classify
   const at = Date.parse(str(c.commit?.committer?.date) || str(c.commit?.author?.date));
   if (!Number.isFinite(at) || at <= cutoff) return false;
-  if (!isFixerCommit(c)) return false;
+  if (!isSingleParentCommit(c)) return false;
   if (hasDisclosureTrailer(c.commit?.message)) return false;
   if (c.author?.type === "Bot") return false;
   return true;

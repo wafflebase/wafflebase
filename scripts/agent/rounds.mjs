@@ -1,14 +1,27 @@
-// Fixer-commit filter for the review-round guard (agent-review-panel.yml's
-// `fix` job). A merge commit (2 parents, e.g. a human `git merge main` to
-// resolve conflicts on an iterating PR) is NOT a review-fix attempt and must
-// not count toward MAX_REVIEW_ROUNDS — only genuine single-parent commits
-// pushed in response to a failing lens should. PR #521 demonstrated this: 3
-// single-parent fixer commits + 3 two-parent merge commits, all 6 counted by
-// the old (unfiltered) logic toward the round cap.
+// Round arithmetic for the review-round guard (agent-review-panel.yml's `fix`
+// job), plus the comment markers that start and stop the loop.
 //
-// Deliberately identity-independent (no author/bot-name check): the bot
-// identity behind fixer pushes has already changed once in this pipeline's
-// history, so parent count — not who pushed — is the durable signal.
+// WHAT COUNTS AS A FIX ATTEMPT takes two filters, and for a long time it had only
+// the first. A merge commit (2 parents, e.g. a human `git merge main` on an
+// iterating PR) is not a fix attempt: PR #521 had 3 single-parent fixer commits
+// and 3 merges, and all 6 counted. But parent count alone is not enough either —
+// the implement workflow pushes its work, self-reviews, and pushes AGAIN, so two
+// commits draw two panel rounds before the fix loop has run once. Both were
+// counted, which on #648 and #605 consumed exactly 2 of the budget and left
+// `MAX_REVIEW_ROUNDS: 3` meaning ONE real attempt.
+//
+// The second filter is time: a commit committed BEFORE the panel first spoke
+// cannot be a response to it. Deliberately identity-independent, like the first —
+// the bot identity behind fixer pushes has already changed once in this
+// pipeline's history, so neither "who pushed" nor a name is a durable signal.
+//
+// It is a heuristic about ORDERING, not provenance, and the edge is worth naming:
+// if a panel verdict lands before the implementer's self-review push, that push
+// counts as an attempt. Nothing in the data distinguishes them, and the direction
+// is the conservative one (it over-counts, which pages early and is undone by
+// `@claude rerun`).
+
+import { parseCommand } from "./command.mjs";
 
 /**
  * The marker that latches a PR as "handed to a human". Written by
@@ -63,27 +76,133 @@ export function isPagedLatchComment(comment) {
   return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
 }
 
-/** A commit is a "fixer" commit iff it has exactly one parent. */
-export function isFixerCommit(commit) {
+/**
+ * ISO timestamp of the newest `@claude rerun` from a HUMAN MAINTAINER, or null.
+ *
+ * This reads the maintainer's own COMMAND, not the marker the rerun workflow
+ * writes back — and that distinction is the whole security property.
+ *
+ * The first version keyed on a hidden marker in the workflow's result comment,
+ * trusted by bot login. But `agent-rerun.yml` posts with the App token, so the
+ * trusted identity is `yorkie-agent[bot]` — the SAME identity the fixer and
+ * implementer post their own free-form comments under (the self-review comment on
+ * every agent PR is one). That made the party bounded by `MAX_REVIEW_ROUNDS` able
+ * to reset its own bound by opening a comment with the marker line: an LLM reading
+ * an untrusted diff, granted unlimited fix attempts, by accident or by injection.
+ *
+ * A human's command cannot be forged by a bot, because `user.type === "Bot"` is
+ * refused outright and no App can present as a non-Bot. That is a STRUCTURAL
+ * exclusion rather than a string it must not guess, which is why it replaced the
+ * marker rather than being added alongside it.
+ *
+ * `parseCommand` is reused rather than re-matched: `agent-rerun.yml`'s router uses
+ * it to decide the command actually ran, so a second regex here could recognise a
+ * rerun the router did not (or miss one it did) and move the floor for a hand-back
+ * that never happened.
+ *
+ * `author_association` is weaker than the `getCollaboratorPermissionLevel` gate the
+ * command itself enforces — an org MEMBER without repo write passes here. Named as
+ * a known gap rather than hidden: the consequence is extra fix attempts on a PR a
+ * member asked about, which is a different order of problem from the agent
+ * un-bounding itself, and closing it needs an API call this pure function cannot
+ * make. The workflow still refuses to DO anything for such a user.
+ */
+export function rerunPointFrom(comments) {
+  const stamps = (Array.isArray(comments) ? comments : [])
+    .filter(isRerunCommand)
+    .map((c) => Date.parse(String(c.created_at ?? "")))
+    .filter((n) => Number.isFinite(n));
+  return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
+}
+
+/** Is this a maintainer's `@claude rerun`? Bots are refused — see rerunPointFrom. */
+export function isRerunCommand(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  if (user.type === "Bot") return false;
+  if (!TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return false;
+  return parseCommand(String(c.body ?? ""), { surface: "pr" }).command === "rerun";
+}
+
+/** A commit has exactly one parent — i.e. it is not a merge commit.
+ *
+ * NOT "was pushed by the fixer", which is what the old name (`isFixerCommit`)
+ * claimed and what every caller read it as. It cannot know that: the check is
+ * deliberately identity-independent, because the bot identity behind fixer
+ * pushes has already changed once in this pipeline's history. See
+ * `countFailedReviewRounds` for what actually separates a fix attempt from the
+ * implementer's own commits. */
+export function isSingleParentCommit(commit) {
   return Array.isArray(commit?.parents) && commit.parents.length === 1;
 }
 
+/** Earliest completed panel verdict anywhere on the PR, or null. */
+function firstVerdictAt(commits, names) {
+  const stamps = [];
+  for (const c of Array.isArray(commits) ? commits : []) {
+    for (const r of c?.checkRuns ?? []) {
+      // Same app guard every other lens-run consumer applies. Without it a
+      // same-named check from another installed App lowers the floor, which
+      // widens the count — the wrong direction for a value that gates a cap.
+      if (!names.has(r?.name) || r?.app?.slug !== "github-actions") continue;
+      const t = Date.parse(String(r?.completed_at ?? ""));
+      if (Number.isFinite(t)) stamps.push(t);
+    }
+  }
+  return stamps.length ? Math.min(...stamps) : null;
+}
+
 /**
- * Count commits that are BOTH a fixer commit AND carry a failing required
- * lens check-run from OUR panel (exact name match + producing app, so a
- * same-named check from some other installed app can't inflate the count).
+ * How many times has the FIX LOOP tried and failed?
  *
- * `commits`: Array<{ sha, parents, checkRuns: Array<{name, app, conclusion}> }>
- * `requiredCheckNames`: string[]
+ * This used to count every single-parent commit carrying a failing lens verdict,
+ * which is not the same thing and was wrong on every agent PR measured. The
+ * implement workflow pushes its work, self-reviews, fixes what it found, and
+ * pushes AGAIN — two commits, each triggering CI, each drawing its own panel
+ * round. Both were counted as failed fix rounds before the fix loop had run once.
+ * On #648 and #605 alike that silently consumed exactly 2 of the budget, so when
+ * #615 lowered `MAX_REVIEW_ROUNDS` from 5 to 3 believing it was trimming a
+ * wasteful tail, the real effect was to cut the loop from three attempts to ONE.
+ * #648 then reported "requested changes 3 times without converging" after a
+ * single fix attempt.
+ *
+ * A commit committed BEFORE the panel first spoke cannot be a response to it.
+ * That is the whole discriminator, it needs no identity, and it is already in the
+ * data. `since` moves the floor forward again after a maintainer's `@claude rerun`, so a
+ * hand-back grants a fresh budget rather than resuming one already spent.
  */
-export function countFailedReviewRounds(commits, requiredCheckNames) {
+export function fixAttemptCommits(commits, requiredCheckNames, { since = null } = {}) {
   const names = new Set(requiredCheckNames ?? []);
   const isFailingLensRun = (r) =>
     names.has(r.name) && r.app?.slug === "github-actions" && r.conclusion === "failure";
-  return (commits ?? []).filter(
-    (c) => isFixerCommit(c) && (c.checkRuns ?? []).some(isFailingLensRun),
-  ).length;
+  const first = firstVerdictAt(commits, names);
+  const s = Date.parse(String(since ?? ""));
+  const sinceMs = Number.isFinite(s) ? s : null;
+  const floor = first === null ? null : sinceMs !== null && sinceMs > first ? sinceMs : first;
+  // FAILS TOWARD INCLUDING, so both consumers stay conservative: the count pages a
+  // round early (undone by a rerun) and the stall detector keeps the evidence it
+  // would otherwise discard. Under-including would silently unbound both.
+  return (Array.isArray(commits) ? commits : []).filter((c) => {
+    if (!isSingleParentCommit(c)) return false;
+    if (!(c.checkRuns ?? []).some(isFailingLensRun)) return false;
+    if (floor === null) return true;
+    // Committer date, not author date: a rebased commit keeps an author date that
+    // can predate a verdict it plainly followed.
+    const at = Date.parse(String(c?.commit?.committer?.date ?? ""));
+    if (!Number.isFinite(at)) return true;
+    return at > floor;
+  });
 }
+
+/**
+ * How many times has the FIX LOOP tried and failed? See `fixAttemptCommits` for
+ * what counts and why; this is its length, kept as its own export because the
+ * number is what `MAX_REVIEW_ROUNDS` compares against.
+ */
+export function countFailedReviewRounds(commits, requiredCheckNames, opts = {}) {
+  return fixAttemptCommits(commits, requiredCheckNames, opts).length;
+}
+
 
 // --- convergence detection ---------------------------------------------------
 //

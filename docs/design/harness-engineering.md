@@ -935,6 +935,61 @@ Components:
   than manufacture a page, since `MAX_REVIEW_ROUNDS` still backstops and a
   spurious page is the costlier error. Tuned via `STALL_REPEATS` /
   `STALL_SIMILARITY`.
+- **`MAX_REVIEW_ROUNDS` counts FIX ATTEMPTS, not panel rounds.** It used to count
+  every single-parent commit carrying a failing lens verdict, which is not the
+  same thing and was wrong on every agent PR measured. The implement workflow
+  pushes its work, self-reviews, fixes what it found, and pushes AGAIN — two
+  commits, each drawing its own panel round, both counted as failed fix rounds
+  before the fix loop had run once. On #648 and #605 alike that consumed exactly
+  2 of the budget, so lowering the cap from 5 to 3 cut the loop from three real
+  attempts to **one**; #648 then reported "requested changes 3 times without
+  converging" after a single fix attempt. The discriminator is already in the
+  data: *a commit committed before the panel first spoke cannot be a response to
+  it*. `isFixerCommit` was renamed `isSingleParentCommit`, because that is all it
+  ever tested and the old name is what made the miscount look correct.
+
+  It **fails toward counting**: a commit whose position cannot be established
+  counts, and with no verdict timestamps anywhere the floor is abandoned entirely.
+  Over-counting pages a round early, which a retry undoes; under-counting means
+  the cap never trips and the loop is unbounded.
+- **`@claude rerun` now restores the fix budget too.** #650 added the command: it
+  deletes the paged comments, drops `agent:blocked` and re-runs CI. What it could
+  not do is give the loop its attempts back — its own summary said the PR was
+  "still bounded by the pipeline's round/attempt caps", which on a PR that reached
+  the cap means one panel round and an immediate re-page. That is exactly what
+  #648 did when it was un-stuck by hand. `scripts/agent/review-round-guard.mjs`
+  now counts fix attempts only from the newest rerun.
+
+  **The resume point is the maintainer's COMMAND, not the workflow's result
+  comment**, and that is a security property rather than a convenience. The first
+  version keyed on a hidden marker trusted by bot login — but `.github/workflows/agent-rerun.yml`
+  posts with the App token, so the trusted identity is `yorkie-agent[bot]`, the
+  same identity the fixer and implementer post their own free-form comments under.
+  The party bounded by `MAX_REVIEW_ROUNDS` could therefore reset its own bound by
+  opening a comment with the marker line: an LLM reading an untrusted diff, granted
+  unlimited fix attempts, by accident or by injection. A human's command cannot be
+  forged by a bot, because `user.type === "Bot"` is refused and no App can present
+  as a non-Bot — a structural exclusion rather than a string the agent must not
+  guess. Known gap, named rather than hidden: `author_association` is weaker than
+  the `getCollaboratorPermissionLevel` the command itself enforces, so an org
+  member without repo write moves the floor; the workflow still refuses to act for
+  them.
+
+  A hand-back also holds the **stall** and **rebuttal-standstill** pages for one
+  attempt. Those run before the cap and read pre-rerun history, so without it a
+  rerun on an already-stalled PR re-pages on the first post-rerun round — the same
+  failure through a different door. It delays them by one round; it never disables
+  them.
+
+  It does **not** reset the CI-fix arm's separate attempt bound, which
+  `.github/workflows/agent-iterate-ci.yml` counts from prior failed CI runs. The command's summary
+  says so explicitly rather than claiming a blanket restart.
+- **The stall bound counts fix attempts too.** `detectStalledRounds` ran over every
+  round on the PR, including the implementer's two pre-verdict pushes, so three
+  rounds of "evidence" existed immediately and the stall door could cut the loop to
+  one real attempt — the cap fix closed one door and left this one open. Both now
+  share `fixAttemptCommits`, so the two bounds cannot disagree about what a fix
+  attempt is.
 - **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
   `concurrency` group keyed on the head repository and branch, with
   `cancel-in-progress`. The repository half is a security requirement: the group is
