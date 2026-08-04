@@ -1,14 +1,25 @@
-// Fixer-commit filter for the review-round guard (agent-review-panel.yml's
-// `fix` job). A merge commit (2 parents, e.g. a human `git merge main` to
-// resolve conflicts on an iterating PR) is NOT a review-fix attempt and must
-// not count toward MAX_REVIEW_ROUNDS — only genuine single-parent commits
-// pushed in response to a failing lens should. PR #521 demonstrated this: 3
-// single-parent fixer commits + 3 two-parent merge commits, all 6 counted by
-// the old (unfiltered) logic toward the round cap.
+// Round arithmetic for the review-round guard (agent-review-panel.yml's `fix`
+// job), plus the comment markers that start and stop the loop.
 //
-// Deliberately identity-independent (no author/bot-name check): the bot
-// identity behind fixer pushes has already changed once in this pipeline's
-// history, so parent count — not who pushed — is the durable signal.
+// WHAT COUNTS AS A FIX ATTEMPT takes two filters, and for a long time it had only
+// the first. A merge commit (2 parents, e.g. a human `git merge main` on an
+// iterating PR) is not a fix attempt: PR #521 had 3 single-parent fixer commits
+// and 3 merges, and all 6 counted. But parent count alone is not enough either —
+// the implement workflow pushes its work, self-reviews, and pushes AGAIN, so two
+// commits draw two panel rounds before the fix loop has run once. Both were
+// counted, which on #648 and #605 consumed exactly 2 of the budget and left
+// `MAX_REVIEW_ROUNDS: 3` meaning ONE real attempt.
+//
+// The second filter is time: a commit committed BEFORE the panel first spoke
+// cannot be a response to it. Deliberately identity-independent, like the first —
+// the bot identity behind fixer pushes has already changed once in this
+// pipeline's history, so neither "who pushed" nor a name is a durable signal.
+//
+// It is a heuristic about ORDERING, not provenance, and the edge is worth naming:
+// if a panel verdict lands before the implementer's self-review push, that push
+// counts as an attempt. Nothing in the data distinguishes them, and the direction
+// is the conservative one (it over-counts, which pages early and is undone by
+// `@claude rerun`).
 
 /**
  * The marker that latches a PR as "handed to a human". Written by
@@ -89,17 +100,41 @@ export const RERUN_MARKER = "<!-- agent-rerun -->";
  */
 export function rerunPointFrom(comments) {
   const stamps = (Array.isArray(comments) ? comments : [])
-    .filter((c) => {
-      const o = c && typeof c === "object" ? c : {};
-      if (!String(o.body ?? "").includes(RERUN_MARKER)) return false;
-      const user = o.user && typeof o.user === "object" ? o.user : {};
-      if (user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
-      return TRUSTED_ASSOCIATIONS.has(String(o.author_association ?? ""));
-    })
-    .map((c) => String(c.created_at ?? ""))
-    .filter((s) => s !== "" && Number.isFinite(Date.parse(s)))
-    .sort();
-  return stamps.length ? stamps[stamps.length - 1] : null;
+    .filter(isRerunComment)
+    .map((c) => Date.parse(String(c.created_at ?? "")))
+    .filter((n) => Number.isFinite(n));
+  return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
+}
+
+/**
+ * Does this comment grant the loop a fresh budget?
+ *
+ * TWO restrictions, both narrower than the paged latch's, because the direction is
+ * the opposite one: the latch only ever stops work, while this RESTARTS a safety
+ * cap.
+ *
+ * FIRST LINE, not a substring. A substring test is re-armable by anyone who merely
+ * quotes the marker — this repo already proved it, when clearing #648 by hand
+ * re-armed the paged latch with the sentence explaining its removal. Worse here:
+ * `agent-summarize.yml`, `agent-review-on-demand.yml` and `agent-review-reply.yml`
+ * all publish LLM output verbatim under an allow-listed bot login, so a substring
+ * test makes "a model emitted the marker" enough to reset the cap. The real writer
+ * puts it on line one; nothing else does.
+ *
+ * BOT ONLY — no `author_association` path. `agent-rerun.yml` is the sole writer and
+ * posts as an allow-listed App, while a human's route is the `@claude rerun`
+ * command, which gates on `getCollaboratorPermissionLevel` (actual write access).
+ * Accepting `author_association` here would grant the budget on a strictly weaker
+ * credential than the command enforces — `MEMBER` is org membership, not repo
+ * write — so the hand-written path is refused rather than left as the soft
+ * underbelly of the stronger one.
+ */
+export function isRerunComment(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const firstLine = String(c.body ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+  if (firstLine !== RERUN_MARKER) return false;
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  return user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login);
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
@@ -119,13 +154,15 @@ function firstVerdictAt(commits, names) {
   const stamps = [];
   for (const c of Array.isArray(commits) ? commits : []) {
     for (const r of c?.checkRuns ?? []) {
-      if (!names.has(r?.name)) continue;
-      const t = String(r?.completed_at ?? "");
-      if (t !== "" && Number.isFinite(Date.parse(t))) stamps.push(t);
+      // Same app guard every other lens-run consumer applies. Without it a
+      // same-named check from another installed App lowers the floor, which
+      // widens the count — the wrong direction for a value that gates a cap.
+      if (!names.has(r?.name) || r?.app?.slug !== "github-actions") continue;
+      const t = Date.parse(String(r?.completed_at ?? ""));
+      if (Number.isFinite(t)) stamps.push(t);
     }
   }
-  stamps.sort();
-  return stamps.length ? stamps[0] : null;
+  return stamps.length ? Math.min(...stamps) : null;
 }
 
 /**
@@ -151,9 +188,14 @@ export function countFailedReviewRounds(commits, requiredCheckNames, { since = n
   const names = new Set(requiredCheckNames ?? []);
   const isFailingLensRun = (r) =>
     names.has(r.name) && r.app?.slug === "github-actions" && r.conclusion === "failure";
+  // Epoch milliseconds, not ISO strings. Lexicographic comparison is only correct
+  // for Z-normalised, equal-precision timestamps; GitHub happens to emit those
+  // today, which makes a string compare a latent dependency on an API detail
+  // rather than a property of the code.
   const first = firstVerdictAt(commits, names);
-  const s = typeof since === "string" && Number.isFinite(Date.parse(since)) ? since : null;
-  const floor = first === null ? null : s && s > first ? s : first;
+  const s = Date.parse(String(since ?? ""));
+  const sinceMs = Number.isFinite(s) ? s : null;
+  const floor = first === null ? null : sinceMs !== null && sinceMs > first ? sinceMs : first;
   // `Array.isArray`, not `?? []`: a non-array truthy value (a string from a
   // mis-wired caller) passes the nullish guard and then throws on `.filter`,
   // which fails the guard STEP rather than the round count — and a thrown guard
@@ -171,8 +213,8 @@ export function countFailedReviewRounds(commits, requiredCheckNames, { since = n
     if (floor === null) return true;
     // Committer date, not author date: a rebased commit keeps an author date that
     // can predate a verdict it plainly followed.
-    const at = String(c?.commit?.committer?.date ?? "");
-    if (at === "" || !Number.isFinite(Date.parse(at))) return true;
+    const at = Date.parse(String(c?.commit?.committer?.date ?? ""));
+    if (!Number.isFinite(at)) return true;
     return at > floor;
   }).length;
 }

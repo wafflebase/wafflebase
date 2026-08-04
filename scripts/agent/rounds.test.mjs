@@ -15,6 +15,7 @@ import {
   PAGE_AUTHOR_LOGINS,
   isPagedLatchComment,
   rerunPointFrom,
+  isRerunComment,
   RERUN_MARKER,
 } from "./rounds.mjs";
 
@@ -373,40 +374,84 @@ const rerunResult = (over = {}) => ({
 test("rerunPointFrom: the newest rerun wins; no rerun is null", () => {
   assert.equal(rerunPointFrom([]), null);
   assert.equal(rerunPointFrom([human("just a comment")]), null);
-  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00Z");
+  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00.000Z");
   assert.equal(
     rerunPointFrom([rerunResult(), rerunResult({ created_at: "2026-08-04T14:00:00Z" })]),
-    "2026-08-04T14:00:00Z",
+    "2026-08-04T14:00:00.000Z",
   );
   assert.equal(rerunPointFrom([rerunResult({ created_at: "nonsense" })]), null);
   for (const bad of [null, undefined, "x", 7]) assert.equal(rerunPointFrom(bad), null);
 });
 
 test("rerunPointFrom: a stranger cannot grant the loop a fresh budget", () => {
-  // Public repo, and this marker RESETS the fix-attempt cap — a body test alone
-  // would let any account hand the fixer unlimited attempts.
+  // Public repo, and this marker RESETS the fix-attempt cap.
   assert.equal(rerunPointFrom([rerunResult({ user: { login: "drive-by", type: "User" }, author_association: "NONE" })]), null);
   assert.equal(rerunPointFrom([rerunResult({ user: { login: "coderabbitai[bot]", type: "Bot" }, author_association: "CONTRIBUTOR" })]), null);
-  // The workflow's own bot, and a maintainer by hand, both may.
-  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00Z");
-  assert.equal(
-    rerunPointFrom([rerunResult({ user: { login: "a-maintainer", type: "User" }, author_association: "OWNER" })]),
-    "2026-08-04T09:30:00Z",
-  );
+  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00.000Z");
 });
 
-test("agent-rerun.yml writes the marker the guard reads", () => {
+test("agent-rerun.yml EMITS the marker — prose mentioning it does not count", () => {
   // The marker is a contract between a workflow and a module that cannot import
-  // it. A drifted copy does not error — the budget silently never resets, and the
-  // PR re-pages after one round exactly as it did before this existed.
+  // it. A drifted copy does not error — the budget silently never resets and the
+  // PR re-pages after one round, exactly as before this existed.
+  //
+  // The first version of this test was `includes(RERUN_MARKER)`, which the file's
+  // own EXPLANATORY COMMENT satisfied: deleting the emit left the test green. Same
+  // shape as the latch-write test below it, so prose lines are excluded and the
+  // remaining line must actually be emitting into a body.
   const rerunWorkflow = readFileSync(
     path.join(HERE, "..", "..", ".github", "workflows", "agent-rerun.yml"),
     "utf8",
   );
-  assert.ok(
-    rerunWorkflow.includes(RERUN_MARKER),
-    "agent-rerun.yml must emit RERUN_MARKER into its result comment",
+  const emits = rerunWorkflow
+    .split("\n")
+    .filter((l) => l.includes(RERUN_MARKER) && !/^\s*(#|\/\/)/.test(l));
+  assert.equal(emits.length, 1, "expected exactly one line that EMITS the rerun marker");
+  assert.match(emits[0], /`/, "the emitting line should be a template literal in the comment body");
+});
+
+test("isRerunComment: the marker must be the FIRST LINE, not merely present", () => {
+  // A substring test is re-armable by anyone who quotes the marker — this repo
+  // proved it when clearing #648 by hand re-armed the paged latch with the very
+  // sentence explaining its removal.
+  assert.equal(isRerunComment(rerunResult()), true);
+  assert.equal(
+    isRerunComment(rerunResult({ body: `a maintainer wrote ${RERUN_MARKER} in prose` })),
+    false,
   );
+  assert.equal(
+    isRerunComment(rerunResult({ body: `## Summary\n\n${RERUN_MARKER}\nreset` })),
+    false,
+  );
+});
+
+test("isRerunComment: LLM output under a trusted bot login cannot reset the cap", () => {
+  // agent-summarize.yml, agent-review-on-demand.yml and agent-review-reply.yml all
+  // publish model output verbatim under an allow-listed bot login. With a
+  // substring test, "a model emitted the marker" would have been enough.
+  const smuggled = rerunResult({
+    body: `## 🤖 Agent effort\n\nThe fixer noted: ${RERUN_MARKER} — see the guard.`,
+  });
+  assert.equal(isRerunComment(smuggled), false);
+  assert.equal(rerunPointFrom([smuggled]), null);
+});
+
+test("isRerunComment: BOT ONLY — author_association is not a strong enough credential", () => {
+  // `@claude rerun` gates on getCollaboratorPermissionLevel (real write access).
+  // Accepting author_association here would grant the same budget on a weaker
+  // credential — MEMBER is org membership, not repo write.
+  for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(
+      isRerunComment(rerunResult({ user: { login: "a-maintainer", type: "User" }, author_association: assoc })),
+      false,
+      assoc,
+    );
+  }
+  assert.equal(isRerunComment(rerunResult({ user: { login: "coderabbitai[bot]", type: "Bot" } })), false);
+  for (const login of PAGE_AUTHOR_LOGINS) {
+    assert.equal(isRerunComment(rerunResult({ user: { login, type: "Bot" } })), true, login);
+  }
+  for (const bad of [null, undefined, "x", 7, {}]) assert.equal(isRerunComment(bad), false);
 });
 
 // --- the round count, against #648's real shape ------------------------------
@@ -478,4 +523,25 @@ test("countFailedReviewRounds: merges and passing rounds still do not count", ()
   // A same-named check from another app cannot inflate the count.
   const foreign = { ...PR648[2], checkRuns: [{ ...lensRun("failure", "2026-08-03T17:42:33Z"), app: { slug: "other" } }] };
   assert.equal(countFailedReviewRounds([PR648[0], PR648[1], foreign], ROUND_NAMES), 0);
+});
+
+test("countFailedReviewRounds: a malformed `since` is ignored, not treated as zero", () => {
+  // A `since` of NaN must fall back to the first-verdict floor rather than
+  // silently becoming epoch 0 (which would count every commit) or Infinity.
+  for (const bad of ["nonsense", "", null, undefined, 7, {}]) {
+    assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: bad }), 1, JSON.stringify(bad));
+  }
+});
+
+test("firstVerdictAt: a foreign app's same-named check cannot lower the floor", () => {
+  // Reached through countFailedReviewRounds. A lower floor widens the count, which
+  // is the wrong direction for a value that gates a cap.
+  const spoofed = [
+    { ...PR648[0], checkRuns: [{ name: "agent-review-correctness", app: { slug: "impostor" }, conclusion: "failure", completed_at: "2026-08-03T09:00:00Z" }] },
+    PR648[1],
+    PR648[2],
+  ];
+  // Without the app guard the floor would drop to 09:00 and 1d9e19dee (09:43) would
+  // count as an attempt; with it, the floor stays at the real first verdict.
+  assert.equal(countFailedReviewRounds(spoofed, ROUND_NAMES), 1);
 });

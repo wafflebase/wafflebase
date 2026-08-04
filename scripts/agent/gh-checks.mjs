@@ -92,8 +92,13 @@ export function commitCheckRuns(sha, opts) {
  *
  * All commits, not just the head: the last completed run for a lens may sit on an
  * earlier commit if that lens produced no verdict in the most recent round. The
- * shape matches what `rounds.mjs::groupReviewRounds` consumes, so a caller that
- * needs a round count can pass this straight through.
+ * shape matches what `rounds.mjs::groupReviewRounds` consumes — and ONLY that.
+ *
+ * It is NOT enough for `countFailedReviewRounds`, which also reads `parents` and
+ * `commit.committer.date`; both are dropped here. Its caller fetches
+ * `pulls/{pr}/commits` itself for exactly that reason. A round count built on this
+ * shape would not error — it would silently see no merges and no timestamps, and
+ * count every failing commit.
  *
  * `pulls/{pr}/commits` is a bare-array endpoint, where plain `--paginate` is
  * correct (same call shape as review-round-guard.mjs's `listAll`). Only the

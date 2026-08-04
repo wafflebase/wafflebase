@@ -85,3 +85,66 @@ comments outright, so there is no latch left to out-date and no duplication to p
 
 Whether `MAX_REVIEW_ROUNDS = 3` is still the right number now that it means three
 real attempts. It was chosen when it meant one.
+
+## Review response (panel, #657)
+
+Six fixed, three skipped. The panel was right about the one that mattered.
+
+- [x] **CRITICAL — `retryAt` was undeclared** at the round-cap page, so the guard
+      threw a `ReferenceError` exactly when it should latch the PR. Residue of the
+      dropped `@claude retry` scope: my rename used `str.replace` **without
+      asserting the match**, the pattern didn't match, and the no-op was silent.
+      Every other edit in this series asserts; this one didn't. CI was green because
+      nothing exercises that path.
+- [x] **Only the round cap honoured the rerun floor.** The stall and
+      rebuttal-standstill pages run *before* it and read pre-rerun history, so a
+      rerun on an already-stalled PR re-paged on the first post-rerun round — the
+      same failure this PR exists to end, through a different door. Both now hold
+      for one post-rerun attempt: it delays them by exactly one round, never
+      disables them.
+- [x] **`RERUN_MARKER` matched by substring** — so quoting it re-granted the budget.
+      Now it must be the comment's first line. This is the second time the substring
+      shape has bitten: clearing #648 by hand re-armed the paged latch with the
+      sentence explaining its removal.
+- [x] **The marker was trusted from any `author_association`**, a weaker credential
+      than `@claude rerun` itself enforces (`getCollaboratorPermissionLevel`).
+      Bot-only now. Combined with first-line anchoring this also closes the
+      smuggling channel the security lens found: the allow-listed bots publish LLM
+      output verbatim, so a substring test made "a model emitted the marker" enough.
+- [x] `firstVerdictAt` lacked the `app.slug` guard every other lens-run consumer
+      applies — a foreign app's same-named check could lower the floor and inflate
+      the count.
+- [x] Timestamps compared numerically rather than lexicographically; the string
+      compare was a latent dependency on GitHub emitting Z-normalised,
+      equal-precision ISO.
+- [x] **The marker contract test was vacuous** — satisfied by the explanatory `//`
+      comment in `agent-rerun.yml`, so deleting the emit left it green. Now excludes
+      prose lines and asserts exactly one emitting line.
+- [x] `rounds.mjs`'s header still described the old contract; `gh-checks.mjs` claimed
+      its shape could be "passed straight through" for a round count, but it drops
+      `parents` and `commit.committer.date` — no live bug (the guard fetches commits
+      itself) but the doc invited one.
+
+**Skipped: the first-verdict discriminator is race-dependent.** True and inherent —
+if a verdict lands before the implementer's self-review push, that push counts. It is
+already stated in the PR body and now in the module header. The direction is
+conservative (over-count → page early → undone by a rerun), and nothing in the data
+distinguishes the two.
+
+**Skipped: `rounds.mjs` is drifting into a marker grab-bag.** Fair, but the
+paged-latch precedent is already in this file, and a module holding one marker plus
+one predicate would split the trust list across two places — worse for the property
+that actually matters.
+
+**Skipped: the "relocated code" security finding**, which the panel itself marked as
+pre-existing and not gating.
+
+## The finding behind the finding
+
+`scripts/agent/**` has **no linting at all** — `verify:fast` lints only
+`packages/frontend`. That is why an undefined identifier reached CI green.
+
+Verified rather than assumed: `no-undef` over `scripts/agent/*.mjs` reports the
+`retryAt` bug precisely, and reports **nothing else** across the directory. So the
+class is closable for the price of one config file. Not done here — it is a
+build-config change with its own blast radius, and this PR is about round counting.

@@ -187,8 +187,26 @@ const rounds = groupReviewRounds(commits, requiredCheckNames);
 // extra count costs only an unnecessary human look; but a bound the disputing
 // party can move is not a bound, and it would be the one number in this file that
 // the party it constrains gets to choose.
+// Computed BEFORE the three page paths below, because all three are bounds on the
+// loop and a hand-back has to reset all three. Only the round cap honoured the
+// rerun floor at first, which left the earlier two pages looking at pre-rerun
+// history — so `@claude rerun` on a PR that had already stalled or exhausted its
+// rebuttals re-paged on the very first post-rerun round. That is the exact "one
+// panel round and an immediate re-page" this change exists to end, arriving through
+// a different door.
+const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
+// A hand-back buys the loop at least one attempt before the softer bounds may fire
+// again. The round cap needs no such rule — its count already starts at the rerun.
+// The other two cannot be filtered as cleanly: the stall detector reads rounds
+// whose findings carry no timestamp, and the rebuttal count is an integer riding
+// forward on the finding with no provenance at all. "At least one post-rerun
+// attempt" is the honest common denominator, and it fails toward paging: it delays
+// these two by exactly one round, never disables them.
+const heldByRerun = rerunAt !== null && failedRounds === 0;
+if (heldByRerun) console.error("rerun: holding the stall/standstill pages for one attempt");
+
 const latestRound = rounds.length ? rounds[rounds.length - 1] : null;
-const exhausted = exhaustedFindings(latestRound?.findings);
+const exhausted = heldByRerun ? [] : exhaustedFindings(latestRound?.findings);
 if (exhausted.length > 0) {
   page(
     `A finding has been disputed ${MAX_REBUTTAL_ROUNDS} times and upheld every time by an ` +
@@ -204,7 +222,7 @@ const stall = detectStalledRounds(rounds, {
   similarity: stallSimilarity,
 });
 console.error(`convergence: ${stall.reason} (stalls=${stall.stalls}, rounds=${stall.rounds})`);
-if (stall.stalled) {
+if (stall.stalled && !heldByRerun) {
   const named = stall.repeated
     .slice(0, 5)
     .map((f) => `\`${f.file || "?"}\` — ${String(f.summary ?? "").slice(0, 160)}`)
@@ -218,11 +236,10 @@ if (stall.stalled) {
   process.exit(0);
 }
 
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
 if (failedRounds >= max) {
   page(
     `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
-      `${retryAt ? " since the last retry" : ""}. A human should take over on PR #${pr}.`,
+      `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
   );
   process.exit(0);
 }

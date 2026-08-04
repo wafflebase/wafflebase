@@ -961,10 +961,23 @@ Components:
   into its result comment, and `scripts/agent/review-round-guard.mjs` counts fix
   attempts only from the newest one.
 
-  The marker is **author-checked** like the paged latch, and for a sharper reason:
-  the latch only ever stops work, while this GRANTS budget, so on a public repo a
-  body test alone would let any account hand the fixer unlimited attempts. Only
-  the workflow's own bot or a human with write access may move the floor.
+  The marker is trusted far more narrowly than the paged latch, because the
+  direction is the opposite one — the latch only ever stops work, while this
+  restarts a safety cap. It must be the comment's **first line**, not merely
+  present: a substring test is re-armable by anyone who quotes it (as happened to
+  the paged latch), and `.github/workflows/agent-summarize.yml`,
+  `.github/workflows/agent-review-on-demand.yml` and
+  `.github/workflows/agent-review-reply.yml` all publish model output verbatim under an allow-listed
+  bot login, so a substring test would make "a model emitted the marker" enough. It
+  is also **bot-only** — no `author_association` path — because `@claude rerun`
+  gates on `getCollaboratorPermissionLevel`, and accepting an association would
+  grant the same budget on a weaker credential than the command itself demands.
+
+  A hand-back also holds the **stall** and **rebuttal-standstill** pages for one
+  attempt. Those run before the cap and read pre-rerun history, so without it a
+  rerun on an already-stalled PR re-pages on the first post-rerun round — the same
+  failure through a different door. It delays them by exactly one round; it never
+  disables them.
 - **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
   `concurrency` group keyed on the head repository and branch, with
   `cancel-in-progress`. The repository half is a security requirement: the group is
