@@ -21,5 +21,10 @@ export const fileConfig = registerAs('file', () => ({
     'image/jpeg',
     'image/gif',
     'image/webp',
+    // Data files staged for a backend-parsed sheet import. Unlike the types
+    // above these are never served back to a browser — `file-import` reads
+    // them server-side and the resulting document holds cells, not a blob.
+    'text/csv',
+    'text/tab-separated-values',
   ],
 }));
