@@ -1521,6 +1521,41 @@ belt-and-braces: the first version spread `js.configs.recommended` and then set
 `eslint scripts` still exited 0. A config that lints nothing reports success, so
 the tests assert on the resolved rule set — `no-undef` is `error`, and every
 upstream recommended rule survives the local override.
+### A re-run does not emit `workflow_run: requested`
+
+`requested` fires when a workflow run is **created**. A re-run reuses the run id, so
+it emits only `completed` — and `@claude rerun`'s last act is `reRunWorkflow` on the
+PR's CI run.
+
+So from the moment the panel's trigger became `requested`-only, `@claude rerun`
+re-ran CI and re-engaged **nothing**, while still reporting *"Re-running CI now; the
+review panel will run again"*. Observed on #632 and #648: CI genuinely re-ran
+(`run_started_at` 06:01, success at 06:15) and no panel run was created, while
+`.github/workflows/agent-iterate-ci.yml` — which listens to `completed` — fired for
+both. The command's mechanism had been silently uncoupled from the trigger it
+depends on.
+
+The panel now subscribes to `[requested, completed]`, and the `gate` job admits
+`completed` **only when `run_attempt > 1`**:
+
+| event | attempt | admitted | why |
+|---|---|---|---|
+| `requested` | 1 | yes | fresh CI — the parallel-start path |
+| `completed` | 1 | **no** | `requested` already started this round |
+| `completed` | 2+ | yes | a re-run, where `requested` never fires |
+
+That keeps one panel per CI run, so subscribing to both does not double the ~$12
+round. Two existing properties make it safe rather than merely intended: the
+`concurrency` group cancels a superseded run, so even if `requested` did fire on a
+re-run the later event would collapse the pair to one; and the `ci` job's
+`decide()` returns `proceed` immediately for an already-completed successful run,
+so the `completed`-triggered path does not sit waiting for a conclusion it already
+has.
+
+**A trigger is part of a command's contract.** `@claude rerun` re-runs CI *in order
+to* fire the panel; narrowing what the panel listens to broke the command without
+touching it, and nothing failed — the rerun reported success both times.
+
 ### Label writes on a PR need `pull-requests: write`
 
 Not `issues: write`. A pull request is an issue for most of the API — its

@@ -125,7 +125,7 @@ test("ciRunDecision: the three outcomes are exhaustive and disjoint", () => {
   assert.deepEqual([...seen].sort(), ["proceed", "skip", "wait"]);
 });
 
-test("the panel workflow subscribes ONLY to `requested`, and mirrors ciRunDecision", () => {
+test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () => {
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "agent-review-panel.yml"), "utf8");
   // Code lines only. The comments around this change quote both the old
@@ -134,12 +134,24 @@ test("the panel workflow subscribes ONLY to `requested`, and mirrors ciRunDecisi
   // explanation as the thing it warns about. Same trap as #630 and #640.
   const code = yml.split("\n").filter((l) => !/^\s*(#|\/\/)/.test(l)).join("\n");
 
-  // Subscribing to `completed` AS WELL would run the entire panel twice per CI
-  // run — ~$12 each — because both events fire for every run. The conclusion is
-  // not lost by dropping it: the `ci` job waits for it, which is the next two
-  // assertions.
-  assert.match(code, /types: \[requested\]/, "the panel must start when CI starts");
-  assert.ok(!/types: \[[^\]]*completed/.test(code), "subscribing to `completed` too would double every round");
+  // `requested` keeps the panel starting when CI STARTS — the latency property.
+  assert.match(code, /types: \[requested/, "the panel must start when CI starts");
+  // `completed` is subscribed too, and this used to be forbidden here on the
+  // grounds that both events fire for every run and the panel costs ~$12. That
+  // reasoning held for a FRESH run and missed re-runs entirely: `requested` fires
+  // when a run is CREATED, so a re-run emits only `completed` — and `@claude
+  // rerun`'s whole mechanism is `reRunWorkflow` on the PR's CI run. With
+  // `requested` alone it re-ran CI and re-engaged nothing, twice, on #632 and #648,
+  // while reporting that the panel would run again.
+  assert.match(code, /types: \[requested, completed\]/, "re-runs emit only `completed`");
+  // What actually prevents the doubling is the gate, not the subscription: a fresh
+  // run's `completed` carries run_attempt 1 and is refused, so exactly one panel
+  // starts per CI run either way.
+  assert.match(
+    code,
+    /github\.event\.action == 'requested' \|\|\s*\n?\s*github\.event\.workflow_run\.run_attempt > 1/,
+    "the gate must admit `completed` only for re-runs, or every round doubles",
+  );
 
   // The inline copy of the rule. A `github-script` step has no checkout and
   // cannot import checks.mjs, so this logic necessarily exists twice; pinning

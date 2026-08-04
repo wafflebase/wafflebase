@@ -26,12 +26,22 @@ name: Agent Review Panel
 on:
   workflow_run:
     workflows: ["CI"]
-    # `requested` (CI STARTED), not `completed` — this is the whole latency change.
+    # `requested` (CI STARTED) is the latency change: the panel and CI run in
+    # parallel instead of in series. The conclusion this used to gate on has not
+    # been dropped; the `ci` job below waits for it and gates the two PUSHING jobs.
     #
-    # `requested` ONLY, deliberately. Subscribing to both would run the entire
-    # panel twice per CI run, at ~$12 a time. The conclusion this used to gate on
-    # has not been dropped; the `ci` job below waits for it and gates the two
-    # PUSHING jobs on it instead.
+    # `completed` is here ONLY to cover RE-RUNS, and the `gate` job below admits it
+    # only when `run_attempt > 1` — so a fresh CI run still starts exactly one panel
+    # (on `requested`), and subscribing to both does not double the ~$12 round.
+    #
+    # Why it is needed: re-running an existing CI run does NOT emit `requested` —
+    # that fires when a run is CREATED, and a re-run reuses the run id. `@claude
+    # rerun`'s last act is `reRunWorkflow` on the PR's CI run, so from the moment
+    # this trigger became `requested`-only, rerun re-ran CI and re-engaged NOTHING
+    # while still reporting "Re-running CI now; the review panel will run again".
+    # Observed on #632 and #648: CI genuinely re-ran (06:01 → 06:15, success) and no
+    # panel run was created, while `Agent Iterate (CI)` — which listens to
+    # `completed` — fired for both.
     #
     # Still `workflow_run`, which is a SECURITY boundary and not just a trigger:
     # it always executes the workflow definition from the DEFAULT BRANCH. A
@@ -40,7 +50,7 @@ on:
     # author-unforgeable" property rests on. The agent App cannot push
     # `.github/workflows/**`, but an `agent:managed` human PR can. Do not swap
     # this trigger for `push` or `pull_request`.
-    types: [requested]
+    types: [requested, completed]
 
 # ONE panel per PR at a time. Without this, two CI completions close together
 # (a re-run, or a push landing while an earlier round is still in flight) start
@@ -113,9 +123,17 @@ jobs:
   gate:
     # No `conclusion` clause: on a `requested` event there is no conclusion yet.
     # It is read in the `ci` job instead, and still gates every push.
+    #
+    # The action clause is what keeps subscribing to both events from doubling the
+    # cost. A fresh CI run emits `requested` (attempt 1) and later `completed`
+    # (attempt 1) — the first starts the panel, the second is refused here. A RE-RUN
+    # emits only `completed`, with `run_attempt > 1`, which is the one case that
+    # needs admitting and the reason `@claude rerun` re-engages the loop at all.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.action == 'requested' ||
+       github.event.workflow_run.run_attempt > 1)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
