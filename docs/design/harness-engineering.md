@@ -957,27 +957,39 @@ Components:
   not do is give the loop its attempts back — its own summary said the PR was
   "still bounded by the pipeline's round/attempt caps", which on a PR that reached
   the cap means one panel round and an immediate re-page. That is exactly what
-  #648 did when it was un-stuck by hand. It now writes a hidden `RERUN_MARKER`
-  into its result comment, and `scripts/agent/review-round-guard.mjs` counts fix
-  attempts only from the newest one.
+  #648 did when it was un-stuck by hand. `scripts/agent/review-round-guard.mjs`
+  now counts fix attempts only from the newest rerun.
 
-  The marker is trusted far more narrowly than the paged latch, because the
-  direction is the opposite one — the latch only ever stops work, while this
-  restarts a safety cap. It must be the comment's **first line**, not merely
-  present: a substring test is re-armable by anyone who quotes it (as happened to
-  the paged latch), and `.github/workflows/agent-summarize.yml`,
-  `.github/workflows/agent-review-on-demand.yml` and
-  `.github/workflows/agent-review-reply.yml` all publish model output verbatim under an allow-listed
-  bot login, so a substring test would make "a model emitted the marker" enough. It
-  is also **bot-only** — no `author_association` path — because `@claude rerun`
-  gates on `getCollaboratorPermissionLevel`, and accepting an association would
-  grant the same budget on a weaker credential than the command itself demands.
+  **The resume point is the maintainer's COMMAND, not the workflow's result
+  comment**, and that is a security property rather than a convenience. The first
+  version keyed on a hidden marker trusted by bot login — but `.github/workflows/agent-rerun.yml`
+  posts with the App token, so the trusted identity is `yorkie-agent[bot]`, the
+  same identity the fixer and implementer post their own free-form comments under.
+  The party bounded by `MAX_REVIEW_ROUNDS` could therefore reset its own bound by
+  opening a comment with the marker line: an LLM reading an untrusted diff, granted
+  unlimited fix attempts, by accident or by injection. A human's command cannot be
+  forged by a bot, because `user.type === "Bot"` is refused and no App can present
+  as a non-Bot — a structural exclusion rather than a string the agent must not
+  guess. Known gap, named rather than hidden: `author_association` is weaker than
+  the `getCollaboratorPermissionLevel` the command itself enforces, so an org
+  member without repo write moves the floor; the workflow still refuses to act for
+  them.
 
   A hand-back also holds the **stall** and **rebuttal-standstill** pages for one
   attempt. Those run before the cap and read pre-rerun history, so without it a
   rerun on an already-stalled PR re-pages on the first post-rerun round — the same
-  failure through a different door. It delays them by exactly one round; it never
-  disables them.
+  failure through a different door. It delays them by one round; it never disables
+  them.
+
+  It does **not** reset the CI-fix arm's separate attempt bound, which
+  `.github/workflows/agent-iterate-ci.yml` counts from prior failed CI runs. The command's summary
+  says so explicitly rather than claiming a blanket restart.
+- **The stall bound counts fix attempts too.** `detectStalledRounds` ran over every
+  round on the PR, including the implementer's two pre-verdict pushes, so three
+  rounds of "evidence" existed immediately and the stall door could cut the loop to
+  one real attempt — the cap fix closed one door and left this one open. Both now
+  share `fixAttemptCommits`, so the two bounds cannot disagree about what a fix
+  attempt is.
 - **One panel per branch at a time.** `.github/workflows/agent-review-panel.yml` carries a
   `concurrency` group keyed on the head repository and branch, with
   `cancel-in-progress`. The repository half is a security requirement: the group is

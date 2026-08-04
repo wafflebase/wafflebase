@@ -148,3 +148,46 @@ Verified rather than assumed: `no-undef` over `scripts/agent/*.mjs` reports the
 `retryAt` bug precisely, and reports **nothing else** across the directory. So the
 class is closable for the price of one config file. Not done here — it is a
 build-config change with its own blast radius, and this PR is about round counting.
+
+## Second review response (panel + CodeRabbit, #657)
+
+Four fixed, two skipped. The first one is the serious one and it was mine.
+
+- [x] **The bounded party could reset its own bound.** The resume marker was trusted
+      by bot login, and `agent-rerun.yml` posts with the App token — so the trusted
+      identity was `yorkie-agent[bot]`, **the same identity the fixer and implementer
+      post their own free-form comments under** (the self-review comment on every
+      agent PR is one). An LLM reading an untrusted diff could open a comment with
+      the marker line and grant itself unlimited fix attempts.
+
+      Fixed by reading the **maintainer's `@claude rerun` command** instead of the
+      workflow's result marker. A bot cannot forge it: `user.type === "Bot"` is
+      refused and no App can present as a non-Bot — structural, not a string the
+      agent must not guess. `RERUN_MARKER` and the workflow emit are gone, so
+      `agent-rerun.yml` needed no change beyond wording.
+
+      Reuses `parseCommand` rather than a third regex, so the floor cannot move for a
+      rerun the router did not recognise.
+- [x] **The stall door still counted panel rounds** — including the implementer's two
+      pre-verdict pushes — so the loop could still be cut to one real attempt through
+      the other bound. The cap fix closed one door and left this open. Both now share
+      `fixAttemptCommits`, so the two bounds cannot disagree about what a fix attempt
+      is.
+- [x] **The rerun summary overclaimed.** `agent-iterate-ci.yml` keeps its own attempt
+      bound counted from prior failed CI runs, which a rerun does not reset. The
+      summary now says which budget restarts and which does not.
+- [x] Removed 34 lines of dead counter left behind when `fixAttemptCommits` was
+      extracted.
+
+**Skipped: `heldByRerun` grants zero attempts when the first post-rerun round already
+carries a post-rerun failing commit.** True — if a commit lands between the rerun and
+the first panel round, it counts and the hold lifts immediately. The round cap still
+delivers the full `MAX_REVIEW_ROUNDS`, which is the behaviour that was asked for; the
+hold on the stall/standstill pages is secondary, and it fails toward *paging*. Fixing
+it means distinguishing "a fix attempt" from "a commit that happens to postdate the
+rerun", which the data does not support.
+
+**Skipped: `heldByRerun` extends one marker's authority to two other bounds.** The
+premise was a forgeable marker; with the command channel the grant requires a human,
+so there is no marker to forge. The remaining behaviour — a legitimate hand-back
+holding two pages for one round — is the intended design and is documented.

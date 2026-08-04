@@ -21,6 +21,8 @@
 // is the conservative one (it over-counts, which pages early and is undone by
 // `@claude rerun`).
 
+import { parseCommand } from "./command.mjs";
+
 /**
  * The marker that latches a PR as "handed to a human". Written by
  * review-round-guard.mjs's `page()` and by the `stalled` job, and read back by
@@ -75,66 +77,51 @@ export function isPagedLatchComment(comment) {
 }
 
 /**
- * Hidden marker `agent-rerun.yml` writes when a maintainer un-sticks a PR.
+ * ISO timestamp of the newest `@claude rerun` from a HUMAN MAINTAINER, or null.
  *
- * `@claude rerun` (#650) already clears the paged latch and re-runs CI — it
- * DELETES the paged comments outright, so nothing here needs to out-date them.
- * What it could not do is give the loop its budget back: its own summary says
- * the PR is "still bounded by the pipeline's round/attempt caps", which on a PR
- * that reached the cap means one panel round and an immediate re-page. This
- * marker is the resume point that fixes that.
+ * This reads the maintainer's own COMMAND, not the marker the rerun workflow
+ * writes back — and that distinction is the whole security property.
  *
- * A hidden marker rather than the visible prose, because the prose is a message
- * to a human and will be reworded; and on the RESULT comment rather than a new
- * one, so un-sticking stays a single comment in the thread.
- */
-export const RERUN_MARKER = "<!-- agent-rerun -->";
-
-/**
- * ISO timestamp of the newest rerun, or null.
+ * The first version keyed on a hidden marker in the workflow's result comment,
+ * trusted by bot login. But `agent-rerun.yml` posts with the App token, so the
+ * trusted identity is `yorkie-agent[bot]` — the SAME identity the fixer and
+ * implementer post their own free-form comments under (the self-review comment on
+ * every agent PR is one). That made the party bounded by `MAX_REVIEW_ROUNDS` able
+ * to reset its own bound by opening a comment with the marker line: an LLM reading
+ * an untrusted diff, granted unlimited fix attempts, by accident or by injection.
  *
- * Author-checked for the same reason the paged latch is: this repo is PUBLIC, and
- * the marker GRANTS the loop a fresh budget. A body test alone would let any
- * account post it and hand the fixer unlimited attempts. Only the workflow's own
- * bot, or a human with write access, may move the floor.
+ * A human's command cannot be forged by a bot, because `user.type === "Bot"` is
+ * refused outright and no App can present as a non-Bot. That is a STRUCTURAL
+ * exclusion rather than a string it must not guess, which is why it replaced the
+ * marker rather than being added alongside it.
+ *
+ * `parseCommand` is reused rather than re-matched: `agent-rerun.yml`'s router uses
+ * it to decide the command actually ran, so a second regex here could recognise a
+ * rerun the router did not (or miss one it did) and move the floor for a hand-back
+ * that never happened.
+ *
+ * `author_association` is weaker than the `getCollaboratorPermissionLevel` gate the
+ * command itself enforces — an org MEMBER without repo write passes here. Named as
+ * a known gap rather than hidden: the consequence is extra fix attempts on a PR a
+ * member asked about, which is a different order of problem from the agent
+ * un-bounding itself, and closing it needs an API call this pure function cannot
+ * make. The workflow still refuses to DO anything for such a user.
  */
 export function rerunPointFrom(comments) {
   const stamps = (Array.isArray(comments) ? comments : [])
-    .filter(isRerunComment)
+    .filter(isRerunCommand)
     .map((c) => Date.parse(String(c.created_at ?? "")))
     .filter((n) => Number.isFinite(n));
   return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
 }
 
-/**
- * Does this comment grant the loop a fresh budget?
- *
- * TWO restrictions, both narrower than the paged latch's, because the direction is
- * the opposite one: the latch only ever stops work, while this RESTARTS a safety
- * cap.
- *
- * FIRST LINE, not a substring. A substring test is re-armable by anyone who merely
- * quotes the marker — this repo already proved it, when clearing #648 by hand
- * re-armed the paged latch with the sentence explaining its removal. Worse here:
- * `agent-summarize.yml`, `agent-review-on-demand.yml` and `agent-review-reply.yml`
- * all publish LLM output verbatim under an allow-listed bot login, so a substring
- * test makes "a model emitted the marker" enough to reset the cap. The real writer
- * puts it on line one; nothing else does.
- *
- * BOT ONLY — no `author_association` path. `agent-rerun.yml` is the sole writer and
- * posts as an allow-listed App, while a human's route is the `@claude rerun`
- * command, which gates on `getCollaboratorPermissionLevel` (actual write access).
- * Accepting `author_association` here would grant the budget on a strictly weaker
- * credential than the command enforces — `MEMBER` is org membership, not repo
- * write — so the hand-written path is refused rather than left as the soft
- * underbelly of the stronger one.
- */
-export function isRerunComment(comment) {
+/** Is this a maintainer's `@claude rerun`? Bots are refused — see rerunPointFrom. */
+export function isRerunCommand(comment) {
   const c = comment && typeof comment === "object" ? comment : {};
-  const firstLine = String(c.body ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
-  if (firstLine !== RERUN_MARKER) return false;
   const user = c.user && typeof c.user === "object" ? c.user : {};
-  return user.type === "Bot" && PAGE_AUTHOR_LOGINS.includes(user.login);
+  if (user.type === "Bot") return false;
+  if (!TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return false;
+  return parseCommand(String(c.body ?? ""), { surface: "pr" }).command === "rerun";
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
@@ -184,40 +171,38 @@ function firstVerdictAt(commits, names) {
  * data. `since` moves the floor forward again after a maintainer's `@claude rerun`, so a
  * hand-back grants a fresh budget rather than resuming one already spent.
  */
-export function countFailedReviewRounds(commits, requiredCheckNames, { since = null } = {}) {
+export function fixAttemptCommits(commits, requiredCheckNames, { since = null } = {}) {
   const names = new Set(requiredCheckNames ?? []);
   const isFailingLensRun = (r) =>
     names.has(r.name) && r.app?.slug === "github-actions" && r.conclusion === "failure";
-  // Epoch milliseconds, not ISO strings. Lexicographic comparison is only correct
-  // for Z-normalised, equal-precision timestamps; GitHub happens to emit those
-  // today, which makes a string compare a latent dependency on an API detail
-  // rather than a property of the code.
   const first = firstVerdictAt(commits, names);
   const s = Date.parse(String(since ?? ""));
   const sinceMs = Number.isFinite(s) ? s : null;
   const floor = first === null ? null : sinceMs !== null && sinceMs > first ? sinceMs : first;
-  // `Array.isArray`, not `?? []`: a non-array truthy value (a string from a
-  // mis-wired caller) passes the nullish guard and then throws on `.filter`,
-  // which fails the guard STEP rather than the round count — and a thrown guard
-  // is a dead fix job, not a conservative one.
+  // FAILS TOWARD INCLUDING, so both consumers stay conservative: the count pages a
+  // round early (undone by a rerun) and the stall detector keeps the evidence it
+  // would otherwise discard. Under-including would silently unbound both.
   return (Array.isArray(commits) ? commits : []).filter((c) => {
     if (!isSingleParentCommit(c)) return false;
     if (!(c.checkRuns ?? []).some(isFailingLensRun)) return false;
-    // FAILS TOWARD COUNTING, and the direction matters more here than the
-    // precision does. This number feeds a CAP: over-counting pages a round early,
-    // which a maintainer can undo with `@claude rerun`, while under-counting means
-    // the cap never trips and the loop is unbounded — recoverable only if someone
-    // happens to notice. So a commit whose position cannot be established counts,
-    // and if no verdict timestamp exists anywhere the whole floor is abandoned and
-    // every failing commit counts, exactly as before this refinement.
     if (floor === null) return true;
     // Committer date, not author date: a rebased commit keeps an author date that
     // can predate a verdict it plainly followed.
     const at = Date.parse(String(c?.commit?.committer?.date ?? ""));
     if (!Number.isFinite(at)) return true;
     return at > floor;
-  }).length;
+  });
 }
+
+/**
+ * How many times has the FIX LOOP tried and failed? See `fixAttemptCommits` for
+ * what counts and why; this is its length, kept as its own export because the
+ * number is what `MAX_REVIEW_ROUNDS` compares against.
+ */
+export function countFailedReviewRounds(commits, requiredCheckNames, opts = {}) {
+  return fixAttemptCommits(commits, requiredCheckNames, opts).length;
+}
+
 
 // --- convergence detection ---------------------------------------------------
 //

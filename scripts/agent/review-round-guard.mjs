@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import {
   countFailedReviewRounds,
+  fixAttemptCommits,
   groupReviewRounds,
   detectStalledRounds,
   DEFAULT_SIMILARITY,
@@ -176,6 +177,17 @@ for (const c of commits.filter((x) => (x.checkRuns ?? []).some(isLensRun)).slice
 
 const rounds = groupReviewRounds(commits, requiredCheckNames);
 
+// The stall detector gets FIX-ATTEMPT rounds only, for the same reason the round
+// cap counts them: `groupReviewRounds` over every commit includes the two the
+// implement workflow pushes before the panel has ever spoken, so with three rounds
+// of "evidence" available immediately the stall door could cut the loop to one real
+// attempt — the very failure the round-cap fix closed, arriving through the other
+// bound. `fixAttemptCommits` is the same predicate, exposed so both agree.
+const stallRounds = groupReviewRounds(
+  fixAttemptCommits(commits, requiredCheckNames, { since: rerunAt }),
+  requiredCheckNames,
+);
+
 // ARGUED TO A STANDSTILL, checked before convergence for the same reason the
 // infra branch is checked before `allValid`: the more specific reason wins, and
 // "the author disputed this twice and an independent adjudicator upheld it both
@@ -217,7 +229,7 @@ if (exhausted.length > 0) {
   process.exit(0);
 }
 
-const stall = detectStalledRounds(rounds, {
+const stall = detectStalledRounds(stallRounds, {
   minRepeats: stallRepeats,
   similarity: stallSimilarity,
 });

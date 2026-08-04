@@ -15,8 +15,8 @@ import {
   PAGE_AUTHOR_LOGINS,
   isPagedLatchComment,
   rerunPointFrom,
-  isRerunComment,
-  RERUN_MARKER,
+  isRerunCommand,
+  fixAttemptCommits,
 } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -359,99 +359,65 @@ test("groupReviewRounds: other-app check ignored; newest run per lens wins", () 
   assert.deepEqual(groupReviewRounds([commit("c1", [older, newer])], NAMES)[0].findings.map((x) => x.summary), ["NEW"]);
 });
 
-// --- the rerun resume point -------------------------------------------------
+// --- the rerun resume point --------------------------------------------------
 
 const human = (body, over = {}) => ({
-  body, created_at: "2026-08-04T10:00:00Z",
+  body, created_at: "2026-08-04T09:30:00Z",
   user: { login: "harrykim8672", type: "User" }, author_association: "MEMBER", ...over,
 });
-const rerunResult = (over = {}) => ({
-  body: `${RERUN_MARKER}\n🔁 Rerun engaged — cleared 1 paged marker(s)`,
-  created_at: "2026-08-04T09:30:00Z",
-  user: { login: "github-actions[bot]", type: "Bot" }, author_association: "CONTRIBUTOR", ...over,
-});
 
-test("rerunPointFrom: the newest rerun wins; no rerun is null", () => {
+test("rerunPointFrom: a maintainer's @claude rerun moves the floor", () => {
   assert.equal(rerunPointFrom([]), null);
   assert.equal(rerunPointFrom([human("just a comment")]), null);
-  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00.000Z");
+  assert.equal(rerunPointFrom([human("@claude rerun")]), "2026-08-04T09:30:00.000Z");
   assert.equal(
-    rerunPointFrom([rerunResult(), rerunResult({ created_at: "2026-08-04T14:00:00Z" })]),
+    rerunPointFrom([human("@claude rerun"), human("@claude rerun", { created_at: "2026-08-04T14:00:00Z" })]),
     "2026-08-04T14:00:00.000Z",
   );
-  assert.equal(rerunPointFrom([rerunResult({ created_at: "nonsense" })]), null);
+  assert.equal(rerunPointFrom([human("@claude rerun", { created_at: "nonsense" })]), null);
   for (const bad of [null, undefined, "x", 7]) assert.equal(rerunPointFrom(bad), null);
 });
 
-test("rerunPointFrom: a stranger cannot grant the loop a fresh budget", () => {
-  // Public repo, and this marker RESETS the fix-attempt cap.
-  assert.equal(rerunPointFrom([rerunResult({ user: { login: "drive-by", type: "User" }, author_association: "NONE" })]), null);
-  assert.equal(rerunPointFrom([rerunResult({ user: { login: "coderabbitai[bot]", type: "Bot" }, author_association: "CONTRIBUTOR" })]), null);
-  assert.equal(rerunPointFrom([rerunResult()]), "2026-08-04T09:30:00.000Z");
-});
-
-test("agent-rerun.yml EMITS the marker — prose mentioning it does not count", () => {
-  // The marker is a contract between a workflow and a module that cannot import
-  // it. A drifted copy does not error — the budget silently never resets and the
-  // PR re-pages after one round, exactly as before this existed.
+test("isRerunCommand: A BOT CAN NEVER RESET ITS OWN BOUND", () => {
+  // The reason this reads the maintainer's COMMAND and not the workflow's result
+  // marker. agent-rerun.yml posts with the App token, so the trusted identity would
+  // be yorkie-agent[bot] — the same identity the fixer and implementer post their
+  // own free-form comments under (the self-review comment on every agent PR). A
+  // marker keyed on bot login let the party bounded by MAX_REVIEW_ROUNDS grant
+  // itself unlimited attempts, by accident or by injection from the diff it reads.
   //
-  // The first version of this test was `includes(RERUN_MARKER)`, which the file's
-  // own EXPLANATORY COMMENT satisfied: deleting the emit left the test green. Same
-  // shape as the latch-write test below it, so prose lines are excluded and the
-  // remaining line must actually be emitting into a body.
-  const rerunWorkflow = readFileSync(
-    path.join(HERE, "..", "..", ".github", "workflows", "agent-rerun.yml"),
-    "utf8",
-  );
-  const emits = rerunWorkflow
-    .split("\n")
-    .filter((l) => l.includes(RERUN_MARKER) && !/^\s*(#|\/\/)/.test(l));
-  assert.equal(emits.length, 1, "expected exactly one line that EMITS the rerun marker");
-  assert.match(emits[0], /`/, "the emitting line should be a template literal in the comment body");
+  // Structural, not a secret: no App can present as a non-Bot.
+  for (const login of ["yorkie-agent[bot]", "github-actions[bot]", "coderabbitai[bot]"]) {
+    for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]) {
+      assert.equal(
+        isRerunCommand(human("@claude rerun", { user: { login, type: "Bot" }, author_association: assoc })),
+        false,
+        `${login}/${assoc}`,
+      );
+    }
+  }
+  assert.equal(rerunPointFrom([human("@claude rerun", { user: { login: "yorkie-agent[bot]", type: "Bot" } })]), null);
 });
 
-test("isRerunComment: the marker must be the FIRST LINE, not merely present", () => {
-  // A substring test is re-armable by anyone who quotes the marker — this repo
-  // proved it when clearing #648 by hand re-armed the paged latch with the very
-  // sentence explaining its removal.
-  assert.equal(isRerunComment(rerunResult()), true);
-  assert.equal(
-    isRerunComment(rerunResult({ body: `a maintainer wrote ${RERUN_MARKER} in prose` })),
-    false,
-  );
-  assert.equal(
-    isRerunComment(rerunResult({ body: `## Summary\n\n${RERUN_MARKER}\nreset` })),
-    false,
-  );
-});
-
-test("isRerunComment: LLM output under a trusted bot login cannot reset the cap", () => {
-  // agent-summarize.yml, agent-review-on-demand.yml and agent-review-reply.yml all
-  // publish model output verbatim under an allow-listed bot login. With a
-  // substring test, "a model emitted the marker" would have been enough.
-  const smuggled = rerunResult({
-    body: `## 🤖 Agent effort\n\nThe fixer noted: ${RERUN_MARKER} — see the guard.`,
-  });
-  assert.equal(isRerunComment(smuggled), false);
-  assert.equal(rerunPointFrom([smuggled]), null);
-});
-
-test("isRerunComment: BOT ONLY — author_association is not a strong enough credential", () => {
-  // `@claude rerun` gates on getCollaboratorPermissionLevel (real write access).
-  // Accepting author_association here would grant the same budget on a weaker
-  // credential — MEMBER is org membership, not repo write.
+test("isRerunCommand: a stranger cannot reset it either; junk never throws", () => {
+  for (const assoc of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"]) {
+    assert.equal(isRerunCommand(human("@claude rerun", { author_association: assoc })), false, assoc);
+  }
   for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR"]) {
-    assert.equal(
-      isRerunComment(rerunResult({ user: { login: "a-maintainer", type: "User" }, author_association: assoc })),
-      false,
-      assoc,
-    );
+    assert.equal(isRerunCommand(human("@claude rerun", { author_association: assoc })), true, assoc);
   }
-  assert.equal(isRerunComment(rerunResult({ user: { login: "coderabbitai[bot]", type: "Bot" } })), false);
-  for (const login of PAGE_AUTHOR_LOGINS) {
-    assert.equal(isRerunComment(rerunResult({ user: { login, type: "Bot" } })), true, login);
-  }
-  for (const bad of [null, undefined, "x", 7, {}]) assert.equal(isRerunComment(bad), false);
+  for (const bad of [null, undefined, "x", 7, {}]) assert.equal(isRerunCommand(bad), false);
+});
+
+test("isRerunCommand: it is parseCommand's verb, so the router cannot disagree", () => {
+  // A second regex here could recognise a rerun agent-rerun.yml's router did not,
+  // moving the floor for a hand-back that never happened.
+  assert.equal(isRerunCommand(human("@claude rerun")), true);
+  assert.equal(isRerunCommand(human("@claude rerun this please")), true);
+  assert.equal(isRerunCommand(human("@claude loop")), false);
+  assert.equal(isRerunCommand(human("@claude review")), false);
+  // A different account is not a command for us.
+  assert.equal(isRerunCommand(human("@claude-bot rerun")), false);
 });
 
 // --- the round count, against #648's real shape ------------------------------
@@ -544,4 +510,19 @@ test("firstVerdictAt: a foreign app's same-named check cannot lower the floor", 
   // Without the app guard the floor would drop to 09:00 and 1d9e19dee (09:43) would
   // count as an attempt; with it, the floor stays at the real first verdict.
   assert.equal(countFailedReviewRounds(spoofed, ROUND_NAMES), 1);
+});
+
+test("fixAttemptCommits: the STALL door sees fix rounds only, like the cap", () => {
+  // The stall bound ran over groupReviewRounds(ALL commits), which includes the two
+  // the implement workflow pushes before the panel has spoken — so three rounds of
+  // "evidence" existed immediately and the stall door could cut the loop to one real
+  // attempt, the same failure the cap fix closed arriving through the other bound.
+  const kept = fixAttemptCommits(PR648, ROUND_NAMES);
+  assert.deepEqual(kept.map((c) => c.sha), ["102e0fa73"]);
+  // Same predicate the cap uses — if these ever disagree, one bound is counting
+  // something the other is not.
+  assert.equal(kept.length, countFailedReviewRounds(PR648, ROUND_NAMES));
+  // A rerun floor narrows both together.
+  assert.deepEqual(fixAttemptCommits(PR648, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), []);
+  for (const bad of [null, undefined, "x", 7]) assert.deepEqual(fixAttemptCommits(bad, ROUND_NAMES), []);
 });
