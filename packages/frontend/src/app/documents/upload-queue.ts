@@ -395,7 +395,8 @@ async function runItem(item: UploadItem): Promise<void> {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
           // The queue only routes by `kind`; the sheet formats split here.
-          // `.tsv` joins `.csv` because the importer guesses the delimiter.
+          // `.tsv` joins `.csv` because the importer resolves the delimiter
+          // from the file name.
           const isCsv = /\.(csv|tsv)$/i.test(item.fileName);
           const oversized = isCsv && file.size > CLIENT_PARSE_MAX_BYTES;
           // XLSX stays in the browser at any size: it has no backend parser

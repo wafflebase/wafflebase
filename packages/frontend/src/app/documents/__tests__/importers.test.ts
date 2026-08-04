@@ -46,6 +46,16 @@ describe("importCsvFile", () => {
     expect(document.tabOrder.length).toBe(1);
   });
 
+  // The delimiter is stated, not guessed: one comma inside a tab-separated
+  // field is enough to outscore the tabs and collapse the row into one cell.
+  it("states the tab delimiter for .tsv instead of guessing", async () => {
+    const content = "name\tvalue\nacme, inc\t1";
+
+    await importCsvFile(new File([content], "sales.tsv"));
+
+    expect(importCsv).toHaveBeenLastCalledWith(content, { delimiter: "\t" });
+  });
+
   // The cap lives in the engine, so a browser-parsed file can be truncated
   // too. The queue warns off these two fields for both paths.
   it("passes the engine's row count and truncation flag through", async () => {

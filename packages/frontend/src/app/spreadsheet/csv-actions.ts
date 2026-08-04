@@ -9,7 +9,8 @@ import { previewFileImport, type FileImportPreview } from "@/api/files";
 /**
  * Parse an already-selected `.csv` / `.tsv` `File` into a one-tab spreadsheet
  * document. Used directly by the upload queue, mirroring `importXlsx`. Both
- * extensions take this path — `importCsv` detects the delimiter.
+ * extensions take this path; `.tsv` states its delimiter and `.csv` leaves it
+ * to papaparse (see below).
  */
 export async function importCsvFile(file: File): Promise<{
   document: SpreadsheetDocument;

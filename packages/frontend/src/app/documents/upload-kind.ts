@@ -19,8 +19,8 @@ export const SKIP_REASON = "Unsupported file type";
 const EXT_TO_KIND: Record<string, UploadKind> = {
   xlsx: "sheet",
   csv: "sheet",
-  // Tab-separated files go through the same importer: papaparse guesses the
-  // delimiter (tab is in its default set), so `.tsv` needs no parser of its own.
+  // Tab-separated files go through the same importer: `importCsvFile` takes
+  // the delimiter from the extension, so `.tsv` needs no parser of its own.
   tsv: "sheet",
   docx: "doc",
   pptx: "slides",
