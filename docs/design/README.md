@@ -115,13 +115,14 @@ Markdown note engine — CodeMirror source editor, single Yorkie `Text` CRDT.
 | ------------------------------- | -------------------------------------------------------------------------------------------------- |
 | [notes.md](notes/notes.md)      | Notes — markdown note document type (`"note"`) ported from CodePair; CodeMirror 6 source editor + live preview, whole content in one Yorkie `Text` at `root.content` (byte-compatible with CodePair), new `@wafflebase/notes` engine package + `note-<id>` docKey, inherits workspaces/sharing/auth-webhook/presence unchanged; RAG/AI out of scope; P1 editor+type, P2 parity (image/export/revisions/vim), P3 CodePair migration |
 
-## PDF
+## Files
 
-Static PDF documents — upload, store, and view (no CRDT editing).
+Static blob documents — upload, store, and view (no CRDT editing).
 
 | Document          | Description                                                                                        |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | [pdf.md](pdf.md)  | PDF viewer — fourth document type (`"pdf"`), blob-stored original (no Yorkie CRDT), document-permission-gated serving, pdf.js viewer at `/f/:id`; Phase 2 spec adds share-token file serving + `pdf-<id>` Yorkie comments (page-region pin anchors, shared comments module) + `activePage` presence |
+| [generic-file-upload.md](generic-file-upload.md) | Generic file upload — accept **any** file as a `"file"` document (blob with no dedicated viewer), reusing the type-agnostic `Document.fileId` / `wafflebase-files` / `GET /documents/:id/file` spine; defines `Document.type` as a viewer-routing key, adds `fileSize`/`mimeType` columns (quota-ready), inverts safety from an upload allow-list to a **serving** rule (response `Content-Type` derived from document type, `file` always `attachment` + octet-stream), deletes the upload queue's `skipped` path, and fixes image/file share links falling through to a `sheet-<id>` Yorkie doc. Quota, presigned upload, and new previews deferred |
 | [image-viewer.md](image-viewer.md) | Image viewer — `"image"` document type mirroring PDF's static blob spine (reuses `Document.fileId`, `wafflebase-files` bucket, type-agnostic `GET /documents/:id/file`); png/jpeg/gif/webp only, 25 MB cap; joins the multi-file upload queue; `<img>` viewer at `/f/:id` with zoom/download + workspace prev/next; inline lazy list thumbnails (client downscale). Comments/sharing + gallery/grid view deferred |
 
 ## Common
