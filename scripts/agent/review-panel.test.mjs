@@ -3209,3 +3209,111 @@ test("buildStageDetail: tiering changes serialisation only, never a verdict", ()
   assert.deepEqual(onWithoutBody, off, "the ONLY difference between the modes is the body");
   assert.equal(lensDiff, DIFF_FIXTURE);
 });
+
+// --- the lens a finding is matched by -------------------------------------
+
+// `findingSimilarity` scores 0 unless both sides agree on `lens`, so a finding
+// that reaches adjudication without one can never be matched to a rebuttal. The
+// FINDING schema has no `lens` property (a lens is never asked for it), which is
+// why the panel has to stamp it. These tests assemble the REAL shape — fresh pass
+// + carry-forward, merged, gated, adjudicated — because both halves passed their
+// own unit tests while the loop was inert end to end.
+const LENS_ID = "security";
+const DEFECT = "the SSRF gate is missing on the outbound fetch call";
+// THE PRODUCTION function, imported — not a restatement of it. The first draft of
+// these tests defined a local copy of the same expression, and every one of them
+// passed with the real line deleted from the round loop: they were exercising the
+// test's own helper. That is why `stampLens` is exported at all.
+
+const freshFinding = () => ({ severity: "critical", confidence: "high", file: "src/a.ts", summary: DEFECT, claimType: "presence" });
+const rebuttalFor = () => ({ v: 1, lens: LENS_ID, file: "src/a.ts", summary: DEFECT, claim: "the allow-list at src/a.ts:12 covers this", evidence: ["src/a.ts:12"] });
+
+test("a RE-FOUND finding is matched to its rebuttal once the lens is stamped", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const fresh = freshFinding();
+  const prior = { ...freshFinding(), lens: LENS_ID }; // carried forward, lens already set
+
+  // Unstamped — the pre-fix behaviour, asserted so the fix cannot silently regress
+  // into "it never matched anyway".
+  const unstamped = gatingFindings(clusterFindings(dedupeFindings([fresh, prior])));
+  assert.equal(typeof unstamped[0].lens, "undefined", "the merge keeps the FRESH representative, which has no lens");
+  let calls = 0;
+  const before = await adjudicateRebuttals(unstamped, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(before.tally.matched, 0);
+  assert.equal(calls, 0, "without a lens the adjudicator is never even reached");
+
+  // Stamped — the rebuttal is found and adjudicated.
+  const stamped = gatingFindings(stampLens(clusterFindings(dedupeFindings([fresh, prior])), LENS_ID));
+  let after = 0;
+  const res = await adjudicateRebuttals(stamped, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { after++; return { verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] }; },
+  });
+  assert.equal(res.tally.matched, 1);
+  assert.equal(after, 1);
+});
+
+test("the fresh pass alone — no carry-forward — is also matchable", async () => {
+  // The rebutted finding may not be carried forward at all (a lens can fail to
+  // persist output.text). It must still match on the fresh copy.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const gating = gatingFindings(stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID));
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] }),
+  });
+  assert.equal(res.tally.matched, 1);
+});
+
+test("stamping preserves object IDENTITY, which mergedAfter removes by", async () => {
+  // This is why the stamp goes on `merged` and not on the gating subset. The
+  // caller drops overturned findings with `merged.filter((f) => !overturnedOut.has(f))`
+  // and `gatingFindings` filters without copying, so a copy made at the gating step
+  // would make every overturned finding un-removable — overturned for the check
+  // run and still rendered as blocking for the human.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID);
+  const gating = gatingFindings(merged);
+  assert.equal(gating[0], merged[0], "gatingFindings must hand back the same objects `merged` holds");
+
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "overturned", confidence: "high", reason: "r", overturnGround: "already-guarded", groundedIn: ["src/a.ts:12"] }),
+  });
+  assert.equal(res.tally.overturned, 1);
+  const overturnedOut = new Set(res.dropped);
+  assert.equal(merged.filter((f) => !overturnedOut.has(f)).length, 0, "the overturned finding must leave the summary too");
+});
+
+test("an already-stamped finding is not copied, and a foreign lens is not overwritten", async () => {
+  const { stampLens } = await import("./review-panel.mjs");
+  // `priorForLens` is filtered to `p.lens === lens.id`, so the stamp only ever
+  // fills blanks. Overwriting would let one lens claim another's finding and
+  // silently re-target its rebuttals.
+  const prior = { ...freshFinding(), lens: "correctness" };
+  const [out] = stampLens([prior], LENS_ID);
+  assert.equal(out, prior, "no copy when a lens is already present");
+  assert.equal(out.lens, "correctness", "and no overwrite");
+});
+
+test("the round loop actually routes `merged` through stampLens", async () => {
+  // The tests above prove `stampLens` is correct; they cannot prove the per-lens
+  // loop CALLS it, because that loop lives in `main()` and no test drives it —
+  // deleting the call left all of them green. This asserts the wiring at the
+  // source level, the same way checks.test.mjs asserts workflow invariants that
+  // no unit test can reach.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-panel.mjs", import.meta.url), "utf8");
+
+  const assignments = src.split("\n").filter((l) => /^\s*const merged =/.test(l));
+  assert.equal(assignments.length, 1, "exactly one `merged` assignment in the round loop");
+  assert.match(
+    assignments[0],
+    /stampLens\(\s*clusterFindings\(dedupeFindings\(/,
+    "`merged` must be stamped as it is built — see stampLens for why not at the gating step",
+  );
+  assert.match(assignments[0], /lens\.id/, "and stamped with THIS lens's id");
+});

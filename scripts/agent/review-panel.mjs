@@ -778,6 +778,45 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
 }
 
 /**
+ * Tag each finding with the lens that raised it, filling blanks only.
+ *
+ * WITHOUT THIS THE REBUTTAL LOOP IS INERT. `findingSimilarity` returns 0 unless
+ * both sides agree on `lens`, and it is the gate `matchRebuttal` scores through.
+ * But `lens` is not in the FINDING schema — a lens is never asked for it — so a
+ * FRESH finding has none. Prior findings do (`tagPriorFindings` stamps it from the
+ * check-run name), and when a fresh finding merges with its carried-forward twin
+ * the FRESH representative survives. So the lens was lost in exactly the case that
+ * matters, and the result inverted the intent:
+ *
+ *   fresh re-found (with or without carry-forward) -> matched 0, adjudicator never called
+ *   carry-forward only (the fresh pass missed it)  -> matched 1
+ *
+ * Only the second row worked, and it is the one the loop was not built for — a
+ * rebutted finding means the author did NOT change the code, so the next round's
+ * fresh pass almost always re-finds it.
+ *
+ * IDENTITY IS PRESERVED for a finding that already has a lens, and callers depend
+ * on it: the round loop stamps `merged`, then removes overturned findings from that
+ * same array by object identity (`overturnedOut.has(f)`). Returning fresh copies
+ * unconditionally would leave every overturned finding un-removable from the
+ * summary — dropped from the check run and still rendered as blocking for a human.
+ *
+ * Blanks only, never an overwrite: `priorForLens` is already filtered to
+ * `p.lens === lens.id`, and overwriting would let one lens claim another's finding
+ * and silently re-target its rebuttals.
+ *
+ * A FUNCTION rather than an inline `.map`, so a test can bind to the same
+ * definition the round loop uses. As an inline expression the tests could only
+ * restate it, and a restated copy passes just as happily with the real one deleted.
+ */
+export function stampLens(findings, lensId) {
+  const id = typeof lensId === "string" ? lensId : "";
+  return (Array.isArray(findings) ? findings : []).map((f) =>
+    f && typeof f === "object" && typeof f.lens !== "string" ? { ...f, lens: id } : f,
+  );
+}
+
+/**
  * The subset that actually gates. A demoted critical/major drops out; a
  * minor/nit passes on the severity clause exactly as it always has, so
  * `classify` and `severity.mjs` need no change and cannot disagree with this.
@@ -2409,7 +2448,36 @@ async function main() {
     // fresh-vs-prior kind.) A finding can therefore be clustered twice now, so
     // mergeCluster flattens the wordings each side already folded — this second
     // pass loses none of the ones the first recorded in `mergedFrom`.
-    const merged = clusterFindings(dedupeFindings([...kept, ...priorKept]));
+    // STAMP THE LENS. Without it the rebuttal→adjudication loop (#633) is inert
+    // for the findings it exists to serve.
+    //
+    // `findingSimilarity` returns 0 unless both sides agree on `lens`, and it is
+    // the gate `matchRebuttal` scores through. But `lens` is not in the FINDING
+    // schema — a lens is never asked for it — and nothing here assigned one, so a
+    // FRESH finding has no `lens` at all. Prior findings do (stamped by
+    // `tagPriorFindings` from the check-run name), and when a fresh finding merges
+    // with its carried-forward twin the FRESH representative is the one that
+    // survives. So the lens was lost in exactly the case that matters.
+    //
+    // The result inverted the intent. A rebutted finding means the author did NOT
+    // change the code, so the next round's fresh pass almost always re-finds it —
+    // and a re-found finding could never be matched to a rebuttal:
+    //
+    //   fresh re-found (+/- carry-forward)  -> matched=0, adjudicator never called
+    //   carry-forward only (fresh missed it) -> matched=1
+    //
+    // Only the second column worked, and it is the one the loop was not built for.
+    //
+    // STAMPED HERE, not on `gatingRaw`, and that is load-bearing: `mergedAfter`
+    // below removes overturned findings from `merged` by object IDENTITY
+    // (`overturnedOut.has(f)`), and `gatingFindings` filters without copying. A
+    // copy made at the gating step would leave every dropped finding
+    // un-removable from the summary — the finding would be overturned for the
+    // check run and still rendered as blocking for the human.
+    //
+    // Existing values are preserved rather than overwritten: `priorForLens` was
+    // already filtered to `p.lens === lens.id`, so this only fills blanks.
+    const merged = stampLens(clusterFindings(dedupeFindings([...kept, ...priorKept])), lens.id);
     // What the LENS CHECK gates on: `merged` minus the demoted blockers. The
     // backlog ones stay in `merged` so the summary still reports them (with the
     // base location that justifies the demotion) — they simply stop failing the
