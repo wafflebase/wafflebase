@@ -1354,7 +1354,8 @@ prediction protocol are new.**
 Canvas, so the a11y tree covers the React chrome and essentially nothing where the
 content is. `window.__WB_HUNT__` on the DEV-only `/harness/hunt` route answers a CLOSED
 registry of named readers instead — `doc.text`, `doc.runs`, `doc.fontSizes`,
-`sheet.cellValue`, `sheet.cellCenter`, `canUndo` — over `MemStore`/`MemDocStore`, with
+`sheet.cellValue`, `sheet.cellCenter`, `doc.canUndo`, `sheet.canUndo` — over
+`MemStore`/`MemDocStore`, with
 the real `DocsFormattingToolbar` mounted. No backend, no login, no cleanup risk. A
 registry rather than an `evaluate(<model JS>)` hook, so the reachable surface is bounded
 by reviewed code; membership is an own-property test, because a plain object literal

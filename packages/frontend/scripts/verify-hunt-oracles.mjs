@@ -221,13 +221,21 @@ async function checkUndoCapability(page, baseUrl) {
   // target and is what a user clicks.
   await page.locator(`[data-testid="${HOST_TESTID}"] canvas`).first().click();
   await page.keyboard.type("Q");
-  await page.waitForTimeout(50);
-  const after = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+  // Poll rather than sleep. The undo stack is pushed asynchronously relative to the
+  // keystroke, so a fixed wait is either flaky on a loaded machine or needlessly slow —
+  // and this lane gates CI. Same reasoning as the positive oracle cases above.
+  let after = null;
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    after = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+    if (after === true || Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
   if (after !== true) {
     problems.push(
-      `doc.canUndo should be true after an edit, got ${JSON.stringify(after)} — this is either a broken ` +
-        "bridge reader (harness fault) or a real docs undo regression (product fault); check MemDocStore's " +
-        "undo stack before assuming the harness.",
+      `doc.canUndo was still ${JSON.stringify(after)} after an edit and ${FIRE_DEADLINE_MS}ms of polling — ` +
+        "either the bridge reader is broken (harness fault) or docs undo regressed (product fault); " +
+        "check MemDocStore's undo stack before assuming either.",
     );
   }
 

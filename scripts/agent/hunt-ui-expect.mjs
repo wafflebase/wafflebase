@@ -240,7 +240,17 @@ export function resolveExpectationRefs(expect, journal, { atIndex = null } = {})
    * knows which step is predicting. When it is absent the check cannot run, which is
    * why the orchestrator (PR 4) must pass it.
    */
-  const before = (i) => atIndex === null || !Number.isInteger(atIndex) || i < atIndex;
+  const before = (i) => {
+    // Only ABSENT means "cannot check". A present-but-malformed index — "0", 0.5, NaN —
+    // used to satisfy `!Number.isInteger(atIndex)` and wave the ordering check through,
+    // so a caller with an off-by-one bug in its own bookkeeping silently re-enabled the
+    // self-reference generator. Verified: `atIndex: "0"` and `atIndex: 0.5` both made a
+    // `not-equals @read:0` self-reference eligible. A safety check must not fail open on
+    // input it does not understand.
+    if (atIndex === null || atIndex === undefined) return true;
+    if (!Number.isInteger(atIndex)) return false;
+    return i < atIndex;
+  };
 
   const read = READ_REF.exec(raw);
   if (read) {

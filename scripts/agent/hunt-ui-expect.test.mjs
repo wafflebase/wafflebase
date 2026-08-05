@@ -358,6 +358,24 @@ test("REGRESSION: a reference must point BEFORE the predicting action", () => {
 
   // A forward reference is refused too.
   assert.equal(resolveExpectationRefs({ ...e, value: "@read:5" }, journal, { atIndex: 2 }), null);
+
+  // A PRESENT but malformed index must not wave the check through. It used to: the
+  // guard tested `!Number.isInteger(atIndex)`, which is true for "0" and 0.5, so a
+  // caller with an off-by-one in its own bookkeeping silently re-enabled the
+  // self-reference generator. Only absence means "cannot check".
+  for (const bad of ["0", 0.5, Number.NaN, -1, {}, []]) {
+    assert.equal(
+      resolveExpectationRefs(e, journal, { atIndex: bad }),
+      null,
+      `atIndex ${JSON.stringify(bad) ?? String(bad)} must not resolve`,
+    );
+    const assessed = assessExpectation(e, "hello", { journal, charter: CHARTER, atIndex: bad });
+    assert.equal(assessed.eligible, false, `atIndex ${String(bad)} must not be eligible`);
+  }
+  // Absent still means "the caller cannot say", which stays permissive by design —
+  // the orchestrator is what must pass it.
+  assert.ok(resolveExpectationRefs(e, journal, { atIndex: null }));
+  assert.ok(resolveExpectationRefs(e, journal, {}));
   // And a genuinely earlier one still resolves.
   const later = [...journal, { action: { type: "key", key: "x" }, ok: true, value: null }];
   assert.ok(resolveExpectationRefs(e, later, { atIndex: 1 }));
