@@ -73,7 +73,24 @@ on:
   # data. Write-once keys make re-visiting already-collected runs free.
   schedule:
     - cron: "17 6 * * *"
+  # The RECOVERY path, and it is the difference between a button and a pull
+  # request. The routine window is seven days, so a capture older than that is
+  # invisible to every automatic run while still existing in Actions for the rest
+  # of its retention — up to 90 days. Recovering one used to need a file edit,
+  # review and merge, which is an absurd amount of ceremony for "look further
+  # back", and the ceremony is worst exactly when it is needed: the reason a
+  # capture fell out of the window is usually that nobody noticed for a week.
+  #
+  # A string and not a number because `workflow_dispatch` inputs are always
+  # strings; the collector validates it as a positive integer and exits 2 on
+  # anything else, so the bad-input path is a refusal with a message rather than
+  # a silently enormous scan.
   workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to scan. 7 matches the automatic runs; raise it to recover captures that have aged out of the routine window."
+        required: false
+        default: "7"
 
 # READ ONLY. See the header: the write capability is in the scoped token, aimed
 # at a different repository. No `contents: write`, no `checks: write`, no
@@ -129,6 +146,17 @@ jobs:
       - name: Collect
         env:
           GH_TOKEN: ${{ github.token }}
+          # Seven days on the automatic triggers, whatever the operator asked for
+          # on a manual one. `inputs.days` is null on `workflow_run` and
+          # `schedule`, and `||` supplies the same 7 the dispatch default shows,
+          # so all three triggers agree unless somebody deliberately disagrees.
+          #
+          # Through the environment and quoted at the use site rather than
+          # interpolated into the script body: a dispatch input needs write access
+          # to set, so this is not the untrusted-input case, but `${{ }}` inside a
+          # `run:` block is how that class of bug is written and there is no reason
+          # to make the exception here.
+          DAYS: ${{ inputs.days || '7' }}
           # Which trigger actually fired, and for `workflow_run`, which producer.
           # Through the environment rather than interpolated into the script body,
           # matching how every other event-derived value is passed here.
@@ -144,11 +172,11 @@ jobs:
           # collection has been silently running a day late. That is the exact
           # shape of failure this subsystem keeps shipping — the novelty gate
           # printed `OFF` for weeks and nothing read it.
-          echo "capture-collect: triggered by ${EVENT}${SOURCE_WORKFLOW:+ from \"${SOURCE_WORKFLOW}\" (${SOURCE_CONCLUSION})}"
+          echo "capture-collect: triggered by ${EVENT}${SOURCE_WORKFLOW:+ from \"${SOURCE_WORKFLOW}\" (${SOURCE_CONCLUSION})} · window ${DAYS}d"
           node scripts/agent/collect-captures.mjs \
             --write \
             --root .capture-store/captures \
-            --days 7
+            --days "$DAYS"
 
       # Commit only if something changed, and say so either way. A run that
       # collected nothing is normal (no review produced a capture in the window)
@@ -198,13 +226,22 @@ jobs:
             echo "capture-collect: no new captures to commit."
             exit 0
           fi
+          # Counted from the INDEX, before the commit, because that is the only
+          # place the number is simply available. The previous version counted
+          # `git show --stat --oneline | tail -n +2`, which includes the trailing
+          # " N files changed" summary line and so reported one file more than it
+          # pushed — the first live run said 12 for 11 files. A log line that
+          # over-counts by one is the kind of small wrongness that makes someone
+          # distrust the whole report later, when they are trying to work out
+          # whether a capture went missing.
+          files=$(git diff --cached --name-only | wc -l | tr -d ' ')
           git commit -m "Collect stage-detail captures from wafflebase run ${GITHUB_RUN_ID}"
           # One retry. The concurrency group makes a race unlikely rather than
           # impossible (a queued run can start as this one pushes), and rebasing
           # is always safe here: write-once keys mean two runs never author
           # different content for the same path.
           git push || (git pull --rebase && git push)
-          echo "capture-collect: pushed $(git show --stat --oneline HEAD | tail -n +2 | wc -l) file(s)."
+          echo "capture-collect: pushed ${files} file(s)."
 
       # The count, printed whether or not it is interesting. "0 uncollected" is
       # either fine or an emergency, and the only way to tell them apart is to

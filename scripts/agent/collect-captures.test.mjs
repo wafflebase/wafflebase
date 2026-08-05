@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CAPTURE_ARTIFACT_PREFIX, CAPTURE_META_SCHEMA,
   MAX_FILES_PER_ARTIFACT,
-  collect, daysBetween, expiryReport, isHostileEntry, isLoudSkip, keyFor, parseMeta,
+  collect, daysBetween, expiryReport, isHostileEntry, isLegacyArtifactName, isLoudSkip, keyFor, parseMeta,
   planCollection, prepareArtifact, runIdsFromKeys, safeEntries, summarize, walkArtifacts,
 } from "./collect-captures.mjs";
 import { createCaptureStore } from "./capture-store.mjs";
@@ -654,30 +655,42 @@ function realIo() {
   return { byId, io: fakeIo(byId) };
 }
 
-test("the nine real captures: ALL nine are skipped, every one for no meta.json", () => {
+test("the nine real captures: ALL nine are skipped, counted, and NOT an alarm", () => {
   // The honest first result against real data, and the best available test of
   // "attribution is never inferred". Every one of these carries the file paths
   // its lenses reviewed, which a human has in fact used to attribute seven of
   // them by hand. The collector has the same information and refuses to use it:
   // a capture filed against the wrong PR corrupts the corpus in a way no later
   // check would notice, whereas a missing one is visible.
+  //
+  // WHAT CHANGED, AND WHY, because this test used to assert `exitCode === 1`.
+  // These nine still cannot be collected — that part is unchanged and is the
+  // point above. But they made the job go RED on every run for as long as they
+  // sat inside the seven-day window, and "history exists" is not news: the first
+  // live collector run (30988338870) collected 11 real files and still reported
+  // failure, purely because of these. A red X that fires on a healthy run is a
+  // signal that gets ignored, and an ignored signal is how this subsystem lost
+  // five rounds of uploads to "No files were found". So the skip is now
+  // `no-meta-legacy`: still refused, still counted BY NAME in the line below,
+  // still listed as uncollected by the expiry report, and no longer an alarm.
   const { io } = realIo();
   const store = createCaptureStore(path.join(tmpdir(), `collect-test-unused-${process.pid}`));
   const logs = [];
   const { summary, skipped } = collect({ io, store, since: new Date("2026-08-01T00:00:00Z"), now: NOW, dryRun: true, log: (m) => logs.push(m) });
 
   assert.equal(skipped.length, 9);
-  assert.deepEqual([...new Set(skipped.map((s) => s.reason))], ["no-meta"]);
+  assert.deepEqual([...new Set(skipped.map((s) => s.reason))], ["no-meta-legacy"]);
   assert.match(summary.line, /would collect 0 capture\(s\), 0 file\(s\), 0 KB/);
-  assert.match(summary.line, /9 skipped \(9 no-meta\)/);
+  assert.match(summary.line, /9 skipped \(9 no-meta-legacy\)/);
   assert.match(summary.line, /9 capture artifact\(s\) scanned/);
-  assert.equal(summary.exitCode, 1, "a run that collected something here would be a run that guessed");
-  assert.equal(store.listCaptures().length, 0);
+  assert.equal(summary.exitCode, 0, "nine pre-#673 captures are the expected state of history, not a producer regression");
+  assert.equal(store.listCaptures().length, 0, "and quiet must not mean collected — nothing was guessed");
   assert.equal(existsSync(path.join(tmpdir(), `collect-test-unused-${process.pid}`)), false, "a refusal must not create the store");
-  // The skip names the PR it could have guessed at — nowhere. It names the file
-  // that is missing.
-  assert.ok(logs.some((l) => /no-meta: 5 lens file\(s\) present but no meta\.json/.test(l)));
-  assert.ok(logs.some((l) => /no-meta: 6 lens file\(s\) present but no meta\.json/.test(l)));
+  // The skip names the PR it could have guessed at — nowhere. It names what is
+  // missing, why it is missing, and that the window to recover it is finite.
+  assert.ok(logs.some((l) => /no-meta-legacy: 5 lens file\(s\), uploaded before #673/.test(l)));
+  assert.ok(logs.some((l) => /no-meta-legacy: 6 lens file\(s\), uploaded before #673/.test(l)));
+  assert.ok(logs.some((l) => /recoverable only by hand, and only until it expires/.test(l)));
 });
 
 test("the two pre-#668 captures are treated EXACTLY like the seven that carry a lane", () => {
@@ -693,7 +706,7 @@ test("the two pre-#668 captures are treated EXACTLY like the seven that carry a 
   assert.equal(a.ok, false);
   assert.equal(b.ok, false);
   assert.equal(a.reason, b.reason);
-  assert.equal(a.reason, "no-meta");
+  assert.equal(a.reason, "no-meta-legacy");
   // And the payloads really did differ, or this test proves nothing.
   const laneText = byId[String(withLane.id)].payload[`${withLane.lenses[0]}/stage-detail.json`];
   const plainText = byId[String(withoutLane.id)].payload[`${withoutLane.lenses[0]}/stage-detail.json`];
@@ -908,7 +921,13 @@ test("collect: one poisoned artifact does not stop the healthy one beside it", (
   const root = mkdtempSync(path.join(tmpdir(), "collect-isolation-"));
   try {
     const { byId } = healthyIo();
-    byId["66"] = { artifact: artifact({ id: 66, workflow_run: { id: 30886864158 } }), entries: ["correctness/stage-detail.json"], payload: { "correctness/stage-detail.json": "{}" } };
+    // A CURRENT-generation name, deliberately. The poison being tested is "a
+    // capture the collector must refuse", and the refusal that has to stay loud
+    // is a live producer shipping no `meta.json`. The default `artifact()` name is
+    // the bare pre-#673 stem, which is now a quiet skip — using it here would
+    // have made this test assert isolation while silently no longer asserting
+    // that the run goes red.
+    byId["66"] = { artifact: artifact({ id: 66, name: "review-panel-stage-detail-pr-671", workflow_run: { id: 30886864158 } }), entries: ["correctness/stage-detail.json"], payload: { "correctness/stage-detail.json": "{}" } };
     const io = fakeIo(byId);
     const store = createCaptureStore(root);
     const { summary, skipped } = collect({ io, store, since: null, now: NOW, dryRun: false, log: () => {} });
@@ -1121,4 +1140,158 @@ test("the steps after Collect run even when Collect FAILS", () => {
   for (const s of after) {
     assert.equal(s.cond, "${{ !cancelled() }}", `step "${s.name}" runs after Collect and must carry if: !cancelled()`);
   }
+});
+
+test("a missing meta.json is QUIET for a pre-#673 name and LOUD for anything else", () => {
+  // The whole rule, in one table. `no-meta` must keep meaning "a producer
+  // regressed", which it stopped meaning while the ten pre-#673 captures were in
+  // the window — every run went red and the red said nothing.
+  //
+  // The discriminator is the artifact NAME and not a cutoff date, because #673
+  // changed both things in one commit: it started writing `meta.json` AND renamed
+  // the artifact to `-pr-<n>`. Same upload step, same file, same merge — so the
+  // name reads which producer ran rather than approximating when it ran, and it
+  // cannot be confused by a run that was in flight across the merge.
+  assert.equal(isLegacyArtifactName("review-panel-stage-detail"), true);
+  assert.equal(isLegacyArtifactName(CAPTURE_ARTIFACT_PREFIX), true, "the bare prefix IS the legacy name");
+  // Everything else owes a meta.json. The `-pr-` forms are current producers; the
+  // last three are drift, and drift must be loud rather than excused — a name
+  // nobody recognises is not evidence that a capture is old.
+  for (const current of [
+    "review-panel-stage-detail-pr-674",
+    "review-panel-stage-detail-pr-1",
+    "review-panel-stage-detail-pr-",      // an empty `${{ }}` expansion
+    "review-panel-stage-detail-v2",
+    "review-panel-stage-detail-",
+  ]) {
+    assert.equal(isLegacyArtifactName(current), false, `${current} must still owe a meta.json`);
+  }
+  // And non-strings cannot sneak through as "legacy" via coercion.
+  for (const bad of [null, undefined, 0, {}, ["review-panel-stage-detail"]]) {
+    assert.equal(isLegacyArtifactName(bad), false, `${JSON.stringify(bad)} is not the legacy name`);
+  }
+
+  // The classification the exit code reads.
+  assert.equal(isLoudSkip("no-meta"), true, "a current producer with no meta.json is a regression");
+  assert.equal(isLoudSkip("no-meta-legacy"), false, "history existing is not a regression");
+});
+
+test("the two skips are told apart by the artifact NAME, end to end", () => {
+  // Not just the predicate: the reason string `prepareArtifact` actually returns,
+  // for two artifacts whose zips are byte-identical and differ only in name. If
+  // these ever collapse back into one reason, either the alarm returns to firing
+  // on history or a real regression goes quiet.
+  const entries = ["correctness/stage-detail.json"];
+  const payload = { "correctness/stage-detail.json": "{}" };
+  const byId = {
+    "1": { artifact: artifact({ id: 1, name: CAPTURE_ARTIFACT_PREFIX }), entries, payload },
+    "2": { artifact: artifact({ id: 2, name: "review-panel-stage-detail-pr-674" }), entries, payload },
+  };
+  const io = fakeIo(byId);
+  const legacy = prepareArtifact({ id: "1", name: CAPTURE_ARTIFACT_PREFIX, runId: 1 }, io);
+  const current = prepareArtifact({ id: "2", name: "review-panel-stage-detail-pr-674", runId: 1 }, io);
+
+  assert.equal(legacy.ok, false);
+  assert.equal(current.ok, false, "neither is collected — the collector still refuses to guess");
+  assert.equal(legacy.reason, "no-meta-legacy");
+  assert.equal(current.reason, "no-meta");
+  // One run containing both is RED, and names both counts. The quiet skip must
+  // not mask the loud one sitting beside it.
+  const s = summarize({ collected: 0, skipped: [legacy, current], scanned: 2 });
+  assert.equal(s.exitCode, 1);
+  assert.match(s.line, /2 skipped \(1 no-meta, 1 no-meta-legacy\)/);
+});
+
+test("the collect step's window is an INPUT on a manual run and 7 everywhere else", () => {
+  // Recovery, and the reason it is worth a workflow input at all: a capture older
+  // than the routine seven-day window is invisible to every automatic run while
+  // still existing in Actions for up to 90 days. Without this the recovery path is
+  // "edit the file, get it reviewed, merge it" — ceremony that lands exactly when
+  // someone is trying to rescue data before it expires.
+  const yamlOnly = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8")
+    .split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+  assert.match(yamlOnly, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+days:/, "the manual trigger must take a days input");
+  assert.match(yamlOnly, /DAYS: \$\{\{ inputs\.days \|\| '7' \}\}/, "and default to 7 on triggers that supply no input");
+  // Through the environment, quoted, and NEVER interpolated into the script body.
+  // A dispatch input needs write access to set, so this is not the untrusted-input
+  // case — but `${{ }}` inside a `run:` block is how that bug is written, and the
+  // rest of this file already passes every event-derived value by env.
+  assert.match(yamlOnly, /--days "\$DAYS"/, "the collector must read the window from the environment");
+
+  // Read exactly once, into the env, and nowhere else.
+  assert.deepEqual(
+    yamlOnly.match(/\$\{\{[^}]*inputs\.[^}]*\}\}/g),
+    ["${{ inputs.days || '7' }}"],
+    "the dispatch input may be read once, into the environment",
+  );
+
+  // And NO `${{ }}` of any kind inside a shell body — not just this input. That is
+  // the general form of the bug: an expression is expanded by the runner before the
+  // shell ever sees it, so a value containing a quote or a `;` becomes script
+  // rather than data. Scanned block by block, because a whole-file regex for
+  // `run:` matches inside `workflow_run:` — which is how the first version of this
+  // assertion passed for the wrong reason.
+  const lines = yamlOnly.split("\n");
+  let indent = null;
+  for (const line of lines) {
+    const opens = /^(\s*)run:\s*\|/.exec(line);
+    if (opens) { indent = opens[1].length; continue; }
+    if (indent === null) continue;
+    if (line.trim() === "") continue;
+    if (/^\s*/.exec(line)[0].length <= indent) { indent = null; continue; }
+    assert.equal(/\$\{\{/.test(line), false, `a run: body interpolates an expression: ${line.trim()}`);
+  }
+});
+
+test("the collector NEVER checks out the branch it is collecting captures for", () => {
+  // The property the whole permission model rests on, and it was previously only
+  // implied. This job holds `secrets.EVAL_STORE_TOKEN`, a credential that can
+  // write to another repository — so if it ever executed code from the branch
+  // under review, any PR author could exfiltrate or misuse that token. The
+  // permissions block cannot help: the token is not a permission, it is a secret
+  // already in the environment.
+  //
+  // Two things keep that from happening and both are asserted here rather than
+  // reasoned about. First, `workflow_run` runs the DEFAULT BRANCH's copy of this
+  // file and sets `GITHUB_SHA` to the default branch tip — measured on run
+  // 30988338870, which reported `head_branch: main` and a `head_sha` identical to
+  // `main`, while collecting captures produced by PR #674. Second, no step here
+  // overrides that: an explicit `ref:` is what it would take to check out
+  // untrusted content, and there is none.
+  const yamlOnly = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8")
+    .split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+  assert.equal(/^\s+ref:/m.test(yamlOnly), false, "a checkout ref: here would run code from the branch under review");
+  // The triggering run's head is available in the event payload and must not be
+  // used to select code. (`meta.json` carries the reviewed SHA as DATA; that is a
+  // different thing and lives inside the artifact, not in a checkout.)
+  for (const forbidden of ["head_sha", "head_branch", "head_ref", "pull_requests"]) {
+    assert.equal(yamlOnly.includes(forbidden), false, `${forbidden} must not influence what this job checks out`);
+  }
+});
+
+test("the pushed-file count is the number of files pushed", () => {
+  // The first live run reported "pushed 12 file(s)" having pushed 11. The old
+  // command was `git show --stat --oneline HEAD | tail -n +2 | wc -l`, which drops
+  // the subject line and then counts the trailing " N files changed" summary as a
+  // file. Off by exactly one, always, and invisible without counting by hand.
+  //
+  // Asserted by EXTRACTING the line from the workflow and running it, rather than
+  // by re-typing the command here. A copy would let the workflow drift back to a
+  // broken idiom with this test still green — and the reason the original bug
+  // shipped is that a shell one-liner in YAML had no test of any kind.
+  const yaml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8");
+  const m = /^\s*(files=\$\(.*\))\s*$/m.exec(yaml);
+  assert.ok(m, "the commit step must count the files it is about to push");
+  const command = m[1];
+
+  const repo = mkdtempSync(path.join(tmpdir(), "collect-count-"));
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: repo });
+    for (const name of ["a.json", "b.json", "c.json"]) writeFileSync(path.join(repo, name), "{}");
+    execFileSync("git", ["add", "a.json", "b.json", "c.json"], { cwd: repo });
+    const out = execFileSync("bash", ["-c", `${command}; printf %s "$files"`], { cwd: repo, encoding: "utf8" });
+    assert.equal(out, "3", `the workflow's own count said ${JSON.stringify(out)} for 3 staged files`);
+  } finally { rmSync(repo, { recursive: true, force: true }); }
 });

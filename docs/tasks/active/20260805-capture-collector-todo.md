@@ -373,28 +373,104 @@ test on the text.
 
 ## Not verified
 
-- [ ] **The collector has never collected anything**, because nothing collectable
-      exists. Every path from a valid `meta.json` to a file in the store is
-      covered by tests with a faked artifact, and none of it by a real one. The
-      first real collection is the day after #673 lands, and it is the run to
-      watch.
-- [ ] **No recovery sweep wider than 7 days.** `workflow_dispatch` takes no
-      inputs and `--days 7` is hardcoded, so the wider-window recovery path the
-      collector design asks for (§9.2) needs a file edit. Deliberately deferred;
-      it matters if this PR sits in review long enough that captures fall out of
-      the window before the first run.
-- [ ] **The workflow has never run, and cannot until `EVAL_STORE_TOKEN` exists.**
-      A maintainer has to add the secret; until then the store checkout fails and
-      the job is red. `workflow_dispatch` is there so the first run can be
-      deliberate rather than a surprise at 06:17, and `workflow_run`/`schedule`
-      only start firing once this is on the default branch.
-- [ ] **The commit-and-push step is untested end to end**, for the same reason.
-      Its two failure modes have been exercised in isolation, though: `git add`
-      on a missing path (exit 128, which is why `mkdir -p` precedes it) and on an
-      empty directory (clean, falls through to "nothing to commit").
-      Its shape is conventional and every path it takes is one command, but no
-      run has exercised it. First `workflow_dispatch` after the secret lands is
-      the one to watch.
-- [ ] **`gh api …/zip` and `unzip -p` on `ubuntu-latest`.** Both are used from a
-      human's machine today and verified on macOS; the scheduled job does not
-      download anything, so nothing in CI exercises them yet.
+Every item here was resolved by the first live run — see the section after it.
+
+- [x] **The collector has never collected anything.** It has now: run
+      `30988338870`, 11 files for #674 and #672, each with a producer-written
+      `meta.json` that passed `parseMeta`.
+- [x] **No recovery sweep wider than 7 days.** `workflow_dispatch` now takes a
+      `days` input (below), so §9.2's wider window is a button rather than a pull
+      request.
+- [x] **The workflow has never run.** A maintainer added `EVAL_STORE_TOKEN`; the
+      three-level `workflow_run` chain fired on its own, first try.
+- [x] **The commit-and-push step is untested end to end.** It ran, pushed 11
+      files, and did so on a run whose collect step had FAILED — which is how the
+      `if: !cancelled()` condition turned out to be load-bearing on day one.
+- [x] **`gh api …/zip` and `unzip -p` on `ubuntu-latest`.** Both exercised by the
+      same run; 12 artifacts listed, 2 downloaded and unpacked.
+
+## After the first live run: red that means something
+
+The first run collected 11 real files and **reported failure**, because the ten
+pre-#673 captures were inside the seven-day window and each was a loud `no-meta`
+skip. Correct by the rule as written, and wrong as a signal: the job would have
+stayed red for about a week for a reason that is neither news nor actionable, and
+**an always-red job is one nobody reads.** That is this subsystem's failure mode,
+not a cosmetic complaint — five rounds of uploads were lost to a "No files were
+found" line nobody read, and the novelty gate printed `OFF` for weeks.
+
+Two things were being conflated under one reason string:
+
+- a capture from **before** #673 has no `meta.json` because none was written —
+  expected, and not the collector's problem to solve;
+- a capture from **after** #673 has none because a producer regressed — news.
+
+Split into `no-meta-legacy` (counted, never collected, **not** an alarm) and
+`no-meta` (unchanged, loud).
+
+**The discriminator is the artifact NAME, not a cutoff date.** #673 made two
+changes in one commit: it started writing `meta.json`, and it renamed the artifact
+from the bare stem to `-pr-<n>`. Both live in the same upload step of the same
+file, so the name is a direct reading of *which producer ran* rather than a proxy
+for *when* it ran — and unlike a timestamp it cannot be wrong about a run that was
+in flight when #673 merged, because such a run uploads the old name by
+construction. The set cannot grow: neither producer can emit the bare name any
+more, and a test reads the real `name:` lines and pins that. Any other name,
+including a `-pr-` with an empty expansion, stays loud.
+
+Measured 2026-08-05, and the two readings agree today: all ten bare-named
+artifacts predate the merge at 05:05:57Z, both `-pr-` named ones follow it. Only
+one of the two readings stays correct without maintenance.
+
+- [x] **Live dry run, exit 0**, with nothing quietly collected:
+
+      collect-captures: skipped review-panel-stage-detail (8916035419) — no-meta-legacy: 6 lens file(s), uploaded before #673 added meta.json — recoverable only by hand, and only until it expires
+      … ×10 …
+      collect-captures: would collect 2 capture(s), 11 file(s), 124 KB · 0 already present · 10 skipped (10 no-meta-legacy) · 12 capture artifact(s) scanned
+      exit 0
+
+- [x] **Quiet is not invisible.** The same ten are still named individually in the
+      log, still counted by reason in the summary line, and the expiry report still
+      lists them: `12 stage-detail artifact(s) known · 0 already collected · 12
+      UNCOLLECTED`. They keep their own deadline (2026-09-03/04) and it is a
+      human's to meet.
+
+Two smaller things, fixed while the file was open:
+
+- **`--days` is a `workflow_dispatch` input**, defaulting to `7` so all three
+  triggers agree unless somebody deliberately disagrees. Passed by environment and
+  quoted, never interpolated into the shell body; the collector validates it as a
+  positive integer and exits 2 otherwise. This is what makes a capture that has
+  aged out of the routine window recoverable without a merge — the ceremony was
+  worst exactly when it was needed, since the reason a capture falls out of the
+  window is usually that nobody noticed for a week.
+- **The pushed-file count was off by one**, always. `git show --stat --oneline |
+  tail -n +2 | wc -l` drops the subject line and then counts the trailing
+  " N files changed" summary as a file: the first run said 12 for 11. Now counted
+  from the index before the commit. The test **extracts the line from the workflow
+  and runs it** against three staged files in a throwaway repo, rather than
+  re-typing the command — the reason the bug shipped is that a shell one-liner in
+  YAML had no test at all.
+
+And one gap found by a reviewer's question rather than by a test:
+
+- **Nothing pinned that this job never checks out the branch under review.** It
+  was true and it was reasoned about, but the assertion was missing — and it is
+  the property the whole permission model rests on, because the job holds a token
+  that can write to another repository. `workflow_run` runs the default branch's
+  copy and sets `GITHUB_SHA` to the default branch tip (measured: run
+  `30988338870` reported `head_branch: main` and a `head_sha` identical to `main`
+  while collecting #674's captures), and no step overrides it. Now asserted: no
+  `ref:` anywhere, and none of `head_sha` / `head_branch` / `head_ref` /
+  `pull_requests` may influence what is checked out. A second test rejects `${{ }}`
+  inside any `run:` body — the general form of that bug, and the first version of
+  it passed for the wrong reason because a whole-file `run:` regex matches inside
+  `workflow_run:`.
+
+- [x] **844 tests, 0 fail** (+5 from this follow-up; 1 skipped, which is
+      `lint-config` in a tree without eslint at the root). `eslint@9.24.0 scripts`
+      exit 0. **8 further mutations, 8 caught**: predicate widened to a prefix
+      match; `no-meta-legacy` added back to the loud set; the ternary inverted;
+      `--days` hardcoded; the input default dropped; an expression interpolated
+      into a `run:` body; the off-by-one count restored; and `ref:
+      ${{ …head_sha }}` added to the checkout.

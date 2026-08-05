@@ -104,6 +104,42 @@ export { CAPTURE_META_SCHEMA, CAPTURE_META_FILE, CAPTURE_CHANNELS };
  */
 export const CAPTURE_ARTIFACT_PREFIX = "review-panel-stage-detail";
 
+/**
+ * Was this artifact uploaded by a producer that PREDATES `meta.json`?
+ *
+ * WHY THIS EXISTS. `no-meta` is a loud skip, and it should be: after #673 an
+ * artifact without `meta.json` means a producer regressed. But the ten captures
+ * uploaded BEFORE #673 merged also have no `meta.json`, they are inside the
+ * routine seven-day window, and each one made the job exit non-zero — so the
+ * first live run and every run for a week after it was RED for a reason that is
+ * neither news nor actionable by the collector. An always-red job is one nobody
+ * reads, which is precisely the failure mode this subsystem keeps shipping. Red
+ * has to mean "a producer broke", not "history exists".
+ *
+ * WHY THE NAME AND NOT A CUTOFF DATE. #673 made two changes in ONE commit: it
+ * started writing `meta.json`, and it renamed the artifact from the bare stem to
+ * `-pr-<n>`. The two properties travel together in the same upload step of the
+ * same file, so the name is not a proxy for the date — it is a direct reading of
+ * which producer ran. A timestamp cutoff would have to guess about a run that was
+ * in flight when #673 merged; the name cannot be wrong about it, because a run
+ * using the old definition uploads the old name by construction. (Measured
+ * 2026-08-05: all ten bare-named artifacts predate the merge at 05:05:57Z and both
+ * `-pr-` named ones follow it, so the two readings agree today — but only one of
+ * them stays correct without maintenance.)
+ *
+ * THE SET IS CLOSED, WHICH IS WHAT MAKES THIS SAFE. Neither producer can emit the
+ * bare name any more — both interpolate `-pr-<n>`, and `collect-captures.test.mjs`
+ * reads the real `name:` lines and pins that shape. So this cannot start excusing
+ * a live regression. Any OTHER name, including a future drift like
+ * `-pr-` with an empty expansion, is treated as a producer that owes a
+ * `meta.json` and stays loud.
+ *
+ * These captures are still DATA, and quiet is not the same as ignored: the summary
+ * line counts them by reason on every run, and the expiry report keeps listing
+ * them as uncollected until they are backfilled or they expire.
+ */
+export const isLegacyArtifactName = (name) => name === CAPTURE_ARTIFACT_PREFIX;
+
 // --- validation ---------------------------------------------------------------
 
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -516,10 +552,17 @@ export function walkArtifacts({ fetchPage, since = null, pageSize = ARTIFACT_PAG
  * capture was skipped for a reason that should not happen, because a red X in
  * the Actions tab is the cheapest monitor available.
  *
- * `no-meta` is on this list even though EVERY capture in existence today lacks
- * `meta.json` — that is the point. Before #673 lands the collector exits 1 on
- * every run and says why, which is a collector correctly refusing to guess, not
- * a broken one. After it lands, the same non-zero means a producer regressed.
+ * `no-meta` is on this list because #673 has landed: an artifact from a current
+ * producer with no `meta.json` means the producer regressed, and that is news.
+ *
+ * `no-meta-legacy` is deliberately NOT on it, and the distinction is the whole
+ * reason it is a separate reason string. The ten captures uploaded before #673
+ * also lack `meta.json`, sit inside the routine seven-day window, and reddened
+ * every run for a week — a red X that says "history exists" trains everyone to
+ * stop reading red X's, and this subsystem has already failed silently three
+ * times for want of someone reading a signal. Still counted and named in the
+ * summary line, and still listed by the expiry report as uncollected; just not
+ * an alarm. See `isLegacyArtifactName` for why the set cannot grow.
  */
 const LOUD_SKIPS = new Set([
   "no-meta", "bad-meta", "unsafe-entries", "expired", "download-failed", "bad-created-at", "no-lens-files",
@@ -740,9 +783,18 @@ export function prepareArtifact(artifact, io, { maxFiles = MAX_FILES_PER_ARTIFAC
 
   const metaEntry = entries.find((e) => e.kind === "meta");
   if (!metaEntry) {
-    // THE expected result on every capture written before #673. Not inferred
-    // from `lensFiles`, not guessed from the run's timestamp: skipped.
-    return skip("no-meta", `${entries.length} lens file(s) present but no ${CAPTURE_META_FILE}`);
+    // Skipped either way — the collector never infers attribution from
+    // `lensFiles` and never guesses it from the run's timestamp. The only
+    // question is whether this is NEWS. A pre-#673 artifact has no `meta.json`
+    // because none was written; anything else has none because a producer broke,
+    // and only the second deserves a red X. See `isLegacyArtifactName`.
+    const legacy = isLegacyArtifactName(artifact.name);
+    return skip(
+      legacy ? "no-meta-legacy" : "no-meta",
+      legacy
+        ? `${entries.length} lens file(s), uploaded before #673 added ${CAPTURE_META_FILE} — recoverable only by hand, and only until it expires`
+        : `${entries.length} lens file(s) present but no ${CAPTURE_META_FILE}`,
+    );
   }
 
   // Read ONCE and keep the bytes: the stored copy is verbatim (see below), and
