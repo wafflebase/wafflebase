@@ -77,13 +77,24 @@ export function classifyLensRuns(runs, names) {
  */
 export function decideEligibility({ pr, isFork, head, runs, names }) {
   const no = (reason) => ({ eligible: false, reason, head: str(head), failing: [] });
+  // UNKNOWN HEAD FIRST, and the order is the point. `readPrHead` reports an API
+  // failure as `{head: "", isFork: true}` — fork being the safe default when
+  // provenance cannot be established. Checking `isFork` first therefore told a
+  // maintainer "this is a fork" whenever the API call merely failed, sending them
+  // to look for a fork problem on a same-repo PR. Both outcomes refuse, so this
+  // changes no decision; it changes whether the stated reason is true.
+  if (str(head) === "") {
+    return no(
+      "Could not determine this PR's head commit, so there is nothing safe to act on. "
+      + "Try again in a moment.",
+    );
+  }
   if (isFork) {
     return no(
       "`@claude fix` pushes a commit to the PR branch, which the app cannot do on a fork. "
       + "Fix the findings locally, or ask a maintainer to move the branch into this repository.",
     );
   }
-  if (str(head) === "") return no("Could not determine this PR's head commit, so there is nothing safe to act on.");
 
   const { total, completed, pending, failing } = classifyLensRuns(runs, names);
   if (total === 0) {

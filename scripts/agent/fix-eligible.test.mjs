@@ -119,6 +119,20 @@ test("FAIL DIRECTION: an unknown head refuses, even with failing lenses in hand"
   assert.match(d.reason, /Could not determine/);
 });
 
+test("an API failure is reported as an unknown head, NOT as a fork", () => {
+  // readPrHead reports a failed lookup as {head:"", isFork:true} — fork is the
+  // safe default for unknown provenance. Checking isFork first therefore claimed
+  // "this is a fork" whenever the API merely failed, sending a maintainer to look
+  // for a fork problem on a same-repo PR. Both refuse; only one reason is true.
+  const d = decideEligibility({ pr: "7", isFork: true, head: "", names: NAMES, runs: [] });
+  assert.equal(d.eligible, false);
+  assert.match(d.reason, /Could not determine this PR's head commit/);
+  assert.equal(/fork/.test(d.reason), false);
+  // A real fork — head known, different repo — still gets the fork message.
+  const f = decideEligibility({ pr: "7", isFork: true, head: HEAD, names: NAMES, runs: [] });
+  assert.match(f.reason, /cannot do on a fork/);
+});
+
 test("FAIL DIRECTION: every refusal reports failing as an empty array, never undefined", () => {
   // The workflow joins this into a step output; `undefined.join` would red the
   // gate step, turning a clean refusal into a broken-looking workflow.
@@ -159,10 +173,24 @@ test("FAIL DIRECTION: an unknown GITHUB_REPOSITORY refuses rather than assuming 
   // look same-repo the moment the env var went missing.
   const api = () => ({ head: { sha: HEAD, repo: { full_name: "wafflebase/wafflebase" } } });
   assert.equal(readPrHead("7", { api, repo: "" }).isFork, true);
-  assert.equal(readPrHead("7", { api, repo: undefined }).isFork, true);
   // Control: the SAME response with the repo known is not a fork, so the refusal
   // above is the missing comparand and not a matcher that always says yes.
   assert.equal(readPrHead("7", { api, repo: "wafflebase/wafflebase" }).isFork, false);
+
+  // The PRODUCTION path — `repo` omitted so the default parameter reads the
+  // environment. Passing `repo: undefined` does NOT test this: a default parameter
+  // substitutes for `undefined`, so that call silently became "whatever
+  // GITHUB_REPOSITORY happens to be" — green locally where it is unset, red in
+  // Actions where it is `wafflebase/wafflebase`. Clear it explicitly instead, and
+  // restore it, so the assertion means the same thing in both places.
+  const saved = process.env.GITHUB_REPOSITORY;
+  try {
+    delete process.env.GITHUB_REPOSITORY;
+    assert.equal(readPrHead("7", { api }).isFork, true);
+  } finally {
+    if (saved === undefined) delete process.env.GITHUB_REPOSITORY;
+    else process.env.GITHUB_REPOSITORY = saved;
+  }
 });
 
 test("FAIL DIRECTION: an API error refuses rather than assuming same-repo", () => {

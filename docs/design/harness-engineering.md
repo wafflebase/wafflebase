@@ -1888,9 +1888,24 @@ delimiter with an explicit one — the value is previous-round model output, so 
 guessable `$GITHUB_OUTPUT` delimiter would let a finding append step outputs of
 its own.
 
+**A pre-existing bug this uncovered: adjudication was inert for re-found
+findings.** `findingSimilarity` returns 0 unless both sides agree on `lens`, and it
+is the gate `matchRebuttal` scores through. Prior findings carry `lens` (stamped by
+`tagPriorFindings` from the check-run name), but a fresh finding is raw model
+output and `coerceFindings` never adds one — and when a fresh finding and its
+carried-forward twin are merged, the FRESH representative survives. So any defect
+the fresh pass re-found (i.e. any defect still present, the common case) reached
+adjudication with no `lens` and could never be matched to a rebuttal. Phase 28's
+loop has therefore been silently dead for exactly those findings since it shipped,
+and the fix-report claims inherited it. The lens is now stamped on `merged` — not
+on the gating subset, because `mergedAfter` removes overturned findings by object
+identity and a copy at that point would make every dropped finding un-removable
+from the summary.
+
 **Two hazards from putting verbatim finding text in a hidden payload.**
-`scripts/agent/metrics.mjs` can state that its records never contain the ` -->`
-terminator because it serialises machine-generated fields. Every field in a fix
+`scripts/agent/metrics.mjs` can state that its records never contain the
+space-then-`-->` terminator its parser splits on, because it serialises
+machine-generated fields. Every field in a fix
 report is model text copied verbatim from a finding, and this repo's findings
 quote its own HTML markers constantly. `JSON.stringify` does not escape `-->`, the
 parser's non-greedy match stopped at the first one, the round-trip guard then

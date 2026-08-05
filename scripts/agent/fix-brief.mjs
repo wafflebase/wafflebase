@@ -21,8 +21,10 @@
 // Usage:
 //   node fix-brief.mjs <pr> --sha <head-sha> (--checks <n,...> | --lenses <lenses.json>)
 //                      [--github-output] [--out-json <file>]
-// Writes `checklist` + `summary` + `findings` step outputs when --github-output is
-// set (needs $GITHUB_OUTPUT), otherwise prints the JSON to stdout.
+// Writes the `checklist` and `summary` step outputs when --github-output is set
+// (needs $GITHUB_OUTPUT); otherwise prints the whole brief as JSON to stdout, or
+// to --out-json. There is no `findings` step output — the counts travel on the
+// JSON only.
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
@@ -218,9 +220,9 @@ export function buildSummary(runsByName, { hasBlocks }) {
 /**
  * The whole brief, from a run list.
  *
- * `findings` is the flat list the caller may want for its own bookkeeping (how
- * many blocking items this round had); `checklist`/`summary` are the two prompt
- * inputs.
+ * `checklist` and `summary` are the two prompt inputs; `lenses`, `emitted`,
+ * `total` and `truncated` are the caller's bookkeeping (how much of this round's
+ * work list actually fitted). Only the first two become step outputs.
  */
 export function buildBrief(runs, names, opts = {}) {
   return buildBriefFrom(latestFailing(runs, names), opts);

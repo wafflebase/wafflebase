@@ -90,7 +90,7 @@ export function serializeFixReport(rec) {
   // such item truncated the payload, failed the round-trip guard, and made
   // `cmdPost` post nothing at all. Every other item in the report went with it.
   //
-  // `-` is the JSON escape for `-`, so the raw comment no longer contains
+  // `\u002d` is the JSON escape for `-`, so the raw comment no longer contains
   // `-->` while `JSON.parse` still yields the original characters exactly. The
   // value round-trips byte-for-byte; only the transport is neutralised.
   return `${FIX_REPORT_MARKER}${JSON.stringify(payload).replace(/-->/g, "-\\u002d>")} -->`;
@@ -206,30 +206,6 @@ export function locationsIn(note) {
 }
 
 /**
- * Fix-report items as REBUTTAL RECORDS, so the existing adjudication pass decides
- * them. This is the whole integration, and it is deliberately not more than this.
- *
- * WHY ADJUDICATION AND NOT VERIFICATION. The obvious place to put "the author says
- * they fixed this" is the prior-finding verifier — it is already re-checking the
- * finding against the new code. But `adjudicateFinding`'s doc comment states the
- * rule the panel is built on: the verifier path is the one path that has never
- * been handed author-written text, and the adjudicator exists precisely to be the
- * component that is. A report is author-written text. It goes to the adjudicator.
- *
- * WHAT EACH STATUS CAN ACHIEVE, and the asymmetry is the safety property:
- *   - `fixed` maps onto the real overturn ground `not-present` — the defect is
- *     genuinely gone. The adjudicator still has to read the code and cite
- *     locations, so a false "I fixed it" is upheld and the finding stands.
- *   - `skipped` maps onto NOTHING. OVERTURN_GROUNDS has no entry for "I did not do
- *     it", by design (rebuttal.mjs: "undeliverable is not wrong"), so a skipped
- *     item is upheld — and skipping the same finding twice trips `upheldTwice` and
- *     pages a human, which is the correct destination for a loop that cannot
- *     settle a question by itself.
- *
- * The claim text says which of the two it is, first, so the adjudicator is not
- * left to infer it from a note that may argue for either.
- */
-/**
  * How many fix-report claims may buy an adjudicator session in one round.
  *
  * A report covers the WHOLE checklist by construction (the prompt requires one
@@ -297,11 +273,36 @@ export function authorClaims(reports, rebuttals = []) {
 }
 
 /**
- * Already-flattened claims as rebuttal records, for the adjudication pass.
+ * Fix-report items as REBUTTAL RECORDS, so the existing adjudication pass decides
+ * them. This is the whole integration, and it is deliberately not more than this.
  *
  * Takes CLAIMS, not reports — `authorClaims` above decides which ones get here,
  * and doing that selection inside this function would put the cap and the
  * rebuttal-precedence rule somewhere no caller can see them.
+ *
+ * WHY ADJUDICATION AND NOT VERIFICATION. The obvious place to put "the author says
+ * they fixed this" is the prior-finding verifier — it is already re-checking the
+ * finding against the new code. But `adjudicateFinding`'s doc comment states the
+ * rule the panel is built on: the verifier path is the one path that has never
+ * been handed author-written text, and the adjudicator exists precisely to be the
+ * component that is. A report is author-written text. It goes to the adjudicator.
+ *
+ * WHAT EACH STATUS CAN ACHIEVE, and the asymmetry is the safety property:
+ *   - `fixed` maps onto the real overturn ground `not-present` — the defect is
+ *     genuinely gone. The adjudicator still has to read the code and cite
+ *     locations, so a false "I fixed it" is upheld and the finding stands. These
+ *     are the only claims that reach here.
+ *   - `skipped` maps onto NOTHING. OVERTURN_GROUNDS has no entry for "I did not do
+ *     it", by design (rebuttal.mjs: "undeliverable is not wrong"), so a skipped
+ *     item could only ever be upheld. It is therefore never converted at all —
+ *     `authorClaims` routes it to the caller's session-free uphold instead, which
+ *     reaches the same answer without buying 20 turns to get there, and still
+ *     advances the counter that pages a human on the second skip.
+ *
+ * The claim text says which status it is, first, so the adjudicator is not left to
+ * infer it from a note that may argue for either. Both wordings exist because a
+ * capped `fixed` claim is handled like a skip, and the caller may hand either back
+ * for rendering.
  */
 export function toRebuttalRecords(claims) {
   const out = [];

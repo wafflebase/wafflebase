@@ -302,6 +302,27 @@ test("both fixers read from the SAME brief builder and write the SAME report for
   // ...and the panel must actually READ them back, or the loop half is inert.
   assert.match(panel, /fix-report\.mjs read/);
   assert.match(panel, /--fix-reports/);
+
+  // The ADVISORY panel too, or it reaches a different verdict than the gating one
+  // for the same code — and a maintainer reading it is told something the merge
+  // gate disagrees with.
+  const onDemand = WF("agent-review-on-demand.yml");
+  assert.match(onDemand, /fix-report\.mjs read/);
+  assert.match(onDemand, /--fix-reports/);
+});
+
+test("the on-demand reader uses THIS workflow's PR output, not the panel's", () => {
+  // The reader was copied from agent-review-panel.yml, where the number comes from
+  // a `pr` STEP. This workflow has no such step: `steps.pr.outputs.number`
+  // evaluated to "" so the `if` was permanently false and the step never ran —
+  // fail-safe and completely invisible. Every `PR:` binding in the review job must
+  // resolve to something this workflow actually produces.
+  const wf = WF("agent-review-on-demand.yml");
+  assert.equal(/steps\.pr\.outputs\.number/.test(wf), false, "no reference to a step this workflow lacks");
+  const reader = wf.slice(wf.indexOf("Read fix-agent reports"), wf.indexOf("Run review panel"));
+  assert.match(reader, /PR: \$\{\{ needs\.authorize\.outputs\.pr \}\}/);
+  // And it must not be gated on an expression that can never be true.
+  assert.equal(/if: steps\.pr\.outputs/.test(reader), false);
 });
 
 test("agent-fix re-verifies the commit AFTER checkout, closing the eligibility TOCTOU", () => {

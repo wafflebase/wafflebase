@@ -316,12 +316,21 @@ jobs:
       # panel would, or a maintainer reading it is being told something the merge
       # gate does not agree with. Trusted copy, fail-quiet, adjudicated not verified
       # (see scripts/agent/fix-report.mjs).
+      #
+      # `needs.authorize.outputs.pr`, matching the rebuttal step above. This was
+      # copied from agent-review-panel.yml, where the PR number comes from a `pr`
+      # STEP — an output this workflow does not have. `steps.pr.outputs.number`
+      # therefore evaluated to the empty string, the `if` was permanently false,
+      # and the step never ran: no /tmp/fix-reports.json, review-panel.mjs
+      # tolerating the missing file, and the advisory panel silently ignoring every
+      # fix report. Fail-safe, and invisible — which is exactly the second-copy rot
+      # scripts/agent/fix-brief.mjs was extracted to prevent, reproduced in the
+      # plumbing around it.
       - name: Read fix-agent reports (align with the gating panel)
-        if: steps.pr.outputs.number != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ steps.pr.outputs.number }}
+          PR: ${{ needs.authorize.outputs.pr }}
         run: node .trusted/scripts/agent/fix-report.mjs read "$PR" --out /tmp/fix-reports.json
 
       - name: Run review panel
@@ -347,8 +356,8 @@ jobs:
           # payload.
           STAGE_DETAIL_CAPTURE: ${{ vars.AGENT_STAGE_DETAIL_CAPTURE }}
           STAGE_DETAIL_DIFF_CONTENT: ${{ vars.AGENT_STAGE_DETAIL_DIFF_CONTENT }}
-        # --prior-findings and --rebuttals are both tolerant of a missing file
-        # (existsSync guard in review-panel.mjs → treated as []), so a
+        # --prior-findings, --rebuttals and --fix-reports are all tolerant of a
+        # missing file (existsSync guard in review-panel.mjs → treated as []), so a
         # skipped/failed read step above is safe.
         run: >-
           node .trusted/scripts/agent/review-panel.mjs
