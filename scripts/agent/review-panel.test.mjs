@@ -3288,15 +3288,73 @@ test("stamping preserves object IDENTITY, which mergedAfter removes by", async (
   assert.equal(merged.filter((f) => !overturnedOut.has(f)).length, 0, "the overturned finding must leave the summary too");
 });
 
-test("an already-stamped finding is not copied, and a foreign lens is not overwritten", async () => {
+test("a model-supplied `lens` is OVERWRITTEN, not preserved", async () => {
   const { stampLens } = await import("./review-panel.mjs");
-  // `priorForLens` is filtered to `p.lens === lens.id`, so the stamp only ever
-  // fills blanks. Overwriting would let one lens claim another's finding and
-  // silently re-target its rebuttals.
-  const prior = { ...freshFinding(), lens: "correctness" };
-  const [out] = stampLens([prior], LENS_ID);
-  assert.equal(out, prior, "no copy when a lens is already present");
-  assert.equal(out.lens, "correctness", "and no overwrite");
+  // `lens` last, exactly as prior-findings.mjs stamps: "a finding cannot spoof its
+  // own origin by carrying a `lens` key, since these come from a previous round's
+  // model output." A FRESH finding is model output too, and nothing rejects an
+  // extra key — so filling blanks only (the first draft here) let a finding
+  // declare which lens raised it, and `findingSimilarity` gates rebuttal matching
+  // on exactly that field.
+  const spoofed = { ...freshFinding(), lens: "docs" };
+  const [out] = stampLens([spoofed], LENS_ID);
+  assert.equal(out.lens, LENS_ID);
+  assert.equal(spoofed.lens, "docs", "the input is not mutated");
+  // A carried-forward finding is already filtered to this lens, so the overwrite
+  // is a no-op for it.
+  assert.equal(stampLens([{ ...freshFinding(), lens: LENS_ID }], LENS_ID)[0].lens, LENS_ID);
+  // Non-objects pass through untouched rather than becoming `{lens}`.
+  assert.deepEqual(stampLens([null, 7], LENS_ID), [null, 7]);
+});
+
+test("a spoofed lens cannot pull in another lens's rebuttal", async () => {
+  // The two halves together: without the overwrite a finding could name a lens it
+  // did not come from, and `findingSimilarity` would then match that lens's
+  // rebuttals against it.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const spoofed = { ...freshFinding(), lens: "docs" };
+  const docsRebuttal = { v: 1, lens: "docs", file: "src/a.ts", summary: DEFECT, claim: "c", evidence: ["src/a.ts:1"] };
+  const gating = gatingFindings(stampLens(clusterFindings(dedupeFindings([spoofed])), LENS_ID));
+  let calls = 0;
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(res.tally.matched, 0);
+  assert.equal(calls, 0);
+});
+
+test("adjudicateRebuttals partitions by lens itself, not by trusting the caller", async () => {
+  // The distinguishing case, and it has to be chosen carefully: `findingSimilarity`
+  // ALSO refuses a lens mismatch, so a foreign rebuttal against a correctly-stamped
+  // finding proves nothing — it fails either way, and an earlier draft of this test
+  // passed with the partition deleted.
+  //
+  // What the partition adds is robustness to the CALLER: findings and rebuttals
+  // that agree with each other but not with `lensId`. Similarity is happy; only the
+  // partition refuses. That makes "a lens adjudicates only its own disputes" a
+  // property of this function rather than an invariant every caller must maintain.
+  const { adjudicateRebuttals } = await import("./review-panel.mjs");
+  const docsFinding = { ...freshFinding(), lens: "docs" };
+  const docsRebuttal = { v: 1, lens: "docs", file: "src/a.ts", summary: DEFECT, claim: "c", evidence: ["src/a.ts:1"] };
+
+  // Control: they DO match each other, so the refusal below is the partition.
+  let control = 0;
+  await adjudicateRebuttals([docsFinding], {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: "docs",
+    adjudicate: async () => { control++; return null; },
+  });
+  assert.equal(control, 1);
+
+  // Same pair, adjudicated as the security lens: refused.
+  let calls = 0;
+  const res = await adjudicateRebuttals([docsFinding], {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(res.tally.matched, 0);
+  assert.equal(calls, 0, "no session is opened for another lens's dispute");
+  assert.equal(res.findings[0], docsFinding, "and the finding passes through untouched");
 });
 
 test("the round loop actually routes `merged` through stampLens", async () => {

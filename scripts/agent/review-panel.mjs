@@ -795,15 +795,25 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
  * rebutted finding means the author did NOT change the code, so the next round's
  * fresh pass almost always re-finds it.
  *
- * IDENTITY IS PRESERVED for a finding that already has a lens, and callers depend
- * on it: the round loop stamps `merged`, then removes overturned findings from that
- * same array by object identity (`overturnedOut.has(f)`). Returning fresh copies
- * unconditionally would leave every overturned finding un-removable from the
- * summary — dropped from the check run and still rendered as blocking for a human.
+ * WHERE it runs is what callers depend on, not whether it copies. The round loop
+ * stamps `merged` AS IT IS BUILT and then removes overturned findings from that
+ * same array by object identity (`overturnedOut.has(f)`) — so every downstream
+ * reference is to a stamped object and the identities line up. Stamping later, at
+ * the gating step, would hand adjudication copies of findings `merged` no longer
+ * holds, and every overturned one would stay in the summary: dropped from the
+ * check run and still rendered as blocking for a human.
  *
- * Blanks only, never an overwrite: `priorForLens` is already filtered to
- * `p.lens === lens.id`, and overwriting would let one lens claim another's finding
- * and silently re-target its rebuttals.
+ * OVERWRITES, and must. `lens` last is the same rule prior-findings.mjs states at
+ * its own stamp: "a finding cannot spoof its own origin by carrying a `lens` key,
+ * since these come from a previous round's model output." A FRESH finding is model
+ * output too. `lens` is not in the FINDING schema, but nothing rejects an extra
+ * key, and a diff can ask a lens for one — so a "fill the blank" rule would let a
+ * finding declare which lens raised it. That is the origin-spoofing hole that file
+ * closes, and it decides which rebuttals `findingSimilarity` will match. Filling
+ * blanks only was the first draft here and was simply wrong.
+ *
+ * `priorForLens` is already filtered to `p.lens === lens.id`, so the overwrite is
+ * a no-op for carried-forward findings and correcting for fresh ones.
  *
  * A FUNCTION rather than an inline `.map`, so a test can bind to the same
  * definition the round loop uses. As an inline expression the tests could only
@@ -812,7 +822,7 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
 export function stampLens(findings, lensId) {
   const id = typeof lensId === "string" ? lensId : "";
   return (Array.isArray(findings) ? findings : []).map((f) =>
-    f && typeof f === "object" && typeof f.lens !== "string" ? { ...f, lens: id } : f,
+    f && typeof f === "object" ? { ...f, lens: id } : f,
   );
 }
 
@@ -1943,6 +1953,15 @@ export async function adjudicateRebuttals(
   if (!Array.isArray(rebuttals) || rebuttals.length === 0 || !Array.isArray(gating)) {
     return { findings: Array.isArray(gating) ? gating : [], dropped: [], tally };
   }
+  // Partition by lens HERE rather than relying on every finding carrying the right
+  // one. `findingSimilarity` already refuses a lens mismatch, so this changes no
+  // outcome while `stampLens` is doing its job — but it makes "a lens adjudicates
+  // only its own disputes" a property of this function instead of an invariant the
+  // caller has to maintain, and it stops one lens paying for another's sessions.
+  const mine = typeof lensId === "string" && lensId !== ""
+    ? rebuttals.filter((r) => (typeof r?.lens === "string" ? r.lens : "") === lensId)
+    : rebuttals;
+  if (mine.length === 0) return { findings: gating, dropped: [], tally };
   const out = [];
   // The ORIGINAL objects that were overturned. Returned rather than derived by the
   // caller: an upheld finding is re-created with an `adjudication` field, so its
@@ -1950,7 +1969,7 @@ export async function adjudicateRebuttals(
   // dropped — removing from the summary exactly the findings that survived.
   const dropped = [];
   for (const f of gating) {
-    const r = matchRebuttal(f, rebuttals);
+    const r = matchRebuttal(f, mine);
     if (!r) {
       out.push(f);
       continue;
