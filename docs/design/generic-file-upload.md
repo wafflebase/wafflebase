@@ -279,8 +279,11 @@ it is a defect in the exact code path this work extends.
 ### Error handling
 
 - Over-cap files fail **before** the request: the queue marks that row `error`
-  with a size reason and the rest of the batch continues (today's policy for
-  oversized PDFs, now uniform).
+  with a size reason and the rest of the batch continues. This is new — today
+  the queue has no client-side size check at all, so an oversized file is
+  uploaded in full and only then rejected by the backend. Adding the check
+  matters more now that arbitrary files are accepted, since a 2 GB video would
+  otherwise be pushed over the wire before failing.
 - Extension-less files (`Makefile`, `LICENSE`) are normal: no stored extension,
   and the download filename is the title as-is.
 - The `create-then-populate` window is narrower than for CRDT imports — a blob
