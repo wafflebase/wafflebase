@@ -146,10 +146,21 @@ single-selection branch.
 
 ### Zoom
 
-`createZoomController` (`app/slides/zoom-controller.ts`) is a pure value
-holder: `get / set / subscribe`, a `FIT_ZOOM` sentinel, clamping to
-`[MIN_ZOOM, MAX_ZOOM]`, and no persistence. The board reuses it verbatim
-and supplies the *meaning* in a new `app/board/board-zoom.ts`:
+`ZoomControl` (`app/slides/toolbar/zoom-control.tsx`) renders against the
+narrow `ZoomController` interface — `get / set / subscribe` plus the
+`FIT_ZOOM` sentinel — so the board reuses the **UI** as-is and supplies
+its own controller in a new `app/board/board-zoom.ts`.
+
+The controller is board-local rather than slides'
+`createZoomController` because the two clamp differently: slides allows
+`[0.25, 4]` (`MIN_ZOOM`/`MAX_ZOOM`), while the board viewport's `zoomAt`
+allows `[0.1, 8]`. Reusing the slides factory would clip the wheel-zoom
+write-back below 0.25 or above 4, leaving the dropdown label reporting a
+scale the canvas is not at. `FIT_ZOOM` and `ZOOM_PRESETS` are imported
+and reused unchanged; only the clamp differs.
+
+The viewport stays the single source of truth — the controller is an
+intent/label channel, never a second copy of the scale:
 
 - `FIT_ZOOM` → run the existing `fit-to-content.ts` path (fit all
   elements into the viewport).
@@ -237,7 +248,7 @@ packages/frontend/src/app/slides/toolbar/
 
 packages/frontend/src/app/board/
   board-toolbar.tsx   morphing shell: undo/redo + zoom + insert + contextual
-  board-zoom.ts  NEW  board zoom controller (FIT = fit-all, presets, wheel sync)
+  board-zoom.ts  NEW  board ZoomController (board clamp) + FIT = fit-all, presets, wheel sync
   board-view.tsx      wire zoom controller, onFitToContent, cursor publish
 ```
 
