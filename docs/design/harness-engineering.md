@@ -1893,6 +1893,14 @@ delimiter with an explicit one — the value is previous-round model output, so 
 guessable `$GITHUB_OUTPUT` delimiter would let a finding append step outputs of
 its own.
 
+**The channel needs the same author gate as a rebuttal, and more so.**
+`readFixReports` pages every comment on the PR, so on a public repo an
+unauthenticated marker comment reaches the adjudicator — and one report carries up
+to 80 items where one rebuttal carries a single claim, with every `fixed` item
+framed as "verify whether the defect is gone". `fromRebuttalAuthor` is reused
+rather than re-derived: both channels have exactly one legitimate writer, the fix
+agent, and two copies of "who may write" is how one of them ends up wrong.
+
 **Two hazards from putting verbatim finding text in a hidden payload.**
 `scripts/agent/metrics.mjs` can state that its records never contain the
 space-then-`-->` terminator its parser splits on, because it serialises

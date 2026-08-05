@@ -33,6 +33,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
+import { fromRebuttalAuthor } from "./rebuttal.mjs";
 
 /** Hidden-comment marker, mirroring metrics.mjs's `METRIC_PREFIX`. */
 export const FIX_REPORT_MARKER = "<!-- agent-fix-report ";
@@ -123,10 +124,21 @@ export function parseFixReportComment(body) {
   return { v: d.v, head: str(d.head), fixed: list(d.fixed), skipped: list(d.skipped) };
 }
 
-/** Every fix report on a PR, in comment order. Junk in the list is skipped. */
+/**
+ * Every fix report on a PR, in comment order. Junk — and anyone else's — is skipped.
+ *
+ * SAME AUTHOR GATE AS A REBUTTAL, and it matters more here. `readFixReports` pages
+ * every comment on the PR, so on a public repo an unauthenticated marker comment
+ * would reach the adjudicator — and one report carries up to 80 items, where one
+ * rebuttal carries a single claim. That is an 80x amplification of the same
+ * channel. `fromRebuttalAuthor` is reused rather than re-derived: both channels
+ * have exactly one legitimate writer, the fix agent, and two copies of "who may
+ * write" is how one of them ends up wrong.
+ */
 export function collectFixReports(comments) {
   const out = [];
   for (const c of Array.isArray(comments) ? comments : []) {
+    if (!fromRebuttalAuthor(c)) continue;
     const r = parseFixReportComment(c?.body);
     if (r) out.push({ ...r, commentId: c?.id ?? null, createdAt: str(c?.created_at) });
   }

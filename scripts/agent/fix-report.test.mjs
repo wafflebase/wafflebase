@@ -20,6 +20,11 @@ import {
 } from "./fix-report.mjs";
 import { matchRebuttal, OVERTURN_GROUNDS, buildAdjudicatorPrompt } from "./rebuttal.mjs";
 
+/** The fix agent's identity, as the REST comments endpoint reports it. */
+const AGENT = { login: "yorkie-agent[bot]", type: "Bot" };
+/** A comment from the agent. Reports from anyone else are refused — see below. */
+const agentComment = (body, over = {}) => ({ id: 1, user: AGENT, body, ...over });
+
 const REC = {
   head: "abc1234567",
   fixed: [{ lens: "correctness", file: "a.ts", summary: "null deref in parse()", note: "added a guard at a.ts:42" }],
@@ -61,10 +66,10 @@ test("serialize: fields are capped at WRITE time, not read time", () => {
 
 test("collectFixReports: skips junk and keeps comment order", () => {
   const reports = collectFixReports([
-    { id: 1, body: "chatter" },
-    { id: 2, body: serializeFixReport({ fixed: [{ lens: "a", file: "f", summary: "first" }] }), created_at: "t1" },
-    { id: 3, body: `${FIX_REPORT_MARKER}garbage -->` },
-    { id: 4, body: serializeFixReport({ fixed: [{ lens: "a", file: "f", summary: "second" }] }), created_at: "t2" },
+    agentComment("chatter"),
+    agentComment(serializeFixReport({ fixed: [{ lens: "a", file: "f", summary: "first" }] }), { id: 2, created_at: "t1" }),
+    agentComment(`${FIX_REPORT_MARKER}garbage -->`, { id: 3 }),
+    agentComment(serializeFixReport({ fixed: [{ lens: "a", file: "f", summary: "second" }] }), { id: 4, created_at: "t2" }),
   ]);
   assert.deepEqual(reports.map((r) => r.fixed[0].summary), ["first", "second"]);
   assert.deepEqual(reports.map((r) => r.commentId), [2, 4]);
@@ -153,7 +158,7 @@ test("END TO END: a report the panel reads is matched to the finding by matchReb
   // The half-assembled version of this passed both halves' unit tests on PR 10 and
   // still never fired, so this asserts the REAL shape: comments -> collect ->
   // convert -> the panel's own matcher.
-  const comments = [{ id: 1, body: renderFixReportBody(REC), created_at: "t" }];
+  const comments = [agentComment(renderFixReportBody(REC), { created_at: "t" })];
   const rebuttals = authorClaims(collectFixReports(comments)).adjudicate;
   const finding = { lens: "correctness", file: "a.ts", summary: "null deref in parse()", severity: "critical" };
   const matched = matchRebuttal(finding, rebuttals);
@@ -166,7 +171,7 @@ test("END TO END: a skipped finding is upheld WITHOUT buying an adjudicator sess
   // It can never win — OVERTURN_GROUNDS has no ground for "I did not do it" — so
   // a 20-turn session could only ever reach `upheld`. It must not be in the
   // adjudication list at all; the caller upholds it directly.
-  const split = authorClaims(collectFixReports([{ id: 1, body: renderFixReportBody(REC) }]));
+  const split = authorClaims(collectFixReports([agentComment(renderFixReportBody(REC))]));
   assert.equal(split.adjudicate.length, 1); // the `fixed` claim
   assert.match(split.adjudicate[0].claim, /FIXED/);
   assert.deepEqual(split.skipped.map((c) => c.file), ["b.ts"]);
@@ -248,7 +253,7 @@ test("readFixReports: an unreadable side-channel degrades to none, never throws"
 
 test("readFixReports: paginates the bare-array comments endpoint", () => {
   let seen = null;
-  const api = (args) => { seen = args; return [{ id: 1, body: serializeFixReport(REC) }]; };
+  const api = (args) => { seen = args; return [agentComment(serializeFixReport(REC))]; };
   assert.equal(readFixReports("7", { api }).length, 1);
   assert.ok(seen.includes("--paginate"));
 });
@@ -337,4 +342,18 @@ test("an item quoting THIS module's own marker does not shadow the real record",
   const back = parseFixReportComment(renderFixReportBody(rec));
   assert.ok(back);
   assert.equal(back.fixed[0].summary, summary);
+});
+
+test("collectFixReports: only the fix agent may file one", () => {
+  // The SAME gate as a rebuttal, and it matters more here: one report carries up
+  // to 80 items where one rebuttal carries a single claim, so an unauthenticated
+  // marker comment is an 80x amplification of the same channel — every `fixed`
+  // item framed to the adjudicator as "verify whether the defect is gone".
+  const body = renderFixReportBody(REC);
+  const accepted = (user) => collectFixReports([{ id: 1, user, body }]).length;
+  assert.equal(accepted(AGENT), 1);
+  assert.equal(accepted({ login: "harrykim8672", type: "User" }), 0);
+  assert.equal(accepted({ login: "coderabbitai[bot]", type: "Bot" }), 0);
+  assert.equal(accepted({ login: "yorkie-agent[bot]", type: "User" }), 0);
+  for (const u of [undefined, null, {}]) assert.equal(accepted(u), 0);
 });
