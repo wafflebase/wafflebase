@@ -303,3 +303,31 @@ test("both fixers read from the SAME brief builder and write the SAME report for
   assert.match(panel, /fix-report\.mjs read/);
   assert.match(panel, /--fix-reports/);
 });
+
+test("agent-fix re-verifies the commit AFTER checkout, closing the eligibility TOCTOU", () => {
+  // The gate proves sha H carries the verdict; the checkout takes the branch TIP,
+  // minutes later (app token, placeholder, brief, pnpm install). Without a
+  // re-check, an author pushing in that window has the fixer edit and push on top
+  // of a commit the panel never reviewed — the exact thing the precondition exists
+  // to prevent.
+  const wf = WF("agent-fix.yml");
+  const checkout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");
+  const recheck = wf.indexOf("Re-verify the checked-out commit");
+  const agent = wf.indexOf("Address panel findings");
+  assert.ok(recheck > checkout, "the re-check must run after the branch checkout");
+  assert.ok(recheck < agent, "and before the agent edits anything");
+  const step = wf.slice(recheck, agent);
+  assert.match(step, /steps\.eligible\.outputs\.head/, "it must compare against the GATED sha");
+  assert.match(step, /git rev-parse HEAD/);
+  assert.match(step, /exit 1/, "a moved branch must refuse, not warn");
+});
+
+test("agent-fix always answers the commenter, even when the gate step itself fails", () => {
+  // fix-eligible.mjs exits 2 on a broken invocation. Under the implicit success()
+  // the refusal step was skipped along with everything downstream, stranding
+  // "🤖 Working on @claude fix…" beside a red X forever.
+  const wf = WF("agent-fix.yml");
+  const refusal = wf.slice(wf.indexOf("- name: Explain the refusal"));
+  assert.match(refusal.slice(0, 200), /if: always\(\) && steps\.eligible\.outputs\.eligible != 'true'/);
+  assert.match(refusal.slice(0, 2000), /eligibility check could not complete/, "an empty reason must still say something");
+});

@@ -154,12 +154,19 @@ jobs:
       # Not eligible → say why and stop. A refusal is an ANSWER, not a failure:
       # the job stays green so the reason is what the maintainer sees, rather than
       # a red X that reads as a broken workflow.
+      # `always()`, NOT the implicit `success()`. `fix-eligible.mjs` exits 2 on a
+      # broken invocation (unreadable lenses.json, missing gh, unset
+      # $GITHUB_OUTPUT), which fails the step — and with the default condition
+      # this was skipped along with everything downstream, leaving the PR showing
+      # "🤖 Working on @claude fix…" forever next to a red X. A refusal must always
+      # reach the person who asked.
       - name: Explain the refusal
-        if: steps.eligible.outputs.eligible != 'true'
+        if: always() && steps.eligible.outputs.eligible != 'true'
         uses: actions/github-script@v7
         env:
           COMMENT_ID: ${{ steps.placeholder.outputs.id }}
           REASON: ${{ steps.eligible.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
@@ -172,7 +179,10 @@ jobs:
             await github.rest.issues.updateComment({
               owner: context.repo.owner, repo: context.repo.repo,
               comment_id: Number(process.env.COMMENT_ID),
-              body: `⏸️ \`@claude fix\` did not run.\n\n${process.env.REASON}`,
+              // REASON is empty when the gate step itself failed rather than
+              // returning a decision — say that, instead of posting a blank refusal.
+              body: `⏸️ \`@claude fix\` did not run.\n\n${process.env.REASON
+                || 'The eligibility check could not complete — see the [workflow run](' + process.env.RUN_URL + ').'}`,
             });
 
       # The fixer's work list, from the SAME builder the autonomous loop uses.
@@ -246,6 +256,25 @@ jobs:
       # "fixed and pushed" from "ran and pushed nothing". The REMOTE, not local
       # HEAD: a fixer that commits locally but never pushes has changed nothing
       # anyone else can see.
+      # FINDING THE GATE CANNOT CATCH ON ITS OWN: `fix-eligible` proved that sha
+      # `steps.eligible.outputs.head` carries the verdict, but the checkout above
+      # takes the branch TIP — and minutes pass between the two (app token,
+      # placeholder, brief, pnpm install). An author pushing in that window would
+      # have the fixer edit and push on top of a commit the panel never reviewed,
+      # which is precisely what the precondition exists to prevent. Re-check after
+      # the checkout, and refuse rather than fix the wrong tree.
+      - name: Re-verify the checked-out commit is the one the panel reviewed
+        if: steps.eligible.outputs.eligible == 'true'
+        env:
+          EXPECTED: ${{ steps.eligible.outputs.head }}
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::The branch moved after the eligibility check (expected $EXPECTED, got $ACTUAL). A commit landed while this run was starting, so the panel's verdict no longer describes this code. Re-run @claude fix once the new panel round has posted." >&2
+            exit 1
+          fi
+          echo "Head still $ACTUAL — the panel's verdict describes this tree."
+
       - name: Record branch head before fix
         id: before-fix
         if: steps.eligible.outputs.eligible == 'true'

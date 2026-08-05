@@ -108,9 +108,14 @@ export function decideEligibility({ pr, isFork, head, runs, names }) {
     );
   }
   if (failing.length === 0) {
+    // NOT "passed all N lenses". `completed` counts every concluded run, and a
+    // lens that does not apply to this diff concludes `neutral`, not `success`
+    // (agent-review-panel.yml publishes it that way) — so that wording both
+    // over-counts and asserts a pass that did not happen. Say the thing the gate
+    // actually established: nothing is requesting changes.
     return no(
-      `The review panel passed all ${completed} lens(es) on this commit — there are no blocking `
-      + "findings to fix.",
+      `No lens is requesting changes on this commit (${completed} concluded), so there are no `
+      + "blocking findings to fix.",
     );
   }
   return {

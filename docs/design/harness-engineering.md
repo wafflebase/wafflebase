@@ -1803,7 +1803,33 @@ The asymmetry between the two statuses is the safety property:
 - `skipped` maps onto **nothing**. `OVERTURN_GROUNDS` has no entry for "I did not
   do it", by design (Phase 28: *undeliverable is not wrong*), so a skipped item is
   upheld — and skipping the same finding twice trips `upheldTwice` and pages a
-  human, which is the right destination for a question the loop cannot settle.
+  human, which is the right destination for a question the loop cannot settle. It
+  is upheld WITHOUT an adjudicator session: no enumerated ground could ever apply,
+  so a 20-turn Opus run could only reach the answer already known.
+  `applySkipClaims` writes the increment directly. The author controls only whether
+  a claim exists, and its effect is to move the finding TOWARD the paging bound.
+
+Three collisions had to be resolved before that worked, and each failed silently:
+
+- **A rebuttal and a report about the same finding tied.** Both prompts require an
+  item per checklist entry *and* a rebuttal for a finding believed wrong, so a
+  disputed finding always produced two records with identical lens/file/summary —
+  and `matchRebuttal` refuses a tie. The grounded rebuttal was therefore never
+  adjudicated for exactly the findings the channel exists to serve, and
+  `adjudication.upheld` never passed 1, so `upheldTwice` could never fire. A
+  rebuttal now outranks a report about the same finding.
+- **Two rounds' reports tied the same way**, which is the other half of the same
+  page never firing. Only the LATEST report counts now — which is also the honest
+  semantic, since a report describes what one run did to the findings standing at
+  that moment. It removes a second bug too: `readFixReports` has no round filter,
+  so round 1's "I FIXED this" was being replayed to round 5's adjudicator as a
+  claim about a tree it never saw.
+- **Cost.** A report covers the whole checklist by construction, so uncapped this
+  bought one 20-turn session per still-gating finding, inside the panel job's
+  45-minute timeout — on a #648-shaped PR, nine extra sequential sessions per
+  round, with `close-stuck-checks` marking every lens failed if the job were
+  killed. `MAX_FIX_ADJUDICATIONS = 5` caps it; the overflow is upheld
+  session-free like a skip, and the count is logged rather than silently dropped.
 
 "This finding is wrong" remains a different claim with a different channel: a
 rebuttal, which an adjudicator decides on enumerated grounds. Both fixers — the
@@ -1815,6 +1841,13 @@ posts one standalone comment per fix run under its own marker
 `SUMMARY_MARKER`, so `summarize`'s sweep and repost cannot touch it. The session
 is also recorded into the PR-wide ledger as a `review-fix` record, so the total
 stays right.
+
+Success is decided by `classifyFixResult`, not `classifyResult` alone. That
+function was written for Agent SDK sessions and requires `structured_output`,
+which a claude-code-action transcript never carries — handing it one made every
+*successful* fix run report `failed (no-output) — subtype=success. Not retryable;
+a human should take a look.` It is now used only for the failure taxonomy, which
+is the part it gets right and the part worth reusing.
 
 It reports the OUTCOME, not just the spend, and that is most of the value. Both
 `@claude rerun` attempts on #632 and #648 failed with:
@@ -1854,6 +1887,17 @@ Extracting it also put its two bounds (40 items / 16k chars) and the
 delimiter with an explicit one — the value is previous-round model output, so a
 guessable `$GITHUB_OUTPUT` delimiter would let a finding append step outputs of
 its own.
+
+**Two hazards from putting verbatim finding text in a hidden payload.**
+`scripts/agent/metrics.mjs` can state that its records never contain the ` -->`
+terminator because it serialises machine-generated fields. Every field in a fix
+report is model text copied verbatim from a finding, and this repo's findings
+quote its own HTML markers constantly. `JSON.stringify` does not escape `-->`, the
+parser's non-greedy match stopped at the first one, the round-trip guard then
+refused — and the CLI posted *nothing at all*, losing every other item in the
+report. The payload now escapes the terminator as `-\u002d>`, which `JSON.parse`
+restores byte-for-byte. The visible prose separately neutralises the module's own
+marker, which would otherwise be matched ahead of the real record sitting below it.
 
 **Trust boundary.** Everything that DECIDES (eligibility) or composes the agent's
 PROMPT (the brief) runs from the trusted `main` checkout, before the PR branch is

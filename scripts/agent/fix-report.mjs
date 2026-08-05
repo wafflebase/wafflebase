@@ -81,7 +81,19 @@ export function serializeFixReport(rec) {
     fixed: list(r.fixed),
     skipped: list(r.skipped),
   };
-  return `${FIX_REPORT_MARKER}${JSON.stringify(payload)} -->`;
+  // ESCAPE THE TERMINATOR. metrics.mjs can state that its records "never contain
+  // the ` -->` terminator" because it serialises machine-generated fields; every
+  // field here is MODEL TEXT copied verbatim from a finding, and this repo's
+  // findings quote its own HTML markers constantly (`<!-- agent-metric … -->`,
+  // `<!-- agent-review-paged -->`). `JSON.stringify` does not escape `-->`, and
+  // `parseFixReportComment`'s non-greedy match stops at the first one — so ONE
+  // such item truncated the payload, failed the round-trip guard, and made
+  // `cmdPost` post nothing at all. Every other item in the report went with it.
+  //
+  // `-` is the JSON escape for `-`, so the raw comment no longer contains
+  // `-->` while `JSON.parse` still yields the original characters exactly. The
+  // value round-trips byte-for-byte; only the transport is neutralised.
+  return `${FIX_REPORT_MARKER}${JSON.stringify(payload).replace(/-->/g, "-\\u002d>")} -->`;
 }
 
 /**
@@ -217,9 +229,83 @@ export function locationsIn(note) {
  * The claim text says which of the two it is, first, so the adjudicator is not
  * left to infer it from a note that may argue for either.
  */
-export function toRebuttalRecords(reports) {
+/**
+ * How many fix-report claims may buy an adjudicator session in one round.
+ *
+ * A report covers the WHOLE checklist by construction (the prompt requires one
+ * item per finding), so without a cap every still-gating finding would buy a
+ * 20-turn Opus session on top of the verifier sessions it already costs — inside
+ * the panel job's 45-minute timeout, which, if exceeded, kills the job and leaves
+ * `close-stuck-checks` to mark every lens failed. Claims past the cap are treated
+ * exactly like skipped ones: upheld with no session, which is the safe direction.
+ */
+export const MAX_FIX_ADJUDICATIONS = 5;
+
+/** The most recent report, or null. */
+export function latestReport(reports) {
+  const list = Array.isArray(reports) ? reports.filter((r) => r && typeof r === "object") : [];
+  return list.length ? list[list.length - 1] : null;
+}
+
+/**
+ * Split the author's claims into the two things the panel does with them.
+ *
+ * ONLY THE LATEST REPORT COUNTS. Each run reports its whole work list against the
+ * findings standing at that moment, so an older report is a statement about code
+ * that has since changed — replaying round 1's "I FIXED this" to round 5's
+ * adjudicator asks it to judge a claim about a tree it never saw. It also created
+ * a tie: two reports naming the same finding with different notes score
+ * identically, `matchRebuttal` refuses the ambiguity, and the finding is never
+ * adjudicated at all — which silently defeated the `upheldTwice` page this module
+ * documents.
+ *
+ * A GENUINE REBUTTAL WINS over a report about the same finding, for the same
+ * reason. Both prompts require an item per checklist entry AND a rebuttal for a
+ * finding believed wrong, so a disputed finding always produced both records —
+ * and the resulting tie killed the rebuttal channel for exactly the findings it
+ * exists to serve. The rebuttal is the argued claim with enumerated grounds; the
+ * report is bookkeeping. Keep the rebuttal.
+ *
+ * Returns `{ adjudicate, skipped, deferred }`:
+ *   - `adjudicate` — `fixed` claims, as rebuttal records, capped. These can win.
+ *   - `skipped` — claims the author says it did not act on. These cost NO session:
+ *     no enumerated ground could ever apply to "I did not do it", so buying a
+ *     20-turn adjudication to reach a foregone conclusion spends money to change
+ *     nothing. The caller upholds them directly, which still advances the counter
+ *     that pages a human on the second skip.
+ *   - `deferred` — `fixed` claims past the cap, handled like `skipped`.
+ */
+export function authorClaims(reports, rebuttals = []) {
+  const report = latestReport(reports);
+  if (!report) return { adjudicate: [], skipped: [], deferred: [] };
+  const claims = flattenClaims([report]);
+  const disputed = Array.isArray(rebuttals) ? rebuttals : [];
+  const covered = (c) => disputed.some((r) =>
+    findingSimilarity({ lens: c.lens, file: c.file, summary: c.summary }, r) >= DEFAULT_SIMILARITY);
+
+  const skipped = [];
+  const fixed = [];
+  for (const c of claims) {
+    if (covered(c)) continue; // the rebuttal speaks for this finding
+    (c.status === "fixed" ? fixed : skipped).push(c);
+  }
+  return {
+    adjudicate: toRebuttalRecords(fixed.slice(0, MAX_FIX_ADJUDICATIONS)),
+    skipped,
+    deferred: fixed.slice(MAX_FIX_ADJUDICATIONS),
+  };
+}
+
+/**
+ * Already-flattened claims as rebuttal records, for the adjudication pass.
+ *
+ * Takes CLAIMS, not reports — `authorClaims` above decides which ones get here,
+ * and doing that selection inside this function would put the cap and the
+ * rebuttal-precedence rule somewhere no caller can see them.
+ */
+export function toRebuttalRecords(claims) {
   const out = [];
-  for (const c of flattenClaims(reports)) {
+  for (const c of Array.isArray(claims) ? claims : []) {
     const preamble = c.status === "fixed"
       ? "The author (an automated fix agent) reports that it FIXED this finding. "
         + "Verify from the code whether the defect is genuinely gone; if it is, that is "
@@ -291,8 +377,15 @@ export function renderFixReportBody(rec) {
   const r = rec && typeof rec === "object" ? rec : {};
   const fixed = (Array.isArray(r.fixed) ? r.fixed : []).map(normalizeItem);
   const skipped = (Array.isArray(r.skipped) ? r.skipped : []).map(normalizeItem);
-  const item = (i) => `- \`${i.file}\` *(${i.lens})* — ${i.summary || "(no summary)"}`
-    + (i.note ? `\n  - ${i.note}` : "");
+  // The VISIBLE prose sits above the payload, and `parseFixReportComment` takes
+  // the FIRST marker match in the body. A finding whose wording quotes this
+  // module's own marker would therefore be matched instead of the real record,
+  // capture prose, fail to parse, and read as "the fixer never reported anything".
+  // Same class as the ` -->` escape in `serializeFixReport`, on the other half of
+  // the comment: findings here quote the pipeline's markers as a matter of course.
+  const visible = (s) => str(s).replaceAll(FIX_REPORT_MARKER.trim(), "<!-‌- agent-fix-report");
+  const item = (i) => `- \`${visible(i.file)}\` *(${visible(i.lens)})* — ${visible(i.summary) || "(no summary)"}`
+    + (i.note ? `\n  - ${visible(i.note)}` : "");
   const lines = [
     "### 🛠️ Fix agent report",
     "",

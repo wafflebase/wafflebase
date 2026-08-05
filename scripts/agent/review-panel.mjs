@@ -62,7 +62,7 @@ import {
   matchRebuttal,
   upheldCount,
 } from "./rebuttal.mjs";
-import { toRebuttalRecords } from "./fix-report.mjs";
+import { authorClaims, claimFor, MAX_FIX_ADJUDICATIONS } from "./fix-report.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1925,6 +1925,40 @@ async function adjudicateFinding(finding, rebuttal, { repo, model, sessionLog, l
 }
 
 /**
+ * Uphold the findings the author says it SKIPPED, with no adjudicator session.
+ *
+ * A skipped claim can never win: `OVERTURN_GROUNDS` has no entry for "I did not do
+ * it", by rebuttal.mjs's explicit design, so running one through
+ * `adjudicateRebuttals` buys a 20-turn session whose only possible outcome is
+ * `upheld`. The single thing that session produced was the increment on
+ * `adjudication.upheld` — so produce that directly and skip the spend.
+ *
+ * FORGERY: the author controls only whether a claim EXISTS. Its effect here is to
+ * raise the uphold count, which moves the finding TOWARD the human-paging bound
+ * and never away from it, so there is nothing to gain by writing one. The verdict
+ * string is set by this function, not by the claim.
+ *
+ * The finding's identity changes (a new object with `adjudication`), exactly as in
+ * `adjudicateRebuttals`, so callers must use the returned array.
+ */
+export function applySkipClaims(gating, claims) {
+  const list = Array.isArray(claims) ? claims : [];
+  if (list.length === 0 || !Array.isArray(gating)) return Array.isArray(gating) ? gating : [];
+  return gating.map((f) => {
+    const c = claimFor(f, list);
+    if (!c) return f;
+    return {
+      ...f,
+      adjudication: {
+        upheld: upheldCount(f) + 1,
+        verdict: c.status === "fixed" ? "unadjudicated-fix-claim" : "skipped-by-author",
+        reason: String(c.note ?? "").slice(0, 500),
+      },
+    };
+  });
+}
+
+/**
  * Run the adjudication pass over one lens's GATING findings.
  *
  * Gating only: a demoted or backlog finding blocks nothing, so buying a session to
@@ -2204,22 +2238,28 @@ async function main() {
     }
   }
   // The fix agent's own account of what it fixed and skipped (`@claude fix`),
-  // collected by fix-report.mjs. Converted into rebuttal records and adjudicated
-  // by the SAME pass — see fix-report.mjs::toRebuttalRecords for why author text
-  // goes to the adjudicator rather than the verifier, and for the asymmetry that
-  // lets a `fixed` claim be honoured while a `skipped` one can only ever be upheld.
+  // collected by fix-report.mjs. `authorClaims` splits it into the two things the
+  // panel does with a report — see that function for why only the LATEST report
+  // counts, why a genuine rebuttal outranks a report about the same finding, and
+  // why `skipped` claims are upheld without buying a session.
   //
-  // Appended AFTER the rebuttals, which matters: `matchRebuttal` prefers the later
-  // record when scores differ, so a report written by this round's fixer
-  // supersedes an argument it made in an earlier one. Same fail-quiet discipline —
-  // unreadable means "the fixer reported nothing", never a failed panel.
+  // Same fail-quiet discipline as the rebuttals above: unreadable means "the fixer
+  // reported nothing", never a failed panel.
+  let skipClaims = [];
   if (args["fix-reports"] && existsSync(args["fix-reports"])) {
     try {
       const raw = JSON.parse(readFileSync(args["fix-reports"], "utf8"));
-      const converted = toRebuttalRecords(Array.isArray(raw) ? raw : []);
-      if (converted.length > 0) {
-        console.log(`fix reports: ${converted.length} claim(s) folded into adjudication`);
-        rebuttals = [...rebuttals, ...converted];
+      const split = authorClaims(Array.isArray(raw) ? raw : [], rebuttals);
+      skipClaims = [...split.skipped, ...split.deferred];
+      if (split.adjudicate.length > 0) rebuttals = [...rebuttals, ...split.adjudicate];
+      if (split.adjudicate.length || skipClaims.length) {
+        console.log(
+          `fix report: ${split.adjudicate.length} fixed-claim(s) to adjudicate, `
+          + `${skipClaims.length} upheld without a session`
+          // Never a silent cap: say when claims were deferred past the bound rather
+          // than letting the tally read as "that is all there was".
+          + (split.deferred.length ? ` (${split.deferred.length} past the ${MAX_FIX_ADJUDICATIONS} cap)` : ""),
+        );
       }
     } catch (err) {
       console.error(`could not read --fix-reports '${args["fix-reports"]}' (${err.message}); adjudicating none.`);
@@ -2530,7 +2570,12 @@ async function main() {
     // `rebuttals` is EMPTY unless --rebuttals was passed, and an empty list
     // short-circuits before any session opens — so an un-wired panel behaves
     // exactly as it did before this existed.
-    const adjudged = await adjudicateRebuttals(gatingRaw, {
+    // Skipped claims first, and WITHOUT a session: no enumerated ground could ever
+    // apply to "I did not change this", so an adjudication would spend 20 turns to
+    // reach a foregone conclusion. Upholding directly still advances the counter
+    // `upheldTwice` reads, which is what pages a human on the second skip.
+    const afterSkips = applySkipClaims(gatingRaw, skipClaims);
+    const adjudged = await adjudicateRebuttals(afterSkips, {
       rebuttals, repo, model: lens.model, sessionLog, lensId: lens.id,
     });
     const gating = adjudged.findings;

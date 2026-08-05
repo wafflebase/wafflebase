@@ -693,6 +693,37 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
  * log still gets a comment saying so, because silence there is what made the
  * failure above take an artifact download to diagnose.
  */
+/**
+ * Did this claude-code-action session succeed, and if not, how did it fail?
+ *
+ * NOT `classifyResult` alone, and the difference is the whole point. That
+ * function was written for Agent SDK sessions that return a json_schema payload:
+ * its success arm requires `m.structured_output`, which a claude-code-action
+ * transcript never carries. Handing it one makes EVERY successful fix run come
+ * back `{ok:false, kind:"no-output"}` — so the effort comment would tell a
+ * maintainer that a fix which worked had failed, and to escalate it. Verified
+ * against a realistic success message before this existed.
+ *
+ * So success is decided HERE, from the fields this log actually has, and
+ * `classifyResult` is used only for the failure taxonomy — which is the part it
+ * gets right, and the part worth reusing (it is what recognises the 429 that
+ * `subtype:"success"` disguises).
+ *
+ * Fail direction: toward FAILED. Anything other than a clean
+ * `subtype:"success"` with no error flag is reported as a failure, because
+ * over-reporting a failure costs a glance at the log while under-reporting one
+ * loses the whole signal.
+ */
+export function classifyFixResult(result) {
+  if (!result || typeof result !== "object") return null;
+  const clean = result.subtype === "success"
+    && !result.is_error
+    && !result.api_error_status
+    && result.terminal_reason !== "api_error"
+    && result.terminal_reason !== "max_turns";
+  return clean ? { ok: true } : classifyResult(result);
+}
+
 export function renderFixEffort({ rec, outcome, head, runUrl }) {
   const lines = ["### 🧾 Fix agent effort", ""];
   if (rec) {
@@ -934,10 +965,9 @@ function cmdEffort(args) {
     console.error(`metrics: cannot read execution log ${args.execution}: ${e.message}`);
   }
   const rec = messages ? parseExecution(messages, args.kind || "review-fix") : null;
-  // The last result message is what `classifyResult` reads. Absent → no outcome
-  // line rather than a fabricated one.
+  // The last result message. Absent → no outcome line rather than a fabricated one.
   const result = Array.isArray(messages) ? [...messages].reverse().find((m) => m && m.type === "result") : null;
-  const outcome = result ? classifyResult(result) : null;
+  const outcome = classifyFixResult(result);
   const body = renderFixEffort({ rec, outcome, head: args.head, runUrl: args["run-url"] });
   try {
     postComment(pr, body);

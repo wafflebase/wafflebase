@@ -82,13 +82,23 @@ test("ineligible: a panel still running is a wait, not a refusal to ever run", (
   assert.match(d.reason, /agent-review-correctness/);
 });
 
-test("ineligible: every lens passed — there is nothing to fix", () => {
+test("ineligible: no lens is requesting changes — there is nothing to fix", () => {
   const d = decideEligibility({
     pr: "7", isFork: false, head: HEAD, names: NAMES,
     runs: [run("agent-review-correctness"), run("agent-review-security")],
   });
   assert.equal(d.eligible, false);
-  assert.match(d.reason, /passed all 2 lens/);
+  assert.match(d.reason, /No lens is requesting changes/);
+  // NOT "passed all N lenses": `completed` counts every CONCLUDED run, and a lens
+  // that does not apply to the diff concludes `neutral`, not `success`. The old
+  // wording asserted a pass that never happened.
+  assert.equal(/passed all/.test(d.reason), false);
+  const withNeutral = decideEligibility({
+    pr: "7", isFork: false, head: HEAD, names: NAMES,
+    runs: [run("agent-review-correctness"), run("agent-review-security", { conclusion: "neutral" })],
+  });
+  assert.equal(withNeutral.eligible, false);
+  assert.match(withNeutral.reason, /2 concluded/);
 });
 
 test("ineligible: a fork, because the app cannot push there", () => {
