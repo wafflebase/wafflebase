@@ -116,6 +116,34 @@ export function lensCheckNames(manifest) {
     .map((l) => `agent-review-${l.id}`);
 }
 
+/**
+ * Resolve `--checks a,b` OR `--lenses <manifest>` into check-run names.
+ *
+ * Shared by the two `@claude fix` scripts so neither has to re-derive
+ * `agent-review-<id>` — the naming convention lives in `lensCheckNames` and a
+ * second copy of it would drift the day a lens is renamed. `--checks` wins when
+ * both are given: the panel workflow already computes an APPLICABILITY-filtered
+ * list, which is strictly better than the whole manifest.
+ *
+ * Returns [] on anything unreadable. Every caller treats an empty list as a usage
+ * error and exits 2, so a broken manifest cannot silently become "no lenses to
+ * look at" — which for the eligibility gate would read as "no panel ran".
+ */
+export function resolveCheckNames(args, { read = readFileSync, log = console.error } = {}) {
+  const explicit = (typeof args?.checks === "string" ? args.checks : "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (explicit.length > 0) return explicit;
+  if (!args?.lenses) return [];
+  try {
+    return lensCheckNames(JSON.parse(read(args.lenses, "utf8")));
+  } catch (err) {
+    log(`could not read --lenses '${args.lenses}': ${err.message}`);
+    return [];
+  }
+}
+
 // --- CLI --------------------------------------------------------------------
 
 /**

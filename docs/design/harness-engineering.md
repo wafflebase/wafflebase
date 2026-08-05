@@ -400,6 +400,12 @@ Components:
     instruction, so a maintainer can hand the whole review to their own coding agent
     in one click (a fenced code block IS GitHub's native copy button). Empty and
     omitted when nothing blocks.
+  - `@claude fix` (PR) → `.github/workflows/agent-fix.yml`: MAINTAINER-ONLY; runs
+    ONE fix agent against the review panel's standing verdict, on demand (Phase 30).
+    Requires a completed panel verdict on the *current* head commit — which is both
+    "a panel ran" and "nothing landed since". Same verb, different surface: the
+    issue-side gate is `!github.event.issue.pull_request` and this one is its
+    negation, so the two never double-fire.
   - `@claude loop` (PR) → `.github/workflows/agent-loop.yml`: MAINTAINER-ONLY;
     labels the PR `agent:managed` and re-runs CI to opt it into the full
     review→fix→promote machinery. Same-repo branches only (the fixer can't push to
@@ -1753,6 +1759,115 @@ enumerated: `iterate` inherits the grant workflow-level, `fix` and `stalled` dec
 it, and the two above were the only gaps. `agent-implement`'s label write is not in
 this class — it happens inside the agent's prompt using the App token, whose
 installation permissions the workflow block does not govern.
+
+### Phase 30: `@claude fix` — the on-demand fix agent
+
+**The gap.** The fixer only ever ran on the loop's terms: inside
+`MAX_REVIEW_ROUNDS`, only after a fresh panel round, and never once the loop had
+paged. A maintainer reading a standing verdict had no way to say "address these
+now" — the closest thing was `@claude rerun`, which restarts the whole cycle
+(~13 minutes of CI, then a full panel) to reach a fixer that already had
+everything it needed. `@claude fix` is that missing handle: one attempt,
+immediately, against the verdict as it stands.
+
+**The precondition is one question, not two.** The rule is "a previous panel run,
+and no commit after it". `scripts/agent/fix-eligible.mjs` decides it by asking
+whether the CURRENT head sha carries completed `agent-review-*` check runs from
+`github-actions`. A commit MOVES the head, so a verdict attested against the head
+is simultaneously proof that the panel ran and proof that nothing has landed
+since. Deliberately no timestamp comparison: "panel at T, commit at T+1" would
+depend on two clocks and on commit dates, which the author controls
+(`git commit --date`). The gate fails toward INELIGIBLE in every branch — an API
+error, an unreadable check list, an unknown head all refuse, because this
+authorises a bot to push to someone's branch.
+
+It does *not* check the paged latch. A PR the loop gave up on is the main reason
+to reach for this verb, so `@claude fix` runs on a paged PR and leaves the latch
+in place: the loop stays parked and the next panel round does not silently
+re-engage the auto-fixer. `@claude rerun` remains the verb that clears it.
+
+**The report, and why it goes to the adjudicator.** After fixing, the agent files
+a structured report (`scripts/agent/fix-report.mjs`) — one `--fixed` or
+`--skipped` per checklist item, in a hidden payload under a human-readable table.
+The next panel round reads it and folds each claim into the EXISTING adjudication
+pass (Phase 28) rather than into the verifier. That placement is the whole design:
+`adjudicateFinding` states that the verifier path is the one path in the panel
+that has never been handed author-written text, and a report is author-written
+text. So it goes to the component built to receive it.
+
+The asymmetry between the two statuses is the safety property:
+
+- `fixed` maps onto the real overturn ground `not-present` — the defect is
+  genuinely gone. The adjudicator still has to read the code and cite locations,
+  so a false "I fixed it" is upheld and the finding stands.
+- `skipped` maps onto **nothing**. `OVERTURN_GROUNDS` has no entry for "I did not
+  do it", by design (Phase 28: *undeliverable is not wrong*), so a skipped item is
+  upheld — and skipping the same finding twice trips `upheldTwice` and pages a
+  human, which is the right destination for a question the loop cannot settle.
+
+"This finding is wrong" remains a different claim with a different channel: a
+rebuttal, which an adjudicator decides on enumerated grounds. Both fixers — the
+loop's and the on-demand one — are told the difference in their prompt.
+
+**A separate effort comment, and what it is really for.** `metrics.mjs effort`
+posts one standalone comment per fix run under its own marker
+(`<!-- agent-fix-effort -->`), which matches neither `METRIC_PREFIX` nor
+`SUMMARY_MARKER`, so `summarize`'s sweep and repost cannot touch it. The session
+is also recorded into the PR-wide ledger as a `review-fix` record, so the total
+stays right.
+
+It reports the OUTCOME, not just the spend, and that is most of the value. Both
+`@claude rerun` attempts on #632 and #648 failed with:
+
+```json
+{ "subtype": "success", "is_error": true, "api_error_status": 429,
+  "terminal_reason": "api_error", "num_turns": 1,
+  "result": "You've hit your session limit · resets 12:10pm (UTC)" }
+```
+
+An account quota window, 18 seconds, no work done. From outside it is
+indistinguishable from a cheap successful round, and the pipeline's only signal
+was the generic "the fixer agent failed and the branch head is unchanged" page —
+which sends a maintainer looking for a code defect. The comment now names it, and
+distinguishes the three cases that need different responses: a **session limit**
+(wait for the reset, then re-run), a **turn ceiling** (re-running as-is hits it
+again), and a **transient** (retry now).
+
+**One behavioural change, deliberately.** The inline version always emitted
+outputs, so a round with zero failing lens checks handed the fixer an empty work
+list, spent an agent run on nothing, and then paged from "the fix produced no
+commit". `scripts/agent/fix-brief.mjs` exits non-zero instead, which fails the
+`fix` job and pages through the `stalled` net — same destination, one agent run
+cheaper, and the run log says why. The other zero-finding case is unchanged: when
+failing lenses exist but none of their `output.text` parses, the checklist is
+still the honest "(no per-file findings parsed…)" pointer and the lens bodies are
+passed UNCUT, because cutting them there would leave the fixer with nothing at
+all.
+
+**One brief, one builder.** The fixer's work list came from ~100 lines of inline
+`github-script` in `.github/workflows/agent-review-panel.yml`. It is now
+`scripts/agent/fix-brief.mjs`, shared by both workflows — the same lesson
+`scripts/agent/prior-findings.mjs` records, applied to a *prompt* input: a second copy is how
+one of them keeps handing the fixer 39 minor findings after the other stopped.
+Extracting it also put its two bounds (40 items / 16k chars) and the
+`proseOnly` cut under test, and replaced `core.setOutput`'s implicit random
+delimiter with an explicit one — the value is previous-round model output, so a
+guessable `$GITHUB_OUTPUT` delimiter would let a finding append step outputs of
+its own.
+
+**Trust boundary.** Everything that DECIDES (eligibility) or composes the agent's
+PROMPT (the brief) runs from the trusted `main` checkout, before the PR branch is
+checked out over it — a branch must not be able to choose whether it gets fixed or
+what the fixer is told to do. Author-side acts (posting the report, recording
+effort) run from the branch afterwards, the asymmetry `scripts/agent/rebuttal.mjs` documents:
+writing a claim is an author-side act, and a tampered copy could only produce a
+differently-worded claim that still has to be grounded.
+
+**Not yet built.** The panel's rendered summary does not surface "N findings the
+author reported as skipped" — the fix agent's own comment is the human-visible
+record, sitting in the same thread. And `MAX_REVIEW_ROUNDS` still counts only
+autonomous rounds; an on-demand fix is deliberately outside that budget, which is
+the point of the verb but does mean a maintainer can spend past it by hand.
 
 ## Harness Policy
 

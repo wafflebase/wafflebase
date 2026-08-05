@@ -311,6 +311,19 @@ jobs:
           PR: ${{ needs.authorize.outputs.pr }}
         run: node .trusted/scripts/agent/rebuttal.mjs read "$PR" --out /tmp/rebuttals.json
 
+      # And the fix agent's own reports, for the same reason as the rebuttals
+      # directly above: this advisory review must reach the SAME verdict the gating
+      # panel would, or a maintainer reading it is being told something the merge
+      # gate does not agree with. Trusted copy, fail-quiet, adjudicated not verified
+      # (see scripts/agent/fix-report.mjs).
+      - name: Read fix-agent reports (align with the gating panel)
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: node .trusted/scripts/agent/fix-report.mjs read "$PR" --out /tmp/fix-reports.json
+
       - name: Run review panel
         id: panel
         # A crash must not fail the job — the aggregate step below then posts a
@@ -344,6 +357,7 @@ jobs:
           --changed-files /tmp/changed.txt
           --prior-findings /tmp/prior-findings.json
           --rebuttals /tmp/rebuttals.json
+          --fix-reports /tmp/fix-reports.json
           --base-sha "$BASE_SHA"
           --repo "$GITHUB_WORKSPACE"
           --lenses-dir .trusted/scripts/agent/lenses

@@ -16,7 +16,7 @@
 // Usage:
 //   node review-panel.mjs --diff-file <f> [--issue-file <f>] [--changed-files <f>]
 //        [--repo <dir>] [--lenses-dir <dir>] [--out <dir>]
-//        [--prior-findings <f>]
+//        [--prior-findings <f>] [--rebuttals <f>] [--fix-reports <f>]
 //        [--review-mode full|incremental] [--since-sha <sha>] [--base-sha <sha>]
 //        [--head-sha <sha>]
 // `--review-mode` defaults to `full`, so a caller passing none of these behaves
@@ -62,6 +62,7 @@ import {
   matchRebuttal,
   upheldCount,
 } from "./rebuttal.mjs";
+import { toRebuttalRecords } from "./fix-report.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2200,6 +2201,28 @@ async function main() {
       rebuttals = Array.isArray(raw) ? raw.filter((r) => r && typeof r === "object") : [];
     } catch (err) {
       console.error(`could not read --rebuttals '${args.rebuttals}' (${err.message}); adjudicating none.`);
+    }
+  }
+  // The fix agent's own account of what it fixed and skipped (`@claude fix`),
+  // collected by fix-report.mjs. Converted into rebuttal records and adjudicated
+  // by the SAME pass — see fix-report.mjs::toRebuttalRecords for why author text
+  // goes to the adjudicator rather than the verifier, and for the asymmetry that
+  // lets a `fixed` claim be honoured while a `skipped` one can only ever be upheld.
+  //
+  // Appended AFTER the rebuttals, which matters: `matchRebuttal` prefers the later
+  // record when scores differ, so a report written by this round's fixer
+  // supersedes an argument it made in an earlier one. Same fail-quiet discipline —
+  // unreadable means "the fixer reported nothing", never a failed panel.
+  if (args["fix-reports"] && existsSync(args["fix-reports"])) {
+    try {
+      const raw = JSON.parse(readFileSync(args["fix-reports"], "utf8"));
+      const converted = toRebuttalRecords(Array.isArray(raw) ? raw : []);
+      if (converted.length > 0) {
+        console.log(`fix reports: ${converted.length} claim(s) folded into adjudication`);
+        rebuttals = [...rebuttals, ...converted];
+      }
+    } catch (err) {
+      console.error(`could not read --fix-reports '${args["fix-reports"]}' (${err.message}); adjudicating none.`);
     }
   }
   if (rebuttals.length > 0) console.log(`rebuttals: ${rebuttals.length} to adjudicate`);
