@@ -14,7 +14,17 @@ const LANES = [
   // this lane the panel's safety-critical suites (severity/checks/verifier) would
   // never run in CI. No build or SDK install needed (the SDK is lazy-imported),
   // so it runs first and fails fast on a regression in the gate itself.
-  { name: "agent:tests", cmd: "cd scripts/agent && node --test *.test.mjs" },
+  //
+  // RECURSIVE, and single-quoted so NODE expands the pattern rather than `sh`.
+  // Both halves are load-bearing. The glob used to be a flat `*.test.mjs`, which
+  // silently matched nothing in any subdirectory — `scripts/agent/eval/`'s suites
+  // would have been written, passed locally and then never run again, with green
+  // CI as the only evidence. And node's own globber skips `node_modules`, which
+  // `sh` does not: the `deps` job runs `npm ci` inside `scripts/agent`, so an
+  // sh-expanded `**` would start running third-party test files.
+  // `eval/test-lane.test.mjs` reads this line back and asserts every suite under
+  // `eval/` is matched by it, at every depth.
+  { name: "agent:tests", cmd: "cd scripts/agent && node --test '**/*.test.mjs'" },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build" },
