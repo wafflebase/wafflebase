@@ -6,6 +6,7 @@ import {
   type Worksheet,
 } from '../model/workbook/worksheet-document';
 import { writeWorksheetCell } from '../model/workbook/worksheet-grid';
+import type { ImportedSheet } from './imported-sheet';
 import {
   coalesceRangeStylePatchesMaximal,
   type RangeStylePatch,
@@ -29,13 +30,7 @@ type Relationship = {
   target: string;
 };
 
-export type ImportedXlsxSheet = {
-  name: string;
-  worksheet: Worksheet;
-  cellCount: number;
-  rowCount: number;
-  columnCount: number;
-};
+export type ImportedXlsxSheet = ImportedSheet;
 
 export type XlsxFileLike = {
   arrayBuffer(): Promise<ArrayBuffer | Uint8Array>;
