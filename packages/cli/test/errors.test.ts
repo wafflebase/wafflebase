@@ -55,6 +55,16 @@ describe('httpError', () => {
 
   it('prefers a server-supplied message when given', () => {
     expect(httpError(404, 'Tab not found').message).toBe('Tab not found');
+    expect(httpError(401, 'Token revoked').message).toBe('Token revoked');
+  });
+
+  it('emits the documented login hint for a rejected credential', () => {
+    expect(httpError(401).message).toBe(
+      'Authentication failed. Run `wafflebase login`.',
+    );
+    expect(httpError(403).message).toBe(
+      'Authentication failed. Run `wafflebase login`.',
+    );
   });
 });
 
@@ -77,6 +87,38 @@ describe('fetchOrThrow', () => {
     expect((err as SystemError).message).toContain('http://127.0.0.1:9/api');
     expect((err as SystemError).message).toContain('fetch failed');
     expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+  });
+
+  it('redacts credentials echoed by the transport error itself', async () => {
+    const url = 'https://user:s3cret@api.example/x?token=t0ken';
+    const impl = vi
+      .fn()
+      .mockRejectedValue(new TypeError(`Failed to parse URL from ${url}`));
+    const err = await fetchOrThrow(url, undefined, impl)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    const message = (err as Error).message;
+    expect(message).not.toContain('s3cret');
+    expect(message).not.toContain('t0ken');
+    expect(message).toContain('https://api.example/x');
+  });
+
+  it('classifies an unparseable URL as the caller’s error, not the network', async () => {
+    const impl = vi.fn();
+    const err = await fetchOrThrow('not a url', undefined, impl)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(SystemError);
+    expect((err as { code?: string }).code).toBe('INVALID_URL');
+    expect(exitCodeFor(err)).toBe(EXIT_USER_ERROR);
+    expect(impl).not.toHaveBeenCalled();
+  });
+
+  it('keeps credentials out of the invalid-URL message', async () => {
+    const err = await fetchOrThrow('//user:pw@api.example/x', undefined, vi.fn())
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect((err as Error).message).not.toContain('pw');
   });
 
   it('forwards method and headers to the underlying fetch', async () => {
@@ -109,6 +151,25 @@ describe('redactUrl', () => {
   it('still strips secrets from an unparseable URL', () => {
     expect(redactUrl('//user:pw@host/path?token=abc')).toBe('//host/path');
   });
+
+  it('strips userinfo from a scheme-less URL the parser calls opaque', () => {
+    // What `HttpClient.base` builds from `--server user:pw@api.example`.
+    expect(redactUrl('user:pw@api.example/api/v1/workspaces/ws-1')).toBe(
+      'api.example/api/v1/workspaces/ws-1',
+    );
+  });
+
+  it('strips through the last @ of the authority, not the first', () => {
+    expect(redactUrl('https://user@name:p@ss@api.example/x')).toBe(
+      'https://api.example/x',
+    );
+  });
+
+  it('leaves an @ in the path alone', () => {
+    expect(redactUrl('https://api.example/users/@ada')).toBe(
+      'https://api.example/users/@ada',
+    );
+  });
 });
 
 describe('exitCodeFor', () => {
@@ -128,5 +189,24 @@ describe('exitCodeFor', () => {
       readonly exitCode = 'two';
     }
     expect(exitCodeFor(new Weird('weird'))).toBe(EXIT_USER_ERROR);
+  });
+
+  it('never reports success for a thrown value', () => {
+    // commander's CommanderError carries exitCode 0 for `--help`.
+    class Zero extends Error {
+      readonly exitCode = 0;
+    }
+    expect(exitCodeFor(new Zero('help'))).toBe(EXIT_USER_ERROR);
+  });
+
+  it('ignores an exitCode outside the byte-wide range', () => {
+    class Huge extends Error {
+      readonly exitCode = 9001;
+    }
+    class Negative extends Error {
+      readonly exitCode = -1;
+    }
+    expect(exitCodeFor(new Huge('huge'))).toBe(EXIT_USER_ERROR);
+    expect(exitCodeFor(new Negative('neg'))).toBe(EXIT_USER_ERROR);
   });
 });

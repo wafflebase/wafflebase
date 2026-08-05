@@ -699,8 +699,8 @@ success and failure uniformly:
 ```
 
 Exit codes: `0` success, `1` user error (bad input, not found),
-`2` system error (network, auth). Agents can branch on the exit code
-without parsing the error body.
+`2` system error (network, auth, server fault). Agents can branch on the
+exit code without parsing the error body.
 
 The class is decided where the failure is raised, not sniffed out of the
 message text at the output site — `packages/cli/src/errors.ts` holds the
@@ -732,10 +732,69 @@ one line.
 
 Error messages carry a redacted URL (`redactUrl`): userinfo from
 `--server`/`WAFFLEBASE_SERVER` and presigned query strings from image
-URLs never reach stderr or CI logs; scheme, host and path do.
+URLs never reach stderr or CI logs; scheme, host and path do. The
+underlying transport error is scrubbed the same way before it is quoted
+— undici echoes the request URL verbatim for some failures, which would
+otherwise put back exactly what was just removed. Userinfo is stripped
+textually rather than through the URL parser's `username` setter, which
+is a no-op for the opaque-path form a scheme-less `--server` produces.
+
+An unparseable URL is the one `fetch` rejection that is *not* a system
+error: nothing was ever unreachable, the caller's `--server` was wrong.
+It is separated out before the request and exits `1` (`INVALID_URL`).
 
 `--quiet` suppresses the body but not the exit code — scripts branching on
 `$?` are the reason the contract exists.
+
+##### Export image fetching
+
+Exports (`docs export`, `slides export`) dereference the image `src`
+values found in the document, which are attacker-influenced — anyone who
+can edit or share a document picks them. `assertFetchableImageUrl` gates
+every one before it is requested, and again on every redirect hop
+(redirects are followed by hand, `redirect: 'manual'`, so an allowed host
+cannot bounce the CLI onto an internal one):
+
+- only `http:`, `https:` and `data:` are dereferenced, so `file:` cannot
+  read local files into the exported artifact;
+- address *literals* are checked against loopback / RFC1918 / CGNAT /
+  link-local / unique-local, in every spelling — `::ffff:127.0.0.1` and
+  `::ffff:7f00:1` are expanded to the same eight words rather than
+  matched as text;
+- host *names* are only checked against `localhost`, `.localhost`,
+  `.internal` and `.local` (a name is not an address: `fc2.com` is a
+  public site, not `fc00::/7`), and are then resolved, so a record
+  pointing at `169.254.169.254` is refused as well;
+- the configured server's **origin** is the one internal destination
+  still allowed, because `--server http://localhost:3000` is the normal
+  dev setup and self-hosted documents store absolute internal URLs.
+
+A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit `1` — the
+document is wrong, not the environment). An unresolvable name is not
+blocked; the fetch reports it as `NETWORK_ERROR` instead, so a DNS outage
+never reads as a bad document. Residual gap: rebinding between the
+lookup and the connect, which needs a pinned connection undici does not
+expose.
+
+##### Nonce-bound login callback
+
+`wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
+any local process — or any web page that guesses the port — can reach. So
+the code alone does not complete a login: the CLI generates a nonce, ships
+it as `?nonce=` on the `/auth/github` URL, the backend stores it in the
+CLI state and echoes it on the loopback redirect, and the CLI accepts only
+a callback whose nonce matches (constant-time compare). Mismatched
+requests get `403` and are ignored — they can neither complete nor cancel
+the pending login, so a hostile page cannot fix the CLI onto its own
+account.
+
+The binding is required on both ends. `GitHubAuthGuard` rejects
+`?mode=cli` without a well-formed nonce (`[A-Za-z0-9_-]{16,128}`) with a
+`400` rather than minting a code for an arbitrary loopback port, and a
+callback that arrives *without* a nonce is refused by the CLI and named
+in the timeout message ("the server predates nonce-bound CLI login"), so
+a CLI pointed at an older backend fails with a cause instead of a hang.
+Backend and CLI ship from the same tree; upgrade the server first.
 
 #### 8.2 Dry-Run
 
@@ -976,9 +1035,11 @@ is the agent interface. This approach has key advantages:
 | `--replace` without `--yes` on non-TTY              | 1    | CONFIRMATION_REQ    | "Refusing to overwrite without --yes in non-TTY"                   |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
-| Backend 401/403                                     | 2    | AUTH_ERROR          | "Authentication failed. Run `wafflebase login`"                    |
-| Backend 5xx                                         | 2    | SERVER_ERROR        | (original message preserved)                                       |
-| Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL redacted)                  |
+| Backend 401/403                                     | 2    | AUTH_ERROR          | "Authentication failed. Run `wafflebase login`."                   |
+| Backend 5xx                                         | 2    | SERVER_ERROR        | caller's message, else "HTTP <status>"                             |
+| Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL + cause redacted)          |
+| Unparseable `--server` / image URL                  | 1    | INVALID_URL         | "Invalid URL \"<url>\". Check --server / WAFFLEBASE_SERVER."       |
+| Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |

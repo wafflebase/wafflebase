@@ -59,3 +59,8 @@ Classify at the throw site, map class → exit code at the output site.
 - [x] `login` exits 2 on network/auth failure
 - [x] Unit tests: `test/errors.test.ts`, extended `test/output.test.ts`
 - [x] README + design doc updated
+- [x] Command-level exit codes (`test/command-exit-codes.test.ts`)
+- [x] API-key endpoints share `request()`'s 401 refresh-and-retry
+- [x] Nonce-bound login callback (CLI + guard, both fail-closed, specs)
+- [x] Image `src` gate: scheme allowlist, resolved-address check,
+      per-redirect-hop revalidation

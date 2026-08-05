@@ -30,6 +30,24 @@ export class SystemError extends Error {
 }
 
 /**
+ * A failure the caller *can* fix by changing what they typed, but which
+ * still deserves a machine-readable `code` in the JSON body (an
+ * unparseable `--server`, a document `src` we refuse to dereference).
+ */
+export class UserError extends Error {
+  readonly exitCode = EXIT_USER_ERROR;
+
+  constructor(
+    readonly code: string,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = 'UserError';
+  }
+}
+
+/**
  * Exit code for an HTTP status. `401`/`403` are auth failures and `5xx` is
  * a server fault — both system errors. Everything else (`400`, `404`,
  * `409`, …) describes something the caller sent, so it stays a user error.
@@ -41,15 +59,24 @@ export function exitCodeForStatus(status: number): number {
 }
 
 /**
- * Build the error for a non-OK API response, classified by status. The
- * default message keeps the previous `HTTP <status>` wording so existing
- * error bodies are unchanged apart from the more specific `code`.
+ * What a rejected credential looks like on stderr. Named here rather
+ * than at each of the ~30 throw sites so the message documented in the
+ * design doc's error matrix has exactly one source.
+ */
+export const AUTH_FAILED_MESSAGE =
+  'Authentication failed. Run `wafflebase login`.';
+
+/**
+ * Build the error for a non-OK API response, classified by status. A
+ * caller with a better message (the server's own error text) passes it
+ * in; otherwise 401/403 gets the documented "run login" hint and
+ * everything else keeps the previous `HTTP <status>` wording.
  */
 export function httpError(status: number, message?: string): Error {
-  const text = message ?? `HTTP ${status}`;
   if (status === 401 || status === 403) {
-    return new SystemError('AUTH_ERROR', text);
+    return new SystemError('AUTH_ERROR', message ?? AUTH_FAILED_MESSAGE);
   }
+  const text = message ?? `HTTP ${status}`;
   if (status >= 500) {
     return new SystemError('SERVER_ERROR', text);
   }
@@ -65,8 +92,13 @@ export function httpError(status: number, message?: string): Error {
  * makes a network failure diagnosable.
  */
 export function redactUrl(url: string): string {
+  // Strip userinfo textually first. `new URL().username = ''` only works
+  // for URLs the WHATWG parser gives an authority to; a scheme-less
+  // `user:pw@host/path` (what `--server user:pw@host` builds) parses as
+  // an opaque path, where the setters are silently ignored.
+  const stripped = stripUserinfo(url);
   try {
-    const u = new URL(url);
+    const u = new URL(stripped);
     u.username = '';
     u.password = '';
     u.search = '';
@@ -75,14 +107,42 @@ export function redactUrl(url: string): string {
   } catch {
     // Not parseable (a typo'd `--server`, say). Drop everything that
     // could hold a secret and keep the rest for the user to recognize.
-    return url.split(/[?#]/)[0].replace(/\/\/[^/@]*@/, '//');
+    return stripped.split(/[?#]/)[0];
   }
 }
 
 /**
- * `fetch` rejects (rather than resolving non-OK) only when the request
- * never reached an HTTP server: DNS failure, refused connection, TLS
- * error, abort. All of those are system errors.
+ * Remove `user:pass@` from a URL's authority, whether or not the URL has
+ * a scheme and whether or not it parses. `[^/?#]*` cannot cross into the
+ * path, so an `@` in a path or query is left alone, and being greedy it
+ * strips through the *last* `@` of the authority rather than the first.
+ */
+function stripUserinfo(url: string): string {
+  const withScheme = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+  if (withScheme !== url) return withScheme;
+  return url.replace(/^(\/\/)?[^/?#]*@/, '$1');
+}
+
+/**
+ * Scrub a transport error's own message before it is quoted. undici and
+ * Node echo the request URL verbatim for some failures (most visibly
+ * `Failed to parse URL from <url>`), which would put back the userinfo
+ * and presigned query string `redactUrl` just removed.
+ */
+function redactDetail(detail: string, url: string): string {
+  return detail
+    .split(url)
+    .join(redactUrl(url))
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi, '$1')
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/\S*?)\?\S*/gi, '$1');
+}
+
+/**
+ * `fetch` rejects (rather than resolving non-OK) when the request never
+ * reached an HTTP server: DNS failure, refused connection, TLS error,
+ * abort — all system errors. It also rejects when the URL itself is
+ * unparseable, which is the caller's input, not the environment; that
+ * case is separated out up front so it keeps the user-error exit class.
  */
 export async function fetchOrThrow(
   url: string,
@@ -90,24 +150,39 @@ export async function fetchOrThrow(
   impl: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
   try {
+    new URL(url);
+  } catch {
+    throw new UserError(
+      'INVALID_URL',
+      `Invalid URL "${redactUrl(url)}". Check --server / WAFFLEBASE_SERVER.`,
+    );
+  }
+
+  try {
     return await impl(url, init);
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new SystemError(
       'NETWORK_ERROR',
-      `Request to ${redactUrl(url)} failed: ${detail}`,
+      `Request to ${redactUrl(url)} failed: ${redactDetail(detail, url)}`,
       { cause },
     );
   }
 }
 
 /**
- * Exit code carried by a thrown value; user error unless it says otherwise.
+ * Exit code carried by a thrown value; user error unless it says
+ * otherwise. Only a genuine failure code is honored: `0` would report
+ * success for a throw we are in the middle of reporting (commander's
+ * `CommanderError` uses `0` for `--help`), and anything outside a
+ * byte-wide exit status is not a code this process can hand back.
  */
 export function exitCodeFor(error: unknown): number {
   if (error instanceof Error && 'exitCode' in error) {
     const code = (error as { exitCode: unknown }).exitCode;
-    if (typeof code === 'number' && Number.isInteger(code)) return code;
+    if (typeof code === 'number' && Number.isInteger(code)) {
+      if (code > 0 && code < 256) return code;
+    }
   }
   return EXIT_USER_ERROR;
 }

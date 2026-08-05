@@ -3,6 +3,8 @@ import {
   LoginError,
   classifyLoginFailure,
   fetchLoginSession,
+  nonceMatches,
+  startCallbackServer,
 } from '../src/commands/login.js';
 import {
   EXIT_SYSTEM_ERROR,
@@ -113,6 +115,84 @@ describe('fetchLoginSession', () => {
     expect(err).toBeInstanceOf(SystemError);
     expect((err as SystemError).code).toBe('NETWORK_ERROR');
     expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+  });
+});
+
+describe('startCallbackServer', () => {
+  const NONCE = 'n'.repeat(43);
+
+  /** Hit the loopback callback listener and report what it answered. */
+  async function callback(port: number, query: string): Promise<number> {
+    const res = await fetch(`http://127.0.0.1:${port}/callback${query}`);
+    await res.text();
+    return res.status;
+  }
+
+  it('accepts a callback that echoes the nonce', async () => {
+    const srv = await startCallbackServer(NONCE);
+    try {
+      const status = await callback(
+        srv.port,
+        `?code=good-code&nonce=${NONCE}`,
+      );
+      expect(status).toBe(200);
+      await expect(srv.waitForCallback()).resolves.toBe('good-code');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('refuses a callback with a mismatched nonce', async () => {
+    const srv = await startCallbackServer(NONCE);
+    try {
+      expect(
+        await callback(srv.port, `?code=evil-code&nonce=${'x'.repeat(43)}`),
+      ).toBe(403);
+      // …and does not settle: the real callback still wins afterwards.
+      expect(await callback(srv.port, `?code=good-code&nonce=${NONCE}`)).toBe(
+        200,
+      );
+      await expect(srv.waitForCallback()).resolves.toBe('good-code');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('refuses a callback with no nonce at all', async () => {
+    const srv = await startCallbackServer(NONCE);
+    try {
+      expect(await callback(srv.port, '?code=evil-code')).toBe(403);
+      expect(await callback(srv.port, `?code=good-code&nonce=${NONCE}`)).toBe(
+        200,
+      );
+      await expect(srv.waitForCallback()).resolves.toBe('good-code');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('still rejects a callback with no code, and 404s other paths', async () => {
+    const srv = await startCallbackServer(NONCE);
+    try {
+      expect(await callback(srv.port, `?nonce=${NONCE}`)).toBe(400);
+      const res = await fetch(`http://127.0.0.1:${srv.port}/other`);
+      await res.text();
+      expect(res.status).toBe(404);
+    } finally {
+      srv.close();
+    }
+  });
+});
+
+describe('nonceMatches', () => {
+  it('matches only the exact nonce', () => {
+    expect(nonceMatches('abc', 'abc')).toBe(true);
+    expect(nonceMatches('abc', 'abd')).toBe(false);
+  });
+
+  it('tolerates a differing length instead of throwing', () => {
+    expect(nonceMatches('abc', 'abcd')).toBe(false);
+    expect(nonceMatches('', 'abcd')).toBe(false);
   });
 });
 

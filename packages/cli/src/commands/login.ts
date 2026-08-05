@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -9,6 +10,8 @@ import {
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
 import {
+  EXIT_SYSTEM_ERROR,
+  EXIT_USER_ERROR,
   SystemError,
   exitCodeFor,
   exitCodeForStatus,
@@ -159,11 +162,17 @@ async function runLogin(cmd: Command): Promise<void> {
     }
   }
 
-  // 2. Start local HTTP server
-  const { port, waitForCallback, close } = await startCallbackServer();
+  // 2. Start the local HTTP server, bound to a nonce generated here.
+  // The callback listener is reachable by anything on the machine (and
+  // by any web page that guesses the port), so the code alone must not
+  // be enough: otherwise a hostile page can hand us *its* code and fix
+  // this CLI onto the attacker's account. The nonce rides through the
+  // OAuth round trip and only a callback echoing it is accepted.
+  const nonce = randomBytes(32).toString('base64url');
+  const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
   // 3. Build OAuth URL and open browser
-  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
   console.error(`Opening browser: ${oauthUrl}`);
   console.error('If the browser does not open, visit the URL above.');
 
@@ -232,13 +241,33 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-function startCallbackServer(): Promise<{
+/** Constant-time compare that tolerates differing lengths. */
+export function nonceMatches(received: string, expected: string): boolean {
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Listen on `127.0.0.1:<random port>` for the OAuth redirect, accepting
+ * only a `/callback` that echoes `expectedNonce`. Exported so the
+ * binding can be driven directly in tests — it is the security core of
+ * the login flow, not an implementation detail of `runLogin`.
+ *
+ * A callback carrying a code but no nonce means the server predates
+ * nonce-bound CLI login. It is refused (accepting it would defeat the
+ * binding) but not settled, so a hostile local page cannot cancel a
+ * pending login either; the timeout then says what went wrong.
+ */
+export function startCallbackServer(expectedNonce: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
 }> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let sawUnboundCallback = false;
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
 
@@ -260,6 +289,20 @@ function startCallbackServer(): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
+        return;
+      }
+
+      // Reject — without settling — anything that does not carry the
+      // nonce we handed out: an unrelated local request or a hostile
+      // page must be able neither to complete nor to cancel this login.
+      const nonce = url.searchParams.get('nonce');
+      if (!nonce || !nonceMatches(nonce, expectedNonce)) {
+        sawUnboundCallback = true;
+        res.writeHead(403);
+        res.end('Invalid login nonce');
+        console.error(
+          'Ignored a callback with a missing or mismatched login nonce.',
+        );
         return;
       }
 
@@ -311,8 +354,19 @@ function startCallbackServer(): Promise<{
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
+        // Report the likely cause rather than a bare timeout: a server
+        // that never echoes the nonce cannot complete a CLI login, and
+        // "it just hung" sends people looking in the wrong place.
         callbackReject(
-          new Error('Login timed out. Try again with `wafflebase login`.'),
+          sawUnboundCallback
+            ? new LoginError(
+                EXIT_SYSTEM_ERROR,
+                'Login callback arrived without the expected nonce — the server predates nonce-bound CLI login. Upgrade the server, then run `wafflebase login` again.',
+              )
+            : new LoginError(
+                EXIT_USER_ERROR,
+                'Login timed out. Try again with `wafflebase login`.',
+              ),
         );
       }
       srv.close();

@@ -24,27 +24,37 @@ every test asserted `exitCode === 1` — i.e. the tests encoded the bug.
   returns early; it is exactly the branch scripts use, so leaving it at a
   hardcoded `1` would have defeated the purpose.
 
-## Descoped mid-review
+## Descoped, then rebuilt properly
 
-Two security controls were drafted here and then removed, because both
-are separate designs rather than exit-code classification:
+Two security controls were drafted here, removed as out-of-scope, and
+then reinstated when review held that shipping the surrounding code
+without them was worse than the scope creep. Both were rebuilt against
+the objections that got them descoped, which is the useful part:
 
 - **Nonce-bound loopback login callback** (CLI `?nonce=` → stored in
-  `CliAuthStore` → echoed on the `127.0.0.1` redirect). It is a
-  cross-package OAuth protocol change: a CLI that hard-requires the echo
-  cannot log in against any already-deployed backend, and the nonce as
-  drafted leaked through the printed OAuth URL and the browser process
-  argv anyway. A real fix needs a negotiated rollout (backend first,
-  CLI tolerant until a floor version) and its own guard/callback specs.
-- **SSRF gate on export image `src`** (`assertFetchableImageUrl`).
-  Name-based blocking is not a boundary: `fetch` follows redirects, any
-  attacker-controlled DNS record can point at loopback, and the literal
-  matching both under-blocked (`[::ffff:7f00:1]`) and over-blocked
-  (public hostnames beginning `fc`/`fd`/`fe8`). It also broke existing
-  self-hosted documents whose stored `src` is an absolute internal URL
-  that is not byte-identical to `--server`. A correct version resolves
-  addresses and revalidates per redirect hop.
+  `CliAuthStore` → echoed on the `127.0.0.1` redirect). The original
+  version made a CLI pointed at an older backend hang the full 30s and
+  then throw an unclassified timeout. Now the missing-nonce case is
+  *named* in the timeout message, and the backend refuses `?mode=cli`
+  without a nonce (`400`) instead of treating the binding as optional —
+  fail-closed on both ends, with the failure legible. Refusing without
+  settling still matters: a hostile local page must not be able to
+  cancel a pending login either. The nonce does travel in the printed
+  OAuth URL and the browser argv, so it does not defend against a
+  same-user local process — that is the OAuth `state` threat model, not
+  a regression.
+- **SSRF gate on export image `src`** (`assertFetchableImageUrl`). The
+  first version failed on all three counts raised against it, and each
+  is now a test: names are *resolved* before the verdict (so an
+  attacker-controlled DNS record pointing at loopback is refused), every
+  redirect hop is revalidated (`redirect: 'manual'`), address rules run
+  only against literals — expanded to eight words, so `::ffff:7f00:1`
+  and `::ffff:127.0.0.1` are one address and `fc2.com` is not an IPv6
+  range — and the allowance for the configured server compares
+  **origins**, so a self-hosted absolute `src` no longer has to be
+  byte-identical to `--server`. What is still open is documented rather
+  than implied: rebinding between lookup and connect.
 
-What survives from that work is the part that belongs to #586: image
-downloads go through `fetchOrThrow`/`httpError`, so an unreachable image
-host exits `2` and presigned query strings stay out of stderr.
+The lesson worth keeping: "this belongs in another PR" is only true if
+the other PR exists. A control removed from a diff that ships the code
+it was protecting is not deferred, it is deleted.

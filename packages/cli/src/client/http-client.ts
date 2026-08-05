@@ -99,7 +99,21 @@ export class HttpClient {
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
-    const url = `${this.base}${path}`;
+    return this.send<T>(method, `${this.base}${path}`, body);
+  }
+
+  /**
+   * One authenticated round trip, including the 401 refresh-and-retry.
+   * Every endpoint goes through here — the workspace-scoped `/api/v1`
+   * ones via `request()` and the management endpoints (API keys) with
+   * their own absolute URL — so a refreshable session is never reported
+   * as an auth failure just because of which base a call used.
+   */
+  private async send<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
     const res = await fetchOrThrow(url, {
       method,
       headers: this.headers,
@@ -240,30 +254,19 @@ export class HttpClient {
     return this.request('PATCH', `/documents/${docId}/tabs/${tabId}/cells`, { cells });
   }
 
-  // API Keys (management endpoints use different base)
-  async listApiKeys() {
+  // API Keys (management endpoints use a different base, but the same
+  // authenticated round trip — see `send`)
+  private get apiKeysBase(): string {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetchOrThrow(url, { headers: this.headers });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+    return `${server}/workspaces/${this.config.workspace}/api-keys`;
   }
-  async createApiKey(name: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetchOrThrow(url, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ name }),
-    });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  listApiKeys() {
+    return this.send('GET', this.apiKeysBase);
   }
-  async revokeApiKey(id: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys/${id}`;
-    const res = await fetchOrThrow(url, { method: 'DELETE', headers: this.headers });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  createApiKey(name: string) {
+    return this.send('POST', this.apiKeysBase, { name });
+  }
+  revokeApiKey(id: string) {
+    return this.send('DELETE', `${this.apiKeysBase}/${encodeURIComponent(id)}`);
   }
 }
