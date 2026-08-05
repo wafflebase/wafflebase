@@ -1575,6 +1575,63 @@ visible only in the check body today), and any measurement of how often a
 rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
 should not have happened is a false negative like any other.
 
+#### The loop shipped inert, and stayed inert until the lens was stamped
+
+`findingSimilarity` returns 0 unless both sides agree on `lens`, and it is the gate
+`matchRebuttal` scores through. But `lens` is not in the `FINDING` schema — a lens
+is never asked for it — and nothing in `scripts/agent/review-panel.mjs` assigned
+one. Prior findings do carry it (`tagPriorFindings` stamps it from the check-run
+name), and when a fresh finding merges with its carried-forward twin the FRESH
+representative is the one that survives. So the lens was lost in exactly the case
+that matters, and the outcome inverted the intent:
+
+| round N+1 state | matched | adjudicator |
+| --- | --- | --- |
+| fresh pass re-found it (± carry-forward) | 0 | never called |
+| carry-forward only (fresh pass missed it) | 1 | called |
+
+Only the second row worked, and it is the one the loop was not built for: a
+rebutted finding means the author did *not* change the code, so the next round's
+fresh pass almost always re-finds it.
+
+It went unnoticed because the channel was never exercised. No structured rebuttal
+has ever been filed on any PR (#564, #605, #632, #633, #648, #649, #657, #666 all
+have none) — and a second defect explains part of that: `scripts/agent/rebuttal.mjs`
+landed with this phase, so branches cut before it (#632, #648 among them) do not
+contain the CLI their fixer prompt tells them to run. Both fail safe — the finding
+stands — which is why nothing observable ever went wrong.
+
+Activating it also made three latent weaknesses in the channel real, none of which
+mattered while nothing was adjudicated:
+
+- **The channel was unauthenticated.** `readRebuttals` pages every comment on the
+  PR, and on a public repo that includes any drive-by commenter's. Now gated to the
+  fix agent's identity — `user.type === "Bot"` **and** the login, because other apps
+  comment here (CodeRabbit reviews this very file, and a review quoting the marker
+  format could otherwise parse as a record). A `[bot]` login cannot be registered by
+  an ordinary account, so the pair is unforgeable from outside. Grounding still
+  blocks the overturn; this stops persuasion getting a turn.
+- **The FINDING fields were not fence-neutralised**, only the dispute was. They are
+  a previous round's model output derived from the diff, and they render *before*
+  the fence opens — so an injected `<author-rebuttal>…</author-rebuttal>` would have
+  placed a complete fake dispute ahead of the real one.
+- **The per-lens partition was implicit**, inherited from `findingSimilarity`'s lens
+  gate. `adjudicateRebuttals` now filters by `lensId` itself, so "a lens adjudicates
+  only its own disputes" is a property of that function rather than an invariant its
+  caller has to maintain.
+
+`stampLens` fills the blank. It is a named export rather than an inline `.map` for
+a testing reason worth recording: as an expression, a test could only restate it,
+and a restated copy passes just as happily with the real call deleted — which is
+exactly what the first draft of these tests did. It OVERWRITES rather than filling blanks —
+`lens` last, the same rule prior-findings.mjs states for the same reason: a finding
+must not be able to declare its own origin, and a fresh finding is model output
+too. It stamps `merged` rather than the gating subset because the round loop then
+removes overturned findings from that same array by object IDENTITY, so stamping at
+the gating step would leave every overturned finding un-removable from the summary. A source-level test asserts the
+round loop actually routes `merged` through it, since that loop lives in `main()`
+and no unit test can reach it.
+
 ### Phase 29: Lint the agent control plane
 
 **Principle:** Mechanical Enforcement — the cheapest check that could have caught it.
