@@ -1795,6 +1795,11 @@ pass (Phase 28) rather than into the verifier. That placement is the whole desig
 that has never been handed author-written text, and a report is author-written
 text. So it goes to the component built to receive it.
 
+This depends on the lens actually being stamped on a finding, which it was not
+until the fix split out into its own PR — see the Phase 28 note on the loop
+shipping inert. Without it `findingSimilarity` scores every claim 0 and nothing
+here matches anything.
+
 The asymmetry between the two statuses is the safety property:
 
 - `fixed` maps onto the real overturn ground `not-present` — the defect is
@@ -1887,20 +1892,6 @@ Extracting it also put its two bounds (40 items / 16k chars) and the
 delimiter with an explicit one — the value is previous-round model output, so a
 guessable `$GITHUB_OUTPUT` delimiter would let a finding append step outputs of
 its own.
-
-**A pre-existing bug this uncovered: adjudication was inert for re-found
-findings.** `findingSimilarity` returns 0 unless both sides agree on `lens`, and it
-is the gate `matchRebuttal` scores through. Prior findings carry `lens` (stamped by
-`tagPriorFindings` from the check-run name), but a fresh finding is raw model
-output and `coerceFindings` never adds one — and when a fresh finding and its
-carried-forward twin are merged, the FRESH representative survives. So any defect
-the fresh pass re-found (i.e. any defect still present, the common case) reached
-adjudication with no `lens` and could never be matched to a rebuttal. Phase 28's
-loop has therefore been silently dead for exactly those findings since it shipped,
-and the fix-report claims inherited it. The lens is now stamped on `merged` — not
-on the gating subset, because `mergedAfter` removes overturned findings by object
-identity and a copy at that point would make every dropped finding un-removable
-from the summary.
 
 **Two hazards from putting verbatim finding text in a hidden payload.**
 `scripts/agent/metrics.mjs` can state that its records never contain the
