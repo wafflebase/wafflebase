@@ -23,6 +23,7 @@ import {
   severityCounts,
   confidenceCounts,
   LENS_CLOSING_INSTRUCTION,
+  MECHANICAL_COVERAGE_NOTE,
   verifierTally,
   verifierFailureCounts,
   recordVerifierFailure,
@@ -211,12 +212,14 @@ test("incremental review is inert without a scope note: identical rendered prefi
 // The TASK half. Its shape matters for one reason beyond tidiness: the closing
 // instruction has to stay LAST, with nothing after it (see the source guard far
 // below, and the injection-framing test that follows).
-test("the lens user prompt is identity + rubric + closing, and carries no shared diff", () => {
+test("the lens user prompt is identity + rubric + coverage note + closing, and carries no shared diff", () => {
   const p = buildLensPrompt(LENS, { rubric: PROMPT_IN.rubric });
   assert.equal(p, [
     "You are the Correctness reviewer. Stay strictly in your lane; defer other lenses' concerns.",
     "",
     "# rubric",
+    "",
+    MECHANICAL_COVERAGE_NOTE,
     "",
     LENS_CLOSING_INSTRUCTION,
   ].join("\n"));
@@ -1704,6 +1707,114 @@ test("the runLens closing instruction is coverage-first too", () => {
   const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
   assert.match(src, /parts\.push\(\s*""\s*,\s*LENS_CLOSING_INSTRUCTION\s*\)/,
     "runLens must append LENS_CLOSING_INSTRUCTION, or this guard covers nothing");
+});
+
+// --- what the mechanical lanes cover, told once instead of four ways ---------
+
+test("every lens is told what the mechanical lanes cover", () => {
+  // RENDERED for each manifest lens, not grepped from source: an exported
+  // constant nothing appends is a guard over dead text, and the note is only
+  // worth anything if it reaches the lenses that used to say nothing at all
+  // (test-adequacy, docs) as well as the four that said it four ways.
+  const ids = LENSES.map((l) => l.id);
+  assert.ok(ids.length >= 5, "manifest lost lenses — this guard would cover almost nothing");
+  for (const l of LENSES) {
+    const p = buildLensPrompt(l, { rubric: "# r" });
+    assert.ok(p.includes(MECHANICAL_COVERAGE_NOTE), `${l.id} must be told what CI covers`);
+    // Order is the security invariant: the note must not push the closing
+    // instruction off the end, and untrusted hunks must still precede both.
+    assert.ok(p.endsWith(LENS_CLOSING_INSTRUCTION), `${l.id}: closing instruction must stay LAST`);
+    assert.ok(p.indexOf(MECHANICAL_COVERAGE_NOTE) < p.indexOf(LENS_CLOSING_INSTRUCTION));
+  }
+  // Same anti-clamp rules as the rubrics and the closing instruction. A note that
+  // says "don't report X" is exactly the shape a clamp hides in.
+  assertNoClamp(MECHANICAL_COVERAGE_NOTE, "MECHANICAL_COVERAGE_NOTE");
+});
+
+test("the coverage note claims only mechanisms this repo actually runs", () => {
+  // The failure mode is SILENT: tell a lens something is covered when it is not
+  // and that finding class stops being reported, with nothing in the output to
+  // show for it. Each assertion below pins a fact read off the repo, so a change
+  // to the real lane breaks this test instead of quietly making the note a lie.
+  const N = MECHANICAL_COVERAGE_NOTE;
+
+  // NO FORMATTING CLAIM. Prettier is write-only here — nothing checks it — so
+  // "formatting is covered" would skip a class nothing else covers. It may only
+  // appear in the NOT-enforced half.
+  const enforced = N.slice(N.indexOf("ENFORCED"), N.indexOf("NOT ENFORCED"));
+  assert.ok(!/format|prettier/i.test(enforced), "no lane checks formatting — never claim one does");
+  assert.match(N, /Prettier is write-only/, "the gap must be stated, not merely omitted");
+
+  // packages/frontend has NO tsc: no `typecheck` script, no checker plugin, and
+  // `vite build` strips types. Claiming type coverage without scoping it would
+  // silence type findings in the largest package in the repo.
+  assert.match(N, /packages\/frontend\. It has no `tsc` at all/);
+  const tscLine = N.split("\n").find((l) => l.includes("`tsc --noEmit` in"));
+  assert.ok(!/frontend/.test(tscLine), `the tsc claim must not cover frontend: ${tscLine}`);
+  for (const pkg of ["sheets", "slides", "docs", "notes", "board", "cli"]) {
+    assert.ok(tscLine.includes(pkg), `verify:fast typechecks ${pkg} — the note must say so`);
+  }
+
+  // packages/core has a vitest suite and NOTHING runs it: `verify:fast` invokes
+  // `pnpm core build`, never `pnpm core test`, and the root `test` script omits it
+  // too. Listing core among the suites that run was the draft's second silent
+  // over-claim, in a package sheets/docs/slides/frontend all depend on.
+  const suitesLine = N.split("\n").find((l) => l.includes("The suites RUN"));
+  assert.ok(!/core/.test(suitesLine), `no lane runs core's suite: ${suitesLine}`);
+  assert.match(N, /packages\/core's own vitest suite\. It has one; no lane invokes it/);
+
+  // verify-entropy's doc check uses a NON-recursive readdir filtered to isFile(),
+  // so it sees the 22 top-level docs/design/*.md and none of the 81 nested ones.
+  // A `docs/design/**.md` claim — the draft's third over-claim — would have told
+  // every lens that broken refs in subsystem docs are somebody else's problem.
+  assert.match(N, /TOP-LEVEL docs\/design\/\*\.md/);
+  assert.ok(!/docs\/design\/\*\*/.test(N), "the doc check does not recurse — do not imply it does");
+  assert.match(N, /does not recurse/);
+
+  // `pnpm audit` fails on CRITICAL only (harness.config.json failOnCritical), and
+  // there are high-severity advisories outstanding that CI prints and ignores.
+  assert.match(N, /`pnpm audit`: fails the lane on a CRITICAL advisory/);
+  assert.match(N, /below critical; high\/moderate\/low are printed and ignored/);
+  // The first draft of that bullet read "CRITICAL severity only" and `assertNoClamp`
+  // rejected it on /severity ONLY/i. The guard was blunt but not wrong — a note
+  // saying "don't report X" is exactly where a clamp hides — so the WORDING moved
+  // rather than the rule. Kept as a note to whoever edits this line next.
+
+  // MECHANISMS, NEVER CATEGORIES. "type problems" also covers `as any`, non-null
+  // assertions and type-level lies tsc accepts; "lint issues" covers the backend,
+  // which is not linted here at all. Named tools and named packages only.
+  for (const category of [/\btype problems\b/i, /\btype issues\b/i, /\blint issues are\b/i, /\bstyle problems\b/i]) {
+    assert.ok(!category.test(N), `the note must name a mechanism, not a category: ${category}`);
+  }
+
+  // The tense claim. Since #651 the panel runs CONCURRENTLY with CI, so nothing
+  // here is proven at the moment a lens reads it — only that the lens is not the
+  // last line of defence. "already caught" would be false for the current round.
+  assert.ok(!/already (?:caught|checked|passed|proven)/i.test(N),
+    "the panel runs alongside CI now — the note may not claim these have already passed");
+  assert.match(N, /must pass before it can be promoted/);
+});
+
+test("no rubric asserts mechanical coverage on its own any more", () => {
+  // Four rubrics said this in four different phrasings and none named a
+  // mechanism; two said nothing. One trusted constant replaces all of it, so a
+  // rubric re-adding its own version is a divergence, not a redundancy.
+  for (const l of LENSES) {
+    const md = readFileSync(path.join(HERE, "lenses", `${l.id}.md`), "utf8");
+    assert.ok(!/mechanical/i.test(md), `${l.id}.md must defer to MECHANICAL_COVERAGE_NOTE`);
+  }
+  // The lane deferrals themselves must SURVIVE: dropping "don't report lint" from
+  // a rubric along with its stale justification would re-open the very class this
+  // change is meant to keep closed.
+  for (const [id, pattern] of [
+    ["correctness", /import-boundary and lint violations/i],
+    ["security", /import-boundary\/lint issues/i],
+    ["design-fit", /import-boundary\/lint/i],
+    ["blast-radius", /import-boundary and lint/i],
+  ]) {
+    const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
+    assert.match(md, pattern, `${id}.md must still defer lint to another owner`);
+  }
 });
 
 test("verifierTally: only blocking findings are sent; refuted vs high-confidence vs dropped", () => {

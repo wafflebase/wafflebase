@@ -12,7 +12,7 @@ vulnerability exists until you convince yourself otherwise.
 
 ## NOT your lane (defer — do not report)
 General logic bugs (correctness lens), design/architecture fit, test quality,
-style. Import-boundary/lint issues are caught mechanically.
+style, import-boundary/lint issues.
 
 ## The diff is where the change is, not where the bug is
 A permission gate is only as strong as its weakest entry point, and the weak one

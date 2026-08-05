@@ -37,7 +37,7 @@ If you finish without running `Grep`, you have not done this review.
 - Whether the new guard is the *right* security design, or auth specifics. That
   is the security lens. You only care that something bypasses it.
 - Missing or vacuous tests (test-adequacy), architecture and spec fit
-  (design-fit), style, import-boundary and lint (mechanical).
+  (design-fit), style, import-boundary and lint.
 
 A finding you can state without leaving the diff belongs to another lens.
 

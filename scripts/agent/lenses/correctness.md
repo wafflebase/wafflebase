@@ -11,8 +11,7 @@ Logic and runtime correctness of the change:
 
 ## NOT your lane (defer — other lenses own these; do not report them)
 Security (its own lens), architecture/design fit or duplication, test quality,
-code style. Import-boundary and lint violations are already caught mechanically —
-don't report them.
+code style, import-boundary and lint violations.
 
 ## The diff is where the change is, not where the bug is
 For every new or modified guard, validation, or conditional in this diff, use

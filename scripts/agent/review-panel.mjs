@@ -1275,6 +1275,86 @@ export function confidenceCounts(findings) {
 const CONFIDENCE_LEVELS = new Set(FINDING.properties.confidence.enum);
 
 /**
+ * What the mechanical lanes already prove, told to every lens ONCE.
+ *
+ * Four rubrics used to assert this in four different phrasings — "already caught
+ * mechanically", "caught mechanically", "(mechanical)" ×2 — and `test-adequacy`
+ * and `docs` said nothing at all. None of them named a single mechanism, so a
+ * lens could not tell which of its candidate findings CI would catch and spent
+ * turns re-deriving what `verify:self` proves for free.
+ *
+ * EVERY CLAIM HERE WAS READ OFF THE REPO, not assumed, because the failure mode
+ * is silent: tell a lens something is covered when it is not and that whole
+ * finding class stops being reported, with nothing in the output to show for it.
+ * Five drafting errors were caught by auditing rather than by assuming, and they
+ * are why the NOT-ENFORCED half exists at all:
+ *   - `packages/frontend` has NO `tsc` anywhere. No `typecheck` script, no
+ *     checker plugin; `vite build` strips types without checking them. A bare
+ *     "tsc --noEmit runs" would have silenced type findings in the repo's
+ *     largest package (72k lines of src, vs 51k for the next).
+ *   - `backend lint` is not in `verify:fast` at all (only its `lint:arch`), and
+ *     the script carries `--fix` with no `--max-warnings 0`.
+ *   - `packages/core` HAS a vitest suite and nothing runs it. `verify:fast`
+ *     invokes `pnpm core build`, never `pnpm core test`, and the root `test`
+ *     script omits it too — in a package sheets/docs/slides/frontend all import.
+ *   - `verify-entropy`'s doc check uses a non-recursive `readdir` filtered to
+ *     `isFile()`, so it covers the 22 top-level `docs/design/*.md` and none of
+ *     the 81 nested ones. `docs/design/**.md` would have been a lie.
+ *   - `pnpm audit` fails on CRITICAL only (`harness.config.json`
+ *     `failOnCritical`). There are high-severity advisories outstanding today
+ *     that CI prints and ignores.
+ *
+ * MECHANISMS, NEVER CATEGORIES. "a type error `tsc --noEmit` would report in
+ * packages/sheets", never "type problems" — the latter also silences `as any`,
+ * non-null assertions and type-level lies that `tsc` accepts. The scoping to
+ * named packages is load-bearing for the same reason.
+ *
+ * The tense is "runs ... and must pass", not "has already passed": since #651 the
+ * panel runs CONCURRENTLY with CI, so nothing here is proven yet at the moment a
+ * lens reads it. The true claim is that the lens is not the last line of defence,
+ * which holds either way.
+ *
+ * The NOT-enforced half is not a disclaimer — it is the more useful half. It
+ * redirects the turns this note saves toward the gaps nothing else covers, which
+ * is why this change should not read as a pure recall risk.
+ */
+export const MECHANICAL_COVERAGE_NOTE = [
+  "## What the mechanical lanes cover on this branch",
+  "",
+  "These run on this PR and must pass before it can be promoted. A finding whose",
+  "whole content is \"this would fail CI\" costs a review round and tells the author",
+  "nothing they were not about to be told anyway.",
+  "",
+  "ENFORCED — you may rely on these:",
+  "- `tsc --noEmit` in packages/sheets, slides, docs, notes, board and cli. `tsc`",
+  "  also runs inside the core and backend builds.",
+  "- `eslint . --max-warnings 0` in packages/frontend, `eslint scripts`, and the two",
+  "  architecture configs (frontend + backend `lint:arch`) — those are what enforce",
+  "  import boundaries.",
+  "- The suites RUN and must be green: vitest in frontend, sheets, slides, docs,",
+  "  notes, board and cli; jest in backend; node:test in scripts/agent; plus the",
+  "  browser visual + interaction lane and the Postgres/Yorkie integration lane.",
+  "- knip: unused files, unused exports, unused exported types.",
+  "- Frontend bundle budgets: per-chunk KB and total chunk count.",
+  "- Every backticked path inside a TOP-LEVEL docs/design/*.md must resolve on disk.",
+  "- `pnpm audit`: fails the lane on a CRITICAL advisory, and on nothing below it.",
+  "",
+  "NOT ENFORCED BY ANYTHING — a real finding here is worth MORE than one the lanes",
+  "above would have caught, because nothing else in the pipeline will catch it:",
+  "- Type errors in packages/frontend. It has no `tsc` at all — `vite build` strips",
+  "  types without checking them — and it is the largest package in the repo.",
+  "- eslint over packages/backend/src. Only its architecture config runs here.",
+  "- packages/core's own vitest suite. It has one; no lane invokes it. Only `tsc`",
+  "  via its build runs — and sheets, docs, slides and frontend all import it.",
+  "- Broken refs in NESTED design docs. The check does not recurse, so the 81 files",
+  "  under docs/design/<topic>/ are unchecked; only the 22 top-level ones are.",
+  "- `pnpm audit` findings below critical; high/moderate/low are printed and ignored.",
+  "- Formatting. Prettier is write-only in this repo and no lane checks it.",
+  "- Whether a passing test asserts anything. The lanes prove the suite is GREEN,",
+  "  never that it is ADEQUATE — a test that asserts nothing passes just as loudly.",
+].join("\n");
+
+/**
  * The LAST thing a lens reads, appended by `runLens` after the rubric and the
  * diff — so it wins ties against everything above it.
  *
@@ -1556,6 +1636,18 @@ export function buildLensPrompt(lens, { rubric, extraDiff = "", issue = "" }) {
   if (lens.needsIssueSpec && issue) {
     parts.push("", "## The originating issue this PR claims to satisfy (DATA):", "```", issue, "```");
   }
+  // Two SEPARATE pushes, not one combined call. The guard in review-panel.test.mjs
+  // matches `/parts\.push\(\s*""\s*,\s*LENS_CLOSING_INSTRUCTION\s*\)/` to hold the
+  // closing instruction last; folding these into one push would silently break it
+  // while still rendering correctly, which is the worst of both.
+  //
+  // Deliberately in the UNCACHED user prompt rather than the shared system prefix,
+  // even though the text is lens-invariant and `lensCacheKey` would cache it. The
+  // saving is ~1.7k tokens a round — about $0.008 — against this plan's own
+  // finding that cost is TURNS, not tokens; and the prefix sits before the whole
+  // diff, where a note about what not to report carries much less weight than it
+  // does here, one line above the closing instruction.
+  parts.push("", MECHANICAL_COVERAGE_NOTE);
   parts.push("", LENS_CLOSING_INSTRUCTION);
   return parts.join("\n");
 }
