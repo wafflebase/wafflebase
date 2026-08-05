@@ -759,3 +759,236 @@ is already gone.
 - [ ] **The field itself, in a real artifact.** Blocked on the same thing as the
       section above: no capture has left a runner yet. The first one to arrive should
       show a `lane` on every blocking fresh row and none on a minor.
+
+---
+
+# Follow-up: make the capture say which PR it is of
+
+The artifact has been leaving the runner since #664 and **nothing inside it says
+what it is a capture of.** One new file, `meta.json`, at the root of the same
+artifact; retention 30 → 90 in both producers.
+
+## The problem
+
+The section above closes on an unchecked box that predicted this:
+
+> **Two producers, one artifact name — a collector requirement, recorded now.**
+> `stage-detail.json` carries no field naming the workflow that wrote it … a
+> collector … would double-count one head sha as two rounds. Recoverable from run
+> metadata (`event: issue_comment` versus the panel's `workflow_run`).
+
+**The recovery it offers does not exist.** Both workflows are triggered by events
+— `workflow_run` and `issue_comment` — that make GitHub execute the DEFAULT
+BRANCH's copy of the workflow. From GitHub's point of view the run belongs to
+`main`, not to the branch under review. Measured on all three real captures to
+date (#665, #666, #669), every one of them reports:
+
+```
+head_branch = "main"        pull_requests = []
+```
+
+So the run metadata names neither the PR nor the branch, and the two producers
+upload under the **same artifact name** with nothing in the payload to separate
+them. A consumer has three unanswerable questions — which PR, which channel,
+which reviewer version — and the third is the one nobody was going to notice:
+reviews from different panel versions are not comparable, and no channel records
+which version ran.
+
+This is not a gap in GitHub. It is a deliberate security property — the reviewer
+must never execute code from the branch it is reviewing — and it is not going to
+change. The producing job holds every answer; it simply never wrote them down.
+
+Attribution also cannot be guessed later. A capture filed against the wrong PR is
+worse than a missing one: absence is visible, and a wrong row corrupts the corpus
+in a way no downstream check would catch. So the fix belongs in the producer, and
+it only fixes captures written **after** it lands — the same one-way property the
+lane field had, which is the whole reason this is small and goes first.
+
+## The change
+
+- [x] `scripts/agent/capture-meta.mjs`. `buildCaptureMeta({...})` is **pure** —
+      no clock, no filesystem, no environment; `capturedAt` and `lenses` are
+      injected. `capturedLenses(outDir)` is the one side effect. A thin CLI joins
+      them and writes the file.
+- [x] **In a script, not in YAML**, and this subsystem is the argument: #641
+      recorded that "a YAML default puts the inverted logic where no test can
+      reach it", and #664 existed because a YAML-level mistake was untestable and
+      stayed silent for five rounds. The workflow contributes only values it
+      already holds.
+- [x] The payload: `schema`, `pr`, `headSha`, `baseSha`, `channel`, `workflow`,
+      `runId`, `runAttempt`, `event`, `panelSha`, `lenses`, `capturedAt`. Two
+      fields carry most of the value. **`channel`** is the only thing that can
+      tell a gating round from an advisory one; without it a single commit
+      reviewed twice reads as two gating rounds. **`panelSha`** is the reviewer's
+      own version, from `git -C .trusted rev-parse HEAD`.
+- [x] **No `config_hash`, deliberately.** A separate audit of the existing
+      config-hash logic found it omits fields that change behaviour, so two judges
+      that decide differently hash identically. A wrong fingerprint is worse than
+      none — it merges two populations silently. A raw commit sha is always
+      available and always correct, and a config identity can be derived from it
+      later. There is a test whose only job is that nobody adds it back as an
+      obvious improvement.
+- [x] A `Describe the capture` step in **both** workflows, after the panel and
+      before the upload, `continue-on-error: true`.
+- [x] The artifact name gains the PR number:
+      `review-panel-stage-detail-pr-<n>`. A convenience for a human reading the
+      artifact list and for a collector fetching selectively; `meta.json` remains
+      the source of truth and nothing may parse attribution back out of the name.
+      Safe: **nothing downloads this artifact** — the only other references in the
+      repo are the two upload steps and this document.
+- [x] `retention-days: 30` → **90**, the maximum for a public repo, in both. The
+      `retention-days: 1` steps are untouched: those are an intra-run hand-off to
+      promote/fix and 1 day is chosen to match that lifetime.
+- [x] 14 new tests in `capture-meta.test.mjs`, and the existing
+      `uploadArtifactSteps()` invariant test **extended** rather than duplicated —
+      it now also pins retention, the artifact name, the meta step's existence,
+      its position before the upload, and that each producer names its own
+      channel and its own workflow file.
+
+## Corrected while building
+
+- **The upload glob does not match `meta.json`, and the literal path is NOT
+  immune to the hidden-files trap the way the execution log is.** The plan said
+  "write `.agent-review/meta.json`" and stopped there. `path:
+  .agent-review/*/stage-detail.json` matches nothing at the root of that
+  directory, so the file would have been written on every round and uploaded on
+  none — this subsystem's signature failure, for a third time. The fix is a
+  second `path:` entry, and the interesting half is what that entry does **not**
+  buy. #664 established that a literal file path escapes the hidden-file
+  exclusion because its search root is the FILE. That reasoning does not carry
+  here: `getSearchPaths()` **drops a search path that is a descendant of
+  another**, so `.agent-review/meta.json` collapses into the glob's
+  `.agent-review` root and is skipped with it. Measured against `@actions/glob`
+  0.5.0 with upload-artifact's own options — with `include-hidden-files: false`
+  the two-path step uploads **zero** files, `meta.json` included. The same
+  collapse is what keeps the layout right: one search path means no
+  least-common-ancestor calculation, so the artifact is `meta.json` beside
+  `<lens>/stage-detail.json` exactly as before.
+- **Writing `meta.json` unconditionally would have broken the empty case.** The
+  obvious implementation writes attribution every round. But "every lens skipped"
+  is normal — it is what `if-no-files-found: ignore` exists for — and an
+  unconditional write turns that legitimately empty round into an artifact
+  containing attribution and nothing else, which a collector must treat as
+  "present but nothing valid inside", i.e. loud. So the CLI writes nothing when no
+  lens captured, and `buildCaptureMeta` refuses an empty `lenses` list. The two
+  halves make one invariant: **`meta.json` present ⟺ a real capture.**
+- **The schema string in the plan and in the design note disagreed**
+  (`wafflebase/stage-capture@1` vs `…/stage-capture-meta@1`). Settled as
+  `wafflebase/stage-capture-meta@1` — it names the file, not the subsystem, and
+  `stage-detail.json` may want its own version line later.
+- **The plan's line numbers for the gating file were one low** (upload step at
+  `:995`, retention at `:1024`, not `:994`/`:1023`). The on-demand ones were
+  exact. Nothing about the conclusions changed.
+- **A mutation test can pass by editing a comment.** The first run of the
+  mutation harness reported "advisory producer copy-pasted `--workflow`" as
+  survived. The test was fine; the harness had rewritten the string where it
+  appears in the step's own **comment block**, which the parser strips before
+  asserting. These workflows carry more prose than YAML — the same trap #630,
+  #640 and #651 hit — and it now catches the people testing the test too.
+
+## Fail directions
+
+| path | on doubt | why |
+|---|---|---|
+| `buildCaptureMeta` (the payload) | **throws**, naming the field and the value | the single write path, so it refuses on any doubt. A `meta.json` reading `"pr": null` that uploaded anyway is precisely the shape this subsystem keeps producing: collected-looking and unusable. Because the builder is all-or-nothing there is no partial file, so "is this attributable?" is answered by the file's existence and never by inspecting a field |
+| the meta step (a refusal) | **no meta.json, exit 1, `::error::`** — and the upload still runs | two separate decisions, deliberately. The upload is unconditional because the lens files remain the only copy for 90 days and a human can still read the run log to see which PR it was; withholding them destroys recoverable data. What is *not* allowed is a bad `meta.json`, and none is written. An `::error::` is an ANNOTATION on the run summary rather than a log line, which is the distinction that let "No files were found" hide for five rounds. Enforcement proper is the collector's: it exits non-zero on a capture with no `meta.json` |
+| the meta step (any failure) | `continue-on-error: true` | a capture problem must never fail a code review. The script's own exit 1 carries the signal instead, and the invariant test pins the flag so nobody removes it "to make failures visible" |
+| no lens captured | **write nothing**, exit **0**, say so on stdout | capture off, or every lens skipped, is normal. The line is printed anyway: "the artifact was legitimately empty" is a claim a reader should be able to check, and it is indistinguishable from a broken capture if nobody prints it |
+| `capturedLenses`, any other read error | **exit 1, `::error::`**, no file | it rethrows, and the CLI catches it: an uncaught readdir error prints a stack trace with no annotation, so the run summary stays clean while the artifact goes out unattributable |
+| a count that does not fit a JS number | **refuse** | the digit regex admits a 20-digit run id that `Number` rounds to a different one, and a 30-digit one that becomes `1e+30`. Well-formed and wrong is the single outcome this file exists to prevent |
+| `capturedLenses`, missing directory | `[]` | same normal case. Any **other** readdir error propagates: an unreadable capture directory is a real fault and must not be laundered into "nothing was captured" |
+| `capturedLenses`, one unreadable lens dir | that lens is not listed; its siblings are | per-lens isolation, the same rule the collector's design takes. One bad directory must not discard four healthy captures |
+| `baseSha` absent | `null` — present, and not `""` | an absent KEY is indistinguishable from a file written before the field existed, and `""` is a value a consumer might take literally. The diff base is genuinely unknown when the diff step never ran; a *malformed* one is a refusal |
+| `panelSha` unobtainable | `git … \|\| true` yields `""`, the script refuses by name | dying inside the shell under `set -e` would put "exit 128" in the log with no field name. Reaching the script's own refusal names the fix |
+
+## Explicit non-goals
+
+**No collector.** Nothing reads `stage-detail.json` or `meta.json` after this.
+This makes the artifact attributable; moving it into permanent storage is the next
+PR, and it is separate for a permissions reason rather than a tidiness one.
+
+**No new permission, in either workflow, and none wanted.** The `review-panel`
+job keeps `{contents: read, checks: write, issues: write, pull-requests: write}`
+and the on-demand `review` job keeps `{contents: read, pull-requests: read,
+checks: read, issues: write}` — verified byte-identical before and after. No
+`id-token`, no `contents: write`. `upload-artifact` needs no scope and neither
+does writing a file.
+
+**No change to what is captured.** `writeStageDetail`, `buildStageDetail`, the
+gates and the payload are untouched. `meta.json` is a sibling file, not a field.
+
+**No advisory round is made gating**, and no lens, verifier, lane or gate
+decision changes.
+
+**No backfill.** The three existing captures (#665, #666, #669) have no
+`meta.json` by definition and will not gain one; they expire 2026-09-03 and are to
+be collected by hand, marked as such. A collector correctly refusing them is that
+validation path passing its first real test, not a regression.
+
+**No `config_hash`** — see *The change*.
+
+## Verification
+
+- [x] `node --test "scripts/agent/*.test.mjs"` — **708 tests, 0 fail**, against
+      693 on `upstream/main` (`e5de00ae9`). Exactly +15, all in the new
+      `capture-meta.test.mjs`; the workflow invariant was extended in place and
+      adds none. Both numbers given for each SDK state, because the skip count
+      moves with it:
+
+      | Agent SDK | branch | `upstream/main` |
+      |---|---|---|
+      | installed | 708 tests, 708 pass, 0 skipped | 693 / 693 / 0 |
+      | absent (the `agent:tests` lane) | 708 tests, 707 pass, 1 skipped | 693 / 692 / 1 |
+
+      Both columns measured with a root workspace install present. Without one,
+      five `lint-config.test.mjs` cases skip as well and the figure reads 6 —
+      which is the number a run in a bare checkout produces, and the reason a
+      skip count is only meaningful with its environment stated.
+- [x] `eslint scripts` — clean, exit 0, on the lockfile's pinned `eslint@9.24.0`.
+- [x] **Every new assertion mutation-tested — 23 mutations, 23 caught**, each
+      naming the right file. The workflow ones: retention back to 30 (both
+      producers, each named); the meta step deleted (both, each named); the meta
+      step moved to run *after* the upload; `meta.json` dropped from the upload
+      path; the artifact name reverted to the un-numbered one; the advisory
+      producer copy-pasted with `--channel gating`; the same with
+      `--workflow agent-review-panel.yml`; `continue-on-error` removed; the
+      payload built by `echo` in YAML instead of the script. The builder's:
+      `pr` validation relaxed to accept anything (the `"pr": null` failure this
+      change exists to prevent) — caught by both the field test *and* the CLI's
+      end-to-end refusal test; `baseSha` omitted rather than `null`; `headSha`
+      relaxed to any hex; `capturedAt` accepting a UTC offset; an empty lens list
+      accepted; a `config_hash` added back; the caller's array sorted in place;
+      `capturedLenses` listing directories with no capture; and the CLI writing a
+      `meta.json` after the payload was refused.
+- [x] **The artifact layout, from the real workflow config.** Both `path:` values
+      parsed straight out of the committed YAML and run through `@actions/glob`
+      0.5.0 with upload-artifact's own options, over a `.agent-review` holding
+      five captured lenses, one lens directory with no capture, and the sibling
+      timing/verdict files:
+
+      ```
+      meta.json
+      blast-radius/stage-detail.json   correctness/stage-detail.json
+      design-fit/stage-detail.json     security/stage-detail.json
+      test-adequacy/stage-detail.json
+      ```
+
+      `meta.json` at the artifact root, the lens layout unchanged, the
+      un-captured lens absent from both the artifact and `meta.lenses`.
+- [x] **Both workflows parse** (`yaml.safe_load`), and every job's `permissions`
+      block in both files is identical before and after — compared parsed and as
+      raw bytes, all 13 jobs.
+- [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not
+      the working copy.
+- [ ] **A real artifact from either producer.** Unverified end-to-end and cannot
+      be from here: the gating side needs one managed PR, the on-demand side one
+      `@claude review`. The first capture to arrive should hold a `meta.json` whose
+      `pr` matches the PR it was posted on and whose `panelSha` is the `main`
+      commit this merged into. That is also the only check that can confirm
+      `steps.pr.outputs.number` and `needs.authorize.outputs.pr` arrive non-empty
+      in production.
+- [ ] **90-day retention on a real upload.** The value is asserted in the YAML;
+      whether GitHub honours it depends on the repository's
+      `actions.artifact_retention_days` maximum, which a workflow cannot read.
+      If the repo setting is lower, GitHub silently clamps — check the first
+      artifact's expiry rather than assuming.
