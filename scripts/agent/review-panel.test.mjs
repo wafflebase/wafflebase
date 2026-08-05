@@ -2605,21 +2605,36 @@ test("writeStageDetail: disabled writes nothing at all", () => {
   }
 });
 
+const WORKFLOW_DIR = path.join(HERE, "..", "..", ".github", "workflows");
+
+/**
+ * A workflow file with its comment lines dropped.
+ *
+ * These workflows carry more prose than YAML and the comments quote `path:`,
+ * `retention-days:` and the flags being asserted here by name, so a whole-file
+ * grep would answer out of the explanation instead of the config — the same trap
+ * #630, #640 and #651 each had to work around.
+ *
+ * SHARED by both parsers below, and that is load-bearing rather than tidy: the
+ * step-ordering assertion compares line indexes across the two, so they must be
+ * indexing the same array. Two copies of this filter could drift and the
+ * comparison would quietly become meaningless.
+ */
+function strippedWorkflowLines(file) {
+  return readFileSync(path.join(WORKFLOW_DIR, file), "utf8")
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l));
+}
+
+const workflowFiles = () => readdirSync(WORKFLOW_DIR).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+
 /**
  * Parse every `actions/upload-artifact` step out of the real workflows.
- *
- * Comment lines are dropped first. These workflows carry more prose than YAML and
- * the comments quote `path:` and the flag being asserted here by name, so a
- * whole-file grep would answer out of the explanation instead of the config —
- * the same trap #630, #640 and #651 each had to work around.
  */
 function uploadArtifactSteps() {
-  const dir = path.join(HERE, "..", "..", ".github", "workflows");
   const steps = [];
-  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))) {
-    const lines = readFileSync(path.join(dir, file), "utf8")
-      .split("\n")
-      .filter((l) => !/^\s*#/.test(l));
+  for (const file of workflowFiles()) {
+    const lines = strippedWorkflowLines(file);
     for (let i = 0; i < lines.length; i++) {
       const at = lines[i].indexOf("uses: actions/upload-artifact");
       if (at < 0) continue;
@@ -2654,9 +2669,62 @@ function uploadArtifactSteps() {
           paths.push(body[k].trim().replace(/^["']|["']$/g, ""));
         }
       }
+      // The ARTIFACT name (a `with:` input) as distinct from the step label read
+      // above. Both are spelled `name:`; only the one inside the step body is the
+      // artifact's, which is why it is picked out here and not by the backward
+      // scan.
+      let artifactName = null;
+      for (const l of body) {
+        const m = /^\s*name:\s*(.+?)\s*$/.exec(l);
+        if (m) { artifactName = m[1].replace(/^["']|["']$/g, ""); break; }
+      }
+      const retention = body.map((l) => /^\s*retention-days:\s*(\d+)\s*$/.exec(l)).find(Boolean);
       steps.push({
-        file, name, paths,
+        file, name, paths, artifactName,
+        line: i,
+        retention: retention ? Number(retention[1]) : null,
         includeHidden: body.some((l) => /^\s*include-hidden-files:\s*true\s*$/.test(l)),
+      });
+    }
+  }
+  return steps;
+}
+
+/**
+ * Parse the `capture-meta.mjs` step out of each workflow that has one.
+ *
+ * Read from the workflow source because that is the only place the wiring
+ * exists: the values are step-level `env:` and literal flags, so no unit test of
+ * `buildCaptureMeta` can reach them. The four facts asserted below — which
+ * channel, which workflow name, where the file lands, and that a failure cannot
+ * fail the review — are each a one-token edit away from being silently wrong,
+ * and three of them are what a copy of this step into the other workflow gets
+ * wrong first.
+ */
+function captureMetaSteps() {
+  const steps = [];
+  for (const file of workflowFiles()) {
+    const lines = strippedWorkflowLines(file);
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\s*)- name:\s*(Describe the capture.*?)\s*$/.exec(lines[i]);
+      if (!m) continue;
+      const keyIndent = m[1].length + 2;
+      const body = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (!lines[j].trim()) { body.push(lines[j]); continue; }
+        if (lines[j].search(/\S/) < keyIndent) break;
+        body.push(lines[j]);
+      }
+      const text = body.join("\n");
+      const flag = (name) => {
+        const f = new RegExp(`--${name}\\s+(\\S+)`).exec(text);
+        return f ? f[1].replace(/^["']|["']$/g, "") : null;
+      };
+      steps.push({
+        file, line: i, name: m[2], text,
+        runsBuilder: /node \.trusted\/scripts\/agent\/capture-meta\.mjs/.test(text),
+        continueOnError: /^\s*continue-on-error:\s*true\s*$/m.test(text),
+        out: flag("out"), channel: flag("channel"), workflow: flag("workflow"),
       });
     }
   }
@@ -2714,10 +2782,55 @@ test("every upload-artifact step that GLOBS a hidden path opts hidden files back
     ["agent-review-on-demand.yml", "agent-review-panel.yml"],
     "both the gating and the on-demand panel must upload the stage-detail capture",
   );
+  const meta = captureMetaSteps();
   for (const s of stage) {
-    assert.deepEqual(s.paths, [".agent-review/*/stage-detail.json"], `${s.file}: the capture path must match the other producer`);
+    assert.deepEqual(
+      s.paths,
+      [".agent-review/*/stage-detail.json", ".agent-review/meta.json"],
+      `${s.file}: the capture path must match the other producer, and must carry meta.json — the glob does NOT match a file at the root of .agent-review`,
+    );
     assert.ok(s.includeHidden, `${s.file}: the stage-detail upload must set include-hidden-files: true`);
+
+    // 90 days, the maximum for a public repo, in BOTH producers. Nothing reads
+    // these artifacts yet, so retention is the only thing between a capture and
+    // deletion, and a collector must not find one channel expiring before the
+    // other. Deliberately does NOT touch the `retention-days: 1` steps, which are
+    // an intra-run hand-off.
+    assert.equal(s.retention, 90, `${s.file}: the stage-detail capture must be retained for 90 days (the public-repo maximum), got ${s.retention}`);
+
+    // The PR number in the artifact name, always as an expression — a literal
+    // would mean every run overwrote the same name.
+    assert.match(
+      s.artifactName ?? "",
+      /^review-panel-stage-detail-pr-\$\{\{ [^}]+ \}\}$/,
+      `${s.file}: the artifact name must carry the PR number, got ${JSON.stringify(s.artifactName)}`,
+    );
+
+    // Attribution must be WRITTEN before it is uploaded. A meta step that ran
+    // after the upload would produce a file nobody ever sees, and the artifact
+    // would still be unattributable — while every other assertion here passed.
+    const m = meta.find((x) => x.file === s.file);
+    assert.ok(m, `${s.file}: no "Describe the capture" step — the uploaded artifact would carry no meta.json and a collector would discard it`);
+    assert.ok(m.line < s.line, `${s.file}: the capture must be described BEFORE it is uploaded (meta step at line ${m.line}, upload at ${s.line})`);
+    assert.ok(m.runsBuilder, `${s.file}: the meta step must run the trusted capture-meta.mjs, not build the payload in YAML`);
+    assert.equal(m.out, ".agent-review/meta.json", `${s.file}: meta.json must land where the upload above looks for it`);
+    assert.ok(s.paths.includes(m.out), `${s.file}: the upload does not carry ${m.out}`);
+    // A capture problem must never fail a code review. The script's own exit 1
+    // is the signal; this is what keeps it off the critical path.
+    assert.ok(m.continueOnError, `${s.file}: the meta step must be continue-on-error — a capture must never fail a review`);
+    // Each producer names ITSELF. This is the assertion a copy-paste between the
+    // two workflows fails, which is how #664's naive copy would have gone wrong.
+    assert.equal(m.workflow, s.file, `${s.file}: --workflow must name this workflow, got ${JSON.stringify(m.workflow)}`);
   }
+
+  // `channel` is the only field that can separate a gating round from an
+  // advisory one — the two producers are otherwise byte-identical in what they
+  // capture, so a single head sha reviewed twice would read as two gating rounds.
+  assert.deepEqual(
+    meta.map((m) => [m.file, m.channel]).sort(),
+    [["agent-review-on-demand.yml", "advisory"], ["agent-review-panel.yml", "gating"]],
+    "each producer must declare its own channel, and the two must differ",
+  );
 
   // The invariant has to hold for a REASON, not by coincidence: at least one
   // upload in the repo must be a hidden glob, or the loop above proves nothing.
