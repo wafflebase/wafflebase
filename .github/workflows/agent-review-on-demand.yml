@@ -349,10 +349,47 @@ jobs:
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
 
+      # The twin of the gating panel's step — see agent-review-panel.yml for why
+      # the artifact could not say which PR it came from and why the payload is
+      # built in a tested script rather than in YAML. Both producers upload the
+      # same capture, so `channel` is the ONLY field that can tell an advisory
+      # round from a gating one; without it a single head sha reviewed twice
+      # reads as two gating rounds.
+      #
+      # Differs from the twin in exactly four places: `--channel advisory`,
+      # `--workflow agent-review-on-demand.yml`, where the PR and head sha come
+      # from, and no `steps.pr` guard — an `issue_comment` event always carries
+      # `needs.authorize.outputs.pr`, which is the same reason the upload below
+      # has none.
+      - name: Describe the capture (attribution for the artifact below)
+        if: always()
+        continue-on-error: true
+        env:
+          PR: ${{ needs.authorize.outputs.pr }}
+          # The SHA `authorize` pinned and this job checked out — not the floating
+          # PR head, which a push landing mid-run would have moved.
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          BASE_SHA: ${{ steps.diff.outputs.base }}
+        run: |
+          # `.trusted` is this job's `main` checkout — the reviewer's own version.
+          PANEL_SHA=$(git -C .trusted rev-parse HEAD 2>/dev/null || true)
+          node .trusted/scripts/agent/capture-meta.mjs \
+            --out .agent-review/meta.json \
+            --pr "$PR" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --channel advisory \
+            --workflow agent-review-on-demand.yml \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --event "$GITHUB_EVENT_NAME" \
+            --panel-sha "$PANEL_SHA"
+
       # The SAME capture the gating panel uploads (#641), from the same writer, at
-      # the same name, path and retention. Deliberately not a second format: the
-      # panel already wrote these files on every on-demand round and the runner
-      # then deleted them, so this is a route out, not new data.
+      # the same path and retention, and now with the same `meta.json` beside it.
+      # Deliberately not a second format: the panel already wrote these files on
+      # every on-demand round and the runner then deleted them, so this is a route
+      # out, not new data.
       #
       # #641 listed this under "Not built", on the grounds that "advisory
       # `@claude review` invocations are not the population a tuning corpus should
@@ -384,18 +421,27 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: review-panel-stage-detail
-          path: .agent-review/*/stage-detail.json
+          # PR number in the name — a convenience for humans and for selective
+          # fetching. `meta.json` is the source of truth. See the twin step.
+          name: review-panel-stage-detail-pr-${{ needs.authorize.outputs.pr }}
+          path: |
+            .agent-review/*/stage-detail.json
+            .agent-review/meta.json
           # REQUIRED — see the twin step in agent-review-panel.yml for the
           # mechanism. Without it the glob's search root is the dot-directory
           # `.agent-review`, which @actions/glob skips before reading it, and this
-          # step silently uploads nothing.
+          # step silently uploads nothing. The literal `meta.json` above does not
+          # escape that: its search path is a descendant of the glob's and is
+          # dropped from `getSearchPaths()`.
           include-hidden-files: true
           # Absent whenever capture is disabled, or every lens skipped, or the panel
           # crashed before writing — none of which is an error here. This is also
           # why the flag above cannot be inferred from a green run.
           if-no-files-found: ignore
-          retention-days: 30
+          # 90, the maximum for a public repo. Kept in step with the gating twin:
+          # a collector reading both producers must not find one channel's
+          # captures expiring 60 days before the other's.
+          retention-days: 90
 
       # Post the comment with a GitHub App token, NOT the default GITHUB_TOKEN.
       # This workflow runs on ANY PR incl. forks, and for a run triggered by an
