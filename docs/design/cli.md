@@ -737,32 +737,6 @@ URLs never reach stderr or CI logs; scheme, host and path do.
 `--quiet` suppresses the body but not the exit code — scripts branching on
 `$?` are the reason the contract exists.
 
-##### Export image fetching
-
-Exports (`docs export`, `slides export`) dereference the image `src`
-values found in the document, which are attacker-influenced — anyone who
-can edit or share a document picks them. `assertFetchableImageUrl` gates
-every one before it is requested: only `http:`, `https:` and `data:` are
-dereferenced (so `file:` can't read local files into the artifact), and
-loopback / RFC1918 / CGNAT / link-local hosts and the `.internal`
-`.local` suffixes are refused, which covers the cloud metadata service at
-`169.254.169.254`. The configured server is the one internal host still
-allowed, because `--server http://localhost:3000` is the normal dev
-setup. A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit
-`1` — the document is wrong, not the environment).
-
-##### Nonce-bound login callback
-
-`wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
-any local process — or any web page that guesses the port — can reach. So
-the code alone does not complete a login: the CLI generates a nonce, ships
-it as `?nonce=` on the `/auth/github` URL, the backend stores it in the
-CLI state and echoes it on the loopback redirect, and the CLI accepts only
-a callback whose nonce matches (constant-time compare). Mismatched
-requests get `403` and are ignored — they can neither complete nor cancel
-the pending login, so a hostile page cannot fix the CLI onto its own
-account.
-
 #### 8.2 Dry-Run
 
 `--dry-run` validates inputs, resolves the target API endpoint, and
@@ -1002,8 +976,9 @@ is the agent interface. This approach has key advantages:
 | `--replace` without `--yes` on non-TTY              | 1    | CONFIRMATION_REQ    | "Refusing to overwrite without --yes in non-TTY"                   |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
-| Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
-| Backend 5xx or network                              | 2    | SYSTEM              | (original message preserved)                                       |
+| Backend 401/403                                     | 2    | AUTH_ERROR          | "Authentication failed. Run `wafflebase login`"                    |
+| Backend 5xx                                         | 2    | SERVER_ERROR        | (original message preserved)                                       |
+| Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL redacted)                  |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |

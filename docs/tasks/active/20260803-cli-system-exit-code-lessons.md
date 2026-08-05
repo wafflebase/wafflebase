@@ -23,3 +23,28 @@ every test asserted `exitCode === 1` — i.e. the tests encoded the bug.
 - **`quiet` must classify too.** The quiet branch of `outputError`
   returns early; it is exactly the branch scripts use, so leaving it at a
   hardcoded `1` would have defeated the purpose.
+
+## Descoped mid-review
+
+Two security controls were drafted here and then removed, because both
+are separate designs rather than exit-code classification:
+
+- **Nonce-bound loopback login callback** (CLI `?nonce=` → stored in
+  `CliAuthStore` → echoed on the `127.0.0.1` redirect). It is a
+  cross-package OAuth protocol change: a CLI that hard-requires the echo
+  cannot log in against any already-deployed backend, and the nonce as
+  drafted leaked through the printed OAuth URL and the browser process
+  argv anyway. A real fix needs a negotiated rollout (backend first,
+  CLI tolerant until a floor version) and its own guard/callback specs.
+- **SSRF gate on export image `src`** (`assertFetchableImageUrl`).
+  Name-based blocking is not a boundary: `fetch` follows redirects, any
+  attacker-controlled DNS record can point at loopback, and the literal
+  matching both under-blocked (`[::ffff:7f00:1]`) and over-blocked
+  (public hostnames beginning `fc`/`fd`/`fe8`). It also broke existing
+  self-hosted documents whose stored `src` is an absolute internal URL
+  that is not byte-identical to `--server`. A correct version resolves
+  addresses and revalidates per redirect hop.
+
+What survives from that work is the part that belongs to #586: image
+downloads go through `fetchOrThrow`/`httpError`, so an unreachable image
+host exits `2` and presigned query strings stay out of stderr.

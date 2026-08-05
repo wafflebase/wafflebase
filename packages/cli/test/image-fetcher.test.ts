@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BlockedImageUrlError,
-  assertFetchableImageUrl,
   createImageFetcher,
   resolveImageUrl,
 } from '../src/docs/image-fetcher.js';
@@ -137,91 +135,21 @@ describe('createImageFetcher', () => {
     expect((err as Error).message).not.toContain('s3cret');
   });
 
-  it('refuses document-supplied internal and non-http URLs before fetching', async () => {
-    const calls: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      return new Response(new Uint8Array([0]), { status: 200 });
+  it('turns an unreachable image host into a NETWORK_ERROR system error', async () => {
+    const stubFetch: typeof globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
     };
+
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
     });
 
-    await expect(fetcher('file:///etc/passwd')).rejects.toBeInstanceOf(
-      BlockedImageUrlError,
-    );
-    await expect(
-      fetcher('http://169.254.169.254/latest/meta-data/'),
-    ).rejects.toBeInstanceOf(BlockedImageUrlError);
-    expect(calls).toEqual([]);
-  });
-});
-
-describe('assertFetchableImageUrl', () => {
-  const base = 'https://api.wafflebase.io';
-
-  it('allows public http(s) and data URLs', () => {
-    expect(() =>
-      assertFetchableImageUrl('https://cdn.example.com/a.png', base),
-    ).not.toThrow();
-    expect(() =>
-      assertFetchableImageUrl('http://cdn.example.com/a.png', base),
-    ).not.toThrow();
-    expect(() =>
-      assertFetchableImageUrl('data:image/png;base64,AAA', base),
-    ).not.toThrow();
-  });
-
-  it('rejects schemes that are not network image fetches', () => {
-    for (const url of [
-      'file:///etc/passwd',
-      'blob:https://x/abc',
-      'ftp://example.com/a.png',
-    ]) {
-      expect(() => assertFetchableImageUrl(url, base)).toThrow(
-        BlockedImageUrlError,
-      );
-    }
-  });
-
-  it('rejects loopback, private, CGNAT and link-local hosts', () => {
-    for (const url of [
-      'http://127.0.0.1/a.png',
-      'http://localhost:8080/a.png',
-      'http://[::1]/a.png',
-      'http://10.0.0.5/a.png',
-      'http://172.16.4.4/a.png',
-      'http://192.168.1.1/a.png',
-      'http://100.100.0.1/a.png',
-      'http://169.254.169.254/latest/meta-data/',
-      'http://metadata.google.internal/computeMetadata/v1/',
-    ]) {
-      expect(() => assertFetchableImageUrl(url, base)).toThrow(
-        BlockedImageUrlError,
-      );
-    }
-  });
-
-  it('allows the configured server even when it is local (dev setup)', () => {
-    expect(() =>
-      assertFetchableImageUrl(
-        'http://localhost:3000/images/abc',
-        'http://localhost:3000',
-      ),
-    ).not.toThrow();
-    // …but only that exact host:port.
-    expect(() =>
-      assertFetchableImageUrl(
-        'http://localhost:9999/images/abc',
-        'http://localhost:3000',
-      ),
-    ).toThrow(BlockedImageUrlError);
-  });
-
-  it('rejects a src that is not a URL at all', () => {
-    expect(() => assertFetchableImageUrl('/images/abc', '')).toThrow(
-      BlockedImageUrlError,
-    );
+    const err = await fetcher('/images/abc')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect((err as SystemError).code).toBe('NETWORK_ERROR');
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
   });
 });

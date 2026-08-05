@@ -5,12 +5,6 @@ interface StateEntry {
   csrf: string;
   mode: string;
   port: number;
-  /**
-   * Nonce the CLI generated for this login. Echoed back on the loopback
-   * redirect so the CLI can tell its own callback from one injected by
-   * another local process or a web page (see `commands/login.ts`).
-   */
-  nonce?: string;
   expiresAt: number;
 }
 
@@ -27,7 +21,6 @@ export class CliAuthStore {
   createState(
     mode: string,
     port: number,
-    nonce?: string,
   ): { stateToken: string; csrf: string } {
     const csrf = randomBytes(32).toString('base64url');
     const stateToken = randomBytes(32).toString('base64url');
@@ -35,7 +28,6 @@ export class CliAuthStore {
       csrf,
       mode,
       port,
-      nonce,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
     this.cleanup();
@@ -44,21 +36,14 @@ export class CliAuthStore {
 
   consumeState(
     stateToken: string,
-  ):
-    | { csrf: string; mode: string; port: number; nonce?: string }
-    | undefined {
+  ): { csrf: string; mode: string; port: number } | undefined {
     const entry = this.states.get(stateToken);
     if (!entry || entry.expiresAt < Date.now()) {
       this.states.delete(stateToken);
       return undefined;
     }
     this.states.delete(stateToken);
-    return {
-      csrf: entry.csrf,
-      mode: entry.mode,
-      port: entry.port,
-      nonce: entry.nonce,
-    };
+    return { csrf: entry.csrf, mode: entry.mode, port: entry.port };
   }
 
   createCode(userId: number): string {

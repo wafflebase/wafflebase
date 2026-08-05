@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -160,18 +159,11 @@ async function runLogin(cmd: Command): Promise<void> {
     }
   }
 
-  // 2. Start local HTTP server, bound to a nonce we generate here. The
-  // callback listener is reachable by anything running on the machine
-  // (and by any web page that guesses the port), so the code alone is
-  // not enough: without the nonce a hostile page could hand us its own
-  // code and fix our CLI onto the attacker's account. The server echoes
-  // the nonce back through the OAuth round trip and we only accept a
-  // callback that carries it.
-  const nonce = randomBytes(32).toString('base64url');
-  const { port, waitForCallback, close } = await startCallbackServer(nonce);
+  // 2. Start local HTTP server
+  const { port, waitForCallback, close } = await startCallbackServer();
 
   // 3. Build OAuth URL and open browser
-  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
+  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
   console.error(`Opening browser: ${oauthUrl}`);
   console.error('If the browser does not open, visit the URL above.');
 
@@ -240,15 +232,7 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-/** Constant-time compare that tolerates differing lengths. */
-function nonceMatches(received: string, expected: string): boolean {
-  const a = Buffer.from(received);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-function startCallbackServer(expectedNonce: string): Promise<{
+function startCallbackServer(): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -276,19 +260,6 @@ function startCallbackServer(expectedNonce: string): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
-        return;
-      }
-
-      // Reject (without settling) anything that does not carry the nonce
-      // we handed the server: an unrelated local request or a hostile
-      // page must not be able to complete — or cancel — this login.
-      const nonce = url.searchParams.get('nonce');
-      if (!nonce || !nonceMatches(nonce, expectedNonce)) {
-        res.writeHead(403);
-        res.end('Invalid login nonce');
-        console.error(
-          'Ignored a callback with a missing or mismatched nonce. If this repeats, the server may predate nonce-bound CLI login.',
-        );
         return;
       }
 

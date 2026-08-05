@@ -211,23 +211,6 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
-    it('echoes the CLI nonce so the CLI can bind the callback', async () => {
-      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
-
-      const { stateToken } = cliAuthStore.createState('cli', 9876, 'nonce-abc');
-      const req = {
-        user: { username: 'bob', email: 'bob@example.com', photo: null },
-        query: { state: stateToken },
-      } as unknown as Request;
-      const res = createMockResponse();
-
-      await controller.githubAuthCallback(req as any, res, stateToken);
-
-      expect(res.redirect).toHaveBeenCalledWith(
-        expect.stringContaining('&nonce=nonce-abc'),
-      );
-    });
-
     it('falls back to web flow when state token is not CLI', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
