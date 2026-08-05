@@ -2057,6 +2057,13 @@ export function loadLenses(dir) {
 }
 
 async function main() {
+  // True WALL-CLOCK start. The metrics ledger's "Total-time" must be the elapsed
+  // time of the run, NOT the sum of every SDK call's duration_ms — the lenses, and
+  // each lens's samples + verifier calls, run CONCURRENTLY, so that sum overcounts
+  // by the concurrency factor (a ~12-min panel was reported as 36-63). We stamp the
+  // orchestrator's own elapsed time into review-timing.json and metrics.mjs prefers
+  // it over the summed value.
+  const wallStart = Date.now();
   const args = parseArgs(process.argv);
   const repo = path.resolve(args.repo ?? process.cwd());
   const lensesDir = path.resolve(args["lenses-dir"] ?? path.join(HERE, "lenses"));
@@ -2580,6 +2587,13 @@ async function main() {
   // consumed by metrics.mjs which is itself fail-safe on missing/malformed input).
   writeFileSync(path.join(outDir, "review-execution.json"), JSON.stringify(sessionLog));
   writeFileSync(path.join(outDir, "review-lens-stats.json"), JSON.stringify(lensStats));
+  // True wall-clock elapsed for THIS round — metrics.mjs reads it as the sibling
+  // of review-execution.json and uses it as the round's Total-time (see the
+  // wallStart note at the top of main()).
+  writeFileSync(
+    path.join(outDir, "review-timing.json"),
+    JSON.stringify({ wallMs: Date.now() - wallStart, startedAt: wallStart, endedAt: Date.now() }),
+  );
   process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}${p.infraError ? " (infra)" : ""}`).join("\n") + "\n");
   // If EVERY applicable blocking lens failed on an API/quota error, the panel
   // never actually ran — surface it loudly so the workflow pages honestly (and
