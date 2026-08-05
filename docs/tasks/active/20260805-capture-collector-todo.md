@@ -183,6 +183,33 @@ methods.
   nobody reads, which is the failure this subsystem keeps shipping. `mkdir -p`
   first; an empty directory adds cleanly and the existing guard then takes the
   "nothing to commit" path.
+- **A failed `Collect` step would have discarded everything it DID collect.**
+  Found in review. The collector exits non-zero on any loud skip — the monitor
+  working as designed, and the normal outcome on any run that meets one
+  unattributable capture. But a failed step skips every later step by default, so
+  a run that collected five captures and refused a sixth would have written all
+  five into the working tree and committed none: loud partial success discarded by
+  its own alarm. Both later steps now carry `if: ${{ !cancelled() }}`, the job
+  still ends red because `Collect` still failed, and a test walks the step list to
+  pin that every step after `Collect` carries the condition.
+- **`--warn-days` went through a bare `Number()`.** So `--warn-days abc` was
+  `NaN`, every `daysLeft <= NaN` was false, nothing was ever urgent, and the job
+  exited 0 printing "0 within NaN day(s)". A typo in the threshold silently turned
+  the warning off and reported success. Now validated like `--days` and `--limit`,
+  as a usage error before any request is made.
+- **`walk()`'s comment described behaviour the code did not have.** It said "one
+  directory that cannot be read costs those keys and nothing else" and then
+  rethrew, aborting the whole listing. Split: an unreadable ROOT propagates (a
+  store you cannot read must not report as empty, or the collector re-collects
+  everything into a directory it also cannot write), an unreadable SUBDIRECTORY
+  costs its own keys.
+- **Planting the REAL temp filename in a test found a real bug.** The write-once
+  test planted `.part-99999`, a literal it invented, so it proved nothing about
+  the producer's format. Using `.part-${process.pid}` — the name this process's
+  own `putCapture` would choose — made the `wx` open return `EEXIST`: a stale temp
+  file from an earlier run whose pid the OS recycled made that key unwritable for
+  a whole run. `putCapture` now clears its own `.part-<pid>` first, which is
+  provably safe because only one live process holds a given pid.
 - **The plan called for "nine captures". There are ten.** A tenth arrived at
   `2026-08-05T03:06:40Z` (run `30971057563`, one lens, 369 bytes) while this was
   being written, and it is **not** in the rescued local copies. The count is a
@@ -294,7 +321,7 @@ in a tree with neither, the same baseline reports 5 skipped).
       3809-item newest-first sequence: 3 pages read, page 4 never requested. And
       live: 4 pages for a 4-day window instead of the 33–39 a full `--paginate`
       costs.
-- [x] **Every new test mutation-tested — 18 mutations, 18 caught.** Table below.
+- [x] **Every new test mutation-tested — 19 mutations, 19 caught.** Table below.
 - [x] The collector workflow's `permissions:` block, quoted from the file:
 
       permissions:
@@ -310,7 +337,7 @@ in a tree with neither, the same baseline reports 5 skipped).
 
 ### The mutations
 
-Eighteen, each breaking the code a test claims to protect. The harness refuses to count a
+Nineteen, each breaking the code a test claims to protect. The harness refuses to count a
 replacement that landed on a comment line — #673's mutation run reported a false
 survivor for exactly that reason.
 
@@ -333,6 +360,7 @@ survivor for exactly that reason.
 | 11b | the workflow: drop `repository:` so the store checkout is THIS repo | `the collector workflow has NO write scope on THIS repository` |
 | 11c | the workflow: swap the scoped secret for `github.token` | same |
 | 11d | the workflow: aim `--root` at a path inside this repo | same — *did not match /--root \.capture-store\/captures/*. Verified by hand rather than by the harness: the string appears twice (collect and expiry steps) and the harness refuses a pattern that is not unique |
+| 11e | the workflow: drop `if: !cancelled()` from the commit step | `the steps after Collect run even when Collect FAILS` |
 | 12 | restore a default root pointing into this repo | `there is NO default root — a store must be told where it is` — *Missing expected exception: createCaptureStore accepted undefined as a root* |
 
 Mutation 4c was the interesting one: it **survived** the first run. The store's
@@ -350,6 +378,11 @@ test on the text.
       covered by tests with a faked artifact, and none of it by a real one. The
       first real collection is the day after #673 lands, and it is the run to
       watch.
+- [ ] **No recovery sweep wider than 7 days.** `workflow_dispatch` takes no
+      inputs and `--days 7` is hardcoded, so the wider-window recovery path the
+      collector design asks for (§9.2) needs a file edit. Deliberately deferred;
+      it matters if this PR sits in review long enough that captures fall out of
+      the window before the first run.
 - [ ] **The workflow has never run, and cannot until `EVAL_STORE_TOKEN` exists.**
       A maintainer has to add the secret; until then the store checkout fails and
       the job is red. `workflow_dispatch` is there so the first run can be

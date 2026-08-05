@@ -1063,10 +1063,17 @@ test("the collector workflow has NO write scope on THIS repository", () => {
   // wafflebase — which is the one outcome the permission block cannot prevent,
   // because `actions/checkout` of THIS repo plus a push is not a permissions
   // question until the push fails.
-  assert.match(yamlOnly, /repository:\s*dlgpdmsly2\/wafflebase-agent-eval/, "the store checkout must name the other repository");
+  assert.match(yamlOnly, /repository:\s*['"]?dlgpdmsly2\/wafflebase-agent-eval/, "the store checkout must name the other repository");
   assert.match(yamlOnly, /token:\s*\$\{\{\s*secrets\.EVAL_STORE_TOKEN\s*\}\}/, "the store checkout must use the scoped secret");
+  // Located with the SAME matcher the assertion above uses, not by splitting on a
+  // literal. `repository: "dlgpdmsly2/…"` with quotes, or extra spacing, would
+  // make a literal split miss and turn this into an assertion about the whole
+  // file — it would fail rather than pass vacuously, but it would fail for the
+  // wrong reason and send someone hunting the wrong line.
+  const checkoutAt = yamlOnly.search(/repository:\s*['"]?dlgpdmsly2\/wafflebase-agent-eval/);
+  assert.ok(checkoutAt > 0, "could not locate the store checkout");
   assert.equal(
-    /secrets\.EVAL_STORE_TOKEN/.test(yamlOnly.split("repository: dlgpdmsly2/wafflebase-agent-eval")[0]),
+    /secrets\.EVAL_STORE_TOKEN/.test(yamlOnly.slice(0, checkoutAt)),
     false,
     "the scoped token must not be used before the store checkout — nothing else may borrow it",
   );
@@ -1077,4 +1084,41 @@ test("the collector workflow has NO write scope on THIS repository", () => {
   assert.match(yamlOnly, /--root \.capture-store\/captures/);
   assert.match(yamlOnly, /collect-captures\.mjs \\\n\s*--write/, "the collect step must pass --write");
   assert.match(yamlOnly, /collect-captures\.mjs expiry/, "the run must still print the uncollected count");
+});
+
+test("the steps after Collect run even when Collect FAILS", () => {
+  // Not style. The collector exits NON-ZERO whenever a capture was skipped for a
+  // reason that should not happen — the monitor working as designed, and the
+  // normal outcome on any run that meets one unattributable capture. A failed
+  // step skips every later step by default, so without these conditions a run
+  // that collected five captures and refused a sixth would write all five into
+  // the working tree and commit NONE of them: loud partial success discarded by
+  // its own alarm.
+  //
+  // `!cancelled()` and not `always()`: run on success and failure, never on
+  // cancellation. There is no reason to push from a run somebody stopped.
+  const file = path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml");
+  const lines = readFileSync(file, "utf8").split("\n").filter((l) => !/^\s*#/.test(l));
+
+  // Walk the steps in order so the assertion is about POSITION, not just presence:
+  // every named step after the collect step needs the condition.
+  const named = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*-?\s*name:\s*(.+?)\s*$/.exec(lines[i]);
+    if (!m) continue;
+    // The step's `if:` sits in the same block, before the next `- name:`.
+    let cond = null;
+    for (let j = i + 1; j < lines.length && !/^\s*-\s+(name|uses):/.test(lines[j]); j++) {
+      const c = /^\s*if:\s*(.+?)\s*$/.exec(lines[j]);
+      if (c) { cond = c[1]; break; }
+    }
+    named.push({ name: m[1], cond });
+  }
+  const collectAt = named.findIndex((s) => s.name === "Collect");
+  assert.ok(collectAt >= 0, `could not find the Collect step among ${JSON.stringify(named.map((s) => s.name))}`);
+  const after = named.slice(collectAt + 1);
+  assert.ok(after.length >= 2, "expected at least the commit and report steps after Collect");
+  for (const s of after) {
+    assert.equal(s.cond, "${{ !cancelled() }}", `step "${s.name}" runs after Collect and must carry if: !cancelled()`);
+  }
 });

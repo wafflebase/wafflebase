@@ -42,6 +42,28 @@ on:
   # does not exist until the run is over. It fires even when the review FAILED,
   # which is deliberate — a panel that crashed after four of six lenses still
   # captured four, and those are data.
+  #
+  # THIS TRIGGER SITS EXACTLY AT GITHUB'S CHAIN LIMIT. From the Actions docs:
+  #
+  #     "You can't use `workflow_run` to chain together more than three levels
+  #      of workflows."
+  #
+  # The gating path is already three: `ci.yml` (push/pull_request) →
+  # `agent-review-panel.yml` (workflow_run on "CI") → this file. It works, and it
+  # has NO HEADROOM. **Inserting another `workflow_run` workflow anywhere between
+  # CI and the review panel silently stops this one from ever firing** — GitHub
+  # logs nothing when a chain is too deep, so the symptom is captures quietly not
+  # arriving, which is this subsystem's signature failure for the fourth time.
+  # If you need another link in that chain, this job has to move to a real event
+  # or be invoked some other way.
+  #
+  # Nothing else in the repository chained off the review panel before this file,
+  # so the behaviour is untested here — which is the other half of why the
+  # collect step below prints the trigger it was invoked by. The advisory path
+  # (`issue_comment` → on-demand panel → here) is only two deep and has room.
+  #
+  # The sweep below is what makes this survivable: if the chain breaks, collection
+  # degrades from minutes to within a day, and 90-day retention absorbs that.
   workflow_run:
     workflows: ["Agent Review Panel", "Agent Review On-Demand"]
     types: [completed]
@@ -107,7 +129,22 @@ jobs:
       - name: Collect
         env:
           GH_TOKEN: ${{ github.token }}
+          # Which trigger actually fired, and for `workflow_run`, which producer.
+          # Through the environment rather than interpolated into the script body,
+          # matching how every other event-derived value is passed here.
+          EVENT: ${{ github.event_name }}
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
+          # PRINTED, not assumed. The `workflow_run` trigger above sits at
+          # GitHub's three-level chain limit and nothing in this repository
+          # exercised that path before this file, so "the chain works" is a claim
+          # and not a fact. One line turns it into a fact: if every run in the
+          # Actions tab says `schedule`, the trigger has never once fired and
+          # collection has been silently running a day late. That is the exact
+          # shape of failure this subsystem keeps shipping — the novelty gate
+          # printed `OFF` for weeks and nothing read it.
+          echo "capture-collect: triggered by ${EVENT}${SOURCE_WORKFLOW:+ from \"${SOURCE_WORKFLOW}\" (${SOURCE_CONCLUSION})}"
           node scripts/agent/collect-captures.mjs \
             --write \
             --root .capture-store/captures \
@@ -120,7 +157,25 @@ jobs:
       #
       # Explicit paths, never `git add -A`: this checkout is a whole repository
       # and the collector only ever writes under `captures/`.
+      # `!cancelled()`, and this is a CORRECTNESS fix rather than tidiness.
+      #
+      # The collect step above exits NON-ZERO whenever a capture was skipped for a
+      # reason that should not happen — which is the monitor working as designed,
+      # and is the normal outcome on any run that meets one unattributable
+      # capture. A failed step SKIPS every later step by default, so without this
+      # condition a run that collected five captures and refused a sixth would
+      # write all five into the working tree and then commit NONE of them. Loud
+      # partial success discarded by its own alarm.
+      #
+      # `!cancelled()` rather than `always()`: run on success and on failure, but
+      # not on cancellation. A cancelled run may have been interrupted mid-write,
+      # and while write-once keys plus meta.json-last make that safe to re-collect,
+      # there is no reason to push from a run somebody stopped.
+      #
+      # The job still ends RED, because the collect step still failed. That is the
+      # point: commit what was collected, and report the failure anyway.
       - name: Commit to the store
+        if: ${{ !cancelled() }}
         working-directory: .capture-store
         run: |
           git config user.name "github-actions[bot]"
@@ -159,7 +214,14 @@ jobs:
       # `continue-on-error` because this is a REPORT, and the collection above
       # already succeeded or failed on its own terms. A warning that turns a
       # successful collection red would train everyone to ignore the red.
+      #
+      # `if: !cancelled()` for the same reason as the commit step, and it matters
+      # MORE here: `continue-on-error` stops this step's own failure from failing
+      # the job, but it does nothing about an EARLIER step failing — which would
+      # skip this one entirely. The run where the collector refused something is
+      # exactly the run where you want to know how much is still uncollected.
       - name: Report what is still uncollected
+        if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

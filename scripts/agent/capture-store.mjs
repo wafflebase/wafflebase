@@ -82,6 +82,18 @@ function requireRoot(root) {
 const KEY_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._=-]*$/;
 
 /**
+ * The in-progress marker, defined ONCE because two places depend on it agreeing:
+ * `putCapture` writes `<key>${PART_MARK}<pid>` and `listCaptures` filters those
+ * out. Written as two independent expressions they can drift, and the drift is
+ * silent in the worst direction — a leftover temp file starts being reported as a
+ * collected capture, so the expiry warning marks its run collected when the real
+ * key was never renamed into place.
+ *
+ * No legitimate key can contain it: every key ends `meta.json` or `<lens>.json`.
+ */
+const PART_MARK = ".part-";
+
+/**
  * A key is a relative POSIX path and is validated segment by segment, not by
  * `path.resolve` containment alone.
  *
@@ -112,18 +124,34 @@ function resolveKey(root, key) {
   return abs;
 }
 
-/** Every file under `dir`, as `/`-joined paths relative to it. */
-function walk(dir, prefix, out) {
+/**
+ * Every file under `dir`, as `/`-joined paths relative to it.
+ *
+ * `isRoot` splits two failures that used to be one, and the comment here used to
+ * claim the behaviour the code did not have: it said "one directory that cannot
+ * be read costs those keys and nothing else" while actually rethrowing, which
+ * aborted the whole listing.
+ *
+ * ROOT unreadable, and not merely absent, is a real fault and propagates. A
+ * permission error on the store root means the caller is pointed somewhere it
+ * cannot use, and answering "[]" would report an empty store — which the collector
+ * would read as "nothing collected yet" and re-collect everything into a
+ * directory it also cannot write.
+ *
+ * A NESTED directory that cannot be read costs its own keys and nothing else.
+ * `listCaptures` exists to work out what is NOT collected yet, so returning fewer
+ * keys fails toward "collect it again", which write-once makes free — whereas
+ * throwing takes down the expiry report over one bad directory.
+ */
+function walk(dir, prefix, out, isRoot = false) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (e) {
-    // A read path: a store that does not exist yet, or one directory that cannot
-    // be read, costs those keys and nothing else. `listCaptures` is used to work
-    // out what is NOT collected yet, so failing toward "fewer keys known" means
-    // failing toward "collect it again" — which write-once makes free.
+    // A store that does not exist yet is the normal first-run case at any depth.
     if (e && e.code === "ENOENT") return out;
-    throw e;
+    if (isRoot) throw e;
+    return out;
   }
   for (const e of entries) {
     const rel = prefix === "" ? e.name : `${prefix}/${e.name}`;
@@ -163,7 +191,17 @@ export function createCaptureStore(root) {
     // the race it does not close is one where both writers hold the same bytes.
     if (existsSync(abs)) return "present";
     mkdirSync(path.dirname(abs), { recursive: true });
-    const tmp = `${abs}.part-${process.pid}`;
+    const tmp = `${abs}${PART_MARK}${process.pid}`;
+    // A `.part-<our own pid>` already on disk is DEBRIS, not a competitor. Only
+    // one live process holds a given pid, so anything sitting at this exact path
+    // was left by an earlier run whose pid the OS has since recycled — pid reuse
+    // is ordinary, not exotic. Without this the `wx` open below returns EEXIST and
+    // the write fails; the old code then removed the file and rethrew, so the key
+    // was unwritable for that whole run and only recovered on the next one.
+    // Clearing it first turns a wasted run into no wasted run, and it is provably
+    // safe in a way a general "retry on EEXIST" would not be: the pid in the name
+    // is ours.
+    rmSync(tmp, { force: true });
     try {
       writeFileSync(tmp, bytes, { flag: "wx" });
       renameSync(tmp, abs);
@@ -173,8 +211,8 @@ export function createCaptureStore(root) {
         rmSync(tmp, { force: true });
       } catch {
         // Best effort. The throw below is the news; a stray `.part-` file is not,
-        // and it can never be mistaken for a capture — `listCaptures` returns it
-        // verbatim and no key the collector builds ends in `.part-<pid>`.
+        // and it can never be mistaken for a capture — `listCaptures` filters
+        // anything containing `PART_MARK`, and no key ends that way.
       }
       throw e;
     }
@@ -186,7 +224,7 @@ export function createCaptureStore(root) {
     // abandoned by a crashed write would report its run as collected when the
     // real key was never renamed into place — a capture that looks collected and
     // is not, which is the exact failure this subsystem keeps producing.
-    return walk(base, "", []).filter((k) => !/\.part-\d+$/.test(k)).sort();
+    return walk(base, "", [], true).filter((k) => !k.includes(PART_MARK)).sort();
   }
 
   // Three, and no `getCapture`. The collector never reads a capture back and

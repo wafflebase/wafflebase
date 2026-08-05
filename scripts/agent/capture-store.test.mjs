@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCaptureStore } from "./capture-store.mjs";
@@ -47,11 +47,64 @@ test("putCapture: a partial write never leaves a truncated file AT the key", () 
   try {
     const abs = path.join(root, ...KEY.split("/"));
     mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(`${abs}.part-99999`, "half a fi");
+    // The name THIS process's own `putCapture` would leave behind, not an
+    // invented one. Planting `.part-99999` tested the filter against a literal
+    // the test itself chose, so renaming the marker in `capture-store.mjs` would
+    // have left the debris visible as a capture with every test still green. Using
+    // `process.pid` couples the assertion to the producer's real format.
+    writeFileSync(`${abs}.part-${process.pid}`, "half a fi");
     assert.equal(store.hasCapture(KEY), false, "a .part- leftover is not a capture");
     assert.deepEqual(store.listCaptures(), [], "and listCaptures must not report it as one");
+    // And the write still succeeds over its own debris. Planting the REAL temp
+    // name found a bug the invented `.part-99999` could not: the `wx` open hit
+    // EEXIST, so a stale temp file from an earlier run whose pid the OS recycled
+    // made the key unwritable for a whole run. `putCapture` clears its own
+    // `.part-<pid>` first — safe because only one live process holds that pid.
     assert.equal(store.putCapture(KEY, "the whole file"), "written");
     assert.equal(readFileSync(abs, "utf8"), "the whole file");
+    assert.deepEqual(store.listCaptures(), [KEY], "and no debris survives the write");
+  } finally { cleanup(); }
+});
+
+test("a leftover from ANOTHER process is excluded too", () => {
+  // The realistic shape: the crashed writer was a different run, so its pid is
+  // not ours. Same exclusion, and it pins that the filter matches the marker
+  // rather than this process's own number.
+  const { root, store, cleanup } = tempStore();
+  try {
+    const abs = path.join(root, ...KEY.split("/"));
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(`${abs}.part-4242`, "half a fi");
+    assert.deepEqual(store.listCaptures(), []);
+  } finally { cleanup(); }
+});
+
+test("listCaptures degrades on an unreadable SUBDIRECTORY and refuses on an unreadable ROOT", () => {
+  // The two halves of one fail direction, and they point opposite ways on
+  // purpose. A nested directory that cannot be read costs its own keys: fewer
+  // keys known means "collect it again", which write-once makes free, and it
+  // must not take down the expiry report over one bad directory. An unreadable
+  // ROOT is a real fault — answering "[]" there would report an empty store, the
+  // collector would re-collect everything into a directory it also cannot write,
+  // and the reason would never be named.
+  const { root, store, cleanup } = tempStore();
+  try {
+    store.putCapture(KEY, "{}");
+    const locked = path.join(root, "stage-detail", "channel=advisory");
+    mkdirSync(locked, { recursive: true });
+    chmodSync(locked, 0o000);
+    try {
+      assert.deepEqual(store.listCaptures(), [KEY], "the healthy key survives one unreadable sibling");
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+
+    chmodSync(root, 0o000);
+    try {
+      assert.throws(() => store.listCaptures(), /EACCES|EPERM/, "an unreadable root must not read as an empty store");
+    } finally {
+      chmodSync(root, 0o755);
+    }
   } finally { cleanup(); }
 });
 

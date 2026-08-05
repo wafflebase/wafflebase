@@ -26,19 +26,25 @@
 // capture filed against the wrong PR corrupts the corpus in a way no later check
 // would notice; a missing one is visible. Absence is the recoverable failure.
 //
-// WHY THIS RUNS LOCALLY AND THE CI JOB ONLY WARNS. The design's Option C was a
-// `workflow_run`-triggered job that writes to S3, and there is no bucket yet.
-// Spec §8's interim answer was a folder in THIS repository, but a job that
-// writes here needs `contents: write` — the exact boundary #641 refused to cross
-// for this subsystem — and git history is permanent, so data committed here
-// while the storage question is still open could never be taken back out. So the
-// store lives in the separate eval repo, `--root` names it explicitly (see
-// `capture-store.mjs`: there is deliberately no default), a human runs the
-// collector, and `.github/workflows/capture-expiry-warning.yml` runs on a
-// schedule with `{actions: read, contents: read}` and does nothing but count and
-// complain. When the bucket exists this becomes Option C and the store gains an
-// S3 implementation; the key scheme is unchanged either way, so the migration is
-// `aws s3 sync`.
+// WHERE THIS RUNS, AND WHERE THE DATA GOES.
+// `.github/workflows/capture-collect.yml` runs it with `--write` on
+// `workflow_run` from both producers, plus a nightly sweep and a manual button.
+//
+// The store is NOT in this repository. The design's Option C was a bucket and
+// there is no bucket yet; spec §8's interim answer was a folder here, and that
+// fails twice over — a job that writes here needs `contents: write`, the exact
+// boundary #641 refused to cross for this subsystem, and git history is
+// permanent, so data committed here while the storage question is still open
+// could never be taken back out. So the store is a folder in the separate eval
+// repo and `--root` names it explicitly; `capture-store.mjs` deliberately has no
+// default, because a forgotten flag must not be able to write here.
+//
+// The workflow's own permissions are `{actions: read, contents: read}` and the
+// write capability is a fine-grained token scoped to that other repository, so
+// nothing this file does widens what CI can do to `wafflebase`. When the bucket
+// exists this becomes Option C: the checkouts and the commit collapse into
+// `id-token: write` plus a PUT, and the store gains a second implementation. The
+// key scheme is unchanged either way, so the migration is `aws s3 sync`.
 //
 // COLLECTING NOTHING LOOKS EXACTLY LIKE HAVING NOTHING TO COLLECT. This subsystem
 // has failed silently three times — the upload logged "No files were found" for
@@ -924,6 +930,23 @@ function sinceFrom(args, now) {
   return { since: new Date(now.getTime() - days * 86400000) };
 }
 
+/**
+ * A positive-integer flag, or a usage error naming it.
+ *
+ * `--warn-days` used to go through a bare `Number()`, and the failure was silent
+ * in the worst available direction: `--warn-days abc` is `NaN`, every
+ * `daysLeft <= NaN` is false, so NOTHING is ever urgent, the job exits 0 and
+ * prints "0 within NaN day(s)". A typo in the threshold would have turned the
+ * expiry warning off and reported success. Same rule as `--days` and `--limit`,
+ * applied before anything else happens.
+ */
+function positiveInt(args, flag, fallback) {
+  if (args[flag] === undefined) return { value: fallback };
+  const n = Number(args[flag]);
+  if (!Number.isInteger(n) || n <= 0) return { error: `--${flag} takes a positive integer` };
+  return { value: n };
+}
+
 function main(argv, now = new Date()) {
   const args = parseArgs(argv, { booleans: ["write", "help"] });
   if (args.help) { console.log(USAGE); return 0; }
@@ -932,6 +955,13 @@ function main(argv, now = new Date()) {
 
   const { since, error } = sinceFrom(args, now);
   if (error) { console.error(`collect-captures: ${error}`); return 2; }
+
+  // Every numeric flag validated up front, before the store is opened or a
+  // single request is made, so a typo costs nothing and names itself.
+  const warnDays = positiveInt(args, "warn-days", DEFAULT_WARN_DAYS);
+  if (warnDays.error) { console.error(`collect-captures: ${warnDays.error}`); return 2; }
+  const limit = positiveInt(args, "limit", MAX_ARTIFACTS);
+  if (limit.error) { console.error(`collect-captures: ${limit.error}`); return 2; }
 
   // A USAGE error (2), not an operational one, and checked BEFORE any network
   // call so a missing flag costs nothing. `capture-store.mjs` refuses too — this
@@ -954,7 +984,7 @@ function main(argv, now = new Date()) {
       // read off a walk that stopped after two pages is the most misleading
       // output this job could produce.
       console.log(`capture-expiry: walked ${walk.pages} artifact page(s), ${walk.artifacts.length} artifact(s)${walk.stoppedEarly ? ", stopped early at the window edge" : ""} · ${known.length} file(s) already in the store`);
-      const report = expiryReport(walk.artifacts, runIdsFromKeys(known), { now, warnWithinDays: args["warn-days"] === undefined ? DEFAULT_WARN_DAYS : Number(args["warn-days"]) });
+      const report = expiryReport(walk.artifacts, runIdsFromKeys(known), { now, warnWithinDays: warnDays.value });
       // stdout, not stderr: this IS the job's output, and a scheduled run's
       // summary should be readable without opening the log's error stream.
       for (const line of report.lines) console.log(line);
@@ -962,9 +992,7 @@ function main(argv, now = new Date()) {
       return report.exitCode;
     }
 
-    const limit = args.limit === undefined ? MAX_ARTIFACTS : Number(args.limit);
-    if (!Number.isInteger(limit) || limit <= 0) { console.error("collect-captures: --limit takes a positive integer"); return 2; }
-    const { summary } = collect({ io, store, since, now, dryRun: !args.write, maxArtifacts: limit });
+    const { summary } = collect({ io, store, since, now, dryRun: !args.write, maxArtifacts: limit.value });
     console.log(summary.line);
     if (!args.write) console.log(`collect-captures: PRINT-ONLY — pass --write to copy these into ${args.root}.`);
     return summary.exitCode;
