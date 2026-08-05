@@ -197,8 +197,14 @@ export class NotePreview {
   render(markdown: string): void {
     this.el.innerHTML = md.render(markdown);
     // Mermaid diagrams render asynchronously (the engine is lazily imported);
-    // cached ones land inside this call, the rest arrive shortly after. Errors
-    // are handled per diagram inside the pass, so nothing to do here.
+    // cached ones land inside this call, the rest arrive shortly after.
+    //
+    // This is called once per keystroke in split mode and needs no debounce
+    // here: `renderMermaidBlocks` bumps a per-root pass counter and runs every
+    // pass through one chain, so passes never overlap (at most one
+    // `mermaid.render()` in flight) and a pass this call supersedes abandons
+    // its remaining diagrams. Errors are reported on the block itself and the
+    // returned promise never rejects, so there is nothing to handle here.
     void renderMermaidBlocks(this.el, {
       theme: this.mermaidTheme,
       load: this.mermaidLoader,

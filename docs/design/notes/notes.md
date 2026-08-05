@@ -344,17 +344,39 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   recorded in `harness.config.json`'s `maxChunkCountReason`.
 - **Cached per (source, theme).** Split mode re-renders on every keystroke;
   outcomes (SVG *and* errors — a diagram is unparseable for most of the time
-  it is being typed) are memoized in a bounded, insertion-ordered map, and
-  cache hits are applied inside the synchronous `render()` call so an
-  unchanged diagram never flashes back to source. Mermaid bakes the palette
-  into its SVG, so the light/dark theme is part of the key and
-  `NoteEditorAPI.setTheme` repaints the preview.
-- **Security posture unchanged.** Mermaid runs `securityLevel: 'strict'`
-  (labels sanitized, `click` directives ignored) with `startOnLoad: false`,
-  so the preview's `html: false` "no raw note HTML in the DOM" rule still
-  holds.
-- Stale passes are dropped by re-checking `root.contains(el)` after the
-  await, so keystrokes during a load do not fight over the DOM.
+  it is being typed) are memoized in a bounded **least-recently-used** map
+  (reads move the entry back to the end, so a stable diagram is not evicted by
+  the one-shot sources typing an adjacent diagram produces), and cache hits are
+  applied inside the synchronous `render()` call so an unchanged diagram never
+  flashes back to source. Mermaid bakes the palette into its SVG, so the
+  light/dark theme is part of the key and `NoteEditorAPI.setTheme` repaints the
+  preview.
+- **One pass at a time.** Mermaid's config (including the palette) and layout
+  engine are process-global singletons, so passes are queued on a single chain:
+  at most one `mermaid.render()` is ever in flight, and a diagram can no longer
+  be laid out under one theme while being cached under the other's key. Each
+  `render()` also bumps a per-root pass counter, so a pass whose DOM a newer
+  `render()` replaced abandons its remaining diagrams instead of racing for
+  them (`root.contains(el)` remains as a second guard for a placeholder
+  detached without a re-render). Together those make the undebounced
+  per-keystroke `render()` safe.
+- **Security: three layers, not one.** The rendered SVG is the preview's only
+  `innerHTML` assignment of note-derived markup, and note content is untrusted
+  (a collaborator or editor-role share-link visitor authors it, someone else
+  renders it), so the `html: false` "no raw note HTML" rule is not delegated to
+  the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
+  sanitizes labels and ignores `click` directives, and an extended `secure` key
+  list pins the theming keys; (2) `stripConfigDirectives()` removes
+  `%%{init: ...}%%` directives and `config:`-bearing front matter from the
+  fence body, so a note cannot push `themeCSS`/`themeVariables` into the
+  document-scoped `<style>` mermaid emits inside the SVG; (3)
+  `sanitizeSvgMarkup()` re-parses the engine's output in an inert `<template>`
+  and drops scripts, `on*` handlers, URL attributes outside
+  `#`/`http(s)`/`mailto:`, and `@import`/external `url()` CSS references before
+  it reaches the live DOM. `securityLevel: 'sandbox'` (mermaid's own advice for
+  untrusted input) is deliberately not used — it iframes every diagram, which
+  breaks sizing, text selection and the light/dark surface; the local sanitize
+  pass is the substitute.
 
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 

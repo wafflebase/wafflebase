@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotePreview } from './preview.js';
-import { resetMermaidStateForTests, type MermaidLike } from './mermaid.js';
+import {
+  mermaidFenceHtml,
+  renderMermaidBlocks,
+  resetMermaidStateForTests,
+  type MermaidLike,
+} from './mermaid.js';
 
 describe('NotePreview', () => {
   it('highlights fenced code blocks with the hljs class', () => {
@@ -291,13 +296,263 @@ describe('NotePreview mermaid fences', () => {
   });
 
   it('leaves the source in place when the engine cannot be loaded', async () => {
-    const preview = new NotePreview({ mermaidLoader: async () => null });
+    const load = vi.fn(async () => null);
+    const preview = new NotePreview({ mermaidLoader: load });
+    preview.render(DIAGRAM);
+    await flush();
+
+    // The load was attempted and resolved to null; the block must stay a
+    // readable, still-pending source fallback rather than an error or a blank.
+    expect(load).toHaveBeenCalledTimes(1);
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block?.getAttribute('data-mermaid-pending')).toBe('true');
+    expect(block?.hasAttribute('data-mermaid-error')).toBe(false);
+    expect(block?.querySelector('.note-mermaid-message')).toBeNull();
+    expect(block?.querySelector('svg')).toBeNull();
+    expect(block?.querySelector('.note-mermaid-source')?.textContent).toContain(
+      'flowchart LR',
+    );
+  });
+
+  it('does not load the engine for a note without a mermaid fence', async () => {
+    const load = vi.fn(async () => stubEngine());
+    const preview = new NotePreview({ mermaidLoader: load });
+    preview.render('# Title\n\n```js\nconst x = 1;\n```\n\nplain text');
+    await flush();
+
+    // The whole point of the lazy import (and of the frontend chunk-count
+    // budget it costs): a note with no diagram never pays for mermaid.
+    expect(load).not.toHaveBeenCalled();
+
+    // Sanity check that the spy would have fired for a fence.
+    preview.render(DIAGRAM);
+    await flush();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('escapes HTML in the fence source instead of emitting markup', async () => {
+    // The mermaid fence bypasses the escaped code-block path, so the
+    // placeholder has to escape the source itself.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n<script>alert(1)</script>\n<img src=x onerror=alert(2)>\n```',
+    );
+
+    const block = preview.el.querySelector('.note-mermaid');
+    expect(block?.querySelector('script')).toBeNull();
+    expect(block?.querySelector('img')).toBeNull();
+    expect(block?.querySelector('.note-mermaid-source')?.innerHTML).toContain(
+      '&lt;script&gt;',
+    );
+    expect(block?.textContent).toContain('<script>alert(1)</script>');
+
+    // The unparseable-diagram path keeps the same escaped source visible.
+    const failing = stubEngine(async () => {
+      throw new Error('Parse error');
+    });
+    const preview2 = new NotePreview({ mermaidLoader: async () => failing });
+    preview2.render('```mermaid\n<script>alert(1)</script>\n```');
+    await flush();
+    expect(preview2.el.querySelector('script')).toBeNull();
+    expect(preview2.el.textContent).toContain('<script>alert(1)</script>');
+  });
+
+  it('strips script and event handlers from the engine output', async () => {
+    // The rendered SVG is assigned with innerHTML, so it is sanitized locally
+    // rather than trusting the engine's own sanitizer alone.
+    const engine = stubEngine(async () => ({
+      svg:
+        '<svg><style>@import url(https://evil.example/x.css);' +
+        '.n{background:url(https://evil.example/beacon)}</style>' +
+        '<script>alert(1)</script>' +
+        '<g onclick="alert(2)" style="fill:url(https://evil.example/b)">' +
+        '<a href="javascript:alert(3)"><rect/></a></g></svg>',
+    }));
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    document.body.appendChild(preview.el);
     preview.render(DIAGRAM);
     await flush();
 
     const block = preview.el.querySelector('.note-mermaid');
-    expect(block?.querySelector('.note-mermaid-source')?.textContent).toContain(
-      'flowchart LR',
+    expect(block?.querySelector('svg')).toBeTruthy();
+    expect(block?.querySelector('script')).toBeNull();
+    expect(block?.querySelector('g')?.hasAttribute('onclick')).toBe(false);
+    expect(block?.querySelector('a')?.hasAttribute('href')).toBe(false);
+    expect(block?.querySelector('g')?.getAttribute('style')).not.toContain(
+      'evil.example',
+    );
+    const style = block?.querySelector('style')?.textContent ?? '';
+    expect(style).not.toContain('@import');
+    expect(style).not.toContain('evil.example');
+
+    preview.el.remove();
+  });
+
+  it('strips note-supplied config directives before rendering', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n%%{init: {"themeCSS": "body{display:none}"} }%%\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    // A `%%{init}%%` directive would let a note push config (themeCSS lands in
+    // the <style> block inside the SVG) into another user's page.
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+    expect(source).toContain('flowchart LR');
+  });
+
+  it('drops a config-bearing front matter block too', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n---\nconfig:\n  themeCSS: "body{display:none}"\n---\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+    expect(source.trimStart().startsWith('flowchart LR')).toBe(true);
+  });
+
+  it('abandons a pass whose placeholders a newer render replaced', async () => {
+    // The engine resolves only once we let it, so the first pass is still
+    // waiting on the import when the preview re-renders.
+    let releaseLoad: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    const engine = stubEngine();
+    const preview = new NotePreview({
+      mermaidLoader: async () => {
+        await gate;
+        return engine;
+      },
+    });
+
+    preview.render(DIAGRAM);
+    const stale = preview.el.querySelector('.note-mermaid')!;
+    // Let the first pass start and park on the gated load before re-rendering.
+    await Promise.resolve();
+    await Promise.resolve();
+    preview.render('```mermaid\nflowchart TD\n  A --> B\n```');
+    releaseLoad!();
+    await flush();
+
+    // Only the surviving placeholder is rendered: the superseded pass neither
+    // paints into its detached block nor burns a layout pass on it.
+    expect(engine.render).toHaveBeenCalledTimes(1);
+    expect(engine.render).toHaveBeenCalledWith(
+      expect.any(String),
+      'flowchart TD\n  A --> B\n',
+    );
+    expect(stale.querySelector('svg')).toBeNull();
+    expect(preview.el.querySelectorAll('.note-mermaid svg').length).toBe(1);
+  });
+
+  it('never runs two engine renders concurrently', async () => {
+    let active = 0;
+    let peak = 0;
+    let calls = 0;
+    let releaseFirst: (() => void) | undefined;
+    const firstRender = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const engine = stubEngine(async (_id, text) => {
+      peak = Math.max(peak, ++active);
+      // Hold the first diagram inside the engine, the way a real layout pass
+      // occupies the main thread for tens of milliseconds.
+      if (++calls === 1) await firstRender;
+      active--;
+      return { svg: `<svg data-len="${text.length}"></svg>` };
+    });
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+
+    preview.render(DIAGRAM);
+    await flush(); // the first pass is now parked inside mermaid.render
+
+    // A keystroke outside the fence: the diagram is unchanged but not cached
+    // yet (it is still rendering), so this pass wants it too.
+    preview.render(`${DIAGRAM}\n\ntyping`);
+    releaseFirst!();
+    await flush();
+
+    // Passes are serialized, so the second one starts after the first has
+    // cached its result — one layout pass, never two at once.
+    expect(peak).toBe(1);
+    expect(engine.render).toHaveBeenCalledTimes(1);
+    expect(preview.el.querySelector('.note-mermaid svg')).toBeTruthy();
+  });
+
+  it('keeps a reused diagram cached while transient ones churn through', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+    expect(engine.render).toHaveBeenCalledTimes(1);
+
+    // Typing a second diagram produces one throwaway source per keystroke.
+    // Eviction is least-recently-used, so the diagram that is looked up on
+    // every pass stays cached instead of aging out by insertion order and
+    // flashing back to its source.
+    for (let i = 1; i <= 60; i++) {
+      preview.render(`${DIAGRAM}\n\n\`\`\`mermaid\nflowchart TD\n  ${'A'.repeat(i)}\n\`\`\``);
+      await flush();
+      expect(preview.el.querySelector('.note-mermaid svg')).toBeTruthy();
+    }
+
+    // 1 (original) + 60 (transient) — the original was never re-rendered.
+    expect(engine.render).toHaveBeenCalledTimes(61);
+  });
+
+  it('skips a placeholder detached while the engine was loading', async () => {
+    // Direct pass, so the tree changes underneath it without a new render()
+    // bumping the pass counter — the `root.contains(el)` guard is what has to
+    // catch this one.
+    const root = document.createElement('div');
+    root.innerHTML =
+      mermaidFenceHtml('flowchart LR\n  A-->B\n', (s) => s) +
+      mermaidFenceHtml('flowchart TD\n  C-->D\n', (s) => s);
+    const blocks = Array.from(root.querySelectorAll('.note-mermaid'));
+
+    let releaseLoad: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    const engine = stubEngine();
+    const pass = renderMermaidBlocks(root, {
+      load: async () => {
+        await gate;
+        return engine;
+      },
+    });
+    blocks[0].remove();
+    releaseLoad!();
+    await pass;
+
+    expect(engine.render).toHaveBeenCalledTimes(1);
+    expect(engine.render).toHaveBeenCalledWith(
+      expect.any(String),
+      'flowchart TD\n  C-->D\n',
+    );
+    expect(blocks[0].querySelector('svg')).toBeNull();
+    expect(blocks[0].hasAttribute('data-mermaid-pending')).toBe(true);
+    expect(blocks[1].querySelector('svg')).toBeTruthy();
+  });
+
+  it('seeds the mermaid palette from the constructor theme', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({
+      theme: 'dark',
+      mermaidLoader: async () => engine,
+    });
+    preview.render(DIAGRAM);
+    await flush();
+
+    expect(engine.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ theme: 'dark' }),
     );
   });
 

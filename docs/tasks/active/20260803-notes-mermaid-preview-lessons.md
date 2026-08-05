@@ -43,5 +43,44 @@ cache key is `theme + source` because mermaid bakes its palette into the SVG.
 `verify:fast` also needs sibling packages' `dist/` present (slides typecheck
 imports `@wafflebase/docs`, cli imports `@wafflebase/slides/node`), so a
 fresh checkout must `pnpm --filter @wafflebase/docs build` and
-`pnpm slides build` before the first commit will pass. The push used
-`--no-verify` (disclosed on the PR); CI owns `verify:self`.
+`pnpm slides build` before the first commit will pass. Every commit ran
+`verify:fast` green. The push itself used `--no-verify`
+(`docs/design/harness-engineering.md:163` — the hook's sanctioned bypass for a
+run that cannot sit through `verify:self`'s several minutes), disclosed on the
+PR; CI then ran the full `verify:self` lanes on the pushed branch. This is a
+bypass, not a default: skipping the hook is only defensible because the same
+lanes are mandatory on the PR, and the pre-commit gate was never skipped.
+
+## An untrusted-content `innerHTML` needs a local sanitizer, not a config flag
+
+The first cut set `securityLevel: 'strict'` and treated the question as
+settled. It isn't: `strict` protects a small `secure` key list, so a note's own
+`%%{init: {"themeCSS": ...}}%%` directive (or `config:` front matter) still
+reaches the `<style>` element mermaid emits *inside* the SVG — document-scoped
+CSS authored by whoever wrote the note. Notes are multi-writer (share links
+grant editor roles), so "the author is the reader" never holds. Two fixes were
+needed beyond the flag: strip the config carriers from the fence body, and
+re-parse the engine's output in an inert `<template>` to drop scripts /
+`on*` / off-page URLs before it is assigned. `securityLevel: 'sandbox'` is the
+upstream advice but iframes each diagram, which costs sizing, selection and
+theming — a local sanitize pass buys the same property without that.
+
+## "Cache it" and "call it on every keystroke" need a queue between them
+
+Per-keystroke `render()` plus a fired-and-forgotten async pass plus a
+*process-global* engine is a race, not a cache: two passes can sit in
+`mermaid.render()` at once, and pass B's `initialize({theme})` lands between
+pass A's initialize and its render — so a diagram gets one palette and is
+cached under the other's key, permanently. Serializing every pass on one
+promise chain and giving each pass a generation to check turned out to be
+strictly simpler than a debounce, and it also makes the cache correct: a
+failure is then a deterministic property of the source rather than a
+concurrency artifact, which is what makes caching failures safe.
+
+## A bounded cache read on every keystroke must be LRU, not FIFO
+
+`Map` insertion order made the 40-entry cache evict the *oldest inserted*
+entry, and typing a second diagram inserts a new throwaway source per
+keystroke. After ~40 keystrokes the stable diagram above it aged out and
+flashed back to source mid-typing. A cache whose hit rate depends on
+long-lived entries surviving short-lived ones has to re-insert on read.

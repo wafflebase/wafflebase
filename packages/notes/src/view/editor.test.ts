@@ -184,6 +184,64 @@ describe('initialize', () => {
     container.remove();
   });
 
+  // A theme switch has to repaint the preview: mermaid bakes its palette into
+  // the SVG it emits, so diagrams would otherwise keep the old colours.
+  it('repaints the preview on a theme switch while it is visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+
+    // A marker only survives if render() did not replace the preview's markup.
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
+    expect(previewEl.querySelector('h1')).toBeTruthy();
+
+    // Same theme again: no-op, so no repaint.
+    previewEl.appendChild(marker);
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('skips the theme repaint while the preview is hidden', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // 'edit' hides the preview; repainting it there is wasted work (and would
+    // download the mermaid engine for a pane nobody is looking at).
+    const api = initialize(
+      container,
+      new MemNoteStore('# Hi'),
+      'light',
+      false,
+      'edit',
+    );
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    // Switching back into a preview-visible mode repaints it.
+    api.setViewMode('both');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
+
+    api.dispose();
+    container.remove();
+  });
+
   it('switches the keybinding mode (default <-> vim)', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
