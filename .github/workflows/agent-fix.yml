@@ -241,16 +241,26 @@ jobs:
           ref: ${{ steps.pr.outputs.branch }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         if: steps.eligible.outputs.eligible == 'true'
       - uses: actions/setup-node@v4
         if: steps.eligible.outputs.eligible == 'true'
         with:
           node-version: 22.x
           cache: pnpm
+      # --ignore-scripts because the workspace is the UNTRUSTED PR branch and an App
+      # token is already in the environment: the branch's own install lifecycle
+      # scripts must not run. The only two are the root `postinstall` (`git config
+      # core.hooksPath .githooks`, unwanted here anyway — we do not want the branch's
+      # hooks) and packages/backend's (`prisma generate`), which `pnpm backend test`
+      # inside verify:fast needs, so it is run explicitly below — for the first-party
+      # backend package only, not for every dependency's postinstall.
       - name: Install dependencies
         if: steps.eligible.outputs.eligible == 'true'
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Generate the Prisma client (skipped postinstall)
+        if: steps.eligible.outputs.eligible == 'true'
+        run: pnpm --filter @wafflebase/backend exec prisma generate
 
       # Read the remote tip before the agent runs, so the step after it can tell
       # "fixed and pushed" from "ran and pushed nothing". The REMOTE, not local
@@ -476,6 +486,15 @@ jobs:
             if (neverRan) {
               body = '🛑 `@claude fix` could not start the fix agent — a setup step failed before it '
                 + `ran, so nothing was changed. [Workflow run](${process.env.RUN_URL})`;
+            } else if (advanced && failed) {
+              // The commit landed but the agent then died — e.g. during the
+              // `fix-report.mjs post` call. Line ~500 sets the job red, so a plain
+              // "✅ pushed" would sit next to a red X and point at a report comment
+              // that was never filed. Report the partial outcome honestly instead.
+              body = `⚠️ \`@claude fix\` pushed \`${after.slice(0, 8)}\` to \`${branch}\`, then failed before `
+                + 'it finished. The commit landed, but its fix report may be missing or incomplete, so the '
+                + 'next panel round cannot credit the claims. See the effort comment above and the '
+                + `[workflow run](${process.env.RUN_URL}).`;
             } else if (advanced) {
               body = `✅ \`@claude fix\` pushed \`${after.slice(0, 8)}\` to \`${branch}\`. `
                 + 'CI and a fresh review panel will run on it. See the fix agent\'s report comment '

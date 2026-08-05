@@ -277,6 +277,29 @@ test("agent-fix reports cost and outcome even when the agent step fails", () => 
   const effortStep = wf.slice(wf.indexOf("Post fix-agent effort comment"));
   assert.match(effortStep.slice(0, 200), /if: always\(\)/, "the effort comment must survive a failed agent");
   assert.match(wf, /core\.setFailed\('The fix agent failed/, "a swallowed agent failure must still red the job");
+  // A push FOLLOWED by a failure (e.g. the agent dies during `fix-report.mjs post`)
+  // makes both flags true and reds the job. Without an explicit combined branch the
+  // `advanced`-first message would claim "✅ pushed" next to that red X and point at
+  // a report comment that was never filed. The combined case must be handled first.
+  assert.match(wf, /else if \(advanced && failed\)/, "the partial push-then-fail outcome must be its own branch");
+  assert.ok(
+    wf.indexOf("advanced && failed") < wf.indexOf("} else if (advanced) {"),
+    "the combined branch must precede the advanced-only branch, or it can never be reached",
+  );
+});
+
+test("agent-fix installs the untrusted branch without running its lifecycle scripts", () => {
+  // This job checks out the PR branch (untrusted) with an App token already in the
+  // environment, so the branch's own install scripts must not run. `--ignore-scripts`
+  // blocks every dependency + workspace postinstall; the one first-party script the
+  // workspace genuinely needs — backend `prisma generate`, used by verify:fast — is
+  // re-run explicitly, off the code but not off the scripts.
+  const wf = WF("agent-fix.yml");
+  assert.match(wf, /pnpm install --frozen-lockfile --ignore-scripts/, "install must skip lifecycle scripts");
+  assert.match(wf, /pnpm --filter @wafflebase\/backend exec prisma generate/, "the skipped prisma client must be regenerated");
+  // The setup action is SHA-pinned here specifically because it runs after the
+  // untrusted checkout with the token present.
+  assert.match(wf, /uses: pnpm\/action-setup@[0-9a-f]{40}/, "pnpm/action-setup must be SHA-pinned in this token-bearing job");
 });
 
 test("agent-fix is maintainers-only and refuses bot-authored comments", () => {
