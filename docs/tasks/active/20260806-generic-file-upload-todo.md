@@ -774,7 +774,7 @@ git commit -m "Record blob size and mime type on the document row"
 
 ---
 
-### Task 5: Fall back to `file` and delete the skipped path
+### Task 5: Fall back to `file`, delete the skipped path, and upload it
 
 **Files:**
 - Modify: `packages/frontend/src/app/documents/upload-kind.ts` (whole file)
@@ -783,14 +783,18 @@ git commit -m "Record blob size and mime type on the document row"
 - Modify: `packages/frontend/src/app/documents/__tests__/upload-kind.test.ts:18-22`
 - Modify: `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts:11-16,98-117`
 - Modify: `packages/frontend/src/app/documents/__tests__/upload-panel.test.tsx` (drop skipped cases)
+- Modify: `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts`
 
 **Interfaces:**
-- Consumes: `DocumentType` with `"file"` (Task 1).
+- Consumes: `DocumentType` with `"file"` (Task 1); `uploadFile` returning
+  `{ id, size, mimeType }` (Task 4).
 - Produces:
   - `classifyUploadKind(fileName: string): UploadKind` — **no longer nullable**
   - `UploadKind` gains `"file"`; `UploadStatus` loses `"skipped"`;
     `UploadItem.kind` narrows to `UploadKind`
   - `SKIP_REASON` is deleted.
+  - `UploadDeps["createDoc"]` payload gains `fileSize?` / `mimeType?`, and the
+    worker's blob branch handles `pdf | image | file`.
 
 - [ ] **Step 1: Rewrite the failing test**
 
@@ -903,7 +907,114 @@ In `packages/frontend/src/app/documents/upload-panel.tsx`, delete the two-line
 `if (item.status === "skipped")` branch at :31, and drop the
 `item.status === "skipped" ||` term from the condition at :118.
 
-- [ ] **Step 7: Update the queue tests**
+- [ ] **Step 7: Teach the worker the `file` kind**
+
+This lands in the same task as the classify fallback on purpose: between the
+two changes a dropped `.zip` would enqueue as `pending`, match no branch in the
+worker's if/else chain, and sit there holding a concurrency slot forever. Tests
+would still pass — the breakage is behavioural, so keep it out of the history.
+
+Extend the `createDoc` payload type inside `UploadDeps` with the two metadata
+fields Task 4 added to the API:
+
+```ts
+  createDoc: (
+    workspaceId: string | undefined,
+    payload: {
+      title: string;
+      type: DocumentType;
+      fileId?: string;
+      fileSize?: number;
+      mimeType?: string;
+      folderId?: string | null;
+    },
+  ) => Promise<Document>;
+```
+
+Then replace the blob branch (currently `else if (item.kind === "pdf" ||
+item.kind === "image")`):
+
+```ts
+        } else if (
+          item.kind === "pdf" ||
+          item.kind === "image" ||
+          item.kind === "file"
+        ) {
+          patchItem(item.id, { status: "uploading" });
+          const dot = item.fileName.lastIndexOf(".");
+          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
+          const fallback =
+            item.kind === "pdf"
+              ? "Untitled PDF"
+              : item.kind === "image"
+              ? "Untitled Image"
+              : "Untitled File";
+          const title = stripExt(item.fileName, ext, fallback);
+          // Upload the blob at most once per item: persist the returned fileId
+          // immediately so a retry whose earlier failure was in createDoc reuses
+          // the blob instead of orphaning it with a second upload.
+          let fileId = item.fileId;
+          let size: number | undefined;
+          let mimeType: string | undefined;
+          if (!fileId) {
+            const uploaded = await d.uploadFile(file);
+            fileId = uploaded.id;
+            size = uploaded.size;
+            mimeType = uploaded.mimeType;
+            patchItem(item.id, { fileId });
+          }
+          const created = await getOrCreateDoc(item, {
+            title,
+            type: item.kind,
+            fileId,
+            fileSize: size,
+            mimeType,
+          });
+          finish(item.id, created);
+        }
+```
+
+Note `stripExt(name, "", fallback)` for an extension-less file builds the
+regex `\.$` which does not match, so the name passes through unchanged —
+`Makefile` stays `Makefile`.
+
+- [ ] **Step 8: Add the worker test**
+
+In `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts`,
+following the existing pdf case's structure, add:
+
+```ts
+  it("uploads an unknown extension as a file document", async () => {
+    const uploadFile = vi.fn().mockResolvedValue({
+      id: "blob-1.zip",
+      size: 4096,
+      mimeType: "application/zip",
+    });
+    const createDoc = vi
+      .fn()
+      .mockResolvedValue({ id: "doc-1", type: "file" } as never);
+    q.__setDepsForTest({ ...baseDeps, uploadFile, createDoc });
+
+    const [item] = q.enqueue([file("archive.zip")]);
+    await q.runWorkerForTest();
+
+    expect(uploadFile).toHaveBeenCalledTimes(1);
+    expect(createDoc).toHaveBeenCalledWith(undefined, {
+      title: "archive",
+      type: "file",
+      fileId: "blob-1.zip",
+      fileSize: 4096,
+      mimeType: "application/zip",
+    });
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+```
+
+Match the existing file's helper names (`baseDeps`, `file`,
+`__setDepsForTest`, the worker-drain helper) — read the neighbouring pdf test
+and mirror it exactly rather than inventing helpers.
+
+- [ ] **Step 9: Update the queue tests**
 
 In `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts`,
 replace the first case:
@@ -945,22 +1056,21 @@ In `__tests__/upload-panel.test.tsx`, delete any case asserting the
 "Unsupported" label and adjust fixtures that set `status: "skipped"` to
 `"error"` with an explicit `reason`.
 
-- [ ] **Step 8: Run the frontend suite**
+- [ ] **Step 10: Run the frontend suite**
 
 Run: `pnpm frontend test`
-Expected: PASS (the queue worker still rejects `kind: "file"` at runtime — that
-is Task 6; no test asserts it yet.)
+Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents
-git commit -m "Fall back to a file document instead of skipping the upload"
+git commit -m "Upload any file as a file document instead of skipping it"
 ```
 
 ---
 
-### Task 6: Upload, list, and pick generic files
+### Task 6: Guard the size, then list and pick generic files
 
 **Files:**
 - Modify: `packages/frontend/src/app/documents/upload-queue.ts:200-218,364-383`
@@ -1083,7 +1193,7 @@ Import `type UploadKind` from `./upload-kind` at the top of `file-meta.ts`.
 Run: `pnpm --filter @wafflebase/frontend test -- file-meta`
 Expected: PASS
 
-- [ ] **Step 5: Reject over-cap files at enqueue time, and let the worker upload a generic file**
+- [ ] **Step 5: Reject over-cap files at enqueue time**
 
 In `packages/frontend/src/app/documents/upload-queue.ts`, import
 `uploadSizeError` from `./file-meta` and re-do the `enqueue` body Task 5 wrote
@@ -1116,109 +1226,28 @@ the retry control and `retry()` no-ops for these rows — no extra guard needed.
 Its trailing hint ("— start the import again to retry.") reads acceptably for
 an over-cap file; leave it.
 
-Then extend the
-`createDoc` payload type inside `UploadDeps` with the two metadata fields:
+The worker branch itself already handles `file` — Task 5 Step 7 added it.
+
+- [ ] **Step 6: Add the enqueue guard test**
+
+In `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts`, add
+beside the other enqueue cases (match the existing `file(name)` helper, which
+builds a `File`; give it an explicit size — check how the helper is defined and
+extend it with a size argument if it does not take one):
 
 ```ts
-  createDoc: (
-    workspaceId: string | undefined,
-    payload: {
-      title: string;
-      type: DocumentType;
-      fileId?: string;
-      fileSize?: number;
-      mimeType?: string;
-      folderId?: string | null;
-    },
-  ) => Promise<Document>;
-```
-
-Then replace the blob branch (currently `else if (item.kind === "pdf" ||
-item.kind === "image")`):
-
-```ts
-        } else if (
-          item.kind === "pdf" ||
-          item.kind === "image" ||
-          item.kind === "file"
-        ) {
-          patchItem(item.id, { status: "uploading" });
-          const dot = item.fileName.lastIndexOf(".");
-          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
-          const fallback =
-            item.kind === "pdf"
-              ? "Untitled PDF"
-              : item.kind === "image"
-              ? "Untitled Image"
-              : "Untitled File";
-          const title = stripExt(item.fileName, ext, fallback);
-          // Upload the blob at most once per item: persist the returned fileId
-          // immediately so a retry whose earlier failure was in createDoc reuses
-          // the blob instead of orphaning it with a second upload.
-          let fileId = item.fileId;
-          let size: number | undefined;
-          let mimeType: string | undefined;
-          if (!fileId) {
-            const uploaded = await d.uploadFile(file);
-            fileId = uploaded.id;
-            size = uploaded.size;
-            mimeType = uploaded.mimeType;
-            patchItem(item.id, { fileId });
-          }
-          const created = await getOrCreateDoc(item, {
-            title,
-            type: item.kind,
-            fileId,
-            fileSize: size,
-            mimeType,
-          });
-          finish(item.id, created);
-        }
-```
-
-Note `stripExt(name, "", fallback)` for an extension-less file builds the
-regex `\.$` which does not match, so the name passes through unchanged —
-`Makefile` stays `Makefile`.
-
-- [ ] **Step 6: Add the worker test**
-
-In `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts`,
-following the existing pdf case's structure, add:
-
-```ts
-  it("uploads an unknown extension as a file document", async () => {
-    const uploadFile = vi.fn().mockResolvedValue({
-      id: "blob-1.zip",
-      size: 4096,
-      mimeType: "application/zip",
-    });
-    const createDoc = vi
-      .fn()
-      .mockResolvedValue({ id: "doc-1", type: "file" } as never);
-    q.__setDepsForTest({ ...baseDeps, uploadFile, createDoc });
-
-    const [item] = q.enqueue([file("archive.zip")]);
-    await q.runWorkerForTest();
-
-    expect(uploadFile).toHaveBeenCalledTimes(1);
-    expect(createDoc).toHaveBeenCalledWith(undefined, {
-      title: "archive",
-      type: "file",
-      fileId: "blob-1.zip",
-      fileSize: 4096,
-      mimeType: "application/zip",
-    });
-    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  it("fails an over-cap file at enqueue time without pinning its blob", () => {
+    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+    expect(item.status).toBe("error");
+    expect(item.reason).toBe("File is larger than the 50 MB limit");
+    expect(item.file).toBeUndefined();
+    expect(q.isRetryable(item)).toBe(false);
   });
 ```
 
-Match the existing file's helper names (`baseDeps`, `file`,
-`__setDepsForTest`, the worker-drain helper) — read the neighbouring pdf test
-and mirror it exactly rather than inventing helpers.
+- [ ] **Step 7: Run the queue tests**
 
-- [ ] **Step 7: Run the worker test**
-
-Run: `pnpm --filter @wafflebase/frontend test -- upload-queue-worker`
+Run: `pnpm --filter @wafflebase/frontend test -- upload-queue`
 Expected: PASS
 
 - [ ] **Step 8: Add the list icon, chip, and download**
