@@ -218,6 +218,9 @@ test("the write path refuses every other way an item can be self-contradictory",
       [{ id: "pr-999" }, /does not match the item id/, "meta.id filed under another id"],
       [{ changed_files: [] }, /changed_files must be a non-empty array/, "no changed files"],
       [{ changed_files: ["a.ts", ""] }, /changed_files contains/, "a blank path"],
+      // `changed-files.txt` is line-based and its reader trims, so a padded path
+      // could never round-trip — the two copies would then disagree.
+      [{ changed_files: ["a.ts", " b.ts"] }, /changed_files contains/, "a padded path"],
       [{ review_point: "" }, /meta\.review_point must be a non-empty string/, "no review point"],
       [{ diff_method: "" }, /meta\.diff_method must be a non-empty string/, "no diff method"],
       [{ has_issue_spec: true }, /has_issue_spec/, "claims a spec it does not carry"],

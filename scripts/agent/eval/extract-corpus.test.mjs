@@ -184,6 +184,26 @@ test("changedFilesFromDiff reads the paths out of the diff, deletions included",
   assert.deepEqual(changedFilesFromDiff(null), []);
 });
 
+test("changedFilesFromDiff decodes git's C-quoted paths (non-ASCII bytes)", () => {
+  // With core.quotePath on (the default) git wraps a path with a high byte in
+  // quotes and octal-escapes the byte. `naïve.ts` is UTF-8 c3 af → \303\257.
+  const diff = [
+    'diff --git "a/na\\303\\257ve.ts" "b/na\\303\\257ve.ts"',
+    '--- "a/na\\303\\257ve.ts"',
+    '+++ "b/na\\303\\257ve.ts"',
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+    // a deletion whose only header is the quoted diff --git line
+    'diff --git "a/caf\\303\\251.ts" "b/caf\\303\\251.ts"',
+    '--- "a/caf\\303\\251.ts"',
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-a",
+  ].join("\n");
+  assert.deepEqual(changedFilesFromDiff(diff), ["naïve.ts", "café.ts"]);
+});
+
 test("the changed files come from the DIFF and never from the merged PR's file list", () => {
   // The fork fell back to `view.files` when the parse came up empty. That list is
   // the MERGED PR's file set, so it includes files the fix loop touched after the
@@ -199,6 +219,12 @@ test("diffLineCounts counts content lines, not the +++/--- file headers", () => 
   assert.deepEqual(diffLineCounts(""), { additions: 0, deletions: 0 });
   const big = ["diff --git a/x b/x", "--- a/x", "+++ b/x", ...Array.from({ length: 400 }, (_, i) => `+line ${i}`)].join("\n");
   assert.deepEqual(diffLineCounts(big), { additions: 400, deletions: 0 });
+
+  // Content lines starting with `---`/`+++` (no trailing space) are NOT headers:
+  // a removed markdown/YAML `---` arrives as `----`, an added `++x` as `+++x`.
+  // Only `--- `/`+++ ` (with the space) are file headers.
+  const md = ["diff --git a/x.md b/x.md", "--- a/x.md", "+++ b/x.md", "@@ -1,2 +1,2 @@", "----", "+++x"].join("\n");
+  assert.deepEqual(diffLineCounts(md), { additions: 1, deletions: 1 });
 });
 
 test("scope describes the FROZEN diff; the merged PR's totals are kept as provenance", () => {
@@ -621,6 +647,11 @@ test("the CLI refuses a missing --root before it touches the network", () => {
     errs.length = 0;
     assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--limit", "0"]), 2);
     assert.match(errs.join("\n"), /--limit takes a positive integer/);
+    errs.length = 0;
+    // An unknown --state is a usage error, caught before `gh pr list` is called
+    // with a value it would reject as an unfriendly subprocess crash.
+    assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--state", "reviewed"]), 2);
+    assert.match(errs.join("\n"), /--state must be one of/);
   } finally {
     console.error = realError;
   }
@@ -643,7 +674,12 @@ test("the module's own usage text stays in step with the four files it writes", 
   // A README and a usage line that disagree with the code are how the next person
   // freezes an item and looks for it in the wrong place.
   const src = readFileSync(new URL("./extract-corpus.mjs", import.meta.url), "utf8");
+  // Scope to the USAGE template — `src.includes` would also match the import of
+  // CORPUS_ITEM_FILES or a comment, so it could pass while the usage text stops
+  // naming the files.
+  const usage = /const USAGE = `([\s\S]*?)`;/.exec(src);
+  assert.ok(usage, "the USAGE template moved — this pin needs re-pointing, not deleting");
   for (const name of ["meta.json", "diff.patch", "changed-files.txt", "issue-spec.md"]) {
-    assert.ok(src.includes(name), `the usage text no longer mentions ${name}`);
+    assert.ok(usage[1].includes(name), `the usage text no longer mentions ${name}`);
   }
 });

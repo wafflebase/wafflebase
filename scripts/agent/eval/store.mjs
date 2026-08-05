@@ -262,7 +262,12 @@ export function validateCorpusItem(itemId, { meta, diff, changedFiles, issueSpec
     refuse(`${itemId}: meta.changed_files must be a non-empty array — a diff always touches at least one path`);
   }
   for (const f of metaFiles) {
-    if (typeof f !== "string" || f.trim() === "") refuse(`${itemId}: meta.changed_files contains ${JSON.stringify(f)}`);
+    // `changed-files.txt` is line-based and its reader trims each line, so a path
+    // with surrounding whitespace could not round-trip: the two copies would then
+    // disagree for the consumers below. Reject it at the write path.
+    if (typeof f !== "string" || f !== f.trim() || f === "") {
+      refuse(`${itemId}: meta.changed_files contains ${JSON.stringify(f)}`);
+    }
   }
   // `changedFiles` is accepted as its own argument because the surface reads
   // better that way, but the two copies may not disagree: `changed-files.txt`

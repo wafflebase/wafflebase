@@ -36,7 +36,7 @@ the rule and the reasoning is written out there.
 
 The layout under a root, matching the collector's:
 
-```
+```text
 <eval repo>/
 ├── corpus/items/pr-664/{meta.json, diff.patch, changed-files.txt, issue-spec.md}
 ├── corpus/manifests/<corpus-version>.json     the item index for one named version
@@ -70,7 +70,7 @@ The fields of `meta.json` that are load-bearing rather than descriptive:
 ## Freezing a PR
 
 ```bash
-EVAL=../../../../wafflebase-agent-eval        # a checkout of the eval repo
+EVAL=../wafflebase-agent-eval        # a sibling checkout of the eval repo
 node scripts/agent/eval/extract-corpus.mjs \
   --root "$EVAL" --corpus-version 2026-08-05a --prs 664,673
 
@@ -101,7 +101,7 @@ downstream *while looking fine*.
 So a re-extraction over an existing root does not overwrite and does not silently
 skip. It **compares**, and reports any difference as `DRIFT` with a non-zero exit:
 
-```
+```text
 DRIFT pr-664: re-extraction differs from the stored item in diff.patch,
               stored sha256_diff vs stored diff.patch — NOT overwritten
 ```

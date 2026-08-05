@@ -53,6 +53,9 @@ export const DEFAULT_REPO = "wafflebase/wafflebase";
 export const REVIEW_POINTS = Object.freeze(["pr-open", "first", "head", "auto"]);
 export const DEFAULT_REVIEW_POINT = "pr-open";
 
+/** The `--state` values `gh pr list` accepts. Validated before the list call. */
+export const PR_STATES = Object.freeze(["open", "closed", "merged", "all"]);
+
 /**
  * How a diff was produced. Recorded in `meta.diff_method` because these are not
  * interchangeable: the first three are faithful three-dot diffs of the PR's
@@ -151,15 +154,62 @@ export function resolveReviewPoint(view, mode = DEFAULT_REVIEW_POINT) {
 export function changedFilesFromDiff(diff) {
   const files = new Set();
   for (const line of String(diff ?? "").split("\n")) {
-    let m = /^\+\+\+ b\/(.+)$/.exec(line);
-    if (m && m[1] !== "/dev/null") {
-      files.add(m[1]);
-      continue;
+    // `+++ b/<path>` — path may be C-quoted (`+++ "b/na\303\257ve.ts"`) when it
+    // carries a special or non-ASCII byte and `core.quotePath` is on (the default).
+    let m = /^\+\+\+ (.+)$/.exec(line);
+    if (m) {
+      const p = stripDiffPathPrefix(m[1], "b/");
+      if (p !== null && p !== "/dev/null") {
+        files.add(p);
+        continue;
+      }
     }
-    m = /^diff --git a\/.+ b\/(.+)$/.exec(line);
-    if (m) files.add(m[1]);
+    // Deletion fallback: `+++ /dev/null`, so take `b/<path>` off the git header.
+    // Quoted: `diff --git "a/x" "b/x"`; unquoted: `diff --git a/x b/x`.
+    m = /^diff --git (?:"a\/[^"]*" ("b\/.+")|a\/.+ (b\/.+))$/.exec(line);
+    if (m) {
+      const p = stripDiffPathPrefix(m[1] ?? m[2], "b/");
+      if (p !== null) files.add(p);
+    }
   }
   return [...files];
+}
+
+/**
+ * Strip a `b/` (or `a/`) prefix off a diff header token, C-unquoting first if git
+ * quoted it. Git wraps a path in double quotes and escapes special/high bytes as
+ * `\NNN` (octal) or `\a\b\t\n\v\f\r\"\\` when `core.quotePath` is on. Returns the
+ * path without the prefix, or `null` if the token does not carry that prefix.
+ */
+function stripDiffPathPrefix(token, prefix) {
+  const raw = token.startsWith('"') && token.endsWith('"') ? unquoteGitPath(token) : token;
+  return raw.startsWith(prefix) ? raw.slice(prefix.length) : null;
+}
+
+const C_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+
+/** Decode git's C-style quoting back to a UTF-8 string (quotes already present). */
+function unquoteGitPath(quoted) {
+  const body = quoted.slice(1, -1);
+  const bytes = [];
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c !== "\\") {
+      bytes.push(...Buffer.from(c, "utf8"));
+      continue;
+    }
+    const next = body[++i];
+    if (next >= "0" && next <= "7") {
+      let oct = next;
+      while (oct.length < 3 && body[i + 1] >= "0" && body[i + 1] <= "7") oct += body[++i];
+      bytes.push(parseInt(oct, 8));
+    } else if (next in C_ESCAPES) {
+      bytes.push(C_ESCAPES[next]);
+    } else {
+      bytes.push(...Buffer.from(next, "utf8"));
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
 }
 
 /**
@@ -177,9 +227,12 @@ export function diffLineCounts(diff) {
   let additions = 0;
   let deletions = 0;
   for (const line of String(diff ?? "").split("\n")) {
-    // `+++`/`---` are file headers, not content. Checked before the single-character
-    // test because both start with one.
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    // File headers are `--- <path>` and `+++ <path>` — the SPACE after the three
+    // characters is what separates them from content. Without it, a removed `---`
+    // in a markdown/YAML file arrives as `----` and an added `++foo` arrives as
+    // `+++foo`; both start with `---`/`+++` and were silently dropped from the
+    // count that `scope` is derived from.
+    if (line.startsWith("+++ ") || line.startsWith("--- ")) continue;
     if (line.startsWith("+")) additions++;
     else if (line.startsWith("-")) deletions++;
   }
@@ -303,7 +356,13 @@ export function buildManifest({ corpusVersion, sourceRepo, existing, items }) {
     if (!byId.has(it.id)) added++;
     byId.set(it.id, it);
   }
-  const merged = [...byId.values()].sort((a, b) => String(a?.id).localeCompare(String(b?.id)));
+  // Code-point order, not `localeCompare`: collation depends on the process's
+  // ICU locale, and this is the one file the byte-identity check covers whole.
+  const merged = [...byId.values()].sort((a, b) => {
+    const x = String(a?.id);
+    const y = String(b?.id);
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
   return {
     // No `created` timestamp, and that omission is deliberate. A clock reading
     // inside the manifest makes two extractions of the same corpus differ in
@@ -323,14 +382,20 @@ export function buildManifest({ corpusVersion, sourceRepo, existing, items }) {
 
 // --- the injected side effects ----------------------------------------------
 
+/** Per-subprocess ceiling. A hung `git fetch` against an unreachable network
+ *  would otherwise stall the batch, defeating the per-PR skip isolation. */
+const IO_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** `gh`/`git`, in one object so a test replaces all of it and touches no network. */
 export function ghGitIo({ repo = DEFAULT_REPO, repoSource } = {}) {
-  const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+  const gh = (args) =>
+    execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: IO_TIMEOUT_MS });
   const ghJson = (args) => JSON.parse(gh(args));
   const git = (args, opts = {}) =>
     execFileSync("git", ["-C", repoSource, ...args], {
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
+      timeout: IO_TIMEOUT_MS,
       // stderr captured, not inherited: a fallback path is expected here and
       // git's raw `fatal:` lines would read as the tool crashing.
       stdio: ["ignore", "pipe", "pipe"],
@@ -342,10 +407,13 @@ export function ghGitIo({ repo = DEFAULT_REPO, repoSource } = {}) {
     repoSource,
 
     prView(n) {
-      // The 13 fields, verified live against `gh` 2.96.0 (audit §5-Q2).
+      // The 14 fields, verified live against `gh` 2.96.0 (audit §5-Q2).
+      // `headRefName` is load-bearing: `classifyProvenance` and `issueNumberOf`
+      // read the branch name, and `gh` omits any field not asked for — without
+      // it every `agent/*` PR classified as "human".
       return ghJson([
         "pr", "view", String(n), "-R", repo, "--json",
-        "number,title,author,createdAt,mergedAt,baseRefName,baseRefOid,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
+        "number,title,author,createdAt,mergedAt,baseRefName,baseRefOid,headRefName,headRefOid,files,additions,deletions,commits,closingIssuesReferences",
       ]);
     },
 
@@ -671,6 +739,10 @@ export function main(argv) {
       return 2;
     }
   }
+  if (args.state !== undefined && !PR_STATES.includes(String(args.state))) {
+    console.error(`extract-corpus: --state must be one of ${PR_STATES.join(", ")}, got ${JSON.stringify(args.state)}`);
+    return 2;
+  }
 
   const repo = args.repo ?? DEFAULT_REPO;
   const repoSource = path.resolve(args["repo-source"] ?? path.join(HERE, "..", "..", ".."));
@@ -682,7 +754,15 @@ export function main(argv) {
   if (args.prs !== undefined) {
     numbers = String(args.prs).split(",").map((s) => s.trim()).filter(Boolean);
   } else {
-    numbers = io.prNumbers({ state: args.state ?? "merged", limit: args.limit ?? 30 });
+    // `gh pr list` reaches the network and can fail (gh missing, unauthenticated).
+    // This one call is outside the per-PR skip isolation, so a raw throw here would
+    // escape `main` as a Node stack trace instead of a usage-shaped CLI error.
+    try {
+      numbers = io.prNumbers({ state: args.state ?? "merged", limit: args.limit ?? 30 });
+    } catch (err) {
+      console.error(`extract-corpus: could not list PRs (is 'gh' installed and authenticated?): ${err?.message ?? err}`);
+      return 1;
+    }
   }
   if (numbers.length === 0) {
     console.error(`extract-corpus: no PRs to freeze — --prs was empty and the list returned nothing`);
