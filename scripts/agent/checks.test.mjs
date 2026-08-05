@@ -217,3 +217,161 @@ test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () =
       `${job} must depend on the ci job`);
   }
 });
+
+// --- "@claude fix": routing, gate order, and reporting ----------------------
+
+// Workflow text with FULL-LINE `#` comments stripped. These assertions are about
+// what the workflow DOES, and every one of them first failed against a header
+// comment that merely described the opposite workflow's gate — the same
+// false-positive shape as matching prose for code.
+const WF = (name) =>
+  readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", name), "utf8")
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
+
+test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> fix", () => {
+  // Both are `issue_comment` workflows keyed on the SAME verb, so the surface
+  // predicates must partition rather than merely differ. If either drifted, an
+  // "@claude fix" on an issue would also start the on-demand fixer (which would
+  // then refuse for having no PR) or, worse, both would run on a PR.
+  const implement = WF("agent-implement.yml");
+  const fix = WF("agent-fix.yml");
+  assert.match(implement, /!github\.event\.issue\.pull_request/, "implement must be ISSUE-only");
+  assert.ok(
+    /\n\s+github\.event\.issue\.pull_request &&/.test(fix),
+    "agent-fix must be PR-only (an unnegated issue.pull_request guard)",
+  );
+  assert.equal(/!github\.event\.issue\.pull_request/.test(fix), false, "agent-fix must not also claim issues");
+  for (const [name, wf] of [["implement", implement], ["fix", fix]]) {
+    assert.match(wf, /command\.mjs "\$BODY"/, `${name} must route through the shared command parser`);
+    assert.match(wf, /AGENT_PIPELINE_ENABLED == 'true'/, `${name} must honour the pipeline kill switch`);
+  }
+});
+
+test("agent-fix decides eligibility on TRUSTED main, before the branch checkout", () => {
+  // The gate authorises a bot push and the brief becomes the agent's prompt. Both
+  // must be computed by main's code — a branch that could supply either would be
+  // choosing whether it gets fixed and what the fixer is told to do.
+  const wf = WF("agent-fix.yml");
+  const trustedCheckout = wf.indexOf("ref: main");
+  const gate = wf.indexOf("fix-eligible.mjs");
+  const brief = wf.indexOf("fix-brief.mjs");
+  const branchCheckout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");
+  for (const [label, i] of [["trusted checkout", trustedCheckout], ["gate", gate], ["brief", brief], ["branch checkout", branchCheckout]]) {
+    assert.ok(i > 0, `agent-fix.yml must contain the ${label} step`);
+  }
+  assert.ok(trustedCheckout < gate, "eligibility must be decided from the trusted checkout");
+  assert.ok(gate < brief, "the brief is only built once eligibility passed");
+  assert.ok(brief < branchCheckout, "the prompt must be fixed before untrusted code is on disk");
+});
+
+test("agent-fix reports cost and outcome even when the agent step fails", () => {
+  // A fix run that dies at turn 1 on a 429 is precisely the run whose cost and
+  // reason a maintainer needs. `continue-on-error` on the agent is what lets the
+  // reporting steps run, so the final step has to re-red the job.
+  const wf = WF("agent-fix.yml");
+  // Path-agnostic: the CLI is invoked from the staged trusted copy, so the match
+  // is on the subcommand, not on where the script happens to live.
+  assert.match(wf, /metrics\.mjs"? effort/, "the separate fix-effort comment must be posted");
+  const effortStep = wf.slice(wf.indexOf("Post fix-agent effort comment"));
+  assert.match(effortStep.slice(0, 200), /if: always\(\)/, "the effort comment must survive a failed agent");
+  assert.match(wf, /core\.setFailed\('The fix agent failed/, "a swallowed agent failure must still red the job");
+  // A push FOLLOWED by a failure (e.g. the agent dies during `fix-report.mjs post`)
+  // makes both flags true and reds the job. Without an explicit combined branch the
+  // `advanced`-first message would claim "✅ pushed" next to that red X and point at
+  // a report comment that was never filed. The combined case must be handled first.
+  assert.match(wf, /else if \(advanced && failed\)/, "the partial push-then-fail outcome must be its own branch");
+  assert.ok(
+    wf.indexOf("advanced && failed") < wf.indexOf("} else if (advanced) {"),
+    "the combined branch must precede the advanced-only branch, or it can never be reached",
+  );
+});
+
+test("agent-fix installs the untrusted branch without running its lifecycle scripts", () => {
+  // This job checks out the PR branch (untrusted) with an App token already in the
+  // environment, so the branch's own install scripts must not run. `--ignore-scripts`
+  // blocks every dependency + workspace postinstall; the one first-party script the
+  // workspace genuinely needs — backend `prisma generate`, used by verify:fast — is
+  // re-run explicitly, off the code but not off the scripts.
+  const wf = WF("agent-fix.yml");
+  assert.match(wf, /pnpm install --frozen-lockfile --ignore-scripts/, "install must skip lifecycle scripts");
+  assert.match(wf, /pnpm --filter @wafflebase\/backend exec prisma generate/, "the skipped prisma client must be regenerated");
+  // The setup action is SHA-pinned here specifically because it runs after the
+  // untrusted checkout with the token present.
+  assert.match(wf, /uses: pnpm\/action-setup@[0-9a-f]{40}/, "pnpm/action-setup must be SHA-pinned in this token-bearing job");
+});
+
+test("agent-fix is maintainers-only and refuses bot-authored comments", () => {
+  const wf = WF("agent-fix.yml");
+  // Structural, not a marker string: `user.type` is set by GitHub and cannot be
+  // chosen by the commenter, unlike author_association which is only a hint.
+  assert.match(wf, /github\.event\.comment\.user\.type != 'Bot'/);
+  assert.match(wf, /getCollaboratorPermissionLevel/);
+  assert.match(wf, /\['admin', 'maintain', 'write'\]\.includes\(data\.permission\)/);
+});
+
+test("both fixers read from the SAME brief builder and write the SAME report format", () => {
+  // The duplicate-prompt-input rot this extraction exists to prevent: if either
+  // workflow grows its own copy, the two fixers silently diverge.
+  const panel = WF("agent-review-panel.yml");
+  const fix = WF("agent-fix.yml");
+  assert.match(panel, /fix-brief\.mjs/, "the autonomous loop must use the shared brief builder");
+  assert.match(fix, /steps\.brief\.outputs\.checklist/);
+  assert.equal(/core\.setOutput\('checklist'/.test(panel), false, "the inline checklist builder must be gone");
+  for (const [name, wf] of [["panel", panel], ["fix", fix]]) {
+    assert.match(wf, /fix-report\.mjs post/, `the ${name} fixer must be told to file a report`);
+  }
+  // ...and the panel must actually READ them back, or the loop half is inert.
+  assert.match(panel, /fix-report\.mjs read/);
+  assert.match(panel, /--fix-reports/);
+
+  // The ADVISORY panel too, or it reaches a different verdict than the gating one
+  // for the same code — and a maintainer reading it is told something the merge
+  // gate disagrees with.
+  const onDemand = WF("agent-review-on-demand.yml");
+  assert.match(onDemand, /fix-report\.mjs read/);
+  assert.match(onDemand, /--fix-reports/);
+});
+
+test("the on-demand reader uses THIS workflow's PR output, not the panel's", () => {
+  // The reader was copied from agent-review-panel.yml, where the number comes from
+  // a `pr` STEP. This workflow has no such step: `steps.pr.outputs.number`
+  // evaluated to "" so the `if` was permanently false and the step never ran —
+  // fail-safe and completely invisible. Every `PR:` binding in the review job must
+  // resolve to something this workflow actually produces.
+  const wf = WF("agent-review-on-demand.yml");
+  assert.equal(/steps\.pr\.outputs\.number/.test(wf), false, "no reference to a step this workflow lacks");
+  const reader = wf.slice(wf.indexOf("Read fix-agent reports"), wf.indexOf("Run review panel"));
+  assert.match(reader, /PR: \$\{\{ needs\.authorize\.outputs\.pr \}\}/);
+  // And it must not be gated on an expression that can never be true.
+  assert.equal(/if: steps\.pr\.outputs/.test(reader), false);
+});
+
+test("agent-fix re-verifies the commit AFTER checkout, closing the eligibility TOCTOU", () => {
+  // The gate proves sha H carries the verdict; the checkout takes the branch TIP,
+  // minutes later (app token, placeholder, brief, pnpm install). Without a
+  // re-check, an author pushing in that window has the fixer edit and push on top
+  // of a commit the panel never reviewed — the exact thing the precondition exists
+  // to prevent.
+  const wf = WF("agent-fix.yml");
+  const checkout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");
+  const recheck = wf.indexOf("Re-verify the checked-out commit");
+  const agent = wf.indexOf("Address panel findings");
+  assert.ok(recheck > checkout, "the re-check must run after the branch checkout");
+  assert.ok(recheck < agent, "and before the agent edits anything");
+  const step = wf.slice(recheck, agent);
+  assert.match(step, /steps\.eligible\.outputs\.head/, "it must compare against the GATED sha");
+  assert.match(step, /git rev-parse HEAD/);
+  assert.match(step, /exit 1/, "a moved branch must refuse, not warn");
+});
+
+test("agent-fix always answers the commenter, even when the gate step itself fails", () => {
+  // fix-eligible.mjs exits 2 on a broken invocation. Under the implicit success()
+  // the refusal step was skipped along with everything downstream, stranding
+  // "🤖 Working on @claude fix…" beside a red X forever.
+  const wf = WF("agent-fix.yml");
+  const refusal = wf.slice(wf.indexOf("- name: Explain the refusal"));
+  assert.match(refusal.slice(0, 200), /if: always\(\) && steps\.eligible\.outputs\.eligible != 'true'/);
+  assert.match(refusal.slice(0, 2000), /eligibility check could not complete/, "an empty reason must still say something");
+});

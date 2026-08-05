@@ -3486,3 +3486,44 @@ test("the round loop actually routes `merged` through stampLens", async () => {
   );
   assert.match(assignments[0], /lens\.id/, "and stamped with THIS lens's id");
 });
+
+// --- applySkipClaims: uphold without a session ------------------------------
+
+test("applySkipClaims: a skipped claim upholds directly and advances the counter", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const { upheldTwice } = await import("./rebuttal.mjs");
+  const W = "unvalidated user input reaches the fetch call";
+  const claims = [{ lens: "security", file: "a.ts", summary: W, note: "needs a migration", status: "skipped" }];
+  const finding = { lens: "security", file: "a.ts", summary: W, severity: "critical" };
+
+  const r1 = applySkipClaims([finding], claims)[0];
+  assert.equal(r1.adjudication.upheld, 1);
+  assert.equal(r1.adjudication.verdict, "skipped-by-author");
+  assert.equal(upheldTwice(r1), false);
+  // Second round: the same finding, skipped again, reaches the human-paging bound.
+  // This is the whole reason skipped claims are processed at all — an adjudicator
+  // session could only ever reach the same `upheld`, at 20 turns a time.
+  const r2 = applySkipClaims([r1], claims)[0];
+  assert.equal(r2.adjudication.upheld, 2);
+  assert.equal(upheldTwice(r2), true);
+});
+
+test("applySkipClaims: an unmatched finding is returned untouched, and no claims is inert", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const finding = { lens: "security", file: "a.ts", summary: "unvalidated user input reaches the fetch call" };
+  const other = [{ lens: "docs", file: "z.md", summary: "a completely different problem entirely", note: "n", status: "skipped" }];
+  assert.equal(applySkipClaims([finding], other)[0].adjudication, undefined);
+  assert.equal(applySkipClaims([finding], [])[0], finding); // same object — no copy, no annotation
+  assert.deepEqual(applySkipClaims(undefined, other), []);
+});
+
+test("applySkipClaims: the verdict string comes from the code, not the claim", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const W = "unvalidated user input reaches the fetch call";
+  // The author controls only whether a claim exists; its effect is to RAISE the
+  // uphold count, which moves the finding toward paging and never away from it.
+  const forged = [{ lens: "s", file: "a.ts", summary: W, status: "overturned", verdict: "overturned", note: "x" }];
+  const out = applySkipClaims([{ lens: "s", file: "a.ts", summary: W }], forged)[0];
+  assert.equal(out.adjudication.verdict, "skipped-by-author");
+  assert.equal(out.adjudication.upheld, 1);
+});

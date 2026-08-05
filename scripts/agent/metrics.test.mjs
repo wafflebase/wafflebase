@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  renderFixEffort,
+  classifyFixResult,
+  FIX_EFFORT_MARKER,
   parseExecution,
   sumExecutions,
   readWallMs,
@@ -24,6 +27,7 @@ import {
   dedupRecords,
   METRIC_PREFIX,
   SUMMARY_MARKER,
+  SUMMARY_DATA_MARKER,
 } from "./metrics.mjs";
 
 const resultMsg = (over = {}) => ({
@@ -650,4 +654,106 @@ test("dedupRecords: records with no sessionId are all kept (no key to collapse)"
   const recs = [{ turns: 1 }, { turns: 2 }, { sessionId: "a" }, { sessionId: "a" }];
   assert.deepEqual(dedupRecords(recs), [{ turns: 1 }, { turns: 2 }, { sessionId: "a" }]);
   for (const bad of [null, undefined, "x", 7, {}]) assert.deepEqual(dedupRecords(bad), []);
+});
+
+// --- the standalone fix-agent effort comment --------------------------------
+
+test("FIX_EFFORT_MARKER cannot be swept by the summary machinery", () => {
+  // `summarize` deletes every comment containing SUMMARY_MARKER and every one
+  // containing METRIC_PREFIX. The whole point of this comment is that it survives
+  // that, so the two markers must not be substrings of it in either direction.
+  assert.equal(FIX_EFFORT_MARKER.includes(METRIC_PREFIX), false);
+  assert.equal(FIX_EFFORT_MARKER.includes(SUMMARY_MARKER), false);
+  const body = renderFixEffort({ rec: { turns: 3, tokens: 100, weightedTokens: 50, costUsd: 1, durationMs: 1000, models: ["m"] } });
+  assert.equal(body.includes(METRIC_PREFIX), false);
+  assert.equal(body.includes(SUMMARY_MARKER), false);
+  assert.equal(body.includes(SUMMARY_DATA_MARKER), false);
+  assert.ok(body.includes(FIX_EFFORT_MARKER));
+});
+
+test("renderFixEffort: a SUCCESSFUL run reports success, through the real classifier", () => {
+  // Hand-writing `{ok:true}` here is what hid the bug this test now covers:
+  // `classifyResult` requires `structured_output`, which a claude-code-action
+  // transcript never has, so every successful fix run was reported as
+  // "failed (no-output) — subtype=success. Not retryable; a human should take a
+  // look." Build the outcome the way production does.
+  const outcome = classifyFixResult({
+    type: "result", subtype: "success", is_error: false, num_turns: 42,
+    duration_ms: 8 * 60_000, total_cost_usd: 3.5, session_id: "s1",
+  });
+  assert.deepEqual(outcome, { ok: true });
+  const body = renderFixEffort({
+    rec: { turns: 42, tokens: 1_200_000, weightedTokens: 300_000, costUsd: 3.5, durationMs: 8 * 60_000, models: ["claude-opus-5"] },
+    outcome,
+    head: "abcdef1234",
+  });
+  assert.equal(/Outcome: failed/.test(body), false);
+  assert.match(body, /\| Turns \| 42 \|/);
+  assert.match(body, /claude-opus-5/);
+  assert.match(body, /Outcome: completed/);
+  assert.match(body, /abcdef12/);
+  assert.match(body, /review panel's own effort is reported separately/);
+});
+
+test("renderFixEffort: a 429 session limit is named, and named as NOT retryable", () => {
+  // This is the case the comment exists for. The fixer that died on #632/#648
+  // reported subtype:"success" with is_error:true at turn 1, which from outside
+  // looks exactly like a cheap successful round — the pipeline's only signal was a
+  // generic "the branch head is unchanged" page that sends a human looking for a
+  // code defect.
+  const outcome = classifyFixResult({
+    type: "result", subtype: "success", is_error: true, api_error_status: 429,
+    terminal_reason: "api_error", num_turns: 1,
+    result: "You've hit your session limit · resets 12:10pm (UTC)",
+  });
+  const body = renderFixEffort({ rec: { turns: 1, tokens: 10, weightedTokens: 10, costUsd: 0, durationMs: 18_000, models: [] }, outcome });
+  assert.match(body, /Outcome: failed/);
+  assert.match(body, /session limit/);
+  // Named as a quota window, not as a defect in the PR and not as a hard ceiling:
+  // it clears on its own, so the advice is "wait, then re-run".
+  assert.match(body, /not a defect in the PR/);
+  assert.match(body, /after that/);
+  assert.equal(/hard ceiling/.test(body), false);
+  assert.equal(/a human should take a look/.test(body), false);
+  // 18 seconds must not render as "1m" — the sub-minute duration IS the diagnostic
+  // that the agent never got to work.
+  assert.match(body, /\| Duration \| 18s \|/);
+});
+
+test("renderFixEffort: a transient API error says to retry", () => {
+  const outcome = classifyFixResult({
+    type: "result", subtype: "success", is_error: true, api_error_status: 529,
+    terminal_reason: "api_error", num_turns: 4, result: "overloaded",
+  });
+  const body = renderFixEffort({ rec: null, outcome });
+  assert.match(body, /Outcome: failed/);
+  assert.match(body, /Comment `@claude fix` again to retry/);
+});
+
+test("renderFixEffort: a turn ceiling is reported as a ceiling, not a transient", () => {
+  const outcome = classifyFixResult({ type: "result", subtype: "error_max_turns", num_turns: 200 });
+  const body = renderFixEffort({ rec: null, outcome });
+  assert.match(body, /hard ceiling/);
+  assert.equal(/again to retry/.test(body), false);
+});
+
+test("renderFixEffort: no execution log still produces an honest comment", () => {
+  const body = renderFixEffort({ rec: null, outcome: null });
+  assert.match(body, /produced no execution log/);
+  assert.ok(body.includes(FIX_EFFORT_MARKER));
+});
+
+test("classifyFixResult: the failure taxonomy still comes from classifyResult", () => {
+  // Success is decided locally; everything else must keep the classification that
+  // recognises a 429 hiding behind `subtype:"success"`. Both halves, so a future
+  // simplification cannot collapse this into "subtype === 'success'".
+  assert.deepEqual(classifyFixResult({ type: "result", subtype: "success", is_error: false }), { ok: true });
+  const limit = classifyFixResult({ type: "result", subtype: "success", is_error: true, api_error_status: 429, result: "You've hit your session limit" });
+  assert.equal(limit.ok, false);
+  assert.equal(limit.kind, "api-error");
+  assert.equal(classifyFixResult({ type: "result", subtype: "error_max_turns" }).kind, "limit");
+  // Fail direction: anything not cleanly successful reads as a failure.
+  assert.equal(classifyFixResult({ type: "result", subtype: "error_during_execution" }).ok, false);
+  assert.equal(classifyFixResult({ type: "result", subtype: "success", terminal_reason: "max_turns" }).ok, false);
+  assert.equal(classifyFixResult(null), null);
 });

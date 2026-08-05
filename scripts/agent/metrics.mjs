@@ -32,6 +32,11 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Node builtins only, transitively too: ask.mjs has no top-level imports at all,
+// which is what makes it importable here. The `agent:tests` lane runs with
+// scripts/agent/node_modules ABSENT, so a module that statically pulled in the
+// Agent SDK would take this whole file down with it (ask.test.mjs enforces this).
+import { classifyResult } from "./ask.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
@@ -52,6 +57,17 @@ export const SUMMARY_DATA_MARKER = "<!-- agent-metrics-data ";
 // Keep summary body + data block under GitHub's 65 536-char comment cap. Records
 // that don't fit keep their standalone comment and fold in on a later round.
 export const SUMMARY_DATA_BUDGET = 55000;
+
+// A STANDALONE per-session effort comment, deliberately not part of the machinery
+// above. `@claude fix` is a maintainer-initiated one-off, and its cost has to be
+// legible as its own line item — not folded into a PR-wide total whose next
+// revision deletes and reposts it, and not hidden in a `METRIC_PREFIX` comment
+// that `summarize` sweeps. This marker matches NEITHER of the two above
+// (`agent-fix-effort` shares no prefix with `agent-metric ` or
+// `agent-metrics-summary`), so the sweep and the summary cannot touch it and it
+// stays where the maintainer read it. One comment per run, never edited in place:
+// two `@claude fix` invocations are two spends and must show as two.
+export const FIX_EFFORT_MARKER = "<!-- agent-fix-effort -->";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -661,6 +677,111 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
 /** One session's record as a self-contained HIDDEN comment (renders invisibly).
  * The record fields are machine-generated (no free text), so the JSON never
  * contains the ` -->` terminator the parser splits on. */
+/**
+ * The standalone effort comment for ONE fix-agent session.
+ *
+ * REPORTS THE OUTCOME, not just the spend, and that is most of the value. A fix
+ * run that dies on a 429 session limit produces a result message with
+ * `subtype:"success"`, `is_error:true` and `num_turns:1` — from the outside it is
+ * indistinguishable from a cheap successful round, and the only signal the
+ * pipeline emits is the generic "the branch head is unchanged" page. That page
+ * sends a maintainer looking for a code defect when the real answer is "retry
+ * later". `classifyResult` already knows the difference; this surfaces it at the
+ * one moment someone is reading.
+ *
+ * `rec` may be null (no result message at all) — a run that produced no execution
+ * log still gets a comment saying so, because silence there is what made the
+ * failure above take an artifact download to diagnose.
+ */
+/**
+ * Did this claude-code-action session succeed, and if not, how did it fail?
+ *
+ * NOT `classifyResult` alone, and the difference is the whole point. That
+ * function was written for Agent SDK sessions that return a json_schema payload:
+ * its success arm requires `m.structured_output`, which a claude-code-action
+ * transcript never carries. Handing it one makes EVERY successful fix run come
+ * back `{ok:false, kind:"no-output"}` — so the effort comment would tell a
+ * maintainer that a fix which worked had failed, and to escalate it. Verified
+ * against a realistic success message before this existed.
+ *
+ * So success is decided HERE, from the fields this log actually has, and
+ * `classifyResult` is used only for the failure taxonomy — which is the part it
+ * gets right, and the part worth reusing (it is what recognises the 429 that
+ * `subtype:"success"` disguises).
+ *
+ * Fail direction: toward FAILED. Anything other than a clean
+ * `subtype:"success"` with no error flag is reported as a failure, because
+ * over-reporting a failure costs a glance at the log while under-reporting one
+ * loses the whole signal.
+ */
+export function classifyFixResult(result) {
+  if (!result || typeof result !== "object") return null;
+  const clean = result.subtype === "success"
+    && !result.is_error
+    && !result.api_error_status
+    && result.terminal_reason !== "api_error"
+    && result.terminal_reason !== "max_turns";
+  return clean ? { ok: true } : classifyResult(result);
+}
+
+export function renderFixEffort({ rec, outcome, head, runUrl }) {
+  const lines = ["### 🧾 Fix agent effort", ""];
+  if (rec) {
+    const weighted = Number(rec.weightedTokens) || Number(rec.tokens) || 0;
+    lines.push(
+      "| | |",
+      "| --- | --- |",
+      `| Turns | ${rec.turns} |`,
+      `| Tokens | ${formatTokens(rec.tokens)} (weighted ${formatTokens(weighted)}) |`,
+      `| Cost | ${formatUsd(rec.costUsd)} |`,
+      // Seconds under a minute, unlike the PR-wide summary. `formatMinutes` floors
+      // at "1m", and for a fix run the sub-minute case is the whole diagnostic: an
+      // agent that died in 18 seconds did no work, and "1m" hides exactly that.
+      `| Duration | ${(Number(rec.durationMs) || 0) < 60_000 ? `${Math.round((Number(rec.durationMs) || 0) / 1000)}s` : formatMinutes(rec.durationMs)} |`,
+      `| Model | ${(rec.models || []).join(", ") || "unknown"} |`,
+      "",
+    );
+  } else {
+    lines.push("The fix agent produced no execution log, so no cost could be measured.", "");
+  }
+  if (outcome && outcome.ok === false) {
+    // Spelled out per kind: "limit" is a ceiling the run hit and will hit again
+    // unchanged, while a retryable api-error is a transient the same command
+    // clears. Telling a maintainer to retry a `max_turns` failure wastes a round.
+    const detail = String(outcome.detail || "").slice(0, 500);
+    // A SESSION LIMIT is neither of the other two, and calling it either sends a
+    // maintainer the wrong way. `classifyResult` marks it non-retryable — correct,
+    // because retrying inside the same run cannot help — but it clears on its own
+    // once the window resets, so the right advice is "wait, then re-run", not "a
+    // human should look at this". Both reruns on #632/#648 failed this way and the
+    // pipeline's only message was a generic page about the branch head.
+    const sessionLimited = /\b(?:session|usage)\s+limit\b/i.test(detail);
+    const advice = sessionLimited
+      ? "This is an account **session limit**, not a defect in the PR — no work was done. "
+        + "It clears when the window resets (the message above says when); comment `@claude fix` again after that."
+      : outcome.kind === "limit"
+        ? "This is a hard ceiling, not a transient — re-running as-is will hit it again."
+        : outcome.retryable
+          ? "This looks transient. Comment `@claude fix` again to retry."
+          : "Not retryable as-is; a human should take a look.";
+    lines.push(
+      `**Outcome: failed (${outcome.kind}${outcome.status ? ` ${outcome.status}` : ""})** — ${detail || "no detail reported"}`,
+      "",
+      advice,
+      "",
+    );
+  } else if (outcome && outcome.ok) {
+    lines.push("**Outcome: completed.**", "");
+  }
+  if (head) lines.push(`Findings were read from \`${String(head).slice(0, 8)}\`.`, "");
+  if (runUrl) lines.push(`[Workflow run](${runUrl})`, "");
+  // Separate from the review panel's effort summary by design — see
+  // FIX_EFFORT_MARKER. Stated in the comment so the two are not read as
+  // duplicates of each other.
+  lines.push("_This covers the on-demand fix agent only. The review panel's own effort is reported separately._");
+  return `${lines.join("\n")}\n${FIX_EFFORT_MARKER}`;
+}
+
 export function serializeRecord(rec) {
   return `${METRIC_PREFIX}${JSON.stringify(rec)} -->`;
 }
@@ -826,6 +947,39 @@ function cmdRecord(args) {
   console.log(`recorded ${rec.kind} for PR #${pr}: turns=${rec.turns} tokens=${rec.tokens} ${formatMinutes(rec.durationMs)}`);
 }
 
+/**
+ * Post the standalone fix-agent effort comment.
+ *
+ * ALWAYS POSTS, even with no execution log and even on a failed run: the comment
+ * is the record that a fix attempt happened and what it cost, and the runs worth
+ * recording most are the ones that went wrong. `bail` here would reproduce the
+ * silence this exists to end.
+ */
+function cmdEffort(args) {
+  const pr = args.pr;
+  if (!pr) return bail("effort needs --pr");
+  let messages = null;
+  try {
+    messages = JSON.parse(readFileSync(args.execution, "utf8"));
+  } catch (e) {
+    console.error(`metrics: cannot read execution log ${args.execution}: ${e.message}`);
+  }
+  const rec = messages ? parseExecution(messages, args.kind || "review-fix") : null;
+  // The last result message. Absent → no outcome line rather than a fabricated one.
+  const result = Array.isArray(messages) ? [...messages].reverse().find((m) => m && m.type === "result") : null;
+  const outcome = classifyFixResult(result);
+  const body = renderFixEffort({ rec, outcome, head: args.head, runUrl: args["run-url"] });
+  try {
+    postComment(pr, body);
+  } catch (e) {
+    return bail(`could not post fix-effort comment for PR #${pr}: ${e.message}`);
+  }
+  console.log(
+    `posted fix-agent effort for PR #${pr}`
+    + (rec ? `: turns=${rec.turns} tokens=${rec.tokens} ${formatUsd(rec.costUsd)}` : " (no execution log)"),
+  );
+}
+
 function cmdSummarize(args) {
   const pr = args.pr;
   if (!pr) return bail("summarize needs --pr");
@@ -926,10 +1080,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = parseArgs(process.argv);
   if (cmd === "record") cmdRecord(args);
   else if (cmd === "summarize") cmdSummarize(args);
+  else if (cmd === "effort") cmdEffort(args);
   else {
     console.error(
-      "usage: metrics.mjs <record|summarize> [--pr N | --issue N] [--execution PATH] " +
-        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH] [--final]",
+      "usage: metrics.mjs <record|summarize|effort> [--pr N | --issue N] [--execution PATH] " +
+        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH] [--final] " +
+        "[--head SHA] [--run-url URL]",
     );
     process.exit(2);
   }
