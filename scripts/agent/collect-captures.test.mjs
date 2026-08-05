@@ -1295,3 +1295,27 @@ test("the pushed-file count is the number of files pushed", () => {
     assert.equal(out, "3", `the workflow's own count said ${JSON.stringify(out)} for 3 staged files`);
   } finally { rmSync(repo, { recursive: true, force: true }); }
 });
+
+test("a SKIPPED producer does not start a collection, but a failed one does", () => {
+  // `workflow_run` fires on `completed` whatever the conclusion. A skipped producer
+  // uploaded nothing, and three of the five runs on 2026-08-05 08:16–08:51 came
+  // from a skipped on-demand panel — zero collected, ~41 API pages each.
+  //
+  // `failure` must NOT be gated: a panel that crashed after four of six lenses
+  // captured four, and those are data. That is the assertion that matters here;
+  // gating too much loses captures silently, which is the whole failure mode.
+  const yamlOnly = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8")
+    .split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  const cond = /^\s+if:\s*(.+?)\s*$/m.exec(yamlOnly);
+  assert.ok(cond, "the collect job must be gated on the producer's conclusion");
+  assert.equal(
+    cond[1],
+    "${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'skipped' }}",
+  );
+  // `schedule` and `workflow_dispatch` have no `workflow_run` payload, so the
+  // event_name half is what keeps them running at all.
+  assert.match(cond[1], /github\.event_name != 'workflow_run' \|\|/);
+  for (const keep of ["failure", "cancelled", "success"]) {
+    assert.equal(cond[1].includes(keep), false, `a ${keep} producer may still have uploaded captures`);
+  }
+});

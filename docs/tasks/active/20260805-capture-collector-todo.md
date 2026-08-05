@@ -435,7 +435,20 @@ one of the two readings stays correct without maintenance.
       UNCOLLECTED`. They keep their own deadline (2026-09-03/04) and it is a
       human's to meet.
 
-Two smaller things, fixed while the file was open:
+Three smaller things, fixed while the file was open:
+
+- **The trigger fired on producers that had done nothing.** `workflow_run` fires on
+  `completed` regardless of conclusion, and three of the five runs between 08:16 and
+  08:51 were triggered by a *skipped* on-demand panel — ~41 API pages and a runner
+  minute each to collect zero. The job is now gated on
+  `conclusion != 'skipped'`, and on `skipped` only: `failure` must still run,
+  because a panel that crashed after four of six lenses captured four, and so must
+  `cancelled`, where the upload may or may not have happened. The `event_name` half
+  of the condition is what keeps `schedule` and `workflow_dispatch` working, since
+  neither has a `workflow_run` payload. A test pins the exact expression and asserts
+  that `failure`, `cancelled` and `success` are **not** gated — gating too much
+  loses captures silently, which is the failure mode this whole file exists to
+  avoid.
 
 - **`--days` is a `workflow_dispatch` input**, defaulting to `7` so all three
   triggers agree unless somebody deliberately disagrees. Passed by environment and
@@ -467,9 +480,9 @@ And one gap found by a reviewer's question rather than by a test:
   it passed for the wrong reason because a whole-file `run:` regex matches inside
   `workflow_run:`.
 
-- [x] **844 tests, 0 fail** (+5 from this follow-up; 1 skipped, which is
+- [x] **845 tests, 0 fail** (+6 from this follow-up; 1 skipped, which is
       `lint-config` in a tree without eslint at the root). `eslint@9.24.0 scripts`
-      exit 0. **8 further mutations, 8 caught**: predicate widened to a prefix
+      exit 0. **11 further mutations, 11 caught**: predicate widened to a prefix
       match; `no-meta-legacy` added back to the loud set; the ternary inverted;
       `--days` hardcoded; the input default dropped; an expression interpolated
       into a `run:` body; the off-by-one count restored; and `ref:

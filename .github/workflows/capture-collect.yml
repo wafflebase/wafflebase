@@ -112,6 +112,21 @@ concurrency:
 
 jobs:
   collect:
+    # A producer that was SKIPPED uploaded nothing, so there is nothing to collect.
+    # `workflow_run` fires on `completed` regardless of conclusion, and three of the
+    # five runs on 2026-08-05 between 08:16 and 08:51 were triggered by a skipped
+    # on-demand panel: each cost ~41 API pages and a runner minute to collect zero.
+    #
+    # `skipped` ONLY. `failure` must still run — a panel that crashed after four of
+    # six lenses captured four, and those are data — and so must `cancelled`, where
+    # the upload may or may not have happened. This gate is about a run that
+    # provably did no work, not about a run that did it badly.
+    #
+    # The `event_name` half keeps `schedule` and `workflow_dispatch` working, where
+    # `github.event.workflow_run` does not exist at all. And if a re-run ever leaves
+    # a skipped conclusion over an attempt that did upload, the nightly sweep
+    # collects it within a day.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
