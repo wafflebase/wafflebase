@@ -86,10 +86,12 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 
 ## Deferred / Non-Goals
 
-- **UI hunting.** The CLI cannot reach Canvas rendering, CRDT collaboration or
-  frontend interaction — where most open bugs live (#494, #343, #333). A
-  Playwright hunter reusing `verify:frontend:interaction` is the natural next
-  surface, not part of this phase.
+- **UI hunting — no longer deferred; moved to Phase 28.** It was out of scope
+  for this phase, and is now in progress: see
+  `docs/design/harness-engineering.md` (Phase 28). PR 1 (#642) landed the
+  browser executor, the `/harness/hunt` route and the free oracles; PR 2 (#665)
+  adds the prediction protocol. Left listed here so the boundary between the two
+  phases stays readable rather than silently rewritten.
 - **HyperFormula as a formula reference.** GPLv3, incompatible with Apache-2.0.
   `@formulajs/formulajs` (MIT) is the candidate if Step 6 needs one.
 - **Semantic/LLM dedup of candidates.** Deterministic overlap matching only; a model

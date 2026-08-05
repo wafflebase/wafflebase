@@ -191,6 +191,63 @@ async function checkCellTargeting(page, baseUrl) {
   return problems;
 }
 
+/**
+ * Undo capability, checked because a prediction that assumes it produces a
+ * confident FALSE finding when it is absent.
+ *
+ * Measured live: `MemStore.undo()` is a no-op ("No-op for memory store (no history
+ * tracking)") while `MemDocStore` keeps real undo/redo stacks. So the same
+ * prediction is sound on the doc surface and unsound on the sheet surface, and the
+ * bridge exposes `canUndo` so a caller can tell which it is looking at.
+ *
+ * This asserts the POSITIVE capability only — that docs really can undo after an
+ * edit. It deliberately does NOT assert that sheets cannot: that is a limitation
+ * worth fixing, not a contract worth freezing, and pinning it would make an
+ * improvement look like a regression. The sheet value is reported, not enforced.
+ */
+async function checkUndoCapability(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const before = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+  if (before !== false) problems.push(`doc.canUndo should be false on a freshly seeded document, got ${JSON.stringify(before)}`);
+  // NOT getByRole("textbox"): on the doc surface that resolves to the editor's hidden
+  // IME textarea — `position:fixed;top:0;left:0;width:1px;height:1px;opacity:0`
+  // (docs/src/view/text-editor.ts:416-425). Clicking a 1x1 invisible element pinned at
+  // the viewport origin happens to work, but it is a caret-placement path no other
+  // lane in this repo uses, and Playwright's visibility/stability checks on it are a
+  // plausible 30s timeout that would fail the whole lane. The canvas is the real
+  // target and is what a user clicks.
+  await page.locator(`[data-testid="${HOST_TESTID}"] canvas`).first().click();
+  await page.keyboard.type("Q");
+  // Poll rather than sleep. The undo stack is pushed asynchronously relative to the
+  // keystroke, so a fixed wait is either flaky on a loaded machine or needlessly slow —
+  // and this lane gates CI. Same reasoning as the positive oracle cases above.
+  let after = null;
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    after = await page.evaluate(() => window.__WB_HUNT__.read("doc.canUndo"));
+    if (after === true || Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
+  if (after !== true) {
+    problems.push(
+      `doc.canUndo was still ${JSON.stringify(after)} after an edit and ${FIRE_DEADLINE_MS}ms of polling — ` +
+        "either the bridge reader is broken (harness fault) or docs undo regressed (product fault); " +
+        "check MemDocStore's undo stack before assuming either.",
+    );
+  }
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const sheetCanUndo = await page.evaluate(() => window.__WB_HUNT__.read("sheet.canUndo"));
+  if (typeof sheetCanUndo !== "boolean") problems.push(`sheet.canUndo must answer with a boolean, got ${JSON.stringify(sheetCanUndo)}`);
+  else console.log(`[verify:hunt-oracles] sheet.canUndo reports ${sheetCanUndo} (MemStore has no history — informational)`);
+
+  return problems;
+}
+
 async function loadPlaywright() {
   try {
     const mod = await import("playwright");
@@ -300,10 +357,16 @@ try {
     colorScheme: "light",
   });
   try {
-    const problems = await checkCellTargeting(await targetingContext.newPage(), baseUrl);
+    const page = await targetingContext.newPage();
+    const problems = await checkCellTargeting(page, baseUrl);
     for (const p of problems) failures.push(`cell targeting: ${p}`);
     if (problems.length === 0) {
       console.log(`[verify:hunt-oracles] cell clicks land correctly: ${TARGETING_CELLS.join(", ")}`);
+    }
+    const undoProblems = await checkUndoCapability(page, baseUrl);
+    for (const p of undoProblems) failures.push(`undo capability: ${p}`);
+    if (undoProblems.length === 0) {
+      console.log("[verify:hunt-oracles] doc.canUndo tracks a real undo stack");
     }
   } finally {
     await targetingContext.close();
@@ -326,4 +389,6 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log(`[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting passed.`);
+console.log(
+  `[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting + undo capability passed.`,
+);

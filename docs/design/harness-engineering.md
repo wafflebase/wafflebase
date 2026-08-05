@@ -1341,6 +1341,92 @@ it left alone. `--run` is mandatory so there is no "delete everything that looks
 a fixture" mode to reach by accident, and the run id is in the prefix so concurrent
 runs cannot delete each other's fixtures. Docker lifecycle is NOT reimplemented —
 `scripts/verify-integration-docker.mjs` owns it, and `preflight` reports what is missing.
+### Phase 28: UI Issue Hunting
+
+Phase 26's own residual-risk list names the ceiling this addresses: the CLI reaches
+neither Canvas rendering, CRDT collaboration, nor frontend interaction, which is where
+most open UI bugs live. This is the Playwright hunter that section called "the natural
+next surface", and it reuses Phase 26's precision apparatus wholesale — inverted gate,
+3x replay, adversarial verifier panel, novelty ledger. **Only the probe layer and the
+prediction protocol are new.**
+
+**The sensor is a bridge, not the accessibility tree.** Sheets, docs and slides render to
+Canvas, so the a11y tree covers the React chrome and essentially nothing where the
+content is. `window.__WB_HUNT__` on the DEV-only `/harness/hunt` route answers a CLOSED
+registry of named readers instead — `doc.text`, `doc.runs`, `doc.fontSizes`,
+`sheet.cellValue`, `sheet.cellCenter`, `doc.canUndo`, `sheet.canUndo` — over
+`MemStore`/`MemDocStore`, with
+the real `DocsFormattingToolbar` mounted. No backend, no login, no cleanup risk. A
+registry rather than an `evaluate(<model JS>)` hook, so the reachable surface is bounded
+by reviewed code; membership is an own-property test, because a plain object literal
+resolves `readers["toString"]` through the prototype chain and would have invoked it.
+
+**The driver is a subprocess.** `playwright` resolves from `packages/frontend` and NOT
+from `scripts/agent` (separate installs), and duplicating it would duplicate the version
+`scripts/run-browser-tests-docker.sh` pins against `Dockerfile.playwright`. Spawning
+`packages/frontend/scripts/hunt-ui-runner.mjs` also keeps the async browser behind a
+synchronous call, so `scripts/agent/hunt-probe.mjs`'s `replay()` is reused unchanged.
+
+**Free oracles first, run after every action at zero model cost:** `pageerror`,
+`console-error`, `network-fail`, and Crawljax/ATUSA-style DOM invariants (duplicate ids,
+dangling ARIA references, `undefined`/`NaN`/`[object Object]` in the chrome). Two scoping
+rules keep them from reporting the harness: request failures and browser-generated
+console errors about them are ignored for non-app origins, since Tier 1 has no backend by
+construction; and the placeholder-text scan excludes the editor host, because a user's
+document may legitimately contain the word "undefined". `verify:hunt:oracles` proves each
+one fires on an injected fault and stays quiet on the two negative controls — a detector
+that silently stops firing is invisible, because a clean run and a dead detector produce
+the same empty report.
+
+**The prediction protocol is where a mismatch stops being an opinion.** The oracles only
+catch defects that announce themselves; most real UI bugs do not. So the agent commits to
+an expectation — a NAMED READER plus a COMPARISON from a six-operator closed set, never
+prose — submitted WITH the action, with the runner performing the read in the same
+round-trip so the caller cannot look before committing. Trusted code renders the verdict.
+There is deliberately no regex operator: a model-supplied pattern is code this process
+would execute.
+
+Four grounds, each MECHANICALLY checked rather than trusted:
+
+| ground | claim | what the process verifies |
+|---|---|---|
+| A | the app contradicts itself | `value` must be an `@read:`/`@input:` reference to a SUCCESSFUL, STRICTLY EARLIER journal entry, and a `@read:` must name the same reader — a literal is the model asserting its own belief, which is what A exists to exclude |
+| B | `docs/design/**` says otherwise | bounded `source` matching `CITATION`, in the charter's `docsScope`, no `..` |
+| C | the app's own label says otherwise | the quote must appear in that step's page snapshot |
+| D | general convention | never eligible; journalled for a human |
+
+`UNEVALUABLE IS NOT VIOLATED` is load-bearing: a comparison that cannot be carried out is
+never a finding. Collapsing it into `violated` would turn every malformed prediction into
+a report.
+
+**What the protocol does NOT establish** — recorded because two false findings appeared
+within minutes of it first running, both ground A, both traceable, both reproducing:
+`MemStore.undo()` is a no-op, so any undo prediction on the sheet surface is a guaranteed
+false finding (now askable via `canUndo`); and docs undo is per-keystroke, so expecting a
+typing burst to be one undo step is wrong for reasons unrelated to the product. Grounding
+removes a CLASS of bad predictions, not all of them, which is why the verifier panel stays
+load-bearing and its rubric attacks the EXPECTATION before the behaviour.
+
+**Cross-sample agreement is absent by design**, and Phase 26 dropped it too for the same
+measured reason (see that section). Precision therefore rests on journal-reference
+resolution, the 3x deterministic replay, and the panel — so `actual` participates in
+`uiObservedKey`, or replay would be blind to the very value a violation was computed from.
+
+**No visual channel.** There is no screenshot action, and adding one is rejected rather
+than deferred: a "these overlap" claim traces to nothing, so it is ineligible under every
+ground above, and making it eligible would mean adding the "looks wrong" ground this
+design exists to exclude. Spatial questions on slides/board are exactly computable from
+state instead (`boundingBox`, `combinedBoundingBox`, `framesApproxEqual` are already
+exported). Renderer bugs — model right, paint wrong — remain the visual lane's job, which
+already owns 220 baselines with Docker font pinning. Two instruments, two failure classes.
+
+Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
+protocol. Still to come: the in-process MCP tool that lets a model drive it, the
+orchestrator and personas with a per-surface selector, repro minimization, the backend
+tier, and slides/board. Nothing is filed automatically; the output is a local report, and
+the CLI hunter's filing gate (20 accepted at >=90%) restarts for this surface because it
+generates candidates by a different mechanism.
+
 ### Phase 27: Panel Feedback Corpus
 
 **Principle:** Entropy Management — the panel has been tuned repeatedly with no

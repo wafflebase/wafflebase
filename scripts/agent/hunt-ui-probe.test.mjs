@@ -279,3 +279,55 @@ test("runUiPlan throws when the driver reports its own failure", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// --- prediction validation (added in PR 2, untested until a review said so) ---
+
+test("assertSafeActionPlan validates a prediction attached to any action", () => {
+  const withExpect = (expect) => ({ actions: [{ type: "key", key: "z", expect }] });
+  assert.equal(
+    assertSafeActionPlan(
+      withExpect({ read: "doc.text", op: "equals", value: "@read:0", ground: "A", because: "x" }),
+    ),
+    true,
+  );
+  assert.throws(() => assertSafeActionPlan(withExpect({ read: "doc.text", op: "vibes", value: 1, ground: "A", because: "x" })), /prediction is malformed/);
+  assert.throws(() => assertSafeActionPlan(withExpect({ op: "equals", value: 1, ground: "A", because: "x" })), /prediction is malformed/);
+  assert.throws(() => assertSafeActionPlan(withExpect({ read: "doc.text", op: "equals", value: 1, ground: "Z", because: "x" })), /prediction is malformed/);
+  // An action with no prediction stays valid — `expect` is optional.
+  assert.equal(assertSafeActionPlan({ actions: [{ type: "key", key: "z" }] }), true);
+});
+
+// `expect.read` must not be a way around the namespace gate that every other reader
+// goes through.
+test("assertSafeActionPlan refuses a prediction reader outside the namespaces", () => {
+  const escape = { actions: [{ type: "key", key: "z", expect: { read: "eval.window", op: "equals", value: 1, ground: "B", because: "x", source: "docs/a.md:1" } }] };
+  assert.throws(() => assertSafeActionPlan(escape), /prediction reader "eval.window" must start with one of/);
+});
+
+// --- the prediction outcome must reach the replay key ------------------------
+
+// `actual` is the value a verdict RESTS on. Leaving it out of the key made replay —
+// the determinism gate that exists to kill phantom repros — blind to the one number a
+// violation was computed from, so a flaky prediction sailed through 3/3 attempts.
+test("REGRESSION: uiObservedKey distinguishes different prediction outcomes", () => {
+  const withActual = (actual) => obs({ action: { type: "key", key: "Control+z" }, actual });
+  assert.notEqual(uiObservedKey(withActual("10")), uiObservedKey(withActual("999")));
+  assert.equal(uiObservedKey(withActual("10")), uiObservedKey(withActual("10")));
+  // A read that failed is a different outcome from one that returned null.
+  const failed = obs({ action: { type: "key", key: "z" }, actual: null, actualError: "hunt bridge is not installed" });
+  const nulled = obs({ action: { type: "key", key: "z" }, actual: null, actualError: null });
+  assert.notEqual(uiObservedKey(failed), uiObservedKey(nulled));
+});
+
+test("uiObservedKey is unchanged for actions carrying no prediction", () => {
+  // Absence of the field, not a null value — so an action without a prediction keys
+  // exactly as it did before predictions existed.
+  const plain = uiObservedKey(obs({ action: { type: "click" } }));
+  assert.equal(plain.includes("actual:"), false);
+});
+
+test("uiObservedKey scrubs volatile values inside a prediction outcome too", () => {
+  const a = obs({ action: { type: "key", key: "z" }, actual: '{"blockId":"block-1785735868118-3"}' });
+  const b = obs({ action: { type: "key", key: "z" }, actual: '{"blockId":"block-1785735870911-3"}' });
+  assert.equal(uiObservedKey(a), uiObservedKey(b));
+});

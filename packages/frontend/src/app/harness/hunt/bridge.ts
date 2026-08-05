@@ -186,6 +186,24 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
 
     "doc.linkCount": () => runsOf(requireDoc(state).editor).filter((r) => typeof r.href === "string").length,
 
+    /**
+     * Can this surface undo right now?
+     *
+     * Exposed because the two in-memory stores DISAGREE, and a caller that assumes
+     * otherwise produces a confident false finding. Measured live:
+     *
+     *   MemDocStore  real snapshot-based undo/redo stacks (docs/src/store/memory.ts)
+     *   MemStore     `undo()` returns {success:false}; `canUndo()` returns false,
+     *                marked "No-op for memory store (no history tracking)"
+     *
+     * So "I edited, then undid, so the value came back" is a sound prediction on the
+     * doc surface and an unsound one on the sheet surface — not because the product
+     * is broken, but because the sheet mount is a test double without history. The
+     * real app uses a Yorkie-backed store that has it. Asking before predicting is
+     * the difference between a finding and noise.
+     */
+    "doc.canUndo": () => requireDoc(state).editor.getStore().canUndo(),
+
     // --- sheets -----------------------------------------------------------
     "sheet.cellValue": async (args) => {
       const sref = asString(args, 0, "sheet.cellValue");
@@ -209,6 +227,9 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
       if (!range) return null;
       return { start: toSref(range[0]), end: toSref(range[1]) };
     },
+
+    /** See `doc.canUndo`. Reports `false` here, because `MemStore` has no history. */
+    "sheet.canUndo": () => requireSheet(state).store.canUndo(),
 
     /**
      * Viewport coordinates of a cell's centre.
@@ -264,10 +285,18 @@ export function installHuntBridge(): HuntBridgeController {
     surface: () => state.surface,
     readers: () => Object.keys(readers).sort(),
     read: async (name, args = []) => {
-      const reader = readers[name];
-      if (!reader) {
+      // `Object.hasOwn`, not `readers[name]`. A plain object literal inherits from
+      // Object.prototype, so `readers["toString"]`, `["constructor"]` and
+      // `["valueOf"]` all resolve to inherited FUNCTIONS and were invoked instead of
+      // refused. Harmless in effect here — nothing dangerous is reachable that way —
+      // but a reader registry whose membership test is a prototype-chain lookup is not
+      // the closed set this design claims, and the closed set is the safety property.
+      // `hasOwnProperty.call`, not `Object.hasOwn` — this file compiles under a
+      // pre-ES2022 lib target.
+      if (!Object.prototype.hasOwnProperty.call(readers, name)) {
         refuse(`unknown reader ${JSON.stringify(name)}. Valid readers: ${Object.keys(readers).sort().join(", ")}`);
       }
+      const reader = readers[name];
       // Awaited here so a rejected reader surfaces as a refusal from `read` rather
       // than as an unhandled rejection inside the page — which the crash oracle
       // would then report as a defect in the app under test.
