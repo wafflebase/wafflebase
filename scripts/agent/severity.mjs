@@ -118,11 +118,21 @@ function adjudicationNote(f) {
   if (a.verdict === "unadjudicated-fix-claim") {
     return `\n  - fix claimed by the author, but the panel re-found this — counts as an upheld dispute${quoted}`;
   }
+  // Enumerated verdicts ONLY — never a fallback label. A carried-forward
+  // finding's adjudication is exactly `{ upheld: N }`: the output.text carry
+  // strips the verdict and reason by design, so "no verdict" is the normal
+  // shape of history, not a variant of this round's decision. The ungrounded
+  // overturn is the one verdict string adjudicateRebuttals stores that is not
+  // its own label ("overturned" on a KEPT finding means the gate rejected the
+  // overturn); anything else — absent, "", or a future value — renders
+  // nothing, which is what that finding rendered before this existed.
   const label =
     a.verdict === "upheld" ? "**upheld**"
     : a.verdict === "unresolved" ? "**upheld** (the adjudicator could not settle the dispute)"
     : a.verdict === "errored" ? "**upheld** (the adjudicator session errored)"
-    : "**upheld** (the overturn lacked grounded evidence)";
+    : a.verdict === "overturned" ? "**upheld** (the overturn lacked grounded evidence)"
+    : null;
+  if (!label) return "";
   return `\n  - dispute adjudicated: ${label}${quoted}`;
 }
 

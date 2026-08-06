@@ -279,6 +279,23 @@ test("renderSummaryMd: adjudication wordings cover unresolved, errored, unground
   assert.match(md, /fix claimed by the author, but the panel re-found this — counts as an upheld dispute — "moved the guard"/);
 });
 
+test("renderSummaryMd: a verdict-less adjudication (carried-forward history) renders no decision line", () => {
+  // The output.text carry strips adjudication to `{ upheld: N }` by design, so
+  // EVERY carried-forward finding with an adjudication has exactly that
+  // verdict-less shape. The fallback label used to declare "the overturn
+  // lacked grounded evidence" for it — a decision that never happened this
+  // round. No verdict → no line; unknown or empty verdict strings fail the
+  // same silent direction.
+  for (const adjudication of [{ upheld: 2 }, { upheld: 1, verdict: "" }, { upheld: 1, verdict: "future-value" }]) {
+    const md = renderSummaryMd("R", [
+      { severity: "major", file: "a.mjs", summary: "carried", adjudication },
+    ], "");
+    assert.doesNotMatch(md, /dispute adjudicated/, JSON.stringify(adjudication));
+    assert.doesNotMatch(md, /lacked grounded evidence/, JSON.stringify(adjudication));
+    assert.match(md, /^- `a\.mjs` — carried$/m); // the row itself is unchanged
+  }
+});
+
 test("renderSummaryMd: author-reported skips get their own section and still gate", () => {
   const md = renderSummaryMd("R", [
     { severity: "major", file: "a.mjs", summary: "needs the Store interface change",
