@@ -1,7 +1,7 @@
 ---
 name: files-upload-download
 description: Store any file in a Wafflebase workspace and download its bytes back
-safety: write / read-only
+safety: write / read-only / destructive
 tools:
   - wafflebase files upload
   - wafflebase files download

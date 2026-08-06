@@ -47,6 +47,37 @@ Two traps while doing it:
   `WAFFLEBASE_WORKSPACE`. Pass `--server` / `--api-key` / `--workspace`
   explicitly when scripting against a local server.
 
+## `verify:fast` does not lint the backend
+
+The gate runs `frontend lint`, but for the backend only `backend lint:arch`
+(the architecture ruleset) — never `backend lint:check`. So prettier violations
+and `@typescript-eslint/no-unsafe-*` errors in new backend code pass every local
+and CI lane and only surface in review.
+
+**Rule:** after touching `packages/backend`, run
+`pnpm --filter @wafflebase/backend exec eslint <changed files>` before pushing.
+(`packages/cli`'s own `lint:check` is currently broken — no eslint config
+matches its files — so there is nothing to run there.)
+
+## "Consistent with the neighbors" is not a reason to skip an auth check
+
+I left `POST /files` without an API-key `write`-scope check because no v1 write
+endpoint except `documents.delete` has one, and adding it to only the new route
+felt inconsistent. That was the wrong call, and review caught it: the
+consistency being preserved was consistency with a hole, `scopes` exists for
+exactly this, and a brand-new endpoint has no clients depending on the laxer
+behavior. Match the *correct* neighbor, not the majority one — and say plainly
+in the PR that the others remain unfixed.
+
+## Skill safety metadata is an interface, not a label
+
+`files-upload-download.md` advertised `safety: write / read-only` while
+documenting `files delete`, which the schema registry marks `destructive`.
+Agents choose whether to ask for confirmation from that frontmatter, so
+under-stating it removes a confirmation prompt from a data-destroying command.
+When a skill's command list grows, re-derive the safety line from the registry
+rather than editing it by feel.
+
 ## Multipart in a JSON-shaped HTTP client
 
 Two things bite when adding a multipart request to a client whose every other

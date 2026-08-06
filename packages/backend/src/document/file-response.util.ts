@@ -36,7 +36,10 @@ export function fileResponseHeaders(
     };
   }
   if (type === 'image' && INLINE_IMAGE_MIME.test(storedContentType)) {
-    return { contentType: storedContentType, disposition: disposition('inline') };
+    return {
+      contentType: storedContentType,
+      disposition: disposition('inline'),
+    };
   }
   return {
     contentType: OCTET_STREAM,

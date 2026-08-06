@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -69,6 +70,13 @@ export class ApiV1FilesController {
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
+    }
+    // `CombinedAuthGuard` only proves the key is valid, and
+    // `WorkspaceScopeGuard` only that it is bound to this workspace — neither
+    // reads `scopes`. Without this a read-scoped key could create documents.
+    // Mirrors the check on `documents.delete`.
+    if (req.user.isApiKey && !req.user.scopes?.includes('write')) {
+      throw new ForbiddenException('This API key does not have write access');
     }
 
     // Resolve the title before storing anything: a rejected title should not

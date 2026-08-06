@@ -1,18 +1,27 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApiV1FilesController } from './files.controller';
 
 const WS = 'ws-1';
 const USER = 7;
 const UUID = '11111111-2222-3333-4444-555555555555';
 
-const req = () => ({ user: { id: USER } }) as never;
+const req = (isApiKey = false, scopes?: string[]) =>
+  ({ user: { id: USER, isApiKey, scopes } }) as never;
 
 const multer = (originalname: string, mimetype = 'application/octet-stream') =>
   ({ buffer: Buffer.from('bytes'), originalname, mimetype }) as never;
 
 describe('ApiV1FilesController.upload', () => {
   let controller: ApiV1FilesController;
-  let fileService: { upload: jest.Mock; delete: jest.Mock; getObject: jest.Mock };
+  let fileService: {
+    upload: jest.Mock;
+    delete: jest.Mock;
+    getObject: jest.Mock;
+  };
   let documentService: {
     createDocument: jest.Mock;
     getDocumentOrThrow: jest.Mock;
@@ -32,16 +41,45 @@ describe('ApiV1FilesController.upload', () => {
       getObject: jest.fn(),
     };
     documentService = {
-      createDocument: jest.fn().mockImplementation((data) => ({
-        id: 'doc-1',
-        ...data,
-      })),
+      createDocument: jest
+        .fn()
+        .mockImplementation((data: Record<string, unknown>) => ({
+          id: 'doc-1',
+          ...data,
+        })),
       getDocumentOrThrow: jest.fn(),
     };
     controller = new ApiV1FilesController(
       fileService as never,
       documentService as never,
     );
+  });
+
+  it('rejects a read-only API key before storing anything', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await expect(
+      controller.upload(WS, multer('bundle.zip'), {}, req(true, ['read'])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(fileService.upload).not.toHaveBeenCalled();
+  });
+
+  it('allows a write-scoped API key', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await expect(
+      controller.upload(
+        WS,
+        multer('bundle.zip'),
+        {},
+        req(true, ['read', 'write']),
+      ),
+    ).resolves.toMatchObject({ type: 'file' });
+  });
+
+  it('does not scope-check a JWT caller, whose access the guard settled', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await expect(
+      controller.upload(WS, multer('bundle.zip'), {}, req()),
+    ).resolves.toMatchObject({ type: 'file' });
   });
 
   it('rejects a request with no file part', async () => {
@@ -85,7 +123,12 @@ describe('ApiV1FilesController.upload', () => {
       size: 4242,
       mimeType: 'application/zip',
     });
-    await controller.upload(WS, multer('bundle.zip', 'application/zip'), {}, req());
+    await controller.upload(
+      WS,
+      multer('bundle.zip', 'application/zip'),
+      {},
+      req(),
+    );
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ fileSize: 4242, mimeType: 'application/zip' }),
     );
@@ -112,7 +155,12 @@ describe('ApiV1FilesController.upload', () => {
 
   it('prefers an explicit title', async () => {
     uploadReturns(`${UUID}.zip`);
-    await controller.upload(WS, multer('bundle.zip'), { title: 'Q3 archive' }, req());
+    await controller.upload(
+      WS,
+      multer('bundle.zip'),
+      { title: 'Q3 archive' },
+      req(),
+    );
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Q3 archive' }),
     );
@@ -134,19 +182,20 @@ describe('ApiV1FilesController.upload', () => {
   it('truncates an over-long filename-derived title instead of failing', async () => {
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer(`${'x'.repeat(300)}.zip`), {}, req());
-    const { title } = documentService.createDocument.mock.calls[0][0];
-    expect(title).toHaveLength(200);
+    expect(documentService.createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'x'.repeat(200) }),
+    );
   });
 
   it('clamps a client-supplied mime type to the persisted length', async () => {
     uploadReturns(`${UUID}.zip`);
-    await controller.upload(
-      WS,
-      multer('bundle.zip', `application/${'x'.repeat(400)}`),
-      {},
-      req(),
+    const absurd = `application/${'x'.repeat(400)}`;
+    await controller.upload(WS, multer('bundle.zip', absurd), {}, req());
+    expect(fileService.upload).toHaveBeenCalledWith(
+      expect.anything(),
+      absurd.slice(0, 255),
+      'bundle.zip',
     );
-    expect(fileService.upload.mock.calls[0][1]).toHaveLength(255);
   });
 
   it('deletes the blob when the document row fails, leaving no orphan', async () => {
@@ -161,8 +210,15 @@ describe('ApiV1FilesController.upload', () => {
 
 describe('ApiV1FilesController.download', () => {
   let controller: ApiV1FilesController;
-  let fileService: { upload: jest.Mock; delete: jest.Mock; getObject: jest.Mock };
-  let documentService: { createDocument: jest.Mock; getDocumentOrThrow: jest.Mock };
+  let fileService: {
+    upload: jest.Mock;
+    delete: jest.Mock;
+    getObject: jest.Mock;
+  };
+  let documentService: {
+    createDocument: jest.Mock;
+    getDocumentOrThrow: jest.Mock;
+  };
 
   const res = () => {
     const headers: Record<string, string> = {};
@@ -179,9 +235,10 @@ describe('ApiV1FilesController.download', () => {
     fileService = {
       upload: jest.fn(),
       delete: jest.fn(),
-      getObject: jest
-        .fn()
-        .mockResolvedValue({ body: new Uint8Array([1, 2]), contentType: 'text/html' }),
+      getObject: jest.fn().mockResolvedValue({
+        body: new Uint8Array([1, 2]),
+        contentType: 'text/html',
+      }),
     };
     documentService = {
       createDocument: jest.fn(),

@@ -132,6 +132,20 @@ describe('runFilesUpload', () => {
     expect(err.join('')).toContain('FILE_NOT_FOUND');
   });
 
+  it('reports a stat-able but unreadable path (e.g. a directory)', async () => {
+    const { io, err } = makeIO();
+    io.readBytes = () => {
+      throw new Error('EISDIR: illegal operation on a directory, read');
+    };
+    const client = makeClient();
+    const res = await runFilesUpload({ file: 'somedir' }, client, io);
+    expect(res.exitCode).toBe(1);
+    expect(client.uploadFileDocument).not.toHaveBeenCalled();
+    const body = JSON.parse(err.join(''));
+    expect(body.error.code).toBe('FILE_READ_FAILED');
+    expect(body.error.message).toContain('EISDIR');
+  });
+
   it('refuses stdin, which carries no filename to derive a type from', async () => {
     const { io, err } = makeIO();
     const client = makeClient();

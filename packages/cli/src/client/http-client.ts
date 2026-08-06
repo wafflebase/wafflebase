@@ -68,8 +68,15 @@ export class HttpClient {
     return h;
   }
 
-  private get headers(): Record<string, string> {
-    return { 'Content-Type': 'application/json', ...this.authHeaders };
+  /**
+   * Auth plus the JSON content type — the single definition of a JSON
+   * request's headers. `send()` hands its per-attempt auth headers in;
+   * everything else takes the current ones.
+   */
+  private jsonHeaders(
+    auth: Record<string, string> = this.authHeaders,
+  ): Record<string, string> {
+    return { 'Content-Type': 'application/json', ...auth };
   }
 
   private get base(): string {
@@ -165,7 +172,7 @@ export class HttpClient {
       `${this.base}${path}`,
       (auth) => ({
         method,
-        headers: { 'Content-Type': 'application/json', ...auth },
+        headers: this.jsonHeaders(auth),
         body: body ? JSON.stringify(body) : undefined,
       }),
     );
@@ -351,7 +358,7 @@ export class HttpClient {
   async listApiKeys() {
     const server = this.config.server.replace(/\/$/, '');
     const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetch(url, { headers: this.headers });
+    const res = await fetch(url, { headers: this.jsonHeaders() });
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   }
@@ -360,7 +367,7 @@ export class HttpClient {
     const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: this.headers,
+      headers: this.jsonHeaders(),
       body: JSON.stringify({ name }),
     });
     const data = await res.json().catch(() => null);
@@ -369,7 +376,7 @@ export class HttpClient {
   async revokeApiKey(id: string) {
     const server = this.config.server.replace(/\/$/, '');
     const url = `${server}/workspaces/${this.config.workspace}/api-keys/${id}`;
-    const res = await fetch(url, { method: 'DELETE', headers: this.headers });
+    const res = await fetch(url, { method: 'DELETE', headers: this.jsonHeaders() });
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   }

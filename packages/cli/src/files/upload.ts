@@ -179,8 +179,25 @@ export async function runFilesUpload(
     if (hint) io.stderr(hint);
   }
 
+  // `sizeOf` succeeding does not mean the bytes are readable: a directory
+  // stats fine and then fails with EISDIR, and a file can be stat-able but
+  // unreadable. Report it in the same envelope shape so an agent parsing
+  // stderr never has to handle a bare stack trace.
+  let bytes: Uint8Array;
+  try {
+    bytes = io.readBytes(file);
+  } catch (err) {
+    io.stderr(
+      errorJson(
+        'FILE_READ_FAILED',
+        `Cannot read "${file}": ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    return { exitCode: 1 };
+  }
+
   const res = await client.uploadFileDocument(
-    io.readBytes(file),
+    bytes,
     fileName,
     mimeType,
     title,

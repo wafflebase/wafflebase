@@ -46,7 +46,7 @@ examples, and safety notes.
 
 | File | Safety | Description |
 |------|--------|-------------|
-| [files-upload-download.md](files-upload-download.md) | write / read-only | Store any file as a document and download its bytes back |
+| [files-upload-download.md](files-upload-download.md) | write / read-only / destructive | Store any file as a document and download its bytes back (`files delete` removes the bytes) |
 
 ## Recipes
 

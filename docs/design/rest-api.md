@@ -250,7 +250,10 @@ GET    /api/v1/workspaces/:wid/files/:documentId  Download a blob document's byt
 is the API-key-capable equivalent of dropping a file on the documents
 list, and the only v1 route that creates a blob-backed document. It is
 guarded by `CombinedAuthGuard` + `WorkspaceScopeGuard` and throttled at
-600/min like the image routes.
+600/min like the image routes. `POST` additionally requires the `write`
+scope from an API-key caller — the guards prove only that the key is
+valid and bound to this workspace, so without that check a read-scoped
+key could create documents.
 
 Unlike §5.5, which stores a *raw blob* for inline use inside another
 document, this creates a first-class `Document` row: `POST` stores the

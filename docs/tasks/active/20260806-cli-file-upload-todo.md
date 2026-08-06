@@ -141,7 +141,31 @@ Deliberate deviations from the plan:
   print a one-line stderr hint naming the namespace that would parse them, then
   upload as bytes anyway.
 
+### Review round 1 (CodeRabbit)
+
+Three findings accepted, all valid:
+
+- **`POST /files` did not check the API key's `write` scope.** I had originally
+  left this alone on consistency grounds — no v1 write endpoint except
+  `documents.delete` checks it. That reasoning was wrong: the consistency being
+  preserved was consistency with a hole, `scopes` exists precisely to stop a
+  read-scoped key from writing, and no existing client depends on the new
+  endpoint's old behavior. Now enforced before the blob is stored.
+- **The Files skill advertised `write / read-only`** while containing
+  `files delete`, which the schema registry marks `destructive`. Agents pick
+  their confirmation behavior off that metadata, so an under-stated safety
+  level is a real defect. Fixed in the frontmatter and the skill index.
+- **`io.readBytes` failures escaped the JSON error envelope.** `sizeOf`
+  succeeding does not mean the bytes are readable — a directory stats fine and
+  then fails with `EISDIR`. Now reported as `FILE_READ_FAILED` with the
+  underlying message.
+
+Plus a prettier/`no-unsafe-*` cleanup in the new backend files: **`verify:fast`
+does not lint the backend** (only `backend lint:arch` runs), so these never
+surfaced locally. See the lessons file.
+
 Known limitations: no streaming/resumable upload, no in-place blob replace, and
-the v1 write endpoints still do not check the API key's `write` scope (only
-`documents.delete` does) — left as-is rather than introducing an inconsistency
-in one endpoint.
+the *other* v1 write endpoints (`documents.create`/`update`, `cells.*`,
+`docs-content` PUT) still do not check the `write` scope. That is a real
+pre-existing hole, but fixing it changes the behavior of keys already in use
+and belongs in its own change.
