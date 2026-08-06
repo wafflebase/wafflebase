@@ -144,6 +144,63 @@ describe("upload-queue worker", () => {
     expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
   });
 
+  it("uploads a filename whose extension is regex-special without throwing", async () => {
+    // "c++" built a `RegExp(\\.c++$)` under the old stripExt, which throws
+    // "Nothing to repeat" — the raw error text used to leak as the
+    // user-facing failure reason instead of the upload succeeding.
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.c++",
+        size: 10,
+        mimeType: "text/x-c",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("main.c++")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ title: "main" }),
+    );
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+
+  it("keeps a dotfile's full name instead of stripping it to the fallback", async () => {
+    // ".env" has its only dot at index 0 — `dot > 0` (not `>= 0`) is what
+    // keeps this from being treated as an extension-only name.
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1",
+        size: 5,
+        mimeType: "text/plain",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file(".env")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ title: ".env" }),
+    );
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+
   it("retries a rate-limited (429) image upload with backoff", async () => {
     const rateLimited = Object.assign(new Error("Too Many Requests"), {
       status: 429,
@@ -442,6 +499,55 @@ describe("upload-queue worker", () => {
     // second attempt reused the persisted fileId instead of orphaning a copy.
     expect(deps.uploadFile).toHaveBeenCalledTimes(1);
     expect(deps.createDoc).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries fileSize/mimeType through a createDoc failure, not just fileId", async () => {
+    // Regression for a bug where size/mimeType were local to the `if
+    // (!fileId)` upload branch: on re-entry (fileId already persisted) they
+    // were read as undefined and createDoc got NULLs for both.
+    let createCalls = 0;
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.zip",
+        size: 2048,
+        mimeType: "application/zip",
+      })),
+      createDoc: vi.fn(async (_ws, p) => {
+        createCalls++;
+        if (createCalls === 1) throw new Error("create failed");
+        return { id: "doc-1", title: p.title, type: p.type };
+      }),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("archive.zip")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    let current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("error");
+    expect(current?.fileSize).toBe(2048); // persisted alongside fileId
+    expect(current?.mimeType).toBe("application/zip");
+
+    q.retry(item.id);
+    await flush();
+    await flush();
+
+    current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1); // blob not re-uploaded
+    expect(deps.createDoc).toHaveBeenLastCalledWith(
+      "ws1",
+      expect.objectContaining({
+        fileId: "blob-1.zip",
+        fileSize: 2048,
+        mimeType: "application/zip",
+      }),
+    );
   });
 
   it("fires the settled callback on both done and error", async () => {

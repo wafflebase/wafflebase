@@ -40,9 +40,13 @@ export interface UploadItem {
   detail?: string;
   docId?: string;
   docPath?: string;
-  /** Uploaded blob id (pdf/image). Set before createDoc so a retry reuses the
-   *  blob instead of re-uploading/orphaning it. */
+  /** Uploaded blob id (pdf/image/file). Set before createDoc so a retry
+   *  reuses the blob instead of re-uploading/orphaning it. */
   fileId?: string;
+  /** Blob size/MIME, set alongside `fileId` so a retry or 429 re-entry still
+   *  has them to pass into createDoc (see the note in runItem). */
+  fileSize?: number;
+  mimeType?: string;
   reason?: string;
   /** Non-fatal note surfaced on success (e.g. lossy PPTX import fallbacks). */
   warning?: string;
@@ -236,8 +240,16 @@ let activeDeps: UploadDeps = defaultDeps;
 // host can refresh the list, surface a failure, or warn about a lossy import.
 let onItemSettledCb: ((item: UploadItem) => void) | undefined;
 
-function stripExt(name: string, ext: string, fallback: string): string {
-  return name.replace(new RegExp(`\\.${ext}$`, "i"), "") || fallback;
+/**
+ * Strip the extension off a filename by index, not by building a RegExp out
+ * of it — `ext` can be arbitrary user text (e.g. `c++`), and `+ ? * [ (`
+ * right after the last dot make an unescaped-regex approach throw. `dot > 0`
+ * (not `>= 0`) so a dotfile like `.env` keeps its full name instead of
+ * being stripped down to the fallback.
+ */
+function stripExt(name: string, fallback: string): string {
+  const dot = name.lastIndexOf(".");
+  return (dot > 0 ? name.slice(0, dot) : name) || fallback;
 }
 
 /**
@@ -334,7 +346,7 @@ async function runItem(item: UploadItem): Promise<void> {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
           const { document } = await d.importXlsx(file);
-          const title = stripExt(item.fileName, "xlsx", "Imported Sheet");
+          const title = stripExt(item.fileName, "Imported Sheet");
           const created = await getOrCreateDoc(item, { title, type: "sheet" });
           // Persist the parsed content into the Yorkie doc now (see
           // apply-imported-content.ts) so "done" means it is actually saved —
@@ -347,7 +359,7 @@ async function runItem(item: UploadItem): Promise<void> {
           const { doc } = await d.importDocx(file, ({ done, total }) =>
             patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "docx", "Imported Document");
+          const title = stripExt(item.fileName, "Imported Document");
           const created = await getOrCreateDoc(item, { title, type: "doc" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "doc", document: doc });
@@ -359,7 +371,7 @@ async function runItem(item: UploadItem): Promise<void> {
             ({ done, total }) =>
               patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "pptx", "Imported Presentation");
+          const title = stripExt(item.fileName, "Imported Presentation");
           const created = await getOrCreateDoc(item, { title, type: "slides" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "slides", document });
@@ -374,27 +386,29 @@ async function runItem(item: UploadItem): Promise<void> {
           item.kind === "file"
         ) {
           patchItem(item.id, { status: "uploading" });
-          const dot = item.fileName.lastIndexOf(".");
-          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
           const fallback =
             item.kind === "pdf"
               ? "Untitled PDF"
               : item.kind === "image"
               ? "Untitled Image"
               : "Untitled File";
-          const title = stripExt(item.fileName, ext, fallback);
+          const title = stripExt(item.fileName, fallback);
           // Upload the blob at most once per item: persist the returned fileId
           // immediately so a retry whose earlier failure was in createDoc reuses
-          // the blob instead of orphaning it with a second upload.
+          // the blob instead of orphaning it with a second upload. fileSize/
+          // mimeType are persisted alongside it for the same reason — a 429
+          // backoff re-entry or an explicit retry() re-reads `item` from the
+          // store (see the loop-top re-read above), so without this they'd be
+          // dropped (undefined) on any attempt after the first.
           let fileId = item.fileId;
-          let size: number | undefined;
-          let mimeType: string | undefined;
+          let size = item.fileSize;
+          let mimeType = item.mimeType;
           if (!fileId) {
             const uploaded = await d.uploadFile(file);
             fileId = uploaded.id;
             size = uploaded.size;
             mimeType = uploaded.mimeType;
-            patchItem(item.id, { fileId });
+            patchItem(item.id, { fileId, fileSize: size, mimeType });
           }
           const created = await getOrCreateDoc(item, {
             title,
