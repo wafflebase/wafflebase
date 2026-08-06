@@ -60,17 +60,21 @@ const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
 // --- argument parsing --------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { plan: null, attempts: 1, out: null, port: 4177, timeoutMs: DEFAULT_ACTION_TIMEOUT_MS };
+  const out = { plan: null, serve: false, attempts: 1, out: null, port: 4177, timeoutMs: DEFAULT_ACTION_TIMEOUT_MS };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--plan") out.plan = argv[++i];
+    else if (a === "--serve") out.serve = true;
     else if (a === "--attempts") out.attempts = Number(argv[++i]);
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--timeout-ms") out.timeoutMs = Number(argv[++i]);
     else throw new Error(`hunt-ui-runner: unknown argument ${JSON.stringify(a)}`);
   }
-  if (!out.plan) throw new Error("hunt-ui-runner: --plan <file.json> is required");
+  // Exactly one mode. Both would be ambiguous about which one the caller wanted, and
+  // neither leaves nothing to do.
+  if (out.serve && out.plan) throw new Error("hunt-ui-runner: --serve and --plan are mutually exclusive");
+  if (!out.serve && !out.plan) throw new Error("hunt-ui-runner: one of --plan <file.json> or --serve is required");
   if (!Number.isInteger(out.attempts) || out.attempts < 1) {
     throw new Error(`hunt-ui-runner: --attempts must be a positive integer, got ${out.attempts}`);
   }
@@ -277,14 +281,14 @@ async function runAction(page, action, baseUrl, timeoutMs) {
 }
 
 /**
- * One attempt: a FRESH browser context, so nothing carries over from the last.
+ * Open a page configured identically for every mode.
  *
- * A fresh context rather than a fresh process is the deliberate trade — it resets
- * storage, cookies and page state in ~200ms where a process restart costs the ~8s
- * Vite and Chromium boot. What must not leak between attempts is page state, and a
+ * A FRESH context per replay attempt is the deliberate trade — it resets storage,
+ * cookies and page state in ~200ms where a process restart costs the ~6.1s Vite and
+ * Chromium boot (measured). What must not leak between attempts is page state, and a
  * context boundary is exactly that.
  */
-async function runAttempt(browser, plan, baseUrl, timeoutMs) {
+async function openPage(browser, baseUrl) {
   const context = await browser.newContext({
     viewport: { width: 1600, height: 1200 },
     deviceScaleFactor: 1,
@@ -292,26 +296,34 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
     timezoneId: "UTC",
     colorScheme: "light",
   });
-  try {
-    const page = await context.newPage();
-    // Fulfil backend calls rather than letting them fail. They are handled in the app
-    // (the toolbar catches and toasts), so this is not about preventing a crash — it
-    // is about not teaching a later agent that clicking "save default styles" is a
-    // way to make something red.
-    await page.route("**/auth/**", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ styles: {} }) }),
-    );
-    const oracles = attachOracles(page, baseUrl);
+  const page = await context.newPage();
+  // Fulfil backend calls rather than letting them fail. They are handled in the app
+  // (the toolbar catches and toasts), so this is not about preventing a crash — it
+  // is about not teaching a later agent that clicking "save default styles" is a
+  // way to make something red.
+  await page.route("**/auth/**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ styles: {} }) }),
+  );
+  return { context, page, oracles: attachOracles(page, baseUrl) };
+}
 
-    const observations = [];
-    for (const [index, action] of plan.actions.entries()) {
-      let result = null;
-      let error = null;
-      try {
-        result = await runAction(page, action, baseUrl, timeoutMs);
-      } catch (err) {
-        error = String(err?.message ?? err);
-      }
+/**
+ * Execute ONE action and return its observation. The single implementation both modes
+ * share.
+ *
+ * Extracted rather than duplicated for the reason this codebase keeps relearning: two
+ * copies of "what an observation is" would drift, and the drift would be invisible —
+ * a candidate produced by the interactive path would replay down a subtly different
+ * path and be dropped as non-deterministic, or worse, not be.
+ */
+async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index }) {
+  let result = null;
+  let error = null;
+  try {
+    result = await runAction(page, action, baseUrl, timeoutMs);
+  } catch (err) {
+    error = String(err?.message ?? err);
+  }
       // Give async errors from this action a chance to land before draining. Without
       // it a rejection scheduled by the click is attributed to the NEXT action.
       //
@@ -344,18 +356,107 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
         }
       }
 
-      const domFindings = await scanDomInvariants(page, HOST_TESTID);
-      observations.push({
-        index,
-        action,
-        ok: error === null,
-        error,
-        value: result ? boundValue(result.value) : null,
-        // Present only when the action carried a prediction, so an observation
-        // without one is distinguishable from one whose read returned null.
-        ...(action.expect ? { actual: boundValue(actual), actualError } : {}),
-        oracles: [...oracles.drain(), ...domFindings],
-      });
+  const domFindings = await scanDomInvariants(page, HOST_TESTID);
+  return {
+    index,
+    action,
+    ok: error === null,
+    error,
+    value: result ? boundValue(result.value) : null,
+    // Present only when the action carried a prediction, so an observation
+    // without one is distinguishable from one whose read returned null.
+    ...(action.expect ? { actual: boundValue(actual), actualError } : {}),
+    oracles: [...oracles.drain(), ...domFindings],
+  };
+}
+
+/**
+ * SERVE MODE — boot once, then one action per request for the life of the process.
+ *
+ * WHY THIS EXISTS. The CLI hunter's tool spawns a fresh process per probe, which costs
+ * milliseconds. Doing the same here would cost the whole run: booting Vite and
+ * Chromium is ~6.1s and every action after that is ~4ms (measured — a 1-action plan
+ * and a 3-action plan both take ~6.1s). At `maxActions: 80` that is ~8 minutes of pure
+ * boot per exploration session, and roughly half an hour across a run whose entire
+ * budget is ~15 minutes of probing. Boot has to be amortised.
+ *
+ * PROTOCOL — newline-delimited JSON, one response per request, in order:
+ *
+ *   <- {"ready":true,"baseUrl":"http://127.0.0.1:53211"}
+ *   -> {"id":1,"action":{"type":"goto","surface":"doc"}}
+ *   <- {"id":1,"observation":{...}}
+ *   -> {"id":2,"op":"close"}
+ *   <- {"id":2,"closed":true}
+ *
+ * An action that FAILS is not a protocol error — it comes back as an observation with
+ * `ok:false`, exactly as in plan mode, because "the click missed" is data the hunter
+ * needs rather than a transport fault. Only a malformed request or an internal fault
+ * answers with `{id,error}`, and even then the process stays up: killing the browser
+ * over one bad line would throw away the ~6s boot this mode exists to preserve.
+ *
+ * ONE page for the whole session, deliberately. An exploration is a user session —
+ * type here, then undo, then check — and resetting between actions would make every
+ * multi-step behaviour unobservable. Isolation comes from the mount being
+ * `MemStore`/`MemDocStore` with no backend, not from discarding state.
+ */
+async function serve(browser, baseUrl, timeoutMs) {
+  const readline = await import("node:readline/promises");
+  const { context, page, oracles } = await openPage(browser, baseUrl);
+  let index = 0;
+
+  const send = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
+  send({ ready: true, baseUrl });
+
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      const raw = line.trim();
+      if (raw === "") continue;
+      let req;
+      try {
+        req = JSON.parse(raw);
+      } catch {
+        // Cannot correlate a reply without an id, so say so on the channel and
+        // continue rather than guessing which request this was.
+        send({ id: null, error: `unparseable request line: ${raw.slice(0, 120)}` });
+        continue;
+      }
+      const id = req?.id ?? null;
+      try {
+        if (req?.op === "close") {
+          send({ id, closed: true });
+          return;
+        }
+        if (!req?.action || typeof req.action !== "object") {
+          send({ id, error: "request needs an `action` object or op:\"close\"" });
+          continue;
+        }
+        const observation = await observeAction(page, req.action, {
+          baseUrl,
+          timeoutMs: Number.isFinite(req.timeoutMs) ? req.timeoutMs : timeoutMs,
+          oracles,
+          index: index++,
+        });
+        send({ id, observation });
+      } catch (err) {
+        // An internal fault — the page crashed, the context died. Report and stay up;
+        // the caller decides whether to keep going.
+        send({ id, error: String(err?.message ?? err) });
+      }
+    }
+  } finally {
+    rl.close();
+    await context.close();
+  }
+}
+
+/** One replay attempt: a whole plan against a fresh page. */
+async function runAttempt(browser, plan, baseUrl, timeoutMs) {
+  const { context, page, oracles } = await openPage(browser, baseUrl);
+  try {
+    const observations = [];
+    for (const [index, action] of plan.actions.entries()) {
+      observations.push(await observeAction(page, action, { baseUrl, timeoutMs, oracles, index }));
     }
     return { observations };
   } finally {
@@ -366,16 +467,26 @@ async function runAttempt(browser, plan, baseUrl, timeoutMs) {
 // --- main --------------------------------------------------------------------
 
 const args = parseArgs(process.argv.slice(2));
-const plan = JSON.parse(readFileSync(args.plan, "utf8"));
-if (!Array.isArray(plan.actions) || plan.actions.length === 0) {
-  throw new Error("hunt-ui-runner: plan must have a non-empty `actions` array");
+let plan = null;
+if (!args.serve) {
+  plan = JSON.parse(readFileSync(args.plan, "utf8"));
+  if (!Array.isArray(plan.actions) || plan.actions.length === 0) {
+    throw new Error("hunt-ui-runner: plan must have a non-empty `actions` array");
+  }
 }
 
 const playwright = await loadPlaywright();
-// `--port 0` asks the OS for a free port, and that is what `runUiPlan` passes.
-// Samples run concurrently from PR 4 onward, and a fixed port under `strictPort`
-// makes the second runner fail to boot. A pinned port stays the default for manual
-// runs, where a stable URL is worth more than concurrency.
+// `--port 0` means "do not pin a port", and that is what `runUiPlan` passes. Samples
+// run concurrently from PR 4 onward, and a fixed port under `strictPort` makes the
+// second runner fail to boot. A pinned port stays the default for manual runs, where a
+// stable URL is worth more than concurrency.
+//
+// Measured, because the obvious reading of this is wrong: it does NOT get an
+// OS-assigned ephemeral port. Vite treats `port: 0` as unset and falls back to its own
+// default, then auto-increments because `strictPort` is off — three concurrent sessions
+// came up on 5173, 5174 and 5175. Non-collision is what matters and it holds, but the
+// mechanism is vite's scan, not `bind(0)`, and `baseUrl` is resolved from the listening
+// socket afterwards precisely so this file never has to assume which it got.
 const ephemeralPort = args.port === 0;
 const server = await createServer({
   configFile: path.resolve(frontendRoot, "vite.config.ts"),
@@ -393,11 +504,18 @@ try {
   const baseUrl = `http://${HOST}:${actualPort}`;
   browser = await playwright.chromium.launch({ headless: true });
 
-  const attempts = [];
-  for (let i = 0; i < args.attempts; i++) {
-    attempts.push(await runAttempt(browser, plan, baseUrl, args.timeoutMs));
+  if (args.serve) {
+    // Serve mode owns stdout for the protocol, so it never produces a `result`
+    // envelope. It returns when the caller sends `op:"close"` or closes stdin.
+    await serve(browser, baseUrl, args.timeoutMs);
+    result = null;
+  } else {
+    const attempts = [];
+    for (let i = 0; i < args.attempts; i++) {
+      attempts.push(await runAttempt(browser, plan, baseUrl, args.timeoutMs));
+    }
+    result = { ok: true, attempts };
   }
-  result = { ok: true, attempts };
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("Executable doesn't exist") || message.includes("download new browsers")) {
@@ -413,6 +531,10 @@ try {
   await server.close();
 }
 
+if (result === null) {
+  // Serve mode. Every line it owed the caller is already on stdout.
+  process.exit(0);
+}
 const json = JSON.stringify(result);
 if (args.out) writeFileSync(args.out, `${json}\n`);
 else process.stdout.write(`${json}\n`);

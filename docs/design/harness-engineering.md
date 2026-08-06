@@ -1426,8 +1426,48 @@ state instead (`boundingBox`, `combinedBoundingBox`, `framesApproxEqual` are alr
 exported). Renderer bugs — model right, paint wrong — remain the visual lane's job, which
 already owns 220 baselines with Docker font pinning. Two instruments, two failure classes.
 
+**Exploration is a session; replay is a clean room.** The CLI hunter spawns a fresh
+process per probe because that costs milliseconds. Measuring the same shape here retired
+it: a 1-action plan takes 6095ms and a 3-action plan 6103ms, so Vite plus Chromium boot is
+~6.1s and each subsequent action ~4ms. At `maxActions: 80` a spawn-per-action tool would
+spend ~8 minutes on boot alone, against a whole-run probing budget of ~15 minutes. So
+`packages/frontend/scripts/hunt-ui-runner.mjs` gained a `--serve` mode — newline-delimited
+JSON, one response per request, one page for the session — and `scripts/agent/hunt-ui-session.mjs`
+is the client (measured through it: ready 856ms, first action 5.4s, later actions 33-44ms).
+Both modes share one `observeAction`, extracted rather than duplicated.
+
+Replay deliberately does NOT use it. `runUiPlan` keeps its `spawnSync` path against
+`--plan`, so the determinism gate still gets a fresh process and a fresh browser context
+per attempt. Sharing one mechanism would mean either a slow explorer or a replay that
+inherits state, and the second is how phantom repros get through. A failed action in serve
+mode is an observation with `ok:false`, never a protocol error, because "the click missed"
+is data — and the process stays up through a malformed request, since killing the browser
+over one bad line discards the boot this mode exists to amortise.
+
+**The tool description is the map.** PR 1's readers were reachable but undiscoverable:
+nothing told a model that `doc.fontSizes` existed, so an agent asked about formatting would
+reach for the snapshot and read an almost-empty a11y tree off a canvas.
+`scripts/agent/hunt-ui-tool.mjs` therefore lists the readers, with arity, SCOPED TO THE
+RUN'S SURFACE. That list is a second copy of the bridge registry, so a test parses
+`packages/frontend/src/app/harness/hunt/bridge.ts` and fails on any divergence — a stale
+copy is silent, because a reader never called is indistinguishable from an area with no
+defects.
+
+**The per-run surface selector is enforced, not requested.** `assertSafeActionPlan` bounds
+reader NAMESPACES, which is the right check for it to make and not sufficient here: a run
+assigned `doc` must not reach `sheet.*`. The tool checks exact names at three doors — the
+action's own reader, a click target's `reader` (a point comes from `sheet.cellCenter`, not
+from coordinates), and `expect.read` — plus `goto`'s surface, or an agent could navigate
+out of its assignment and then read legally.
+
+**What comes back is deliberately less than what happened.** A non-`read` action reports
+only whether it landed; a prediction reports its VERDICT and never the measured `actual`;
+no page snapshot is returned unless `dom.snapshot` was read by name. Handing back the value
+invites re-describing a violated prediction as some weaker claim that happens to fit it,
+which is the rationalisation the round-trip design exists to prevent.
+
 Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
-protocol. Still to come: the in-process MCP tool that lets a model drive it, the
+protocol; PR 3 the serve mode, the session client and the MCP tool. Still to come: the
 orchestrator and personas with a per-surface selector, repro minimization, the backend
 tier, and slides/board. Nothing is filed automatically; the output is a local report, and
 the CLI hunter's filing gate (20 accepted at >=90%) restarts for this surface because it
