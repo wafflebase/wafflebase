@@ -43,7 +43,9 @@ export type Document = {
   folderId?: string | null;
   author?: DocumentAuthor | null;
   editors?: DocumentEditor[];
-  // Blob metadata, present only on file-backed documents (pdf/image/file).
+  // Blob storage key + metadata, present only on file-backed documents
+  // (pdf/image/file).
+  fileId?: string;
   fileSize?: number;
   mimeType?: string;
   // Whether the current user may delete or move this document (workspace owner
