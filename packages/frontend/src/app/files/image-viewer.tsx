@@ -11,14 +11,22 @@ const ZOOM_STEP = 0.25;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 5;
 
-export function ImageViewer({ documentId }: { documentId: string }) {
+export function ImageViewer({
+  documentId,
+  token,
+}: {
+  documentId: string;
+  token?: string;
+}) {
   const navigate = useNavigate();
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [zoom, setZoom] = useState(1);
   const downloadName = useRef<string>("image");
 
-  // Load the current image bytes via the authed endpoint → object URL.
+  // Load the current image bytes via the authed endpoint → object URL. A
+  // share token (anonymous viewer) rides along in the URL so the backend's
+  // OptionalJwtAuthGuard route can authorize the read without a session.
   useEffect(() => {
     let objectUrl: string | null = null;
     let cancelled = false;
@@ -27,7 +35,7 @@ export function ImageViewer({ documentId }: { documentId: string }) {
     setZoom(1);
     (async () => {
       try {
-        const res = await fetchWithAuth(fileUrl(documentId));
+        const res = await fetchWithAuth(fileUrl(documentId, token));
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
         if (cancelled) return;
@@ -41,13 +49,19 @@ export function ImageViewer({ documentId }: { documentId: string }) {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [documentId]);
+  }, [documentId, token]);
 
+  // Workspace prev/next navigation calls fully JWT-gated documents
+  // endpoints (no share-token fallback), so an anonymous share viewer
+  // can't reach them — disable both queries rather than firing a request
+  // that 401s and forces a login redirect. The viewer just sees the image
+  // without the arrows.
   const { data: current } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
     staleTime: 5 * 60 * 1000,
+    enabled: !token,
   });
   useEffect(() => {
     if (!current?.title) return;
@@ -62,6 +76,7 @@ export function ImageViewer({ documentId }: { documentId: string }) {
   const { data: allDocs = [] } = useQuery({
     queryKey: ["documents"],
     queryFn: fetchDocuments,
+    enabled: !token,
   });
   const siblings = useMemo(() => {
     if (!current) return [] as string[];

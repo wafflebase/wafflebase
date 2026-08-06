@@ -32,6 +32,8 @@ import {
   PdfCollabBody,
   type PdfPresenceUser,
 } from "@/app/files/pdf-collab";
+import { ImageViewer } from "@/app/files/image-viewer";
+import { GenericFileView } from "@/app/files/generic-file-view";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
@@ -688,6 +690,45 @@ function SharedPdfLayout({
   );
 }
 
+/**
+ * Shared layout for blob documents with no CRDT: rendered outside the
+ * YorkieProvider entirely, since there is nothing to attach.
+ */
+function SharedBlobLayout({
+  resolved,
+  token,
+}: {
+  resolved: ResolvedShareLink;
+  token?: string;
+}) {
+  return (
+    <div className="flex h-svh flex-col">
+      <div className="flex h-12 shrink-0 items-center border-b px-4 font-medium">
+        {resolved.title}
+      </div>
+      {resolved.type === "image" ? (
+        <ImageViewer documentId={resolved.documentId} token={token} />
+      ) : (
+        <GenericFileView title={resolved.title} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * How a shared document should be mounted.
+ *
+ * `pdf` has its own Yorkie-backed layout (comments + presence). `image` and
+ * `file` are blobs with no CRDT at all, so they must mount NO Yorkie document
+ * — before this existed they matched no branch and fell through to the
+ * `sheet-<id>` fallback, rendering an empty spreadsheet over a real image.
+ */
+export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
+  if (type === "pdf") return "pdf";
+  if (type === "image" || type === "file") return "blob";
+  return "crdt";
+}
+
 function SharedDocumentInner({
   resolved,
   token,
@@ -713,10 +754,13 @@ function SharedDocumentInner({
   // early `pdf` return below), so exactly one session is recorded per visit.
   useViewAnalytics({ shareToken: token ?? "", enabled: Boolean(token) });
 
-  // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, so it must
-  // render before the shared provider wrapper below rather than nested inside
-  // it (nesting would create two competing Yorkie connections).
-  if (resolved.type === "pdf") {
+  // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, and
+  // SharedBlobLayout mounts no Yorkie document at all, so both must render
+  // before the shared provider wrapper below rather than nested inside it
+  // (nesting would create two competing Yorkie connections, or attach one
+  // that has nothing to represent).
+  const kind = sharedBlobKind(resolved.type);
+  if (kind === "pdf") {
     return (
       <SharedPdfLayout
         resolved={resolved}
@@ -729,6 +773,9 @@ function SharedDocumentInner({
         }}
       />
     );
+  }
+  if (kind === "blob") {
+    return <SharedBlobLayout resolved={resolved} token={token} />;
   }
 
   const presence = {
