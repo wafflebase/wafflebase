@@ -16,7 +16,8 @@ export type DocumentTypeLike =
   | 'pdf'
   | 'note'
   | 'image'
-  | 'board';
+  | 'board'
+  | 'file';
 
 export const YORKIE_DOC_KEY_PREFIXES = {
   sheet: 'sheet-',
@@ -26,6 +27,10 @@ export const YORKIE_DOC_KEY_PREFIXES = {
   note: 'note-',
   image: 'image-',
   board: 'board-',
+  // Reserved only — nothing attaches a `file-<id>` document. The prefix exists
+  // so the "unknown type throws" guard never fires for a file document, and so
+  // comments can be added later without a schema change.
+  file: 'file-',
 } as const;
 
 export function yorkieDocKeyPrefix(type: string): string {
@@ -44,6 +49,8 @@ export function yorkieDocKeyPrefix(type: string): string {
       return YORKIE_DOC_KEY_PREFIXES.image;
     case 'board':
       return YORKIE_DOC_KEY_PREFIXES.board;
+    case 'file':
+      return YORKIE_DOC_KEY_PREFIXES.file;
     default:
       throw new Error(`Unknown document type: ${type}`);
   }

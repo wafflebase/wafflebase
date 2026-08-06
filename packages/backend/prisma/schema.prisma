@@ -43,6 +43,11 @@ model Document {
   title     String
   type      String   @default("sheet")
   fileId    String?
+  // Blob metadata for file-backed documents (pdf/image/file); null for the
+  // CRDT types. `fileSize` is also what a future workspace storage quota
+  // would SUM — see docs/design/generic-file-upload.md.
+  fileSize  Int?
+  mimeType  String?
   authorID  Int?
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())

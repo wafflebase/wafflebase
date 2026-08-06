@@ -18,6 +18,7 @@ const DOCUMENT_TYPES = [
   'note',
   'image',
   'board',
+  'file',
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 

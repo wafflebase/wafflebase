@@ -89,6 +89,7 @@ export function getDocumentPath(doc: {
       return `/p/${doc.id}`;
     case "pdf":
     case "image":
+    case "file":
       return `/f/${doc.id}`;
     case "note":
       return `/n/${doc.id}`;
@@ -98,4 +99,13 @@ export function getDocumentPath(doc: {
     default:
       return `/s/${doc.id}`;
   }
+}
+
+/**
+ * Whether this document's content is a stored blob rather than a CRDT — the
+ * types that have a `fileId`, can be downloaded, and open at `/f/:id`.
+ * Mirrors `isBlobBacked` in the backend's document-file-id.util.ts.
+ */
+export function isBlobBacked(type: DocumentType | undefined): boolean {
+  return type === "pdf" || type === "image" || type === "file";
 }
