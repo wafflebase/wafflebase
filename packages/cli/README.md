@@ -71,7 +71,9 @@ wafflebase
 ```
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
-`--format json|table|csv` (default `json`), `--quiet`, `--verbose`,
+`--format json|table|csv` (default `json`), `--quiet` (suppresses
+progress notices only — the result body and the JSON error envelope are
+always emitted), `--verbose`,
 `--dry-run`. The `--format` flag also doubles as the per-content shape
 on `docs content` (`json|md|text`) and the export type override on
 `docs export` (`pdf|docx`).

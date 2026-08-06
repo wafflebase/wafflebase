@@ -39,7 +39,7 @@ export function registerSchemaCommand(program: Command) {
           process.exitCode = 1;
           return;
         }
-        output(schema, opts.format, opts.quiet);
+        output(schema, opts.format);
       } else {
         const commands = getAllCommandSchemas().map((c) => ({
           name: c.name,

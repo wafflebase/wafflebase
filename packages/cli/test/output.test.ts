@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
-import { format, outputError } from '../src/output/formatter.js';
+import { format, output, outputError } from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
 
 describe('formatJson', () => {
@@ -113,13 +113,13 @@ describe('outputError', () => {
   }
 
   it('defaults to code:"ERROR" for plain Error instances', () => {
-    outputError(new Error('boom'), false);
+    outputError(new Error('boom'));
     expect(getEmittedBody().error.code).toBe('ERROR');
     expect(process.exitCode).toBe(1);
   });
 
   it('preserves a structured `code` field on Error subclasses', () => {
-    outputError(new InvalidDocxError('bad zip'), false);
+    outputError(new InvalidDocxError('bad zip'));
     const body = getEmittedBody();
     expect(body.error.code).toBe('INVALID_DOCX');
     expect(body.error.message).toBe('bad zip');
@@ -130,13 +130,41 @@ describe('outputError', () => {
     class NumericCodeError extends Error {
       readonly code = 42;
     }
-    outputError(new NumericCodeError('numeric'), false);
+    outputError(new NumericCodeError('numeric'));
     expect(getEmittedBody().error.code).toBe('ERROR');
   });
 
-  it('honors quiet by exiting 1 without emitting stderr', () => {
-    outputError(new InvalidDocxError('bad zip'), true);
-    expect(stderrSpy).not.toHaveBeenCalled();
+  it('stringifies non-Error throwables', () => {
+    outputError('plain string failure');
+    expect(getEmittedBody().error.message).toBe('plain string failure');
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('output', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(console, 'log').mockImplementation(() => {
+      /* swallow */
+    });
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+  });
+
+  // Regression guard for #660: `--quiet` gates progress notices only, so
+  // it must not be threaded into the body/error emitters. Both take no
+  // `quiet` argument — a caller that tries to pass one fails to compile.
+  it('always prints the body', () => {
+    output({ a: 1 }, 'json');
+    expect(stdoutSpy).toHaveBeenCalledOnce();
+    expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('{\n  "a": 1\n}');
+  });
+
+  it('honors the requested format', () => {
+    output([{ a: 1 }], 'csv');
+    expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('a\n1');
   });
 });
