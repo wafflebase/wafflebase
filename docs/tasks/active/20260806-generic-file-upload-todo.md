@@ -1708,4 +1708,60 @@ git commit -m "Route shared blob documents away from the spreadsheet fallback"
 
 ## Review
 
-_Filled in after implementation._
+All 8 tasks implemented and reviewed (18 commits). Each task got a scoped
+review; the branch then got a whole-branch review, which blocked on five
+defects that the per-task reviews structurally could not see. All five were
+fixed and re-reviewed clean.
+
+**Plan corrections made during execution:**
+
+- The `file` classify fallback (Task 5) and the worker branch that handles it
+  (originally Task 6) were merged into one task — split, the intermediate
+  commit left a dropped `.zip` enqueued forever holding a concurrency slot,
+  with the suite green.
+- The `TYPE_META`/`TYPE_OPTIONS` `file` entry moved from Task 6 to Task 1.
+  `TYPE_META` is a `Record<DocumentType, …>`, so widening the union without it
+  was both a type error and a runtime crash of the whole documents list.
+- Global Constraints gained the frontend typecheck requirement (below).
+- Task 4's manual DB round-trip and Task 8's browser smoke were replaced or
+  skipped — no database was available. The substitutes cover the units, not
+  the flow; **the end-to-end flow remains unverified by hand.**
+
+**Blocking findings from the whole-branch review, all fixed:**
+
+1. Download filename broken in all three paths — `download-file.ts` returned
+   the whole uuid for an extension-less key, `document-list.tsx` dropped the
+   `fileId` it had, and the server-side `filename*` used the extension-less
+   title.
+2. `stripExt` built a `RegExp` from the filename extension — `main.c++` threw
+   "Nothing to repeat" and the raw error became the user-facing reason.
+3. `fileSize`/`mimeType` were lost on every retry and 429 re-entry.
+4. The controller's security wiring was untested — both existing cases used a
+   fixed point of the old and new behaviour.
+5. Dropping the MIME allow-list armed the unauthenticated `GET /images/:id`
+   ContentType echo; that route now derives its type from the id's extension.
+
+**Known limitations (reviewed, consciously deferred):**
+
+- `formatFileSize` shows `"1024.0 KB"` one byte under 1 MB — the unit-promotion
+  check runs before rounding.
+- The frontend size guard picks its cap from the extension, the backend from
+  the MIME, so an image with an unrecognized extension still crosses the wire
+  before failing. Both ends still enforce.
+- `sharedBlobKind` is a third hand-rolled copy of "is this a blob type",
+  alongside the backend `in`-map and the frontend `||`-chain.
+- Backend `isBlobBacked` uses `in` against an object literal, so
+  `isBlobBacked('constructor')` is `true`. Unreachable over HTTP (the
+  `ValidationPipe` + `@IsIn` gate it); `Object.hasOwn` would fix it.
+- `SharedBlobLayout` shows no size/extension/date — `ResolvedShareLink` cannot
+  supply them without a new share-resolve field.
+- The documents list has no size column, so `fileSize` is currently only shown
+  on the file card.
+- No test covers `image-viewer.tsx`'s `token` forwarding or `enabled: !token`.
+
+**Not fixed, outside this branch:** `packages/frontend` has no typecheck lane.
+`pnpm frontend lint` is not type-aware and `vite build` strips types, so
+`verify:fast` is green through type errors — `tsc -p tsconfig.app.json` reports
+146 pre-existing errors. This branch adds none and clears five. Adding a
+`typecheck` script, clearing the backlog, and wiring it into `verify:fast`
+deserves its own task.

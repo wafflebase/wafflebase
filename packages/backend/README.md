@@ -321,14 +321,21 @@ Key models managed by Prisma:
 | `email` | String | Unique |
 | `photo` | String? | Profile photo URL |
 
-**Document** — a document of any type (sheet / doc / slide / note / board / pdf / image)
+**Document** — a document of any type (sheet / doc / slide / note / board / pdf / image / file)
+
+`type` is a **viewer-routing key** — "which viewer or editor opens this" — not
+a file format. `pdf` and `image` are blobs with dedicated viewers; `file` is a
+blob with none (see
+[`docs/design/generic-file-upload.md`](../../docs/design/generic-file-upload.md)).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
 | `title` | String | |
-| `type` | String | Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image) |
-| `fileId` | String? | Blob storage key for static file types (pdf/image) |
+| `type` | String | Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image/file) |
+| `fileId` | String? | Blob storage key for the blob-backed types (pdf/image/file) |
+| `fileSize` | Int? | Blob size in bytes; null for the CRDT types |
+| `mimeType` | String? | Client-reported blob MIME. Display data only — never a serving or access decision |
 | `authorID` | Int? | FK to User |
 | `workspaceId` | String | FK to Workspace (CASCADE) |
 | `folderId` | String? | FK to Folder (`SetNull`); null = workspace root |
