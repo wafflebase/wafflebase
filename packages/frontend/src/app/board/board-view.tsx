@@ -1,5 +1,6 @@
 import {
   initializeEditor,
+  type Frame,
   type PeerView,
   type Slide,
   type SlidesDocument,
@@ -30,6 +31,8 @@ import { makeBoardImageUpload } from "./board-image";
 import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
+import { FIT_ZOOM } from "../slides/zoom-controller";
+import { applyZoomValue, createBoardZoomController } from "./board-zoom";
 
 interface BoardViewProps {
   /**
@@ -139,6 +142,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // effect creates it — `editorRef` alone wouldn't trigger a re-render
   // of `<BoardToolbar>` when the editor becomes available.
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
+  // Lifted for the same reason as `editor`: the toolbar's contextual
+  // controls and Undo/Redo read element data through the store, so
+  // `<BoardToolbar>` must re-render once the mount effect creates it.
+  const [store, setStore] = useState<YorkieBoardStore | null>(null);
+  // Ref-held singleton so it survives mount-effect re-runs (e.g.
+  // `workspaceId` resolving after the first render) — a fresh controller
+  // would drop the toolbar's subscription and reset the zoom readout.
+  const zoomController = useRef(createBoardZoomController()).current;
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
   // Same ref-capture pattern as SlidesView: the mount effect's closures
@@ -188,6 +199,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     document.head.appendChild(style);
 
     const store = new YorkieBoardStore(doc);
+    setStore(store);
 
     // Host fills the container edge-to-edge — there is no fitted slide
     // rect to center, unlike SlidesView's `computeFitSize`/`refitCanvas`.
@@ -225,6 +237,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // editor still paints (including remote peer edits) but accepts
       // no pointer/keyboard input.
       readOnly,
+      // "Fit to content" in the empty-canvas context menu. Wrapped in an
+      // arrow because `fitToContentNow` is declared below (it needs the
+      // minimap) — the call only ever happens after mount, so the
+      // declaration order stays readable without hoisting.
+      onFitToContent: () => fitToContentNow(),
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -250,21 +267,50 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // Yorkie document has usually not synced yet at mount, so there is nothing
     // to frame. Read-only (share-link) mounts fit too — an unnavigable board is
     // just as useless to a viewer. Once it fires it never runs again.
+    const readFrames = (): Frame[] => {
+      const snapshot = store.read() as SlidesDocument;
+      const slide = snapshot.slides[0] as Slide | undefined;
+      return slide ? slide.elements.map((e) => e.frame) : [];
+    };
+
+    const commitViewport = (next: Viewport) => {
+      vp.current = next;
+      editor.setViewport(vp.current);
+      minimap.repaintViewport(vp.current);
+    };
+
     const fitToContentOnce = createFitToContentOnce({
       latch: fitLatch.current,
-      getFrames: () => {
-        const snapshot = store.read() as SlidesDocument;
-        const slide = snapshot.slides[0] as Slide | undefined;
-        return slide ? slide.elements.map((e) => e.frame) : [];
-      },
+      getFrames: readFrames,
       getHostSize: () => ({ w: hostW, h: hostH }),
-      apply: (fitted) => {
-        vp.current = fitted;
-        editor.setViewport(vp.current);
-        minimap.repaintViewport(vp.current);
-      },
+      apply: (fitted) => commitViewport(fitted),
     });
     fitToContentOnce();
+
+    // Repeatable "frame everything" — the context menu's Fit to content
+    // and the zoom dropdown's Fit both land here. Distinct from
+    // `fitToContentOnce`, which is a one-shot open-time latch.
+    const fitToContentNow = () => {
+      const next = applyZoomValue(
+        vp.current,
+        FIT_ZOOM,
+        { w: hostW, h: hostH },
+        readFrames(),
+      );
+      // `undefined` means "nothing to commit" (empty scene / unsized
+      // host) — leave the viewport where the user put it.
+      if (next) commitViewport(next);
+    };
+
+    const offZoom = zoomController.subscribe(() => {
+      const next = applyZoomValue(
+        vp.current,
+        zoomController.get(),
+        { w: hostW, h: hostH },
+        readFrames(),
+      );
+      if (next) commitViewport(next);
+    });
 
     stickyInserterRef.current = (colorValue: string) => {
       dropStickyAtViewportCenter({
@@ -404,6 +450,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       });
       editor.setViewport(vp.current);
       minimap.repaintViewport(vp.current);
+      // Reflect wheel/pinch zoom in the toolbar readout. `set` is a
+      // no-op when the value is unchanged (a pan tick), so this does
+      // not churn subscribers — and the subscriber it would notify
+      // recomputes from the same viewport, so there is no feedback loop.
+      zoomController.set(vp.current.zoom);
     };
     container.addEventListener("wheel", onWheel, { passive: false });
 
@@ -529,17 +580,22 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       offSelection();
       offChange();
       offPeers();
+      offZoom();
       minimap.dispose();
       editor.detach();
       store.dispose();
       editorRef.current = null;
       setEditor(null);
+      setStore(null);
       stickyInserterRef.current = null;
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
     };
-  }, [didMount, doc, readOnly, workspaceId]);
+    // `zoomController` is a ref-held singleton with a stable identity for
+    // the component's lifetime, so listing it never re-runs this effect —
+    // it is here only to satisfy exhaustive-deps.
+  }, [didMount, doc, readOnly, workspaceId, zoomController]);
 
   if (loading) {
     return (
@@ -568,6 +624,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       {!readOnly && (
         <BoardToolbar
           editor={editor}
+          store={store}
+          zoomController={zoomController}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}
