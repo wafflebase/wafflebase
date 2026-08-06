@@ -25,7 +25,7 @@ import {
   rotatedResizeCursor,
   type ResizeHandle,
 } from './hit-test';
-import type { PeerOverlays } from './peers';
+import type { PeerCursor, PeerOverlays } from './peers';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -960,13 +960,34 @@ function renderPeerOverlays(
     el.style.pointerEvents = 'none';
     overlay.appendChild(el);
   }
+}
 
-  // Peer cursors: a small dot at the peer's live pointer with its name
-  // tag beside it. Painted last so a cursor is never hidden under a
-  // ring or another peer's tag. World coords → screen via the same
-  // `scale`/`pan` the rings use, so a cursor and its owner's selection
-  // ring can never drift apart during a pan or zoom.
-  for (const cursor of peers.cursors) {
+/**
+ * Paint peer cursors — a small dot at each peer's live pointer with its
+ * name tag beside it — into a DEDICATED layer.
+ *
+ * Deliberately not part of {@link renderPeerOverlays}: cursors update at
+ * pointer rate, and `renderOverlay` rebuilds the whole overlay DOM
+ * (`overlay.innerHTML = ''`), which detaches — and so blurs — the
+ * in-place text-box editor mounted in that same overlay. Painting into
+ * its own layer lets the editor refresh cursors ~60×/s without touching
+ * the selection chrome or the text box.
+ *
+ * `layer` is expected to sit at the overlay's origin, so the world →
+ * screen math here (`world * scale + pan`) is the same one the rings use
+ * and a cursor can never drift from its owner's selection ring.
+ */
+export function renderPeerCursors(
+  layer: HTMLDivElement,
+  cursors: readonly PeerCursor[],
+  options: { scale: number; panX?: number; panY?: number },
+): void {
+  layer.innerHTML = '';
+  const { scale } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
+
+  for (const cursor of cursors) {
     const el = document.createElement('div');
     el.className = 'wfb-slides-peer-cursor';
     el.style.position = 'absolute';
@@ -981,7 +1002,7 @@ function renderPeerOverlays(
     el.style.pointerEvents = 'none';
     // Anchor the dot's centre on the pointer position.
     el.style.transform = 'translate(-50%, -50%)';
-    overlay.appendChild(el);
+    layer.appendChild(el);
 
     const tag = document.createElement('div');
     tag.className = 'wfb-slides-peer-cursor-label';
@@ -999,7 +1020,7 @@ function renderPeerOverlays(
     tag.style.overflow = 'hidden';
     tag.style.textOverflow = 'ellipsis';
     tag.style.pointerEvents = 'none';
-    overlay.appendChild(tag);
+    layer.appendChild(tag);
   }
 }
 

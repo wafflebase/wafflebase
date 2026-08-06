@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computePeerOverlays, type PeerView } from '../../../src/view/editor/peers';
+import {
+  computePeerCursors,
+  computePeerOverlays,
+  peersEqualIgnoringCursor,
+  type PeerView,
+} from '../../../src/view/editor/peers';
 import type { Frame } from '../../../src/model/element';
 
 // ---------------------------------------------------------------------------
@@ -202,5 +207,112 @@ describe('computePeerOverlays', () => {
     expect(out.cellRects).toEqual([]);
     expect(out.rings).toEqual([{ frame: frame(0, 0, 80, 40), color: '#ff0000' }]);
     expect(out.labels).toEqual([{ x: 0, y: 0, text: 'Ada', color: '#ff0000' }]);
+  });
+});
+
+describe('computePeerCursors', () => {
+  it('maps a peer cursor into a coloured, labelled cursor entry', () => {
+    const out = computePeerCursors(
+      [peer({ clientID: 'c1', cursor: { x: 120, y: 340 } })],
+      's1',
+    );
+    expect(out).toEqual([{ x: 120, y: 340, color: '#ff0000', label: 'Ada' }]);
+  });
+
+  it('yields no cursors when peers publish none (slides regression guard)', () => {
+    const out = computePeerCursors(
+      [peer({ clientID: 'c1', selectedElementIds: ['e1'] })],
+      's1',
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('ignores a cursor from a peer on another slide', () => {
+    const out = computePeerCursors(
+      [peer({ clientID: 'c1', activeSlideId: 's2', cursor: { x: 10, y: 10 } })],
+      's1',
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('renders nothing when there is no current slide', () => {
+    const out = computePeerCursors(
+      [peer({ clientID: 'c1', cursor: { x: 10, y: 10 } })],
+      undefined,
+    );
+    expect(out).toEqual([]);
+  });
+});
+
+describe('peersEqualIgnoringCursor', () => {
+  it('treats a cursor-only move as equal (hosts re-map peers every tick)', () => {
+    const a = [peer({ clientID: 'c1', selectedElementIds: ['e1'], cursor: { x: 0, y: 0 } })];
+    const b = [peer({ clientID: 'c1', selectedElementIds: ['e1'], cursor: { x: 9, y: 9 } })];
+    expect(peersEqualIgnoringCursor(a, b)).toBe(true);
+  });
+
+  it('treats an appearing / disappearing cursor as equal too', () => {
+    const a = [peer({ clientID: 'c1', cursor: { x: 1, y: 2 } })];
+    const b = [peer({ clientID: 'c1' })];
+    expect(peersEqualIgnoringCursor(a, b)).toBe(true);
+  });
+
+  it('reports a changed selection', () => {
+    const a = [peer({ clientID: 'c1', selectedElementIds: ['e1'] })];
+    const b = [peer({ clientID: 'c1', selectedElementIds: ['e2'] })];
+    expect(peersEqualIgnoringCursor(a, b)).toBe(false);
+  });
+
+  it('reports a peer joining or leaving', () => {
+    const a = [peer({ clientID: 'c1' })];
+    const b = [peer({ clientID: 'c1' }), peer({ clientID: 'c2' })];
+    expect(peersEqualIgnoringCursor(a, b)).toBe(false);
+    expect(peersEqualIgnoringCursor([], [])).toBe(true);
+  });
+
+  it('reports a changed identity, slide, live frame, guide or cell range', () => {
+    const base = peer({ clientID: 'c1', selectedElementIds: ['e1'] });
+    expect(peersEqualIgnoringCursor([base], [{ ...base, label: 'Bob' }])).toBe(false);
+    expect(peersEqualIgnoringCursor([base], [{ ...base, color: '#00f' }])).toBe(false);
+    expect(peersEqualIgnoringCursor([base], [{ ...base, activeSlideId: 's2' }])).toBe(false);
+    expect(
+      peersEqualIgnoringCursor(
+        [base],
+        [
+          {
+            ...base,
+            activeFrames: [{ elementId: 'e1', x: 0, y: 0, w: 1, h: 1, rotation: 0 }],
+          },
+        ],
+      ),
+    ).toBe(false);
+    expect(
+      peersEqualIgnoringCursor(
+        [base],
+        [{ ...base, draggingGuide: { axis: 'x', position: 10 } }],
+      ),
+    ).toBe(false);
+    expect(
+      peersEqualIgnoringCursor(
+        [base],
+        [{ ...base, selectedTableCells: { elementId: 't1', r0: 0, c0: 0, r1: 1, c1: 1 } }],
+      ),
+    ).toBe(false);
+  });
+
+  it('reports a moved live frame (drag) while ids stay the same', () => {
+    const a = [
+      peer({
+        clientID: 'c1',
+        activeFrames: [{ elementId: 'e1', x: 0, y: 0, w: 10, h: 10, rotation: 0 }],
+      }),
+    ];
+    const b = [
+      peer({
+        clientID: 'c1',
+        activeFrames: [{ elementId: 'e1', x: 5, y: 0, w: 10, h: 10, rotation: 0 }],
+      }),
+    ];
+    expect(peersEqualIgnoringCursor(a, b)).toBe(false);
   });
 });

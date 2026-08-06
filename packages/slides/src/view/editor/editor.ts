@@ -116,7 +116,7 @@ import {
 } from './adjustment-tooltip';
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
-import { renderOverlay } from './overlay';
+import { renderOverlay, renderPeerCursors, type OverlayOptions } from './overlay';
 import { computeAnimationOrder } from './animation-order';
 import { SlidesRuler } from './ruler/ruler';
 import {
@@ -130,7 +130,13 @@ import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
-import { computePeerOverlays, type PeerView, type PeerOverlays } from './peers';
+import {
+  computePeerCursors,
+  computePeerOverlays,
+  peersEqualIgnoringCursor,
+  type PeerView,
+  type PeerOverlays,
+} from './peers';
 import { toWorldFrame, fromWorldFrame, groupOverlayFrames } from './frame-space';
 import { mountSlidesTextBox, type SlidesTextBoxEditor, getTextRegionRect } from './text-box-editor';
 import { getActiveTheme } from '../canvas/render-context';
@@ -332,11 +338,15 @@ export interface SlidesEditor {
   onSelectionChange(cb: () => void): () => void;
   /**
    * Replace the set of in-canvas peers (other users editing the same
-   * presentation) and repaint the overlay. The host maps Yorkie
+   * presentation) and repaint their chrome. The host maps Yorkie
    * `SlidesPresence` into presentation-agnostic `PeerView[]` (selection
-   * rings, live drag frames, guide previews) and calls this on every
-   * peer-presence change. Pass `[]` to clear all peer chrome. No-op on
-   * the canvas bitmap — peers live entirely in the DOM overlay.
+   * rings, live drag frames, guide previews, cursors) and calls this on
+   * every peer-presence change. Pass `[]` to clear all peer chrome.
+   * No-op on the canvas bitmap — peers live entirely in the DOM overlay.
+   *
+   * A tick in which nothing but a peer's `cursor` moved repaints only
+   * the cursor layer; the selection-chrome overlay is left untouched.
+   * Hosts may therefore call this at pointer rate.
    */
   setPeers(peers: readonly PeerView[]): void;
   /**
@@ -936,6 +946,14 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private peers: readonly PeerView[] = [];
 
+  /**
+   * Dedicated overlay child holding the peer cursors (see
+   * {@link ensurePeerCursorLayer}). `null` until the first peer actually
+   * publishes a cursor — slides never does, so a slides mount never
+   * creates this node.
+   */
+  private peerCursorLayer: HTMLDivElement | null = null;
+
   constructor(options: SlidesEditorOptions) {
     this.options = options;
     const ctx = options.canvas.getContext('2d');
@@ -1017,7 +1035,7 @@ class SlidesEditorImpl implements SlidesEditor {
       ? doc.slides.find((s) => s.id === this.currentId)
       : undefined;
     if (!slide) {
-      renderOverlay(this.options.overlay, [], {
+      this.paintOverlay([], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: slideH,
@@ -1025,7 +1043,6 @@ class SlidesEditorImpl implements SlidesEditor {
       pendingGuide: this.pendingGuide,
         ...this.overlayPan(),
       });
-      this.reattachEditingTextBox();
       return;
     }
     // Crop session owns the overlay: paint only the crop window + black
@@ -1035,7 +1052,7 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.cropSession) {
       const s = this.cropSession;
       const f = windowToFrame(s.window, s.center, s.cos, s.sin);
-      renderOverlay(this.options.overlay, [], {
+      this.paintOverlay([], {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: slideH,
@@ -1149,7 +1166,7 @@ class SlidesEditorImpl implements SlidesEditor {
         }
       }
     }
-    renderOverlay(this.options.overlay, selected, {
+    this.paintOverlay(selected, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: slideH,
@@ -1186,10 +1203,67 @@ class SlidesEditorImpl implements SlidesEditor {
       },
       ...this.overlayPan(),
     });
-    // renderOverlay clears `overlay.innerHTML` on every call, which
-    // would also unmount the text-box container. Re-append it after
-    // the overlay rebuild so the editor stays visible.
+  }
+
+  /**
+   * `renderOverlay` + the overlay's PERSISTENT children.
+   *
+   * `renderOverlay` clears `overlay.innerHTML` on every call, which also
+   * unmounts the peer-cursor layer and the in-place text-box container.
+   * Both are re-appended here so every overlay path keeps them, instead
+   * of each call site remembering to. Re-appending the text box last
+   * preserves its z-order on top of the freshly built chrome.
+   */
+  private paintOverlay(
+    selectedElements: readonly Element[],
+    options: OverlayOptions,
+  ): void {
+    renderOverlay(this.options.overlay, selectedElements, options);
+    this.repaintPeerCursors();
     this.reattachEditingTextBox();
+  }
+
+  /**
+   * The overlay child that peer cursors are painted into. Created lazily
+   * (a solo mount never allocates it) and re-appended after every
+   * `renderOverlay` rebuild — see {@link paintOverlay}. Positioned at the
+   * overlay's origin with no size of its own, so its absolutely
+   * positioned children use exactly the coordinates the overlay's own
+   * chrome uses.
+   */
+  private ensurePeerCursorLayer(): HTMLDivElement {
+    let layer = this.peerCursorLayer;
+    if (layer === null) {
+      layer = document.createElement('div');
+      layer.className = 'wfb-slides-peer-cursor-layer';
+      layer.style.position = 'absolute';
+      layer.style.left = '0';
+      layer.style.top = '0';
+      layer.style.pointerEvents = 'none';
+      this.peerCursorLayer = layer;
+    }
+    if (layer.parentNode !== this.options.overlay) {
+      this.options.overlay.appendChild(layer);
+    }
+    return layer;
+  }
+
+  /**
+   * Repaint ONLY the peer-cursor layer. Cheap by construction: no
+   * `store.read()`, no element world lookup, no selection-chrome rebuild
+   * — a cursor is already a world-coord point. This is what a
+   * cursor-only presence tick runs instead of `repaintOverlay()`.
+   */
+  private repaintPeerCursors(): void {
+    if (this.disposed) return;
+    const cursors = computePeerCursors(this.peers, this.currentId);
+    // Solo (or slides, which publishes no cursors): never allocate the
+    // layer at all.
+    if (cursors.length === 0 && this.peerCursorLayer === null) return;
+    renderPeerCursors(this.ensurePeerCursorLayer(), cursors, {
+      scale: this.scale(),
+      ...this.overlayPan(),
+    });
   }
 
   /**
@@ -1482,9 +1556,23 @@ class SlidesEditorImpl implements SlidesEditor {
 
   setPeers(peers: readonly PeerView[]): void {
     if (this.disposed) return;
+    // Does anything the SELECTION CHROME depends on differ, or is this a
+    // cursor-only tick? Cursors move at pointer rate (the board publishes
+    // one per animation frame), and rebuilding the overlay at that rate
+    // is not merely wasteful — `renderOverlay` clears `overlay.innerHTML`,
+    // which detaches the in-place text-box container and moves focus off
+    // its hidden IME textarea. The local user's keystrokes then fall
+    // through to the editor's GLOBAL key rules (Delete removes the
+    // selected element, printable keys arm insert mode), i.e. a peer
+    // waving their mouse would make local text editing unusable.
+    const chromeChanged = !peersEqualIgnoringCursor(this.peers, peers);
     this.peers = peers;
     // Peers live only in the DOM overlay; no canvas markDirty needed.
-    //
+    if (!chromeChanged) {
+      // Cursor-only tick: repaint the cursor layer and nothing else.
+      this.repaintPeerCursors();
+      return;
+    }
     // Known limitation: a peer-presence tick that lands mid-gesture
     // repaints the steady-state overlay over the in-flight ghost preview
     // (the gesture's own `paintGhostPreview` re-establishes it on the
@@ -1492,6 +1580,8 @@ class SlidesEditorImpl implements SlidesEditor {
     // is a gesture-lifecycle signal that defers this repaint while a
     // gesture is live; it lands with the P2 live-frame broadcast work
     // (see docs/tasks/active/20260621-slides-live-presence-todo.md).
+    // With the cursor-only path above it is now bounded by the peer's
+    // EDIT rate rather than their pointer rate.
     this.repaintOverlay();
   }
 
@@ -2544,6 +2634,10 @@ class SlidesEditorImpl implements SlidesEditor {
 
   detach(): void {
     this.disposed = true;
+    // The peer-cursor layer is ours, not `renderOverlay`'s — drop it
+    // explicitly so a remount starts from a clean overlay.
+    this.peerCursorLayer?.remove();
+    this.peerCursorLayer = null;
     if (this.editingTextBox !== null) {
       this.editingTextBox.detach();
       this.editingTextBox = null;
@@ -5302,7 +5396,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // (move semantics are "where will it land vs. where it started";
     // resize semantics are "the active size right now").
     const ghostWorld: Element = { ...startEl, frame: worldFrame };
-    renderOverlay(this.options.overlay, [ghostWorld], {
+    this.paintOverlay([ghostWorld], {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: deckSlideHeight(doc.meta),
@@ -5335,7 +5429,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // height, and guides.
     const doc = this.options.store.read();
     this.renderer.forceRender(slide, doc, ghosts);
-    renderOverlay(this.options.overlay, handleElements, {
+    this.paintOverlay(handleElements, {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: deckSlideHeight(doc.meta),
@@ -5569,7 +5663,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const selected = startSlide.elements.filter((e) =>
         this.selection.has(e.id),
       );
-      renderOverlay(this.options.overlay, selected, {
+      this.paintOverlay(selected, {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: this.slideHeight(),
@@ -5768,7 +5862,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const selected = startSlide.elements.filter((e) =>
         this.selection.has(e.id),
       );
-      renderOverlay(this.options.overlay, selected, {
+      this.paintOverlay(selected, {
         scale: this.scale(),
         slideWidth: SLIDE_WIDTH,
         slideHeight: this.slideHeight(),
@@ -5830,7 +5924,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // inside a group.
     const liveEl = buildElementWorldLookup(synthetic.elements).get(elementId);
     if (!liveEl) return;
-    renderOverlay(this.options.overlay, [liveEl], {
+    this.paintOverlay([liveEl], {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: this.slideHeight(),
