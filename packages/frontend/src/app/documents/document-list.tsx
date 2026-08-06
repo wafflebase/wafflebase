@@ -32,8 +32,8 @@ import {
   ChevronsUpDown,
   Download,
   File as FileIcon,
-  FileDown,
   FileText,
+  FileUp,
   Folder as FolderIcon,
   FolderOutput,
   Frame,
@@ -64,6 +64,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -252,11 +253,58 @@ function dateColumn(
   };
 }
 
+/** The blank-document entries, in the order the menu presents them. */
+const CREATE_ITEMS: ReadonlyArray<{
+  type: DocumentType;
+  title: string;
+  label: string;
+}> = [
+  { type: "doc", title: "New Document", label: "New Document" },
+  { type: "sheet", title: "New Sheet", label: "New Sheet" },
+  { type: "slides", title: "New Presentation", label: "New Presentation" },
+  { type: "note", title: "New Note", label: "New Note" },
+  { type: "board", title: "Untitled board", label: "New Board" },
+];
+
 /**
- * The four file-import entries shared by both "New" dropdown copies (the
- * toolbar one and the empty-state one). Each opens a multi-select picker
- * filtered to its type and routes the result through `onImport`, which
- * queues the batch for background upload instead of importing inline.
+ * The "create a blank document" entries shared by both "New" dropdown copies
+ * (the toolbar one and the empty-state one). Icon and colour come from
+ * `TYPE_META`, so a type's appearance is defined once for the menu, the title
+ * cell, and the filter chips alike.
+ */
+function CreateMenuItems({
+  onCreate,
+}: {
+  onCreate: (payload: { title: string; type: DocumentType }) => void;
+}) {
+  return (
+    <>
+      {CREATE_ITEMS.map(({ type, title, label }) => {
+        const { Icon, color } = TYPE_META[type];
+        return (
+          <DropdownMenuItem
+            key={type}
+            onClick={() => onCreate({ title, type })}
+          >
+            <Icon className={`mr-2 h-4 w-4 ${color}`} />
+            {label}
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The "bring something in" entries shared by both "New" dropdown copies.
+ *
+ * There is deliberately ONE file entry rather than one per format. Every
+ * picker routes to the same place — `onImport` hands the batch to the upload
+ * queue, which decides the document type from the extension via
+ * `classifyUploadKind` — so the per-format entries differed only in the filter
+ * string passed to the OS file dialog. Since the queue accepts any file (see
+ * docs/design/generic-file-upload.md), that distinction stopped carrying
+ * information and only made the user pick the right door.
  */
 function ImportMenuItems({
   onImport,
@@ -270,31 +318,9 @@ function ImportMenuItems({
 }) {
   return (
     <>
-      <DropdownMenuItem onClick={() => onImport(".xlsx")}>
-        <FileDown className="mr-2 h-4 w-4 text-green-600" />
-        Import XLSX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".docx")}>
-        <FileDown className="mr-2 h-4 w-4 text-blue-500" />
-        Import DOCX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".pptx")}>
-        <FileDown className="mr-2 h-4 w-4 text-orange-500" />
-        Import PPTX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".pdf")}>
-        <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
-        Upload PDF
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={() => onImport(".png,.jpg,.jpeg,.gif,.webp")}
-      >
-        <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
-        Upload Image
-      </DropdownMenuItem>
       <DropdownMenuItem onClick={() => onImport("")}>
-        <FileIcon className="mr-2 h-4 w-4 text-slate-500" />
-        File upload
+        <FileUp className="mr-2 h-4 w-4 text-muted-foreground" />
+        Upload files…
       </DropdownMenuItem>
       {/*
         Workspace-scoped, like "New folder" above: the import needs a workspace
@@ -1206,64 +1232,19 @@ export function DocumentList({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({ title: "New Sheet" })
-              }
-            >
-              <Sheet className="mr-2 h-4 w-4 text-green-600" />
-              New Sheet
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Document",
-                  type: "doc",
-                })
-              }
-            >
-              <FileText className="mr-2 h-4 w-4 text-blue-500" />
-              New Document
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Note",
-                  type: "note",
-                })
-              }
-            >
-              <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
-              New Note
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Presentation",
-                  type: "slides",
-                })
-              }
-            >
-              <Presentation className="mr-2 h-4 w-4 text-orange-500" />
-              New Presentation
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "Untitled board",
-                  type: "board",
-                })
-              }
-            >
-              <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
-              New Board
-            </DropdownMenuItem>
+            <CreateMenuItems
+              onCreate={(payload) => createDocumentMutation.mutate(payload)}
+            />
             {workspaceId && (
-              <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
-                <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-                New folder
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
+                  <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                  New folder
+                </DropdownMenuItem>
+              </>
             )}
+            <DropdownMenuSeparator />
             <ImportMenuItems
               onImport={handleImportPick}
               onImportMiro={() => setMiroImportOpen(true)}
@@ -1397,60 +1378,12 @@ export function DocumentList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Sheet",
-                            })
+                        <CreateMenuItems
+                          onCreate={(payload) =>
+                            createDocumentMutation.mutate(payload)
                           }
-                        >
-                          <Sheet className="mr-2 h-4 w-4 text-green-600" />
-                          New Sheet
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Document",
-                              type: "doc",
-                            })
-                          }
-                        >
-                          <FileText className="mr-2 h-4 w-4 text-blue-500" />
-                          New Document
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Note",
-                              type: "note",
-                            })
-                          }
-                        >
-                          <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
-                          New Note
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Presentation",
-                              type: "slides",
-                            })
-                          }
-                        >
-                          <Presentation className="mr-2 h-4 w-4 text-orange-500" />
-                          New Presentation
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "Untitled board",
-                              type: "board",
-                            })
-                          }
-                        >
-                          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
-                          New Board
-                        </DropdownMenuItem>
+                        />
+                        <DropdownMenuSeparator />
                         <ImportMenuItems
                           onImport={handleImportPick}
                           onImportMiro={() => setMiroImportOpen(true)}
