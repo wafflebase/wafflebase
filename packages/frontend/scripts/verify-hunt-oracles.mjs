@@ -427,6 +427,51 @@ async function checkPredictionFunnel(repoRoot) {
   return problems;
 }
 
+/**
+ * The seeded control, through SERVE mode — the path the explorer actually uses.
+ *
+ * `checkPredictionFunnel` drives `--plan`, which is the REPLAY path. Those are two
+ * different code paths in the runner, and covering only one is how this shipped
+ * broken: `serve()` accepted `--fault` and never forwarded it to `observeAction`, so
+ * the control worked under `--plan`, passed its own lane, and was inert for every
+ * exploration session. A positive control that only proves itself is worth nothing.
+ *
+ * So this opens a real session the way `exploreUi` does and asserts the fault reaches
+ * it. Both directions again, for the same reason as everywhere else.
+ */
+async function checkSeededFaultInServeMode(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+
+  for (const [label, fault, wantContains] of [
+    ["seeded", "drop-second-char", "ACE"],
+    ["clean", null, FAULT_TYPED],
+  ]) {
+    let session;
+    try {
+      session = await openUiSession({ repoRoot, fault });
+      await session.act({ type: "goto", surface: "doc" });
+      await session.act({ type: "type", text: FAULT_TYPED });
+      const read = await session.act({ type: "read", reader: "doc.text" });
+      const text = String(read?.value ?? "");
+      if (!text.includes(wantContains)) {
+        problems.push(
+          `${label}: typed ${FAULT_TYPED} through a live session, expected the document to contain ` +
+            `${wantContains}, got ${JSON.stringify(text.slice(0, 120))}`,
+        );
+      }
+      if (fault && text.includes(FAULT_TYPED)) {
+        problems.push(`${label}: the full ${FAULT_TYPED} survived serve mode — the fault is not reaching the explorer's path`);
+      }
+    } catch (error) {
+      problems.push(`${label}: the session failed — ${error.message}`);
+    } finally {
+      await session?.close();
+    }
+  }
+  return problems;
+}
+
 async function loadPlaywright() {
   try {
     const mod = await import("playwright");
@@ -558,10 +603,17 @@ try {
 
   // Outside the context above: this one drives `runUiPlan`, which owns its own
   // browser and its own Vite. It is the last check because it is the slowest.
-  const funnelProblems = await checkPredictionFunnel(path.resolve(frontendRoot, "..", ".."));
+  const repoRoot = path.resolve(frontendRoot, "..", "..");
+  const funnelProblems = await checkPredictionFunnel(repoRoot);
   for (const p of funnelProblems) failures.push(`prediction funnel: ${p}`);
   if (funnelProblems.length === 0) {
     console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
+  }
+
+  const serveProblems = await checkSeededFaultInServeMode(repoRoot);
+  for (const p of serveProblems) failures.push(`seeded fault (serve mode): ${p}`);
+  if (serveProblems.length === 0) {
+    console.log("[verify:hunt-oracles] the seeded fault also reaches SERVE mode, which is the explorer's path");
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

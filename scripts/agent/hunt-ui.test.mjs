@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 
 import {
   loadPersonas,
@@ -16,6 +16,7 @@ import {
   renderUiReport,
   summarizeUiObservations,
   exploreUi,
+  verifyUi,
   UI_GATE_OPTIONS,
   runHunt,
 } from "./hunt-ui.mjs";
@@ -64,6 +65,33 @@ test("each rubric injects its OWN surface's constraints and not the other's", ()
   // cannot reach wastes budget discovering that.
   assert.doesNotMatch(byId["sheet-author"].rubric, /formatting toolbar is mounted/);
   assert.match(byId["sheet-author"].rubric, /no formatting toolbar/i);
+});
+
+test("every persona's codeScope and docsScope name paths that EXIST", () => {
+  // A scope naming a directory that is not there is invisible: the persona runs, the
+  // explorer works, candidates reproduce, and then every one of them dies at the
+  // gate's citation stage because no citation can ever be in scope. It shipped once —
+  // `packages/frontend/src/app/sheets/**`, which is actually `spreadsheet/`.
+  const repoRoot = path.resolve(HERE, "..", "..");
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    for (const glob of [...(p.codeScope ?? []), ...(p.docsScope ?? [])]) {
+      // Check the fixed prefix before the first wildcard — that is the part that has
+      // to exist on disk for anything under it to match.
+      const fixed = glob.split("*")[0].replace(/\/$/, "");
+      assert.ok(
+        existsSync(path.join(repoRoot, fixed)),
+        `${p.id}: scope "${glob}" points at ${fixed}, which does not exist`,
+      );
+    }
+  }
+});
+
+test("each persona's codeScope covers the ENGINE its surface actually runs on", () => {
+  // The frontend half is where the toolbar and the mount live; the engine half is
+  // where the defect usually is. Losing either silently narrows what can be reported.
+  const byId = Object.fromEntries(loadPersonas(CHARTERS_UI).map((p) => [p.id, p]));
+  assert.ok(byId["doc-writer"].codeScope.some((g) => g.startsWith("packages/docs/src")));
+  assert.ok(byId["sheet-author"].codeScope.some((g) => g.startsWith("packages/sheets/src")));
 });
 
 test("no rubric offers a visual ground", () => {
@@ -181,6 +209,34 @@ test("uiCitationsOf reads groundedIn, and survives anything else", () => {
   for (const junk of [null, undefined, "x", [null], [{}], [{ groundedIn: "not an array" }]]) {
     assert.deepEqual(uiCitationsOf({}, junk), []);
   }
+});
+
+test("the verifier is told the scope and the path format it is the sole source of", () => {
+  // The verifier supplies the ONLY citations the gate ever sees, so a verifier that
+  // does not know the persona's codeScope — or writes a bare filename — produces a
+  // confirmation that is silently dropped at stage 4 and a defect that goes
+  // unreported. It has to be told, in the prompt, every run.
+  let seenPrompt = "";
+  const askImpl = {
+    withRetry: (fn) => fn(),
+    askStructured: async ({ prompt }) => { seenPrompt = prompt; return CONFIRMED; },
+  };
+  const persona = { ...FUNNEL_PERSONA, codeScope: ["packages/docs/src/**", "packages/frontend/src/app/docs/**"], minCitations: 2 };
+  return verifyUi(
+    { claimed: { severity: "major", title: "t", oracle: "prediction", expected: "e", observed: "o" }, replayEvidence: "" },
+    persona,
+    { repo: "/r", context: { issues: "" }, sessionLog: [], index: 0, askImpl },
+  ).then(() => {
+    for (const glob of persona.codeScope) {
+      assert.ok(seenPrompt.includes(glob), `the prompt must name the scope glob ${glob}`);
+    }
+    assert.match(seenPrompt, /[Rr]epo-root-relative/);
+    assert.match(seenPrompt, /path\/to\/file\.ext:LINE|file\.ext:LINE/);
+    assert.match(seenPrompt, /At least 2 of them/, "the citation count must come from the persona");
+    // And it must say what happens if the rules are broken, or the instruction reads
+    // as style advice rather than a hard gate.
+    assert.match(seenPrompt, /silently dropped by the gate/);
+  });
 });
 
 test("the UI gate options report on a verifier-supplied citation and nothing else", () => {
@@ -374,6 +430,30 @@ test("renderUiReport: what the cap dropped is SHOWN, not merely counted", () => 
   });
   assert.match(md, /Reproduced but not verified — cap reached \(1\)/);
   assert.match(md, /capped one/);
+});
+
+test("renderUiReport marks a SEEDED run before anything that reads as a finding", () => {
+  // A seeded run fabricates its findings on purpose. A report that looks identical to
+  // a real hunt is how one of them gets filed, and the stderr banner does not survive
+  // into the artifact a human reads later.
+  const md = renderUiReport({
+    runId: "r",
+    headSha: "s",
+    personas: ["doc-writer"],
+    reported: [],
+    dropped: [],
+    stats: STATS,
+    fault: "drop-second-char",
+  });
+  assert.match(md, /SEEDED RUN — NOT A HUNT/);
+  assert.match(md, /MANUFACTURED and must not be filed/);
+  assert.match(md, /drop-second-char/);
+  // Before the funnel, and therefore before any finding.
+  assert.ok(md.indexOf("SEEDED RUN") < md.indexOf("## Funnel"), "the warning must precede the results");
+
+  // And absent entirely on a real run, or the warning becomes noise nobody reads.
+  const clean = renderUiReport({ runId: "r", headSha: "s", personas: ["p"], reported: [], dropped: [], stats: STATS });
+  assert.doesNotMatch(clean, /SEEDED RUN/);
 });
 
 test("renderUiReport REDACTS at the egress boundary", () => {

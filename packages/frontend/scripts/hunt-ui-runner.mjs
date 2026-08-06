@@ -449,6 +449,11 @@ async function serve(browser, baseUrl, timeoutMs, fault = null) {
           timeoutMs: Number.isFinite(req.timeoutMs) ? req.timeoutMs : timeoutMs,
           oracles,
           index: index++,
+          // Serve mode is the EXPLORER's path. Omitting this made the seeded control
+          // inert for every exploration session while still working under `--plan`,
+          // so the control passed its own lane and proved nothing about a real hunt —
+          // the exact failure the control exists to detect, in the control itself.
+          fault,
         });
         send({ id, observation });
       } catch (err) {

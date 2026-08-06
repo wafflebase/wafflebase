@@ -57,7 +57,7 @@
     ],
     "codeScope": [
       "packages/sheets/src/**",
-      "packages/frontend/src/app/sheets/**"
+      "packages/frontend/src/app/spreadsheet/**"
     ],
     "docsScope": [
       "docs/design/sheets/sheet.md",

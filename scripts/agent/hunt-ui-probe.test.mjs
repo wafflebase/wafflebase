@@ -245,6 +245,36 @@ test("runUiPlan refuses a non-positive attempt count", () => {
   assert.throws(() => runUiPlan(okPlan, { repoRoot: "/r", attempts: 0, runner: () => [] }), /positive integer/);
 });
 
+test("runUiPlan forwards a seeded fault to the runner", () => {
+  // The positive control's plumbing. It shipped once with the serve-mode half
+  // silently dropped, so both halves are now asserted where they can be.
+  const seen = [];
+  runUiPlan(okPlan, {
+    repoRoot: "/repo",
+    fault: "drop-second-char",
+    runner: (_plan, opts) => {
+      seen.push(opts);
+      return [[obs()]];
+    },
+  });
+  assert.equal(seen[0].fault, "drop-second-char");
+  // Absent by default, so a normal hunt cannot accidentally run seeded.
+  runUiPlan(okPlan, { repoRoot: "/repo", runner: (_p, opts) => { seen.push(opts); return [[obs()]]; } });
+  assert.equal(seen[1].fault, null);
+});
+
+test("runUiPlan refuses a fault id that is not lowercase kebab-case, before spawning", () => {
+  for (const bad of ["Drop-Second-Char", "drop second char", "../etc/passwd", "9lives", "a=b", ""]) {
+    let called = false;
+    assert.throws(
+      () => runUiPlan(okPlan, { repoRoot: "/r", fault: bad, runner: () => { called = true; return []; } }),
+      /lowercase kebab-case/,
+      `fault ${JSON.stringify(bad)} must be refused`,
+    );
+    assert.equal(called, false, `fault ${JSON.stringify(bad)} must be refused BEFORE the runner is reached`);
+  }
+});
+
 // A runner that died must NOT look like "the app did nothing". An empty observation
 // array is a shape a caller could read as a finding; an exception cannot be.
 test("runUiPlan throws when the driver cannot produce a result", () => {

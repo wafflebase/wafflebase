@@ -381,10 +381,25 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "  2. It is not already covered by an existing issue (set `duplicateOf` if it is).",
     "  3. It is worth a maintainer's attention at the claimed severity.",
     "",
-    "Establish the facts yourself with Read/Grep/Glob. You are the ONLY source of the",
-    "code location for this candidate — the hunter does not cite code, by design — so",
-    "`groundedIn` must name file:line locations you actually read and that actually",
-    "explain the behaviour.",
+    "Establish the facts yourself with Read/Grep/Glob.",
+    "",
+    "## `groundedIn` — you are the ONLY source of it",
+    "",
+    "The hunter does not cite code, by design, so nothing else in this pipeline can",
+    "supply a location. A confirmation whose `groundedIn` does not satisfy ALL THREE",
+    "rules below is silently dropped by the gate, and the defect goes unreported:",
+    "",
+    "  1. **Repo-root-relative `path/to/file.ext:LINE`.** Not a bare filename, not an",
+    "     absolute path, not a range — `packages/docs/src/view/text-editor.ts:412`.",
+    "  2. **Inside this persona's code scope**, which is exactly:",
+    ...(Array.isArray(persona.codeScope) ? persona.codeScope : []).map((g) => `       ${g}`),
+    "     A location outside these globs is not evidence for THIS persona, however",
+    "     real the thing you found may be.",
+    `  3. **At least ${Number.isInteger(persona.minCitations) ? persona.minCitations : 1} of them**, each a line you actually opened and read.`,
+    "",
+    "Use the same format when you mention a file in `reason`. The gate only validates",
+    "`groundedIn`, so a bare filename in prose passes review and then lands in a filed",
+    "issue as something a reader cannot open.",
     "",
     "Confirming causes a report. A false report costs maintainer attention; a missed",
     "defect costs nothing, because the next run looks again. So:",
@@ -511,13 +526,27 @@ export function renderUiRepro(actions, { planPath = "<plan.json>" } = {}) {
   ].join("\n");
 }
 
-export function renderUiReport({ runId, headSha, personas, reported, dropped, stats, skipped = [] }) {
+export function renderUiReport({ runId, headSha, personas, reported, dropped, stats, skipped = [], fault = null }) {
   const lines = [
     "# UI hunt report",
     "",
+    // FIRST, before anything a reader could mistake for a finding. A seeded run
+    // fabricates its findings on purpose; a report that looks identical to a real
+    // hunt is how one gets filed. The stderr banner is not enough — the report is the
+    // artifact that outlives the terminal.
+    ...(fault
+      ? [
+          `> ⚠️ **SEEDED RUN — NOT A HUNT.** This run injected the known defect \`${fault}\` into`,
+          "> the harness, so any finding below is MANUFACTURED and must not be filed. It exists",
+          "> to prove the pipeline can carry a defect end to end. The novelty ledger was",
+          "> deliberately not written.",
+          "",
+        ]
+      : []),
     `- run: \`${runId}\``,
     `- commit: \`${headSha}\``,
     `- personas: ${personas.join(", ")}`,
+    ...(fault ? [`- **seeded fault:** \`${fault}\``] : []),
     "",
     "## Funnel",
     "",
@@ -848,11 +877,12 @@ async function cmdRun(args) {
     dropped,
     stats,
     skipped,
+    fault,
   });
   writeFileSync(path.join(outDir, "report.md"), report);
   writeFileSync(
     path.join(outDir, "run.json"),
-    redactSecrets(JSON.stringify({ runId, headSha, stats, reported, dropped, skipped }, null, 2), {
+    redactSecrets(JSON.stringify({ runId, headSha, seededFault: fault, stats, reported, dropped, skipped }, null, 2), {
       extra: [context.cfg.apiKey].filter(Boolean),
     }) + "\n",
   );
@@ -861,7 +891,25 @@ async function cmdRun(args) {
   // actual spend is unknowable, which is the one number that decides whether this
   // pipeline is worth running.
   writeFileSync(path.join(outDir, "hunt-ui-execution.json"), JSON.stringify(sessionLog));
-  writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
+
+  // A SEEDED RUN MUST NOT TEACH THE LEDGER ANYTHING.
+  //
+  // Its findings are fabricated by construction — that is the point of a positive
+  // control — and the ledger is keyed on the defect, not on the run. Writing them
+  // would record a manufactured defect as "reported", and the next REAL run keying
+  // the same reader/op/ground would be suppressed as already-seen. A control that
+  // silently blinds the instrument it is validating is worse than no control.
+  //
+  // Refusing to write is the whole fix: nothing to clean up afterwards, and no
+  // "remember to delete seen.json" step for a human to forget.
+  if (fault) {
+    console.error(
+      `hunt-ui: seeded run (?fault=${fault}) — the ledger at ${ledgerFile} was NOT written, ` +
+        "so these fabricated findings cannot suppress a real one later",
+    );
+  } else {
+    writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
+  }
   process.stdout.write(
     `hunt-ui: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
       `${stats.reproduced} reproduced → ${stats.reported} reported\n` +
