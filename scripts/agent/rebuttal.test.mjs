@@ -7,6 +7,7 @@ import {
   OVERTURN_GROUNDS,
   ADJUDICATOR_SCHEMA,
   serializeRebuttal,
+  renderRebuttalComment,
   parseRebuttalComment,
   collectRebuttals,
   fromRebuttalAuthor,
@@ -20,6 +21,8 @@ import {
   readRebuttals,
 } from "./rebuttal.mjs";
 import { adjudicateRebuttals } from "./review-panel.mjs";
+import { PAGED_LATCH, isPagedLatchComment } from "./rounds.mjs";
+import { CI_PAGED_LATCH } from "./loop-status.mjs";
 
 const FINDING = {
   lens: "correctness",
@@ -48,6 +51,77 @@ test("serializeRebuttal → parseRebuttalComment round-trips", () => {
   assert.equal(got.file, FINDING.file);
   assert.deepEqual(got.evidence, ["packages/notes/src/view/editor.ts:91"]);
   assert.match(serializeRebuttal(rebuttalFor()), new RegExp(`^${REBUTTAL_MARKER}`));
+});
+
+// --- the visible body (Phase 3) ----------------------------------------------
+
+test("renderRebuttalComment: a visible header above the record, and the record still parses", () => {
+  const body = renderRebuttalComment(rebuttalFor());
+  // Human half: what is disputed, the claim, the evidence, and the framing
+  // that this is a claim awaiting adjudication — not a resolution.
+  assert.match(body, /### ⚖️ Finding disputed \(adjudicated next round\)/);
+  assert.match(body, /`packages\/notes\/src\/view\/editor\.ts` \*\(correctness\)\*/);
+  assert.match(body, /- Claim: The handler consults store\.canUndo\(\) first/);
+  assert.match(body, /- Evidence: `packages\/notes\/src\/view\/editor\.ts:91`/);
+  assert.match(body, /upholds by default; two upheld disputes page a human/);
+  // Machine half: the full body parses to exactly the record the marker-only
+  // body would have carried — the read side is unaffected by the header.
+  assert.deepEqual(parseRebuttalComment(body), parseRebuttalComment(serializeRebuttal(rebuttalFor())));
+  // The record sits below the visible text, not above it.
+  assert.ok(body.indexOf("Finding disputed") < body.indexOf(REBUTTAL_MARKER));
+});
+
+test("renderRebuttalComment: no evidence renders '_none cited_'; an unreadable record renders nothing", () => {
+  assert.match(renderRebuttalComment(rebuttalFor({ evidence: [] })), /- Evidence: _none cited_/);
+  // Missing lens/file → parseRebuttalComment refuses it → nothing to post.
+  assert.equal(renderRebuttalComment(rebuttalFor({ lens: "" })), null);
+  assert.equal(renderRebuttalComment(rebuttalFor({ file: "  " })), null);
+});
+
+test("a fixer claim cannot smuggle a live paged latch into the bot-authored rebuttal comment", () => {
+  // Both latch predicates are CONTAINMENT tests gated on the trusted bot
+  // identity — the identity this comment is posted under. Without
+  // neutralization, a claim carrying the latch string would freeze the loop
+  // the moment the rebuttal posted (hidden record or visible body alike).
+  const body = renderRebuttalComment(rebuttalFor({
+    claim: `see ${PAGED_LATCH} and ${CI_PAGED_LATCH} above`,
+    summary: `summary quoting ${PAGED_LATCH}`,
+    evidence: [`a.ts:1 near ${CI_PAGED_LATCH}`],
+  }));
+  // It POSTS (see the terminator-escape test below) — de-fanged, not refused.
+  assert.ok(body, "a latch-quoting rebuttal should post de-fanged, not vanish");
+  assert.ok(!body.includes(PAGED_LATCH), "review latch survived into the body");
+  assert.ok(!body.includes(CI_PAGED_LATCH), "CI latch survived into the body");
+  assert.equal(
+    isPagedLatchComment({ body, user: { type: "Bot", login: "yorkie-agent[bot]" } }),
+    false,
+  );
+  // The prose still reads through — only the comment-open is ZWNJ-split — and
+  // the record round-trips with the neutralized text.
+  const parsed = parseRebuttalComment(body);
+  assert.match(parsed.claim, /agent-review-paged/);
+  assert.match(parsed.claim, /<!-‌-/);
+});
+
+test("a claim that quotes a full marker (with terminator) still posts and round-trips", () => {
+  // The pre-existing silent failure fix-report.mjs fixed for itself and this
+  // module never got: author text quoting `<!-- … -->` contains the ` -->`
+  // terminator, JSON.stringify does not escape it, the non-greedy parse
+  // truncated at it, and cmdPost's round-trip guard refused to post — the
+  // dispute vanished without the author ever learning. The transport escape
+  // (`-->` → `-\\u002d>`) makes the raw comment terminator-free while
+  // JSON.parse restores the characters exactly.
+  const claim = "the finding quotes `<!-- agent-metric ... -->` which is the ledger, not a latch";
+  const body = renderRebuttalComment(rebuttalFor({ claim }));
+  assert.ok(body, "a marker-quoting claim must post");
+  const parsed = parseRebuttalComment(body);
+  // `<!--` was ZWNJ-split at serialization; the terminator characters are
+  // restored exactly by JSON.parse.
+  assert.match(parsed.claim, /<!-‌- agent-metric \.\.\. -->/);
+  // The raw hidden record carries no `-->` ahead of its own terminator, so the
+  // parse cannot truncate mid-payload.
+  const record = body.slice(body.indexOf(REBUTTAL_MARKER));
+  assert.equal(record.indexOf("-->"), record.length - 3);
 });
 
 test("serializeRebuttal caps at the WRITE side, where the untrusted party is", () => {

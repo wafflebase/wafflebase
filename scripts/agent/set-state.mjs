@@ -30,6 +30,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -148,8 +149,12 @@ function ghMutate(args) {
 }
 
 // Advisory: never break the pipeline. Log and exit 0 on any operational problem.
+// The exit-0 is exactly why the failure also needs a breadcrumb a human can see:
+// the `continue-on-error:` on every call site never observes it, so without the
+// warning a stale agent:* label is indistinguishable from a label nobody set.
 function bail(msg) {
   console.error(`set-state: ${msg}`);
+  emitBestEffortWarning(`set-state failed: ${msg} — the PR's agent:* lifecycle label may be stale`);
   process.exit(0);
 }
 

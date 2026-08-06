@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guardVerdictLine, renderGuardSummary, runUrlFromEnv, whereToLookLine } from "./guard-verdict.mjs";
+import {
+  guardVerdictLine,
+  renderGuardSummary,
+  runUrlFromEnv,
+  whereToLookLine,
+  emitBestEffortWarning,
+} from "./guard-verdict.mjs";
 
 test("proceed line names the round being dispatched, not the failed count", () => {
   const line = guardVerdictLine({
@@ -134,4 +140,27 @@ test("whereToLookLine: renders the run, job, step and artifact it is given — a
     "\n\nWhere to look: [this run](u).",
   );
   assert.equal(whereToLookLine({ runUrl: "u", job: "j" }), "\n\nWhere to look: [this run](u) → job `j`.");
+});
+
+// --- best-effort failure breadcrumbs (Phase 3) --------------------------------
+
+test("emitBestEffortWarning: a ::warning:: annotation inside Actions, silence outside", () => {
+  const logged = [];
+  const orig = console.log;
+  console.log = (s) => logged.push(s);
+  try {
+    // Outside Actions (local runs, tests): nothing — the caller's own stderr
+    // message is the record there.
+    emitBestEffortWarning("set-state failed: boom", {});
+    assert.equal(logged.length, 0);
+    // Inside Actions: one single-line stdout workflow command — the runner
+    // only scans stdout, and a newline would end the command mid-message.
+    emitBestEffortWarning("loop-status failed:\nmulti line", { GITHUB_ACTIONS: "true" });
+    const warning = logged.find((s) => s.startsWith("::warning::"));
+    assert.ok(warning, "no ::warning:: emitted inside Actions");
+    assert.match(warning, /loop-status failed: multi line/);
+    assert.doesNotMatch(warning, /\n/);
+  } finally {
+    console.log = orig;
+  }
 });

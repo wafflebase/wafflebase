@@ -456,6 +456,55 @@ already computes:
   safety net) carry inline copies of the line for the usual cannot-import
   reason; they are display-only strings, so no byte-identity pin is needed.
 
+**Observability, third slice: the dispute channel and the leftovers.** The
+last places the pipeline acts without a human-visible trace:
+
+- **Visible rebuttal bodies** (`renderRebuttalComment` in
+  `scripts/agent/rebuttal.mjs`). A rebuttal comment used to be ONLY its hidden
+  marker — an empty-looking bot comment while a machine argument about
+  removing a finding from the merge gate played out invisibly. The body now
+  renders the disputed finding, the claim, its citations, and the
+  load-bearing framing (a claim awaiting adjudication that upholds by
+  default; two upheld disputes page a human) above the unchanged record. The
+  read side is untouched: `parseRebuttalComment` matches the marker anywhere
+  and `fromRebuttalAuthor` gates on identity, not shape. Two hardening fixes
+  landed with it, both at serialization (the one writer): author fields are
+  `<!--`-neutralized, because rebuttals post through the App token and both
+  paged-latch predicates are containment tests gated on exactly that trusted
+  identity — a claim quoting a latch would have frozen the loop; and the
+  `-->` terminator is transport-escaped exactly as
+  `scripts/agent/fix-report.mjs` does, fixing a silent pre-existing failure
+  where any dispute quoting a repo marker truncated its own JSON, failed the
+  round-trip guard, and was never posted at all.
+
+- **Best-effort failure breadcrumbs** (`emitBestEffortWarning` in
+  `scripts/agent/guard-verdict.mjs`). The fail-safe
+  scripts — `scripts/agent/set-state.mjs`, `scripts/agent/loop-status.mjs`,
+  `scripts/agent/metrics.mjs` — deliberately exit 0 on operational failure,
+  which means their `continue-on-error:` steps NEVER show a failed outcome:
+  the symptom (a stale label, a stale dashboard, a missing effort comment)
+  surfaces later with nothing connecting it to the cause. Their bail paths
+  now emit one `::warning::` annotation (run page + PR checks-tab header,
+  stdout-only and only inside Actions) plus a job-summary line naming the
+  consequence. In `scripts/agent/metrics.mjs` the consequence is OPT-IN per
+  call site — bail also serves normal no-ops ("no metrics recorded yet"),
+  and warning on those would teach readers to ignore the annotation. The
+  inline `github-script` best-effort steps already carried `core.warning`
+  in their catch blocks; the implement ack now does too.
+
+- **Kickoff dead-run visibility** (`.github/workflows/agent-implement.yml`,
+  final always-step). The one silent termination left: the implement run
+  dies or exhausts its turns before opening a PR, and the issue keeps the
+  "On it" ack forever. The step resolves whether an open `agent/<issue>-*`
+  PR exists (the same branch-prefix lookup as
+  `scripts/agent/metrics.mjs::resolvePrByIssue`) and, when none does,
+  comments on the issue with the run link, the `claude-execution-output`
+  artifact name and the retry command. Three-state honesty, mirroring the
+  stalled net: PR found → silent; none found → the dead-run comment, worded
+  by whether the agent step failed or merely ended; the PR LIST unreadable →
+  a comment that says the state could not be determined, never a failure
+  claim the run did not verify.
+
 ### Phase 24: Autonomous Contribution Loop
 
 **Principle:** Mechanical Enforcement + Capability-First Debugging — drive the
