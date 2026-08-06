@@ -56,19 +56,29 @@ Group C — react-router (5 alerts):
       is unused and dismiss alert #134 with "vulnerable code is not actually used"
 - [x] `pnpm verify:fast` green
 - [x] Push, open PR, confirm Dependabot closes the alerts
+- [x] E — follow-up: close the 3 remaining vite alerts (see below)
 
-## Known residual
+## Follow-up — the vite/vitepress residual (resolved)
 
-- **vite 5.4.21** (3 alerts) remains via `vitepress` (docs-site builder).
-  The advisories have range `<= 6.4.2` with no lower bound, so 5.4.21 still
-  matches even though the app itself is on 6.4.3. `vitepress@1.6.4` (latest
-  stable) pins `vite ^5.4.14`; no stable vitepress uses vite 6/7, and forcing
-  vite 6 breaks the docs build. Build-time only, not in app runtime. Same
-  conclusion as the 2026-06 pass.
+Three vite alerts survived PR #679 because `vitepress@1.6.4` (still the
+latest stable) declares `vite ^5.4.14`, and the advisories are ranged
+`<= 6.4.2` with no lower bound — so the docs-site's vite 5.4.21 matched
+even though the app itself already resolves 6.4.3.
+
+The 2026-06 sweep recorded "forcing vite 6 breaks the docs build" and
+carried the alerts forward on that basis. Re-tested: it does not. Widening
+the existing override from `vite@>=6.0.0 <6.4.3` to `vite@>=5.0.0 <6.4.3`
+puts every vite in the tree on 6.4.3, `pnpm documentation build` succeeds
+(24 source pages → 25 rendered HTML files, `@vitejs/plugin-vue`'s peer
+warning disappears), and `pnpm verify:self` is green across all 11 lanes.
+
+Upgrading vitepress instead was rejected: only `2.0.0-alpha.19` moves off
+vite 5 (to `vite ^8.2.0`), and an alpha docs-site framework is a worse
+trade than a one-line override for a build-time-only advisory.
 
 ## Review
 
-Three commits, one per fix class:
+Four commits, one per fix class. The first three landed in PR #679:
 
 1. `Refresh stale pnpm overrides…` — 27 alerts. Only `package.json` +
    `pnpm-lock.yaml`; no direct dependency moved.
@@ -79,14 +89,21 @@ Three commits, one per fix class:
 3. `Bump react-router to 7.18.2…` — 4 alerts, plus a direct
    `react-router-dom` bump in `packages/frontend`.
 
-Verified by cross-checking every open alert's vulnerable range against the
-versions actually resolved in both lockfiles (semver `satisfies`):
-35 of 39 no longer match. The remaining 4 are the two known exceptions —
-alert #134 (dismissed, see below) and the 3 vitepress-borne vite alerts.
+At that point 35 of 39 alerts no longer matched, verified by cross-checking
+every open alert's vulnerable range against the versions actually resolved
+in both lockfiles (semver `satisfies`). The 4 that remained were alert #134
+and the 3 vitepress-borne vite alerts. The follow-up commit closed the
+latter:
+
+4. `Put the docs-site vite on 6.4.3…` — the last 3 alerts (see the
+   follow-up section above).
+
+So the final state is 38 of 39 fixed, with alert #134 dismissed as not
+applicable — no alert from this sweep is left open.
 
 `pnpm verify:fast` green after each commit; `pnpm frontend build` green
-after the react-router bump; `npm test` (942 tests) green in
-`scripts/agent`.
+after the react-router bump; `pnpm verify:self` (all 11 lanes) green after
+the vite widening; `npm test` (942 tests) green in `scripts/agent`.
 
 **Alert #134 — dismissed as not applicable.** React Router's RSC-mode CSRF
 bypass is patched only in 8.3.0, with no 7.x backport. The frontend mounts

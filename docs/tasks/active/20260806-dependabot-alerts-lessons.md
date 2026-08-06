@@ -32,6 +32,16 @@ app mounts a plain `BrowserRouter` and imports no RSC API, so the finding
 does not apply. Dismiss with that evidence recorded, and note the
 condition that would make it apply again.
 
+## Re-test the inherited "can't fix this" note
+
+The 2026-06 sweep left 3 vite alerts open with "forcing vite 6 breaks the
+docs build", and this sweep copied that conclusion forward without
+checking. It was wrong — widening the override to `vite@>=5.0.0 <6.4.3`
+builds the docs site cleanly on vitepress 1.6.4. A residual carried across
+sweeps is a hypothesis with an expiry date, not a fact: the surrounding
+versions move even when the blocked package doesn't. Spend the five
+minutes to re-run the experiment before copying the note again.
+
 ## Verify against the lockfile, not against the diff
 
 "I bumped the override" is not proof. Cross-check each alert's
