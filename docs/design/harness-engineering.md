@@ -427,8 +427,9 @@ already computes:
   surface — the adjudication reason and the skip note — are `<!--`-neutralized
   (the `scripts/agent/fix-report.mjs` ZWNJ technique) so author prose cannot
   smuggle a live paged latch into a comment posted by a trusted identity. The fixer-prompt cut
-  contract is preserved: every new section arrives via the same `\n### `
-  marker, and `scripts/agent/harvest.mjs`'s corpus reader round-trips the
+  contract is preserved: every new section arrives via the same `\n###`
+  marker (followed by a space, the exact delimiter the cut splits on), and
+  `scripts/agent/harvest.mjs`'s corpus reader round-trips the
   enriched rows (pinned by a cross-module test against the real renderer).
 
 - **Per-session ledger** (`scripts/agent/metrics.mjs::renderLedger`). The

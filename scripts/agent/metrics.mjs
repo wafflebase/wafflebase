@@ -563,6 +563,15 @@ function renderAttribution(attr) {
  * keep every other cell numeric. */
 const LEDGER_KINDS = new Set(["implement", "ci-fix", "review-fix", "review"]);
 
+/** Row cap for the ledger table. The record list is open-ended (any comment
+ * can carry a metric record), and an unbounded table could push the summary
+ * past GitHub's comment-size cap — which fails the post and silences the
+ * whole summary, a denial of the one surface this exists to keep alive. 30
+ * covers double MAX_REVIEW_ROUNDS' worth of sessions with room for kickoff
+ * and CI fixes; when it overflows, the NEWEST rows win (they are the ones a
+ * reader is diagnosing) and the omission is stated rather than silent. */
+export const MAX_LEDGER_ROWS = 30;
+
 /** A number cell, or "—" when the record never measured it. NEVER coerce a
  * missing value to 0 — `Number(null) === 0`, and a legacy record with no
  * `turns` did not do zero turns, it did an unmeasured amount. */
@@ -588,6 +597,10 @@ export function renderLedger(records) {
   const list = (Array.isArray(records) ? records : []).filter((r) => r && typeof r === "object");
   if (list.length === 0) return [];
   const roundOf = { review: 0, "review-fix": 0 };
+  // Every row is BUILT (round ordinals and the # column come from the full
+  // chronological list) and then the table keeps only the newest
+  // MAX_LEDGER_ROWS — so a surviving row reads identically whether or not
+  // older ones were dropped, and the drop itself is stated.
   const rows = list.map((r, i) => {
     const kind = LEDGER_KINDS.has(r.kind) ? r.kind : "other";
     const label = kind === "review" || kind === "review-fix" ? `${kind} (round ${++roundOf[kind]})` : kind;
@@ -600,13 +613,17 @@ export function renderLedger(records) {
     const duration = durMs == null ? "—" : durMs < 60_000 ? `${Math.round(durMs / 1000)}s` : formatMinutes(durMs);
     return `| ${i + 1} | ${label} | ${turns ?? "—"} | ${weighted == null ? "—" : formatTokens(weighted)} | ${cost == null ? "—" : formatUsd(cost)} | ${duration} |`;
   });
+  const omitted = rows.length - MAX_LEDGER_ROWS;
   return [
     "",
     `<details><summary>Per-session ledger (${list.length} session${list.length === 1 ? "" : "s"})</summary>`,
     "",
+    ...(omitted > 0
+      ? [`_${omitted} earlier session(s) omitted — showing the most recent ${MAX_LEDGER_ROWS}; the totals above cover everything._`, ""]
+      : []),
     "| # | Kind | Turns | Tokens (weighted) | Cost | Duration |",
     "| --- | --- | --- | --- | --- | --- |",
-    ...rows,
+    ...rows.slice(-MAX_LEDGER_ROWS),
     "",
     "</details>",
   ];

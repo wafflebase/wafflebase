@@ -1722,7 +1722,7 @@ jobs:
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               '' \
-              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`fix\`, step \"Address panel findings\"; transcript in the \`claude-fix-execution-output\` artifact." \
+              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`fix\`, step \"Address panel findings\"; a fixer transcript, when one was captured, is in the \`claude-fix-execution-output\` artifact (its upload warns instead of failing when the fixer died before writing one)." \
               '' \
               'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -

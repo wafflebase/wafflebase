@@ -430,7 +430,7 @@ jobs:
               '<!-- agent-paged -->' \
               '🛑 The CI-fix round did not advance the branch head, so CI stays red and the loop cannot re-trigger itself (no new push → no new CI). This can mean the fixer produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, the branch head could not be determined, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
               '' \
-              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`iterate\`; transcript in the \`claude-ci-fix-execution-output\` artifact." \
+              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`iterate\`; a fixer transcript, when one was captured, is in the \`claude-ci-fix-execution-output\` artifact (its upload warns instead of failing when the fixer died before writing one)." \
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi

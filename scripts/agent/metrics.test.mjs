@@ -22,6 +22,7 @@ import {
   SEVERITY_WEIGHTS,
   renderSummary,
   renderLedger,
+  MAX_LEDGER_ROWS,
   serializeRecord,
   parseMetricComment,
   serializeSummaryData,
@@ -372,6 +373,27 @@ test("renderLedger: an unrecognized kind renders as `other`, never verbatim", ()
   const md = renderLedger([{ kind: "<!-- agent-review-paged -->", turns: 1, costUsd: 0.1, durationMs: 1000 }]).join("\n");
   assert.ok(!md.includes("agent-review-paged"), "attacker kind rendered verbatim");
   assert.match(md, /\| 1 \| other \| 1 \|/);
+});
+
+test("renderLedger: rows are capped at the newest MAX_LEDGER_ROWS, and the omission is stated", () => {
+  // The record list is open-ended (any comment can carry a record), and an
+  // unbounded table could push the summary past GitHub's comment-size cap —
+  // failing the post and silencing the whole summary.
+  const records = Array.from({ length: MAX_LEDGER_ROWS + 7 }, (_, i) => ({
+    kind: "review", turns: i + 1, weightedTokens: 1000, costUsd: 0.1, durationMs: 60000,
+  }));
+  const md = renderLedger(records).join("\n");
+  assert.match(md, new RegExp(`Per-session ledger \\(${MAX_LEDGER_ROWS + 7} sessions\\)`));
+  assert.match(md, new RegExp(`_7 earlier session\\(s\\) omitted — showing the most recent ${MAX_LEDGER_ROWS};`));
+  // The oldest rows are the dropped ones; the newest survive with their
+  // original chronological # and round ordinals intact.
+  assert.doesNotMatch(md, /\| 1 \| review \(round 1\) \|/);
+  assert.match(md, new RegExp(`\\| 8 \\| review \\(round 8\\) \\|`));
+  assert.match(md, new RegExp(`\\| ${MAX_LEDGER_ROWS + 7} \\| review \\(round ${MAX_LEDGER_ROWS + 7}\\) \\|`));
+  assert.equal((md.match(/\| \d+ \| review /g) || []).length, MAX_LEDGER_ROWS);
+  // At exactly the cap, nothing is omitted and no note renders.
+  const exact = renderLedger(records.slice(0, MAX_LEDGER_ROWS)).join("\n");
+  assert.doesNotMatch(exact, /omitted/);
 });
 
 test("renderLedger and renderSummary: no records → no table, byte-identical summary", () => {

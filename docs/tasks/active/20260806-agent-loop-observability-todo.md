@@ -51,9 +51,9 @@ PR page a continuing loop and a dead loop looked identical; only pages spoke.
       every human surface); an Author-reported skips section with the author's
       note. The adjudication reason and skip note — the two author-adjacent
       strings — are `<!--`-neutralized because lens bodies are copied into a
-      bot-authored comment; new sections use the `\n### ` marker the fixer cut
-      relies on, and the corpus reader's round-trip is pinned by a cross-module
-      test against the real renderer.
+      bot-authored comment; new sections use the `\n###` marker (plus the
+      trailing space) the fixer cut relies on, and the corpus reader's
+      round-trip is pinned by a cross-module test against the real renderer.
 - [x] **Per-session ledger** (`scripts/agent/metrics.mjs::renderLedger`): a
       chronological kind/turns/tokens/cost/duration table in a `<details>`
       fold of the effort summary, with round ordinals on `review`/`review-fix`
