@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| gh pages asset pruning (2026-08-07) | [20260807-gh-pages-asset-pruning-todo.md](./active/20260807-gh-pages-asset-pruning-todo.md) | - |
 | agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./active/20260806-agent-loop-observability-todo.md) | - |
 | board sp4 editing parity (2026-08-06) | [20260806-board-sp4-editing-parity-todo.md](./active/20260806-board-sp4-editing-parity-todo.md) | [20260806-board-sp4-editing-parity-lessons.md](./active/20260806-board-sp4-editing-parity-lessons.md) |
 | dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./active/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./active/20260806-dependabot-alerts-lessons.md) |
@@ -60,4 +61,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 423
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: agent loop observability (2026-08-06)
+Latest active task: gh pages asset pruning (2026-08-07)
