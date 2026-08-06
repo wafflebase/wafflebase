@@ -44,4 +44,31 @@ describe('fileResponseHeaders', () => {
       "attachment; filename*=UTF-8''%EB%B3%B4%EA%B3%A0%EC%84%9C",
     );
   });
+
+  it("falls back to an attachment for any type without a viewer rule", () => {
+    // A CRDT-typed row carrying a fileId is not reachable through the API,
+    // but a migration or direct write could make one. It must not render.
+    for (const type of ["doc", "sheet", "slides", "note", "board", ""]) {
+      const headers = fileResponseHeaders(type, "text/html", "t");
+      expect(headers.contentType).toBe("application/octet-stream");
+      expect(headers.disposition).toMatch(/^attachment/);
+    }
+  });
+
+  it("echoes an image content type only on an exact, case-sensitive match", () => {
+    for (const stored of [
+      "image/png; charset=x",
+      "IMAGE/PNG",
+      " image/png",
+      "image/png ",
+      "image/pngx",
+      "text/html, image/png",
+      "image/png\n",
+      "image/svg+xml",
+    ]) {
+      expect(fileResponseHeaders("image", stored, "t").contentType).toBe(
+        "application/octet-stream",
+      );
+    }
+  });
 });
