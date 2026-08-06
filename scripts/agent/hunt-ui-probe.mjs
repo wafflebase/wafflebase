@@ -170,6 +170,32 @@ export function assertSafeActionPlan(plan) {
  * Only the timestamp moves, so only the timestamp is scrubbed: keeping the ordinal
  * preserves the distinction between block 3 and block 5, which is real signal.
  */
+/**
+ * Validate a seeded-fault id, or throw.
+ *
+ * ONE definition for all three boundaries that accept one — the runner's `--fault`,
+ * `runUiPlan`, and `openUiSession`. It lives here rather than beside each of them
+ * because the runner has no test lane of its own, and a copy there was where the real
+ * bug hid: `argv[++i]` for a trailing `--fault` is `undefined`, and a regex tested
+ * against `String(undefined)` matches the literal text "undefined" — all lowercase
+ * letters. So `--fault` with no value passed validation and produced a silently CLEAN
+ * run. A positive control that switches itself off is worse than none, because the
+ * run still looks like it proved something.
+ *
+ * Hence `typeof !== "string"` first. `null` — and ONLY null — means "no fault".
+ * `undefined` is an ERROR rather than a synonym for null, because the only way it
+ * reaches here is the trailing-flag case above: the caller asked for a fault and did
+ * not say which. Every in-process caller defaults the parameter to `null`, so none of
+ * them can hit this by accident.
+ */
+export function assertFaultId(fault, { label = "fault" } = {}) {
+  if (fault === null) return null;
+  if (typeof fault !== "string" || !/^[a-z][a-z0-9-]*$/.test(fault)) {
+    bad(`${label} needs a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
+  }
+  return fault;
+}
+
 export function scrubUiVolatile(text) {
   const once = scrubVolatile([String(text ?? "")])[0];
   return once.replace(/\bblock-\d{10,}-(\d+)\b/g, "block-<T>-$1");
@@ -275,12 +301,16 @@ export function oraclesFired(observations) {
  */
 export function runUiPlan(
   plan,
-  { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, port = 0, runner = null } = {},
+  { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, port = 0, fault = null, runner = null } = {},
 ) {
   assertSafeActionPlan(plan);
   if (!Number.isInteger(attempts) || attempts < 1) bad(`attempts must be a positive integer, got ${attempts}`);
+  // `fault` seeds a KNOWN defect into the harness — the positive control that proves
+  // the funnel can carry a finding end to end. Checked before a browser boots, so a
+  // malformed id costs a millisecond rather than six seconds of Vite.
+  assertFaultId(fault);
 
-  if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port });
+  if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port, fault });
 
   const runnerPath = path.join(repoRoot, UI_RUNNER_REL);
   return withScratch((dir) => {
@@ -293,7 +323,14 @@ export function runUiPlan(
       // Port 0 by default: the OS picks a free one. The runner's own default is a
       // fixed port for reproducible manual runs, but two concurrent samples on a
       // fixed port make the second fail to boot, and PR 4 runs samples concurrently.
-      [runnerPath, "--plan", planFile, "--out", outFile, "--attempts", String(attempts), "--port", String(port)],
+      [
+        runnerPath,
+        "--plan", planFile,
+        "--out", outFile,
+        "--attempts", String(attempts),
+        "--port", String(port),
+        ...(fault ? ["--fault", String(fault)] : []),
+      ],
       {
         cwd: path.join(repoRoot, "packages", "frontend"),
         timeout: timeoutMs,
