@@ -47,4 +47,24 @@ describe('ArrangeMenu minAlignSelection', () => {
     await openArrange();
     expect(alignTrigger().hasAttribute('data-disabled')).toBe(false);
   });
+
+  // Rotation turns the selection about its own centre and needs no reference
+  // rect, so it must not ride the alignment threshold: a board passes
+  // `minAlignSelection={2}`, and gating Rotate on `canAlign` silently killed
+  // Rotate 90° for a lone element — the most common rotate case.
+  it('keeps Rotate enabled at a single selection when minAlignSelection is 2', async () => {
+    renderArrangeMenu({ editor: {} as never, selectionSize: 1, minAlignSelection: 2 });
+    await openArrange();
+    for (const label of ['Rotate 90° clockwise', 'Rotate 90° counter-clockwise']) {
+      expect(screen.getByText(label).hasAttribute('data-disabled')).toBe(false);
+    }
+  });
+
+  it('disables Rotate only when nothing is selected', async () => {
+    renderArrangeMenu({ editor: {} as never, selectionSize: 0, minAlignSelection: 2 });
+    await openArrange();
+    for (const label of ['Rotate 90° clockwise', 'Rotate 90° counter-clockwise']) {
+      expect(screen.getByText(label).hasAttribute('data-disabled')).toBe(true);
+    }
+  });
 });

@@ -37,11 +37,13 @@ SP1 but never published or painted — are finished here.
 
 ### Goals
 
-- **Object and text formatting on a board** — fill, border, image
-  replace/alt, text formatting, align / distribute / order / rotate, and
+- **Object and text formatting on a board** — fill, border, image alt
+  text, text formatting, align / distribute / order / rotate, and
   group / ungroup, via a contextual toolbar section that morphs on
   selection (idle / object / text-editing), mirroring the slides
-  toolbar's state machine.
+  toolbar's state machine. Image *replace* is deferred: `ImageControls`
+  mounts without an `upload`, so its Replace affordance stays disabled on
+  a board and insertion goes through the toolbar's Image button.
 - **Undo / Redo buttons** wired to the board store's existing
   undo stack (keyboard ⌘Z already works through the shared editor
   keyboard rules).

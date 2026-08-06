@@ -53,6 +53,10 @@ export function ArrangeMenu({
   minAlignSelection = 1,
 }: ArrangeMenuProps) {
   const canAlign = !!editor && selectionSize >= minAlignSelection;
+  // Rotation turns the selection about its own centre, so unlike Align it
+  // needs no reference rect and stays available for a lone element — a
+  // board raising `minAlignSelection` must not disable it.
+  const canRotate = !!editor && selectionSize >= 1;
   const canDistribute = !!editor && selectionSize >= 3;
   const canGroup = !!editor && selectionSize >= 2;
 
@@ -162,13 +166,13 @@ export function ArrangeMenu({
 
         {/* Rotate */}
         <DropdownMenuItem
-          disabled={!canAlign}
+          disabled={!canRotate}
           onClick={() => editor?.rotateBy(Math.PI / 2)}
         >
           Rotate 90° clockwise
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!canAlign}
+          disabled={!canRotate}
           onClick={() => editor?.rotateBy(-Math.PI / 2)}
         >
           Rotate 90° counter-clockwise

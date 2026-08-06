@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Branch:** `board-sp4-editing-parity` (already created, spec already committed as `a0917ccf3`). Never push to `main`.
-- **Every slides-side change must be additive with a slides-preserving default.** `minAlignSelection ?? 1`, absent `onFitToContent`, empty `cursors`. A slides mount must behave byte-for-byte as before.
+- **Every slides-side change must be additive with a slides-preserving default.** `minAlignSelection ?? 1`, absent `onFitToContent`, empty `cursors`. A slides mount must behave as before, with one deliberate exception: the `Select all` context-menu entry is visible and functional on slides too — it dispatches the existing `Mod+A` rule, so it adds an affordance without changing any behavior.
 - **Pre-commit gate:** `pnpm verify:fast` green before every commit. If it fails with a phantom `TextBoxEditorAPI` / `stepSelectionFontSize` typecheck error, the docs `dist` is stale — run `pnpm --filter @wafflebase/docs build` and re-run. This is a known gate gap, not a real error.
 - **Commit format:** subject ≤ 70 chars describing *what* changed, blank line, body explaining *why*. Use multiple `-m` flags for real newlines. End with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 - **All repo artifacts in English** — code, comments, commit messages, docs.
@@ -1250,7 +1250,7 @@ Open a PR titled `Give the board formatting, undo/redo, zoom, and peer cursors` 
 
 ## Review
 
-All seven tasks shipped. `pnpm verify:self` green (136s). Branch:
+All seven tasks are implemented on this branch. `pnpm verify:self` green (136s). Branch:
 15 commits on `board-sp4-editing-parity`. Lessons:
 [20260806-board-sp4-editing-parity-lessons.md](20260806-board-sp4-editing-parity-lessons.md).
 
