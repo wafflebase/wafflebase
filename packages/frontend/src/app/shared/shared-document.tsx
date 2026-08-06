@@ -34,6 +34,9 @@ import {
 } from "@/app/files/pdf-collab";
 import { ImageViewer } from "@/app/files/image-viewer";
 import { GenericFileView } from "@/app/files/generic-file-view";
+import { fileUrl } from "@/api/files";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
@@ -693,6 +696,19 @@ function SharedPdfLayout({
 /**
  * Shared layout for blob documents with no CRDT: rendered outside the
  * YorkieProvider entirely, since there is nothing to attach.
+ *
+ * `GenericFileView` tells the viewer to "Use Download in the header" — that
+ * instruction is only true if the header actually has a download control, so
+ * one is rendered here, mirroring `DownloadFileButton` in `file-detail.tsx`
+ * (same icon-ghost-button treatment) but as a plain anchor at the
+ * already-token-aware, permission-gated `fileUrl`, since an anonymous share
+ * viewer can't use `downloadDocumentFile`'s `fetchWithAuth` call. For a
+ * `file` document the backend sends `Content-Disposition: attachment`, so
+ * this always saves the file regardless of origin. For an `image` document
+ * the backend sends `inline`; in dev, frontend and backend are different
+ * origins, so the `download` attribute is ignored there and the anchor just
+ * navigates to the image — acceptable, since the viewer above already shows
+ * it and the browser's own save works from there.
  */
 function SharedBlobLayout({
   resolved,
@@ -703,8 +719,18 @@ function SharedBlobLayout({
 }) {
   return (
     <div className="flex h-svh flex-col">
-      <div className="flex h-12 shrink-0 items-center border-b px-4 font-medium">
-        {resolved.title}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+        <span className="font-medium">{resolved.title}</span>
+        <Button asChild variant="ghost" size="icon">
+          <a
+            href={fileUrl(resolved.documentId, token)}
+            download
+            aria-label="Download file"
+            title="Download file"
+          >
+            <Download className="h-4 w-4" />
+          </a>
+        </Button>
       </div>
       {resolved.type === "image" ? (
         <ImageViewer documentId={resolved.documentId} token={token} />
