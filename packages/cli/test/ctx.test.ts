@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  formatWorkspaceList,
-  findWorkspace,
-} from '../src/commands/ctx.js';
+import { buildWorkspaceList, findWorkspace } from '../src/commands/ctx.js';
+import { format } from '../src/output/formatter.js';
 import type { WorkspaceInfo } from '../src/config/session.js';
 
 const workspaces: WorkspaceInfo[] = [
@@ -10,27 +8,42 @@ const workspaces: WorkspaceInfo[] = [
   { id: 'abc12345-aaaa-bbbb-cccc-dddddddddddd', name: 'Team Workspace' },
 ];
 
-describe('formatWorkspaceList', () => {
-  it('marks the active workspace with *', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[0].id);
-    const lines = output.split('\n');
-    expect(lines[0]).toMatch(/^\*/);
-    expect(lines[1]).toMatch(/^ /);
+describe('buildWorkspaceList', () => {
+  it('flags the active workspace', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(rows[0].active).toBe(true);
+    expect(rows[1].active).toBe(false);
   });
 
-  it('shows truncated IDs and workspace names', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[0].id);
-    expect(output).toContain('e98ff707');
-    expect(output).toContain("hackerwins's Workspace");
-    expect(output).toContain('abc12345');
-    expect(output).toContain('Team Workspace');
+  it('flags the second workspace when it is active', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[1].id);
+    expect(rows[0].active).toBe(false);
+    expect(rows[1].active).toBe(true);
   });
 
-  it('marks the second workspace when it is active', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[1].id);
-    const lines = output.split('\n');
-    expect(lines[0]).toMatch(/^ /);
-    expect(lines[1]).toMatch(/^\*/);
+  it('emits full IDs and names in session order', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(rows).toEqual([
+      {
+        id: 'e98ff707-1111-2222-3333-444444444444',
+        name: "hackerwins's Workspace",
+        active: true,
+      },
+      {
+        id: 'abc12345-aaaa-bbbb-cccc-dddddddddddd',
+        name: 'Team Workspace',
+        active: false,
+      },
+    ]);
+  });
+
+  it('returns an empty array when there are no workspaces', () => {
+    expect(buildWorkspaceList([], 'none')).toEqual([]);
+  });
+
+  it('is JSON-parseable as emitted by the default format', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(JSON.parse(format(rows, 'json'))).toEqual(rows);
   });
 });
 

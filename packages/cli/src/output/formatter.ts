@@ -4,6 +4,42 @@ import { formatCsv } from './csv.js';
 
 export type OutputFormat = 'json' | 'table' | 'csv';
 
+export const OUTPUT_FORMATS: readonly OutputFormat[] = ['json', 'table', 'csv'];
+
+/**
+ * Thrown for an unsupported `--format` value. Carries a structured
+ * `code` so `outputError` reports `INVALID_FORMAT` rather than a bare
+ * `ERROR`, letting agents tell a bad flag from a failed request.
+ */
+export class InvalidFormatError extends Error {
+  readonly code = 'INVALID_FORMAT';
+
+  constructor(value: string) {
+    super(
+      `Invalid --format "${value}". Use one of: ${OUTPUT_FORMATS.join(', ')}.`,
+    );
+  }
+}
+
+/**
+ * Narrow a raw `--format` value to an `OutputFormat`, throwing on
+ * anything else. Commands that render through `output()` call this
+ * before doing any work, so an unsupported format fails loudly instead
+ * of being ignored.
+ *
+ * Validation is per-command, not a `commander` `.choices()` on the
+ * global `--format` option: `docs`/`slides`/`notes` `content` and
+ * `export` deliberately reuse that same global flag for their own
+ * vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`) and validate it
+ * themselves.
+ */
+export function parseOutputFormat(value: string): OutputFormat {
+  if (!OUTPUT_FORMATS.includes(value as OutputFormat)) {
+    throw new InvalidFormatError(value);
+  }
+  return value as OutputFormat;
+}
+
 export function format(data: unknown, fmt: OutputFormat): string {
   switch (fmt) {
     case 'json':
@@ -12,6 +48,11 @@ export function format(data: unknown, fmt: OutputFormat): string {
       return formatTable(data);
     case 'csv':
       return formatCsv(data);
+    default:
+      // `fmt` is typed, but it originates from an unvalidated CLI flag;
+      // without this branch an unsupported value fell through the
+      // switch and printed a bare "undefined".
+      throw new InvalidFormatError(String(fmt));
   }
 }
 

@@ -60,7 +60,17 @@ const registry: CommandSchema[] = [
     description: 'Show current auth state',
     safety: 'read-only',
     parameters: {},
-    response: { user: 'string', server: 'string', workspace: 'string', session: 'string' },
+    response: {
+      loggedIn: 'boolean',
+      message: 'string (logged out only)',
+      user: 'string',
+      email: 'string',
+      server: 'string',
+      workspaceId: 'string',
+      workspaceName: 'string | null',
+      session: "'valid' | 'expired'",
+      expiresAt: 'string',
+    },
   },
   {
     name: 'ctx.list',
