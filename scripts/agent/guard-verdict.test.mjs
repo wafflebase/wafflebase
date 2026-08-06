@@ -42,7 +42,20 @@ test("page summary tolerates the early paths (no rounds counted yet)", () => {
   assert.ok(!md.includes("null"));
   // An uncounted round budget must not render as a confident "0 of 3".
   assert.ok(!/Failed fix rounds/.test(md));
-  assert.match(md, /> quota exceeded/);
+  assert.match(md, /```text\nquota exceeded\n```/);
+});
+
+test("page detail is fenced inert — embedded fences and markdown cannot break out", () => {
+  // Stall/standstill pages embed finding summaries derived from the untrusted
+  // diff; a crafted summary must not render as structure on the run page.
+  const md = renderGuardSummary({
+    decision: "page",
+    reason: "stall",
+    detail: "x\n```\n## fake heading <img src=x>\n````",
+  });
+  const fenced = md.slice(md.indexOf("```text"));
+  assert.ok(!fenced.slice(7).includes("```\n## fake"), "inner fence is defanged");
+  assert.match(md, /···/);
 });
 
 test("page summary includes the round count when it WAS measured", () => {

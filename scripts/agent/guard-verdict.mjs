@@ -83,7 +83,14 @@ export function renderGuardSummary(v = {}) {
     if (n(v.failedRounds) !== null && n(v.max) !== null) {
       lines.push(`- Failed fix rounds so far: ${n(v.failedRounds)} of ${n(v.max)}`);
     }
-    if (v.detail) lines.push("", "> " + String(v.detail).slice(0, 600).replace(/\r?\n/g, "\n> "));
+    // FENCED, not blockquoted: for the stall/standstill pages `detail` embeds
+    // lens finding summaries — LLM output derived from the attacker-authorable
+    // diff — and a blockquote would let crafted markdown/HTML render as
+    // structure on the run page. A text fence displays it inert; any fence
+    // run inside the text is defanged so it cannot break out.
+    if (v.detail) {
+      lines.push("", "```text", String(v.detail).slice(0, 600).replace(/`{3,}/g, "···"), "```");
+    }
     lines.push("", "The page comment on the PR carries the full hand-off text; `set-state.mjs` moves the PR to `agent:blocked`.", "");
     return lines.join("\n");
   }

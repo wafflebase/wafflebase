@@ -1,9 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { PAGED_LATCH } from "./rounds.mjs";
 import {
   LOOP_STATUS_MARKER,
+  CI_PAGED_LATCH,
   MAX_ROUND_ROWS,
   isOwnStatusComment,
+  isAnyPagedLatchComment,
+  isTrustedLedgerComment,
   buildRounds,
   lensCell,
   summarizeEffort,
@@ -95,7 +102,7 @@ test("lens cell names failing lenses and counts the rest", () => {
 
 // --- summarizeEffort -----------------------------------------------------------
 
-test("effort totals sum by kind and overall", () => {
+test("effort totals sum sessions, cost and duration", () => {
   const e = summarizeEffort([
     { kind: "implement", costUsd: 10, durationMs: 60_000 },
     { kind: "review", costUsd: 5, durationMs: 30_000 },
@@ -104,8 +111,7 @@ test("effort totals sum by kind and overall", () => {
   ]);
   assert.equal(e.sessions, 3);
   assert.equal(e.totalUsd, 20);
-  assert.equal(e.byKind.get("review").n, 2);
-  assert.equal(e.byKind.get("review").usd, 10);
+  assert.equal(e.totalMs, 120_000);
 });
 
 // --- renderLoopStatus ----------------------------------------------------------
@@ -133,15 +139,31 @@ test("body starts with the marker and shows rounds newest-first", () => {
   assert.match(body, /→ `bbbbbbbbb`/);
 });
 
+test("an unknown round cap renders the count alone — never 'of 0', never dropped", () => {
+  // maxRounds is null when the caller does not own MAX_REVIEW_ROUNDS (the
+  // CI-arm call sites). Number(null) === 0 once made this render "2 of 0".
+  const body = renderLoopStatus({ rounds: [], failedRounds: 2, maxRounds: null, now: "t" });
+  const line = body.split("\n").find((l) => l.includes("Fix rounds used"));
+  assert.equal(line, "**Fix rounds used:** 2");
+  assert.ok(!body.includes("of 0"));
+});
+
+test("an unmeasured round count drops the budget line entirely", () => {
+  const body = renderLoopStatus({ rounds: [], failedRounds: null, maxRounds: 3, now: "t" });
+  assert.ok(!body.includes("Fix rounds used"));
+});
+
 test("a trusted paged latch beats the event headline", () => {
   const body = renderLoopStatus({ rounds: [], paged: true, event: "fix-dispatched", now: "t" });
   assert.match(body, /🛑 paged to a human/);
   assert.ok(!body.includes("fix round in progress"));
 });
 
-test("ready (non-draft) beats the event headline but not paged", () => {
+test("ready beats the event headline but not paged", () => {
   const body = renderLoopStatus({ rounds: [], ready: true, event: "panel", now: "t" });
   assert.match(body, /ready for human review/);
+  const both = renderLoopStatus({ rounds: [], ready: true, paged: true, now: "t" });
+  assert.match(both, /🛑 paged to a human/);
 });
 
 test("older rounds beyond the cap are omitted with a note", () => {
@@ -157,13 +179,59 @@ test("note is flattened to one line and bounded", () => {
   assert.match(body, /\*\*Latest:\*\* line1 line2/);
 });
 
-// --- isOwnStatusComment ---------------------------------------------------------
+test("effort renders numeric totals only — no ledger strings reach the body", () => {
+  // Records are attacker-shaped JSON when the author gate fails; the render
+  // must never interpolate a record string (kind included) into the body.
+  const body = renderLoopStatus({
+    rounds: [],
+    effort: summarizeEffort([{ kind: "<!-- agent-review-paged -->", costUsd: 1, durationMs: 60000 }]),
+    now: "t",
+  });
+  assert.match(body, /\*\*Agent effort so far:\*\* \$1\.00/);
+  assert.ok(!body.includes("agent-review-paged"));
+});
 
-test("marker alone is not enough on a public repo", () => {
+// --- trust predicates ------------------------------------------------------------
+
+test("marker alone is not enough on a public repo (status upsert)", () => {
   const body = `${LOOP_STATUS_MARKER}\nhello`;
   assert.equal(isOwnStatusComment({ body, user: { type: "User", login: "rando" }, author_association: "NONE" }), false);
   assert.equal(isOwnStatusComment({ body, user: { type: "Bot", login: "github-actions[bot]" } }), true);
   assert.equal(isOwnStatusComment({ body, user: { type: "Bot", login: "yorkie-agent[bot]" } }), true);
   assert.equal(isOwnStatusComment({ body, user: { type: "User", login: "maintainer" }, author_association: "MEMBER" }), true);
   assert.equal(isOwnStatusComment({ body: "no marker", user: { type: "Bot", login: "github-actions[bot]" } }), false);
+});
+
+test("paged projection recognises BOTH arms' latches, author-checked", () => {
+  const bot = { user: { type: "Bot", login: "github-actions[bot]" } };
+  const rando = { user: { type: "User", login: "rando" }, author_association: "NONE" };
+  assert.equal(isAnyPagedLatchComment({ body: PAGED_LATCH, ...bot }), true);
+  assert.equal(isAnyPagedLatchComment({ body: CI_PAGED_LATCH, ...bot }), true);
+  assert.equal(isAnyPagedLatchComment({ body: PAGED_LATCH, ...rando }), false);
+  assert.equal(isAnyPagedLatchComment({ body: CI_PAGED_LATCH, ...rando }), false);
+  assert.equal(isAnyPagedLatchComment({ body: "no latch here", ...bot }), false);
+});
+
+test("metric-ledger records are only read from trusted authors", () => {
+  // Without this gate, a stranger's fake <!-- agent-metric --> comment feeds
+  // the totals — and worse, once fed anything string-shaped it could smuggle
+  // trusted markers into a bot-authored comment.
+  assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "github-actions[bot]" } }), true);
+  assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "yorkie-agent[bot]" } }), true);
+  assert.equal(isTrustedLedgerComment({ user: { type: "User", login: "m" }, author_association: "COLLABORATOR" }), true);
+  assert.equal(isTrustedLedgerComment({ user: { type: "User", login: "rando" }, author_association: "NONE" }), false);
+  assert.equal(isTrustedLedgerComment({ user: { type: "Bot", login: "evil[bot]" } }), false);
+});
+
+// --- literal-copy pins ----------------------------------------------------------
+
+test("CI_PAGED_LATCH matches the literal agent-iterate-ci.yml writes", () => {
+  // Same discipline as rounds.test.mjs's PAGED_LATCH pin: the workflow cannot
+  // import this module, so it carries the literal; a drifted copy would not
+  // error, it would silently stop the paged projection from seeing CI pages.
+  const wf = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", "agent-iterate-ci.yml"),
+    "utf8",
+  );
+  assert.ok(wf.includes(CI_PAGED_LATCH));
 });

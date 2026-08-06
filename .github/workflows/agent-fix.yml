@@ -518,3 +518,22 @@ jobs:
             // own failure so the reporting steps could run.
             if (failed) core.setFailed('The fix agent failed; see the effort comment on the PR.');
             else if (neverRan) core.setFailed('A setup step failed before the fix agent could run.');
+
+      # OBSERVABILITY (Phase 1): refresh the sticky loop-status projection. An
+      # on-demand fix can push a commit (new round) on a PR whose dashboard
+      # still says "paged" — without this, the comment contradicts the outcome
+      # comment this workflow just posted until some other arm happens to
+      # update it. Staged trusted copy (the workspace is the branch checkout);
+      # absent until this script merges to main, so skip quietly.
+      - name: Update loop status (on-demand fix)
+        if: always() && steps.eligible.outputs.eligible == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" \
+            --event on-demand-fix \
+            --note "An on-demand @claude fix ran — the outcome comment above says whether a commit landed; if one did, CI and a fresh panel round run on it." \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

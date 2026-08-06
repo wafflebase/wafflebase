@@ -58,6 +58,8 @@ jobs:
       pull-requests: write # resolve the PR, and drop agent:blocked
       issues: write # delete the paged comment, post the note
       actions: write # re-run CI to re-fire the panel
+      contents: read # sparse-checkout scripts/agent for the loop-status update
+      checks: read # loop-status.mjs reads per-commit check runs for the round table
     concurrency:
       group: agent-rerun-${{ github.event.issue.number }}
       cancel-in-progress: false
@@ -210,3 +212,26 @@ jobs:
             await github.rest.issues.updateComment({
               owner, repo, comment_id: Number(process.env.COMMENT_ID), body,
             });
+
+      # OBSERVABILITY (Phase 1): the rerun just deleted the paged latches, so
+      # the sticky loop-status comment's "🛑 paged" headline is now stale —
+      # refresh the projection. This job checks nothing out, so sparse-fetch
+      # the TRUSTED main copy of scripts/agent (never a branch's); absent until
+      # the script merges to main, so the update step skips quietly.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Update loop status (rerun)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          node ./scripts/agent/loop-status.mjs update "$PR" \
+            --event rerun \
+            --note "A maintainer ran @claude rerun — paged latches cleared, agent:blocked dropped, CI re-running; the review-fix round budget restarts from here." \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
