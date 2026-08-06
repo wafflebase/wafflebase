@@ -1695,6 +1695,56 @@ the gating step would leave every overturned finding un-removable from the summa
 round loop actually routes `merged` through it, since that loop lives in `main()`
 and no unit test can reach it.
 
+#### The bound was still inert: the count died in the round that computed it
+
+Stamping the lens made disputes *match*; it did not make the counter *persist*.
+An upheld finding is RE-CREATED (`{...f, adjudication}`) by `adjudicateRebuttals`
+and `applySkipClaims` in `scripts/agent/review-panel.mjs`, and those copies lived
+only in `gating` — what the check's conclusion is computed from — while
+`writeVerdict` persisted `merged`'s pre-adjudication originals into verdict.json.
+verdict.json is where the panel workflow reads `adjudication.upheld` into the
+check run's `output.text`, and `output.text` is the unforgeable channel both the
+next round's carry-forward and the round guard's `exhaustedFindings` count from.
+So the increment died in the same round that computed it: every round re-derived
+`upheldCount(prior) + 1` from a prior count of 0, the counter could never reach
+`MAX_REBUTTAL_ROUNDS`, the standstill page could never fire, and a finding could
+be re-disputed forever — bounded only by the round cap, which pages with a far
+less specific message than the one this bound exists to send.
+
+`substituteAdjudicated` closes it: the adjudicated copies replace their originals
+in what `writeVerdict` persists, paired back by object identity
+(`applySkipClaims` is a positional map; `adjudicateRebuttals` returns its
+re-creations as `replaced` pairs). Mapping copies back to originals also fixed a
+latent half of the same bug — a finding that was skip-claimed and *then*
+overturned appeared in `dropped` as the skip copy, which the old identity filter
+over `merged` could never remove.
+
+Persisting the count exposed two more places the same integer silently died on
+the way into round N+1, both in the merge:
+
+- **`mergeCluster` dropped `adjudication` from folded wordings**, while the
+  workflow comment above the `output.text` builder already claimed the opposite
+  ("carried on folded wordings too … see upheldCount"). A rebutted finding means
+  the code did not change, so the next fresh pass almost always re-finds it — and
+  the fresh representative wins the cluster slot, so the carried count had to
+  survive in `mergedFrom`, where `upheldCount` takes the cluster max. It now does,
+  integer only, exactly as the workflow trims it.
+- **`dedupeFindings` handed a byte-identical collision to the fresh copy** and
+  discarded the carried one's count with it. The winner now absorbs the loser's
+  higher `upheld` (`absorbUpheld`), so the counter is carried by the collision,
+  never decided by it — a dedup that can zero the rebuttal counter is a bound the
+  merge order gets to move.
+
+This is a BEHAVIOUR change, not a refactor: the standstill page in
+`scripts/agent/review-round-guard.mjs` becomes reachable for the first time. A
+finding disputed and upheld in two rounds now pages a human instead of buying a
+third adjudication session, which is the destination Phase 28 specified for a
+question the loop cannot settle. An end-to-end two-round test in
+`scripts/agent/review-panel.test.mjs` drives the real wiring — merge, gate,
+adjudicate, substitute, carry forward — and asserts `upheldCount` reaches 2
+through both merge paths, alongside a source-level test that the round loop
+routes `writeVerdict`'s input through `substituteAdjudicated` at all.
+
 ### Phase 29: Lint the agent control plane
 
 **Principle:** Mechanical Enforcement — the cheapest check that could have caught it.
