@@ -42,10 +42,15 @@
 //   node ./scripts/agent/loop-status.mjs update <pr>
 //     [--event panel|fix-dispatched|fix-pushed|held|promoted|not-promoted|paged|ci-paged|ci-fix-pushed|on-demand-fix|rerun]
 //     [--note "<one-line explanation of the latest decision>"]
-//     [--required-checks "agent-review-a,agent-review-b"]  (the round-count set;
-//        pass the panel's required_checks so the displayed budget counts the
-//        same checks the guard counts — defaults to the full lens manifest)
 //     [--run-url <url>] [--max-rounds N] [--lenses <path>] [--dry-run]
+//
+// Every derived value must be CALLER-INDEPENDENT — the body is recomputed in
+// full on each update, and if two arms recompute different numbers the single
+// surface this exists to make legible flaps instead of converging. Hence:
+// the round count uses the full lens manifest (provably equal to the guard's
+// required_checks count — see the countFailedReviewRounds call), and the cap
+// defaults to DEFAULT_MAX_REVIEW_ROUNDS (pinned to the panel workflow's env)
+// so an arm that does not own the env renders the same "N of M".
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -74,6 +79,16 @@ export const CI_PAGED_LATCH = "<!-- agent-paged -->";
 
 /** Keep the table bounded — GitHub caps comment bodies at 65,536 chars. */
 export const MAX_ROUND_ROWS = 15;
+
+/**
+ * Default fix-round cap for the "N of M" budget line, used when the caller
+ * does not pass --max-rounds (the CI arm, `@claude fix`, `@claude rerun` — arms
+ * that do not own the panel workflow's env). LITERAL COPY of
+ * `MAX_REVIEW_ROUNDS: "3"` in agent-review-panel.yml; loop-status.test.mjs
+ * asserts the two match, so a cap change cannot leave this rendering stale.
+ * Display only — the guard reads the env, never this.
+ */
+export const DEFAULT_MAX_REVIEW_ROUNDS = 3;
 
 /** Newest commits whose check runs are fetched (one API call each; see header). */
 export const MAX_COMMITS_SCANNED = 40;
@@ -108,13 +123,42 @@ export function isTrustedLedgerComment(comment) {
 }
 
 /**
- * Is this an update-able status comment of OURS? Marker alone is not enough on
- * a public repo — same reasoning as isPagedLatchComment, which see.
+ * Is this an update-able status comment of OURS? The comment is PATCHed — and
+ * a racing duplicate DELETED — by the upsert, so this must identify only
+ * comments this script itself posted, never a comment that merely CONTAINS the
+ * marker. GitHub's quote-reply copies raw markdown, hidden HTML comments
+ * included, so a maintainer (trusted author!) quoting the dashboard produces a
+ * marker-bearing comment that a containment test would overwrite or delete —
+ * and if that comment also carried a paged latch, deleting it would silently
+ * clear the loop's human hand-off. Three conditions:
+ *   1. the body STARTS with the marker — the renderer always emits it as
+ *      line 1, while a quote-reply starts with ">" and a page comment starts
+ *      with its own latch marker;
+ *   2. trusted author (marker alone is plantable on a public repo — same
+ *      reasoning as isPagedLatchComment);
+ *   3. no paged latch anywhere in the body — our renderer neutralizes markers
+ *      (see neutralizeHiddenMarkers), so a live latch means this is NOT our
+ *      comment, and a comment that pages a human must never be deleted.
  */
 export function isOwnStatusComment(comment) {
   const c = comment && typeof comment === "object" ? comment : {};
-  if (!String(c.body ?? "").includes(LOOP_STATUS_MARKER)) return false;
+  const body = String(c.body ?? "");
+  if (!body.trimStart().startsWith(LOOP_STATUS_MARKER)) return false;
+  if (body.includes(PAGED_LATCH) || body.includes(CI_PAGED_LATCH)) return false;
   return isTrustedAuthor(c);
+}
+
+/**
+ * Break every hidden HTML-comment opener in interpolated text so nothing this
+ * script renders can carry a live trusted marker. The body is authored by the
+ * SAME bot identity the paged latch trusts, so a marker that survives into it
+ * — through a note, a future field, anything — would be laundered into a
+ * trusted latch (or a second status comment, or a fake metric record). The
+ * ZWNJ-split rendering is the same neutering fix-report.mjs uses for marker
+ * text inside its visible prose. Pure.
+ */
+export function neutralizeHiddenMarkers(text) {
+  return String(text ?? "").replace(/<!--/g, "<!-‌-");
 }
 
 /** conclusion values that read as "red" for the non-lens checks cell. */
@@ -218,11 +262,12 @@ const EVENT_HEADLINE = {
 /**
  * Render the full comment body. Pure; `now` injected for testability.
  * State precedence: a trusted paged latch beats everything (a paged PR must
- * never read as "in progress"), then ready, then the caller's event. `ready`
- * is the caller's claim that the PR passed the ready gate — computed in main()
- * from "non-draft AND an agent/ branch" (the pipeline only un-drafts via
- * promotion) or an explicit `promoted` event, NOT from bare non-draft-ness:
- * `agent:managed` human PRs are never drafts and must not read as promoted.
+ * never read as "in progress"), then the caller's EVENT, then `ready`. The
+ * event outranks `ready` because it reflects the action happening NOW: `ready`
+ * is a static derivation (non-draft + `agent/` branch — the pipeline only
+ * un-drafts via promotion; `agent:managed` human PRs are never drafts and must
+ * not read as promoted), and a promoted PR that re-enters a review round would
+ * otherwise read "ready for human review" forever, on every later update.
  */
 export function renderLoopStatus({
   rounds = [],
@@ -239,9 +284,7 @@ export function renderLoopStatus({
 } = {}) {
   const headline = paged
     ? "🛑 paged to a human"
-    : ready
-      ? "ready for human review"
-      : EVENT_HEADLINE[event] ?? "running";
+    : EVENT_HEADLINE[event] ?? (ready ? "ready for human review" : "running");
   const lines = [LOOP_STATUS_MARKER, `## 🔄 Agent loop status — ${headline}`, ""];
 
   // The cap may be unknown (callers outside the panel workflow don't own
@@ -271,15 +314,16 @@ export function renderLoopStatus({
       const r = shown[i];
       const roundNo = rounds.length - shown.length + i + 1;
       const isNewest = i === shown.length - 1;
+      // Same precedence as the headline: paged, then the event, then ready.
       const then = isNewest
         ? paged
           ? "🛑 paged"
-          : ready
-            ? "🤝 promoted"
-            : event === "fix-dispatched"
-              ? "🔧 fixer running…"
-              : event === "fix-pushed" || event === "ci-fix-pushed"
-                ? "🔧 fix pushed"
+          : event === "fix-dispatched"
+            ? "🔧 fixer running…"
+            : event === "fix-pushed" || event === "ci-fix-pushed"
+              ? "🔧 fix pushed"
+              : event === "promoted" || (ready && !EVENT_HEADLINE[event])
+                ? "🤝 promoted"
                 : "…"
         : `→ \`${shown[i + 1].sha.slice(0, 9)}\``;
       lines.push(
@@ -303,7 +347,11 @@ export function renderLoopStatus({
   lines.push(
     `<sub>Verdicts of record are the \`agent-review-*\` check runs on each commit — this table only summarizes their conclusions. A "round" is a commit that received panel verdicts, oldest = 1. Updated ${now}${runUrl ? ` · [latest run](${runUrl})` : ""}</sub>`,
   );
-  return lines.join("\n");
+  // Everything after our own leading marker is neutralized so no interpolated
+  // string (the note today, any field tomorrow) can carry a live hidden marker
+  // into a body authored by the trusted bot identity.
+  const body = lines.join("\n");
+  return LOOP_STATUS_MARKER + neutralizeHiddenMarkers(body.slice(LOOP_STATUS_MARKER.length));
 }
 
 // --- gh-backed CLI -----------------------------------------------------------
@@ -351,7 +399,7 @@ function main() {
   const { command, pr, flags } = parseArgs(process.argv.slice(2));
   if (command !== "update" || !Number.isInteger(pr) || pr <= 0) {
     console.error(
-      "Usage: node ./scripts/agent/loop-status.mjs update <pr> [--event <e>] [--note <n>] [--required-checks <csv>] [--run-url <u>] [--max-rounds N] [--lenses <path>] [--dry-run]",
+      "Usage: node ./scripts/agent/loop-status.mjs update <pr> [--event <e>] [--note <n>] [--run-url <u>] [--max-rounds N] [--lenses <path>] [--dry-run]",
     );
     process.exit(2);
   }
@@ -359,13 +407,6 @@ function main() {
   let body;
   try {
     const lensCheckNames = lensCheckNamesFrom(flags.lenses);
-    // The round COUNT uses the same check set the guard counts (the panel's
-    // required_checks — applicable blocking lenses only) when the caller knows
-    // it; the full manifest otherwise. The table always shows every lens run.
-    const countCheckNames = String(flags["required-checks"] ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
     const prView = ghJson(["pr", "view", String(pr), "--json", "isDraft,headRefName"]);
     const comments = listAllComments(pr);
 
@@ -383,11 +424,15 @@ function main() {
     const paged = comments.some(isAnyPagedLatchComment);
     const rerunAt = rerunPointFrom(comments);
     const rounds = buildRounds(commits, lensCheckNames);
-    const failedRounds = countFailedReviewRounds(
-      commits,
-      countCheckNames.length ? countCheckNames : lensCheckNames,
-      { since: rerunAt },
-    );
+    // Counted over the FULL manifest, deliberately caller-independent, and
+    // provably equal to the guard's required_checks count: required_checks is
+    // derived from the CUMULATIVE changed-file list (the panel keeps it
+    // unfiltered precisely so a lens that failed can never stop being
+    // required), so manifest ⊇ required only by lenses that never fail — and
+    // a lens that never fails contributes nothing to a count of commits
+    // carrying FAILING lens runs. A per-caller set would make this number
+    // flap between arms on the one surface built to converge.
+    const failedRounds = countFailedReviewRounds(commits, lensCheckNames, { since: rerunAt });
 
     // `ready` means "passed the ready gate", not "is not a draft": the promote
     // job is the only thing that un-drafts an agent/ branch, but an
@@ -407,7 +452,7 @@ function main() {
     body = renderLoopStatus({
       rounds,
       failedRounds,
-      maxRounds: n(flags["max-rounds"]),
+      maxRounds: n(flags["max-rounds"]) ?? DEFAULT_MAX_REVIEW_ROUNDS,
       paged,
       ready,
       rerunAt,

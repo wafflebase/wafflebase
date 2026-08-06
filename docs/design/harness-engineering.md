@@ -381,8 +381,13 @@ bot-authored comment. Update hooks live in the panel workflow (panel verdict,
 promote, round-guard decision, fix outcome, stalled), the CI arm, `@claude fix`
 and `@claude rerun`. The check runs remain the verdict of record; the comment
 only summarizes their conclusions, and the round guard — not the table — is the
-authority on the budget (the table's count uses the same `required_checks` set
-when the caller passes it).
+authority on the budget. Every derived number is caller-independent so the body
+converges instead of flapping between arms: the round count uses the full lens
+manifest (provably equal to the guard's `required_checks` count, because that
+set derives from the cumulative changed-file list and never shrinks mid-PR, and
+a lens that never fails adds nothing to a count of failing-lens commits), and
+the cap defaults to a constant pinned by test to the panel workflow's
+`MAX_REVIEW_ROUNDS` literal.
 
 Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a

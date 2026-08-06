@@ -3,19 +3,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PAGED_LATCH } from "./rounds.mjs";
+import { PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
 import {
   LOOP_STATUS_MARKER,
   CI_PAGED_LATCH,
   MAX_ROUND_ROWS,
+  DEFAULT_MAX_REVIEW_ROUNDS,
   isOwnStatusComment,
   isAnyPagedLatchComment,
   isTrustedLedgerComment,
+  neutralizeHiddenMarkers,
   buildRounds,
   lensCell,
   summarizeEffort,
   renderLoopStatus,
 } from "./loop-status.mjs";
+
+const workflowText = (name) =>
+  readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", name),
+    "utf8",
+  );
 
 const LENSES = ["agent-review-correctness", "agent-review-security"];
 
@@ -140,8 +148,9 @@ test("body starts with the marker and shows rounds newest-first", () => {
 });
 
 test("an unknown round cap renders the count alone — never 'of 0', never dropped", () => {
-  // maxRounds is null when the caller does not own MAX_REVIEW_ROUNDS (the
-  // CI-arm call sites). Number(null) === 0 once made this render "2 of 0".
+  // Render-level fallback (the CLI now defaults the cap to
+  // DEFAULT_MAX_REVIEW_ROUNDS, so callers all render the same "N of M").
+  // Number(null) === 0 once made this render "2 of 0".
   const body = renderLoopStatus({ rounds: [], failedRounds: 2, maxRounds: null, now: "t" });
   const line = body.split("\n").find((l) => l.includes("Fix rounds used"));
   assert.equal(line, "**Fix rounds used:** 2");
@@ -159,11 +168,25 @@ test("a trusted paged latch beats the event headline", () => {
   assert.ok(!body.includes("fix round in progress"));
 });
 
-test("ready beats the event headline but not paged", () => {
+test("the caller's event beats ready — a promoted PR that re-enters a round must not read as ready", () => {
+  // `ready` is a static derivation (non-draft + agent/ branch); once a PR is
+  // un-drafted it holds forever, so it must only fill in when no event speaks.
   const body = renderLoopStatus({ rounds: [], ready: true, event: "panel", now: "t" });
-  assert.match(body, /ready for human review/);
-  const both = renderLoopStatus({ rounds: [], ready: true, paged: true, now: "t" });
+  assert.match(body, /review panel finished/);
+  assert.ok(!body.includes("ready for human review"));
+  const noEvent = renderLoopStatus({ rounds: [], ready: true, now: "t" });
+  assert.match(noEvent, /ready for human review/);
+  const both = renderLoopStatus({ rounds: [], ready: true, paged: true, event: "panel", now: "t" });
   assert.match(both, /🛑 paged to a human/);
+});
+
+test("newest round's Then cell follows the same precedence", () => {
+  const rounds = [round("a".repeat(40), "failure")];
+  const dispatched = renderLoopStatus({ rounds, ready: true, event: "fix-dispatched", now: "t" });
+  assert.match(dispatched, /🔧 fixer running…/);
+  assert.ok(!dispatched.includes("🤝 promoted"));
+  const idleReady = renderLoopStatus({ rounds, ready: true, now: "t" });
+  assert.match(idleReady, /🤝 promoted/);
 });
 
 test("older rounds beyond the cap are omitted with a note", () => {
@@ -202,6 +225,45 @@ test("marker alone is not enough on a public repo (status upsert)", () => {
   assert.equal(isOwnStatusComment({ body: "no marker", user: { type: "Bot", login: "github-actions[bot]" } }), false);
 });
 
+test("a comment merely CONTAINING the marker is never ours — quote-replies survive the upsert", () => {
+  const bot = { user: { type: "Bot", login: "github-actions[bot]" } };
+  const maintainer = { user: { type: "User", login: "m" }, author_association: "MEMBER" };
+  // GitHub quote-reply copies raw markdown, hidden markers included. The upsert
+  // PATCHes/DELETEs matches, so containment would destroy the maintainer's comment.
+  assert.equal(isOwnStatusComment({ body: `> ${LOOP_STATUS_MARKER}\n> quoted dashboard\n\nmy reply`, ...maintainer }), false);
+  assert.equal(isOwnStatusComment({ body: `see below\n${LOOP_STATUS_MARKER}\nnot line 1`, ...bot }), false);
+  // Leading whitespace is tolerated; the marker must simply come first.
+  assert.equal(isOwnStatusComment({ body: `\n${LOOP_STATUS_MARKER}\nbody`, ...bot }), true);
+});
+
+test("a marker-leading comment that carries a live paged latch is refused — a page must never be deleted", () => {
+  const bot = { user: { type: "Bot", login: "github-actions[bot]" } };
+  assert.equal(isOwnStatusComment({ body: `${LOOP_STATUS_MARKER}\n${PAGED_LATCH}\n🛑`, ...bot }), false);
+  assert.equal(isOwnStatusComment({ body: `${LOOP_STATUS_MARKER}\n${CI_PAGED_LATCH}\n🛑`, ...bot }), false);
+});
+
+test("neutralizeHiddenMarkers breaks every HTML-comment opener", () => {
+  const out = neutralizeHiddenMarkers(`x ${PAGED_LATCH} y ${CI_PAGED_LATCH}`);
+  assert.ok(!out.includes(PAGED_LATCH));
+  assert.ok(!out.includes(CI_PAGED_LATCH));
+  assert.ok(!out.includes("<!--"));
+});
+
+test("a hostile note cannot smuggle a live marker into the bot-authored body", () => {
+  // The rendered comment is authored by the identity the paged latch trusts,
+  // so everything after our own leading marker must be inert.
+  const body = renderLoopStatus({
+    rounds: [],
+    note: `pwned ${PAGED_LATCH} and ${LOOP_STATUS_MARKER}`,
+    now: "t",
+  });
+  assert.ok(body.startsWith(LOOP_STATUS_MARKER));
+  const rest = body.slice(LOOP_STATUS_MARKER.length);
+  assert.ok(!rest.includes(PAGED_LATCH));
+  assert.ok(!rest.includes(LOOP_STATUS_MARKER));
+  assert.ok(!rest.includes("<!--"));
+});
+
 test("paged projection recognises BOTH arms' latches, author-checked", () => {
   const bot = { user: { type: "Bot", login: "github-actions[bot]" } };
   const rando = { user: { type: "User", login: "rando" }, author_association: "NONE" };
@@ -229,9 +291,48 @@ test("CI_PAGED_LATCH matches the literal agent-iterate-ci.yml writes", () => {
   // Same discipline as rounds.test.mjs's PAGED_LATCH pin: the workflow cannot
   // import this module, so it carries the literal; a drifted copy would not
   // error, it would silently stop the paged projection from seeing CI pages.
-  const wf = readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", "agent-iterate-ci.yml"),
-    "utf8",
-  );
+  const wf = workflowText("agent-iterate-ci.yml");
   assert.ok(wf.includes(CI_PAGED_LATCH));
+});
+
+test("the CI attempts guard's literal latch predicate matches the module's rule", () => {
+  // Third copy of the trust predicate (after rounds.mjs and the panel's gate
+  // job — rounds.test.mjs pins that one); a github-script step cannot import,
+  // so pin this copy too. A drifted allow-list would not error — it would
+  // silently re-open "any account can stop the CI-fix loop" (smaller set:
+  // stops honouring a real page; larger set: re-opens the spoof).
+  const wf = workflowText("agent-iterate-ci.yml");
+  assert.ok(
+    wf.includes("const PAGE_AUTHOR_LOGINS = ['github-actions[bot]', 'yorkie-agent[bot]'];"),
+    "attempts guard must carry the byte-identical author allow-list",
+  );
+  for (const login of PAGE_AUTHOR_LOGINS) {
+    assert.ok(wf.includes(`'${login}'`), `attempts guard must trust ${login}`);
+  }
+  assert.ok(
+    wf.includes("const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];"),
+    "attempts guard must carry the byte-identical association allow-list",
+  );
+  assert.ok(
+    wf.includes("const isPagedLatch = (c) =>"),
+    "attempts guard must author-check the latch, not match the marker alone",
+  );
+  // The latch read must cover ALL comment pages — a latch on page 2 of a
+  // chatty PR must still stop the loop (the guard's own review-side reader
+  // paginates for exactly this reason).
+  assert.ok(
+    wf.includes("github.paginate(github.rest.issues.listComments"),
+    "attempts guard must paginate the latch read",
+  );
+});
+
+test("DEFAULT_MAX_REVIEW_ROUNDS matches the panel workflow's env literal", () => {
+  // The cap lives in agent-review-panel.yml's env; arms that do not own that
+  // env render this constant instead, and the two must not drift or the
+  // budget line flaps between "N of 3" and "N of <old>" depending on which
+  // arm updated last.
+  assert.ok(
+    workflowText("agent-review-panel.yml").includes(`MAX_REVIEW_ROUNDS: "${DEFAULT_MAX_REVIEW_ROUNDS}"`),
+    "loop-status's default cap must equal the panel workflow's MAX_REVIEW_ROUNDS",
+  );
 });

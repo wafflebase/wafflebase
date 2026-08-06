@@ -101,18 +101,33 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      # OBSERVABILITY (Phase 1): snapshot the agent scripts BEFORE the fixer
-      # runs. The loop-status/session-summary steps below execute after a step
-      # that can rewrite the whole workspace (the fixer holds Bash/Edit/Write),
-      # and running a fixer-editable script with GH_TOKEN would hand
-      # prompt-injected branch code a write token. The snapshot is still the
-      # BRANCH's code — the same posture as the set-state/metrics steps this
-      # job has always run — just not fixer-rewritten code. Absent on branches
-      # that predate the scripts; the consumers below skip quietly.
-      - name: Stage the agent scripts (pre-fixer snapshot)
+      # OBSERVABILITY (Phase 1): stage the TRUSTED main copy of the agent
+      # scripts for the loop-status/session-summary steps below — the same
+      # rule the panel's fix job applies to its staged tools. The branch's own
+      # copy is attacker-influenceable code, and those steps run it with a
+      # GITHUB_TOKEN carrying contents:write; main's copy is not. Staged into
+      # RUNNER_TEMP before the fixer and the .trusted-agent dir removed from
+      # the workspace so the fixer cannot commit it. This does NOT protect
+      # against the fixer itself rewriting RUNNER_TEMP mid-job — nothing
+      # executed after the fixer in the same job can be (the panel fix job's
+      # staged metrics step shares exactly this posture) — it removes the
+      # "branch code with a write token" half. Absent until the scripts merge
+      # to main; the consumers below skip quietly.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: main
+          path: .trusted-agent
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Stage the trusted agent scripts (pre-fixer)
         continue-on-error: true
         run: |
-          if [ -d ./scripts/agent ]; then cp -R ./scripts/agent "${{ runner.temp }}/agent-tools"; fi
+          if [ -d .trusted-agent/scripts/agent ]; then
+            cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
+          fi
+          rm -rf .trusted-agent
 
       - name: Attempts guard
         id: guard
@@ -231,7 +246,7 @@ jobs:
           ATTEMPTS: ${{ steps.guard.outputs.attempts }}
           MAX: ${{ env.MAX_ATTEMPTS }}
         run: |
-          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on this branch; skipping"; exit 0; }
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
           node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event ci-paged \
             --note "CI failed $ATTEMPTS times (limit $MAX) — the CI-fix loop paged a human." \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -376,7 +391,7 @@ jobs:
         if: always() && steps.guard.outputs.proceed == 'true'
         continue-on-error: true
         run: |
-          [ -f "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" ] || { echo "session-job-summary.mjs not on this branch; skipping"; exit 0; }
+          [ -f "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" ] || { echo "session-job-summary.mjs not on main yet; skipping"; exit 0; }
           node "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --title "CI-fix agent session"
 
       # GAP FIX: a CI-fix round that pushes NO commit dead-ends the loop silently
@@ -428,7 +443,7 @@ jobs:
           BEFORE: ${{ steps.before-fix.outputs.sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on this branch; skipping"; exit 0; }
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
           AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
           if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
             EVENT=ci-fix-pushed

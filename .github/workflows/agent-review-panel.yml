@@ -999,8 +999,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.pr.outputs.number }}
           BLOCKED: ${{ steps.panel.outputs.blocked }}
-          # The displayed round count uses the same check set the guard counts.
-          REQUIRED_CHECKS: ${{ steps.panel.outputs.required_checks }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
         run: |
           [ -f .trusted/scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
@@ -1014,7 +1012,6 @@ jobs:
           node .trusted/scripts/agent/loop-status.mjs update "$PR" \
             --event panel \
             --note "$NOTE" \
-            --required-checks "$REQUIRED_CHECKS" \
             --max-rounds "$MAX_ROUNDS" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
@@ -1270,7 +1267,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
           READY: ${{ steps.gate.outputs.ready }}
-          REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
         run: |
           [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
@@ -1282,7 +1278,6 @@ jobs:
             NOTE="Panel approved, but the ready gate did not promote — a gate was unsatisfied or the flip failed; see the 'Run ready gate' step in the run."
           fi
           node ./scripts/agent/loop-status.mjs update "$PR" --event "$EVENT" --note "$NOTE" \
-            --required-checks "$REQUIRED_CHECKS" \
             --max-rounds "$MAX_ROUNDS" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
@@ -1437,7 +1432,6 @@ jobs:
           PAGED: ${{ steps.guard.outputs.paged }}
           PROCEED: ${{ steps.guard.outputs.proceed }}
           VERDICT: ${{ steps.guard.outputs.verdict }}
-          REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
         run: |
           [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
@@ -1446,7 +1440,6 @@ jobs:
           else EVENT=held; fi
           node ./scripts/agent/loop-status.mjs update "$PR" --event "$EVENT" \
             --note "${VERDICT:-The round guard made no decision — see the run.}" \
-            --required-checks "$REQUIRED_CHECKS" \
             --max-rounds "$MAX_ROUNDS" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
@@ -1749,7 +1742,6 @@ jobs:
           PR: ${{ needs.review-panel.outputs.pr }}
           BEFORE: ${{ steps.before-fix.outputs.sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-          REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
         run: |
           [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
@@ -1762,7 +1754,6 @@ jobs:
             NOTE="The fix round did not advance the branch — a page comment follows (from this job's no-commit check or the stalled safety net)."
           fi
           node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event "$EVENT" --note "$NOTE" \
-            --required-checks "$REQUIRED_CHECKS" \
             --max-rounds "$MAX_ROUNDS" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
