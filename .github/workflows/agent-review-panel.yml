@@ -1722,6 +1722,8 @@ jobs:
               '<!-- agent-review-paged -->' \
               '🛑 The fix agent did not advance the branch head, so the requested changes were not applied and the loop cannot re-trigger itself (no push → no new CI → no new panel). Likely causes: it produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, or the branch head could not be determined — see the `claude-fix-execution-output` artifact and the run log. **A human should take over** on this PR.' \
               '' \
+              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`fix\`, step \"Address panel findings\"; transcript in the \`claude-fix-execution-output\` artifact." \
+              '' \
               'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
@@ -1950,7 +1952,10 @@ jobs:
               : 'the pipeline stopped without completing';
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
-              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.\n\nThe review panel will not run again on this PR, so the \`agent-review-*\` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.`,
+              // OBSERVABILITY (Phase 2): the run link names THIS run — the one
+              // whose failed job the `reason` above describes — so "where to
+              // look" is one click instead of a search through the Actions tab.
+              body: `<!-- agent-review-paged -->\n🛑 The autonomous pipeline stopped without handing off this PR — ${reason}. **A human should review** this PR.\n\nWhere to look: [this run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) — open the failed job named above; a fixer transcript, when one exists, is in the \`claude-fix-execution-output\` artifact.\n\nThe review panel will not run again on this PR, so the \`agent-review-*\` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.`,
             });
             // The single-value label is set by the "Reconcile agent state" step
             // below — it re-derives state from the unforgeable signals (the paged

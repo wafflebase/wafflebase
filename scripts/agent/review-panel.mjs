@@ -762,6 +762,13 @@ export function routeFinding(finding, { verdict = null, novelty = null } = {}) {
  * of silently vanishing it.
  */
 export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
+  // Only stamp per-finding verifier outcomes when a verdicts array was actually
+  // supplied: both production call sites pass one, index-aligned, where a null
+  // entry for a BLOCKING finding means the verification session threw (see
+  // verifierTally). A caller passing no array at all is saying "nothing was
+  // verified here", and stamping every blocker "errored" for that would report
+  // an outage that never happened.
+  const hasVerdicts = Array.isArray(verdictsByIndex);
   return findings.map((f, i) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return f; // only blockers reach the gate
     const verdict = verdictsByIndex?.[i] ?? null;
@@ -774,6 +781,18 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
     // deciding whether to trust it should be told the verifier could not settle
     // it rather than reading silence as endorsement.
     if (verdict?.verdict === "unresolved") out.unsettled = true;
+    // Reporting only, same contract as `unsettled`: the check body used to print
+    // a machine-confirmed major, an unverified hunch and a finding whose verifier
+    // session died in identical words. "errored" is the per-finding face of the
+    // aggregate `unverified` banner (verifierTally counts the same null), so the
+    // two cannot disagree about what happened.
+    if (hasVerdicts) {
+      if (verdict?.verdict === "confirmed") {
+        out.verification = verdict.confidence === "high" ? "confirmed-high" : "confirmed-low";
+      } else if (!verdict) {
+        out.verification = "errored";
+      }
+    }
     return out;
   });
 }

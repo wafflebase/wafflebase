@@ -201,7 +201,10 @@ jobs:
               core.info(`CI failed ${failedCi} times (limit ${max}); paging a human.`);
               await github.rest.issues.createComment({
                 owner, repo, issue_number: pr.number,
-                body: `${PAGED}\n🛑 CI failed ${failedCi} times on this branch (limit ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve it.`,
+                // OBSERVABILITY (Phase 2): every 🛑 page carries a "Where to
+                // look" line. All three pieces come from the runner's own
+                // context, never from PR content.
+                body: `${PAGED}\n🛑 CI failed ${failedCi} times on this branch (limit ${max}) without going green. **A human needs to take a look** — the harness could not self-resolve it.\n\nWhere to look: [this run](${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}) → job \`iterate\`, step "Attempts guard"; the failing CI runs are on this branch's checks tab.`,
               });
               // The agent:blocked label is set by the "Set state → blocked" step
               // below (single-value state via set-state), gated on this `paged`.
@@ -426,6 +429,8 @@ jobs:
             printf '%s\n' \
               '<!-- agent-paged -->' \
               '🛑 The CI-fix round did not advance the branch head, so CI stays red and the loop cannot re-trigger itself (no new push → no new CI). This can mean the fixer produced no new commit, did not converge within its turn budget, hit tool-permission denials, could not push, the branch head could not be determined, or an earlier step errored — see the run log and the `claude-ci-fix-execution-output` artifact. **A human should take over** on this PR.' \
+              '' \
+              "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`iterate\`; transcript in the \`claude-ci-fix-execution-output\` artifact." \
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi

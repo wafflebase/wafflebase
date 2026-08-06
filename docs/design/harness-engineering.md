@@ -401,6 +401,60 @@ guard writes matching SKIPPED/PAGED/PROCEED summary blocks (inline in
 `gate` job's literal latch copy), and its paged-latch check is author-checked
 with the same predicate as the review-side latch.
 
+**Observability, second slice: findings and money become precise.** The first
+slice made the loop's *shape* legible; this one surfaces what each stage
+actually decided, on the surfaces that already exist and without changing a
+single decision. Three additions, all pure rendering of data the pipeline
+already computes:
+
+- **Enriched lens check-run bodies** (`scripts/agent/severity.mjs`). Each
+  blocking row now renders a `file:line` locator (the finding's own `line`, or
+  the first same-file citation in its evidence — `novelty.mjs::findingLocation`
+  is the one rule for both) and the per-finding verifier outcome: confirmed at
+  high/low confidence, could-not-settle (the existing `unsettled` wording,
+  unchanged), or **UNVERIFIED — the verifier session errored**, the per-finding
+  face of the aggregate outage banner. `annotateFindings` stamps the outcome as
+  a reporting-only `verification` field from the same null-verdict signal
+  `verifierTally` counts, so the marker and the banner cannot disagree. A
+  finding that survived a dispute renders the adjudicator's decision **and its
+  reason** as a sub-bullet — the reason was computed every round and discarded
+  from every human surface (only the `upheld` integer is carried in
+  `output.text`, by design; the prose lives here). Findings the author
+  reported **skipped** get their own section with the author's note, closing
+  the fix-report section's documented not-yet-built item. Because lens bodies
+  are copied verbatim into a bot-authored PR comment
+  (`.github/workflows/agent-review-on-demand.yml`), the two author-adjacent strings on this
+  surface — the adjudication reason and the skip note — are `<!--`-neutralized
+  (the `scripts/agent/fix-report.mjs` ZWNJ technique) so author prose cannot
+  smuggle a live paged latch into a comment posted by a trusted identity. The fixer-prompt cut
+  contract is preserved: every new section arrives via the same `\n### `
+  marker, and `scripts/agent/harvest.mjs`'s corpus reader round-trips the
+  enriched rows (pinned by a cross-module test against the real renderer).
+
+- **Per-session ledger** (`scripts/agent/metrics.mjs::renderLedger`). The
+  effort summary's aggregates could answer "what did everything cost" but not
+  "what did round 3 cost"; a `<details>` fold now lists every recorded session
+  chronologically — kind, turns, weighted tokens, cost, duration — with
+  `review`/`review-fix` rows carrying their round ordinal (the nth panel
+  record IS round n, the same order `detectFlips` reads). Rendering happens
+  before any sweep, so `--final` summaries carry the full table. Two rules
+  guard it: a missing value renders as `—`, never `0` (`Number(null) === 0`),
+  and `kind` — the one free-text field in a record that is parsed from ANY
+  comment — is allow-listed to the pipeline's own kinds and renders as
+  `other` otherwise, so a forged `<!-- agent-metric -->` record cannot steer
+  text into the bot-authored summary.
+
+- **"Where to look" on every 🛑 page** (`whereToLookLine` + `runUrlFromEnv` in
+  `scripts/agent/guard-verdict.mjs`). Every page comment now ends with a link
+  to the failed run, the job/step that decided or died, and the transcript
+  artifact where one exists — the three clicks a hand-off used to make a
+  maintainer reconstruct from the Actions tab. The URL is built only from the
+  runner's own `GITHUB_*` env (null on any missing piece, never a partial
+  link), so pages posted outside Actions render exactly as before. The
+  `github-script` page sites (the CI arm's attempts guard, the `stalled`
+  safety net) carry inline copies of the line for the usual cannot-import
+  reason; they are display-only strings, so no byte-identity pin is needed.
+
 ### Phase 24: Autonomous Contribution Loop
 
 **Principle:** Mechanical Enforcement + Capability-First Debugging — drive the
