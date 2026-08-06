@@ -26,6 +26,7 @@ import {
   rerunPointFrom,
 } from "./rounds.mjs";
 import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
+import { appendStepSummary, guardVerdictLine, renderGuardSummary } from "./guard-verdict.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -82,7 +83,10 @@ const HANDOFF_NOTE =
   "`agent-review-*` checks are now frozen at their current state and the ready " +
   "gate will not promote it. Review and merge it manually.";
 
-function page(msg) {
+// `reason` is a short machine-ish tag (infra / invalid-verdict / standstill /
+// stall / round-cap) — it only labels the page for the verdict line and the
+// job summary; the page comment itself stays exactly what `msg` says.
+function page(msg, reason = "paged") {
   gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${HANDOFF_NOTE}`]);
   // Labeling is intentionally NOT done here: the single-value state machine
   // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
@@ -91,7 +95,17 @@ function page(msg) {
   // be immediately overwritten and contradicts that clean single-label cutover.
   setOutput("paged", "true");
   setOutput("proceed", "false");
+  // OBSERVABILITY (display only — a rendering bug can mislabel a decision but
+  // never change one): the one-line verdict feeds loop-status.mjs's sticky
+  // comment via the workflow; the block goes to the run page.
+  const verdict = { decision: "page", reason, detail: msg, failedRounds: pagedRoundContext.failedRounds, max };
+  setOutput("verdict", guardVerdictLine(verdict));
+  appendStepSummary(renderGuardSummary(verdict));
 }
+
+// Round count context for page() — filled in once commits are fetched; the
+// infra/invalid-verdict pages fire before that and render without it.
+const pagedRoundContext = { failedRounds: null };
 
 // PAGED latch: paginate ALL comments (an iterating PR can exceed one page),
 // so a later page isn't missed and the fix loop doesn't re-fire after a human
@@ -102,6 +116,8 @@ function page(msg) {
 const comments = listAll(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`);
 if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
+  setOutput("verdict", guardVerdictLine({ decision: "latched" }));
+  appendStepSummary(renderGuardSummary({ decision: "latched" }));
   process.exit(0);
 }
 // `@claude rerun` (#650) deletes the paged comments, so the latch above is
@@ -121,13 +137,14 @@ if (infra) {
   page(
     `The review panel could not run — Claude API/quota error: ${infra} ` +
       `This is an infrastructure/credential issue, not a code problem. Re-run the panel after the limit resets.`,
+    "infra",
   );
   process.exit(0);
 }
 
 // A lens that failed CLOSED (no valid verdict) → structural problem, page now.
 if (!allValid) {
-  page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`);
+  page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`, "invalid-verdict");
   process.exit(0);
 }
 
@@ -207,6 +224,7 @@ const stallRounds = groupReviewRounds(
 // panel round and an immediate re-page" this change exists to end, arriving through
 // a different door.
 const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
+pagedRoundContext.failedRounds = failedRounds;
 // A hand-back buys the loop at least one attempt before the softer bounds may fire
 // again. The round cap needs no such rule — its count already starts at the rerun.
 // The other two cannot be filtered as cleanly: the stall detector reads rounds
@@ -225,6 +243,7 @@ if (exhausted.length > 0) {
       `independent adjudicator. The loop cannot settle this by itself — either the finding is ` +
       `right and the author cannot act on it, or it is wrong in a way the adjudicator cannot see. ` +
       `Standstill: ${exhausted.slice(0, 5).join("; ")}. A human should decide on PR #${pr}.`,
+    "standstill",
   );
   process.exit(0);
 }
@@ -244,6 +263,7 @@ if (stall.stalled && !heldByRerun) {
       `(${stall.stalls + 1} consecutive rounds with no reduction in blocking findings). ` +
       `Repeated: ${named}. Another fix round would spend budget on the same ground — ` +
       `a human should take over on PR #${pr}.`,
+    "stall",
   );
   process.exit(0);
 }
@@ -252,8 +272,27 @@ if (failedRounds >= max) {
   page(
     `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
       `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
+    "round-cap",
   );
   process.exit(0);
 }
 
+// OBSERVABILITY: the PROCEED branch was the one silent decision in this loop —
+// only pages ever reached a human surface, so a continuing loop and a dead one
+// looked identical from the PR. Render the same inputs the decision used
+// (display only; guard-verdict.mjs holds no decision logic).
+const verdict = {
+  decision: "proceed",
+  failedRounds,
+  max,
+  stall,
+  standstillCount: exhausted.length,
+  rebuttalLimit: MAX_REBUTTAL_ROUNDS,
+  infra,
+  heldByRerun,
+  rerunAt,
+  requiredCheckNames,
+};
+setOutput("verdict", guardVerdictLine(verdict));
+appendStepSummary(renderGuardSummary(verdict));
 setOutput("proceed", "true");

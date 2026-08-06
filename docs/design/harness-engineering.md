@@ -362,6 +362,45 @@ Deliverables:
 Done criteria: An agent can diagnose a CI failure from report artifacts
 without human interpretation.
 
+**Loop-status projection (`<!-- agent-loop-status -->`).** Delivered as the
+human half of this phase: one sticky PR comment, updated in place by
+`scripts/agent/loop-status.mjs`, that makes the review→fix loop legible without
+reading workflow logs — a newest-first round table (head sha, non-panel checks,
+per-lens check conclusions, what happened next), the fix-round budget, the
+latest loop decision, and effort totals. Its contract mirrors the `agent:*`
+label projection (Phase 24): it is **derived in full from the unforgeable
+signals** (commits, lens check runs, both paged latches, the metric ledger) on
+every update, so a missed update self-heals, and **nothing may read it back to
+make a decision**. Trust rules, because the repo is public: the upsert only
+updates a marker comment authored by an allow-listed bot login or a
+write-access human (the paged-latch rule, `rounds.mjs::isPagedLatchComment`);
+metric-ledger records are parsed only from trusted-author comments and only
+their **numbers** are ever rendered — otherwise a stranger's fake
+`<!-- agent-metric -->` record could launder a trusted marker into a
+bot-authored comment. Update hooks live in the panel workflow (panel verdict,
+promote, round-guard decision, fix outcome, stalled), the CI arm, `@claude fix`
+and `@claude rerun`. The check runs remain the verdict of record; the comment
+only summarizes their conclusions, and the round guard — not the table — is the
+authority on the budget. Every derived number is caller-independent so the body
+converges instead of flapping between arms: the round count uses the full lens
+manifest (provably equal to the guard's `required_checks` count, because that
+set derives from the cumulative changed-file list and never shrinks mid-PR, and
+a lens that never fails adds nothing to a count of failing-lens commits), and
+the cap defaults to a constant pinned by test to the panel workflow's
+`MAX_REVIEW_ROUNDS` literal.
+
+Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
+now renders its decision — including the previously **silent PROCEED** — as a
+`verdict` step output plus a `$GITHUB_STEP_SUMMARY` block
+(`scripts/agent/guard-verdict.mjs`, pure presentation with no decision logic),
+and `scripts/agent/panel-job-summary.mjs` /
+`scripts/agent/session-job-summary.mjs` put the per-lens verdict/verifier/cost
+table and each Claude session's turns/cost/outcome on the run page. The CI arm's attempts
+guard writes matching SKIPPED/PAGED/PROCEED summary blocks (inline in
+`github-script`, which cannot import a module — the same constraint behind the
+`gate` job's literal latch copy), and its paged-latch check is author-checked
+with the same predicate as the review-side latch.
+
 ### Phase 24: Autonomous Contribution Loop
 
 **Principle:** Mechanical Enforcement + Capability-First Debugging — drive the
