@@ -194,6 +194,20 @@ describe("createBoardZoomBinding", () => {
     expectFramed(h.viewport);
   });
 
+  // The context menu bypasses the dropdown, so it must move the readout
+  // itself — otherwise the board re-frames while the label still claims
+  // whatever preset the user last picked.
+  it("fit() moves the readout to Fit from a preset", () => {
+    const h = harness(1);
+    h.binding.controller.set(2);
+    expect(h.controller.get()).toBe(2);
+
+    h.binding.fit();
+
+    expect(h.controller.get()).toBe(FIT_ZOOM);
+    expectFramed(h.viewport);
+  });
+
   it("commits a preset about the host centre without reading the scene", () => {
     const h = harness(1);
     h.binding.controller.set(2);

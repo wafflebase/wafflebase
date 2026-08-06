@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type {
+  Element,
   Frame,
+  GroupElement,
   ShapeElement,
   SlidesEditor,
   SlidesStore,
@@ -8,6 +10,7 @@ import type {
 } from "@wafflebase/slides";
 import { SYNTHETIC_SLIDE_ID, boardToSlidesDocument } from "@wafflebase/board";
 import { getToolbarState } from "../slides/toolbar/state";
+import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 
 /**
  * Characterization test for the contract the board toolbar leans on:
@@ -21,7 +24,7 @@ import { getToolbarState } from "../slides/toolbar/state";
  * `boardToSlidesDocument`, so the slide id / theme / layout wiring under
  * test is the production one and not a hand-rolled lookalike.
  */
-function boardStore(elements: (ShapeElement | TextElement)[]): SlidesStore {
+function boardStore(elements: Element[]): SlidesStore {
   return {
     read: () =>
       boardToSlidesDocument({ meta: { title: "Board" }, elements }),
@@ -87,6 +90,27 @@ describe("getToolbarState on a board store", () => {
       boardStore([shape, text]),
     );
     expect(state).toMatchObject({ kind: "object", selectionType: "mixed" });
+  });
+
+  it("enables Ungroup for a single selected group on a board store", () => {
+    // Regression guard: the board toolbar left `canUngroup` at its
+    // `false` default, so Arrange ▸ Ungroup was dead even right after
+    // the user grouped two shapes from that same menu.
+    const group: GroupElement = {
+      id: "g1",
+      type: "group",
+      frame,
+      data: { children: [shape, text] },
+    };
+    const store = boardStore([group]);
+    const editor = editorStub({ getSelection: () => ["g1"] });
+
+    expect(canUngroupSelection(editor, store, ["g1"])).toBe(true);
+    // …and not for a plain shape, or a multi-selection.
+    expect(canUngroupSelection(editor, boardStore([shape]), ["e1"])).toBe(false);
+    expect(canUngroupSelection(editor, store, ["g1", "e1"])).toBe(false);
+    expect(canUngroupSelection(editor, store, [])).toBe(false);
+    expect(canUngroupSelection(null, store, ["g1"])).toBe(false);
   });
 
   it("reports text-edit while editing a text box", () => {

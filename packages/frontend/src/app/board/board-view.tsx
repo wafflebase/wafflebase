@@ -155,8 +155,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // The zoom VALUE holder (label/intent channel only — `vp` above stays
   // the single source of truth for scale). Ref-held so it survives
   // mount-effect re-runs (e.g. `workspaceId` resolving after the first
-  // render), which would otherwise reset the readout.
-  const zoomValue = useRef(createBoardZoomController()).current;
+  // render), which would otherwise reset the readout. Lazily initialized:
+  // `useRef(createBoardZoomController())` would re-run the factory on
+  // EVERY render and throw the result away.
+  const zoomValueRef = useRef<ZoomController | null>(null);
+  if (zoomValueRef.current === null) {
+    zoomValueRef.current = createBoardZoomController();
+  }
+  const zoomValue = zoomValueRef.current;
   // That value holder bound to the actions it drives (see
   // `createBoardZoomBinding`). Built inside the mount effect — it closes
   // over the live viewport, host size and minimap — and lifted into
@@ -432,14 +438,24 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // working. A board is unbounded, so a selection ring alone does not
     // locate a collaborator who is editing off-screen.
     //
-    // Coalesced to one write per animation frame by `createCursorPublisher`
-    // (own testable module, see `board-cursor-publish.ts`) — a raw
-    // pointermove publish would push a CRDT presence update per mouse
-    // sample and flood the channel. Presence only — the document root is
-    // untouched.
+    // Coalesced to at most one write per animation frame by
+    // `createCursorPublisher` (own testable module, see
+    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
+    // CRDT presence update per mouse sample and flood the channel.
+    // Presence only — the document root is untouched.
+    //
+    // "At most", because a presence write is not free even when the doc
+    // is untouched: it emits a SELF `presence-changed`, which
+    // `@yorkie-js/react` turns into a fresh state object, which
+    // re-renders this component and the whole toolbar tree. So the
+    // publisher drops a frame whose position has not moved, and
+    // `shouldPublish` drops the whole thing when there is nobody to see
+    // it — a solo user waving the mouse must not cost 60 React commits a
+    // second.
     const cursorPublisher = createCursorPublisher({
       requestFrame: (cb) => requestAnimationFrame(cb),
       cancelFrame: (handle) => cancelAnimationFrame(handle),
+      shouldPublish: () => doc.getOthersPresences().length > 0,
       publish: (position) => {
         doc.update((_, p) => {
           p.set({ cursor: position });

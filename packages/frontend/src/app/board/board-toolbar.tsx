@@ -27,6 +27,7 @@ import { ImageControls } from "../slides/toolbar/image-controls";
 import { TextElementControls } from "../slides/toolbar/text-element-controls";
 import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
+import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS } from "./sticky";
 
 export interface BoardToolbarProps {
@@ -117,11 +118,13 @@ export function BoardToolbar({
   // themed colours against — so the picker's swatches and the painted
   // result agree. A board has no theme switcher.
   //
-  // Memoized on `store` for reference stability, not for read cost
-  // (`YorkieBoardStore.read()` is memoized behind `cachedDoc`): that
-  // cache is dropped on every change, so an unmemoized read would hand
-  // the leaf controls below a NEW theme object after each edit, churning
-  // a prop that by construction never changes for a given store.
+  // Memoized on `store` to skip the READ, not for reference stability:
+  // `defaultLight` is a module-level const, so `themes[0]` is already
+  // referentially stable. `YorkieBoardStore.read()` drops its `cachedDoc`
+  // on every change and this toolbar re-renders on that same change
+  // (`store.onChange` above), so an unmemoized read would redo the full
+  // per-element deep unwrap of the whole board once per edit just to
+  // reach a constant.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
   return (
@@ -307,12 +310,10 @@ export function BoardToolbar({
           {/* `table` renders nothing: a board never creates tables (no
               picker, paste strips them) and `YorkieBoardStore` throws
               `notSupported` on every table op. */}
-          {/* `canUngroup` is left at its default `false`: the board's
-              group/ungroup path stays on the context menu, which already
-              offers both with correct enablement. */}
           <ArrangeMenu
             editor={editor}
             selectionSize={state.ids.length}
+            canUngroup={canUngroupSelection(editor, store, state.ids)}
             minAlignSelection={2}
           />
         </>

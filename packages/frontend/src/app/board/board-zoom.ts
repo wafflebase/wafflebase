@@ -99,7 +99,13 @@ export interface BoardZoomBindingOptions {
 export interface BoardZoomBinding {
   /** Hand this to `ZoomControl`; it renders and drives the dropdown. */
   controller: ZoomController;
-  /** Re-frame every element now. Also the context menu's Fit to content. */
+  /**
+   * Re-frame every element now, AND move the readout to "Fit". This is
+   * the context menu's "Fit to content": it must leave the dropdown
+   * label agreeing with what the viewport just did, exactly as picking
+   * Fit from the dropdown does — otherwise a board at 200 % re-frames
+   * while the dropdown still claims 200 %.
+   */
   fit: () => void;
   /**
    * Report a scale the VIEWPORT already applied (wheel / pinch), so the
@@ -137,7 +143,10 @@ export function createBoardZoomBinding(
   controller: ZoomController,
   opts: BoardZoomBindingOptions,
 ): BoardZoomBinding {
-  const fit = () => {
+  // The ACTION half of a fit: resolve + commit, no label write. Split
+  // out so the dropdown branch below (which has already written the
+  // value) does not write it a second time.
+  const applyFit = () => {
     const next = applyZoomValue(
       opts.getViewport(),
       FIT_ZOOM,
@@ -150,7 +159,12 @@ export function createBoardZoomBinding(
   };
 
   return {
-    fit,
+    // Label + action, for callers that did not come through the dropdown
+    // (the canvas context menu's "Fit to content").
+    fit: () => {
+      controller.set(FIT_ZOOM);
+      applyFit();
+    },
     reportViewportZoom: (zoom) => controller.set(zoom),
     controller: {
       get: () => controller.get(),
@@ -158,7 +172,7 @@ export function createBoardZoomBinding(
       set: (value) => {
         controller.set(value);
         if (value === FIT_ZOOM) {
-          fit();
+          applyFit();
           return;
         }
         // The preset branch of `applyZoomValue` reads no frames, so the
