@@ -4,7 +4,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CAPTURES_SUBDIR, CORPUS_ITEM_FILES, EvalStore, contentSha256, itemFileBytes, validateCorpusItem } from "./store.mjs";
+import {
+  CAPTURES_SUBDIR,
+  CORPUS_ITEM_FILES,
+  EvalStore,
+  ITEM_FILES,
+  ITEM_STATUSES,
+  TRANSCRIPT_STATES,
+  contentSha256,
+  itemFileBytes,
+  validateCorpusItem,
+  validateRunEnvelope,
+} from "./store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -379,13 +390,31 @@ test("there is no transcript method on the surface, and that IS the decision", (
   // metric reads), so a transcript is routinely absent. A `getTranscript` that
   // answered `null` on every call in production would eventually be read as "the
   // model said nothing" — a confusion this codebase has already shipped once
-  // (audit §4-E). Absence is expressed by there being no question to ask; PR 5
-  // records a POINTER in the envelope and any reader must return a named state.
+  // (audit §4-E). Absence is expressed by there being no question to ask, and the
+  // run slice keeps the other half of the promise: an envelope carries a NAMED
+  // state rather than a pointer that can be falsy.
   const { store, cleanup } = tempStore();
   try {
-    for (const name of ["getTranscript", "putTranscript", "putItem", "getItem"]) {
+    for (const name of ["getTranscript", "putTranscript"]) {
       assert.equal(typeof store[name], "undefined", `${name} exists — see the header note on transcript absence`);
     }
+  } finally {
+    cleanup();
+  }
+});
+
+test("nothing the store writes is a compressed transcript", () => {
+  // The fork's `putItem` gzipped every replay's full model transcript into the
+  // results repo. Asserted on what lands on DISK rather than on the source text: a
+  // grep would also match this comment, and a test that reads a comment is not
+  // watching the property.
+  const { root, store, cleanup } = tempStore();
+  try {
+    store.putCorpusItem("pr-664", item());
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { adapter: "reviewer", transcript: "would have been gzipped" } });
+    const all = readdirSync(root, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
+    assert.ok(all.length > 0);
+    for (const f of all) assert.ok(!f.endsWith(".gz"), `${f} is a compressed blob in a git-backed store`);
   } finally {
     cleanup();
   }
@@ -406,4 +435,324 @@ test("validateCorpusItem is exported so a hand-written item is checked by the sa
   assert.deepEqual(normalised.changedFiles, good.changedFiles);
   assert.equal(normalised.issueSpec, "");
   assert.throws(() => validateCorpusItem("pr-664", { ...good, diff: "" }), /empty diff/);
+});
+
+// --- the run slice -----------------------------------------------------------
+// PR 3 ported the corpus slice only, deliberately. These are the run-side methods
+// the replay runner needs, and the reason they are worth their own block is that
+// their mutability rules are the OPPOSITE of a corpus item's: an item is a
+// deterministic extraction whose re-write is a determinism check, while a run item
+// is an observation of a non-deterministic judge whose re-write would delete a data
+// point.
+
+const RUN_ID = "2026-08-06T12-00-00-000Z__baseline";
+const PANEL_SHA = "61101a1bdbdffb9acb88772cae4c9347c69f413b";
+
+/** A valid envelope, with fields overridable per test. */
+function envelope(over = {}) {
+  return {
+    run_id: RUN_ID,
+    item_id: "pr-664",
+    config_hash: `sha256:${"a".repeat(64)}`,
+    panel_sha: PANEL_SHA,
+    panel_sha_source: "git",
+    corpus_version: "v-test",
+    status: "ok",
+    reason: null,
+    error: null,
+    cost_usd: 0.42,
+    duration_ms: 30000,
+    duration_source: "review-timing.json",
+    gate: { state: "off-no-base-sha", line: "novelty gate: OFF (no --base-sha)" },
+    transcript: { state: "absent" },
+    timestamp: "2026-08-06T12:01:00.000Z",
+    ...over,
+  };
+}
+
+const runJson = (over = {}) => ({ run_id: RUN_ID, config_hash: `sha256:${"a".repeat(64)}`, corpus_version: "v-test", panel_sha: PANEL_SHA, status: "partial", ...over });
+
+test("a run item written by the store reads back identically", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    assert.equal(store.hasItem(RUN_ID, "pr-664"), false);
+    assert.equal(store.getItem(RUN_ID, "pr-664"), null);
+    assert.equal(store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { adapter: "reviewer", findings: [] } }), "written");
+    assert.equal(store.hasItem(RUN_ID, "pr-664"), true);
+    const got = store.getItem(RUN_ID, "pr-664");
+    assert.deepEqual(got.envelope, envelope());
+    assert.deepEqual(got.payload, { adapter: "reviewer", findings: [] });
+    assert.deepEqual(store.listItems(RUN_ID), ["pr-664"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a run id is validated, never sanitised", () => {
+  // The fork ran every id through a `[:/\\] → -` replace, which silently maps two
+  // DISTINCT run ids onto one directory — for a subsystem whose whole job is telling
+  // two runs apart, the worse failure. The ids the runner generates pass this
+  // grammar unchanged, so nothing needed mangling in the first place.
+  const { store, cleanup } = tempStore();
+  try {
+    assert.equal(store.putRun(RUN_ID, { runJson: runJson() }), "written");
+    for (const bad of ["../escape", "a/b", "a\\b", "", ".", "..", "-leading"]) {
+      assert.throws(() => store.putRun(bad, { runJson: runJson({ run_id: bad }) }), /run id must match/);
+      assert.throws(() => store.hasItem(bad, "pr-664"), /run id must match/);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("a run item is write-once, and the refusal says to use a new run id", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: {} });
+    // Unlike a corpus item — where a second extraction is COMPARED — a second replay
+    // is a different observation of a non-deterministic judge and belongs under a
+    // different run id. Overwriting would delete a data point and leave run.json's
+    // totals describing items that are no longer there.
+    assert.throws(
+      () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ cost_usd: 9 }), payload: {} }),
+      /already exists .*runs are write-once.*new --run-id/s,
+    );
+    assert.equal(store.getItem(RUN_ID, "pr-664").envelope.cost_usd, 0.42);
+  } finally {
+    cleanup();
+  }
+});
+
+test("hasItem keys on envelope.json, which is written LAST", () => {
+  const { root, store, cleanup } = tempStore();
+  try {
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { x: 1 } });
+    const dir = path.join(root, "runs", RUN_ID, "items", "pr-664");
+    assert.deepEqual(readdirSync(dir).sort(), ["envelope.json", "payload.json"]);
+    // A crash between the two files must leave the item ABSENT — so it is retried —
+    // rather than present-and-half-written, which resume would skip forever.
+    rmSync(path.join(dir, "envelope.json"));
+    assert.equal(store.hasItem(RUN_ID, "pr-664"), false);
+    assert.deepEqual(store.listItems(RUN_ID), []);
+    // And the reverse state, which nothing this module writes can produce, THROWS
+    // rather than silently shrinking the run: every proportion downstream would
+    // otherwise carry an `n` that is wrong.
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { x: 1 } });
+    rmSync(path.join(dir, "payload.json"));
+    assert.throws(() => store.getItem(RUN_ID, "pr-664"), /an incomplete item, not an absent one/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the write ORDER survives an interrupted write, which is the only time it shows", () => {
+  // The order has no effect on a completed item, so asserting that both files exist
+  // cannot see it — and a decision nothing can see is one that gets silently
+  // reversed. Replayed here by making the SECOND write fail: a directory sits where
+  // `payload.json` should go, so `writeFileSync` throws part-way through `putItem`.
+  const { root, store, cleanup } = tempStore();
+  try {
+    const dir = path.join(root, "runs", RUN_ID, "items", "pr-664");
+    mkdirSync(path.join(dir, ITEM_FILES.payload), { recursive: true });
+    assert.throws(() => store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { x: 1 } }));
+    // Payload first, envelope last → the interrupted item reads ABSENT, which is
+    // recoverable: the runner retries it. The other order would leave `hasItem`
+    // TRUE with no payload beside it, and a resumed run would skip it forever.
+    assert.equal(
+      store.hasItem(RUN_ID, "pr-664"),
+      false,
+      "envelope.json was written before payload.json — an interrupted item would read as complete and never be retried",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("an envelope with no panel_sha is refused — half of 'same reviewer' would be missing", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // #680 decided the pooling key is the PAIR (config_hash, panel_sha):
+    // config_hash cannot see the panel's code, so a new verifier stage or a changed
+    // gate leaves it identical. Without panel_sha a replay envelope and a live
+    // capture cannot be pooled on the same key at all.
+    for (const bad of [undefined, null, "", "abc", "A".repeat(40), `${PANEL_SHA} `, "z".repeat(40), 40]) {
+      assert.throws(
+        () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ panel_sha: bad }), payload: {} }),
+        /panel_sha must be 40 lowercase hex/,
+        `panel_sha ${JSON.stringify(bad)} was accepted`,
+      );
+    }
+    assert.equal(store.hasItem(RUN_ID, "pr-664"), false, "a refused envelope must leave nothing behind");
+  } finally {
+    cleanup();
+  }
+});
+
+test("an envelope with no gate state is refused — a scorer would pool gated and ungated runs", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    for (const bad of [undefined, null, {}, { state: "" }, { state: "  " }, { line: "x" }]) {
+      assert.throws(
+        () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ gate: bad }), payload: {} }),
+        /gate\.state must be a non-empty string/,
+        `gate ${JSON.stringify(bad)} was accepted`,
+      );
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("a transcript reference must be a NAMED state, never a falsy value", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // "we did not keep it" and "there was nothing to keep" are different facts, and
+    // a falsy value cannot express which. PR 3 decided this for corpus items; the
+    // write path is where it stops being a convention.
+    for (const bad of [undefined, null, "", "absent", { state: null }, { state: "" }, { state: "missing" }, { path: "/x" }]) {
+      assert.throws(
+        () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ transcript: bad }), payload: {} }),
+        /transcript\.state must be one of/,
+        `transcript ${JSON.stringify(bad)} was accepted`,
+      );
+    }
+    for (const state of TRANSCRIPT_STATES) {
+      const s = new EvalStore(mkdtempSync(path.join(tmpdir(), "eval-store-test-")));
+      assert.equal(s.putItem(RUN_ID, "pr-664", { envelope: envelope({ transcript: { state, path: "/tmp/t.json" } }), payload: {} }), "written");
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("status and reason cannot disagree about whether the item failed", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    for (const bad of [undefined, null, "", "OK", "skipped", "partial", 1]) {
+      assert.throws(() => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ status: bad }), payload: {} }), /status must be one of/);
+    }
+    // `ok` means exactly one thing: this item is a real verdict and may be pooled as
+    // one. An `ok` carrying a reason is two disagreeing claims about the same item.
+    assert.throws(
+      () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ status: "ok", reason: "panel-exit" }), payload: {} }),
+      /both be a real verdict and have failed/,
+    );
+    assert.throws(
+      () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ status: "error", reason: null }), payload: {} }),
+      /a failure nobody can name/,
+    );
+    assert.throws(
+      () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ status: "error", reason: "panel-exit", error: null }), payload: {} }),
+      /carries no message/,
+    );
+    assert.equal(
+      store.putItem(RUN_ID, "pr-664", { envelope: envelope({ status: "error", reason: "panel-exit", error: { message: "the panel exited 1", kind: "panel-exit" } }), payload: {} }),
+      "written",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a null duration is storable, and a duration with no source is not", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // `null` means the panel wrote no review-timing.json. Substituting
+    // sumExecutions's flat sum instead would record a number 3–5× high, because the
+    // panel runs its lenses, samples and verifier calls concurrently.
+    assert.equal(store.putItem(RUN_ID, "a", { envelope: envelope({ item_id: "a", duration_ms: null, duration_source: "absent" }), payload: {} }), "written");
+    for (const bad of [-1, "30000", NaN, Infinity, undefined]) {
+      assert.throws(() => store.putItem(RUN_ID, "b", { envelope: envelope({ item_id: "b", duration_ms: bad }), payload: {} }), /duration_ms must be null or a non-negative number/);
+    }
+    assert.throws(() => store.putItem(RUN_ID, "c", { envelope: envelope({ item_id: "c", duration_source: "" }), payload: {} }), /duration_source must say where/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an envelope filed under one id may not claim another, and unknown fields survive", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    assert.throws(() => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ item_id: "pr-999" }), payload: {} }), /does not match the item id/);
+    assert.throws(() => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ run_id: "other" }), payload: {} }), /does not match the run id/);
+    // WIDENS, NEVER NARROWS: a field PR 13 or PR 19 adds must survive a store that
+    // has never heard of it. This is decision 7, and the finding adapters broke it twice.
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope({ segment_hint: { defect_class: "concurrency" } }), payload: {} });
+    assert.deepEqual(store.getItem(RUN_ID, "pr-664").envelope.segment_hint, { defect_class: "concurrency" });
+  } finally {
+    cleanup();
+  }
+});
+
+test("run.json is refreshable and the config snapshot is identity", () => {
+  const { store, cleanup } = tempStore();
+  const snap = { config_hash: `sha256:${"a".repeat(64)}`, captured_at: "2026-08-06T12:00:00.000Z", lenses: [{ id: "correctness" }] };
+  try {
+    assert.equal(store.getRun(RUN_ID), null);
+    store.putRun(RUN_ID, { runJson: runJson(), configSnapshot: snap });
+    store.putRun(RUN_ID, { runJson: runJson({ status: "complete", items_ok: 1 }), configSnapshot: { ...snap, captured_at: "2026-08-06T13:00:00.000Z" } });
+    const got = store.getRun(RUN_ID);
+    // The summary is rewritten freely; it is recomputed from the immutable items.
+    assert.equal(got.runJson.status, "complete");
+    // The snapshot is not, and a differing `captured_at` is NOT a differing config —
+    // comparing bytes would refuse every ordinary resume, the same trap
+    // extract-corpus.mjs avoided by keeping a clock out of the corpus manifest.
+    assert.equal(got.configSnapshot.captured_at, "2026-08-06T12:00:00.000Z");
+    // A genuinely different configuration is refused: run.json names ONE config_hash
+    // for the whole run, so half the items would be unattributable.
+    assert.throws(
+      () => store.putRun(RUN_ID, { runJson: runJson(), configSnapshot: { ...snap, config_hash: `sha256:${"b".repeat(64)}` } }),
+      /already holds a DIFFERENT config snapshot/,
+    );
+    assert.throws(() => store.putRun(RUN_ID, { runJson: { status: "partial" } }), /run_id is undefined/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("listRuns narrows to the replicates a reliability scorer aggregates over", () => {
+  const { root, store, cleanup } = tempStore();
+  try {
+    const hashA = `sha256:${"a".repeat(64)}`, hashB = `sha256:${"b".repeat(64)}`;
+    store.putRun("run-1", { runJson: runJson({ run_id: "run-1", config_hash: hashA }) });
+    store.putRun("run-2", { runJson: runJson({ run_id: "run-2", config_hash: hashA }) });
+    store.putRun("run-3", { runJson: runJson({ run_id: "run-3", config_hash: hashB }) });
+    store.putRun("run-4", { runJson: runJson({ run_id: "run-4", config_hash: hashA, corpus_version: "v-other" }) });
+    assert.deepEqual(store.listRuns(), ["run-1", "run-2", "run-3", "run-4"]);
+    assert.deepEqual(store.listRuns({ configHash: hashA }), ["run-1", "run-2", "run-4"]);
+    assert.deepEqual(store.listRuns({ configHash: hashA, corpusVersion: "v-test" }), ["run-1", "run-2"]);
+    // `config_hash` alone does not identify the reviewer, so a caller aggregating
+    // "the same reviewer" must be able to say `panelSha` too.
+    assert.deepEqual(store.listRuns({ panelSha: PANEL_SHA }).length, 4);
+    assert.deepEqual(store.listRuns({ panelSha: "f".repeat(40) }), []);
+    // A read path degrades: a directory with no readable run.json is skipped, not
+    // thrown on.
+    mkdirSync(path.join(root, "runs", "debris"), { recursive: true });
+    writeFileSync(path.join(root, "runs", "run-5"), "not a directory");
+    assert.deepEqual(store.listRuns({ configHash: hashB }), ["run-3"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an empty root has no runs and no items, which is the ordinary first-run state", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    assert.deepEqual(store.listRuns(), []);
+    assert.deepEqual(store.listItems(RUN_ID), []);
+    assert.equal(store.getRun(RUN_ID), null);
+    assert.equal(store.getItem(RUN_ID, "pr-664"), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test("validateRunEnvelope is exported so a hand-written envelope is checked by the same rules", () => {
+  assert.deepEqual(validateRunEnvelope(RUN_ID, "pr-664", envelope()), envelope());
+  assert.throws(() => validateRunEnvelope(RUN_ID, "pr-664", null), /must be a JSON object/);
+  assert.throws(() => validateRunEnvelope(RUN_ID, "pr-664", [envelope()]), /must be a JSON object/);
+  assert.deepEqual(ITEM_STATUSES, ["ok", "error"]);
+  // `skipped` is gone because nothing produces it: an item the runner never
+  // attempted is simply absent, and absence is already unambiguous here.
+  assert.equal(ITEM_STATUSES.includes("skipped"), false);
 });
