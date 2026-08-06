@@ -85,13 +85,20 @@ command succeeding):
 
 ## Checklist
 
-- [ ] `parseOutputFormat()` + validating `format()` default in
+- [x] `parseOutputFormat()` + validating `format()` default in
       `src/output/formatter.ts`
-- [ ] `status` routed through `output()`; `--format` honoured; bogus
+- [x] `status` routed through `output()`; `--format` honoured; bogus
       rejected
-- [ ] `ctx list` routed through `output()`; `--format` honoured; bogus
+- [x] `ctx list` routed through `output()`; `--format` honoured; bogus
       rejected
-- [ ] `schema` registry `status` response updated
-- [ ] unit tests: status payload, ctx list payload, format validation
-- [ ] `docs/design/cli.md` prose references updated
-- [ ] draft PR opened, `Fixes #635`
+- [x] `schema` registry `status` response updated
+- [x] unit tests: status payload, ctx list payload, format validation
+- [x] `docs/design/cli.md` prose references updated
+- [x] draft PR opened, `Fixes #635`
+- [x] `schema` wrapped in try/catch (found in self-review: it was the
+      only `output()` caller without one, so `format()`'s new throw
+      escaped as an uncaught exception)
+- [x] `formatTable` JSON-serializes nested values (found in
+      self-review: `schema --format table` printed `[object Object]`)
+- [x] `packages/documentation/developers/cli.md` (published page)
+      updated — it still advertised the deleted `*` active marker

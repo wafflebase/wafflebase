@@ -22,6 +22,23 @@ registry was the spec and the implementation had drifted from it. Worth
 checking the registry first when fixing any CLI output: it says what
 agents were promised.
 
+## Adding a `default:` throw to a shared formatter needs a call-site audit
+
+Giving `format()` a validating `default:` branch is only safe if every
+`output()` caller is inside a `try/catch` that routes to `outputError`.
+`commands/schema.ts` was the one exception out of 31 call sites, and
+`bin.ts` has no top-level handler — so `wafflebase schema --format
+bogus` went from printing a literal `undefined` (exit 0) to dumping a
+Node stack trace. Self-review caught it; the smoke test that found it
+was two commands long. Widening a shared helper's failure mode is a
+call-site audit, not a local change.
+
+The same applies to widening what a shared *renderer* accepts:
+teaching `formatTable` to render a single object reached
+`schema --format table`, which passes `{ commands: [...] }` and started
+printing `[object Object]`. `formatCsv` had already solved that by
+JSON-serializing non-scalars; the new path had to do the same.
+
 ## Flat payloads over nested for CLI output
 
 `formatTable` and `formatCsv` operate on records of scalars; a nested
