@@ -72,9 +72,9 @@ export function registerCtxCommand(program: Command): void {
       try {
         const fmt = parseOutputFormat(opts.format);
         const session = loadSession();
-        // Unlike `status`, this command cannot answer without a session,
-        // so it reports a structured error and exits 1 — matching
-        // `ctx switch`.
+        // Unlike `status`, this command cannot answer without a
+        // session, so it reports a structured error and exits 1. The
+        // exit code matches `ctx switch`, which still prints prose.
         if (!session) throw new NotLoggedInError();
         output(
           buildWorkspaceList(session.workspaces, session.activeWorkspace),

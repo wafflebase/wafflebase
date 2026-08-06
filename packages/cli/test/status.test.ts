@@ -5,9 +5,13 @@ import {
   registerStatusCommand,
 } from '../src/commands/status.js';
 import { registerCtxCommand } from '../src/commands/ctx.js';
+import { registerSchemaCommand } from '../src/commands/schema.js';
 import { createProgram } from '../src/commands/root.js';
 import { format } from '../src/output/formatter.js';
 import type { Session } from '../src/config/session.js';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -95,6 +99,7 @@ describe('status / ctx list command wiring', () => {
   let stderr: ReturnType<typeof vi.spyOn>;
   const originalExitCode = process.exitCode;
   const originalSessionPath = process.env.WAFFLEBASE_SESSION;
+  let tempDirs: string[] = [];
 
   beforeEach(() => {
     stdout = vi.spyOn(console, 'log').mockImplementation(() => {
@@ -105,12 +110,14 @@ describe('status / ctx list command wiring', () => {
     });
     process.env.WAFFLEBASE_SESSION = '/nonexistent/wafflebase-session.json';
     process.exitCode = 0;
+    tempDirs = [];
   });
 
   afterEach(() => {
     stdout.mockRestore();
     stderr.mockRestore();
     process.exitCode = originalExitCode;
+    for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
     if (originalSessionPath === undefined) {
       delete process.env.WAFFLEBASE_SESSION;
     } else {
@@ -122,7 +129,18 @@ describe('status / ctx list command wiring', () => {
     const program = createProgram();
     registerStatusCommand(program);
     registerCtxCommand(program);
+    registerSchemaCommand(program);
     program.parse(argv, { from: 'user' });
+  }
+
+  /** Point `WAFFLEBASE_SESSION` at a real session file on disk. */
+  function withSession(session: Session): string {
+    const dir = mkdtempSync(join(tmpdir(), 'wafflebase-cli-test-'));
+    const path = join(dir, 'session.json');
+    writeFileSync(path, JSON.stringify(session));
+    process.env.WAFFLEBASE_SESSION = path;
+    tempDirs.push(dir);
+    return path;
   }
 
   function lastStdout(): string {
@@ -164,5 +182,61 @@ describe('status / ctx list command wiring', () => {
     run(['ctx', 'list', '--format', 'bogus']);
     expect(JSON.parse(lastStderr()).error.code).toBe('INVALID_FORMAT');
     expect(process.exitCode).toBe(1);
+  });
+
+  it('emits the full auth state from `status` with a session on disk', () => {
+    withSession(makeSession());
+    run(['status']);
+    expect(JSON.parse(lastStdout())).toMatchObject({
+      loggedIn: true,
+      user: 'hackerwins',
+      workspaceName: "hackerwins's Workspace",
+      session: 'valid',
+    });
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('emits the workspace rows from `ctx list` with a session on disk', () => {
+    withSession(makeSession());
+    run(['ctx', 'list']);
+    expect(JSON.parse(lastStdout())).toEqual([
+      {
+        id: 'e98ff707-1111-2222-3333-444444444444',
+        name: "hackerwins's Workspace",
+        active: true,
+      },
+    ]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('renders `ctx list --format table` with an active column', () => {
+    withSession(makeSession());
+    run(['ctx', 'list', '--format', 'table']);
+    const lines = lastStdout().split('\n');
+    expect(lines[0]).toContain('active');
+    expect(lines[2]).toContain('true');
+  });
+
+  it('suppresses `status` output under --quiet', () => {
+    withSession(makeSession());
+    run(['status', '--quiet']);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  });
+
+  // `schema` is the one other `output()` caller that renders a single
+  // object; it must reject a bad --format as JSON rather than let the
+  // throw escape to an uncaught exception (bin.ts has no top handler).
+  it('rejects `schema --format bogus` with a JSON error', () => {
+    run(['schema', '--format', 'bogus']);
+    expect(JSON.parse(lastStderr()).error.code).toBe('INVALID_FORMAT');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('renders nested schema payloads as JSON under --format table', () => {
+    run(['schema', 'ctx.list', '--format', 'table']);
+    const out = lastStdout();
+    expect(out).not.toContain('[object Object]');
+    expect(out).toContain('"active"');
   });
 });

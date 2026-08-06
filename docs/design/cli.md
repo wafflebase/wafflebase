@@ -707,11 +707,12 @@ Exit codes: `0` success, `1` user error (bad input, not found),
 `2` system error (network, auth). Agents can branch on the exit code
 without parsing the error body.
 
-Every command that renders a result routes it through `output()` — that
-includes the session commands `status` and `ctx list`, which used to
-print English sentences and ignore `--format`. `status` reports the
-answer to "am I logged in?" as data and still exits `0` when there is no
-session:
+Every command that renders a *result* routes it through `output()`,
+including the session commands `status` and `ctx list`, which used to
+print English sentences and ignore `--format`. (Commands that only
+acknowledge an action — `login`, `logout`, `ctx switch` — still print a
+prose line.) `status` reports the answer to "am I logged in?" as data
+and still exits `0` when there is no session:
 
 ```json
 { "loggedIn": false, "message": "Not logged in. Run `wafflebase login`." }

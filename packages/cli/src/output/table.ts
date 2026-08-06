@@ -1,17 +1,27 @@
 /**
+ * Render one value of a key/value table. Nested values are
+ * JSON-serialized rather than left to `String()`, which would print
+ * `[object Object]` for the nested payloads some commands emit
+ * (`schema <command>`). Mirrors what `formatCsv` already does.
+ */
+function cell(value: unknown): string {
+  if (value !== null && typeof value === 'object') return JSON.stringify(value);
+  return String(value ?? '');
+}
+
+/**
  * Format a single object as an aligned two-column key/value table.
- * Single-record commands (`status`, `docs get`) are the human-readable
- * path now that JSON is the default, and a one-row-per-field layout
- * reads better there than a very wide single row.
+ * Single-record commands (`status`, `docs get`, `schema`) are the
+ * human-readable path now that JSON is the default, and a
+ * one-row-per-field layout reads better there than a very wide single
+ * row.
  */
 function formatRecord(record: Record<string, unknown>): string {
   const keys = Object.keys(record);
   if (keys.length === 0) return '(no results)';
 
   const width = Math.max(...keys.map((k) => k.length));
-  return keys
-    .map((k) => `${k.padEnd(width)}  ${String(record[k] ?? '')}`)
-    .join('\n');
+  return keys.map((k) => `${k.padEnd(width)}  ${cell(record[k])}`).join('\n');
 }
 
 /**
