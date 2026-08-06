@@ -59,7 +59,7 @@ Tasks 1–3 are the slides-side additive surface and land first, so the slides s
 
 Background: `PeerOverlays` is painted into a **DOM overlay** (`overlay: HTMLDivElement`), not the canvas — cursors are appended `div`s like the existing rings and labels. `computePeerOverlays` filters peers by `activeSlideId === currentSlideId`; cursors use the same filter.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/slides/src/view/editor/peers.test.ts`:
 
@@ -123,12 +123,12 @@ describe('computePeerOverlays cursors', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- peers.test.ts`
 Expected: FAIL — `out.cursors` is `undefined` (property does not exist on `PeerOverlays`), and TypeScript rejects `cursor` on `PeerView`.
 
-- [ ] **Step 3: Extend the peers model and mapping**
+- [x] **Step 3: Extend the peers model and mapping**
 
 In `packages/slides/src/view/editor/peers.ts`, add to the `PeerView` interface (after `selectedTableCells`):
 
@@ -198,12 +198,12 @@ Update the final return:
   return { rings, labels, guides, cellRects, cursors };
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- peers.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Paint the cursors in the overlay**
+- [x] **Step 5: Paint the cursors in the overlay**
 
 In `packages/slides/src/view/editor/overlay.ts`, at the end of `renderPeerOverlays` (after the `peers.labels` loop), append:
 
@@ -250,12 +250,12 @@ In `packages/slides/src/view/editor/overlay.ts`, at the end of `renderPeerOverla
   }
 ```
 
-- [ ] **Step 6: Run the full slides suite (the regression gate)**
+- [x] **Step 6: Run the full slides suite (the regression gate)**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS, with no pre-existing test newly failing. `cursors` is empty on every slides path, so no overlay snapshot or count assertion should move.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/peers.ts \
@@ -292,7 +292,7 @@ slides mount." \
 
 Background: `SlidesEditor.align()` aligns to the combined bounding box of the selection when ≥ 2 elements are selected, but to **the slide canvas (1920 × 1080)** when exactly 1 is (`packages/slides/src/view/editor/editor.ts:511-513`). On an unbounded board that second rule teleports a lone element into a phantom rectangle near the world origin. `align()` itself is not changed — the board simply never reaches that branch.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/slides/toolbar/arrange-menu.test.tsx`:
 
@@ -343,12 +343,12 @@ describe("ArrangeMenu minAlignSelection", () => {
 
 If the `Arrange` trigger's accessible name or the submenu's disabled attribute differs from the above, read `arrange-menu.tsx` and adjust the queries to match the real markup — but keep all three cases and keep them asserting on rendered output, not on internals.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- arrange-menu`
 Expected: FAIL — TypeScript rejects the unknown `minAlignSelection` prop; the second case renders Align enabled.
 
-- [ ] **Step 3: Add the prop**
+- [x] **Step 3: Add the prop**
 
 In `packages/frontend/src/app/slides/toolbar/arrange-menu.tsx`, add to `ArrangeMenuProps` (after `selectionSize`):
 
@@ -377,12 +377,12 @@ export function ArrangeMenu({
 
 Leave `canDistribute` (`>= 3`) and `canGroup` (`>= 2`) untouched.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- arrange-menu`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/toolbar/arrange-menu.tsx \
@@ -413,7 +413,7 @@ branch. Defaulting to 1 leaves slides untouched." \
 
 Background: the engine already builds the canvas context menu, and board mounts already pass `suppressSlideChrome: true`. `Mod+A` select-all already exists as a keyboard rule (`shortcuts-catalog.ts:41`: "Select all elements on the current slide"), so the menu entry dispatches it exactly the way the existing Copy / Cut / Paste entries dispatch theirs — no new selection logic.
 
-- [ ] **Step 1: Add the `onFitToContent` option**
+- [x] **Step 1: Add the `onFitToContent` option**
 
 In `packages/slides/src/view/editor/editor.ts`, add to `SlidesEditorOptions` immediately after `suppressSlideChrome`:
 
@@ -427,7 +427,7 @@ In `packages/slides/src/view/editor/editor.ts`, add to `SlidesEditorOptions` imm
   onFitToContent?: () => void;
 ```
 
-- [ ] **Step 2: Add the two menu entries**
+- [x] **Step 2: Add the two menu entries**
 
 In `canvasContextItems`, replace the opening `items` declaration:
 
@@ -447,17 +447,17 @@ In `canvasContextItems`, replace the opening `items` declaration:
 
 Leave the rest of the method (the `suppressSlideChrome` block and the Insert entries) unchanged.
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `pnpm --filter @wafflebase/slides typecheck`
 Expected: PASS. If it fails on `TextBoxEditorAPI` / `stepSelectionFontSize`, run `pnpm --filter @wafflebase/docs build` first (stale-dist gate gap) and re-run.
 
-- [ ] **Step 4: Run the full slides suite**
+- [x] **Step 4: Run the full slides suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS. A slides mount passes no `onFitToContent`, so its canvas menu gains only `Select all`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts
@@ -491,7 +491,7 @@ one, keeping the slides menu unchanged." \
 
 `applyZoomValue` is the pure heart: given the current viewport and a controller value, return the viewport to commit. `FIT_ZOOM` frames all content (reusing `fitViewportToScene`, the repeatable form — **not** `createFitToContentOnce`, which is the one-shot open latch). A preset zooms about the host centre so content does not slide sideways. `undefined` means "nothing to do" (empty scene on FIT, or a zero-area host).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/board/board-zoom.test.ts`:
 
@@ -576,12 +576,12 @@ describe("applyZoomValue", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-zoom`
 Expected: FAIL — `./board-zoom` does not exist.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `packages/frontend/src/app/board/board-zoom.ts`:
 
@@ -675,12 +675,12 @@ export function applyZoomValue(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-zoom`
 Expected: PASS (7 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-zoom.ts \
@@ -733,7 +733,7 @@ Contextual routing on `getToolbarState(editor, store)`:
 
 `ObjectSection` is **not** reused — it hardcodes the slides `InsertGroup` (with the table picker the board omits) and routes `table` into `TableControls`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/board/board-toolbar-state.test.ts`. This pins the contract the toolbar depends on — that slides' `getToolbarState` reads a board store correctly:
 
@@ -811,12 +811,12 @@ describe("getToolbarState on a board store", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails or passes**
+- [x] **Step 2: Run test to verify it fails or passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-toolbar-state`
 Expected: PASS — this is a **characterization test** locking in behavior the toolbar relies on. If any case fails, that is a real incompatibility between `getToolbarState` and the board store; stop and report it rather than editing the test to match.
 
-- [ ] **Step 3: Rebuild the toolbar**
+- [x] **Step 3: Rebuild the toolbar**
 
 Rewrite `packages/frontend/src/app/board/board-toolbar.tsx`. Keep the existing Select / Text / Sticky ▾ / Image / Shape ▾ / Line ▾ block **exactly as it is today** (including the `onCloseAutoFocus` sticky-color deferral and the "no table picker" doc comment) and add around it:
 
@@ -940,7 +940,7 @@ Render the globals before the insert block:
 
 `ImageControls` is passed no `upload`, so its Replace affordance is inert; the board's Image button in the insert block remains the insertion path. Do not thread `makeBoardImageUpload` here — that is out of SP4's scope.
 
-- [ ] **Step 4: Wire the toolbar in board-view**
+- [x] **Step 4: Wire the toolbar in board-view**
 
 In `packages/frontend/src/app/board/board-view.tsx`. New imports needed:
 
@@ -1031,12 +1031,12 @@ Reuse `readFrames` in the existing `createFitToContentOnce({ getFrames: readFram
         />
 ```
 
-- [ ] **Step 5: Typecheck and run the board + slides suites**
+- [x] **Step 5: Typecheck and run the board + slides suites**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck && pnpm --filter @wafflebase/frontend test -- board && pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Manual smoke**
+- [x] **Step 6: Manual smoke**
 
 Run `docker compose up -d && pnpm dev`, open a board, and confirm:
 - Selecting a shape shows Fill + Border; changing fill repaints and survives reload.
@@ -1046,7 +1046,7 @@ Run `docker compose up -d && pnpm dev`, open a board, and confirm:
 - Undo/Redo buttons enable/disable correctly and undo the formatting change.
 - The zoom dropdown shows `Fit` / presets, `Fit` frames all content, and wheel-zooming updates the label.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-toolbar.tsx \
@@ -1079,7 +1079,7 @@ controls the board store throws notSupported on." \
 - Consumes: `PeerView.cursor` (Task 1). `BoardPresence.cursor?: { x: number; y: number } | null` already exists in `packages/frontend/src/types/board-document.ts:17` — SP1 defined it and left it unwritten.
 - Produces: nothing downstream.
 
-- [ ] **Step 1: Forward the cursor in `mapBoardPeers`**
+- [x] **Step 1: Forward the cursor in `mapBoardPeers`**
 
 In `mapBoardPeers`, add to the pushed object (after `selectedElementIds`):
 
@@ -1092,7 +1092,7 @@ In `mapBoardPeers`, add to the pushed object (after `selectedElementIds`):
 
 Update the function's doc comment: `cursor` is no longer among the omitted fields.
 
-- [ ] **Step 2: Publish the local cursor**
+- [x] **Step 2: Publish the local cursor**
 
 In the mount effect, immediately after the `offSelection` subscription block, add:
 
@@ -1136,7 +1136,7 @@ In the mount effect, immediately after the `offSelection` subscription block, ad
 
 `canvasRect` is the cached rect already maintained by the `ResizeObserver` above — reuse it rather than calling `getBoundingClientRect()` on the pointer hot path.
 
-- [ ] **Step 3: Clean up**
+- [x] **Step 3: Clean up**
 
 In the effect's cleanup, before `offSelection();`:
 
@@ -1148,16 +1148,16 @@ In the effect's cleanup, before `offSelection();`:
 
 Removing a listener that was never added (read-only mount) is a safe no-op, so this needs no `readOnly` guard.
 
-- [ ] **Step 4: Typecheck and test**
+- [x] **Step 4: Typecheck and test**
 
 Run: `pnpm --filter @wafflebase/frontend typecheck && pnpm --filter @wafflebase/frontend test -- board`
 Expected: PASS.
 
-- [ ] **Step 5: Manual smoke (two tabs)**
+- [x] **Step 5: Manual smoke (two tabs)**
 
 With `pnpm dev` running, open the same board in two browser tabs (or two profiles). Moving the pointer in one shows a coloured dot with the user's name tracking it in the other. Panning and zooming either tab keeps the dot on the same world point. Moving the pointer off the canvas removes the dot in the other tab.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-view.tsx
@@ -1181,20 +1181,20 @@ not stick at its last position." \
 
 **Files:** none (verification + docs)
 
-- [ ] **Step 1: Run the full self-verification lane**
+- [x] **Step 1: Run the full self-verification lane**
 
 Run: `pnpm verify:self`
 Expected: PASS. On a `TextBoxEditorAPI` / `stepSelectionFontSize` typecheck failure, run `pnpm --filter @wafflebase/docs build` and re-run — known stale-dist gate gap, not a real error.
 
-- [ ] **Step 2: Self-review the branch diff**
+- [x] **Step 2: Self-review the branch diff**
 
 Dispatch a code review over the full branch diff (`superpowers:requesting-code-review` or `/code-review`). Apply blocking findings; record non-blocking ones as known limitations in the task lessons file.
 
-- [ ] **Step 3: Write the task docs**
+- [x] **Step 3: Write the task docs**
 
 Add a **Review** section to the bottom of this file recording what actually shipped per task and any deviation from the plan. Create `docs/tasks/active/20260806-board-sp4-editing-parity-lessons.md` capturing what surprised you — at minimum the `align()` phantom-slide-rect trap, the board/slides zoom clamp mismatch, the stale docs-`dist` typecheck gate gap, and the fact that the canvas context menu already existed in the engine (which shrank this task's scope mid-design). Then run `pnpm tasks:index` — it regenerates `docs/tasks/README.md` (and the archive index) from the files on disk. Do not hand-edit either README; `docs/tasks/active/README.md` is a static description, not a per-task index.
 
-- [ ] **Step 4: Commit the task docs**
+- [x] **Step 4: Commit the task docs**
 
 ```bash
 git add docs/tasks/active/20260806-board-sp4-editing-parity-todo.md \
@@ -1206,7 +1206,7 @@ scoping it, so the next board pass does not rediscover them." \
   -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Sync and open the PR**
+- [x] **Step 5: Sync and open the PR**
 
 ```bash
 git fetch && git rebase origin/main
@@ -1245,3 +1245,81 @@ Open a PR titled `Give the board formatting, undo/redo, zoom, and peer cursors` 
 
 - `ImageControls` mounts without an `upload`, so its Replace button is inert on a board. Threading `makeBoardImageUpload` through the toolbar is a small follow-up, not SP4.
 - `ArrangeMenu` receives `canUngroup={false}`; group/ungroup stays on the context menu, which already computes enablement correctly.
+
+---
+
+## Review
+
+All seven tasks shipped. `pnpm verify:self` green (136s). Branch:
+15 commits on `board-sp4-editing-parity`. Lessons:
+[20260806-board-sp4-editing-parity-lessons.md](20260806-board-sp4-editing-parity-lessons.md).
+
+### What shipped, per task
+
+| Task | Commits | Outcome |
+| --- | --- | --- |
+| 1 — Peer cursor in the slides overlay | `3acf665` | As planned. Additive `PeerView.cursor` → `PeerOverlays.cursors`, painted as DOM nodes beside the existing rings/labels. |
+| 2 — `minAlignSelection` on `ArrangeMenu` | `c4589cc` | As planned. Reviewer mutation-tested the guard. |
+| 3 — `Select all` + `Fit to content` | `66f832d`, `19b08a7` | As planned, plus behavioral tests for both entries after review found the click→effect path unguarded. |
+| 4 — Board zoom controller | `f42f2b3`, `5a82966` | As planned, plus non-identity coverage after review proved the factor conversion was deletable with the suite still green. |
+| 5 — Morphing board toolbar | `ece1395`, `f414328` | Design changed under review: `Fit` was dead in the board's default state, so a `createBoardZoomBinding` now applies on the intent rather than on the value-change notification. |
+| 6 — Cursor presence publish | `5108d2b` | As planned, plus an extracted, unit-tested `board-cursor-publish.ts` (the plan had no test step). |
+| 7 — Verification | `9b8be62`, `6bef139`, `30c4e13`, `e080907` | Whole-branch review found one Critical and three Important; all fixed and re-reviewed. |
+
+### Deviations from the plan
+
+- **`createBoardZoomBinding` was not in the plan.** The plan routed `Fit`
+  through the controller's value channel; that made `Fit` a no-op in the
+  board's default state, because the controller starts at `FIT_ZOOM` and
+  `set()` early-returns on an unchanged value. The binding applies on the
+  intent instead. `docs/design/board/board-editing-parity.md` was
+  corrected to match.
+- **`canUngroup` is wired after all.** The plan deliberately left it at
+  `false` ("group/ungroup stays on the context menu"), but the spec listed
+  ungroup as a toolbar Goal, so the final review flagged the
+  contradiction. `canUngroupSelection` is now shared between
+  `ObjectSection` and the board toolbar.
+- **A peer-diff and a dedicated cursor layer were added to the slides
+  editor.** Not planned; required to fix the Critical below.
+- **`board-cursor-publish.ts` was extracted.** The plan inlined the
+  rAF coalescing in `board-view.tsx`; it was pulled into a pure,
+  dependency-injected module so the coalescing could be unit-tested,
+  since the two-tab smoke could not be run.
+
+### The Critical the whole-branch review caught
+
+A peer's cursor tick ran `setPeers` → `repaintOverlay` →
+`overlay.innerHTML = ''`, detaching the docs IME textarea that lives
+inside the text-box container. `reattachEditingTextBox` re-appended it but
+never restored focus, so with two tabs open, typing in a sticky lost focus
+~60×/s while the other user moved their mouse — and keystrokes fell
+through to the global key rules (`Delete` deleted the selected element).
+
+Fixed with a peer-diff that skips the repaint when only cursor
+coordinates changed, plus a dedicated cursor layer `renderOverlay` does
+not clear. Focus restoration was rejected: `text-box-editor.ts` wires
+blur → `cancelComposition()` → `onCommit`, so re-focusing would paper over
+an already-committed session and cannot restore IME composition state.
+Pinned by a regression test that mounts the **production** text-box mount.
+
+### Known limitations
+
+- **The manual two-tab smoke was never run** — no dev server was
+  available for any task. Everything is verified by automated tests and
+  static analysis. This is what let the Critical above ship into review.
+- Any **non-cursor** peer activity — a peer changing selection, or any
+  remote document edit via `markDirty` → `repaintOverlay` — still rebuilds
+  the overlay and blurs a local in-place text edit. Pre-existing and
+  edit-rate rather than pointer-rate; the proper fix is the deferred
+  gesture-lifecycle signal.
+- A **peer's** cursor at ~60 Hz still re-renders the whole local React
+  tree (`useDocument()` selects whole state with `Object.is`). Only the
+  self-write amplification was removed.
+- After picking `Fit`, a window resize does not re-fit while the label
+  still reads "Fit".
+- `ImageControls` mounts without an `upload`, so its Replace button is
+  inert on a board.
+- `resend()` schedules via rAF, so a peer joining while the local tab is
+  hidden sees the cursor only on refocus.
+- `canUngroupSelection` adds a `store.read()` per toolbar render at single
+  selection (a `cachedDoc` hit in the steady state).
