@@ -67,6 +67,7 @@ The fields of `meta.json` that are load-bearing rather than descriptive:
 | `diff_method` | *how* the diff was produced. `fork-point` / `base-tip` / `gh-pr-diff` are faithful three-dot diffs; `single-commit` is a degradation and is refused unless you ask for it |
 | `sha256_diff` | the diff's own hash. Re-verified against the bytes on every write, and what PR 16's label-staleness check compares against |
 | `additions` / `deletions` / `scope` | measured from **the frozen diff** — this is the field to segment by |
+| `localization_scope` | how spread out the change is: `single_hunk` / `single_file` / `multi_file` / `cross_module` / `unknown`, where a *module* is the first two path segments. From the frozen diff, via `classify.mjs`'s own rule. A 400-line change in one file and a 400-line change across nine modules are different review problems at the same `scope`. `unknown` means no path was parsed — either a diff that names none, or (a known gap in that helper) one whose paths are all C-quoted |
 | `pr_additions` / `pr_deletions` | the merged PR's totals, kept as provenance. The gap between these and the pair above is how much the fix loop added *after* review |
 
 ## Freezing a PR
@@ -107,6 +108,16 @@ skip. It **compares**, and reports any difference as `DRIFT` with a non-zero exi
 DRIFT pr-664: re-extraction differs from the stored item in diff.patch,
               stored sha256_diff vs stored diff.patch — NOT overwritten
 ```
+
+A **derived** field — one computed from the diff rather than read off the PR — is
+compared too, even though the diff bytes are already compared. The bytes prove the
+*input* is stable and say nothing about the derivation: edit the rule behind
+`localization_scope` and a re-extraction yields a different value from identical
+bytes, which nothing else in the comparison can see. The same entry catches an item
+frozen *before* the field existed, which is otherwise invisible — a field outside
+the list cannot drift, so the run prints `= unchanged` and re-indexes the stored
+item without it. So a new derived field joins the list in the commit that adds it.
+(`additions` / `deletions` / `scope` are not in it yet — a gap, not a distinction.)
 
 The stored bytes are left exactly as they were; deciding which copy is right is a
 person's job. This is also why `meta.json` carries `sha256_diff` at all, and why
