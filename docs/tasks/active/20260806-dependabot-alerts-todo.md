@@ -49,13 +49,13 @@ Group C — react-router (5 alerts):
 
 ## Steps
 
-- [ ] A — bump stale `pnpm.overrides`, `pnpm install`, verify resolved versions
-- [ ] B — add `body-parser` overrides
-- [ ] D — add npm `overrides` in `scripts/agent/package.json`, `npm install`
-- [ ] C — bump `react-router-dom` to `^7.18.2` + override; confirm RSC mode
+- [x] A — bump stale `pnpm.overrides`, `pnpm install`, verify resolved versions
+- [x] B — add `body-parser` overrides
+- [x] D — refresh `scripts/agent` deps (`npm update`; no overrides needed)
+- [x] C — bump `react-router-dom` to `^7.18.2` + override; confirm RSC mode
       is unused and dismiss alert #134 with "vulnerable code is not actually used"
-- [ ] `pnpm verify:fast` green
-- [ ] Push, open PR, confirm Dependabot closes the alerts
+- [x] `pnpm verify:fast` green
+- [x] Push, open PR, confirm Dependabot closes the alerts
 
 ## Known residual
 
@@ -68,4 +68,29 @@ Group C — react-router (5 alerts):
 
 ## Review
 
-_(filled in after implementation)_
+Three commits, one per fix class:
+
+1. `Refresh stale pnpm overrides…` — 27 alerts. Only `package.json` +
+   `pnpm-lock.yaml`; no direct dependency moved.
+2. `Update the agent-scripts lock…` — 5 alerts. No npm `overrides` were
+   needed after all: `npm update` pulled `@modelcontextprotocol/sdk`
+   1.29.0 → 1.30.0, which widens its `@hono/node-server` range to
+   `^1.19.9 || ^2.0.5`, so the patched v2 line resolved on its own.
+3. `Bump react-router to 7.18.2…` — 4 alerts, plus a direct
+   `react-router-dom` bump in `packages/frontend`.
+
+Verified by cross-checking every open alert's vulnerable range against the
+versions actually resolved in both lockfiles (semver `satisfies`):
+35 of 39 no longer match. The remaining 4 are the two known exceptions —
+alert #134 (dismissed, see below) and the 3 vitepress-borne vite alerts.
+
+`pnpm verify:fast` green after each commit; `pnpm frontend build` green
+after the react-router bump; `npm test` (942 tests) green in
+`scripts/agent`.
+
+**Alert #134 — dismissed as not applicable.** React Router's RSC-mode CSRF
+bypass is patched only in 8.3.0, with no 7.x backport. The frontend mounts
+a plain `BrowserRouter` in `packages/frontend/src/App.tsx` and imports no
+RSC API (no `@react-router/dev` framework mode, no `createCallServer`, no
+server request handler), so the vulnerable path is unreachable. Revisit if
+the app ever adopts RSC mode.
