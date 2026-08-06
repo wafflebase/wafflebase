@@ -226,9 +226,13 @@ export function uiDefectKey(candidate, journal, { personaId } = {}) {
 /**
  * One exploration session: the model drives a real browser and reports what broke.
  *
- * `openSession` and `askImpl` are injected so the whole function is exercisable with
- * no browser, no Vite and no network — which is the only way any of it runs in the
- * `agent:tests` lane, where `scripts/agent/node_modules` is absent entirely.
+ * ALL THREE third-party touchpoints are injected — the browser session, the model
+ * call, AND the MCP server — because `agent:tests` runs with
+ * `scripts/agent/node_modules` ABSENT entirely. Injecting two of the three is the
+ * failure mode to avoid, and it is the one that actually happened: `createUiServer`
+ * lazily imports the Agent SDK, so a test that stubbed the session and the ask still
+ * died on `ERR_MODULE_NOT_FOUND` in CI while passing locally, where the SDK happens
+ * to be installed. A test that claims to need no SDK must not construct one.
  *
  * The session is closed in a `finally`. A leaked session here is a leaked Chromium
  * AND a leaked Vite, which is a worse outcome than the leaked scratch directory the
@@ -237,7 +241,15 @@ export function uiDefectKey(candidate, journal, { personaId } = {}) {
 export async function exploreUi(
   persona,
   brief,
-  { repo, context, sessionLog, fault = null, openSession = openUiSession, askImpl = null } = {},
+  {
+    repo,
+    context,
+    sessionLog,
+    fault = null,
+    openSession = openUiSession,
+    askImpl = null,
+    createServerImpl = createUiServer,
+  } = {},
 ) {
   const { askStructured, withRetry } = askImpl ?? (await import("./ask.mjs"));
   const budgetCfg = persona.actionBudget ?? {};
@@ -294,7 +306,7 @@ export async function exploreUi(
       });
       const session = await openSession({ repoRoot: repo, fault });
       live = { journal, budget, session };
-      const wafflebase = await createUiServer({
+      const wafflebase = await createServerImpl({
         charter: persona,
         surface: persona.surface,
         session,

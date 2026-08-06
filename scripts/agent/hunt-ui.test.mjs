@@ -458,6 +458,7 @@ test("exploreUi always closes its session, including when the model throws", asy
       sessionLog: [],
       openSession: async () => session,
       askImpl,
+      createServerImpl: async () => ({}),
     }),
     /model exploded/,
   );
@@ -482,6 +483,7 @@ test("exploreUi returns the journal the tool actually wrote", async () => {
     sessionLog: [],
     openSession: async () => session,
     askImpl,
+    createServerImpl: async () => ({}),
   });
   assert.deepEqual(out.out.candidates, []);
   assert.ok(Array.isArray(out.journal));
