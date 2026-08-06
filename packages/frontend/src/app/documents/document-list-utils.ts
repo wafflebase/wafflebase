@@ -11,7 +11,7 @@ import type { Document, DocumentType } from "@/types/documents";
 /**
  * Whether a document matches the free-text search box, by title
  * (NFC-normalized, case-insensitive). Empty query matches everything.
- * Filtering by document type is handled separately by the type chips, so a
+ * Filtering by document type is handled separately by the type menu, so a
  * title search stays precise instead of flooding on type-name collisions.
  */
 export function matchesSearch(
@@ -27,7 +27,7 @@ export function matchesSearch(
 }
 
 /**
- * Whether a document passes the active type-chip filter. An empty selection
+ * Whether a document passes the active type filter. An empty selection
  * means "all types".
  */
 export function matchesTypes(

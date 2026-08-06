@@ -165,7 +165,7 @@ const FOLDER_KEY_PREFIX = "folder:";
 
 /**
  * Single source of truth for each document type's label, icon, and color.
- * The title cell and the filter chips both derive from this so a new type
+ * The title cell and the filter menu both derive from this so a new type
  * needs one edit, not several.
  */
 const TYPE_META: Record<
@@ -182,7 +182,7 @@ const TYPE_META: Record<
   file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
 };
 
-/** Document types offered as filter chips, in display order. */
+/** Document types offered in the filter menu, in display order. */
 const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "sheet",
   "doc",
@@ -273,7 +273,7 @@ const CREATE_ITEMS: ReadonlyArray<{
  * The "create a blank document" entries shared by both "New" dropdown copies
  * (the toolbar one and the empty-state one). Icon and colour come from
  * `TYPE_META`, so a type's appearance is defined once for the menu, the title
- * cell, and the filter chips alike.
+ * cell, and the filter menu alike.
  */
 function CreateMenuItems({
   onCreate,
@@ -718,7 +718,7 @@ export function DocumentList({
   // The unified row model: folders (when this list supports them and no type
   // filter is active, since folders have no type) followed by documents. The
   // pinned `kind` sort keeps folders above documents regardless of the user's
-  // chosen column, and type-chip filtering runs here so it composes cleanly
+  // chosen column, and type filtering runs here so it composes cleanly
   // with the table's own text search and sorting.
   const rows = useMemo<ListRow[]>(() => {
     const folderRows: ListRow[] =
@@ -1227,17 +1227,24 @@ export function DocumentList({
         */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
+            {/*
+              No `aria-label` here on purpose: it would replace the button's
+              inner content as the accessible name, so the active-filter badge
+              below would never be announced and a screen-reader user would
+              hear the same thing whether or not the list was filtered. The
+              visible "Type" text is the name; the badge adds the state.
+            */}
             <Button
               type="button"
               variant={typeFilters.size > 0 ? "secondary" : "outline"}
               className="flex items-center gap-2"
-              aria-label="Filter by type"
             >
               <ListFilter className="h-4 w-4" />
               Type
               {typeFilters.size > 0 && (
                 <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums">
                   {typeFilters.size}
+                  <span className="sr-only"> filters active</span>
                 </span>
               )}
             </Button>
