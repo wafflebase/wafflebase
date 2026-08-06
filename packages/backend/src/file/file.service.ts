@@ -10,21 +10,13 @@ import {
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { MAX_IMAGE_UPLOAD_BYTES } from './file.constants';
-
-const MIME_TO_EXT: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
+import { safeExtension } from './file-extension.util';
 
 @Injectable()
 export class FileService implements OnModuleInit {
   private s3: S3Client;
   private bucket: string;
   private maxFileSize: number;
-  private allowedMimeTypes: string[];
 
   constructor(private config: ConfigService) {
     const endpoint = this.config.get<string>('file.endpoint')!;
@@ -33,7 +25,6 @@ export class FileService implements OnModuleInit {
     const secretKey = this.config.get<string>('file.secretKey')!;
     this.bucket = this.config.get<string>('file.bucket')!;
     this.maxFileSize = this.config.get<number>('file.maxFileSizeBytes')!;
-    this.allowedMimeTypes = this.config.get<string[]>('file.allowedMimeTypes')!;
 
     this.s3 = new S3Client({
       endpoint,
@@ -58,12 +49,20 @@ export class FileService implements OnModuleInit {
     }
   }
 
-  async upload(file: Buffer, mimeType: string): Promise<{ id: string }> {
-    if (!this.allowedMimeTypes.includes(mimeType)) {
-      throw new BadRequestException(`Unsupported file type: ${mimeType}`);
-    }
-    // Images get a tighter cap than the Multer ceiling (which admits the
-    // largest allowed upload, i.e. a 50 MB PDF).
+  /**
+   * Store a blob. Accepts any content — the safety rule lives on the serving
+   * side (see document/file-response.util.ts), not here, because an upload-time
+   * extension blacklist is defeated by renaming.
+   *
+   * `mimeType` is client-supplied and untrusted. It is stored as data and used
+   * only to pick which size cap applies; lying can at most widen the cap to
+   * MAX_FILE_UPLOAD_BYTES, which Multer already enforces.
+   */
+  async upload(
+    file: Buffer,
+    mimeType: string,
+    originalName: string,
+  ): Promise<{ id: string; size: number; mimeType: string }> {
     const cap = mimeType.startsWith('image/')
       ? MAX_IMAGE_UPLOAD_BYTES
       : this.maxFileSize;
@@ -72,20 +71,18 @@ export class FileService implements OnModuleInit {
         `File too large (max ${cap / 1024 / 1024} MB)`,
       );
     }
-    const ext = MIME_TO_EXT[mimeType];
-    if (!ext) {
-      throw new BadRequestException(`Unsupported file type: ${mimeType}`);
-    }
-    const id = `${randomUUID()}.${ext}`;
+    const contentType = mimeType || 'application/octet-stream';
+    const ext = safeExtension(originalName);
+    const id = ext ? `${randomUUID()}.${ext}` : randomUUID();
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: id,
         Body: file,
-        ContentType: mimeType,
+        ContentType: contentType,
       }),
     );
-    return { id };
+    return { id, size: file.length, mimeType: contentType };
   }
 
   async getObject(
@@ -101,7 +98,7 @@ export class FileService implements OnModuleInit {
       : new Uint8Array();
     return {
       body,
-      contentType: response.ContentType || 'application/pdf',
+      contentType: response.ContentType || 'application/octet-stream',
     };
   }
 
