@@ -48,6 +48,10 @@ reason this is its own PR rather than a footnote in a later one.
 - [x] **It joins `manifestItem`**, beside `scope`.
 - [x] **The `+` line prints it**, which is what `--dry-run` shows.
 - [x] **`eval/README.md`** documents the field and the derived-field rule.
+- [x] **`localizationFromDiff` reads the `diff --git` header**, so deletions and
+      pure renames count as files. Added after review; the reasoning and the wrong
+      values it replaces are under *Corrected while building*. `buildItemMeta` is
+      unchanged by it — the corrected value arrives through the same call.
 
 ### The decision: a derived field belongs in the drift list
 
@@ -104,16 +108,35 @@ arrays, and the fix is a wider edit than this field.
   frozen `DIFF` touches one file, so deriving from `view.files` yields
   `cross_module` where the frozen diff yields `single_hunk`. The test asserts that gap explicitly rather than relying
   on the value happening to differ.
-- **`unknown` has a second cause, which was not in the plan.**
-  `changedFilesFromDiff` C-unquotes git's `+++ "b/na\303\257ve.ts"` form;
-  `localizationFromDiff` matches the literal prefix `+++ b/` and does not. So a
-  diff whose paths are **all** C-quoted freezes with a populated
-  `changed_files` and `localization_scope: "unknown"` — an item the extractor
-  does **not** skip, since its no-changed-files guard reads the other parser. This
-  is pinned by a test and documented in the README rather than fixed: editing
-  `classify.mjs` was an explicit non-goal, and forking a second spread rule into
-  the corpus is the failure the import exists to prevent. Worth its own change
-  against `classify.mjs`, where the labelling pipeline gets the fix too.
+- **`unknown` had more causes than the plan knew, and one of them was not `unknown`
+  at all.** Both found by reading `+++ b/` against what a real diff contains, after
+  review raised it on PR 687.
+  - **SUPERSEDED — deletions and renames.** The first version of this document
+    listed the C-quote gap and left the helper alone, because editing
+    `classify.mjs` was an explicit non-goal. That was wrong on the facts: a
+    deletion's path appears only on the `diff --git` header (`+++` says
+    `/dev/null`) and a pure rename has no `+++` line at all, so **a deletion-only
+    diff froze as `unknown` however many modules it spanned** — and worse, a diff
+    of one modified file plus one deletion in another module counted the deleted
+    file's `@@` but not the file, answering **`single_file`**: two modules recorded
+    as one file, plausible and wrong, on a write-once item. The non-goal is
+    reversed and `localizationFromDiff` now reads the header too, which is a strict
+    improvement for the labelling pipeline as well. See the `localization_scope`
+    row in `scripts/agent/eval/README.md` for the contract this leaves.
+  - **NOT a defect — renamed files being double-counted**, also raised in review.
+    Checked both parsers: a rename names its `b/` path on the header *and* on the
+    `+++` line, `files` is a `Set` and `changedFilesFromDiff` collects into one
+    too, so it is one path either way. Asserted rather than argued, in both test
+    files.
+  - **Still open — C-quoted paths.** `changedFilesFromDiff` decodes git's
+    `+++ "b/na\303\257ve.ts"` form and `localizationFromDiff` matches literal
+    prefixes, so a diff whose paths are **all** quoted freezes with a populated
+    `changed_files` and `localization_scope: "unknown"` — an item the extractor
+    does **not** skip, since its no-changed-files guard reads the other parser.
+    Left as is on purpose: the C-unquoter is private to `extract-corpus.mjs`, and
+    copying it into `classify.mjs` would fork the path parser whose divergence
+    caused the deletion bug above. It is the one remaining cause of `unknown`, it
+    is pinned by a test, and the README says so.
 - **The axis is nearly constant on this repository's PRs.** Measured over the 20
   most recent merged PRs at `--review-point pr-open`: **18 `cross_module`, 2
   `multi_file`, 0 `single_hunk`, 0 `single_file`, 0 `unknown`** (n=20). The cause
@@ -141,7 +164,10 @@ arrays, and the fix is a wider edit than this field.
   belong in the label record, which arrives later and may be revised. Putting a
   bill inside a freezer whose headline property is that it costs nothing also
   breaks byte-identical re-extraction.
-- **Editing `classify.mjs`** — including the C-quoted-path gap above.
+- **Any change to `classify.mjs` beyond the deletion/rename path fix** — in
+  particular the C-quoted-path gap, and the labelling stages that call the helper.
+  (Editing the file at all was a non-goal in the first version of this document;
+  see *Corrected while building* for why that was reversed.)
 - **Changing any other `meta.json` field, or `scopeSize`'s buckets.**
 - **Adding `additions`/`deletions`/`scope` to the drift list** (named as a gap
   above).
@@ -151,13 +177,16 @@ arrays, and the fix is a wider edit than this field.
 ## Verification
 
 - [x] **The lane's own command**, `cd scripts/agent && node --test '**/*.test.mjs'`,
-      with **no `node_modules` anywhere**: **1122 tests, 1116 pass, 0 fail, 6
-      skipped** — against a baseline measured on `upstream/main` (`f2aabace6`) the
-      same way: **1118 / 1112 / 0 fail / 6 skipped**. Delta **+4 tests**. The 6
+      with **no `node_modules` anywhere**: **1297 tests, 1291 pass, 0 fail, 6
+      skipped** — against a baseline measured the same way on the branch as it
+      stood before the review fix (`57f738cb9`, which is this branch with `main`
+      merged in): **1294 / 1288 / 0 fail / 6 skipped**. Delta **+3 tests**. The 6
       skips are the two documented causes together (1 Agent SDK, 5
-      `lint-config.test.mjs` cases needing a root `eslint`); with `eslint@9.24.0`
-      linked at the root both trees report **1 skip** — 1122/1121/0 here,
-      1118/1117/0 on `main`.
+      `lint-config.test.mjs` cases needing a root `eslint`).
+      *(The first version of this change measured 1122 / 1116 / 0 / 6 against
+      `upstream/main` at `f2aabace6`, delta +4. The absolute numbers moved because
+      `main` gained the replay runner in the meantime, not because anything here
+      regressed.)*
 - [x] `npx eslint scripts` → exit 0, with the lockfile-pinned `eslint@9.24.0`.
 - [x] **A test per return value, all five**, driven through `buildItemMeta` rather
       than by calling the helper (`classify.test.mjs` already tests the helper;
@@ -175,6 +204,22 @@ arrays, and the fix is a wider edit than this field.
       - *derive from the merged PR's file list* (`view.files`) instead of the
         frozen diff → **7 fail**, `actual: 'cross_module', expected:
         'single_hunk'`. The tests **can** tell those two apart.
+- [x] **Deletions, renames and the mixed case**, added after review: three cases at
+      the helper (`classify.test.mjs`) and two through `buildItemMeta`
+      (`extract-corpus.test.mjs`). Before the fix, measured on the branch as
+      pushed: a deletion-only diff spanning two modules → `unknown`; one modified
+      file plus one deletion in another module → **`single_file`**. Both →
+      `cross_module` now. The rename claim from the same review was checked and is
+      not a defect: `changed_files` = 1 path and `single_hunk` with or without a
+      content change, asserted in both files.
+- [x] **The distribution did not move**, which is worth stating because the fix
+      changes values in principle. Re-run over the **same** 20 PRs as the original
+      measurement (`--prs 683,…,657`, `--review-point pr-open`): **18
+      `cross_module`, 2 `multi_file`** — identical. So this fix corrects no real
+      item in that sample; the defect was demonstrated on constructed diffs, and it
+      matters for populations that delete files. (A run of "the 20 most recent
+      merged" now reports 19/1, because that set has moved on — not a fix effect,
+      and the reason the comparison uses an explicit PR list.)
 - [x] **`--dry-run` against real PRs**, nothing written:
       `+ pr-664 (4 files, +418/-1 L, cross_module, …)` and
       `+ pr-683 (3 files, +133/-2 M, cross_module, …)`. Both plausible on

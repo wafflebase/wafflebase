@@ -284,14 +284,50 @@ test("localization_scope comes from the FROZEN diff, never the merged PR's file 
   assert.equal(prModules.size, 2, "the merged PR spans two modules — so it would read cross_module");
 });
 
-test("a C-quoted path reads as `unknown` — a known gap in the imported helper", () => {
-  // `changedFilesFromDiff` C-unquotes (`+++ "b/na\303\257ve.ts"`); the labelling
-  // pipeline's `localizationFromDiff` matches the literal prefix `+++ b/` and does
-  // not. So an all-quoted diff freezes with one changed file and `unknown` spread.
-  // Pinned rather than fixed: `classify.mjs` owns that helper for the labelling
-  // pipeline, and forking a second spread rule into the corpus is the failure this
-  // import exists to avoid. Recorded so a reader of `unknown` on a real item knows
-  // the second cause besides "no paths at all".
+test("a deleted file counts toward the spread, even though `+++` says /dev/null", () => {
+  // A deletion's only path is on the `diff --git` header, and `changed_files`
+  // already reads it there. Until PR 687 the spread rule did not, so a
+  // deletion-only diff froze as `unknown` however many modules it spanned — a
+  // permanent wrong value, because a corpus item is write-once.
+  const deleted = (p) => `diff --git a/${p} b/${p}\ndeleted file mode 100644\n--- a/${p}\n+++ /dev/null\n@@ -1 +0,0 @@\n-a`;
+  const twoModules = [deleted("scripts/agent/gone.mjs"), deleted("packages/backend/old.ts")].join("\n");
+  const meta = buildItemMeta(VIEW, twoModules, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.deepEqual(meta.changed_files, ["scripts/agent/gone.mjs", "packages/backend/old.ts"]);
+  assert.equal(meta.localization_scope, "cross_module");
+  assert.equal(localizationOf(deleted("scripts/agent/gone.mjs")), "single_hunk");
+});
+
+test("a mixed diff counts the deleted file, not only its hunks", () => {
+  // The sharp case. The deleted file's `@@` was counted while the file was not, so
+  // one modified file plus one deletion in another module answered `single_file`:
+  // a reviewer reading two modules recorded as reading one file. That is worse than
+  // `unknown`, because nothing about it looks wrong.
+  const mixed = [
+    DIFF.trimEnd(),
+    "diff --git a/packages/backend/old.ts b/packages/backend/old.ts",
+    "deleted file mode 100644",
+    "--- a/packages/backend/old.ts",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-x",
+  ].join("\n");
+  const meta = buildItemMeta(VIEW, mixed, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.deepEqual(meta.changed_files, ["scripts/agent/x.mjs", "packages/backend/old.ts"]);
+  assert.equal(meta.localization_scope, "cross_module");
+  // `changed_files` and the spread now agree on how many files there are, which is
+  // the invariant that failed: two paths must never read as one file.
+  assert.equal(meta.changed_files.length, 2);
+});
+
+test("a C-quoted path reads as `unknown` — the remaining gap in the imported helper", () => {
+  // The one cause of `unknown` left after the deletion fix above. Git wraps a path
+  // carrying a special or non-ASCII byte in quotes (`+++ "b/na\303\257ve.ts"`);
+  // `changedFilesFromDiff` decodes that and `localizationFromDiff` matches literal
+  // prefixes, so an all-quoted diff freezes with a populated `changed_files` and
+  // `unknown` spread. Left as is deliberately: the C-unquoter is private to this
+  // module, and copying it into `classify.mjs` would fork the path parser that the
+  // deletion bug just showed the cost of. Pinned so a reader of `unknown` on a real
+  // item knows this is the cause, and `eval/README.md` says the same.
   const quoted = [
     'diff --git "a/na\\303\\257ve.ts" "b/na\\303\\257ve.ts"',
     '--- "a/na\\303\\257ve.ts"',
