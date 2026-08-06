@@ -85,3 +85,92 @@ export function applyZoomValue(
     BOARD_MAX_ZOOM,
   );
 }
+
+export interface BoardZoomBindingOptions {
+  /** The live viewport — the single source of truth for scale. */
+  getViewport: () => Viewport;
+  getHost: () => { w: number; h: number };
+  /** Element frames, read only when a fit has to be resolved. */
+  getFrames: () => Frame[];
+  /** Commit a resolved viewport (viewport + editor + minimap). */
+  commit: (next: Viewport) => void;
+}
+
+export interface BoardZoomBinding {
+  /** Hand this to `ZoomControl`; it renders and drives the dropdown. */
+  controller: ZoomController;
+  /** Re-frame every element now. Also the context menu's Fit to content. */
+  fit: () => void;
+  /**
+   * Report a scale the VIEWPORT already applied (wheel / pinch), so the
+   * dropdown label tracks it. Label-only: it never commits a viewport.
+   */
+  reportViewportZoom: (zoom: number) => void;
+}
+
+/**
+ * Bind a board zoom {@link ZoomController} to the viewport it drives.
+ *
+ * The controller alone is a value holder, and its `set` deliberately
+ * early-returns when the value is unchanged. That is right for slides,
+ * where Fit is an idempotent sizing MODE, but wrong for a board, where
+ * Fit is an ACTION: "re-frame the content now". A board sits at
+ * `FIT_ZOOM` by default and returns to it after every fit, so routing
+ * Fit through the value channel would make the menu item a no-op in
+ * exactly the state users meet it in (pan gestures never change the
+ * value either, so it would stay dead).
+ *
+ * So this binding treats the two dropdown branches differently:
+ *
+ * - **Fit** — always executes {@link BoardZoomBinding.fit}, regardless
+ *   of the stored value. The value is still set (the label reads "Fit").
+ * - **A preset** — resolved about the host centre and committed.
+ *
+ * Applying happens HERE, on the intent, rather than in a `subscribe`
+ * callback, so a value written for labelling alone
+ * ({@link BoardZoomBinding.reportViewportZoom}) cannot re-enter the
+ * commit path and re-anchor a zoom the viewport already owns. The
+ * controller therefore stays a pure intent/label channel and never
+ * becomes a second copy of the scale.
+ */
+export function createBoardZoomBinding(
+  controller: ZoomController,
+  opts: BoardZoomBindingOptions,
+): BoardZoomBinding {
+  const fit = () => {
+    const next = applyZoomValue(
+      opts.getViewport(),
+      FIT_ZOOM,
+      opts.getHost(),
+      opts.getFrames(),
+    );
+    // `undefined` means "nothing to commit" (empty scene / unsized
+    // host) — leave the viewport where the user put it.
+    if (next) opts.commit(next);
+  };
+
+  return {
+    fit,
+    reportViewportZoom: (zoom) => controller.set(zoom),
+    controller: {
+      get: () => controller.get(),
+      subscribe: (cb) => controller.subscribe(cb),
+      set: (value) => {
+        controller.set(value);
+        if (value === FIT_ZOOM) {
+          fit();
+          return;
+        }
+        // The preset branch of `applyZoomValue` reads no frames, so the
+        // scene read is skipped rather than computed and discarded.
+        const next = applyZoomValue(
+          opts.getViewport(),
+          value,
+          opts.getHost(),
+          [],
+        );
+        if (next) opts.commit(next);
+      },
+    },
+  };
+}

@@ -117,11 +117,11 @@ export function BoardToolbar({
   // themed colours against — so the picker's swatches and the painted
   // result agree. A board has no theme switcher.
   //
-  // Memoized on `store` because that pinned theme cannot change for a
-  // given store, while `YorkieBoardStore.read()` deep-unwraps the WHOLE
-  // board (a `JSON.parse` per element) — re-reading it on every render
-  // (this component re-renders on every selection and store change)
-  // would put that cost on the editing hot path for a constant.
+  // Memoized on `store` for reference stability, not for read cost
+  // (`YorkieBoardStore.read()` is memoized behind `cachedDoc`): that
+  // cache is dropped on every change, so an unmemoized read would hand
+  // the leaf controls below a NEW theme object after each edit, churning
+  // a prop that by construction never changes for a given store.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
   return (

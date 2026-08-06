@@ -6,8 +6,10 @@ import {
   BOARD_MAX_ZOOM,
   BOARD_MIN_ZOOM,
   applyZoomValue,
+  createBoardZoomBinding,
   createBoardZoomController,
 } from "./board-zoom";
+import type { Viewport } from "@wafflebase/board";
 
 const host = { w: 800, h: 600 };
 const frames: Frame[] = [{ x: 0, y: 0, w: 400, h: 300, rotation: 0 }];
@@ -107,5 +109,114 @@ describe("applyZoomValue", () => {
     };
     expect(centreWorldBefore.x * next!.zoom + next!.panX).toBeCloseTo(host.w / 2);
     expect(centreWorldBefore.y * next!.zoom + next!.panY).toBeCloseTo(host.h / 2);
+  });
+});
+
+describe("createBoardZoomBinding", () => {
+  /**
+   * Board-view's wiring in miniature: a live viewport the binding
+   * commits into, plus counters for the two things a label-only write
+   * must NOT trigger (a commit, and a scene read).
+   */
+  function harness(initialZoom = FIT_ZOOM) {
+    const controller = createBoardZoomController(initialZoom);
+    let viewport: Viewport = { panX: 0, panY: 0, zoom: 1 };
+    const commits: Viewport[] = [];
+    let frameReads = 0;
+    const binding = createBoardZoomBinding(controller, {
+      getViewport: () => viewport,
+      getHost: () => host,
+      getFrames: () => {
+        frameReads++;
+        return frames;
+      },
+      commit: (next) => {
+        viewport = next;
+        commits.push(next);
+      },
+    });
+    return {
+      binding,
+      controller,
+      commits,
+      get viewport() {
+        return viewport;
+      },
+      /** Simulate a pan gesture: moves the viewport, changes no scale. */
+      panAway: () => {
+        viewport = { ...viewport, panX: viewport.panX - 5000, panY: viewport.panY - 5000 };
+      },
+      get frameReads() {
+        return frameReads;
+      },
+    };
+  }
+
+  /** The scene centre (200, 150) must land at the host centre. */
+  function expectFramed(vp: Viewport) {
+    expect(200 * vp.zoom + vp.panX).toBeCloseTo(host.w / 2);
+    expect(150 * vp.zoom + vp.panY).toBeCloseTo(host.h / 2);
+  }
+
+  // THE regression this binding exists for. A board sits at FIT_ZOOM by
+  // default, and `set()` deliberately early-returns on an unchanged
+  // value — so routing Fit through the value channel alone makes the
+  // menu item dead in exactly the state users meet it in.
+  it("re-frames the content when Fit is picked at the default FIT_ZOOM", () => {
+    const h = harness(); // default value === FIT_ZOOM
+    expect(h.controller.get()).toBe(FIT_ZOOM);
+    h.panAway();
+
+    h.binding.controller.set(FIT_ZOOM);
+
+    expect(h.commits).toHaveLength(1);
+    expectFramed(h.viewport);
+    // …and the readout still says "Fit".
+    expect(h.controller.get()).toBe(FIT_ZOOM);
+  });
+
+  it("re-frames again after a Fit already left the value at FIT_ZOOM", () => {
+    const h = harness();
+    h.binding.controller.set(FIT_ZOOM);
+    h.panAway();
+
+    h.binding.controller.set(FIT_ZOOM);
+
+    expect(h.commits).toHaveLength(2);
+    expectFramed(h.viewport);
+  });
+
+  it("fit() re-frames directly (the context menu's Fit to content)", () => {
+    const h = harness();
+    h.panAway();
+    h.binding.fit();
+    expect(h.commits).toHaveLength(1);
+    expectFramed(h.viewport);
+  });
+
+  it("commits a preset about the host centre without reading the scene", () => {
+    const h = harness(1);
+    h.binding.controller.set(2);
+    expect(h.commits).toHaveLength(1);
+    expect(h.viewport.zoom).toBe(2);
+    expect(h.controller.get()).toBe(2);
+    // The preset branch discards frames; reading them would be a full
+    // scene walk computed and thrown away.
+    expect(h.frameReads).toBe(0);
+  });
+
+  // A wheel tick has ALREADY applied its scale to the viewport, anchored
+  // at the cursor. Re-resolving it here would re-anchor it about the
+  // host centre and walk the point under the cursor away.
+  it("reportViewportZoom updates the label without touching the viewport", () => {
+    const h = harness(1);
+    const before = h.viewport;
+
+    h.binding.reportViewportZoom(1.5);
+
+    expect(h.controller.get()).toBe(1.5);
+    expect(h.commits).toHaveLength(0);
+    expect(h.viewport).toBe(before);
+    expect(h.frameReads).toBe(0);
   });
 });
