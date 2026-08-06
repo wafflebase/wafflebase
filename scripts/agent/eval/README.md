@@ -7,21 +7,85 @@ the input still: freeze a past pull request into a **corpus item** — the diff,
 changed files, the issue text, the metadata — and the panel can be re-run over
 exactly what a reviewer first saw.
 
-**Nothing here invokes a model, and nothing here costs anything.** Freezing a PR
-is `gh` and `git`.
+**One file here invokes a model: `run.mjs`, which spawns the panel.** Everything
+else is `gh`, `git` and the filesystem, and costs nothing.
 
 ## What exists today
 
 | File | Role | Model calls? |
 |---|---|---|
-| `store.mjs` | `EvalStore` — corpus items over an eval-data root; `store.captures` delegates to the merged `capture-store.mjs` | no |
+| `store.mjs` | `EvalStore` — corpus items and run envelopes over an eval-data root; `store.captures` delegates to the merged `capture-store.mjs` | no |
 | `extract-corpus.mjs` | freeze a past PR into an item, and re-check a frozen one against a fresh extraction | no (uses `gh` + `git`) |
 | `config-hash.mjs` | `config_hash` — the fingerprint of a lens **configuration**, so two results can be told apart. Configuration only: the reviewer is the pair `(config_hash, panelSha)` | no |
 | `config-build.mjs` | lenses dir → config manifest + reproduction snapshot, and a snapshot back into a lenses dir the panel can load. Takes an output path; persisting a snapshot is the runner's wiring | no |
+| **`run.mjs`** | **the runner** — replay frozen items through the panel and store an immutable envelope per item. Idempotent and resumable by `--run-id` | **YES — this one spends money** |
+| `adapters/reviewer.mjs` | the panel behind the target-adapter seam: `prepareInput` / `runAgent` / `captureArtifacts`, and the one place the subprocess contract lives | no (it spawns; the panel calls) |
+| `adapters/stub-panel.mjs` | a stand-in panel that writes canned output and exits with a chosen code. Every test of the runner uses it, which is why the whole subsystem is testable for free | no |
 
-The **runner** (replay an item through the panel), the arm adapters and every
-scorer are not built yet. When they arrive they read items through `EvalStore` and
-nothing else.
+The arm adapters and every scorer are not built yet. When they arrive they read
+items through `EvalStore` and nothing else.
+
+## Replaying an item
+
+```bash
+EVAL=../wafflebase-agent-eval
+node scripts/agent/eval/run.mjs --root "$EVAL" --corpus-version 2026-08-05a
+node scripts/agent/eval/run.mjs --help          # every flag
+```
+
+`--run-id` is what makes a replay resumable and a replicate distinguishable.
+Re-invoking with the same id **re-runs nothing**: items already stored are skipped,
+so a crash halfway through a twenty-item run costs the items it already paid for
+and nothing more. K replicates of one corpus and config are K *different* run ids —
+that is what makes reliability computable at all.
+
+### An `ok` item means one thing
+
+`status: "ok"` means **this item is a real verdict and may be pooled as one.**
+Anything short of that is `error` with a named `reason`, because the failures are
+not interchangeable:
+
+| `reason` | What happened | Stops the run? |
+|---|---|---|
+| `panel-exit` | the panel exited non-zero | no — a single item can crash on its own |
+| `no-panel-json` | it exited 0 and wrote no usable `panel.json` | no |
+| `gate-degraded` | the novelty gate's state disagrees with what was asked for | **yes** |
+| `gate-unreported` | the panel printed no gate line at all | **yes** |
+| `no-lens-diff` | the capture omits the routed diff each lens read | **yes** |
+| `infra` | a lens hit auth/quota, so the reviewer never ran | no |
+| `no-output` | the panel made no SDK calls | no |
+| `no-repo-context` | `--require-repo-context` and the tree would not materialise | no |
+| `exception` | the runner itself threw on this item | no |
+
+The three that stop the run are **misconfigurations**, identical for every
+remaining item, and each of those items costs money. The failing item is stored
+first — the evidence is what makes it fixable — and then the run aborts.
+
+Why the taxonomy is this fussy: the version this replaces reached `status: "ok"`
+with zero findings for four separate broken reasons. In a precision metric a false
+clean review is not noise, it is a **perfect score** — it inflates precision,
+deflates recall, and nothing about it looks wrong in any log.
+
+### Which reviewer ran
+
+Every envelope carries `panel_sha`, and it is not optional. `config_hash` cannot
+see the panel's *code*, so a new verifier stage or a changed gate leaves it
+identical; the pair `(config_hash, panel_sha)` is what "same reviewer" means. The
+trap is specific: the runner resolves the panel as **its own sibling**, so running
+from a feature branch measures that branch's panel. A dirty working tree outside
+`eval/` is refused for the same reason — HEAD's sha does not describe modified
+bytes. `--panel-sha` records one deliberately, and `panel_sha_source` says it was
+told rather than measured.
+
+### Latency comes from `review-timing.json`
+
+`duration_ms` is the panel's own wall-clock, or **`null`** with
+`duration_source: "absent"`. It is never `sumExecutions`'s flat `duration_ms` sum:
+the panel runs its lenses, and each lens's samples and verifier calls,
+concurrently, so that sum overcounts by the concurrency factor — #669 measured a
+~12-minute panel reported as 36–63. The sum is still recorded, under the name
+`sdk_duration_ms_sum`, which is not a duration. A run's totals sum `duration_ms`
+only over items that have one and carry that `n` as `duration_items`.
 
 ## Code lives here; data does not
 
@@ -42,6 +106,9 @@ The layout under a root, matching the collector's:
 <eval repo>/
 ├── corpus/items/pr-664/{meta.json, diff.patch, changed-files.txt, issue-spec.md}
 ├── corpus/manifests/<corpus-version>.json     the item index for one named version
+├── runs/<run-id>/run.json                     the run's summary, recomputed from its items
+├── runs/<run-id>/config.snapshot.json         which reviewer produced them — write-once
+├── runs/<run-id>/items/pr-664/{envelope.json, payload.json}
 ├── captures/stage-detail/…                    written by collect-captures.mjs
 └── labels/                                    human adjudication (13 files, hand-made)
 ```
@@ -122,10 +189,11 @@ than an omission.
 
 A method that answered `null` on every call in production would eventually be read
 as *"the model said nothing"* — a confusion this codebase has already shipped once.
-When the runner records envelopes it will carry a **pointer** to a transcript (a
-local path, later an S3 key), and any reader of one must return a **named state**
-(`absent` / `local` / `remote`), never `null` and never `""`. "We did not keep it"
-and "there was nothing to keep" are different facts.
+So a run envelope carries a **named state** instead: `transcript: {state: "absent" |
+"local" | "remote"}`, never `null` and never `""`, with a pointer (a local path,
+later an S3 key) beside it when there is one. `validateRunEnvelope` refuses anything
+else at the write path, so the rule is enforced rather than remembered. "We did not
+keep it" and "there was nothing to keep" are different facts.
 
 ## Known limits — read these before quoting any number
 
@@ -134,8 +202,9 @@ true.
 
 | Limit | What it means in practice |
 |---|---|
-| **The branch panel is what gets measured** | A replay runs `review-panel.mjs` *from the branch it is checked out on*. If that branch drifts behind `upstream/main`, every run measures a reviewer that is **not what ships**. Check first: `git diff --name-only HEAD upstream/main -- scripts/agent/ \| grep -v eval/` |
-| **A frozen diff is not the whole review context** | The verifier greps the repo **tree**, so a diff-only replay over-flags and explodes verifier fan-out — that is what billed **$44** on the #521 pilot. An item records `review_commit` precisely so a replay can materialise the tree; freezing the diff is necessary and not sufficient |
+| **The branch panel is what gets measured** | A replay runs `review-panel.mjs` *from the branch it is checked out on*, so a branch behind `upstream/main` measures a reviewer that is **not what ships**. `panel_sha` in every envelope makes that visible after the fact, and a dirty tree outside `eval/` is refused before the fact — but neither tells you the branch is *stale*. Check that yourself: `git diff --name-only HEAD upstream/main -- scripts/agent/ \| grep -v eval/` |
+| **The replay tree is an archive, not a checkout** | `run.mjs` materialises `review_commit` with `git archive`, so lenses do get real surrounding code — but the tree has **no `.git`**, so the novelty gate cannot `blame` and nothing passes `--base-sha`. Every replay today therefore measures the gate **OFF**, which the envelope records as `gate.state: "off-no-base-sha"` rather than leaving implicit. A real worktree, and `--base-sha` with it, is PR 6 |
+| **A diff-only replay over-flags** | The verifier greps the repo **tree**, so replaying with `--no-repo-context` explodes verifier fan-out — that is what billed **$44** on the #521 pilot. `--require-repo-context` refuses to spend on a 0-file checkout, and it is **opt-in today** |
 | **The corpus is unlabeled** unless `labels/` says otherwise | Anything computed against "the union of what the runs found" measures *coverage versus what the panel can find across repeated tries*, not *versus every real bug* |
 | **`review_point: head` skews approve** | The merged state of a PR is the state after review comments were addressed, so the bugs a reviewer would have found are already fixed. It is offered for comparison, not as a default |
 | **Single review pass** | An item replays one pass: no multi-round fix loop and no prior-findings recheck, so round-to-round behaviour is out of scope |
