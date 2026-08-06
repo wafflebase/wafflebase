@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
-import { format, outputError } from '../src/output/formatter.js';
+import {
+  format,
+  outputError,
+  parseOutputFormat,
+  InvalidFormatError,
+} from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
 
 describe('formatJson', () => {
@@ -28,6 +33,41 @@ describe('formatTable', () => {
 
   it('returns no results for empty array', () => {
     expect(formatTable([])).toBe('(no results)');
+  });
+
+  it('formats a single object as a key/value table', () => {
+    const result = formatTable({ loggedIn: true, user: 'hackerwins' });
+    const lines = result.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^loggedIn\s+true$/);
+    expect(lines[1]).toMatch(/^user\s+hackerwins$/);
+  });
+
+  it('returns no results for an object with no fields', () => {
+    expect(formatTable({})).toBe('(no results)');
+  });
+
+  it('returns no results for scalars', () => {
+    expect(formatTable('nope')).toBe('(no results)');
+    expect(formatTable(null)).toBe('(no results)');
+  });
+});
+
+describe('parseOutputFormat', () => {
+  it('accepts the supported formats', () => {
+    expect(parseOutputFormat('json')).toBe('json');
+    expect(parseOutputFormat('table')).toBe('table');
+    expect(parseOutputFormat('csv')).toBe('csv');
+  });
+
+  it('rejects an unsupported format with a structured code', () => {
+    expect(() => parseOutputFormat('bogus')).toThrow(InvalidFormatError);
+    try {
+      parseOutputFormat('bogus');
+    } catch (e) {
+      expect((e as InvalidFormatError).code).toBe('INVALID_FORMAT');
+      expect((e as Error).message).toContain('json, table, csv');
+    }
   });
 });
 
@@ -85,6 +125,12 @@ describe('format dispatcher', () => {
 
   it('dispatches to csv', () => {
     expect(format(data, 'csv')).toContain('a\n1');
+  });
+
+  it('throws instead of printing "undefined" for an unknown format', () => {
+    expect(() =>
+      format(data, 'bogus' as unknown as 'json'),
+    ).toThrow(InvalidFormatError);
   });
 });
 

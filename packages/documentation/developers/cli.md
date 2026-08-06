@@ -32,8 +32,12 @@ wafflebase login --server https://api.example.com
 
 ### Check Status
 
+Prints the auth state as JSON — `loggedIn` tells a script or agent
+whether a login prompt is needed.
+
 ```bash
 wafflebase status
+wafflebase status --format table   # human-readable key/value
 ```
 
 ### Logout
@@ -47,8 +51,11 @@ wafflebase logout
 If you have access to multiple workspaces:
 
 ```bash
-# List workspaces (* = active)
+# List workspaces as [{ id, name, active }]
 wafflebase ctx list
+
+# Human-readable table instead of JSON
+wafflebase ctx list --format table
 
 # Switch active workspace
 wafflebase ctx switch "Team Workspace"

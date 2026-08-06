@@ -264,7 +264,7 @@ wafflebase
   ├── schema [<command>]                     Describe command parameters and response shape
   │
   ├── ctx
-  │     ├── list                             List workspaces (* = active)
+  │     ├── list                             List workspaces (`active: true` marks the current one)
   │     └── switch <name|id>                 Switch active workspace
   │
   ├── api-keys (alias: api-key)
@@ -447,8 +447,13 @@ wafflebase schema sheets.cells.get         # show parameters and response shape
 wafflebase schema docs.content
 wafflebase schema cell.get                 # alias → resolves to sheets.cells.get
 
+# Auth state (JSON by default; agents branch on `loggedIn`)
+wafflebase status
+wafflebase status --format table            # human-readable key/value
+
 # Context switching
-wafflebase ctx list                        # list workspaces (* = active)
+wafflebase ctx list                        # [{ id, name, active }]
+wafflebase ctx list --format table         # human-readable table
 wafflebase ctx switch "Team Workspace"
 
 # API key management
@@ -701,6 +706,26 @@ success and failure uniformly:
 Exit codes: `0` success, `1` user error (bad input, not found),
 `2` system error (network, auth). Agents can branch on the exit code
 without parsing the error body.
+
+Every command that renders a *result* routes it through `output()`,
+including the session commands `status` and `ctx list`, which used to
+print English sentences and ignore `--format`. (Commands that only
+acknowledge an action — `login`, `logout`, `ctx switch` — still print a
+prose line.) `status` reports the answer to "am I logged in?" as data
+and still exits `0` when there is no session:
+
+```json
+{ "loggedIn": false, "message": "Not logged in. Run `wafflebase login`." }
+```
+
+`ctx list` cannot answer without a session, so it emits the standard
+error body with `"code": "NOT_LOGGED_IN"` and exits `1`.
+
+An unsupported `--format` value is rejected with
+`"code": "INVALID_FORMAT"` rather than ignored. Validation is
+per-command because `docs`/`slides`/`notes` `content` and `export`
+deliberately reuse the same global `--format` flag for their own
+vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`).
 
 #### 8.2 Dry-Run
 
