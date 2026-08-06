@@ -16,6 +16,7 @@ import {
   UI_SHARED_READERS,
   UI_SURFACES,
 } from "./hunt-ui-tool.mjs";
+import { assessExpectation } from "./hunt-ui-expect.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -444,14 +445,47 @@ test("a non-read action does not leak the page state", () => {
 
 // Handing back the measured value invites re-describing a violated prediction as some
 // weaker claim that happens to fit it.
-test("a prediction reports its verdict, never the raw actual", () => {
+// Was "a prediction reports its verdict, never the raw actual", and it was VACUOUS: it
+// hand-wrote `detail: "3 !== 9"` and asserted the output lacked `observation.actual` — a
+// field the renderer never reads. It passed while the real `assessExpectation` produced
+// `detail: expected "…", read "…"`, which does carry the reading. Driven by a real
+// assessment now, so the assertion is about what the pipeline actually emits.
+test("a held prediction does not hand back the reading; a violated one does", () => {
+  const journal = [{ action: { type: "read", reader: "doc.text" }, ok: true, value: "BASELINE" }];
+  const expect = { read: "doc.text", op: "equals", value: "@read:0", ground: "A", because: "x" };
+  const render = (actual) =>
+    renderUiObservation({
+      action: { type: "key", key: "z", expect },
+      observation: { ok: true, value: null, actual, oracles: [] },
+      prediction: assessExpectation(expect, actual, { journal, charter: {}, atIndex: 1 }),
+    });
+
+  // Held: nothing to investigate, so nothing of the page comes back.
+  const held = render("BASELINE");
+  assert.match(held, /held/);
+  assert.equal(held.includes("BASELINE"), false, "a held prediction must not leak the reading");
+
+  // Violated: both sides ARE reported, because the tool then tells the model to narrow
+  // the defect down, which it cannot do without knowing what it got.
+  const violated = render("SOMETHING ELSE");
+  assert.match(violated, /violated/);
+  assert.match(violated, /SOMETHING ELSE/);
+  assert.match(violated, /GROUNDED/);
+});
+
+test("a violated prediction's detail is clipped like any other value", () => {
+  // `detail` embeds BOTH sides, so it is the longest thing the tool can emit — and it
+  // used to bypass the cap that `value` respects.
+  const journal = [{ action: { type: "read", reader: "doc.text" }, ok: true, value: "b" }];
+  const expect = { read: "doc.text", op: "equals", value: "@read:0", ground: "A", because: "x" };
+  const huge = "Z".repeat(MAX_DISPLAY_CHARS * 4);
   const out = renderUiObservation({
-    action: { type: "type", text: "x", expect: goodExpect },
-    observation: { ok: true, value: null, actual: "MEASURED VALUE", oracles: [] },
-    prediction: { verdict: "violated", eligible: false, why: "ground D is never eligible", detail: "3 !== 9" },
+    action: { type: "key", key: "z", expect },
+    observation: { ok: true, value: null, actual: huge, oracles: [] },
+    prediction: assessExpectation(expect, huge, { journal, charter: {}, atIndex: 1 }),
   });
-  assert.ok(!out.includes("MEASURED VALUE"));
-  assert.match(out, /violated/);
+  assert.ok(out.length < MAX_DISPLAY_CHARS * 2, `detail must be clipped, got ${out.length} chars`);
+  assert.match(out, /clipped at 1200 of \d+ chars/);
 });
 
 test("a long value is clipped for display and says so", () => {

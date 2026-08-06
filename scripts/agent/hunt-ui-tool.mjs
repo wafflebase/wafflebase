@@ -17,8 +17,13 @@
 //   * a page snapshot, unless it explicitly read `dom.snapshot`
 //   * the value of a non-`read` action (a click returns whether it landed, not what
 //     the page now says)
-//   * the raw `actual` behind a prediction — it gets the verdict, so a violated
-//     prediction cannot be quietly retold as a different, weaker claim
+//   * the `actual` of a prediction that HELD or was unevaluable — there is nothing to
+//     investigate, and handing back the reading would just be the page state it did not
+//     ask for. A VIOLATED prediction does report both sides, because the tool then tells
+//     the model to investigate before reporting, and it cannot narrow down a value it
+//     was never shown. Guarding against it being "retold as a weaker claim" is the
+//     verifier panel's job, not this tool's — and the journal keeps the real reading
+//     either way, so a retelling does not survive contact with the report.
 //   * anything from a surface this run was not assigned
 //
 // The last one is the per-run surface pin. A run assigned `doc` cannot read `sheet.*`
@@ -189,6 +194,14 @@ export function resolveActionRefs(candidate, journal) {
 }
 
 /** Clip one value for display. The journal keeps the full reading. */
+/** Clip already-rendered text, saying so. `forDisplay` is for raw reader values. */
+function clipText(text) {
+  const t = String(text ?? "");
+  return t.length <= MAX_DISPLAY_CHARS
+    ? t
+    : `${t.slice(0, MAX_DISPLAY_CHARS)}\n… clipped at ${MAX_DISPLAY_CHARS} of ${t.length} chars`;
+}
+
 function forDisplay(value) {
   if (isUnusableValue(value)) {
     return value.__oversized
@@ -227,7 +240,11 @@ export function renderUiObservation({ action, observation, prediction = null }) 
   if (prediction) {
     lines.push("");
     lines.push(`prediction (${action.expect.op} on ${action.expect.read}): ${prediction.verdict}`);
-    if (prediction.detail) lines.push(`  ${prediction.detail}`);
+    // Clipped like any other value. `detail` embeds BOTH sides of the comparison, so a
+    // violated `equals` on two large readings rendered ~40k characters straight into the
+    // tool result — past the cap `value` respects, in the one place the module calls cost
+    // the single biggest lever. Measured before this: 8237 chars against a 1200 cap.
+    if (prediction.detail) lines.push(`  ${clipText(prediction.detail)}`);
     if (prediction.verdict === "violated") {
       lines.push(
         prediction.eligible
