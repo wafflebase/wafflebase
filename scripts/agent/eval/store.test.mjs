@@ -10,6 +10,7 @@ import {
   EvalStore,
   ITEM_FILES,
   ITEM_STATUSES,
+  RUN_FILES,
   TRANSCRIPT_STATES,
   contentSha256,
   itemFileBytes,
@@ -605,6 +606,10 @@ test("an envelope with no gate state is refused — a scorer would pool gated an
 
 test("a transcript reference must be a NAMED state, never a falsy value", () => {
   const { store, cleanup } = tempStore();
+  // Each accepted state needs its OWN root, because `putItem` is write-once and all
+  // three write the same item id — collected here so the `finally` can remove them
+  // rather than leaving one temp directory per state behind on every run.
+  const extraRoots = [];
   try {
     // "we did not keep it" and "there was nothing to keep" are different facts, and
     // a falsy value cannot express which. PR 3 decided this for corpus items; the
@@ -617,10 +622,13 @@ test("a transcript reference must be a NAMED state, never a falsy value", () => 
       );
     }
     for (const state of TRANSCRIPT_STATES) {
-      const s = new EvalStore(mkdtempSync(path.join(tmpdir(), "eval-store-test-")));
+      const root = mkdtempSync(path.join(tmpdir(), "eval-store-test-"));
+      extraRoots.push(root);
+      const s = new EvalStore(root);
       assert.equal(s.putItem(RUN_ID, "pr-664", { envelope: envelope({ transcript: { state, path: "/tmp/t.json" } }), payload: {} }), "written");
     }
   } finally {
+    for (const root of extraRoots) rmSync(root, { recursive: true, force: true });
     cleanup();
   }
 });
@@ -710,6 +718,32 @@ test("run.json is refreshable and the config snapshot is identity", () => {
   }
 });
 
+test("a corrupt config snapshot is named, not thrown as a bare SyntaxError", () => {
+  // Both parses of this file are guarded, and both refusals name the run and the
+  // file. It is the one comparison that decides whether two reviewers get filed
+  // under one run id, so "the snapshot is corrupt" and "the offer disagrees" must
+  // not arrive as the same unlabelled stack trace.
+  const { root, store, cleanup } = tempStore();
+  const snap = { config_hash: `sha256:${"a".repeat(64)}`, lenses: [] };
+  try {
+    store.putRun(RUN_ID, { runJson: runJson(), configSnapshot: snap });
+    writeFileSync(path.join(root, "runs", RUN_ID, RUN_FILES.configSnapshot), "{not json");
+    for (const call of [
+      () => store.getRun(RUN_ID),
+      () => store.putRun(RUN_ID, { runJson: runJson(), configSnapshot: snap }),
+    ]) {
+      assert.throws(call, /unreadable config\.snapshot\.json/);
+      assert.throws(call, new RegExp(RUN_ID));
+    }
+    // An ABSENT snapshot still degrades to null — that is an interrupted write, not
+    // a corrupt one, and the two must not answer the same way.
+    rmSync(path.join(root, "runs", RUN_ID, RUN_FILES.configSnapshot));
+    assert.equal(store.getRun(RUN_ID).configSnapshot, null);
+  } finally {
+    cleanup();
+  }
+});
+
 test("listRuns narrows to the replicates a reliability scorer aggregates over", () => {
   const { root, store, cleanup } = tempStore();
   try {
@@ -725,10 +759,17 @@ test("listRuns narrows to the replicates a reliability scorer aggregates over", 
     // "the same reviewer" must be able to say `panelSha` too.
     assert.deepEqual(store.listRuns({ panelSha: PANEL_SHA }).length, 4);
     assert.deepEqual(store.listRuns({ panelSha: "f".repeat(40) }), []);
-    // A read path degrades: a directory with no readable run.json is skipped, not
-    // thrown on.
+    // A read path degrades, and the two ways a `runs/` entry can be unusable take
+    // DIFFERENT branches, so they get their own assertions — a `configHash` filter
+    // alone would exclude both for the wrong reason and hide either one.
+    //
+    // (a) a directory with no readable run.json → the parse fails and it is skipped.
     mkdirSync(path.join(root, "runs", "debris"), { recursive: true });
+    assert.deepEqual(store.listRuns(), ["run-1", "run-2", "run-3", "run-4"], "a run dir with no run.json was not skipped");
+    // (b) a plain FILE where a run directory should be → caught by `isDirectory()`
+    // before any read is attempted.
     writeFileSync(path.join(root, "runs", "run-5"), "not a directory");
+    assert.deepEqual(store.listRuns(), ["run-1", "run-2", "run-3", "run-4"], "a file in runs/ was not filtered out");
     assert.deepEqual(store.listRuns({ configHash: hashB }), ["run-3"]);
   } finally {
     cleanup();

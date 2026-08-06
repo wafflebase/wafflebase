@@ -20,11 +20,13 @@ and the metadata of one past pull request. #680 pinned the reviewer's configurat
 This is the thing that puts the two together and actually re-runs the panel, offline,
 as many times as you like, writing down per lens what each one did.
 
-### The four defects underneath, and the direction they all fail in
+### The eight defects underneath, and the direction most of them fail in
 
 The two modules this lands are ports of the fork harness's `run.mjs` and
-`adapters/reviewer.mjs`, and the audit found five defects in them. Four fail in
-**exactly the same direction**: they turn a broken review into a clean one.
+`adapters/reviewer.mjs`, and the audit found **eight** defects in them: five named
+below, then three smaller ones in their own section. Of the five, **four fail in
+exactly the same direction** — they turn a broken review into a clean one — and the
+fifth (row 5) is a measurement error rather than a fail-direction one.
 
 | # | What happened | What the envelope said |
 |---|---|---|
@@ -47,7 +49,10 @@ rebuild each finding as exactly `{severity,file,summary,evidence}`, which silent
 dropped everything the orchestrator annotates onto a finding after the lens produced
 it. That was a real bug rather than a tidy contract."*
 
-### Three smaller ones, same files
+### The other three, same files
+
+Smaller, and none of them fails toward a clean review — but all three corrupt what a
+replay records about itself.
 
 - **`STAGE_DETAIL_DIFF_CONTENT` was never set** — zero occurrences across the whole
   fork harness. It defaults OFF, so every replay's capture omitted `lensDiff`, and the
@@ -66,7 +71,8 @@ it. That was a real bug rather than a tidy contract."*
 
 ## The change
 
-Six files, three new, three edited.
+Nine files: **six new, three edited.** The table below lists the eight under
+`scripts/agent/eval/`; the ninth is this document.
 
 | File | What |
 |---|---|
@@ -79,12 +85,24 @@ Six files, three new, three edited.
 | `eval/store.test.mjs` | the run slice's tests |
 | `eval/README.md` | the runner in "what exists today", the outcome taxonomy, the layout, the revised known limits |
 
-The subprocess contract itself is **intact and not rewritten**: all six flags and all
-six output files were re-verified against `review-panel.mjs` at `bb21ff953`. The
-audit's 6/6 and 5/5 result now has a test behind it — `reviewer.test.mjs` asserts the
-flags the **stub actually received**, and cross-checks each flag against the panel's
-own usage block and each output file against the panel's own writes. A point-in-time
-audit result became a standing assertion.
+The subprocess contract itself is **intact and not rewritten**, and the exact sets are
+worth naming because the audit and this PR count the outputs differently.
+
+| | Set | Verified against |
+|---|---|---|
+| **6 flags** | `--diff-file` · `--changed-files` · `--lenses-dir` · `--repo` · `--out` · `--issue-file` | the usage block of `review-panel.mjs` |
+| **5 outputs the audit checked** | `panel.json` · `review-lens-stats.json` · `review-execution.json` · `<lens>/verdict.json` · `<lens>/stage-detail.json` | the panel's own `writeFileSync` calls |
+| **+1 this PR adds** | `review-timing.json` — the sixth, which the adapter did not know existed | ditto |
+
+So the audit's result was **6/6 flags and 5/5 outputs**, and `PANEL_OUTPUT_FILES` now
+names **six** outputs. All of it re-verified at `bb21ff953`, and it now has a test
+behind it: `reviewer.test.mjs` asserts the flags the **stub actually received**, and
+cross-checks every flag against the usage block and every output name against the
+panel's own writes. A point-in-time audit result became a standing assertion.
+
+`payload.files` records the state of the **four run-level** outputs only. The other two
+are per-lens and have no single state: `verdict.json` is accounted for by `findings`
+and `stage-detail.json` by `diffContent.lensesWithDetail`.
 
 ### How defect 2 is fixed, which is the part worth reading
 
@@ -267,6 +285,26 @@ is injected now. And the `repo_context_files` stability test pre-wrote a marker 
 a third file standing in for whatever accumulates in a cache directory that outlives
 one run — which is what the fork's own in-tree marker was.
 
+**The commit cache is shared across processes, and a test proved it by failing.** The
+new `--require-repo-context` end-to-end went green-then-red depending on whether an
+earlier run had already materialised the fixture's `review_commit` into
+`tmpdir()/eval-repo-cache` — the guard cannot fire on a cache hit. Two consequences,
+both taken. The test now uses a sha no repository can hold, because **a test whose
+result depends on another process's leftovers is not testing what it says.** And
+`materializeRepoAt` now extracts into a staging directory and **renames** the tree into
+the cache, instead of `rmSync`-ing the destination and building in place: the old order
+meant a concurrent reader could observe the tree deleted or half-populated, and a lens
+handed a half-populated tree reasons from code that is genuinely missing and reports it
+as a finding. A rename is atomic, so the destination is only ever absent or complete,
+and the loser of a race reuses the winner's tree rather than replacing it.
+
+**Two hygiene items, both about not leaving evidence-shaped litter.** Each item's
+scratch directory is now removed **only when the item is `ok`** — for a failed item that
+directory holds the only copy of the raw panel output, since `payload.json` records the
+parsed states rather than the bytes, so it is kept and its path printed. The
+materialised lenses directory goes after the final `putRun`; it is a byte-for-byte
+rebuild of `config.snapshot.json`, which is in the store and write-once.
+
 **The write-order test could not see the order it claimed to protect.** It asserted
 both files exist and that removing `envelope.json` makes `hasItem` false — neither of
 which distinguishes the two orders. The order only has an effect on an interrupted
@@ -279,7 +317,8 @@ resumed run would skip that item forever.
 
 | Part | On failure | Why that is the safe way |
 |---|---|---|
-| `captureArtifacts` and every file read | named state, never a throw and never a default | it is a read path, and the states it reports **are** the findings |
+| `captureArtifacts` reading the panel's files | named state, never a throw and never a default | it is a read path, and the states it reports **are** the findings |
+| `captureArtifacts` handed an out-directory instead of a run result | **throws** | that is a broken CALLER, not a broken panel, and it is precisely how the exit code came to be dropped. The one thing this function must never do is degrade quietly for its own caller's mistake |
 | `panel.json` absent or not a list | `panel: null`, `findings: null` | a clean review genuinely produces `findings: []`, so failure must not share its shape |
 | `review-timing.json` absent | `duration_ms: null`, `duration_source: "absent"` | the summed alternative is 3–5× high; an explicit null is a number PR 13 must handle |
 | non-zero exit / missing panel output / infra / no calls | `error`, run continues | item-specific: a single item can crash on a huge diff or a transient API failure |
@@ -297,12 +336,23 @@ resumed run would skip that item forever.
 Nothing here is PR 6, and the seams it needs are named below rather than half-built.
 
 - **No real git worktree.** The tree comes from `git archive`, so it has no `.git`.
-- **`--base-sha` is never passed.** The adapter accepts one and the assertion is live;
-  the runner supplies none, because an archived tree cannot resolve a base and the
-  gate would report OFF — which this PR correctly treats as a hard error.
+- **`--base-sha` is never passed.** The adapter accepts one and the assertion is live,
+  but the runner supplies none — so every replay today reports `off-no-base-sha`, which
+  is **recorded and is not an error**: `classifyItemOutcome` only reaches
+  `gate-degraded` when `baseShaPassed` is true and the gate is not `on`. The reason the
+  runner withholds it is that an archived tree has no `.git` to blame against, so
+  passing one would produce exactly the degraded state the assertion exists to catch.
+  PR 6 supplies the worktree and the flag together, and the assertion is then live
+  against a base that can actually resolve.
 - **`--require-repo-context` stays default OFF.** Flipping it belongs with the thing
   that makes it satisfiable.
-- **No per-run cost caps, no timeouts.**
+- **No per-run cost caps, and no panel timeout.** `runAgent` waits on the child
+  indefinitely. A `--panel-timeout` that killed a hung panel is a cost guard, which is
+  PR 6's line item, and the seam is `runAgent`'s `spawn` — one `setTimeout` plus a
+  `child.kill()`, resolving with a non-zero code so the existing `panel-exit`
+  classification already covers it. Raised in review and deliberately deferred rather
+  than folded in: the review job that runs these has GitHub's own six-hour ceiling
+  under it today.
 - **No metric.** No precision, no recall, no reliability, no scoring, no matching.
 - **No stage modules** (PR 19), no `signal-harvest.mjs` (PR 7), no label or score store
   methods (PRs 7, 16, 19).
@@ -332,9 +382,11 @@ Nothing here is PR 6, and the seams it needs are named below rather than half-bu
 Measured on this machine, at `scripts/agent`, with the lane's own command
 `node --test '**/*.test.mjs'`.
 
-- [x] **1116 tests · 0 fail · 0 skip.** Baseline on `upstream/main` `3247650ae` (the
-      squash merge of #680): **1057 · 0 · 0**. Delta **+59**. For orientation, the
-      pre-#680 `main` `bb21ff953` measured **1002 · 0 · 0**, so #680 was +55.
+- [x] **1178 tests · 0 fail · 0 skip**, against **1113 · 0 · 0** on `upstream/main`
+      `01b8d39c2`. Delta **+65**. The absolute numbers moved twice while this was in
+      review — #680 merged (+55) and then #678 (+56) — which is why the delta is the
+      number to read and why it was re-measured on the branch's actual base each time
+      rather than carried over.
 - [x] **No new skips without `node_modules`: 6, exactly the baseline** — 1 Agent SDK +
       5 `lint-config`. Every subprocess test in this PR runs with no dependencies
       installed at all, because `ask.mjs` imports the SDK lazily.
@@ -349,8 +401,9 @@ Measured on this machine, at `scripts/agent`, with the lane's own command
       "backlog"` and `novelty: {origin: "relocated", …}` reaches the stored envelope's
       payload with both intact, plus `unsettled` and a field nothing in this repository
       has heard of.
-- [x] **28/28 mutations caught**, including all seven the plan named. Four survived on
-      the first pass and all four were weaknesses in the tests, not the code — see
+- [x] **32/32 mutations caught**, including all seven the plan named. Six survived on
+      a first pass — four in the original round and two covering fixes made in review
+      — and every one was a weakness in the tests rather than the code. See
       *Corrected while building*.
 - [x] **Idempotence shown, not claimed.** Two invocations at one `--run-id` over a real
       corpus item: the second re-ran nothing, and `shasum` over both stored files is

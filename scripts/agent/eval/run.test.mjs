@@ -13,6 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ import { EvalStore, contentSha256 } from "./store.mjs";
 import {
   DEFAULT_PANEL_SCRIPT,
   FATAL_REASONS,
+  GATE_NOT_RUN,
   ITEM_REASONS,
   classifyItemOutcome,
   main,
@@ -60,13 +62,13 @@ const OK = Object.freeze({
 });
 
 /** A store rooted in a throwaway directory, holding one frozen corpus item. */
-function tempCorpus({ itemId = "pr-664", diff = DIFF } = {}) {
+function tempCorpus({ itemId = "pr-664", diff = DIFF, reviewCommit = "61101a1bdbdffb9acb88772cae4c9347c69f413b" } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "eval-run-test-"));
   const store = new EvalStore(root);
   const meta = {
     id: itemId,
     source_pr: 664,
-    review_commit: "61101a1bdbdffb9acb88772cae4c9347c69f413b",
+    review_commit: reviewCommit,
     review_base: "35206e5859788062cfddfd0fc12b0a5754655a8d",
     review_point: "pr-open",
     diff_method: "fork-point",
@@ -85,12 +87,14 @@ function tempCorpus({ itemId = "pr-664", diff = DIFF } = {}) {
 /**
  * Run the CLI end to end against a stub panel.
  *
- * `--no-repo-context` because materialising the tree is not what these tests are
- * about, and `--panel-sha` because `--panel-script` points at the stub: a run that
- * replayed a different script while stamping the real panel's commit is exactly the
- * mislabelling `panel_sha` exists to prevent, so the runner insists on being told.
+ * `--no-repo-context` by default because materialising the tree is not what most of
+ * these tests are about — the repo-context guard's own test passes
+ * `noRepoContext: false` to reach it. And `--panel-sha` because `--panel-script`
+ * points at the stub: a run that replayed a different script while stamping the real
+ * panel's commit is exactly the mislabelling `panel_sha` exists to prevent, so the
+ * runner insists on being told.
  */
-async function runCli(root, spec = {}, extra = []) {
+async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}) {
   const specPath = path.join(root, `spec-${extra.join("_").replace(/[^a-z0-9]/gi, "") || "default"}.json`);
   writeFileSync(specPath, JSON.stringify(spec));
   const prev = process.env.STUB_PANEL_SPEC;
@@ -107,7 +111,7 @@ async function runCli(root, spec = {}, extra = []) {
       "--lenses-dir", LENSES,
       "--panel-script", STUB,
       "--panel-sha", PANEL_SHA,
-      "--no-repo-context",
+      ...(noRepoContext ? ["--no-repo-context"] : []),
       ...extra,
     ]);
     return { code, logs };
@@ -356,6 +360,79 @@ test("repo_context_files is the same number on every replicate of one commit", (
   }
 });
 
+test("materialising a real commit from an EMPTY cache counts what it extracted", () => {
+  // The test above pre-fabricates a cache hit, so the extraction path itself — `git
+  // archive` into a tar, `tar -xf` into place, count, record — was never once
+  // exercised by the suite. Real git in a temp repo, the same idiom
+  // `novelty.test.mjs` and `git-env.test.mjs` already use.
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-repo-cache-test-"));
+  const src = mkdtempSync(path.join(tmpdir(), "eval-repo-src-test-"));
+  const git = (...a) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], { cwd: src, stdio: "pipe", encoding: "utf8" });
+  try {
+    git("init", "--quiet");
+    writeFileSync(path.join(src, "a.mjs"), "export const a = 1;\n");
+    writeFileSync(path.join(src, "b.mjs"), "export const b = 2;\n");
+    git("add", "a.mjs", "b.mjs");
+    git("commit", "--quiet", "-m", "two files");
+    const commit = git("rev-parse", "HEAD").trim();
+
+    const first = materializeRepoAt({ repoSource: src, commit, cacheRoot: cache });
+    assert.equal(first.error, null);
+    assert.equal(first.files, 2, "the extracted tree did not hold the commit's two files");
+    assert.ok(existsSync(path.join(first.path, "a.mjs")));
+    // The marker is a SIBLING of the tree, so it is not one of the files counted —
+    // which is the whole of the N vs N+1 fix.
+    assert.equal(existsSync(path.join(first.path, ".materialized")), false);
+    assert.ok(existsSync(`${first.path}.materialized`));
+    // And the cache hit answers the same number, on a tree that really was extracted
+    // rather than one a test wrote by hand.
+    assert.equal(materializeRepoAt({ repoSource: src, commit, cacheRoot: cache }).files, first.files);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+    rmSync(src, { recursive: true, force: true });
+  }
+});
+
+test("an already-populated cache entry is reused, never deleted out from under a reader", () => {
+  // The cache root is shared across processes and keyed only by commit, so two
+  // runners can address this exact path at once. The version this replaces `rmSync`ed
+  // the destination and rebuilt IN PLACE, which meant a concurrent reader could
+  // observe the tree deleted or half-populated — and a lens handed a half-populated
+  // tree reasons from code that is genuinely missing and reports it as a finding.
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-repo-cache-test-"));
+  const src = mkdtempSync(path.join(tmpdir(), "eval-repo-src-test-"));
+  const git = (...a) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], { cwd: src, stdio: "pipe", encoding: "utf8" });
+  try {
+    git("init", "--quiet");
+    writeFileSync(path.join(src, "a.mjs"), "export const a = 1;\n");
+    git("add", "a.mjs");
+    git("commit", "--quiet", "-m", "one file");
+    const commit = git("rev-parse", "HEAD").trim();
+
+    // A complete tree with NO marker beside it: exactly what a concurrent runner has
+    // built but not yet stamped. `sentinel` stands in for the bytes a reader is
+    // mid-read of.
+    const dest = path.join(cache, commit);
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(path.join(dest, "sentinel"), "another runner built this");
+
+    const out = materializeRepoAt({ repoSource: src, commit, cacheRoot: cache });
+    assert.equal(out.error, null);
+    assert.equal(out.path, dest);
+    assert.ok(
+      existsSync(path.join(dest, "sentinel")),
+      "the existing cache tree was destroyed and rebuilt — a concurrent reader would have seen it vanish",
+    );
+    // And the marker describes the tree the caller was actually handed, not the one
+    // this call staged and threw away.
+    assert.equal(out.files, 1);
+    assert.match(readFileSync(`${dest}.materialized`, "utf8"), /\s1$/m);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+    rmSync(src, { recursive: true, force: true });
+  }
+});
+
 test("a tree that will not materialise degrades to a named failure, never to a bare null", () => {
   const cache = mkdtempSync(path.join(tmpdir(), "eval-repo-cache-test-"));
   try {
@@ -540,6 +617,92 @@ test("END TO END: a capture missing the routed per-lens diff aborts the run", as
     }
   } finally {
     c.cleanup();
+  }
+});
+
+test("END TO END: --require-repo-context stores a zero-cost error and spawns nothing", async () => {
+  // The one guard the $44 postmortem produced, and the only path that reaches
+  // `GATE_NOT_RUN`: the panel is never spawned, so no reported gate state could be
+  // honest. `review_commit` is a real-shaped sha that resolves in no repository.
+  // A sha no repository can hold, because `materializeRepoAt`'s commit cache lives
+  // under `tmpdir()` and is SHARED across runs and processes: reusing the fixture's
+  // usual `review_commit` made this test pass or fail depending on whether some
+  // earlier run had already materialised it. A test whose result depends on another
+  // process's leftovers is not testing what it says.
+  const c = tempCorpus({ reviewCommit: "d".repeat(40) });
+  try {
+    const { code, logs } = await runCli(c.root, {}, [
+      "--require-repo-context",
+      "--repo-source", c.root,
+    ], { noRepoContext: false });
+    assert.equal(code, 1);
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.status, "error");
+    assert.equal(got.envelope.reason, "no-repo-context");
+    assert.equal(got.envelope.repo_context_files, 0);
+    assert.equal(got.envelope.gate.state, GATE_NOT_RUN);
+    // Zero cost is the point: the guard refuses BEFORE the money is spent.
+    assert.equal(got.envelope.cost_usd, 0);
+    assert.equal(got.envelope.calls, 0);
+    assert.equal(got.envelope.duration_ms, null);
+    assert.equal(got.envelope.duration_source, "not-run");
+    assert.ok(logs.some((l) => l.includes("no model calls")), logs.join("\n"));
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("every gate state an envelope can carry is declared somewhere", () => {
+  // `GATE_STATES` is what the panel can REPORT; `GATE_NOT_RUN` is what the runner
+  // writes when no panel ran. Together they are the closed set, and a third value
+  // appearing as a bare literal at one of the two envelope sites would pass
+  // `validateRunEnvelope` (which only demands a non-empty string) unnoticed.
+  const declared = new Set([...GATE_STATES, GATE_NOT_RUN]);
+  assert.equal(declared.size, GATE_STATES.length + 1, "GATE_NOT_RUN collides with a reported state");
+  const src = readFileSync(path.join(HERE, "run.mjs"), "utf8");
+  for (const m of src.matchAll(/gate: \{ state: ([^,]+),/g)) {
+    const expr = m[1].trim();
+    assert.ok(
+      expr === "GATE_NOT_RUN" || expr === "cap.gate" || expr === "GATE_STATES",
+      `run.mjs builds an envelope gate from ${expr} — use GATE_NOT_RUN or the adapter's parsed state`,
+    );
+  }
+});
+
+test("END TO END: a failed item KEEPS its raw panel output; an ok item does not", async () => {
+  // Asymmetric on purpose. For an `ok` item the scratch directory is 20 redundant
+  // copies of the panel's output by the end of a corpus run, because `payload.json`
+  // already has all of it. For a FAILED one it is the only place the raw bytes exist
+  // — `payload.json` records the parsed STATES — so deleting it would be the same
+  // fail direction this whole module exists to correct.
+  const scratchDirs = () => new Set(readdirSync(tmpdir()).filter((d) => d.startsWith("eval-item-")));
+
+  const ok = tempCorpus();
+  try {
+    const before = scratchDirs();
+    const r = await runCli(ok.root, {});
+    assert.equal(r.code, 0);
+    const left = [...scratchDirs()].filter((d) => !before.has(d));
+    assert.deepEqual(left, [], `an ok item left its scratch directory behind: ${left.join(", ")}`);
+  } finally {
+    ok.cleanup();
+  }
+
+  const bad = tempCorpus();
+  try {
+    const before = scratchDirs();
+    const r = await runCli(bad.root, { exitCode: 1 });
+    assert.equal(r.code, 1);
+    const kept = [...scratchDirs()].filter((d) => !before.has(d));
+    assert.equal(kept.length, 1, `a failed item's evidence was not kept: ${kept.join(", ")}`);
+    // Named in the log, or nobody can find it.
+    const line = r.logs.find((l) => l.includes("raw panel output kept at"));
+    assert.ok(line, r.logs.join("\n"));
+    const outDir = line.slice(line.indexOf("kept at ") + "kept at ".length).trim();
+    assert.ok(existsSync(path.join(outDir, "panel.json")), `${outDir} does not hold the panel's output`);
+    rmSync(path.join(tmpdir(), kept[0]), { recursive: true, force: true });
+  } finally {
+    bad.cleanup();
   }
 });
 

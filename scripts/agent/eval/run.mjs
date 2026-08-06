@@ -27,14 +27,14 @@
 //
 // So: when in doubt, ABORT. A run that refuses to record itself costs one replay. A
 // run that records a lie costs every number computed from it afterwards, and nobody
-// finds out. Two of the failures are further treated as FATAL to the whole run
-// rather than to one item, because they are misconfigurations that will be
-// identical for the next nineteen items and each of those costs money.
+// finds out. THREE of the failures are further treated as FATAL to the whole run
+// rather than to one item — see `FATAL_REASONS` — because they are misconfigurations
+// that will be identical for the next nineteen items and each of those costs money.
 //
 // THIS RUN SPENDS MONEY. It spawns the panel, which calls models. Tests drive it
 // with `adapters/stub-panel.mjs` instead, which is why `--panel-script` exists.
 
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, renameSync, rmSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -90,6 +90,22 @@ export const ITEM_REASONS = Object.freeze([
 
 /** The failures that stop the whole run rather than one item — see the header. */
 export const FATAL_REASONS = Object.freeze(["gate-degraded", "gate-unreported", "no-lens-diff"]);
+
+/**
+ * The gate state for an item whose panel NEVER RAN, and so is the runner's to
+ * declare rather than the adapter's.
+ *
+ * `GATE_STATES` covers what the panel can REPORT; this covers the two paths that
+ * never reach a panel at all — the repo-context guard, which refuses before
+ * spawning, and an exception in the runner itself. Neither can honestly claim any
+ * of the four reported states, and least of all `off-no-base-sha`, which would read
+ * as "the gate was asked and answered".
+ *
+ * Named rather than written twice as a literal: `validateRunEnvelope` only requires
+ * `gate.state` to be a non-empty string, so a typo at one of the two sites would
+ * store a second, silent gate vocabulary. `run.test.mjs` pins the full declared set.
+ */
+export const GATE_NOT_RUN = "not-run";
 
 const err = (reason, message) => ({ status: "error", reason, error: { message, kind: reason }, fatal: FATAL_REASONS.includes(reason) });
 
@@ -217,6 +233,11 @@ function countFiles(dir) {
  * `${dest}` into `sh -c` — the harness's only shell-out, over a value that arrives
  * from stored corpus metadata.
  *
+ * The tree is built in a staging directory and RENAMED into the cache, so a
+ * concurrent reader sees it absent or complete and never mid-extraction. The cache
+ * root is shared across processes — it is keyed only by commit, under `tmpdir()` —
+ * which is what makes that necessary rather than tidy.
+ *
  * This is a `git archive`, which produces a tree with NO `.git`. That is why
  * nothing passes `--base-sha`: the novelty gate would find no repository to blame
  * against. A real worktree is PR 6.
@@ -231,25 +252,54 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
     const recorded = Number(readFileSync(mark, "utf8").trim().split(/\s+/)[1]);
     return { path: dest, files: Number.isFinite(recorded) ? recorded : countFiles(dest), error: null };
   }
-  const tarPath = `${dest}.tar`;
+  // EXTRACT ASIDE, THEN RENAME INTO PLACE. The cache root is shared — it is under
+  // `tmpdir()`, keyed only by commit — so two runners replaying the same commit, or
+  // one runner starting while another is mid-extraction, both address this exact
+  // path. Building in place meant a reader could observe the tree DELETED (the
+  // `rmSync` below) or half-populated, and a lens handed a half-populated tree
+  // reasons from code that is genuinely missing and reports it as a finding. A
+  // rename is atomic, so `dest` is only ever absent or complete.
+  //
+  // The loser of a race is not an error: whoever renamed first left a tree of the
+  // same commit, which is what the marker records and what the caller wanted.
+  const staging = mkdtempSync(`${dest}.staging-`);
+  const tarPath = path.join(staging, "tree.tar");
+  const treeDir = path.join(staging, "tree");
   try {
-    rmSync(dest, { recursive: true, force: true });
-    rmSync(tarPath, { force: true });
-    mkdirSync(dest, { recursive: true });
+    mkdirSync(treeDir, { recursive: true });
     execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], { stdio: "pipe" });
-    execFileSync("tar", ["-xf", tarPath, "-C", dest], { stdio: "pipe" });
-    const files = countFiles(dest);
+    execFileSync("tar", ["-xf", tarPath, "-C", treeDir], { stdio: "pipe" });
+    let files = countFiles(treeDir);
+    rmSync(tarPath, { force: true });
+    try {
+      renameSync(treeDir, dest);
+    } catch (e) {
+      // Somebody else got there first (or left debris). An existing tree of this
+      // commit is as good as ours, so reuse it rather than racing to replace it —
+      // replacing is what could pull the tree out from under a concurrent reader.
+      if (!existsSync(dest)) throw e;
+      // Count what is ACTUALLY there, not what we staged. The two agree whenever the
+      // winner extracted the same commit, which is the only case the cache key allows
+      // — but the marker must describe the tree the caller is about to be handed, or
+      // `repo_context_files` goes back to disagreeing between replicates by a
+      // different route than the one this PR fixed.
+      files = countFiles(dest);
+    }
+    // The marker LAST and beside the tree, never inside it — see `countFiles`. Written
+    // on the reuse path too: the winner may not have reached its own write yet, and a
+    // marker is what every later replicate reads instead of re-walking.
     writeFileSync(mark, `${commit} ${files}\n`);
     return { path: dest, files, error: null };
   } catch (e) {
-    rmSync(dest, { recursive: true, force: true });
     // Surface git's own stderr rather than swallowing it: a silent 0-file checkout
     // is how the #521 pilot billed $44 for a full diff-only run without anyone
     // noticing.
     const why = (e.stderr?.toString?.() || e.message || "").split("\n").find((l) => l.trim()) || "unknown";
     return { path: null, files: 0, error: why };
   } finally {
-    rmSync(tarPath, { force: true });
+    // Only ever our own staging directory. `dest` is deliberately never removed on
+    // failure now: it is either absent or a complete tree somebody else built.
+    rmSync(staging, { recursive: true, force: true });
   }
 }
 
@@ -572,7 +622,7 @@ export async function main(argv) {
     // mandatory belongs with the thing that makes it satisfiable (PR 6).
     if (opts.requireRepoContext && !opts.noRepoContext && contextFiles === 0) {
       const message = `repo context required but unavailable for ${itemId} at ${String(input.meta?.review_commit).slice(0, 12)}${ctx.error ? `: ${ctx.error}` : ""}`;
-      envelope = { ...base, ...zeroCost, status: "error", reason: "no-repo-context", repo_context_files: 0, gate: { state: "not-run", line: null }, error: { message, kind: "no-repo-context" } };
+      envelope = { ...base, ...zeroCost, status: "error", reason: "no-repo-context", repo_context_files: 0, gate: { state: GATE_NOT_RUN, line: null }, error: { message, kind: "no-repo-context" } };
       payload = { adapter: "reviewer", error: message };
       store.putItem(runId, itemId, { envelope, payload });
       console.error(`  ! ${itemId}: no model calls — ${message}`);
@@ -646,7 +696,7 @@ export async function main(argv) {
       };
       if (outcome.fatal) aborted = { itemId, reason: outcome.reason, message: outcome.error.message };
     } catch (e) {
-      envelope = { ...base, ...zeroCost, status: "error", reason: "exception", repo_context_files: contextFiles, gate: { state: "not-run", line: null }, error: { message: e.message, kind: "exception" } };
+      envelope = { ...base, ...zeroCost, status: "error", reason: "exception", repo_context_files: contextFiles, gate: { state: GATE_NOT_RUN, line: null }, error: { message: e.message, kind: "exception" } };
       payload = { adapter: "reviewer", error: e.message };
     }
     store.putItem(runId, itemId, { envelope, payload });
@@ -655,7 +705,22 @@ export async function main(argv) {
       `  ${envelope.status === "ok" ? "+" : "!"} ${itemId}: ${envelope.status}${envelope.reason ? ` (${envelope.reason})` : ""} · ` +
         `$${(envelope.cost_usd || 0).toFixed(2)} · gate ${envelope.gate.state} · ${(bytes / 1024).toFixed(0)} KiB payload`,
     );
-    // ABORT, do not degrade. Both fatal reasons are misconfigurations that will be
+    // The item's scratch directory goes ONLY when the item is `ok`, and the
+    // asymmetry is the point. For an `ok` item everything in there is already in
+    // `payload.json`, so it is 20 redundant copies of the panel's output by the end
+    // of a corpus run. For a FAILED one it is the only place the raw evidence
+    // exists — a partial `panel.json`, whatever a crashed lens managed to write —
+    // and `payload.json` records the parsed STATES, not the bytes. Deleting that
+    // would be the same fail direction this whole module exists to correct, so the
+    // path is printed instead. `repoDir` is deliberately untouched: it usually
+    // points into the shared commit cache, which the next item and the next
+    // replicate both reuse.
+    if (envelope.status === "ok") {
+      rmSync(workDir, { recursive: true, force: true });
+    } else {
+      console.error(`  ! ${itemId}: raw panel output kept at ${outDir}`);
+    }
+    // ABORT, do not degrade. Every fatal reason is a misconfiguration that will be
     // identical for every remaining item, and each of those items costs money. The
     // failing item is STORED first — the evidence is what makes it fixable — and
     // then the run stops.
@@ -676,6 +741,12 @@ export async function main(argv) {
     },
     configSnapshot: snapshot,
   });
+  // The materialised lenses dir has served its purpose once the last item is stored,
+  // and unlike an item's scratch directory it holds no evidence: it is a byte-for-byte
+  // rebuild of `config.snapshot.json`, which is in the store and is write-once. After
+  // the final `putRun` so that a throw from the summary write cannot leave the run
+  // both unsummarised and un-reproducible.
+  rmSync(matLenses, { recursive: true, force: true });
   const wall = s.totals.duration_items > 0 ? `${Math.round(s.totals.duration_ms / 1000)}s over ${s.totals.duration_items}/${s.items_present} timed item(s)` : "no timing recorded";
   console.log(`run ${runId}: ${status} — ok=${s.items_ok} error=${s.items_error} · $${s.totals.cost_usd.toFixed(2)} · ${wall}`);
   return aborted || s.items_error > 0 || !s.complete ? 1 : 0;

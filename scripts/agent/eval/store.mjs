@@ -678,7 +678,16 @@ export class EvalStore {
     const snapPath = path.join(this._runDir(runId), RUN_FILES.configSnapshot);
     if (configSnapshot) {
       if (existsSync(snapPath)) {
-        const stored = JSON.parse(readFileSync(snapPath, "utf8"));
+        // Guarded like every other parse in this module. A raw `SyntaxError` here
+        // would name neither the run nor the file, and this is the one comparison
+        // that decides whether two reviewers get filed under one run id — the reader
+        // needs to know it is the SNAPSHOT that is corrupt, not the offer.
+        let stored;
+        try {
+          stored = JSON.parse(readFileSync(snapPath, "utf8"));
+        } catch (e) {
+          refuse(`run ${runId} has an unreadable ${RUN_FILES.configSnapshot}: ${e.message}`);
+        }
         const bothHashed = typeof stored?.config_hash === "string" && typeof configSnapshot.config_hash === "string";
         const same = bothHashed
           ? stored.config_hash === configSnapshot.config_hash
@@ -709,12 +718,21 @@ export class EvalStore {
       refuse(`run ${runId} has an unreadable ${RUN_FILES.run}: ${e.message}`);
     }
     const snapPath = path.join(this._runDir(runId), RUN_FILES.configSnapshot);
-    return {
-      runJson,
-      // `null` here is unambiguous — a run written before its snapshot landed is
-      // an interrupted write, and `getRun` is the read path so it degrades.
-      configSnapshot: existsSync(snapPath) ? JSON.parse(readFileSync(snapPath, "utf8")) : null,
-    };
+    // ABSENT still degrades to `null` — a run written before its snapshot landed is
+    // an interrupted write, and this is the read path. PRESENT-but-corrupt throws,
+    // the same split `getCorpusItemInput` and `getItem` draw: answering `null` for a
+    // snapshot that exists and cannot be parsed would tell a caller "this run has no
+    // config identity" when the truth is "this run's identity is unreadable", and a
+    // scorer would then pool it with runs whose reviewer is actually known.
+    let configSnapshot = null;
+    if (existsSync(snapPath)) {
+      try {
+        configSnapshot = JSON.parse(readFileSync(snapPath, "utf8"));
+      } catch (e) {
+        refuse(`run ${runId} has an unreadable ${RUN_FILES.configSnapshot}: ${e.message}`);
+      }
+    }
+    return { runJson, configSnapshot };
   }
 
   /**

@@ -350,8 +350,11 @@ export function reviewerAdapter(options) {
           lensStats: lensStats.value,
           findings,
           stageDetail,
-          // Which of the panel's six outputs were actually there. Cheap
-          // provenance that turns the 6/6 output contract from a point-in-time
+          // Which of the four RUN-LEVEL outputs were actually there. The other two
+          // in `PANEL_OUTPUT_FILES` are per-lens, so they have no single state to
+          // record: `verdict.json` is accounted for by `findings` and
+          // `stage-detail.json` by `diffContent.lensesWithDetail`. Cheap provenance
+          // either way — it turns part of the output contract from a point-in-time
           // audit result into something a stored run can be checked against.
           files: {
             [PANEL_OUTPUT_FILES.panel]: panelState,
