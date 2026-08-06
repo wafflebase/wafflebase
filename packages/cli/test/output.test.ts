@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
@@ -275,5 +276,43 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     };
     expect(body.error).toEqual({ code: 'ERROR', message: 'HTTP 500' });
     expect(process.exitCode).toBe(1);
+  });
+
+  // `sheets cells batch` parses its input before it talks to the server; that
+  // parse used to sit outside the try, so malformed JSON skipped the envelope
+  // entirely and left the exit code at 0.
+  it('envelopes malformed `sheets cells batch --data` JSON', async () => {
+    const fetchMock = stubFetch(200, {});
+    await run('sheets', 'cells', 'batch', 'doc-1', '--data', '{', '--quiet');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+// The guards above drive `parseAsync` directly, so they only describe the
+// shipped behavior if the entrypoint awaits the action promises too. Commander
+// drops them under the synchronous `parse()`, which turns a rejection into an
+// unhandled rejection instead of the error envelope — assert the binary keeps
+// using `parseAsync`.
+describe('bin entrypoint', () => {
+  const source = readFileSync(
+    new URL('../src/bin.ts', import.meta.url),
+    'utf-8',
+  );
+
+  it('drives commander with parseAsync, not the synchronous parse', () => {
+    expect(source).toContain('program.parseAsync(');
+    expect(source).not.toMatch(/program\.parse\s*\(/);
+  });
+
+  it('routes an unhandled action rejection into the error envelope', () => {
+    expect(source).toMatch(/\.catch\(/);
+    expect(source).toContain('outputError');
   });
 });

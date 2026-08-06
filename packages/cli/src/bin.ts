@@ -11,6 +11,7 @@ import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerCtxCommand } from './commands/ctx.js';
+import { outputError } from './output/formatter.js';
 
 const program = createProgram();
 
@@ -26,4 +27,13 @@ registerFilesCommand(program);
 registerApiKeysCommand(program);
 registerSchemaCommand(program);
 
-program.parse();
+// `parseAsync`, not `parse`: every registered action handler is `async`, and
+// commander only awaits the promise an action returns under `parseAsync`.
+// With `parse()` the promise is dropped, so anything that rejects outside a
+// command's own try/catch surfaced as an unhandled rejection instead of the
+// `{ error: { code, message } }` envelope, and `process.exitCode = 1` set by
+// `outputError` after the synchronous return could be missed. The catch is
+// the last-resort envelope for throws no command handled itself.
+program.parseAsync().catch((e: unknown) => {
+  outputError(e);
+});
