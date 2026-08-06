@@ -199,4 +199,35 @@ describe('DocumentFileController.getDocumentFile', () => {
     expect(res.headers['Content-Type']).toBe('application/pdf');
     expect(res.end).toHaveBeenCalled();
   });
+
+  it('serves a `file` document as an opaque attachment even when storage claims html', async () => {
+    // The central claim of this branch, proven at the wiring level: the
+    // response Content-Type is derived from the document's own `type`, never
+    // echoed from whatever content type is sitting in storage. Every other
+    // test here uses type 'pdf' with a stored 'application/pdf', which would
+    // pass identically whether the controller echoed storage or derived the
+    // type — this case is the one that actually distinguishes them.
+    const documentService = {
+      document: jest.fn().mockResolvedValue({
+        id: 'd1',
+        workspaceId: 'w1',
+        type: 'file',
+        title: 'report',
+        fileId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.zip',
+      }),
+    };
+    const fileService = {
+      getObject: jest.fn().mockResolvedValue({
+        body: new Uint8Array([1, 2, 3]),
+        contentType: 'text/html',
+      }),
+    };
+    const ctrl = makeController({ documentService, fileService });
+    const res = makeRes();
+    await ctrl.getDocumentFile('d1', undefined, memberReq, res as never);
+    expect(res.headers['Content-Type']).toBe('application/octet-stream');
+    expect(res.headers['Content-Disposition']).toMatch(/^attachment/);
+    expect(res.headers['Content-Disposition']).toContain('report.zip');
+    expect(res.end).toHaveBeenCalled();
+  });
 });

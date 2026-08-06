@@ -45,6 +45,50 @@ describe('fileResponseHeaders', () => {
     );
   });
 
+  it("appends the blob's extension (from fileId) to a title that lost it at upload", () => {
+    const headers = fileResponseHeaders(
+      'file',
+      'application/zip',
+      'report',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.zip',
+    );
+    expect(headers.disposition).toBe("attachment; filename*=UTF-8''report.zip");
+  });
+
+  it('does not double the extension when the title already ends with it', () => {
+    const headers = fileResponseHeaders(
+      'file',
+      'application/zip',
+      'report.zip',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.zip',
+    );
+    expect(headers.disposition).toBe("attachment; filename*=UTF-8''report.zip");
+  });
+
+  it('leaves the title bare when the blob key has no dot (extension-less upload)', () => {
+    const headers = fileResponseHeaders(
+      'file',
+      'application/octet-stream',
+      'Makefile',
+      '11111111-2222-3333-4444-555555555555',
+    );
+    expect(headers.disposition).toBe(
+      "attachment; filename*=UTF-8''Makefile",
+    );
+  });
+
+  it('still strips CR/LF when an extension is appended from fileId', () => {
+    const headers = fileResponseHeaders(
+      'file',
+      'application/zip',
+      'evil\r\nX-Injected: 1',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.zip',
+    );
+    expect(headers.disposition).not.toContain('\r');
+    expect(headers.disposition).not.toContain('\n');
+    expect(headers.disposition).toContain('.zip');
+  });
+
   it("falls back to an attachment for any type without a viewer rule", () => {
     // A CRDT-typed row carrying a fileId is not reachable through the API,
     // but a migration or direct write could make one. It must not render.

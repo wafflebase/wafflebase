@@ -19,6 +19,7 @@ export function fileResponseHeaders(
   type: string,
   storedContentType: string,
   title: string,
+  fileId?: string,
 ): { contentType: string; disposition: string } {
   if (type === 'pdf') {
     return { contentType: 'application/pdf', disposition: 'inline' };
@@ -28,8 +29,26 @@ export function fileResponseHeaders(
   }
   return {
     contentType: OCTET_STREAM,
-    disposition: `attachment; filename*=UTF-8''${encodeRfc5987(title)}`,
+    disposition: `attachment; filename*=UTF-8''${encodeRfc5987(
+      attachmentFilename(title, fileId),
+    )}`,
   };
+}
+
+/**
+ * Append the blob's extension (from its storage key, e.g. `<uuid>.zip`) to
+ * the title so a downloaded attachment keeps it — the title itself never
+ * carries one (`stripExt` removes it at upload time). Only treated as an
+ * extension when the id actually contains a dot: an extension-less blob key
+ * (a `file` upload with no discoverable extension) leaves the title as-is,
+ * the same guard `generic-file-view.tsx` applies for its file-type badge.
+ */
+function attachmentFilename(title: string, fileId?: string): string {
+  const ext = fileId?.includes('.')
+    ? fileId.split('.').pop()!.toLowerCase()
+    : undefined;
+  if (!ext) return title;
+  return title.toLowerCase().endsWith(`.${ext}`) ? title : `${title}.${ext}`;
 }
 
 /**

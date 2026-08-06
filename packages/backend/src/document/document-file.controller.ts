@@ -52,7 +52,12 @@ export class DocumentFileController {
       throw new NotFoundException('Document has no file');
     }
     const { body, contentType } = await this.fileService.getObject(doc.fileId);
-    const headers = fileResponseHeaders(doc.type, contentType, doc.title);
+    const headers = fileResponseHeaders(
+      doc.type,
+      contentType,
+      doc.title,
+      doc.fileId,
+    );
     res.setHeader('Content-Type', headers.contentType);
     res.setHeader('Content-Disposition', headers.disposition);
     res.setHeader('Cache-Control', 'private, max-age=3600');
