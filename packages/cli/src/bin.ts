@@ -4,6 +4,7 @@ import { registerDocsCommand } from './commands/docs.js';
 import { registerSheetsCommand } from './commands/sheets.js';
 import { registerSlidesCommand } from './commands/slides.js';
 import { registerNotesCommand } from './commands/notes.js';
+import { registerFilesCommand } from './commands/files.js';
 import { registerApiKeysCommand } from './commands/api-keys.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerLoginCommand } from './commands/login.js';
@@ -21,6 +22,7 @@ registerDocsCommand(program);
 registerSheetsCommand(program);
 registerSlidesCommand(program);
 registerNotesCommand(program);
+registerFilesCommand(program);
 registerApiKeysCommand(program);
 registerSchemaCommand(program);
 

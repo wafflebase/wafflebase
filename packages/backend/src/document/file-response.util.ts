@@ -21,17 +21,26 @@ export function fileResponseHeaders(
   title: string,
   fileId?: string,
 ): { contentType: string; disposition: string } {
+  // Every disposition carries the filename, inline ones included: it is what a
+  // browser's "Save as" and the CLI's `files download` both name the result by.
+  // Without it a downloaded PDF is named after the uuid in the URL.
+  const disposition = (mode: 'inline' | 'attachment') =>
+    `${mode}; filename*=UTF-8''${encodeRfc5987(
+      attachmentFilename(title, fileId),
+    )}`;
+
   if (type === 'pdf') {
-    return { contentType: 'application/pdf', disposition: 'inline' };
+    return {
+      contentType: 'application/pdf',
+      disposition: disposition('inline'),
+    };
   }
   if (type === 'image' && INLINE_IMAGE_MIME.test(storedContentType)) {
-    return { contentType: storedContentType, disposition: 'inline' };
+    return { contentType: storedContentType, disposition: disposition('inline') };
   }
   return {
     contentType: OCTET_STREAM,
-    disposition: `attachment; filename*=UTF-8''${encodeRfc5987(
-      attachmentFilename(title, fileId),
-    )}`,
+    disposition: disposition('attachment'),
   };
 }
 
@@ -44,11 +53,14 @@ export function fileResponseHeaders(
  * the same guard `generic-file-view.tsx` applies for its file-type badge.
  */
 function attachmentFilename(title: string, fileId?: string): string {
+  // A `Document.title` is NOT NULL, but this must never be the thing that
+  // 500s a download, so an absent one degrades to the blob key.
+  const name = (title ?? '').trim() || fileId || 'download';
   const ext = fileId?.includes('.')
     ? fileId.split('.').pop()!.toLowerCase()
     : undefined;
-  if (!ext) return title;
-  return title.toLowerCase().endsWith(`.${ext}`) ? title : `${title}.${ext}`;
+  if (!ext) return name;
+  return name.toLowerCase().endsWith(`.${ext}`) ? name : `${name}.${ext}`;
 }
 
 /**

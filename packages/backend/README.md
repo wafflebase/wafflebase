@@ -277,6 +277,20 @@ All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API
 | `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) |
 | `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
 
+#### Files (blob documents)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/v1/workspaces/:wid/files` | Upload any file as a document (multipart `file`, optional `title`) |
+| `GET` | `/api/v1/workspaces/:wid/files/:documentId` | Download a blob document's bytes |
+
+Upload stores the blob and creates the document in one call (deleting the blob
+if the row fails) and derives `type` from the stored extension — `.pdf` →
+`pdf`, `png|jpg|jpeg|gif|webp` → `image`, everything else → `file`. Nothing is
+parsed: an uploaded `.xlsx` is stored as bytes. Download reuses
+`fileResponseHeaders()`, so the derived-`Content-Type` rule is shared with
+`GET /documents/:id/file`. Caps are unchanged (50 MB; 25 MB for images).
+
 #### Tabs
 
 | Method | Route | Description |
@@ -394,6 +408,7 @@ src/
 │   ├── documents.controller.ts # Document CRUD via API
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
+│   ├── files.controller.ts    # Blob document upload/download (any file)
 │   └── workspace-scope.guard.ts # Workspace access verification
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)

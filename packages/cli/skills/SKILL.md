@@ -42,6 +42,12 @@ examples, and safety notes.
 | [slides-import-pptx.md](slides-import-pptx.md) | write / destructive | Import a .pptx as a new or replacement deck |
 | [slides-export-pptx.md](slides-export-pptx.md) | read-only | Export a deck to .pptx |
 
+## Files Skills
+
+| File | Safety | Description |
+|------|--------|-------------|
+| [files-upload-download.md](files-upload-download.md) | write / read-only | Store any file as a document and download its bytes back |
+
 ## Recipes
 
 | File | Safety | Description |
