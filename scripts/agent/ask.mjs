@@ -81,7 +81,7 @@ export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
  * future MCP name remain refused because they are absent — the same inversion
  * that makes the allow-list above work.
  */
-export const PERMITTED_MCP_TOOLS = Object.freeze(["mcp__wafflebase__run"]);
+export const PERMITTED_MCP_TOOLS = Object.freeze(["mcp__wafflebase__run", "mcp__wafflebase__ui"]);
 
 const PERMITTED_SET = new Set(PERMITTED_TOOLS);
 

@@ -246,7 +246,7 @@ export function uiObservedKey(observation) {
  */
 export function uiPlanKey(observations) {
   const parts = (Array.isArray(observations) ? observations : []).map(uiObservedKey);
-  return `n:${parts.length}|${createHash("sha256").update(parts.join(" ")).digest("hex").slice(0, 32)}`;
+  return `n:${parts.length}|${createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 32)}`;
 }
 
 /** Did any free oracle fire anywhere in this attempt? */

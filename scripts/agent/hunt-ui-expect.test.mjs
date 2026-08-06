@@ -168,7 +168,9 @@ test("evaluateExpectation: an impossible comparison is UNEVALUABLE, never violat
 // --- grounding --------------------------------------------------------------
 
 test("checkGround: ground A traced to the journal is eligible", () => {
-  const got = checkGround(A(), { journal: JOURNAL, charter: CHARTER });
+  // `atIndex` supplied because A()'s default op asserts a change, and the window for
+  // that is only checkable when the predicting step is known. The tool always passes it.
+  const got = checkGround(A(), { journal: JOURNAL, charter: CHARTER, atIndex: 1 });
   assert.equal(got.eligible, true);
   assert.match(got.why, /traced to journal read #0/);
 });
@@ -237,7 +239,7 @@ test("checkGround: ground D is NEVER eligible", () => {
 // --- the whole protocol -----------------------------------------------------
 
 test("assessExpectation: a grounded violation is a candidate", () => {
-  const got = assessExpectation(A(), [11, 11, 11], { journal: JOURNAL, charter: CHARTER });
+  const got = assessExpectation(A(), [11, 11, 11], { journal: JOURNAL, charter: CHARTER, atIndex: 1 });
   assert.equal(got.verdict, "violated");
   assert.equal(got.eligible, true);
   assert.deepEqual(got.trace, { kind: "read", index: 0, reader: "doc.fontSizes" });
@@ -482,4 +484,79 @@ test("boundValue's markers round-trip to unevaluable, end to end", () => {
   const got = assessExpectation(e, big, { journal, charter: CHARTER, atIndex: 1 });
   assert.equal(got.verdict, "unevaluable");
   assert.equal(got.eligible, false);
+});
+
+// --- an assertion of CHANGE needs something that could have changed it ----------
+
+// The `atIndex` rule stops a prediction citing its own step. It did not stop the same
+// generator spread across two: read, read again, predict `not-equals` against the first.
+// A live session produced exactly that within four actions and it reported GROUNDED.
+test("REGRESSION: ground A refuses a change assertion with no acting step", () => {
+  const journal = [
+    { action: { type: "read", reader: "doc.text" }, ok: true, value: "same" }, // 0
+    { action: { type: "read", reader: "doc.text" }, ok: true, value: "same" }, // 1  <- predicting
+  ];
+  const e = { read: "doc.text", op: "not-equals", value: "@read:0", ground: "A", because: "vacuous" };
+  const got = assessExpectation(e, "same", { journal, charter: CHARTER, atIndex: 1 });
+  assert.equal(got.verdict, "violated", "the comparison genuinely failed");
+  assert.equal(got.eligible, false, "but nothing could have caused the change it asserts");
+  assert.match(got.why, /could have caused one/);
+});
+
+test("ground A allows a change assertion when an acting step is in the window", () => {
+  // The PREDICTING action is usually the change: "I click, and expect the sizes to
+  // differ". The window is inclusive of it for exactly this reason.
+  const journal = [
+    { action: { type: "read", reader: "doc.fontSizes" }, ok: true, value: [11, 18, 32] },
+    { action: { type: "click", target: { role: "button", name: "Increase font size" } }, ok: true, value: null },
+  ];
+  const e = { read: "doc.fontSizes", op: "not-equals", value: "@read:0", ground: "A", because: "click changes sizes" };
+  const got = assessExpectation(e, [11, 18, 32], { journal, charter: CHARTER, atIndex: 1 });
+  assert.equal(got.verdict, "violated");
+  assert.equal(got.eligible, true);
+});
+
+test("every change-asserting operator is covered, and the value-asserting ones are not", () => {
+  const journal = [
+    { action: { type: "read", reader: "doc.fontSizes" }, ok: true, value: [11, 18] },
+    { action: { type: "read", reader: "doc.fontSizes" }, ok: true, value: [11, 18] },
+  ];
+  const at = { journal, charter: CHARTER, atIndex: 1 };
+  const e = (op) => ({ read: "doc.fontSizes", op, value: "@read:0", ground: "A", because: "x" });
+
+  // Vacuously violated when nothing happened — all must be refused.
+  for (const op of ["not-equals", "each-greater-than", "each-less-than"]) {
+    assert.equal(assessExpectation(e(op), [11, 18], at).eligible, false, `${op} must be refused`);
+  }
+  // `equals` is safe by construction: an unchanged value simply satisfies it, so the
+  // rule must not fire and cost a legitimate observation.
+  assert.equal(assessExpectation(e("equals"), [11, 18], at).verdict, "held");
+  // And when it genuinely differs with no acting step, that IS reportable — the value
+  // changed on its own, which is a real self-contradiction.
+  assert.equal(assessExpectation(e("equals"), [99, 99], at).eligible, true);
+});
+
+test("a change assertion is refused when the window cannot be established", () => {
+  // Fails closed: a check that cannot run is not a check that passed.
+  const journal = [{ action: { type: "read", reader: "doc.text" }, ok: true, value: "a" }];
+  const e = { read: "doc.text", op: "not-equals", value: "@read:0", ground: "A", because: "x" };
+  // Same value, so `not-equals` genuinely violates and the ground check is reached.
+  const got = assessExpectation(e, "a", { journal, charter: CHARTER });
+  assert.equal(got.verdict, "violated");
+  assert.equal(got.eligible, false);
+  assert.match(got.why, /which step is predicting/);
+});
+
+test("an @input baseline is grounded by the typing action itself", () => {
+  // The window starts AT the baseline, so `type` at the referenced index counts.
+  const journal = [
+    { action: { type: "type", text: "hello" }, ok: true, value: null },
+    { action: { type: "key", key: "Enter" }, ok: true, value: null },
+  ];
+  const e = { read: "doc.text", op: "not-contains", value: "@input:0", ground: "A", because: "text should have landed" };
+  // `not-contains` violates when the text IS there — "I typed it and it is present"
+  // is the held case, so the reportable one is the opposite.
+  const got = assessExpectation(e, "hello is right there", { journal, charter: CHARTER, atIndex: 1 });
+  assert.equal(got.verdict, "violated");
+  assert.equal(got.eligible, true);
 });

@@ -100,6 +100,25 @@ const READ_REF = /^@read:(\d+)$/;
 /** `@input:<i>` — the text the agent itself typed at journal index i. */
 const INPUT_REF = /^@input:(\d+)$/;
 
+/**
+ * Operators that assert the app CHANGED, rather than that it holds some value.
+ *
+ * Each of these is vacuously violated when nothing happened: read a value, do nothing,
+ * predict it differs — `not-equals` says violated, and so do `not-contains` and both
+ * `each-*` comparisons against their own baseline. `equals` and `contains` are safe by
+ * construction, because an unchanged value simply satisfies them.
+ */
+const CHANGE_ASSERTING_OPS = Object.freeze(["not-equals", "not-contains", "each-greater-than", "each-less-than"]);
+
+/**
+ * Action types that cannot change what a reader will report.
+ *
+ * `read` and `wait` observe; everything else in the vocabulary — `goto`, `click`,
+ * `type`, `key`, `scroll` — can move the app. `goto` counts because it remounts the
+ * surface from its seed, which is a change even though it is a navigation.
+ */
+const OBSERVING_ACTIONS = Object.freeze(["read", "wait"]);
+
 /** Longest quote `checkGround` will look for in a page snapshot (ground C). */
 const MAX_QUOTE_CHARS = 200;
 /**
@@ -457,6 +476,46 @@ export function checkGround(expect, { journal = [], snapshot = "", charter = {},
         eligible: false,
         why: `ground A compares reader \`${expect.read}\` against \`${resolved.trace.reader}\` at ${expect.value} — different readers are not a self-contradiction`,
       };
+    }
+    /**
+     * An assertion that the app CHANGED needs something that could have changed it.
+     *
+     * The `atIndex` rule stops a prediction citing its own step. It does not stop the
+     * same generator spread across two steps, which a live session produced within four
+     * actions: read `doc.text`, read `doc.text` again, predict `not-equals @read:<the
+     * first>`. Nothing between them but another read, so it violates every time — and it
+     * passed every other check here (traceable, same reader, strictly earlier) and was
+     * reported as GROUNDED.
+     *
+     * The window is scanned from the baseline INCLUSIVE, which is what makes `@input:`
+     * work: "I typed X, so the text now differs" is grounded by the `type` action at the
+     * referenced index itself. For an `@read:` baseline that entry is a read, so it
+     * correctly fails to count.
+     *
+     * Fails CLOSED when the window cannot be established, because a check that cannot
+     * run is not a check that passed — the tool always supplies `atIndex`.
+     */
+    if (CHANGE_ASSERTING_OPS.includes(expect.op)) {
+      if (!Number.isInteger(atIndex)) {
+        return {
+          eligible: false,
+          why: `ground A with \`${expect.op}\` asserts a change, which cannot be verified without knowing which step is predicting`,
+        };
+      }
+      const from = resolved.trace.index;
+      // INCLUSIVE of the predicting action, which is usually the change itself: "I click
+      // Increase font size, and expect the sizes to differ" is grounded by that click.
+      // Excluding it refused the canonical good case — caught by the existing test for it.
+      const window = (Array.isArray(journal) ? journal : []).slice(from, atIndex + 1);
+      const changed = window.some((e) => e?.action?.type && !OBSERVING_ACTIONS.includes(e.action.type));
+      if (!changed) {
+        return {
+          eligible: false,
+          why:
+            `ground A with \`${expect.op}\` asserts a change, but nothing between ${expect.value} and this step ` +
+            `could have caused one — only ${OBSERVING_ACTIONS.join("/")} actions, which observe without acting`,
+        };
+      }
     }
     return { eligible: true, why: `ground A traced to journal ${resolved.trace.kind} #${resolved.trace.index}` };
   }
