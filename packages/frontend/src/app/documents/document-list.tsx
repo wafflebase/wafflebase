@@ -249,7 +249,7 @@ function dateColumn(
 }
 
 /**
- * The four file-import entries shared by both "New" dropdown copies (the
+ * The file-import entries shared by both "New" dropdown copies (the
  * toolbar one and the empty-state one). Each opens a multi-select picker
  * filtered to its type and routes the result through `onImport`, which
  * queues the batch for background upload instead of importing inline.
@@ -269,6 +269,10 @@ function ImportMenuItems({
       <DropdownMenuItem onClick={() => onImport(".xlsx")}>
         <FileDown className="mr-2 h-4 w-4 text-green-600" />
         Import XLSX
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onImport(".csv,.tsv")}>
+        <FileDown className="mr-2 h-4 w-4 text-teal-600" />
+        Import CSV / TSV
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => onImport(".docx")}>
         <FileDown className="mr-2 h-4 w-4 text-blue-500" />

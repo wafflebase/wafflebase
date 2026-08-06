@@ -1,8 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as q from "@/app/documents/upload-queue";
+import { CLIENT_PARSE_MAX_BYTES } from "@/app/documents/upload-kind";
 
 function file(name: string): File {
   return new File([new Uint8Array([1])], name);
+}
+/**
+ * A file that *reports* `size` without allocating it. `File.size` is read-only,
+ * and the size branch only ever reads it — allocating megabytes per case would
+ * buy nothing.
+ */
+function sized(name: string, size: number): File {
+  const f = file(name);
+  Object.defineProperty(f, "size", { value: size });
+  return f;
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -15,12 +26,18 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importDocx: vi.fn(async (f: File) => ({ doc: {}, fileName: f.name })),
       importPptxFile: vi.fn(async (f: File) => ({
         document: {},
         report: { summary: () => "" },
         fileName: f.name,
       })),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => ({ id: "file1" })),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
@@ -58,8 +75,14 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => ({ id: "blob-1" })),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
@@ -90,8 +113,11 @@ describe("upload-queue worker", () => {
   it("uploads an image blob and creates an image document", async () => {
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => ({ id: "img-1" })),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
@@ -120,8 +146,11 @@ describe("upload-queue worker", () => {
     let calls = 0;
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => {
         calls += 1;
         if (calls === 1) throw rateLimited;
@@ -153,8 +182,11 @@ describe("upload-queue worker", () => {
     });
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => {
         throw rateLimited; // always 429
       }),
@@ -185,8 +217,11 @@ describe("upload-queue worker", () => {
     let calls = 0;
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => {
         calls += 1;
         if (calls === 1) throw rateLimited;
@@ -217,8 +252,11 @@ describe("upload-queue worker", () => {
     let createCalls = 0;
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => ({ id: "img-1" })),
       createDoc: vi.fn(async (_ws, p) => {
         createCalls += 1;
@@ -250,7 +288,13 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d",
@@ -286,8 +330,11 @@ describe("upload-queue worker", () => {
         active--;
         return { document: { tabOrder: ["t"] }, fileName: f.name };
       }),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
@@ -335,8 +382,14 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "doc-" + p.title,
@@ -378,8 +431,11 @@ describe("upload-queue worker", () => {
     let createCalls = 0;
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(async () => ({ id: "blob-1" })),
       createDoc: vi.fn(async (_ws, p) => {
         createCalls++;
@@ -420,10 +476,16 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importDocx: vi.fn(async () => {
         throw new Error("boom");
       }),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d" + p.title,
@@ -453,8 +515,14 @@ describe("upload-queue worker", () => {
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "doc-x",
@@ -493,12 +561,15 @@ describe("upload-queue worker", () => {
   it("surfaces a lossy PPTX import summary as a warning on the done item", async () => {
     const deps = {
       importXlsx: vi.fn(),
+      importSheetViaBackend: vi.fn(),
+      importCsvFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(async (f: File) => ({
         document: {},
         report: { summary: () => "2 fallbacks applied." },
         fileName: f.name,
       })),
+      uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
       uploadFile: vi.fn(),
       createDoc: vi.fn(async (_ws, p) => ({
         id: "d",
@@ -516,5 +587,219 @@ describe("upload-queue worker", () => {
     const current = q.getSnapshot().find((i) => i.id === item.id);
     expect(current?.status).toBe("done");
     expect(current?.warning).toBe("2 fallbacks applied.");
+  });
+
+  // `.tsv` shares the CSV importer — the delimiter is detected, not declared.
+  it.each(["sales.csv", "sales.tsv"])(
+    "routes a %s item through the CSV importer and strips the extension",
+    async (fileName) => {
+      const deps = {
+        importXlsx: vi.fn(),
+        importSheetViaBackend: vi.fn(),
+        importCsvFile: vi.fn(async (f: File) => ({
+          document: { tabOrder: ["t"] },
+          fileName: f.name,
+          rowCount: 3,
+          truncated: false,
+        })),
+        importDocx: vi.fn(),
+        importPptxFile: vi.fn(),
+        uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
+      uploadFile: vi.fn(),
+        createDoc: vi.fn(async (_ws, p) => ({
+          id: "d",
+          title: p.title,
+          type: p.type,
+        })),
+        getDocumentPath: () => "/p",
+        applyContent: vi.fn(async () => {}),
+      };
+      q.enqueue([file(fileName)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      expect(deps.importCsvFile).toHaveBeenCalledTimes(1);
+      expect(deps.importXlsx).not.toHaveBeenCalled();
+      expect(deps.createDoc).toHaveBeenCalledWith(
+        "ws1",
+        expect.objectContaining({ title: "sales", type: "sheet" }),
+      );
+    },
+  );
+
+  describe("oversized sheet routing", () => {
+    const OVER = CLIENT_PARSE_MAX_BYTES + 1;
+
+    // Sizes are derived from the constant, not hard-coded, so the threshold can
+    // be re-measured (see the TODO on it) without rewriting these cases.
+    function backendDeps() {
+      return {
+        importXlsx: vi.fn(async (f: File) => ({
+          document: { tabOrder: ["t"] },
+          fileName: f.name,
+        })),
+        importCsvFile: vi.fn(async (f: File) => ({
+          document: { tabOrder: ["t"] },
+          fileName: f.name,
+          rowCount: 3,
+          truncated: false,
+        })),
+        importSheetViaBackend: vi.fn(async () => ({
+          document: { tabOrder: ["t"] },
+          rowCount: 10,
+          truncated: false,
+        })),
+        importDocx: vi.fn(),
+        importPptxFile: vi.fn(),
+        uploadImportFile: vi.fn(async () => ({ id: "blob-1" })),
+      uploadFile: vi.fn(async () => ({ id: "blob-1" })),
+        createDoc: vi.fn(async (_ws, p) => ({
+          id: "d",
+          title: p.title,
+          type: p.type,
+        })),
+        getDocumentPath: () => "/p",
+        applyContent: vi.fn(async () => {}),
+      };
+    }
+
+    it("sends an oversized CSV to the backend instead of parsing it", async () => {
+      const deps = backendDeps();
+      q.enqueue([sized("big.csv", OVER)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      expect(deps.uploadImportFile).toHaveBeenCalledWith("ws1", expect.any(File));
+      expect(deps.importSheetViaBackend).toHaveBeenCalledWith("ws1", "blob-1");
+      expect(deps.importCsvFile).not.toHaveBeenCalled();
+      expect(q.getSnapshot()[0].status).toBe("done");
+    });
+
+    // The guard that matters: XLSX has no backend parser at all, so size must
+    // never move it off the client path.
+    it("parses an oversized XLSX in the browser, never via the backend", async () => {
+      const deps = backendDeps();
+      q.enqueue([sized("big.xlsx", OVER)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      expect(deps.importXlsx).toHaveBeenCalledTimes(1);
+      expect(deps.importSheetViaBackend).not.toHaveBeenCalled();
+      expect(deps.uploadImportFile).not.toHaveBeenCalled();
+    });
+
+    it("parses a CSV at exactly the threshold in the browser", async () => {
+      const deps = backendDeps();
+      q.enqueue([sized("edge.csv", CLIENT_PARSE_MAX_BYTES)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      // The branch is `>`, so the boundary itself stays client-side.
+      expect(deps.importCsvFile).toHaveBeenCalledTimes(1);
+      expect(deps.importSheetViaBackend).not.toHaveBeenCalled();
+    });
+
+    // The preview endpoint is workspace-scoped for authorization, so an item
+    // enqueued outside a workspace has nowhere to send the blob.
+    // The preview is workspace-scoped, so there is nowhere to send the blob —
+    // and past the threshold the browser cannot read the file either. Failing
+    // with a sentence beats attempting a parse that dies inside `File.text()`.
+    it("fails clearly when an oversized CSV has no workspace to send it to", async () => {
+      const deps = backendDeps();
+      q.enqueue([sized("big.csv", OVER)], undefined);
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      const item = q.getSnapshot()[0];
+      expect(item.status).toBe("error");
+      expect(item.reason).toMatch(/too large to import outside a workspace/);
+      expect(deps.importCsvFile).not.toHaveBeenCalled();
+      expect(deps.importSheetViaBackend).not.toHaveBeenCalled();
+      expect(deps.uploadImportFile).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a truncated preview as a warning on the done item", async () => {
+      const deps = backendDeps();
+      deps.importSheetViaBackend = vi.fn(async () => ({
+        document: { tabOrder: ["t"] },
+        rowCount: 5000,
+        truncated: true,
+      }));
+      q.enqueue([sized("big.csv", OVER)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      const current = q.getSnapshot()[0];
+      expect(current.status).toBe("done");
+      // `runItem` formats with `toLocaleString()` and pins no locale, so the
+      // thousands separator belongs to the runner, not to us.
+      expect(current.warning).toBe(
+        `Only the first ${(5000).toLocaleString()} rows were imported.`,
+      );
+    });
+
+    it("reuses the uploaded blob when a failed preview is retried", async () => {
+      const deps = backendDeps();
+      deps.importSheetViaBackend = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockResolvedValueOnce({
+          document: { tabOrder: ["t"] },
+          rowCount: 10,
+          truncated: false,
+        });
+      q.enqueue([sized("big.csv", OVER)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+      expect(q.getSnapshot()[0].status).toBe("error");
+
+      q.retry(q.getSnapshot()[0].id);
+      await flush();
+      await flush();
+
+      // The blob is persisted before the parse, so the retry must not re-upload.
+      expect(deps.uploadImportFile).toHaveBeenCalledTimes(1);
+      expect(q.getSnapshot()[0].status).toBe("done");
+    });
+
+    // The complement of the case above: staged blobs expire after a day, so an
+    // id kept forever makes a late retry re-preview something the server can
+    // never resolve. Reusing it is right only while it still exists.
+    it("re-uploads instead of reusing a blob the server says is gone", async () => {
+      const deps = backendDeps();
+      const gone = Object.assign(new Error("This upload has expired."), {
+        status: 410,
+      });
+      deps.importSheetViaBackend = vi
+        .fn()
+        .mockRejectedValueOnce(gone)
+        .mockResolvedValueOnce({
+          document: { tabOrder: ["t"] },
+          rowCount: 10,
+          truncated: false,
+        });
+      q.enqueue([sized("big.csv", OVER)], "ws1");
+      q.startUploads(undefined, deps as never);
+      await flush();
+      await flush();
+
+      expect(q.getSnapshot()[0].status).toBe("error");
+      // Cleared, or the retry below would replay the dead id forever.
+      expect(q.getSnapshot()[0].fileId).toBeUndefined();
+
+      q.retry(q.getSnapshot()[0].id);
+      await flush();
+      await flush();
+
+      expect(deps.uploadImportFile).toHaveBeenCalledTimes(2);
+      expect(q.getSnapshot()[0].status).toBe("done");
+    });
   });
 });

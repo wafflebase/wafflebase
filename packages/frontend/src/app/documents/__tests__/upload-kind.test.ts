@@ -4,6 +4,8 @@ import { classifyUploadKind } from "@/app/documents/upload-kind";
 describe("classifyUploadKind", () => {
   it("maps supported extensions case-insensitively", () => {
     expect(classifyUploadKind("Budget.XLSX")).toBe("sheet");
+    expect(classifyUploadKind("sales.csv")).toBe("sheet");
+    expect(classifyUploadKind("sales.TSV")).toBe("sheet");
     expect(classifyUploadKind("notes.docx")).toBe("doc");
     expect(classifyUploadKind("deck.pptx")).toBe("slides");
     expect(classifyUploadKind("report.pdf")).toBe("pdf");

@@ -32,7 +32,7 @@ overrides:
   smol-toml@<1.6.1: 1.6.1
   fast-uri@<3.1.2: 3.1.2
   fast-xml-builder@<1.1.7: 1.1.7
-  fast-xml-parser@<5.7.0: 5.7.0
+  fast-xml-parser@<5.7.3: 5.7.3
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.0
   tmp@<0.2.6: 0.2.6
   esbuild@<0.25.0: 0.25.0
@@ -75,6 +75,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1028.0
         version: 3.1028.0
+      '@duckdb/node-api':
+        specifier: 1.5.5-r.3
+        version: 1.5.5-r.3
       '@nestjs/common':
         specifier: ^11.1.0
         version: 11.1.14(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -732,6 +735,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
+      papaparse:
+        specifier: ^5.4.1
+        version: 5.5.2
     devDependencies:
       '@types/papaparse':
         specifier: ^5.3.14
@@ -751,9 +757,6 @@ importers:
       lint-staged:
         specifier: ^15.2.7
         version: 15.5.1
-      papaparse:
-        specifier: ^5.4.1
-        version: 5.5.2
       prettier:
         specifier: ^3.3.2
         version: 3.5.3
@@ -1451,6 +1454,52 @@ packages:
         optional: true
       search-insights:
         optional: true
+
+  '@duckdb/node-api@1.5.5-r.3':
+    resolution: {integrity: sha512-qOwoSj8eBW+mNyAvTOOWjnii6jwrLkQFbEC/TyYGZjYCAQzu1r1X6UWVo+23sgtGGNHxmJLHE0ms5QtlQf2W3Q==}
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.5-r.3':
+    resolution: {integrity: sha512-bqnjnI2U/aUOcB25smNRwxF1/47HxHz78a8F9ghTHvEl+CeEMEr1lp+sPmjuS/1EybAYsaWJro6zFLd+O5qNQg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-darwin-x64@1.5.5-r.3':
+    resolution: {integrity: sha512-8QEA0tuW5EWPg7kQbyWka6kGu+j7wZuvUAkibdJgODtxz4axJGMR5oM13lb6m/HedvsU3ch2lkvhIhwv6aWqsw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-linux-arm64-musl@1.5.5-r.3':
+    resolution: {integrity: sha512-qETa9eqdZQNNn1QFfW+FI91HM5kVm+tN4cfqBPu1FgRTatd0oG8KPOfl6NlpuKhQQM5TcWDxI3P57JPXbzjsEQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@duckdb/node-bindings-linux-arm64@1.5.5-r.3':
+    resolution: {integrity: sha512-27y+0xn4ad6mirnu3faZUE2UQhvpPTpi/o9tm9cGxi7QvuvhfD5rvo0D3RnhreHTjiYB4RRB5ZqPMRErqOaTlg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@duckdb/node-bindings-linux-x64-musl@1.5.5-r.3':
+    resolution: {integrity: sha512-+9cThIhSC1inv6MVVgL37k4lRk56uo7TK2MLNwn1xe7mDVOh8SsjZbHLd/IZ0cWJn77lX7/6G3Qz3mU5k4O2PA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@duckdb/node-bindings-linux-x64@1.5.5-r.3':
+    resolution: {integrity: sha512-+n/rmU0o3Km5MEBJnjteud8f5JEhcSPxTdcyxNERL6H3pZw1vQX3ysI1axP8Mx0Mw7XrVv9+pC5VH+9ERD3LQg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@duckdb/node-bindings-win32-arm64@1.5.5-r.3':
+    resolution: {integrity: sha512-/9Ji9xKtzar7MM21DJMZfuizOXjdar+JtOez6o3ue7cKt0AUpjLjqbAjQ0sE/pkqMbByv9TEiVkTi1b3VYm1dw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@duckdb/node-bindings-win32-x64@1.5.5-r.3':
+    resolution: {integrity: sha512-NTODIfgfKARm86kOgSW5CvFElE3J+3X0Y0+3Y40P3biO4wrg4FBGtNSCaVyKuWe+CBkA5PODjgIo3w07hu5qrQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@duckdb/node-bindings@1.5.5-r.3':
+    resolution: {integrity: sha512-I5basCuPs0OrNHu2cDLFrIErp6Rr9J7wR5awVbvCmFQdOCpi+v+lmQy6KZ2dH8Z7hsqwmAMHk/QJ0s5cvW0qnw==}
 
   '@emnapi/core@1.8.1':
     resolution: {integrity: sha512-AvT9QFpxK0Zd8J0jopedNm+w/2fIzvtPKPjqyw9jwvBaReTTqPBk9Hixaz7KbjimP+QNz605/XnjFcDAL2pqBg==}
@@ -5796,6 +5845,10 @@ packages:
     resolution: {integrity: sha512-bwy0MGW55bG41VqxxypOsdSdGqLwXPI/focwgTYCFMbdUiBAxLg9CFzG08sz2aqzknwiX7Hkl0bQENjg8iLByw==}
     engines: {node: '>=8'}
 
+  detect-libc@2.1.2:
+    resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
+    engines: {node: '>=8'}
+
   detect-newline@3.1.0:
     resolution: {integrity: sha512-TLz+x/vEXm/Y7P7wn1EJFNLxYpUD4TgMosxY6fAVJUnJMbupHBOncxyWUG9OpTaH9EBD7uFI5LfEgmMOc54DsA==}
     engines: {node: '>=8'}
@@ -6143,8 +6196,8 @@ packages:
   fast-xml-builder@1.1.7:
     resolution: {integrity: sha512-Yh7/7rQuMXICNr0oMYDR2yHP6oUvmQsTToFeOWj/kIDhAwQ+c4Ol/lbcwOmEM5OHYQmh6S6EQSQ1sljCKP36bQ==}
 
-  fast-xml-parser@5.7.0:
-    resolution: {integrity: sha512-MTcrUoRQ1GSQ9iG3QJzBGquYYYeA7piZaJoIWbPFGbRn6Jj6z7xgoAyi4DrZX4y2ZIQQBF59gc/zmvvejjgoFQ==}
+  fast-xml-parser@5.7.3:
+    resolution: {integrity: sha512-C0AaNuC+mscy6vrAQKAc/rMq+zAPHodfHGZu4sGVehvAQt/JLG1O5zEcYcXSY5zSqr4YVgxsB+pHXTq0i7eDlg==}
     hasBin: true
 
   fastq@1.19.1:
@@ -9678,7 +9731,7 @@ snapshots:
   '@aws-sdk/xml-builder@3.972.17':
     dependencies:
       '@smithy/types': 4.14.0
-      fast-xml-parser: 5.7.0
+      fast-xml-parser: 5.7.3
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.4': {}
@@ -10111,6 +10164,47 @@ snapshots:
       search-insights: 2.17.3
     transitivePeerDependencies:
       - '@algolia/client-search'
+
+  '@duckdb/node-api@1.5.5-r.3':
+    dependencies:
+      '@duckdb/node-bindings': 1.5.5-r.3
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-darwin-x64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64-musl@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64-musl@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-win32-arm64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-win32-x64@1.5.5-r.3':
+    optional: true
+
+  '@duckdb/node-bindings@1.5.5-r.3':
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64': 1.5.5-r.3
+      '@duckdb/node-bindings-darwin-x64': 1.5.5-r.3
+      '@duckdb/node-bindings-linux-arm64': 1.5.5-r.3
+      '@duckdb/node-bindings-linux-arm64-musl': 1.5.5-r.3
+      '@duckdb/node-bindings-linux-x64': 1.5.5-r.3
+      '@duckdb/node-bindings-linux-x64-musl': 1.5.5-r.3
+      '@duckdb/node-bindings-win32-arm64': 1.5.5-r.3
+      '@duckdb/node-bindings-win32-x64': 1.5.5-r.3
 
   '@emnapi/core@1.8.1':
     dependencies:
@@ -14451,6 +14545,8 @@ snapshots:
 
   detect-libc@2.0.3: {}
 
+  detect-libc@2.1.2: {}
+
   detect-newline@3.1.0: {}
 
   detect-node-es@1.1.0: {}
@@ -14900,7 +14996,7 @@ snapshots:
     dependencies:
       path-expression-matcher: 1.5.0
 
-  fast-xml-parser@5.7.0:
+  fast-xml-parser@5.7.3:
     dependencies:
       '@nodable/entities': 2.1.0
       fast-xml-builder: 1.1.7

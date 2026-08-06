@@ -34,6 +34,14 @@ export class FileController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    return this.fileService.upload(file.buffer, file.mimetype);
+    // Documents only, by omission of a category. This route has no workspace
+    // check, and csv/tsv are stored under the `imports/` prefix that
+    // `file-imports/upload` gates behind one — accepting them here would be a
+    // second, unguarded way in.
+    return this.fileService.upload(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
   }
 }

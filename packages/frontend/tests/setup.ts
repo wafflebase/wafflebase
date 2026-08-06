@@ -30,3 +30,17 @@ if (typeof globalThis.Blob !== 'undefined' && !globalThis.Blob.prototype.arrayBu
     });
   };
 }
+
+// The CSV importer reads text rather than bytes, so it needs text() too.
+if (typeof globalThis.Blob !== 'undefined' && !globalThis.Blob.prototype.text) {
+  globalThis.Blob.prototype.text = function (this: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      // readAsText decodes UTF-8 and strips a BOM, matching the real
+      // Blob.text() the importer relies on in the browser.
+      reader.readAsText(this);
+    });
+  };
+}
