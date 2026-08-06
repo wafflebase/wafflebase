@@ -54,8 +54,12 @@ SP1 but never published or painted — are finished here.
   presence and paint remote cursors as dots with name tags, in the same
   overlay pass that already paints peer selection rings.
 - **Regression gate:** slides behavior is preserved. Every change to
-  `@wafflebase/slides` in this pass is strictly additive and unreachable
-  from a slides mount; the existing slides suites are the merge gate.
+  `@wafflebase/slides` in this pass is additive and behavior-preserving
+  for a slides mount — not all of it is *unreachable* there: the
+  `Select all` context-menu entry is visible and functional on slides
+  too (it dispatches the existing `Mod+A` rule, so it adds an
+  affordance without changing any behavior). The existing slides suites
+  are the merge gate.
 
 Success = on a `"board"` document a user can select a shape and change
 its fill and border, edit and format its text, align and reorder a
@@ -156,19 +160,32 @@ The controller is board-local rather than slides'
 `[0.25, 4]` (`MIN_ZOOM`/`MAX_ZOOM`), while the board viewport's `zoomAt`
 allows `[0.1, 8]`. Reusing the slides factory would clip the wheel-zoom
 write-back below 0.25 or above 4, leaving the dropdown label reporting a
-scale the canvas is not at. `FIT_ZOOM` and `ZOOM_PRESETS` are imported
-and reused unchanged; only the clamp differs.
+scale the canvas is not at. `FIT_ZOOM` is imported and reused unchanged
+(`ZOOM_PRESETS` is the dropdown's own list — `ZoomControl` imports it,
+`board-zoom.ts` never sees it); only the clamp differs.
 
-The viewport stays the single source of truth — the controller is an
-intent/label channel, never a second copy of the scale:
+The viewport stays the single source of truth — the controller is a
+value holder for the label, never a second copy of the scale. Because a
+board sits at `FIT_ZOOM` by default and returns to it after every fit,
+routing Fit through that value channel alone would make it a no-op in
+exactly the state users meet it in (`set()` early-returns on an unchanged
+value). So `createBoardZoomBinding` pairs the value holder with the
+actions it drives, and Fit is an ACTION rather than a value transition:
 
-- `FIT_ZOOM` → run the existing `fit-to-content.ts` path (fit all
-  elements into the viewport).
-- A preset `N` → set `viewport.zoom = N`, anchored on the viewport
-  center so the visible content does not jump sideways.
-- Wheel / pinch zoom (`board-wheel.ts`) writes back into the controller,
-  so the dropdown label always reflects the live scale rather than
-  drifting from it.
+- `FIT_ZOOM` → always run the fit (`fit-to-content.ts`: fit all elements
+  into the viewport), regardless of the stored value; the value is set
+  too, so the label reads "Fit".
+- A preset `N` → set `viewport.zoom = N`, anchored on the host centre so
+  the visible content does not jump sideways.
+- Wheel / pinch zoom writes back into the value channel
+  (`reportViewportZoom`, called from `board-view.tsx`'s wheel handler —
+  `board-wheel.ts` is the pure viewport math and holds no controller), so
+  the dropdown label reflects the live scale rather than drifting from
+  it. The write is label-only: applying happens on the intent, so a
+  scale the viewport already anchored at the cursor is never re-resolved
+  about the host centre.
+- The canvas context menu's "Fit to content" calls `binding.fit()`,
+  which does both halves — re-frame and move the readout to "Fit".
 
 Zoom stays session-local view state: it never touches the CRDT document
 or presence, matching both SP1's viewport rule and the slides zoom
@@ -209,47 +226,74 @@ interface PeerView {
   cursor?: { x: number; y: number };
 }
 
-interface PeerOverlays {
-  // …existing fields
-  cursors: Array<{ x: number; y: number; color: string; label: string }>;
-}
+/** Deliberately NOT part of PeerOverlays — see below. */
+function computePeerCursors(
+  peers: readonly PeerView[],
+  currentSlideId: string | undefined,
+): Array<{ x: number; y: number; color: string; label: string }>;
 ```
 
-`computePeerOverlays` maps a peer's `cursor` into `cursors` (same
-current-slide filter as rings), and `overlay.ts` paints each as a dot
-with the peer's stable color plus its name tag. Slides never populates
-`cursor`, so `cursors` is always empty there and its paint loop is a
-no-op — the change is unreachable from a slides mount.
+Cursors are computed and painted **separately from the rest of the peer
+chrome**, into a dedicated `wfb-slides-peer-cursor-layer` child of the
+editor's overlay. This is not cosmetic layering — it is what makes a
+pointer-rate presence channel safe:
+
+- `renderOverlay` clears `overlay.innerHTML` on every call, and the docs
+  `TextEditor` mounts its hidden IME textarea *inside* the text-box
+  container that lives in that overlay. A full overlay rebuild therefore
+  detaches the textarea and drops focus to `<body>`, after which the
+  local user's keystrokes reach the editor's GLOBAL key rules (Delete
+  deletes the selected element) instead of the text they are typing.
+- The rebuild also re-walks every element (`buildElementWorldLookup`) and
+  repaints over any in-flight gesture ghost.
+
+So `setPeers` diffs the incoming peers against the current ones ignoring
+`cursor` (`peersEqualIgnoringCursor`). A cursor-only tick repaints just
+the cursor layer — no `store.read()`, no element walk, no
+`innerHTML = ''`; anything else falls through to the full
+`repaintOverlay()`. The cursor layer sits at the overlay's origin and
+uses the same `world * scale + pan` math the rings use (and is
+re-appended after every rebuild), so a cursor still cannot drift from its
+owner's selection ring during a pan or zoom.
+
+Slides never populates `cursor`, so `computePeerCursors` returns `[]`
+there and the layer is never even created.
 
 Board side (`board-view.tsx`):
 
 - `pointermove` on the canvas host publishes `cursor` into
   `BoardPresence` — the field SP1 already defined but left unwritten —
-  throttled to one write per animation frame, alongside the existing
-  `selectedElementIds` publish.
+  coalesced to at most one write per animation frame, alongside the
+  existing `selectedElementIds` publish.
 - `pointerleave` publishes `null` so a departed cursor does not stick.
 - `mapBoardPeers` forwards `presence.cursor` into `PeerView.cursor`.
 
-Painting cursors in the editor's overlay pass rather than in a separate
-DOM layer keeps them on the same transform path as the selection rings,
-so a peer's cursor and their selection ring cannot drift apart during a
-fast pan or zoom.
+"At most one write per frame" is a ceiling, not a rate: a presence write
+emits a SELF `presence-changed` that re-renders the whole React tree, so
+`createCursorPublisher` also drops a frame whose position is unchanged,
+and skips the write entirely when `doc.getOthersPresences()` is empty —
+a solo user waving the mouse must not cost 60 React commits a second.
 
 ### Files
 
 ```text
 packages/slides/src/view/editor/
-  peers.ts            + PeerView.cursor, + PeerOverlays.cursors, mapping
-  overlay.ts          + cursor dot / name-tag paint
-  editor.ts           + onFitToContent option, + Select all / Fit to content
+  peers.ts            + PeerView.cursor, + computePeerCursors,
+                      + peersEqualIgnoringCursor (the cursor-only diff)
+  overlay.ts          + renderPeerCursors (own layer, not renderOverlay)
+  editor.ts           + peer-cursor layer + cursor-only setPeers path,
+                      + onFitToContent option, + Select all / Fit to content
 
 packages/frontend/src/app/slides/toolbar/
   arrange-menu.tsx    + minAlignSelection prop (default 1)
+  can-ungroup.ts NEW  shared Ungroup predicate (slides + board)
 
 packages/frontend/src/app/board/
   board-toolbar.tsx   morphing shell: undo/redo + zoom + insert + contextual
-  board-zoom.ts  NEW  board ZoomController (board clamp) + FIT = fit-all, presets, wheel sync
-  board-view.tsx      wire zoom controller, onFitToContent, cursor publish
+  board-zoom.ts  NEW  board ZoomController (board clamp) + binding: FIT = fit-all
+                      action + label, presets, wheel label write-back
+  board-cursor-publish.ts NEW  rAF coalescing + delta / audience gating
+  board-view.tsx      wire zoom binding, onFitToContent, cursor publish
 ```
 
 ### Testing
@@ -259,9 +303,16 @@ packages/frontend/src/app/board/
 - `board-toolbar-state.test.ts` — `getToolbarState` against a board store
   transitions idle → object → text-edit, and reports the right
   `selectionType` per element type.
-- `peers.test.ts` (slides) — `cursor` maps into `cursors`; **absent
+- `peers.test.ts` (slides) — `cursor` maps into a cursor spec; **absent
   `cursor` yields an empty array** (the regression guard proving slides
-  is unaffected).
+  is unaffected); `peersEqualIgnoringCursor` sees through a cursor move
+  but not through a selection / live-frame / guide / cell-range change.
+- `peer-cursor-text-focus.test.ts` (slides) — mounts a REAL text box (not
+  the mock the other suites inject) and asserts the hidden IME textarea
+  keeps focus across cursor-only `setPeers` ticks, that the moved cursor
+  still paints, and that the layer survives a full overlay rebuild.
+- `board-cursor-publish.test.ts` — rAF coalescing, the null-on-leave
+  delivery, the unchanged-position gate, and the audience gate.
 - `arrange-menu` — Align disabled at selection size 1 when
   `minAlignSelection={2}`, enabled at 2; slides default unchanged.
 - The full existing slides suite (import / export / round-trip / painter
@@ -304,6 +355,28 @@ packages/frontend/src/app/board/
   `onFitToContent`, empty `cursors`), and commit 1 lands with the slides
   suite green before board code consumes it.
 - **Cursor presence churn.** A raw `pointermove` publish would flood the
-  CRDT presence channel. *Mitigation:* one write per animation frame,
-  and `null` on pointer leave. Presence only — the document root is
-  never touched.
+  CRDT presence channel. *Mitigation:* at most one write per animation
+  frame, skipped when the position has not moved or when there are no
+  peers, and `null` on pointer leave. Presence only — the document root
+  is never touched.
+- **A pointer-rate presence channel amplified into pointer-rate DOM
+  work.** Peer presence used to rebuild the entire overlay on every
+  `setPeers` call, which was tolerable only because slides presence
+  changes at edit rate. Driving it at cursor rate made that rebuild
+  continuous, and the rebuild blurs the in-place text editor (the docs
+  `TextEditor`'s hidden IME textarea lives in the overlay), so a peer
+  moving their mouse made local text editing unusable. *Mitigation:* the
+  cursor-only diff + dedicated cursor layer described under **Peer
+  cursors** above.
+
+### Known limitations
+
+- After picking "Fit", a window resize re-lays out the canvas but does
+  not re-fit, while the dropdown label still reads "Fit". Fit is an
+  action, not a sticky mode; making it sticky needs a resize-time
+  re-fit keyed on the label, which is deferred.
+- A peer presence change that is *not* cursor-only (they select
+  something, or their live drag frames move) still rebuilds the overlay
+  and so still blurs a local in-place text edit. This predates SP4 — it
+  is rare at edit rate — and the proper fix is the gesture/edit-lifecycle
+  signal tracked with the P2 live-frame broadcast work.
