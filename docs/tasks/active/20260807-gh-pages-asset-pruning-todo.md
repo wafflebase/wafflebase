@@ -94,19 +94,49 @@ direct lever.
 
 ## Verification
 
-The cleanup script was extracted from the workflow YAML and run against a
-worktree of `origin/gh-pages` (2190 files / 98.3 MB), with the commit and
-push replaced by a dry-run echo.
+Both steps were extracted from the workflow YAML and run for real — the
+manifest step against a synthetic `dist/`, the cleanup step against a
+worktree of `origin/gh-pages` (2190 files / 98.3 MB) with the commit and push
+replaced by a dry-run echo.
 
-| Check                                              | Result |
-| -------------------------------------------------- | ------ |
-| A — reaches `docs/assets` at all (old-format manifests) | prunes 1426 `docs/assets` + 233 `assets` + 2 expired manifests; the previous script could reach none of the `docs/assets` files |
-| B — files named by the newest manifest survive      | 0 of them deleted; `assets/` settles at the 3-manifest union (302); `pdfjs/` untouched at 185 |
-| C — empty newest manifest                           | exits 1 with `::error::`, 0 staged deletions |
+| Check | Result |
+| ----- | ------ |
+| Manifest — a tree is missing | exits 1, `::error::` on stderr, manifest file 0 bytes |
+| Manifest — both trees present | exits 0, lists both trees |
+| Prune — normal run | removes 1656 files; every file named by the newest manifest survives; `assets/` settles at the 3-manifest union (302); `pdfjs/` untouched at 185 |
+| Prune — empty newest manifest | exits 1 with `::error::`, 0 staged deletions |
+| Prune — newest manifest omits a tree | exits 1 with `::error::`, 0 staged deletions |
 
 Projected first real run: **~81 MB removed**, site drops from ~98 MB to
 roughly ~20 MB once the 3 retained generations are added back (3 generations
 of VitePress chunks are ~0.66 MB against the 68.7 MB in the tree today).
+
+## Review feedback
+
+CodeRabbit raised two findings on PR #702.
+
+**Partial manifests (major) — valid, fixed.** `find assets docs/assets` exits
+non-zero on a missing directory but still emits what it did find, and without
+`pipefail` the trailing `sort` reported success. Reproduced: the step exited 0
+having written a non-empty manifest naming only `assets/`. Under set-based
+pruning that manifest is worse than none — it would delete the current build's
+entire `docs/assets` tree, and the non-empty guard would not catch it.
+
+Fixed on both sides rather than one: the manifest step asserts both
+directories and sets `pipefail`, and the cleanup step now additionally
+requires the newest manifest to name at least one file under each tree, so a
+malformed manifest is rejected however it was produced. The suggested patch
+itself was not applied — it `cd`s into `dist` while keeping a `dist`-relative
+redirect path, which would fail to open the output file.
+
+Testing the fix surfaced a second bug in it: the `::error::` echo sat inside
+the subshell whose stdout *is* the manifest, so the annotation was written
+into the manifest file (83 bytes) instead of the log. Routed to stderr.
+
+**Task filename date (minor) — not applied.** The repo names task docs by
+local (KST) date, not UTC: `20260804-panel-concurrency-todo.md` was committed
+at 2026-08-03 UTC. It was 2026-08-07 KST when this landed, so `20260807`
+follows the existing convention.
 
 ## Design notes
 
