@@ -66,7 +66,42 @@ test("openUiSession spawns the runner in --serve mode and waits for ready", asyn
   assert.ok(argv.includes("--serve"));
   assert.equal(argv.includes("--plan"), false, "serve mode must not also pass a plan");
   assert.equal(session.baseUrl, "http://127.0.0.1:9999");
+  assert.equal(argv.includes("--fault"), false, "no fault means no flag at all");
   await session.close();
+});
+
+test("openUiSession forwards a seeded fault to the runner, and validates its shape", async () => {
+  // The seam existed and nothing used it, which is how the serve-mode fault path
+  // shipped broken: the flag was accepted at three boundaries and asserted at none.
+  const child = fakeRunner();
+  let argv = null;
+  const session = await openUiSession({
+    repoRoot: "/repo",
+    fault: "drop-second-char",
+    closeGraceMs: 20,
+    spawnImpl: (_exec, args) => {
+      argv = args;
+      return child;
+    },
+  });
+  assert.ok(argv.includes("--fault"), "the fault must reach the runner's argv");
+  assert.equal(argv[argv.indexOf("--fault") + 1], "drop-second-char");
+  await session.close();
+});
+
+test("openUiSession refuses a fault id that is not lowercase kebab-case", async () => {
+  // The value becomes a query parameter. A boundary that accepts anything is not a
+  // boundary, and this one is checked BEFORE a browser boots so the caller learns
+  // about a typo immediately rather than after six seconds of Vite.
+  for (const bad of ["Drop-Second-Char", "drop second char", "../etc/passwd", "9lives", "a=b", "drop_second_char", ""]) {
+    let spawned = false;
+    await assert.rejects(
+      () => openUiSession({ repoRoot: "/repo", fault: bad, spawnImpl: () => { spawned = true; return fakeRunner(); } }),
+      /lowercase kebab-case/,
+      `fault ${JSON.stringify(bad)} must be refused`,
+    );
+    assert.equal(spawned, false, `fault ${JSON.stringify(bad)} must be refused BEFORE spawning anything`);
+  }
 });
 
 test("act returns the observation and correlates by id", async () => {

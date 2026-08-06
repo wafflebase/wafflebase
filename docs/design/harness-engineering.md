@@ -362,6 +362,149 @@ Deliverables:
 Done criteria: An agent can diagnose a CI failure from report artifacts
 without human interpretation.
 
+**Loop-status projection (`<!-- agent-loop-status -->`).** Delivered as the
+human half of this phase: one sticky PR comment, updated in place by
+`scripts/agent/loop-status.mjs`, that makes the review→fix loop legible without
+reading workflow logs — a newest-first round table (head sha, non-panel checks,
+per-lens check conclusions, what happened next), the fix-round budget, the
+latest loop decision, and effort totals. Its contract mirrors the `agent:*`
+label projection (Phase 24): it is **derived in full from the unforgeable
+signals** (commits, lens check runs, both paged latches, the metric ledger) on
+every update, so a missed update self-heals, and **nothing may read it back to
+make a decision**. Trust rules, because the repo is public: the upsert only
+updates a marker comment authored by an allow-listed bot login or a
+write-access human (the paged-latch rule, `rounds.mjs::isPagedLatchComment`);
+metric-ledger records are parsed only from trusted-author comments and only
+their **numbers** are ever rendered — otherwise a stranger's fake
+`<!-- agent-metric -->` record could launder a trusted marker into a
+bot-authored comment. Update hooks live in the panel workflow (panel verdict,
+promote, round-guard decision, fix outcome, stalled), the CI arm, `@claude fix`
+and `@claude rerun`. The check runs remain the verdict of record; the comment
+only summarizes their conclusions, and the round guard — not the table — is the
+authority on the budget. Every derived number is caller-independent so the body
+converges instead of flapping between arms: the round count uses the full lens
+manifest (provably equal to the guard's `required_checks` count, because that
+set derives from the cumulative changed-file list and never shrinks mid-PR, and
+a lens that never fails adds nothing to a count of failing-lens commits), and
+the cap defaults to a constant pinned by test to the panel workflow's
+`MAX_REVIEW_ROUNDS` literal.
+
+Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
+now renders its decision — including the previously **silent PROCEED** — as a
+`verdict` step output plus a `$GITHUB_STEP_SUMMARY` block
+(`scripts/agent/guard-verdict.mjs`, pure presentation with no decision logic),
+and `scripts/agent/panel-job-summary.mjs` /
+`scripts/agent/session-job-summary.mjs` put the per-lens verdict/verifier/cost
+table and each Claude session's turns/cost/outcome on the run page. The CI arm's attempts
+guard writes matching SKIPPED/PAGED/PROCEED summary blocks (inline in
+`github-script`, which cannot import a module — the same constraint behind the
+`gate` job's literal latch copy), and its paged-latch check is author-checked
+with the same predicate as the review-side latch.
+
+**Observability, second slice: findings and money become precise.** The first
+slice made the loop's *shape* legible; this one surfaces what each stage
+actually decided, on the surfaces that already exist and without changing a
+single decision. Three additions, all pure rendering of data the pipeline
+already computes:
+
+- **Enriched lens check-run bodies** (`scripts/agent/severity.mjs`). Each
+  blocking row now renders a `file:line` locator (the finding's own `line`, or
+  the first same-file citation in its evidence — `novelty.mjs::findingLocation`
+  is the one rule for both) and the per-finding verifier outcome: confirmed at
+  high/low confidence, could-not-settle (the existing `unsettled` wording,
+  unchanged), or **UNVERIFIED — the verifier session errored**, the per-finding
+  face of the aggregate outage banner. `annotateFindings` stamps the outcome as
+  a reporting-only `verification` field from the same null-verdict signal
+  `verifierTally` counts, so the marker and the banner cannot disagree. A
+  finding that survived a dispute renders the adjudicator's decision **and its
+  reason** as a sub-bullet — the reason was computed every round and discarded
+  from every human surface (only the `upheld` integer is carried in
+  `output.text`, by design; the prose lives here). Findings the author
+  reported **skipped** get their own section with the author's note, closing
+  the fix-report section's documented not-yet-built item. Because lens bodies
+  are copied verbatim into a bot-authored PR comment
+  (`.github/workflows/agent-review-on-demand.yml`), the two author-adjacent strings on this
+  surface — the adjudication reason and the skip note — are `<!--`-neutralized
+  (the `scripts/agent/fix-report.mjs` ZWNJ technique) so author prose cannot
+  smuggle a live paged latch into a comment posted by a trusted identity. The fixer-prompt cut
+  contract is preserved: every new section arrives via the same `\n###`
+  marker (followed by a space, the exact delimiter the cut splits on), and
+  `scripts/agent/harvest.mjs`'s corpus reader round-trips the
+  enriched rows (pinned by a cross-module test against the real renderer).
+
+- **Per-session ledger** (`scripts/agent/metrics.mjs::renderLedger`). The
+  effort summary's aggregates could answer "what did everything cost" but not
+  "what did round 3 cost"; a `<details>` fold now lists every recorded session
+  chronologically — kind, turns, weighted tokens, cost, duration — with
+  `review`/`review-fix` rows carrying their round ordinal (the nth panel
+  record IS round n, the same order `detectFlips` reads). Rendering happens
+  before any sweep, so `--final` summaries carry the full table. Two rules
+  guard it: a missing value renders as `—`, never `0` (`Number(null) === 0`),
+  and `kind` — the one free-text field in a record that is parsed from ANY
+  comment — is allow-listed to the pipeline's own kinds and renders as
+  `other` otherwise, so a forged `<!-- agent-metric -->` record cannot steer
+  text into the bot-authored summary.
+
+- **"Where to look" on every 🛑 page** (`whereToLookLine` + `runUrlFromEnv` in
+  `scripts/agent/guard-verdict.mjs`). Every page comment now ends with a link
+  to the failed run, the job/step that decided or died, and the transcript
+  artifact where one exists — the three clicks a hand-off used to make a
+  maintainer reconstruct from the Actions tab. The URL is built only from the
+  runner's own `GITHUB_*` env (null on any missing piece, never a partial
+  link), so pages posted outside Actions render exactly as before. The
+  `github-script` page sites (the CI arm's attempts guard, the `stalled`
+  safety net) carry inline copies of the line for the usual cannot-import
+  reason; they are display-only strings, so no byte-identity pin is needed.
+
+**Observability, third slice: the dispute channel and the leftovers.** The
+last places the pipeline acts without a human-visible trace:
+
+- **Visible rebuttal bodies** (`renderRebuttalComment` in
+  `scripts/agent/rebuttal.mjs`). A rebuttal comment used to be ONLY its hidden
+  marker — an empty-looking bot comment while a machine argument about
+  removing a finding from the merge gate played out invisibly. The body now
+  renders the disputed finding, the claim, its citations, and the
+  load-bearing framing (a claim awaiting adjudication that upholds by
+  default; two upheld disputes page a human) above the unchanged record. The
+  read side is untouched: `parseRebuttalComment` matches the marker anywhere
+  and `fromRebuttalAuthor` gates on identity, not shape. Two hardening fixes
+  landed with it, both at serialization (the one writer): author fields are
+  `<!--`-neutralized, because rebuttals post through the App token and both
+  paged-latch predicates are containment tests gated on exactly that trusted
+  identity — a claim quoting a latch would have frozen the loop; and the
+  `-->` terminator is transport-escaped exactly as
+  `scripts/agent/fix-report.mjs` does, fixing a silent pre-existing failure
+  where any dispute quoting a repo marker truncated its own JSON, failed the
+  round-trip guard, and was never posted at all.
+
+- **Best-effort failure breadcrumbs** (`emitBestEffortWarning` in
+  `scripts/agent/guard-verdict.mjs`). The fail-safe
+  scripts — `scripts/agent/set-state.mjs`, `scripts/agent/loop-status.mjs`,
+  `scripts/agent/metrics.mjs` — deliberately exit 0 on operational failure,
+  which means their `continue-on-error:` steps NEVER show a failed outcome:
+  the symptom (a stale label, a stale dashboard, a missing effort comment)
+  surfaces later with nothing connecting it to the cause. Their bail paths
+  now emit one `::warning::` annotation (run page + PR checks-tab header,
+  stdout-only and only inside Actions) plus a job-summary line naming the
+  consequence. In `scripts/agent/metrics.mjs` the consequence is OPT-IN per
+  call site — bail also serves normal no-ops ("no metrics recorded yet"),
+  and warning on those would teach readers to ignore the annotation. The
+  inline `github-script` best-effort steps already carried `core.warning`
+  in their catch blocks; the implement ack now does too.
+
+- **Kickoff dead-run visibility** (`.github/workflows/agent-implement.yml`,
+  final always-step). The one silent termination left: the implement run
+  dies or exhausts its turns before opening a PR, and the issue keeps the
+  "On it" ack forever. The step resolves whether an open `agent/<issue>-*`
+  PR exists (the same branch-prefix lookup as
+  `scripts/agent/metrics.mjs::resolvePrByIssue`) and, when none does,
+  comments on the issue with the run link, the `claude-execution-output`
+  artifact name and the retry command. Three-state honesty, mirroring the
+  stalled net: PR found → silent; none found → the dead-run comment, worded
+  by whether the agent step failed or merely ended; the PR LIST unreadable →
+  a comment that says the state could not be determined, never a failure
+  claim the run did not verify.
+
 ### Phase 24: Autonomous Contribution Loop
 
 **Principle:** Mechanical Enforcement + Capability-First Debugging — drive the
@@ -1347,132 +1490,6 @@ it left alone. `--run` is mandatory so there is no "delete everything that looks
 a fixture" mode to reach by accident, and the run id is in the prefix so concurrent
 runs cannot delete each other's fixtures. Docker lifecycle is NOT reimplemented —
 `scripts/verify-integration-docker.mjs` owns it, and `preflight` reports what is missing.
-### Phase 28: UI Issue Hunting
-
-Phase 26's own residual-risk list names the ceiling this addresses: the CLI reaches
-neither Canvas rendering, CRDT collaboration, nor frontend interaction, which is where
-most open UI bugs live. This is the Playwright hunter that section called "the natural
-next surface", and it reuses Phase 26's precision apparatus wholesale — inverted gate,
-3x replay, adversarial verifier panel, novelty ledger. **Only the probe layer and the
-prediction protocol are new.**
-
-**The sensor is a bridge, not the accessibility tree.** Sheets, docs and slides render to
-Canvas, so the a11y tree covers the React chrome and essentially nothing where the
-content is. `window.__WB_HUNT__` on the DEV-only `/harness/hunt` route answers a CLOSED
-registry of named readers instead — `doc.text`, `doc.runs`, `doc.fontSizes`,
-`sheet.cellValue`, `sheet.cellCenter`, `doc.canUndo`, `sheet.canUndo` — over
-`MemStore`/`MemDocStore`, with
-the real `DocsFormattingToolbar` mounted. No backend, no login, no cleanup risk. A
-registry rather than an `evaluate(<model JS>)` hook, so the reachable surface is bounded
-by reviewed code; membership is an own-property test, because a plain object literal
-resolves `readers["toString"]` through the prototype chain and would have invoked it.
-
-**The driver is a subprocess.** `playwright` resolves from `packages/frontend` and NOT
-from `scripts/agent` (separate installs), and duplicating it would duplicate the version
-`scripts/run-browser-tests-docker.sh` pins against `Dockerfile.playwright`. Spawning
-`packages/frontend/scripts/hunt-ui-runner.mjs` also keeps the async browser behind a
-synchronous call, so `scripts/agent/hunt-probe.mjs`'s `replay()` is reused unchanged.
-
-**Free oracles first, run after every action at zero model cost:** `pageerror`,
-`console-error`, `network-fail`, and Crawljax/ATUSA-style DOM invariants (duplicate ids,
-dangling ARIA references, `undefined`/`NaN`/`[object Object]` in the chrome). Two scoping
-rules keep them from reporting the harness: request failures and browser-generated
-console errors about them are ignored for non-app origins, since Tier 1 has no backend by
-construction; and the placeholder-text scan excludes the editor host, because a user's
-document may legitimately contain the word "undefined". `verify:hunt:oracles` proves each
-one fires on an injected fault and stays quiet on the two negative controls — a detector
-that silently stops firing is invisible, because a clean run and a dead detector produce
-the same empty report.
-
-**The prediction protocol is where a mismatch stops being an opinion.** The oracles only
-catch defects that announce themselves; most real UI bugs do not. So the agent commits to
-an expectation — a NAMED READER plus a COMPARISON from a six-operator closed set, never
-prose — submitted WITH the action, with the runner performing the read in the same
-round-trip so the caller cannot look before committing. Trusted code renders the verdict.
-There is deliberately no regex operator: a model-supplied pattern is code this process
-would execute.
-
-Four grounds, each MECHANICALLY checked rather than trusted:
-
-| ground | claim | what the process verifies |
-|---|---|---|
-| A | the app contradicts itself | `value` must be an `@read:`/`@input:` reference to a SUCCESSFUL, STRICTLY EARLIER journal entry, and a `@read:` must name the same reader — a literal is the model asserting its own belief, which is what A exists to exclude |
-| B | `docs/design/**` says otherwise | bounded `source` matching `CITATION`, in the charter's `docsScope`, no `..` |
-| C | the app's own label says otherwise | the quote must appear in that step's page snapshot |
-| D | general convention | never eligible; journalled for a human |
-
-`UNEVALUABLE IS NOT VIOLATED` is load-bearing: a comparison that cannot be carried out is
-never a finding. Collapsing it into `violated` would turn every malformed prediction into
-a report.
-
-**What the protocol does NOT establish** — recorded because two false findings appeared
-within minutes of it first running, both ground A, both traceable, both reproducing:
-`MemStore.undo()` is a no-op, so any undo prediction on the sheet surface is a guaranteed
-false finding (now askable via `canUndo`); and docs undo is per-keystroke, so expecting a
-typing burst to be one undo step is wrong for reasons unrelated to the product. Grounding
-removes a CLASS of bad predictions, not all of them, which is why the verifier panel stays
-load-bearing and its rubric attacks the EXPECTATION before the behaviour.
-
-**Cross-sample agreement is absent by design**, and Phase 26 dropped it too for the same
-measured reason (see that section). Precision therefore rests on journal-reference
-resolution, the 3x deterministic replay, and the panel — so `actual` participates in
-`uiObservedKey`, or replay would be blind to the very value a violation was computed from.
-
-**No visual channel.** There is no screenshot action, and adding one is rejected rather
-than deferred: a "these overlap" claim traces to nothing, so it is ineligible under every
-ground above, and making it eligible would mean adding the "looks wrong" ground this
-design exists to exclude. Spatial questions on slides/board are exactly computable from
-state instead (`boundingBox`, `combinedBoundingBox`, `framesApproxEqual` are already
-exported). Renderer bugs — model right, paint wrong — remain the visual lane's job, which
-already owns 220 baselines with Docker font pinning. Two instruments, two failure classes.
-
-**Exploration is a session; replay is a clean room.** The CLI hunter spawns a fresh
-process per probe because that costs milliseconds. Measuring the same shape here retired
-it: a 1-action plan takes 6095ms and a 3-action plan 6103ms, so Vite plus Chromium boot is
-~6.1s and each subsequent action ~4ms. At `maxActions: 80` a spawn-per-action tool would
-spend ~8 minutes on boot alone, against a whole-run probing budget of ~15 minutes. So
-`packages/frontend/scripts/hunt-ui-runner.mjs` gained a `--serve` mode — newline-delimited
-JSON, one response per request, one page for the session — and `scripts/agent/hunt-ui-session.mjs`
-is the client (measured through it: ready 856ms, first action 5.4s, later actions 33-44ms).
-Both modes share one `observeAction`, extracted rather than duplicated.
-
-Replay deliberately does NOT use it. `runUiPlan` keeps its `spawnSync` path against
-`--plan`, so the determinism gate still gets a fresh process and a fresh browser context
-per attempt. Sharing one mechanism would mean either a slow explorer or a replay that
-inherits state, and the second is how phantom repros get through. A failed action in serve
-mode is an observation with `ok:false`, never a protocol error, because "the click missed"
-is data — and the process stays up through a malformed request, since killing the browser
-over one bad line discards the boot this mode exists to amortise.
-
-**The tool description is the map.** PR 1's readers were reachable but undiscoverable:
-nothing told a model that `doc.fontSizes` existed, so an agent asked about formatting would
-reach for the snapshot and read an almost-empty a11y tree off a canvas.
-`scripts/agent/hunt-ui-tool.mjs` therefore lists the readers, with arity, SCOPED TO THE
-RUN'S SURFACE. That list is a second copy of the bridge registry, so a test parses
-`packages/frontend/src/app/harness/hunt/bridge.ts` and fails on any divergence — a stale
-copy is silent, because a reader never called is indistinguishable from an area with no
-defects.
-
-**The per-run surface selector is enforced, not requested.** `assertSafeActionPlan` bounds
-reader NAMESPACES, which is the right check for it to make and not sufficient here: a run
-assigned `doc` must not reach `sheet.*`. The tool checks exact names at three doors — the
-action's own reader, a click target's `reader` (a point comes from `sheet.cellCenter`, not
-from coordinates), and `expect.read` — plus `goto`'s surface, or an agent could navigate
-out of its assignment and then read legally.
-
-**What comes back is deliberately less than what happened.** A non-`read` action reports
-only whether it landed; a prediction reports its VERDICT and never the measured `actual`;
-no page snapshot is returned unless `dom.snapshot` was read by name. Handing back the value
-invites re-describing a violated prediction as some weaker claim that happens to fit it,
-which is the rationalisation the round-trip design exists to prevent.
-
-Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
-protocol; PR 3 the serve mode, the session client and the MCP tool. Still to come: the
-orchestrator and personas with a per-surface selector, repro minimization, the backend
-tier, and slides/board. Nothing is filed automatically; the output is a local report, and
-the CLI hunter's filing gate (20 accepted at >=90%) restarts for this surface because it
-generates candidates by a different mechanism.
-
 ### Phase 27: Panel Feedback Corpus
 
 **Principle:** Entropy Management — the panel has been tuned repeatedly with no
@@ -1995,6 +2012,182 @@ this alone fixes it. AUTHOR: every writer here posts through a token, so ours ar
 always a Bot, and `user.type` is set by GitHub rather than chosen by the commenter.
 It fails toward KEEPING: a stale summary costs a duplicate, while deleting the
 wrong comment destroys work with no record that it happened.
+
+### Phase 31: UI Issue Hunting
+
+Phase 26's own residual-risk list names the ceiling this addresses: the CLI reaches
+neither Canvas rendering, CRDT collaboration, nor frontend interaction, which is where
+most open UI bugs live. This is the Playwright hunter that section called "the natural
+next surface", and it reuses Phase 26's precision apparatus wholesale — inverted gate,
+3x replay, adversarial verifier panel, novelty ledger. **Only the probe layer and the
+prediction protocol are new.**
+
+**The sensor is a bridge, not the accessibility tree.** Sheets, docs and slides render to
+Canvas, so the a11y tree covers the React chrome and essentially nothing where the
+content is. `window.__WB_HUNT__` on the DEV-only `/harness/hunt` route answers a CLOSED
+registry of named readers instead — `doc.text`, `doc.runs`, `doc.fontSizes`,
+`sheet.cellValue`, `sheet.cellCenter`, `doc.canUndo`, `sheet.canUndo` — over
+`MemStore`/`MemDocStore`, with
+the real `DocsFormattingToolbar` mounted. No backend, no login, no cleanup risk. A
+registry rather than an `evaluate(<model JS>)` hook, so the reachable surface is bounded
+by reviewed code; membership is an own-property test, because a plain object literal
+resolves `readers["toString"]` through the prototype chain and would have invoked it.
+
+**The driver is a subprocess.** `playwright` resolves from `packages/frontend` and NOT
+from `scripts/agent` (separate installs), and duplicating it would duplicate the version
+`scripts/run-browser-tests-docker.sh` pins against `Dockerfile.playwright`. Spawning
+`packages/frontend/scripts/hunt-ui-runner.mjs` also keeps the async browser behind a
+synchronous call, so `scripts/agent/hunt-probe.mjs`'s `replay()` is reused unchanged.
+
+**Free oracles first, run after every action at zero model cost:** `pageerror`,
+`console-error`, `network-fail`, and Crawljax/ATUSA-style DOM invariants (duplicate ids,
+dangling ARIA references, `undefined`/`NaN`/`[object Object]` in the chrome). Two scoping
+rules keep them from reporting the harness: request failures and browser-generated
+console errors about them are ignored for non-app origins, since Tier 1 has no backend by
+construction; and the placeholder-text scan excludes the editor host, because a user's
+document may legitimately contain the word "undefined". `verify:hunt:oracles` proves each
+one fires on an injected fault and stays quiet on the two negative controls — a detector
+that silently stops firing is invisible, because a clean run and a dead detector produce
+the same empty report.
+
+**The prediction protocol is where a mismatch stops being an opinion.** The oracles only
+catch defects that announce themselves; most real UI bugs do not. So the agent commits to
+an expectation — a NAMED READER plus a COMPARISON from a six-operator closed set, never
+prose — submitted WITH the action, with the runner performing the read in the same
+round-trip so the caller cannot look before committing. Trusted code renders the verdict.
+There is deliberately no regex operator: a model-supplied pattern is code this process
+would execute.
+
+Four grounds, each MECHANICALLY checked rather than trusted:
+
+| ground | claim | what the process verifies |
+|---|---|---|
+| A | the app contradicts itself | `value` must be an `@read:`/`@input:` reference to a SUCCESSFUL, STRICTLY EARLIER journal entry, and a `@read:` must name the same reader — a literal is the model asserting its own belief, which is what A exists to exclude |
+| B | `docs/design/**` says otherwise | bounded `source` matching `CITATION`, in the charter's `docsScope`, no `..` |
+| C | the app's own label says otherwise | the quote must appear in that step's page snapshot |
+| D | general convention | never eligible; journalled for a human |
+
+`UNEVALUABLE IS NOT VIOLATED` is load-bearing: a comparison that cannot be carried out is
+never a finding. Collapsing it into `violated` would turn every malformed prediction into
+a report.
+
+**What the protocol does NOT establish** — recorded because two false findings appeared
+within minutes of it first running, both ground A, both traceable, both reproducing:
+`MemStore.undo()` is a no-op, so any undo prediction on the sheet surface is a guaranteed
+false finding (now askable via `canUndo`); and docs undo is per-keystroke, so expecting a
+typing burst to be one undo step is wrong for reasons unrelated to the product. Grounding
+removes a CLASS of bad predictions, not all of them, which is why the verifier panel stays
+load-bearing and its rubric attacks the EXPECTATION before the behaviour.
+
+**Cross-sample agreement is absent by design**, and Phase 26 dropped it too for the same
+measured reason (see that section). Precision therefore rests on journal-reference
+resolution, the 3x deterministic replay, and the panel — so `actual` participates in
+`uiObservedKey`, or replay would be blind to the very value a violation was computed from.
+
+**No visual channel.** There is no screenshot action, and adding one is rejected rather
+than deferred: a "these overlap" claim traces to nothing, so it is ineligible under every
+ground above, and making it eligible would mean adding the "looks wrong" ground this
+design exists to exclude. Spatial questions on slides/board are exactly computable from
+state instead (`boundingBox`, `combinedBoundingBox`, `framesApproxEqual` are already
+exported). Renderer bugs — model right, paint wrong — remain the visual lane's job, which
+already owns 220 baselines with Docker font pinning. Two instruments, two failure classes.
+
+**Exploration is a session; replay is a clean room.** The CLI hunter spawns a fresh
+process per probe because that costs milliseconds. Measuring the same shape here retired
+it: a 1-action plan takes 6095ms and a 3-action plan 6103ms, so Vite plus Chromium boot is
+~6.1s and each subsequent action ~4ms. At `maxActions: 80` a spawn-per-action tool would
+spend ~8 minutes on boot alone, against a whole-run probing budget of ~15 minutes. So
+`packages/frontend/scripts/hunt-ui-runner.mjs` gained a `--serve` mode — newline-delimited
+JSON, one response per request, one page for the session — and `scripts/agent/hunt-ui-session.mjs`
+is the client (measured through it: ready 856ms, first action 5.4s, later actions 33-44ms).
+Both modes share one `observeAction`, extracted rather than duplicated.
+
+Replay deliberately does NOT use it. `runUiPlan` keeps its `spawnSync` path against
+`--plan`, so the determinism gate still gets a fresh process and a fresh browser context
+per attempt. Sharing one mechanism would mean either a slow explorer or a replay that
+inherits state, and the second is how phantom repros get through. A failed action in serve
+mode is an observation with `ok:false`, never a protocol error, because "the click missed"
+is data — and the process stays up through a malformed request, since killing the browser
+over one bad line discards the boot this mode exists to amortise.
+
+**The tool description is the map.** PR 1's readers were reachable but undiscoverable:
+nothing told a model that `doc.fontSizes` existed, so an agent asked about formatting would
+reach for the snapshot and read an almost-empty a11y tree off a canvas.
+`scripts/agent/hunt-ui-tool.mjs` therefore lists the readers, with arity, SCOPED TO THE
+RUN'S SURFACE. That list is a second copy of the bridge registry, so a test parses
+`packages/frontend/src/app/harness/hunt/bridge.ts` and fails on any divergence — a stale
+copy is silent, because a reader never called is indistinguishable from an area with no
+defects.
+
+**The per-run surface selector is enforced, not requested.** `assertSafeActionPlan` bounds
+reader NAMESPACES, which is the right check for it to make and not sufficient here: a run
+assigned `doc` must not reach `sheet.*`. The tool checks exact names at three doors — the
+action's own reader, a click target's `reader` (a point comes from `sheet.cellCenter`, not
+from coordinates), and `expect.read` — plus `goto`'s surface, or an agent could navigate
+out of its assignment and then read legally.
+
+**What comes back is deliberately less than what happened.** A non-`read` action reports
+only whether it landed; a prediction reports its VERDICT and never the measured `actual`;
+no page snapshot is returned unless `dom.snapshot` was read by name. Handing back the value
+invites re-describing a violated prediction as some weaker claim that happens to fit it,
+which is the rationalisation the round-trip design exists to prevent.
+
+**One gate, not two.** The orchestrator reaches the SAME `isFilingVerdict` the CLI
+hunter does. Only two things genuinely differ — the permitted `confirmationGround`
+values, and where citations come from — so those became options with the CLI's
+behaviour as defaults, rather than a second gate. The reason is testability, not
+tidiness: "every branch returns false, exactly one path to true" is a property that has
+to be mutation-tested, and a duplicate gate would be covered by none of the tests
+guarding the original. The two ground sets are pinned DISJOINT except for an explicit
+allowlist (`none`, and `unhandled-failure` — a crash with no guarded path is the same
+defect whether the stack came from a process or a `pageerror`), so adding a ground to
+one hunter cannot silently widen the other.
+
+**The UI explorer does not cite code, and that is deliberate.** `UI_EXPLORER_SCHEMA` has
+no `citations` field at all. Localising "the font-size button misbehaved" to a source
+line means tracing toolbar → `EditorAPI` → the docs style application: expensive in
+turns, and exactly where a model invents a plausible wrong line. The VERIFIERS supply
+the location through `groundedIn`, from source they actually read, and the gate's
+citation stage is fed from there — still `CITATION`-shaped, still inside `codeScope`.
+A field the schema does not offer cannot be filled in badly.
+
+**The defect identity is the prediction, not the citation.** Cross-sample agreement died
+because its identity was line-level citation overlap and two samples finding one defect
+cited it a line or two apart. A UI defect has a better identity available, because the
+protocol already names what broke: `(persona, action type, reader, operator, ground)`,
+every component computed by trusted code from the journal. An unlocatable candidate gets
+`""` and is recorded as a drop rather than given an invented key that would suppress
+unrelated findings.
+
+**The positive control is seeded, because the real one was already fixed.** Every other
+check in this phase is a negative control — proof the hunter does not report things that
+are fine. Nothing proved the opposite, and the two failures are indistinguishable from
+outside: a healthy app and a dead instrument both print zero. #343 was to be the control
+until PR 1 proved it already fixed, and no other open UI bug has a known ground-A shape.
+So `?fault=drop-second-char` on the harness route swallows every second printable
+keystroke — the cleanest possible ground-A shape, the app contradicting the agent's own
+input. `verify:hunt:oracles` asserts BOTH directions: seeded must drive a ground-A
+prediction to `violated` AND `eligible`, clean must leave it `held`. Both matter; a fault
+that is always on manufactures findings, which is worse than one that never fires. This
+is the one justified reversal of PR 1's rule that faults come only from the driver —
+Playwright can inject a `pageerror` from outside, but it cannot inject a *semantic*
+defect into the editor's own code path. It cannot ship: `/harness/hunt` is already
+DEV-only via a statically-replaced `import.meta.env.DEV`, so the file is not in a
+production bundle at all.
+
+That control check drives the REAL runner and hands its output to `assessExpectation`
+unmodified, rather than asserting over a hand-written journal. The distinction is not
+pedantic: a test that constructs its own input can assert a property the pipeline does
+not have, and this build has produced that exact defect more than once — including a
+docblock in two files claiming the protocol treated the runner's oversized/unserializable
+markers as unevaluable when nothing implemented it.
+
+Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
+protocol; PR 3 (#678) the serve mode, the session client and the MCP tool; PR 4a the
+orchestrator, personas and the seeded control. Still to come: the first live run, repro
+minimization, the backend tier, and slides/board. Nothing is filed automatically; the
+output is a local report, and the CLI hunter's filing gate (20 accepted at >=90%)
+restarts for this surface because it generates candidates by a different mechanism.
 
 ## Harness Policy
 

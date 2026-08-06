@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { renderSummaryMd } from "./severity.mjs";
 import {
   SCHEMA,
   LABELS,
@@ -802,6 +803,36 @@ test("parsePanelComment: the :line suffix leaves `file` but survives in `evidenc
   const f = p.findings.find((x) => /empty-slice/.test(x.summary));
   assert.equal(f.file, "scripts/agent/review-panel.mjs");
   assert.match(f.evidence, /817-822/);
+});
+
+test("parsePanelComment: rows enriched by the Phase 2 renderer still round-trip", () => {
+  // Cross-module contract with severity.mjs's renderSummaryMd: the corpus
+  // reader parses the RENDERED body, so every enrichment (a `file:line`
+  // locator, a verifier-outcome marker, an indented adjudication sub-bullet,
+  // the Author-reported skips section) must leave the row parseable and must
+  // not add phantom findings. Uses the real renderer, not a hand-typed copy of
+  // its output, so a drift fails here instead of in the corpus.
+  const body = [
+    `<!-- agent-review:${PANEL_SHA} -->`,
+    "### 🔴 Review panel: changes suggested",
+    "",
+    renderSummaryMd("Correctness review", [
+      { severity: "major", file: "a.mjs", line: 214, summary: "redo misses the guard",
+        verification: "confirmed-high",
+        adjudication: { upheld: 1, verdict: "upheld", reason: "covers undo only" } },
+      { severity: "major", file: "b.mjs", summary: "skipped one",
+        adjudication: { upheld: 1, verdict: "skipped-by-author", reason: "tracked in #701" } },
+    ], "prose"),
+  ].join("\n");
+  const p = parsePanelComment(body);
+  // Two blocking rows — the adjudication sub-bullets, the author-note bullet
+  // and the skips-section rows must not parse as additional findings.
+  assert.equal(p.findings.length, 2);
+  const [f, g] = p.findings;
+  assert.equal(f.file, "a.mjs"); // :214 stripped from `file`…
+  assert.match(f.evidence, /a\.mjs:214/); // …but kept in `evidence` for extractAnchor
+  assert.match(f.summary, /redo misses the guard/);
+  assert.equal(g.file, "b.mjs");
 });
 
 test("parsePanelComment: not a panel comment → null, not an empty finding set", () => {

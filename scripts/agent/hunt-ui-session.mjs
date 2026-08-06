@@ -34,7 +34,7 @@ import { StringDecoder } from "node:string_decoder";
 // exploration and replay silently diverge, and two copies of a path constant is exactly
 // how that starts.
 export { UI_RUNNER_REL } from "./hunt-ui-probe.mjs";
-import { UI_RUNNER_REL } from "./hunt-ui-probe.mjs";
+import { UI_RUNNER_REL, assertFaultId } from "./hunt-ui-probe.mjs";
 
 /** How long to wait for Vite + Chromium to come up before giving up. */
 const DEFAULT_READY_TIMEOUT_MS = 90_000;
@@ -93,6 +93,7 @@ function createLineReader(onLine) {
 export async function openUiSession({
   repoRoot,
   port = 0,
+  fault = null,
   readyTimeoutMs = DEFAULT_READY_TIMEOUT_MS,
   actTimeoutMs = DEFAULT_ACT_TIMEOUT_MS,
   closeGraceMs = DEFAULT_CLOSE_GRACE_MS,
@@ -101,10 +102,19 @@ export async function openUiSession({
   if (typeof repoRoot !== "string" || repoRoot === "") {
     throw new Error("hunt-ui-session: repoRoot is required");
   }
+  // Same shape check the plan path makes, and the SAME function, so the three
+  // boundaries that accept a fault id cannot drift apart. They already did once.
+  assertFaultId(fault);
 
   const child = spawnImpl(
     process.execPath,
-    [path.join(repoRoot, UI_RUNNER_REL), "--serve", "--port", String(port)],
+    [
+      path.join(repoRoot, UI_RUNNER_REL),
+      "--serve",
+      "--port",
+      String(port),
+      ...(fault ? ["--fault", String(fault)] : []),
+    ],
     { cwd: path.join(repoRoot, "packages", "frontend"), stdio: ["pipe", "pipe", "pipe"] },
   );
 

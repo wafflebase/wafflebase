@@ -18,8 +18,25 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./active/20260806-agent-loop-observability-todo.md) | - |
+| eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./active/20260806-eval-replay-runner-todo.md) | - |
+| capture collector (2026-08-05) | [20260805-capture-collector-todo.md](./active/20260805-capture-collector-todo.md) | - |
+| eval config identity (2026-08-05) | [20260805-eval-config-identity-todo.md](./active/20260805-eval-config-identity-todo.md) | - |
+| eval corpus skeleton (2026-08-05) | [20260805-eval-corpus-skeleton-todo.md](./active/20260805-eval-corpus-skeleton-todo.md) | - |
+| harvest panel rounds (2026-08-04) | [20260804-harvest-panel-rounds-todo.md](./active/20260804-harvest-panel-rounds-todo.md) | - |
+| lint agent scripts (2026-08-04) | [20260804-lint-agent-scripts-todo.md](./active/20260804-lint-agent-scripts-todo.md) | - |
+| panel concurrency (2026-08-04) | [20260804-panel-concurrency-todo.md](./active/20260804-panel-concurrency-todo.md) | - |
+| real fix rounds (2026-08-04) | [20260804-real-fix-rounds-todo.md](./active/20260804-real-fix-rounds-todo.md) | - |
+| cli dry run confirm gate (2026-08-03) | [20260803-cli-dry-run-confirm-gate-todo.md](./active/20260803-cli-dry-run-confirm-gate-todo.md) | [20260803-cli-dry-run-confirm-gate-lessons.md](./active/20260803-cli-dry-run-confirm-gate-lessons.md) |
+| finding level matching (2026-08-03) | [20260803-finding-level-matching-todo.md](./active/20260803-finding-level-matching-todo.md) | - |
+| notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |
+| panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./active/20260803-panel-stage-detail-capture-todo.md) | - |
+| structured rebuttal (2026-08-03) | [20260803-structured-rebuttal-todo.md](./active/20260803-structured-rebuttal-todo.md) | [20260803-structured-rebuttal-lessons.md](./active/20260803-structured-rebuttal-lessons.md) |
+| design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./active/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./active/20260802-design-doc-audit-lessons.md) |
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./active/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./active/20260801-board-miro-import-lessons.md) |
+| docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
 | board whiteboard elements (2026-07-31) | [20260731-board-whiteboard-elements-todo.md](./active/20260731-board-whiteboard-elements-todo.md) | [20260731-board-whiteboard-elements-lessons.md](./active/20260731-board-whiteboard-elements-lessons.md) |
+| font size relative step (2026-07-31) | [20260731-font-size-relative-step-todo.md](./active/20260731-font-size-relative-step-todo.md) | - |
 | release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./active/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./active/20260731-release-v0.6.2-lessons.md) |
 | notes native undo (2026-07-30) | [20260730-notes-native-undo-todo.md](./active/20260730-notes-native-undo-todo.md) | [20260730-notes-native-undo-lessons.md](./active/20260730-notes-native-undo-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
@@ -40,4 +57,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 423
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: board miro import (2026-08-01)
+Latest active task: agent loop observability (2026-08-06)

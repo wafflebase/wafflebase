@@ -9,6 +9,7 @@ import {
   classifyUiError,
   oraclesFired,
   runUiPlan,
+  assertFaultId,
   scrubUiVolatile,
   uiObservedKey,
   uiPlanKey,
@@ -243,6 +244,62 @@ test("runUiPlan passes the plan and attempt count to an injected runner", () => 
 
 test("runUiPlan refuses a non-positive attempt count", () => {
   assert.throws(() => runUiPlan(okPlan, { repoRoot: "/r", attempts: 0, runner: () => [] }), /positive integer/);
+});
+
+test("runUiPlan forwards a seeded fault to the runner", () => {
+  // The positive control's plumbing. It shipped once with the serve-mode half
+  // silently dropped, so both halves are now asserted where they can be.
+  const seen = [];
+  runUiPlan(okPlan, {
+    repoRoot: "/repo",
+    fault: "drop-second-char",
+    runner: (_plan, opts) => {
+      seen.push(opts);
+      return [[obs()]];
+    },
+  });
+  assert.equal(seen[0].fault, "drop-second-char");
+  // Absent by default, so a normal hunt cannot accidentally run seeded.
+  runUiPlan(okPlan, { repoRoot: "/repo", runner: (_p, opts) => { seen.push(opts); return [[obs()]]; } });
+  assert.equal(seen[1].fault, null);
+});
+
+test("runUiPlan refuses a fault id that is not lowercase kebab-case, before spawning", () => {
+  for (const bad of ["Drop-Second-Char", "drop second char", "../etc/passwd", "9lives", "a=b", ""]) {
+    let called = false;
+    assert.throws(
+      () => runUiPlan(okPlan, { repoRoot: "/r", fault: bad, runner: () => { called = true; return []; } }),
+      /lowercase kebab-case/,
+      `fault ${JSON.stringify(bad)} must be refused`,
+    );
+    assert.equal(called, false, `fault ${JSON.stringify(bad)} must be refused BEFORE the runner is reached`);
+  }
+});
+
+test("assertFaultId: only `null` means no fault — `undefined` is an ERROR", () => {
+  // THE case the shipped bug turned on, and the one a string-only test cannot reach.
+  //
+  // A trailing `--fault` makes the runner's `argv[++i]` undefined. Validating with a
+  // regex alone tested `String(undefined)` — the literal text "undefined", which is
+  // lowercase letters and therefore MATCHES. So `--fault` with no value passed, and
+  // the run went ahead with no fault injected and no complaint: a positive control
+  // that silently switched itself off while still looking like it proved something.
+  //
+  // Tested here rather than only through `runUiPlan`/`openUiSession`, because both
+  // default the parameter to `null` — so `undefined` can never reach them, and a
+  // test routed through either would assert nothing about this branch. That is not
+  // hypothetical: an earlier version of this suite passed with the `typeof` guard
+  // deleted, because every case it tried was already a string.
+  assert.throws(() => assertFaultId(undefined), /lowercase kebab-case/);
+  for (const bad of [123, {}, [], true, false, ["drop-second-char"], { id: "drop-second-char" }]) {
+    assert.throws(() => assertFaultId(bad), /lowercase kebab-case/, `${JSON.stringify(bad)} must be refused`);
+  }
+  // `null` is the ONLY accepted non-string, and a valid id passes through unchanged.
+  assert.equal(assertFaultId(null), null);
+  assert.equal(assertFaultId("drop-second-char"), "drop-second-char");
+  assert.equal(assertFaultId("a"), "a");
+  // The label reaches the message, so a `--fault` typo names the flag the user typed.
+  assert.throws(() => assertFaultId(undefined, { label: "--fault" }), /--fault needs a lowercase/);
 });
 
 // A runner that died must NOT look like "the app did nothing". An empty observation
