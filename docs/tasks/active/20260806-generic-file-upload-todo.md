@@ -31,6 +31,20 @@ React 19 + TanStack Query + Tailwind/shadcn; Jest (backend), Vitest (frontend).
 - No workspace quota, no new previews, no comments on `file` documents.
 - Commit after every task with `pnpm verify:fast` green (project gate).
 - Backend tests: `pnpm backend test`. Frontend tests: `pnpm frontend test`.
+- **The frontend has no typecheck lane.** `pnpm frontend lint` is not
+  type-aware and `vite build` uses esbuild, which strips types without
+  checking them — so `verify:fast` stays green through type errors. Any task
+  touching `packages/frontend` must additionally run:
+
+  ```bash
+  cd packages/frontend && npx tsc -p tsconfig.app.json --noEmit
+  ```
+
+  (`-p tsconfig.app.json` matters: a bare `tsc --noEmit` checks nothing,
+  because the root tsconfig is `{"files": [], "references": [...]}`.) There are
+  **151 pre-existing errors** in unrelated files; do not fix them. Compare
+  against `.superpowers/sdd/20260806-generic-file-upload-todo/tsc-baseline.txt`
+  and require that your change only removes lines, never adds them.
 
 ---
 
@@ -1250,18 +1264,14 @@ extend it with a size argument if it does not take one):
 Run: `pnpm --filter @wafflebase/frontend test -- upload-queue`
 Expected: PASS
 
-- [ ] **Step 8: Add the list icon, chip, and download**
+- [ ] **Step 8: Add the download action to blob rows**
+
+`TYPE_META` and `TYPE_OPTIONS` already carry their `file` entry — Task 1 had to
+add it, because `TYPE_META` is a `Record<DocumentType, …>` and widening the
+union without it is a type error *and* a crash on the first `file` row. Do not
+re-add them; verify they are present and move on.
 
 In `packages/frontend/src/app/documents/document-list.tsx`:
-
-Import `File as FileIcon` from `lucide-react` alongside the existing icons.
-Add to `TYPE_META`:
-
-```ts
-  file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
-```
-
-Add `"file"` to the end of `TYPE_OPTIONS`.
 
 Import `isBlobBacked` from `./document-list-utils` and replace both scattered
 comparisons:
