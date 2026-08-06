@@ -298,6 +298,24 @@ handed a half-populated tree reasons from code that is genuinely missing and rep
 as a finding. A rename is atomic, so the destination is only ever absent or complete,
 and the loser of a race reuses the winner's tree rather than replacing it.
 
+**And the atomic-rename fix shipped with an ENOENT that only CI could see.**
+`mkdtempSync` does not create parent directories, and the in-place version it replaced
+used to create the cache root as a side effect of `mkdirSync(dest, {recursive: true})`.
+So on a machine where `tmpdir()/eval-repo-cache` did not exist yet — a fresh runner —
+the **first** materialisation threw. Worse, the call sat *above* the `try`, so the throw
+escaped a function whose stated contract is that it never throws, and it would have
+taken down a paid run partway through instead of degrading one item.
+
+It passed locally for exactly one reason: an earlier end-to-end had already created that
+directory. **This is the same leftover-state trap as the test two paragraphs up, one
+level higher** — I fixed the test's dependence on stale cache *entries* and left the
+code's dependence on the cache *root* in place, and every one of my tests hid it by
+`mkdtempSync`-ing a cache root that therefore always existed. The fix creates the root
+and moves all of it inside the `try`; the two tests added are a cache root that is
+deliberately absent, and an assertion that `materializeRepoAt` never throws for any
+filesystem input at all. Generalises, again: **a fixture that constructs the
+precondition cannot test whether the code establishes it.**
+
 **Two hygiene items, both about not leaving evidence-shaped litter.** Each item's
 scratch directory is now removed **only when the item is `ok`** — for a failed item that
 directory holds the only copy of the raw panel output, since `payload.json` records the
@@ -382,8 +400,8 @@ Nothing here is PR 6, and the seams it needs are named below rather than half-bu
 Measured on this machine, at `scripts/agent`, with the lane's own command
 `node --test '**/*.test.mjs'`.
 
-- [x] **1178 tests · 0 fail · 0 skip**, against **1113 · 0 · 0** on `upstream/main`
-      `01b8d39c2`. Delta **+65**. The absolute numbers moved twice while this was in
+- [x] **1180 tests · 0 fail · 0 skip**, against **1113 · 0 · 0** on `upstream/main`
+      `01b8d39c2`. Delta **+67**. The absolute numbers moved twice while this was in
       review — #680 merged (+55) and then #678 (+56) — which is why the delta is the
       number to read and why it was re-measured on the branch's actual base each time
       rather than carried over.
@@ -401,10 +419,10 @@ Measured on this machine, at `scripts/agent`, with the lane's own command
       "backlog"` and `novelty: {origin: "relocated", …}` reaches the stored envelope's
       payload with both intact, plus `unsettled` and a field nothing in this repository
       has heard of.
-- [x] **32/32 mutations caught**, including all seven the plan named. Six survived on
-      a first pass — four in the original round and two covering fixes made in review
-      — and every one was a weakness in the tests rather than the code. See
-      *Corrected while building*.
+- [x] **34/34 mutations caught**, including all seven the plan named. Eight survived a
+      first pass — four in the original round, two covering fixes made in review, and
+      two covering the ENOENT CI found — and every one was a weakness in the tests
+      rather than the code. See *Corrected while building*.
 - [x] **Idempotence shown, not claimed.** Two invocations at one `--run-id` over a real
       corpus item: the second re-ran nothing, and `shasum` over both stored files is
       byte-identical.
@@ -416,7 +434,8 @@ Measured on this machine, at `scripts/agent`, with the lane's own command
       it.
 - [x] `panel_sha` present, 40-hex, and `validateRunEnvelope` refuses eight bad shapes.
 - [x] Verified from the **committed tree**, extracted with `git archive`, not the
-      working copy.
+      working copy — and with `tmpdir()/eval-repo-cache` deleted first, because the
+      one bug CI caught was invisible while that directory existed.
 
 ### Not verified
 

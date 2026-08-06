@@ -262,10 +262,23 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
   //
   // The loser of a race is not an error: whoever renamed first left a tree of the
   // same commit, which is what the marker records and what the caller wanted.
-  const staging = mkdtempSync(`${dest}.staging-`);
-  const tarPath = path.join(staging, "tree.tar");
-  const treeDir = path.join(staging, "tree");
+  // EVERYTHING inside the try, including creating the staging directory, because
+  // this function's contract is that it never throws — it answers
+  // `{path: null, files: 0, error}` and lets the caller decide. The first version of
+  // the staging rewrite called `mkdtempSync` above the try and CI caught it on the
+  // first run: `mkdtempSync` does not create parent directories, so on a machine
+  // where the cache root did not exist yet the ENOENT escaped and took the whole run
+  // with it. It passed locally only because an earlier run had already created the
+  // directory — the same leftover-state trap as the test below, one level up.
+  let staging = null;
   try {
+    // The cache ROOT, which nothing else creates: `mkdtempSync` needs its parent to
+    // exist and the old in-place `mkdirSync(dest, {recursive: true})` used to make it
+    // as a side effect.
+    mkdirSync(path.dirname(dest), { recursive: true });
+    staging = mkdtempSync(`${dest}.staging-`);
+    const tarPath = path.join(staging, "tree.tar");
+    const treeDir = path.join(staging, "tree");
     mkdirSync(treeDir, { recursive: true });
     execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], { stdio: "pipe" });
     execFileSync("tar", ["-xf", tarPath, "-C", treeDir], { stdio: "pipe" });
@@ -297,9 +310,10 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
     const why = (e.stderr?.toString?.() || e.message || "").split("\n").find((l) => l.trim()) || "unknown";
     return { path: null, files: 0, error: why };
   } finally {
-    // Only ever our own staging directory. `dest` is deliberately never removed on
-    // failure now: it is either absent or a complete tree somebody else built.
-    rmSync(staging, { recursive: true, force: true });
+    // Only ever our own staging directory, and only if we got as far as making one.
+    // `dest` is deliberately never removed on failure: it is either absent or a
+    // complete tree somebody else built.
+    if (staging) rmSync(staging, { recursive: true, force: true });
   }
 }
 

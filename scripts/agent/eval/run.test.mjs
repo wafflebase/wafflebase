@@ -393,6 +393,53 @@ test("materialising a real commit from an EMPTY cache counts what it extracted",
   }
 });
 
+test("a cache root that does not exist yet is CREATED, not an ENOENT", () => {
+  // CI caught this on its first run and every local test had missed it, for one
+  // reason: they all `mkdtempSync` the cache root, so it always existed. The runner's
+  // real cache root is `tmpdir()/eval-repo-cache`, which nothing creates until the
+  // first materialisation — and on a fresh machine `mkdtempSync` inside a missing
+  // parent is ENOENT. So the fixture here is a path that is deliberately ABSENT.
+  const parent = mkdtempSync(path.join(tmpdir(), "eval-cache-parent-"));
+  const src = mkdtempSync(path.join(tmpdir(), "eval-repo-src-test-"));
+  const git = (...a) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], { cwd: src, stdio: "pipe", encoding: "utf8" });
+  try {
+    git("init", "--quiet");
+    writeFileSync(path.join(src, "a.mjs"), "export const a = 1;\n");
+    git("add", "a.mjs");
+    git("commit", "--quiet", "-m", "one file");
+    const commit = git("rev-parse", "HEAD").trim();
+
+    const cacheRoot = path.join(parent, "never-created", "eval-repo-cache");
+    assert.equal(existsSync(cacheRoot), false, "the fixture must start with the cache root absent");
+    const out = materializeRepoAt({ repoSource: src, commit, cacheRoot });
+    assert.equal(out.error, null, `materialising into a fresh cache root failed: ${out.error}`);
+    assert.equal(out.files, 1);
+    assert.ok(existsSync(path.join(out.path, "a.mjs")));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+    rmSync(src, { recursive: true, force: true });
+  }
+});
+
+test("materializeRepoAt NEVER throws, whatever the filesystem says", () => {
+  // Its whole contract is that it answers `{path: null, files: 0, error}` and lets the
+  // caller decide, because the caller is a loop that has already stored items. The
+  // staging rewrite briefly broke this by calling `mkdtempSync` above the try, and a
+  // throw from there escaped into `main` and would have taken a whole paid run down
+  // partway through.
+  for (const args of [
+    { repoSource: "/nonexistent-repo-source", commit: "a".repeat(40), cacheRoot: "/nonexistent/cache/root" },
+    { repoSource: "/nonexistent-repo-source", commit: "b".repeat(40), cacheRoot: "/proc/cannot-write-here" },
+    { repoSource: null, commit: null, cacheRoot: "/dev/null/nope" },
+  ]) {
+    let out;
+    assert.doesNotThrow(() => { out = materializeRepoAt(args); }, `materializeRepoAt threw for ${JSON.stringify(args)}`);
+    assert.equal(out.path, null);
+    assert.equal(out.files, 0);
+    assert.ok(typeof out.error === "string" && out.error.length > 0, "a failure must carry a reason");
+  }
+});
+
 test("an already-populated cache entry is reused, never deleted out from under a reader", () => {
   // The cache root is shared across processes and keyed only by commit, so two
   // runners can address this exact path at once. The version this replaces `rmSync`ed
