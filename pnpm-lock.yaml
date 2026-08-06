@@ -41,7 +41,7 @@ overrides:
   qs@<6.15.2: 6.15.2
   body-parser@<1.20.6: 1.20.6
   body-parser@>=2.0.0 <2.3.0: 2.3.0
-  vite@>=6.0.0 <6.4.3: 6.4.3
+  vite@>=5.0.0 <6.4.3: 6.4.3
   shell-quote@<1.9.0: 1.9.0
   piscina@<4.9.3: 4.9.3
   form-data@>=4.0.0 <4.0.6: 4.0.6
@@ -431,7 +431,7 @@ importers:
     devDependencies:
       vitepress:
         specifier: ^1.6.4
-        version: 1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(lightningcss@1.29.2)(postcss@8.5.23)(search-insights@2.17.3)(terser@5.39.0)(typescript@5.9.3)
+        version: 1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(postcss@8.5.23)(search-insights@2.17.3)(terser@5.39.0)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
 
   packages/frontend:
     dependencies:
@@ -8771,37 +8771,6 @@ packages:
       vite:
         optional: true
 
-  vite@5.4.21:
-    resolution: {integrity: sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==}
-    engines: {node: ^18.0.0 || >=20.0.0}
-    hasBin: true
-    peerDependencies:
-      '@types/node': ^18.0.0 || >=20.0.0
-      less: '*'
-      lightningcss: ^1.21.0
-      sass: '*'
-      sass-embedded: '*'
-      stylus: '*'
-      sugarss: '*'
-      terser: ^5.4.0
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
-      less:
-        optional: true
-      lightningcss:
-        optional: true
-      sass:
-        optional: true
-      sass-embedded:
-        optional: true
-      stylus:
-        optional: true
-      sugarss:
-        optional: true
-      terser:
-        optional: true
-
   vite@6.4.3:
     resolution: {integrity: sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -13341,9 +13310,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-vue@5.2.4(vite@5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0))(vue@3.5.30(typescript@5.9.3))':
+  '@vitejs/plugin-vue@5.2.4(vite@6.4.3(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))(vue@3.5.30(typescript@5.9.3))':
     dependencies:
-      vite: 5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0)
+      vite: 6.4.3(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
       vue: 3.5.30(typescript@5.9.3)
 
   '@vitest/coverage-v8@4.1.8(vitest@4.1.8)':
@@ -17779,17 +17748,6 @@ snapshots:
       - rollup
       - supports-color
 
-  vite@5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0):
-    dependencies:
-      esbuild: 0.25.0
-      postcss: 8.5.23
-      rollup: 4.59.0
-    optionalDependencies:
-      '@types/node': 25.4.0
-      fsevents: 2.3.3
-      lightningcss: 1.29.2
-      terser: 5.39.0
-
   vite@6.4.3(@types/node@22.14.1)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3):
     dependencies:
       esbuild: 0.25.2
@@ -17824,7 +17782,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.8.3
 
-  vitepress@1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(lightningcss@1.29.2)(postcss@8.5.23)(search-insights@2.17.3)(terser@5.39.0)(typescript@5.9.3):
+  vitepress@1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(postcss@8.5.23)(search-insights@2.17.3)(terser@5.39.0)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3):
     dependencies:
       '@docsearch/css': 3.8.2
       '@docsearch/js': 3.8.2(@algolia/client-search@5.49.2)(search-insights@2.17.3)
@@ -17833,7 +17791,7 @@ snapshots:
       '@shikijs/transformers': 2.5.0
       '@shikijs/types': 2.5.0
       '@types/markdown-it': 14.1.2
-      '@vitejs/plugin-vue': 5.2.4(vite@5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0))(vue@3.5.30(typescript@5.9.3))
+      '@vitejs/plugin-vue': 5.2.4(vite@6.4.3(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))(vue@3.5.30(typescript@5.9.3))
       '@vue/devtools-api': 7.7.9
       '@vue/shared': 3.5.30
       '@vueuse/core': 12.8.2(typescript@5.9.3)
@@ -17842,7 +17800,7 @@ snapshots:
       mark.js: 8.11.1
       minisearch: 7.2.0
       shiki: 2.5.0
-      vite: 5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0)
+      vite: 6.4.3(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
       vue: 3.5.30(typescript@5.9.3)
     optionalDependencies:
       postcss: 8.5.23
@@ -17856,6 +17814,7 @@ snapshots:
       - drauu
       - fuse.js
       - idb-keyval
+      - jiti
       - jwt-decode
       - less
       - lightningcss
@@ -17870,8 +17829,10 @@ snapshots:
       - stylus
       - sugarss
       - terser
+      - tsx
       - typescript
       - universal-cookie
+      - yaml
 
   vitest@4.1.8(@types/node@22.14.1)(@vitest/coverage-v8@4.1.8)(jsdom@28.0.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.14.1)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
