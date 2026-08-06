@@ -103,6 +103,7 @@ import {
   compareDates,
   formatRelativeTime,
   getDocumentPath,
+  isBlobBacked,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -290,6 +291,10 @@ function ImportMenuItems({
       >
         <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
         Upload Image
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onImport("")}>
+        <FileIcon className="mr-2 h-4 w-4 text-slate-500" />
+        File upload
       </DropdownMenuItem>
       {/*
         Workspace-scoped, like "New folder" above: the import needs a workspace
@@ -883,7 +888,7 @@ export function DocumentList({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {(doc.type === "image" || doc.type === "pdf") && (
+              {isBlobBacked(doc.type) && (
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
@@ -1052,8 +1057,8 @@ export function DocumentList({
     });
   };
 
-  // Download a single blob-backed document (pdf/image) through the authed file
-  // endpoint. Other document types have nothing to download.
+  // Download a single blob-backed document (pdf/image/file) through the
+  // authed file endpoint. Other document types have nothing to download.
   const handleDownload = async (doc: Document) => {
     try {
       await downloadDocumentFile({ id: String(doc.id), title: doc.title });
@@ -1062,12 +1067,10 @@ export function DocumentList({
     }
   };
 
-  // The pdf/image documents in the current selection — what a bulk "Download"
-  // acts on.
+  // The blob-backed documents in the current selection — what a bulk
+  // "Download" acts on.
   const downloadableSelected = data.filter(
-    (d) =>
-      selectedDocIds.includes(String(d.id)) &&
-      (d.type === "image" || d.type === "pdf"),
+    (d) => selectedDocIds.includes(String(d.id)) && isBlobBacked(d.type),
   );
 
   const handleBulkDownload = async () => {

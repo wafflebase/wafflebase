@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as q from "@/app/documents/upload-queue";
 
-function file(name: string): File {
-  return new File([new Uint8Array([1])], name);
+function file(name: string, size = 1): File {
+  return new File([new Uint8Array(size)], name);
 }
 
 describe("upload-queue store", () => {
@@ -13,6 +13,14 @@ describe("upload-queue store", () => {
     expect(items.map((i) => i.status)).toEqual(["pending", "pending"]);
     expect(items.map((i) => i.kind)).toEqual(["sheet", "file"]);
     expect(items[1].reason).toBeUndefined();
+  });
+
+  it("fails an over-cap file at enqueue time without pinning its blob", () => {
+    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+    expect(item.status).toBe("error");
+    expect(item.reason).toBe("File is larger than the 50 MB limit");
+    expect(item.file).toBeUndefined();
+    expect(q.isRetryable(item)).toBe(false);
   });
 
   it("registers an externally driven item as active work the worker cannot claim", () => {

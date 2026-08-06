@@ -1,4 +1,5 @@
 import { classifyUploadKind, type UploadKind } from "./upload-kind";
+import { uploadSizeError } from "./file-meta";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { importDocx } from "@/app/docs/docx-actions";
@@ -76,17 +77,24 @@ export function enqueue(
   workspaceId?: string,
   folderId?: string | null,
 ): UploadItem[] {
-  const created: UploadItem[] = files.map((file) => ({
-    id: `u${++seq}`,
-    file,
-    fileName: file.name,
-    kind: classifyUploadKind(file.name),
-    workspaceId,
-    folderId,
-    status: "pending",
-    done: 0,
-    total: 0,
-  }));
+  const created: UploadItem[] = files.map((file) => {
+    const kind = classifyUploadKind(file.name);
+    // Fail over-cap files here rather than after uploading the whole body.
+    const reason = uploadSizeError(kind, file.size);
+    return {
+      id: `u${++seq}`,
+      // An item that will never run should not pin its File blob in memory.
+      file: reason ? undefined : file,
+      fileName: file.name,
+      kind,
+      workspaceId,
+      folderId,
+      status: reason ? "error" : "pending",
+      done: 0,
+      total: 0,
+      reason,
+    };
+  });
   replace([...items, ...created]);
   return created;
 }
