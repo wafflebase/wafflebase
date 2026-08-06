@@ -16,6 +16,7 @@ import { WorkspaceService } from '../workspace/workspace.service';
 import { ShareLinkService } from '../share-link/share-link.service';
 import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
+import { fileResponseHeaders } from './file-response.util';
 
 /**
  * The one document route that serves both workspace members (JWT) and
@@ -51,10 +52,11 @@ export class DocumentFileController {
       throw new NotFoundException('Document has no file');
     }
     const { body, contentType } = await this.fileService.getObject(doc.fileId);
-    res.setHeader('Content-Type', contentType);
+    const headers = fileResponseHeaders(doc.type, contentType, doc.title);
+    res.setHeader('Content-Type', headers.contentType);
+    res.setHeader('Content-Disposition', headers.disposition);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', 'inline');
     res.end(Buffer.from(body));
   }
 
