@@ -307,6 +307,13 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * false keeps the slides editor's menu unchanged.
    */
   suppressSlideChrome?: boolean;
+  /**
+   * Host hook for the empty-canvas menu's "Fit to content". Framing the
+   * scene is a viewport concern the editor does not own — slides fits to
+   * its column, the board fits all elements — so the host supplies it.
+   * Omitted on a slides mount, where the entry is skipped entirely.
+   */
+  onFitToContent?: () => void;
 }
 
 export interface SlidesEditor {
@@ -3273,7 +3280,14 @@ class SlidesEditorImpl implements SlidesEditor {
   private canvasContextItems(x: number, y: number): ContextMenuItem[] {
     const items: ContextMenuItem[] = [
       { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
+      { label: 'Select all', run: () => this.dispatchKey('a', { meta: true }) },
     ];
+    // Framing the scene is host-owned (see `onFitToContent`), so the
+    // entry only appears when a host supplies the hook.
+    if (this.options.onFitToContent) {
+      const fit = this.options.onFitToContent;
+      items.push({ label: 'Fit to content', run: () => fit() });
+    }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
     // on (`notSupported`). Board mounts pass `suppressSlideChrome:
