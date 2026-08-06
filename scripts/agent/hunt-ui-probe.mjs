@@ -275,12 +275,19 @@ export function oraclesFired(observations) {
  */
 export function runUiPlan(
   plan,
-  { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, port = 0, runner = null } = {},
+  { repoRoot, attempts = DEFAULT_ATTEMPTS, timeoutMs = 180_000, port = 0, fault = null, runner = null } = {},
 ) {
   assertSafeActionPlan(plan);
   if (!Number.isInteger(attempts) || attempts < 1) bad(`attempts must be a positive integer, got ${attempts}`);
+  // `fault` seeds a KNOWN defect into the harness — the positive control that proves
+  // the funnel can carry a finding end to end. Validated here as well as in the
+  // runner because this is the in-process boundary, and a caller should learn the id
+  // is malformed before a browser boots rather than after.
+  if (fault !== null && !/^[a-z][a-z0-9-]*$/.test(String(fault))) {
+    bad(`fault must be a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
+  }
 
-  if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port });
+  if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port, fault });
 
   const runnerPath = path.join(repoRoot, UI_RUNNER_REL);
   return withScratch((dir) => {
@@ -293,7 +300,14 @@ export function runUiPlan(
       // Port 0 by default: the OS picks a free one. The runner's own default is a
       // fixed port for reproducible manual runs, but two concurrent samples on a
       // fixed port make the second fail to boot, and PR 4 runs samples concurrently.
-      [runnerPath, "--plan", planFile, "--out", outFile, "--attempts", String(attempts), "--port", String(port)],
+      [
+        runnerPath,
+        "--plan", planFile,
+        "--out", outFile,
+        "--attempts", String(attempts),
+        "--port", String(port),
+        ...(fault ? ["--fault", String(fault)] : []),
+      ],
       {
         cwd: path.join(repoRoot, "packages", "frontend"),
         timeout: timeoutMs,

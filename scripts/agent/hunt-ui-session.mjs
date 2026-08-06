@@ -93,6 +93,7 @@ function createLineReader(onLine) {
 export async function openUiSession({
   repoRoot,
   port = 0,
+  fault = null,
   readyTimeoutMs = DEFAULT_READY_TIMEOUT_MS,
   actTimeoutMs = DEFAULT_ACT_TIMEOUT_MS,
   closeGraceMs = DEFAULT_CLOSE_GRACE_MS,
@@ -101,10 +102,21 @@ export async function openUiSession({
   if (typeof repoRoot !== "string" || repoRoot === "") {
     throw new Error("hunt-ui-session: repoRoot is required");
   }
+  // Same shape check the plan path makes, for the same reason: this value becomes a
+  // query parameter, and a boundary that accepts anything is not a boundary.
+  if (fault !== null && !/^[a-z][a-z0-9-]*$/.test(String(fault))) {
+    throw new Error(`hunt-ui-session: fault must be a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
+  }
 
   const child = spawnImpl(
     process.execPath,
-    [path.join(repoRoot, UI_RUNNER_REL), "--serve", "--port", String(port)],
+    [
+      path.join(repoRoot, UI_RUNNER_REL),
+      "--serve",
+      "--port",
+      String(port),
+      ...(fault ? ["--fault", String(fault)] : []),
+    ],
     { cwd: path.join(repoRoot, "packages", "frontend"), stdio: ["pipe", "pipe", "pipe"] },
   );
 

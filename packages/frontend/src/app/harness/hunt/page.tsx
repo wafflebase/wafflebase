@@ -50,6 +50,83 @@ function useSurfaceFromSearchParams(): HuntSurface {
   }
 }
 
+// --- seeded faults: the hunter's positive control -----------------------------
+//
+// WHY A DELIBERATE DEFECT LIVES IN THE HARNESS.
+//
+// Every other guard in this pipeline is a negative control: it proves the hunter
+// does not report things that are fine. Nothing proved the opposite — that a real
+// defect actually survives explore → replay → verify → gate → report. The obvious
+// control was issue #343, and it turned out to be already fixed, so there is no open
+// UI bug with a known ground-A shape to aim at. A SEEDED defect is better anyway,
+// because it is repeatable: run against `?fault=…` and the funnel must report it;
+// run against the clean route and it must stay quiet.
+//
+// This is a deliberate reversal of PR 1's rule that faults come only from the
+// driver, and the reason PR 1 could hold that line is the reason it cannot hold
+// here: Playwright can inject a `pageerror` from outside, but it cannot inject a
+// SEMANTIC defect into the editor's own code path. Only the app can do that.
+//
+// It cannot ship. `/harness/hunt` is already DEV-only — App.tsx gates the whole lazy
+// import behind `import.meta.env.DEV`, which Vite replaces statically, so this file
+// is not in a production bundle at all. No second gate is needed and adding one
+// would imply the first is not trusted.
+//
+// The registry is CLOSED and the id is matched exactly, so `?fault=` can turn on one
+// of these and nothing else. The active fault is also published as
+// `data-hunt-harness-fault` on the root, so a seeded run can never be mistaken for a
+// real one — a positive control that looks identical to a hunt is how a fabricated
+// finding ends up in a report.
+
+type FaultId = "drop-second-char";
+
+const KNOWN_FAULTS: readonly FaultId[] = ["drop-second-char"] as const;
+
+function useFaultFromSearchParams(): FaultId | null {
+  try {
+    const fault = new URLSearchParams(window.location.search).get("fault");
+    return KNOWN_FAULTS.includes(fault as FaultId) ? (fault as FaultId) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Install a seeded fault, returning its uninstaller.
+ *
+ * `drop-second-char` swallows every second printable keystroke. Chosen because it is
+ * the cleanest possible GROUND A defect: the agent types a literal, the literal is
+ * therefore an `@input:` reference in its own journal, and what comes back is not
+ * what it typed. No documentation, no convention and no opinion is involved — the
+ * app contradicts the agent's own action.
+ *
+ * Capture phase on the container, so it intercepts before the editor sees the key
+ * and works identically on both surfaces without either engine knowing about it.
+ * Modified keys are left alone: swallowing Ctrl+Z would make undo behave oddly and
+ * the control has to inject ONE defect, not a fog.
+ *
+ * The counter is per-install and starts at 0, so replaying the same action sequence
+ * drops the same characters — a non-deterministic fault would fail replay and the
+ * control would prove nothing.
+ */
+function installFault(fault: FaultId, container: HTMLElement): () => void {
+  if (fault === "drop-second-char") {
+    let seen = 0;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (!printable) return;
+      seen += 1;
+      if (seen % 2 === 0) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    container.addEventListener("keydown", onKeyDown, true);
+    return () => container.removeEventListener("keydown", onKeyDown, true);
+  }
+  return () => {};
+}
+
 /**
  * The doc seed.
  *
@@ -107,6 +184,7 @@ function seedGrid(): Grid {
 
 export default function HuntHarnessPage() {
   const surface = useSurfaceFromSearchParams();
+  const fault = useFaultFromSearchParams();
   const hostRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<HarnessStatus>("loading");
   // The toolbar is a React child of this page, so the editor has to reach it through
@@ -153,7 +231,15 @@ export default function HuntHarnessPage() {
     container.style.width = "100%";
     container.style.height = "100%";
 
+    // Installed on THIS mount's container and torn down with it, so a stale mount
+    // cannot leave a listener intercepting the live one's keystrokes — the same
+    // isolation argument as the container itself, and the failure would look
+    // identical to a real defect, which is the worst possible bug for a positive
+    // control to have.
+    const uninstallFault = fault ? installFault(fault, container) : null;
+
     const disposeMounted = () => {
+      uninstallFault?.();
       docEditor?.dispose();
       docEditor = undefined;
       spreadsheet?.cleanup();
@@ -205,7 +291,7 @@ export default function HuntHarnessPage() {
       // this closure never sees, so teardown cannot reach across into it.
       disposeMounted();
     };
-  }, [surface]);
+  }, [surface, fault]);
 
   return (
     <main
@@ -214,6 +300,7 @@ export default function HuntHarnessPage() {
       data-hunt-harness-ready={status === "ready" ? "true" : "false"}
       data-hunt-harness-status={status}
       data-hunt-harness-surface={surface}
+      data-hunt-harness-fault={fault ?? "none"}
     >
       <header className="border-b bg-card px-4 py-2">
         <span className="text-xs text-muted-foreground">
