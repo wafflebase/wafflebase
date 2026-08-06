@@ -58,6 +58,8 @@ jobs:
       pull-requests: write # resolve the PR, and drop agent:blocked
       issues: write # delete the paged comment, post the note
       actions: write # re-run CI to re-fire the panel
+      contents: read # sparse-checkout scripts/agent for the loop-status update
+      checks: read # loop-status.mjs reads per-commit check runs for the round table
     concurrency:
       group: agent-rerun-${{ github.event.issue.number }}
       cancel-in-progress: false
@@ -122,6 +124,10 @@ jobs:
               (pr.head.ref.startsWith('agent/') ||
                (pr.labels || []).some((l) => (l.name || l) === 'agent:managed'));
             if (!managed) {
+              // `engaged` gates the loop-status refresh below: a REFUSED rerun
+              // changed nothing, so updating the projection would post a false
+              // "loop re-engaged" on a PR whose latches are still in place.
+              core.setOutput('engaged', 'false');
               core.setOutput('outcome', isFork
                 ? "⚠️ `@claude rerun` only works on same-repo agent-managed PRs — a fork PR is never driven by the auto-fix loop, so there is nothing to re-run. Use **`@claude review`** for a read-only review."
                 : "⚠️ This PR isn't agent-managed (no `agent/` branch and no `agent:managed` label), so there's no paged loop to resume. Comment **`@claude loop`** to opt it into the loop.");
@@ -179,6 +185,7 @@ jobs:
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
             }
 
+            core.setOutput('engaged', 'true');
             core.setOutput('outcome',
               `🔁 Rerun engaged — cleared ${clearedLatch} paged marker(s). ` +
               (labelDropped === true
@@ -210,3 +217,30 @@ jobs:
             await github.rest.issues.updateComment({
               owner, repo, comment_id: Number(process.env.COMMENT_ID), body,
             });
+
+      # OBSERVABILITY (Phase 1): the rerun just deleted the paged latches, so
+      # the sticky loop-status comment's "🛑 paged" headline is now stale —
+      # refresh the projection. GATED on `engaged`: a refused rerun (fork /
+      # unmanaged) changed nothing, and posting "loop re-engaged" there would
+      # be false. This job checks nothing out, so sparse-fetch the TRUSTED
+      # main copy of scripts/agent (never a branch's); absent until the script
+      # merges to main, so the update step skips quietly.
+      - uses: actions/checkout@v4
+        if: steps.rerun.outputs.engaged == 'true'
+        continue-on-error: true
+        with:
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Update loop status (rerun)
+        if: steps.rerun.outputs.engaged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          node ./scripts/agent/loop-status.mjs update "$PR" \
+            --event rerun \
+            --note "A maintainer ran @claude rerun — paged latches cleared, agent:blocked dropped, CI re-running; the review-fix round budget restarts from here." \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

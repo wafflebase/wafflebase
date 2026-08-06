@@ -26,6 +26,7 @@ permissions:
   pull-requests: write
   issues: write # comment + label the PR (issues API covers PR comments/labels)
   actions: read # count prior failed CI runs (unforgeable attempt bound)
+  checks: read # loop-status.mjs reads per-commit check runs for the round table
 
 env:
   MAX_ATTEMPTS: "4"
@@ -100,6 +101,34 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
+      # OBSERVABILITY (Phase 1): stage the TRUSTED main copy of the agent
+      # scripts for the loop-status/session-summary steps below — the same
+      # rule the panel's fix job applies to its staged tools. The branch's own
+      # copy is attacker-influenceable code, and those steps run it with a
+      # GITHUB_TOKEN carrying contents:write; main's copy is not. Staged into
+      # RUNNER_TEMP before the fixer and the .trusted-agent dir removed from
+      # the workspace so the fixer cannot commit it. This does NOT protect
+      # against the fixer itself rewriting RUNNER_TEMP mid-job — nothing
+      # executed after the fixer in the same job can be (the panel fix job's
+      # staged metrics step shares exactly this posture) — it removes the
+      # "branch code with a write token" half. Absent until the scripts merge
+      # to main; the consumers below skip quietly.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: main
+          path: .trusted-agent
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Stage the trusted agent scripts (pre-fixer)
+        continue-on-error: true
+        run: |
+          if [ -d .trusted-agent/scripts/agent ]; then
+            cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
+          fi
+          rm -rf .trusted-agent
+
       - name: Attempts guard
         id: guard
         uses: actions/github-script@v7
@@ -126,12 +155,46 @@ jobs:
               owner, repo, workflow_id: 'ci.yml', branch, per_page: 100,
             });
             const failedCi = runs.filter(r => r.conclusion === 'failure').length;
+            // OBSERVABILITY (Phase 1): the attempt count feeds the loop-status
+            // comment, and every decision branch below writes a one-block job
+            // summary — the PROCEED branch used to be entirely silent.
+            //
+            // Summary writes are FAIL-SAFE and always AFTER the outputs of the
+            // branch they describe: `core.summary.write()` throws when the
+            // summary file is unwritable, and an unprotected throw between
+            // `createComment` and `setOutput('paged', …)` would leave a paged
+            // PR unlabelled (the "Set state → blocked" step keys on `paged`).
+            // Display must never change a decision. Inline rather than a
+            // scripts/agent module because a github-script step cannot import
+            // one — the same constraint that gives the panel's `gate` job its
+            // literal-copy latch predicate.
+            core.setOutput('attempts', String(failedCi));
+            const summarize = async (md) => {
+              try { await core.summary.addRaw(md).write(); }
+              catch (e) { core.warning(`step summary write failed: ${e.message}`); }
+            };
             const PAGED = '<!-- agent-paged -->';
-            const { data: comments } = await github.rest.issues.listComments({
-              owner, repo, issue_number: pr.number,
+            // AUTHOR-CHECKED, same rule and same reason as the review-side
+            // latch (rounds.mjs::isPagedLatchComment): this repo is PUBLIC, so
+            // a body-only substring test would let ANY GitHub account post the
+            // marker and permanently stop the CI-fix loop on an agent PR.
+            // Trust = an allow-listed bot login (GitHub reserves the `[bot]`
+            // suffix for Apps) or a human with write-level association.
+            // Literal copy — github-script cannot import rounds.mjs.
+            const PAGE_AUTHOR_LOGINS = ['github-actions[bot]', 'yorkie-agent[bot]'];
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const isPagedLatch = (c) => {
+              if (!String((c || {}).body ?? '').includes(PAGED)) return false;
+              const user = (c || {}).user || {};
+              if (user.type === 'Bot' && PAGE_AUTHOR_LOGINS.includes(user.login)) return true;
+              return TRUSTED_ASSOCIATIONS.includes(String((c || {}).author_association ?? ''));
+            };
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: pr.number, per_page: 100,
             });
-            if (comments.some(c => c.body.includes(PAGED))) {
+            if (comments.some(isPagedLatch)) {
               core.setOutput('proceed', 'false');
+              await summarize('### CI-fix attempts guard — SKIPPED (already paged)\n\nA trusted agent-paged latch comment is on this PR; the CI-fix agent was not dispatched.\n');
               return;
             }
             if (failedCi >= max) {
@@ -144,9 +207,11 @@ jobs:
               // below (single-value state via set-state), gated on this `paged`.
               core.setOutput('paged', 'true');
               core.setOutput('proceed', 'false');
+              await summarize(`### CI-fix attempts guard — PAGED\n\nCI failed ${failedCi} times on this branch (limit ${max}); paged a human and stopped the loop.\n`);
               return;
             }
             core.setOutput('proceed', 'true');
+            await summarize(`### CI-fix attempts guard — PROCEED\n\nDispatching CI-fix attempt ${failedCi + 1} of ${max} (${failedCi} failed CI run(s) so far on this branch).\n`);
 
       # Loop gave up and paged a human → still post the effort summary so the
       # "needs human review" hand-off carries the cost/effort context. The repo
@@ -168,6 +233,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
         run: node ./scripts/agent/set-state.mjs "$PR" blocked
+
+      # OBSERVABILITY (Phase 1): flip the sticky loop-status comment to paged.
+      # Runs the pre-fixer snapshot; absent on branches that predate the script,
+      # so skip quietly rather than red the step.
+      - name: Update loop status (CI attempts exhausted)
+        if: steps.guard.outputs.paged == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.guard.outputs.pr }}
+          ATTEMPTS: ${{ steps.guard.outputs.attempts }}
+          MAX: ${{ env.MAX_ATTEMPTS }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event ci-paged \
+            --note "CI failed $ATTEMPTS times (limit $MAX) — the CI-fix loop paged a human." \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - uses: pnpm/action-setup@v4
         if: steps.guard.outputs.proceed == 'true'
@@ -195,12 +277,17 @@ jobs:
       - name: Summarize the failure
         if: steps.guard.outputs.proceed == 'true'
         id: diag
+        # OBSERVABILITY (Phase 1): the diagnosis also goes to the job summary —
+        # it used to exist only inside the fixer's prompt, so "which lane failed
+        # and why" required reading the raw log. Same bytes, second surface.
         run: |
+          DIAG="$(node ./scripts/agent/summarize-ci.mjs)"
           {
             echo "summary<<HARNESS_EOF"
-            node ./scripts/agent/summarize-ci.mjs
+            printf '%s\n' "$DIAG"
             echo "HARNESS_EOF"
           } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DIAG" >> "$GITHUB_STEP_SUMMARY"
 
       # Record the REMOTE branch tip before the fixer runs (ls-remote, not local
       # HEAD): the loop only re-triggers on a PUSH, so a fixer that commits
@@ -297,6 +384,16 @@ jobs:
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
 
+      # OBSERVABILITY (Phase 1): the CI-fix session's turns/cost/outcome on the
+      # run page. Pre-fixer snapshot, NOT the workspace copy — the fixer step
+      # above can rewrite the workspace (see the staging step's comment).
+      - name: Write CI-fix session job summary
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" ] || { echo "session-job-summary.mjs not on main yet; skipping"; exit 0; }
+          node "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --title "CI-fix agent session"
+
       # GAP FIX: a CI-fix round that pushes NO commit dead-ends the loop silently
       # — no new commit → no new CI → no next round, and the attempts guard's
       # failed-CI counter never advances, so it never trips. Detect "fixer ran
@@ -332,6 +429,31 @@ jobs:
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
+
+      # OBSERVABILITY (Phase 1): reflect the CI-fix outcome on the sticky
+      # loop-status comment — pushed (CI re-runs) or paged (the step above
+      # posted the page). Pre-fixer snapshot, NOT the workspace copy — the
+      # fixer can rewrite the workspace; skip quietly where absent.
+      - name: Update loop status (CI-fix outcome)
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.guard.outputs.pr }}
+          BEFORE: ${{ steps.before-fix.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            EVENT=ci-fix-pushed
+            NOTE="CI-fix pushed \`${AFTER:0:9}\` — CI re-runs on it."
+          else
+            EVENT=paged
+            NOTE="The CI-fix round did not advance the branch — paged to a human (see the page comment)."
+          fi
+          node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event "$EVENT" --note "$NOTE" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Record this session's effort into the PR metrics ledger (fail-safe:
       # continue-on-error + the script exits 0 on any error, so metrics never

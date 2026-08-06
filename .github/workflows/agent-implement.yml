@@ -321,6 +321,19 @@ jobs:
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
 
+      # OBSERVABILITY (Phase 1): the kickoff session's turns/cost/outcome on the
+      # run page, so "the run ended and no PR appeared" stops requiring an
+      # artifact download to explain. Display only; never blocks the pipeline.
+      - name: Write implement session job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          [ -f ./scripts/agent/session-job-summary.mjs ] || { echo "session-job-summary.mjs not in this tree yet; skipping"; exit 0; }
+          node ./scripts/agent/session-job-summary.mjs \
+            --execution "$RUNNER_TEMP/claude-execution-output.json" \
+            --kind implement \
+            --title "Implement agent session"
+
       # Record this session's effort into the PR metrics ledger. The kickoff
       # created the PR mid-run, so resolve it by the `agent/<issue>-…` branch.
       # Fail-safe: continue-on-error + the script exits 0 on any error.
