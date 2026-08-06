@@ -1,11 +1,16 @@
-// config_hash — the stable identity of a reviewer composition ("which reviewer").
+// config_hash — the stable identity of a reviewer's CONFIGURATION ("which settings").
 //
 // WHAT IT IS FOR, TODAY. The panel is tuned by changing `lenses.json`: a model, a
 // sample count, a reasoning effort, which file classes a lens reads. Nothing in
 // this repository can currently answer "what settings produced that review?" — the
-// check run records a verdict, not the manifest behind it. `configHash` answers it
-// in one string, and answers the sharper follow-up ("were these two reviews even
-// produced by the same reviewer?") as a single yes/no.
+// check run records a verdict, not the manifest behind it. `configHash` answers that
+// in one string.
+//
+// IT DOES NOT, ON ITS OWN, ANSWER "was this the same REVIEWER?" — configuration is
+// one of the two halves of that, and the file cannot see the other. See "what is out
+// of scope" below: the reviewer is the PAIR (config_hash, panelSha). Anywhere in this
+// file that two configs are called "the same reviewer", it is shorthand for "identical
+// on the configuration axis", holding the panel's code fixed.
 //
 // THE ONE INVARIANT. Two manifests describing the SAME reviewer behaviour must
 // hash the same; two describing DIFFERENT behaviour must hash differently. Both
@@ -255,13 +260,30 @@ function sortKeysDeep(v) {
   return v;
 }
 
+/**
+ * Compare two lens ids by CODE UNIT, deterministically.
+ *
+ * NOT `localeCompare`. Its default collation comes from the runtime environment —
+ * ICU data plus `LC_ALL`/`LANG` — so it is a different function on two machines, and
+ * a hash whose sort order depends on the machine is a hash that splits a population
+ * for no behavioural reason. Measured, not theorised: one manifest with lenses `ch`
+ * and `hz` sorts `[ch, hz]` under `en-US` and `[hz, ch]` under `cs-CZ` (Czech
+ * collates `ch` as a single letter after `h`), giving two different `config_hash`
+ * values for the same reviewer. CI runs one locale and a laptop another, so the
+ * disagreement would surface as results that will not pool, with nothing anywhere
+ * saying why.
+ */
+function compareLensId(a, b) {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 /** The canonical string hashed for identity — behaviour-determining fields only,
  * lenses sorted by id, keys sorted recursively, no whitespace. */
 export function canonicalConfig(manifest) {
   const m = manifest || {};
   const lenses = (Array.isArray(m.lenses) ? m.lenses : [])
     .map(normalizeLens)
-    .sort((a, b) => a.id.localeCompare(b.id)); // lens order in the file never affects identity
+    .sort(compareLensId); // lens order in the file never affects identity
   return JSON.stringify(sortKeysDeep({ target: String(m.target ?? ""), lenses }));
 }
 
@@ -269,7 +291,8 @@ export function sha256Hex(str) {
   return createHash("sha256").update(String(str ?? ""), "utf8").digest("hex");
 }
 
-/** Identity of a reviewer composition: "sha256:<hex>" over canonicalConfig. */
+/** Identity of a reviewer's CONFIGURATION: "sha256:<hex>" over canonicalConfig. Pair
+ * it with `panelSha` to identify the reviewer — see the header. */
 export function configHash(manifest) {
   return `sha256:${sha256Hex(canonicalConfig(manifest))}`;
 }

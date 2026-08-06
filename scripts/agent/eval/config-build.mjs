@@ -45,6 +45,9 @@ import { parseArgs } from "../gh-checks.mjs";
 import { contentHash, configHash, CONFIG_HASH_VERSION } from "./config-hash.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** Repo root, so `rubric_path` can be recorded repo-relative rather than as this
+ * machine's absolute layout. `scripts/agent/eval/` → three levels up. */
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 
 /** `scripts/agent/package.json` — the one place the SDK version is pinned. */
 export const AGENT_PACKAGE_JSON = path.join(HERE, "..", "package.json");
@@ -63,6 +66,36 @@ export const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
  * field added after it was written.
  */
 export const SNAPSHOT_ONLY_LENS_KEYS = Object.freeze(["rubric_text", "rubric_sha256", "rubric_path"]);
+
+/**
+ * A lens id becomes a FILENAME at both boundaries — `lenses/<id>.md` is read here and
+ * `destDir/<id>.md` is written by `materializeLenses` — so an id carrying a separator
+ * or a `..` escapes the directory it is supposed to be confined to. Measured on the
+ * unguarded version: an id of `../escaped` read a rubric from OUTSIDE the lenses dir
+ * and then wrote a file OUTSIDE `destDir`.
+ *
+ * Rejected rather than sanitised, and rejected at BOTH boundaries rather than only
+ * the write. Sanitising would silently map two distinct ids onto one filename, which
+ * for a module whose entire job is telling two reviewers apart is the worse failure.
+ * `capture-meta.mjs` established the idiom and the reason: a value that "survives
+ * coercion but not this regex (`1e3`, ` 12`, `../..`) is how a path escapes its
+ * prefix."
+ *
+ * `\` is refused as well as `/` even though POSIX does not treat it as a separator: a
+ * snapshot written on Linux may be materialised on Windows, and the check has to hold
+ * for whichever platform ends up joining the path.
+ */
+function assertSafeLensId(id, where) {
+  const bad =
+    typeof id !== "string" || id === "" || id === "." || id === ".." || id.includes("/") || id.includes("\\") || id.includes("\0");
+  if (bad) {
+    throw new Error(
+      `${where}: lens id ${JSON.stringify(id)} is not usable as a filename — it must not be empty, ` +
+        "`.`, `..`, or contain a path separator. A lens id becomes `<id>.md` at both ends of the round trip.",
+    );
+  }
+  return id;
+}
 
 /**
  * The pinned SDK version, read from `scripts/agent/package.json` rather than
@@ -108,28 +141,45 @@ export function pinnedSdkVersion({ readFile = (p) => readFileSync(p, "utf8"), pk
  * hashed, and PR 3 established the same stance for corpus items (no wall-clock in
  * the item at all, determinism proved per-file).
  *
+ * `sdkVersion` DEFAULTS to the pin rather than to `undefined`. An omitted one used
+ * to drop the key out of the serialised manifest entirely — `JSON.stringify` elides
+ * `undefined` — so a caller that simply forgot the option produced an unattributed
+ * manifest with nothing anywhere saying so. Provenance that goes missing quietly is
+ * the failure this whole subsystem keeps re-learning; every manifest this returns now
+ * records which SDK build it belongs to, and a caller that wants a different one
+ * still passes it.
+ *
  * THIS IS THE WRITE PATH, so it REFUSES rather than approximates. Every lens's
  * `effort` is validated with the panel's own `assertEffort` before a snapshot
  * exists, because the panel validates it before spending a token: a snapshot of a
  * config the panel would refuse to start on is a guaranteed-wasted replay, and it
- * is cheaper to find out here. `configHash`, by contrast, never throws — it is a
+ * is cheaper to find out here. Every lens id is checked for filename safety at the
+ * same point, for the same reason. `configHash`, by contrast, never throws — it is a
  * read path.
  */
-export function buildConfig(lensesDir, { configId, target = "reviewer", sdkVersion, description = "", capturedAt } = {}) {
-  const manifestLenses = JSON.parse(readFileSync(path.join(lensesDir, "lenses.json"), "utf8"));
+export function buildConfig(lensesDir, { configId, target = "reviewer", sdkVersion = pinnedSdkVersion(), description = "", capturedAt } = {}) {
+  const manifestPath = path.join(lensesDir, "lenses.json");
+  const manifestLenses = JSON.parse(readFileSync(manifestPath, "utf8"));
   const lenses = manifestLenses.map((l) => {
+    assertSafeLensId(l.id, manifestPath);
     try {
       assertEffort(l.effort);
     } catch (err) {
-      throw new Error(`${path.join(lensesDir, "lenses.json")}: lens "${l.id}" has an invalid \`effort\` — ${err.message}`);
+      throw new Error(`${manifestPath}: lens "${l.id}" has an invalid \`effort\` — ${err.message}`);
     }
-    const rubricText = readFileSync(path.join(lensesDir, `${l.id}.md`), "utf8");
+    const rubricFile = path.join(lensesDir, `${l.id}.md`);
+    const rubricText = readFileSync(rubricFile, "utf8");
     // WIDEN, never narrow: every key the manifest carries survives, whether or not
     // this module has heard of it. The three added here are derived from the rubric
     // file, which the lenses dir holds as bytes and a manifest holds as identity.
     return {
       ...l,
-      rubric_path: `scripts/agent/lenses/${l.id}.md`,
+      // The file actually READ, not a hardcoded `scripts/agent/lenses/<id>.md`. With
+      // a `--lenses-dir` pointing anywhere else the constant was simply false: it
+      // named a path this run never opened, in the one field whose whole purpose is
+      // to say where the bytes came from. Recorded repo-relative when the dir is
+      // inside the repo, so a stored manifest carries no machine-specific layout.
+      rubric_path: repoRelative(rubricFile),
       rubric_sha256: contentHash(rubricText),
       _rubric_text: rubricText, // stripped from the manifest; kept for the snapshot
     };
@@ -160,6 +210,15 @@ export function buildConfig(lensesDir, { configId, target = "reviewer", sdkVersi
   return { manifest, snapshot, config_hash: hash };
 }
 
+/** A path relative to the repo root when it is inside the repo, else resolved
+ * absolute. Keeps `rubric_path` portable for the normal case without lying about an
+ * out-of-tree lenses dir, which is the only case an absolute path can describe. */
+function repoRelative(file) {
+  const abs = path.resolve(file);
+  const rel = path.relative(REPO_ROOT, abs);
+  return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : abs;
+}
+
 /** A shallow copy of `obj` without `keys`. Deletion, not reconstruction — see the
  * module header on why every field list in here is a denylist. */
 function stripKeys(obj, keys) {
@@ -181,6 +240,10 @@ function stripKeys(obj, keys) {
  * explicitly would change the manifest's bytes while claiming to reproduce it.
  */
 export function materializeLenses(snapshot, destDir) {
+  // Every id checked BEFORE anything is written, so a bad one cannot leave a
+  // half-materialised dir behind — and checked here as well as in `buildConfig`
+  // because a snapshot may have been built elsewhere, or by an older version.
+  for (const l of snapshot.lenses) assertSafeLensId(l.id, "snapshot");
   mkdirSync(destDir, { recursive: true });
   const lensesJson = snapshot.lenses.map((l) => stripKeys(l, SNAPSHOT_ONLY_LENS_KEYS));
   writeFileSync(path.join(destDir, "lenses.json"), JSON.stringify(lensesJson, null, 2) + "\n");

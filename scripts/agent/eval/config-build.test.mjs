@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,7 +64,9 @@ test("buildConfig: manifest is lean, snapshot carries the rubric text and the ha
     assert.match(manifest.lenses[0].rubric_sha256, /^sha256:/);
     assert.equal(manifest.lenses[0].rubric_text, undefined);
     assert.equal("_rubric_text" in manifest.lenses[0], false);
-    assert.equal(manifest.lenses[0].rubric_path, "scripts/agent/lenses/correctness.md");
+    // The file this run actually read — see the rubric_path tests below for why this
+    // is not the constant `scripts/agent/lenses/<id>.md` it used to be.
+    assert.equal(path.resolve(manifest.lenses[0].rubric_path), path.join(dir, "correctness.md"));
     // The snapshot swaps the pointer for the bytes: it must stand alone, because the
     // file it would point at is the thing that moves.
     assert.equal(snapshot.lenses[0].rubric_text, "RUBRIC TEXT");
@@ -233,7 +235,97 @@ test("buildConfig accepts an ABSENT effort — unset is legal and is the live ca
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// --- a lens id becomes a filename at both ends --------------------------------
+
+test("buildConfig refuses a lens id that would escape the lenses dir", () => {
+  // Measured on the unguarded version: an id of `../escaped` READ a rubric from
+  // outside the lenses dir. Refused rather than sanitised — sanitising would map two
+  // distinct ids onto one filename, which for a module whose job is telling two
+  // reviewers apart is the worse failure.
+  const dir = tmp("lenses-esc-");
+  const outside = path.join(dir, "escaped.md");
+  const nested = path.join(dir, "sub");
+  try {
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(outside, "OUTSIDE THE LENSES DIR");
+    writeFileSync(path.join(nested, "lenses.json"), JSON.stringify([{ id: "../escaped", title: "E", model: "m", samples: 1 }]));
+    assert.throws(() => buildConfig(nested, { configId: "c1" }), /is not usable as a filename/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("materializeLenses refuses the same, and writes nothing before it does", () => {
+  // Checked here as well as in buildConfig because a snapshot may have been built
+  // elsewhere or by an older version — and checked before the first write, so a bad
+  // id cannot leave a half-materialised dir behind.
+  const out = tmp("matlens-esc-");
+  try {
+    const snapshot = { lenses: [{ id: "ok", rubric_text: "R" }, { id: "../escaped", rubric_text: "BAD" }] };
+    assert.throws(() => materializeLenses(snapshot, path.join(out, "dest")), /is not usable as a filename/);
+    assert.equal(existsSync(path.join(out, "escaped.md")), false, "a rubric was written outside destDir");
+    assert.equal(existsSync(path.join(out, "dest", "lenses.json")), false, "a partial lenses dir was left behind");
+  } finally { rmSync(out, { recursive: true, force: true }); }
+});
+
+test("every id form that is not a plain filename is refused, at both boundaries", () => {
+  for (const id of ["", ".", "..", "a/b", "../x", "a\\b", "sub/../x"]) {
+    const snapshot = { lenses: [{ id, rubric_text: "R" }] };
+    const out = tmp("matlens-form-");
+    try {
+      assert.throws(() => materializeLenses(snapshot, out), /is not usable as a filename/, `id ${JSON.stringify(id)} was accepted`);
+    } finally { rmSync(out, { recursive: true, force: true }); }
+  }
+  // And the live ids still pass, which is the half a guard usually gets wrong.
+  const live = JSON.parse(readFileSync(path.join(REAL_LENSES_DIR, "lenses.json"), "utf8"));
+  const out = tmp("matlens-live-");
+  try {
+    const { snapshot } = buildConfig(REAL_LENSES_DIR, { configId: "live" });
+    materializeLenses(snapshot, out);
+    for (const l of live) assert.ok(existsSync(path.join(out, `${l.id}.md`)), `lens ${l.id} was rejected`);
+  } finally { rmSync(out, { recursive: true, force: true }); }
+});
+
+// --- rubric_path names the file that was actually read ------------------------
+
+test("rubric_path follows --lenses-dir instead of naming a file it never opened", () => {
+  // It used to be the constant `scripts/agent/lenses/<id>.md` regardless, so with any
+  // other lenses dir the one field whose purpose is to say where the bytes came from
+  // was simply false.
+  const dir = fakeLensesDir();
+  try {
+    const { manifest } = buildConfig(dir, { configId: "c1" });
+    const recorded = manifest.lenses[0].rubric_path;
+    assert.notEqual(recorded, "scripts/agent/lenses/correctness.md", "rubric_path is still the hardcoded default");
+    assert.equal(path.resolve(recorded), path.join(dir, "correctness.md"), "rubric_path must resolve to the file that was read");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("rubric_path stays repo-relative for the real lenses dir", () => {
+  // The normal case must carry no machine-specific layout into a stored manifest.
+  const { manifest } = buildConfig(REAL_LENSES_DIR, { configId: "live" });
+  for (const lens of manifest.lenses) {
+    assert.equal(lens.rubric_path, path.join("scripts", "agent", "lenses", `${lens.id}.md`));
+    assert.equal(path.isAbsolute(lens.rubric_path), false);
+  }
+});
+
 // --- provenance: the SDK version is read, not written down twice --------------
+
+test("a manifest always records which SDK build it belongs to", () => {
+  // An omitted `sdkVersion` used to drop the key out of the serialised manifest
+  // entirely (JSON.stringify elides undefined), so a caller that simply forgot the
+  // option produced an unattributed manifest with nothing saying so.
+  const dir = fakeLensesDir();
+  try {
+    const { manifest, snapshot } = buildConfig(dir, { configId: "c1" }); // no sdkVersion
+    const round = JSON.parse(JSON.stringify(manifest));
+    assert.ok("sdk_version" in round, "sdk_version vanished from the serialised manifest");
+    assert.match(round.sdk_version, /^\d+\.\d+\.\d+$/);
+    assert.equal(round.sdk_version, pinnedSdkVersion(), "the default must be the pin");
+    assert.equal(snapshot.sdk_version, round.sdk_version);
+    // An explicit value still wins.
+    assert.equal(buildConfig(dir, { configId: "c1", sdkVersion: "1.2.3" }).manifest.sdk_version, "1.2.3");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("pinnedSdkVersion READS the pin (proved with an injected file, not with the file itself)", () => {
   // A test that compares the result against the same package.json it was read from

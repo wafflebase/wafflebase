@@ -313,6 +313,68 @@ function assertAllClassified(unclassified, where) {
   );
 }
 
+/**
+ * Every lens field a source file READS, by any syntax the codebase might use. A
+ * function of the text rather than of the panel's path, for the same reason
+ * `unclassifiedLensKeys` is a function of the lens objects: a branch that today's panel
+ * happens not to exercise is a branch no test covers, and the destructuring branch is
+ * exactly that — the panel destructures no lens right now.
+ *
+ * NO WHITESPACE before the dot, which is what separates a property read from prose:
+ * the panel's comments are full of sentences ending "…per lens." followed by a
+ * capitalised word, and a tolerant `\s*` matched four of them (`Each`, `Keep`, `Not`,
+ * `const`) on the first version of this scan. Comments are NOT stripped — a
+ * hand-rolled JS comment stripper mis-handles strings, template literals and regex
+ * literals, and its failure mode is dropping a real read, which is a false GREEN.
+ * Matching a field named inside a comment is the other direction: one more field to
+ * classify, never one fewer.
+ */
+function lensFieldsReadIn(src) {
+  const read = new Set();
+  for (const m of src.matchAll(/\blens\??\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]);
+  for (const m of src.matchAll(/\blens\s*\?\?\s*\{\s*\}\s*\)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]);
+  // DESTRUCTURING — `const { effort, model } = lens`. A member-read-only scan would go
+  // quietly blind the first time someone wrote a lens read this way. `a: b` renames
+  // contribute the SOURCE key (`a`) and not the local name, and a default (`a = 1`) is
+  // trimmed to `a`.
+  //
+  // A REST ELEMENT (`...rest`) is skipped: it is a local holding the remaining fields,
+  // not a field name, and adding it would put a phantom key into the classified set.
+  // Nothing hides there — reading fields through a rest spread means reading whatever
+  // `lenses.json` actually sets, which is precisely what the other guard enumerates.
+  for (const m of src.matchAll(/\{([^{}]*)\}\s*=\s*\(?\s*lens\b/g)) {
+    for (const part of m[1].split(",")) {
+      if (/^\s*\.\.\./.test(part)) continue;
+      const name = /^\s*([A-Za-z_$][\w$]*)\s*(?::|=|$)/.exec(part);
+      if (name) read.add(name[1]);
+    }
+  }
+  return read;
+}
+
+test("guard: the scan sees every syntax a lens read can be written in", () => {
+  // The scan's own unit test, against a fixture rather than the panel — otherwise the
+  // destructuring branch is untestable until someone refactors the panel, and an
+  // untested branch is decoration. Confirmed by mutation: blinding that branch leaves
+  // every other assertion in this file green.
+  const fields = lensFieldsReadIn(`
+    const a = lens.model;                       // plain member read
+    const b = lens?.scopeClasses;               // optional chaining
+    const c = (lens ?? {}).samples;             // the sampleCountFor form
+    const { effort, maxTurns } = lens;          // destructuring
+    const { gating: isBlocking } = lens;        // renamed — the SOURCE key counts
+    const { title = "x" } = lens ?? {};         // defaulted, and off a nullish guard
+    const { id, ...restOfLens } = lens;         // rest element is not a field
+  `);
+  for (const expected of ["model", "scopeClasses", "samples", "effort", "maxTurns", "gating", "title", "id"]) {
+    assert.ok(fields.has(expected), `the scan missed \`${expected}\``);
+  }
+  assert.equal(fields.has("isBlocking"), false, "a rename's LOCAL name is not a manifest field");
+  assert.equal(fields.has("restOfLens"), false, "a rest element is not a manifest field");
+  // And it does not invent fields out of prose ending in "lens."
+  assert.equal(lensFieldsReadIn("// two samples per lens. Each one costs money.\n").size, 0);
+});
+
 test("guard: every key in the real lenses.json is hashed or named cosmetic", () => {
   const lenses = JSON.parse(readFileSync(LENSES_JSON, "utf8"));
   assert.ok(lenses.length >= 6, `expected the real manifest, got ${lenses.length} lenses`);
@@ -336,18 +398,7 @@ test("guard: every field review-panel.mjs reads off a lens is hashed or named co
   // `maxTurns` was in the second set and not the first, and that is exactly how it
   // stayed out of the hash.
   //
-  // NO WHITESPACE before the dot, which is what separates a property read from
-  // prose: the panel's comments are full of sentences ending "…per lens." followed
-  // by a capitalised word, and a tolerant `\s*` matched four of them (`Each`,
-  // `Keep`, `Not`, `const`) on the first version of this test. Comments are NOT
-  // stripped — a hand-rolled JS comment stripper mis-handles strings, template
-  // literals and regex literals, and its failure mode is dropping a real read,
-  // which is a false GREEN. Matching a field named inside a comment is the other
-  // direction: one more field to classify, never one fewer.
-  const src = readFileSync(REVIEW_PANEL, "utf8");
-  const read = new Set();
-  for (const m of src.matchAll(/\blens\??\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]);
-  for (const m of src.matchAll(/\blens\s*\?\?\s*\{\s*\}\s*\)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]);
+  const read = lensFieldsReadIn(readFileSync(REVIEW_PANEL, "utf8"));
 
   // FLOOR, so a refactor that defeats the scan fails loudly instead of passing
   // vacuously — the #676 lesson, where a whole-file regex matched inside the wrong
@@ -383,6 +434,31 @@ test("guard: every excluded field carries a written reason", () => {
 test("guard: no field is both hashed and cosmetic", () => {
   const both = HASHED_LENS_FIELDS.filter((f) => COSMETIC.has(f));
   assert.deepEqual(both, [], "a field cannot both determine behaviour and be cosmetic");
+});
+
+test("the lens sort is locale-INDEPENDENT, so one manifest cannot hash two ways", () => {
+  // `localeCompare` takes its collation from the runtime (ICU data + LC_ALL/LANG), so
+  // it is a different function on two machines. Measured on the version that used it:
+  // a manifest with lenses `ch` and `hz` sorted [ch, hz] under en-US and [hz, ch]
+  // under cs-CZ — Czech collates `ch` as one letter after `h` — producing two
+  // different config_hash values for the same reviewer. CI runs one locale and a
+  // laptop another, so the only symptom would have been results that will not pool.
+  //
+  // Asserted as "the canonical order is code-unit order", which is checkable in any
+  // locale, rather than by switching locale mid-process (impossible) or by asking
+  // Intl about `cs` (which a small-icu build would answer differently).
+  const ids = ["hz", "ch", "Docs", "docs", "design-fit", "designfit", "a_b", "a-b", "blast-radius"];
+  const manifest = { target: "reviewer", lenses: ids.map((id) => ({ id, rubric_sha256: "sha256:s" })) };
+  const canonical = JSON.parse(canonicalConfig(manifest));
+  assert.deepEqual(
+    canonical.lenses.map((l) => l.id),
+    [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    "lenses are not in code-unit order — a locale-sensitive comparator makes the hash machine-dependent",
+  );
+  // And identity must not depend on the order the lenses were written in the file,
+  // which is the whole reason there is a sort at all.
+  const reversed = { ...manifest, lenses: [...manifest.lenses].reverse() };
+  assert.equal(configHash(manifest), configHash(reversed));
 });
 
 test("the hash algorithm carries a vintage", () => {

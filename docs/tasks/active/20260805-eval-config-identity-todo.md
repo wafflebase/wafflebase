@@ -1,12 +1,20 @@
 # Config identity: what settings produced this review?
 
 Two modules under `scripts/agent/eval/`. `config-hash.mjs` reduces a config manifest
-to a fingerprint of the reviewer it describes; `config-build.mjs` turns the lenses
-directory into that manifest plus a self-contained snapshot, and turns a snapshot
-back into a lenses directory the panel can load.
+to a fingerprint of the **configuration** it describes; `config-build.mjs` turns the
+lenses directory into that manifest plus a self-contained snapshot, and turns a
+snapshot back into a lenses directory the panel can load.
 
-Neither invokes a model. Nothing here changes any lens's behaviour, and the panel
-keeps reading `scripts/agent/lenses/lenses.json` exactly as it does now.
+Neither invokes a model, and `review-panel.mjs` is unchanged — the panel keeps reading
+`scripts/agent/lenses/lenses.json` exactly as it does now, so no review of a real pull
+request behaves differently.
+
+What *does* change is what a **replay** off a materialised snapshot does, and it is the
+point of the change rather than a side effect: such a replay used to run every lens at
+`high` over the whole diff, and now runs each at its declared effort over its declared
+file classes. That is a behaviour change in the replay path toward the behaviour
+`lenses.json` already specifies — the lenses' intended behaviour is preserved, where
+before it was silently discarded.
 
 ## The problem
 
@@ -17,8 +25,21 @@ behind it is whatever was on `main` at the time, and after two more tuning commi
 that is no longer recoverable. The sharper form — *were these two reviews even
 produced by the same reviewer?* — has no answer at all.
 
-A fingerprint of the manifest answers both. But a fingerprint has two ways to be
-wrong and they are **not symmetric**:
+A fingerprint of the manifest answers the first question outright. It answers the second
+only in part, and the distinction is load-bearing enough to state before anything else:
+
+- **`config_hash` is CONFIGURATION identity.** It is derived from the manifest, so it
+  says whether two runs were configured the same way — same lenses, models, efforts,
+  scopes, rubrics.
+- **The pair `(config_hash, panelSha)` is IMPLEMENTATION identity** — the reviewer.
+  `config_hash` cannot see the panel's code, so a new verifier stage or a changed gate
+  leaves it identical. `panelSha` (`capture-meta.mjs`, #673) supplies that half.
+
+So "same reviewer" is a claim about the pair, never about `config_hash` alone. Decision 4
+below is where that is argued; it is said here because a reader who takes the first
+sentence as "the hash identifies the reviewer" has the wrong model of the whole file.
+
+Either way a fingerprint has two ways to be wrong, and they are **not symmetric**:
 
 | | consequence |
 |---|---|
@@ -176,6 +197,47 @@ which is `undefined`.
 least useful state for a duplicated constant to be in — it is the same drift class as
 the seven-field lens lists, and correct today is not a property. It now reads the pin.
 
+### Four more, from review — and the first is the one this module exists to prevent
+
+**`localeCompare` made the hash machine-dependent.** `canonicalConfig` sorted lenses
+with `a.id.localeCompare(b.id)`. That comparator's collation comes from the runtime —
+ICU data plus `LC_ALL`/`LANG` — so it is a *different function on two machines*.
+Measured on one manifest with lenses `ch` and `hz`:
+
+```
+locale=en-US  sorted=[ch,hz]  sha256:cc480b9bb9a0d68be0c7…
+locale=cs-CZ  sorted=[hz,ch]  sha256:58b36ce82392b4d80518…
+```
+
+Czech collates `ch` as a single letter after `h`. **One reviewer, two fingerprints** —
+a false positive of exactly the kind this file was written to kill, arriving through
+the sort rather than through a field. CI runs one locale and a laptop another, so the
+only symptom would have been results that quietly refuse to pool. Now a code-unit
+comparator, with a test asserting the canonical order *is* code-unit order (checkable
+in any locale, unlike switching locale mid-process).
+
+**A lens id is a filename at both ends, and nothing checked it.** An id of
+`../escaped` made `buildConfig` read a rubric from outside the lenses dir and
+`materializeLenses` write a file outside `destDir` — verified, both. Now refused at
+both boundaries, and refused rather than sanitised: sanitising maps two distinct ids
+onto one filename, which for this module is the worse failure. `capture-meta.mjs`
+already established the idiom for the same reason.
+
+**`rubric_path` named a file it had never opened.** It was the constant
+`scripts/agent/lenses/<id>.md` regardless of `lensesDir`, so under any `--lenses-dir`
+the one field whose purpose is to say where the bytes came from was false. Now derived
+from the file actually read, kept repo-relative when it is inside the repo so a stored
+manifest carries no machine-specific layout.
+
+**An omitted `sdkVersion` silently dropped the key.** `JSON.stringify` elides
+`undefined`, so a direct caller — PR 5 — that forgot the option got an unattributed
+manifest with nothing saying so. It now defaults to the pin.
+
+The panel-source guard also learned to see `const { effort } = lens`. The panel
+destructures no lens today, so that catches nothing right now; it is there because a
+member-read-only scan would go quietly blind the first time someone wrote it that way,
+which is the failure mode the guard exists for.
+
 ## The four decisions
 
 **1. An absent `scopeClasses` hashes as the panel's effective value: all of
@@ -294,13 +356,13 @@ Node 24.18.0, against `main` at `bb21ff953` (after #677 landed the `eval/` skele
 the recursive test lane).
 
 - [x] **The `agent:tests` lane's own command — `cd scripts/agent && node --test
-      '**/*.test.mjs'` — 1049 tests, 0 fail; 1002 on `main`.** +47, exactly the new
+      '**/*.test.mjs'` — 1057 tests, 0 fail; 1002 on `main`.** +55, exactly the new
       suites. Baselines measured here rather than carried over:
 
       | tree | Agent SDK | root install | tests | pass | fail | skip |
       |---|---|---|---|---|---|---|
       | `main` | 0.3.217 | eslint 9.24.0 | 1002 | 1002 | 0 | 0 |
-      | this branch | 0.3.217 | eslint 9.24.0 | **1049** | 1049 | 0 | 0 |
+      | this branch | 0.3.217 | eslint 9.24.0 | **1057** | 1057 | 0 | 0 |
 
 - [x] **These suites run in CI, and #677's own test proves it.** The lane was a flat
       `*.test.mjs` glob until #677 widened it to `'**/*.test.mjs'` — a flat glob matches
@@ -322,9 +384,9 @@ the recursive test lane).
       verification would have been a green number that covers none of the code.
 
 - [x] **Decision 3's import costs zero skips.** This branch, lane glob, **no
-      `node_modules` anywhere**: 1049 tests, 1043 pass, 0 fail, **6 skip** — the same 6
+      `node_modules` anywhere**: 1057 tests, 1051 pass, 0 fail, **6 skip** — the same 6
       as `main` (1 Agent SDK + 5 `lint-config.test.mjs`). The two `eval/config-*`
-      suites alone with no `node_modules`: **47 tests, 47 pass, 0 skip.**
+      suites alone with no `node_modules`: **55 tests, 55 pass, 0 skip.**
 
 - [x] **It already earned its keep on a real change.** #671 reworded four lens rubrics
       (`correctness`, `security`, `design-fit`, `blast-radius`) between `82c7519d7` and
@@ -373,12 +435,12 @@ the recursive test lane).
 
       Reverted; 47/47 green and `lenses.json` byte-identical to `upstream/main`.
 
-- [x] **19 mutations applied one at a time, 19 caught** — see below.
+- [x] **26 mutations applied one at a time, 26 caught** — see below.
 
 ### The mutations
 
-The seven the plan named, plus twelve this PR owes for what it added. Each applied to
-a pristine file and reverted before the next.
+The seven the plan named, plus twelve this PR owes for what it added, plus seven for the
+review round. Each applied to a pristine file and reverted before the next.
 
 | # | Mutation | Red | First message |
 |---|---|---|---|
@@ -401,8 +463,22 @@ a pristine file and reverted before the next.
 | 17 | narrow `materializeLenses` to the seven-field allowlist | 3 | unknown field became `undefined` |
 | 18 | drop a field from `HASHED_LENS_FIELDS` | 2 | `review-panel.mjs carries unclassified lens field(s): maxTurns` |
 | 19 | break the panel-source scan so it matches nothing | 1 | `the scan did not find \`lens.id\` in review-panel.mjs — the scan is broken, not the panel` |
+| 20 | restore `localeCompare` in `canonicalConfig` | 1 | `lenses are not in code-unit order — a locale-sensitive comparator makes the hash machine-dependent` |
+| 21 | drop the lens-id guard from `buildConfig` (read) | 1 | `Missing expected exception.` |
+| 22 | drop it from `materializeLenses` (write) | 2 | `a rubric was written outside destDir` |
+| 23 | let the id guard accept a separator | 2 | `id "a/b" was accepted` |
+| 24 | re-hardcode `rubric_path` | 2 | `rubric_path is still the hardcoded default` |
+| 25 | let `sdkVersion` fall back to `undefined` | 1 | `sdk_version vanished from the serialised manifest` |
+| 26 | blind the destructuring half of the panel scan | 1 | `the scan missed \`effort\`` |
 
-19 and 11 are the ones worth noting. 19 is the #676 lesson made mechanical: a scan
+26 is the one that changed a design decision. It **survived** the first time: the panel
+destructures no lens today, so blinding that branch of the scan broke nothing observable.
+An untested branch is decoration, so the scan was extracted into a function and given a
+fixture of every syntax a lens read can take — at which point 26 goes red. That fixture
+then caught a bug in the scan itself, which had been capturing a rest element's LOCAL
+name (`...restOfLens`) as though it were a manifest field.
+
+19 and 11 are also worth noting. 19 is the #676 lesson made mechanical: a scan
 that matches nothing fails loudly instead of passing vacuously. 11 shows the
 `"high"` normalisation is anchored to `assertEffort`'s own level list rather than to
 a string somebody typed.
@@ -410,11 +486,20 @@ a string somebody typed.
 ## Not verified
 
 - **`scripts/agent/eval/README.md` is now stale, and this branch does not fix it.**
-  #677's "What exists today" table lists `store.mjs` and `extract-corpus.mjs`, and the
-  line under it says *"**config identity** (`config_hash`) … not built yet"* — which
-  this change makes untrue. Left alone on purpose: it is #677's file, and the two
-  branches were written in parallel. **A two-line follow-up**, deliberately named here
-  so it is a task rather than a discovery.
+  It is #677's file and the two branches were written in parallel, so the edit is left
+  to a follow-up rather than taken here. **Named as a task with its exact content and
+  its completion condition, so it cannot become a discovery:**
+
+  | | |
+  |---|---|
+  | File | `scripts/agent/eval/README.md` |
+  | Edit 1 | add two rows to the *"What exists today"* table: `config-hash.mjs` — "`config_hash`: configuration identity of a lens composition" — no model calls; `config-build.mjs` — "lenses dir → manifest + snapshot, and back" — no model calls |
+  | Edit 2 | in the sentence beginning *"The **runner** … are not built yet"*, remove **config identity (`config_hash`)** from the not-built list, leaving the runner, the arm adapters and the scorers |
+  | **Done when** | the file names both modules, and `grep -n 'config identity\|config_hash' scripts/agent/eval/README.md` returns no line asserting either is unbuilt |
+  | Owner | whoever merges this PR, or the PR 5 author — PR 5 touches the same README to add the runner row, so folding it in there costs nothing |
+
+  Deliberately **not** filed as a GitHub issue from this branch: an issue that
+  duplicates a task doc is a second place to forget. If it outlives PR 5, file one.
 - **That `high` is the SDK's runtime default, as opposed to its documented one.**
   Four independent upstream/SDK statements agree (decision 2) and no session was
   opened to observe it — that would cost money and prove one model's behaviour on one
