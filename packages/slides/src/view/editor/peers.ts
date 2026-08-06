@@ -47,6 +47,14 @@ export interface PeerView {
     r1: number;
     c1: number;
   };
+  /**
+   * Live pointer position in WORLD (slide-root) coords, when the peer
+   * publishes one. Slides does not publish it today — only the board
+   * (an unbounded plane, where a bare selection ring is not enough to
+   * tell where a collaborator is working) — so `cursors` stays empty on
+   * a slides mount and this is a no-op there.
+   */
+  cursor?: { x: number; y: number };
 }
 
 /** A peer selection / live-frame outline, in world coords. */
@@ -76,11 +84,20 @@ export interface PeerCellRect {
   color: string;
 }
 
+/** A peer's live pointer, anchored at a world-coord point. */
+export interface PeerCursor {
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+}
+
 export interface PeerOverlays {
   rings: PeerRing[];
   labels: PeerLabel[];
   guides: PeerGuideLine[];
   cellRects: PeerCellRect[];
+  cursors: PeerCursor[];
 }
 
 /**
@@ -124,8 +141,9 @@ export function computePeerOverlays(
   const labels: PeerLabel[] = [];
   const guides: PeerGuideLine[] = [];
   const cellRects: PeerCellRect[] = [];
+  const cursors: PeerCursor[] = [];
 
-  if (!currentSlideId) return { rings, labels, guides, cellRects };
+  if (!currentSlideId) return { rings, labels, guides, cellRects, cursors };
 
   for (const peer of peers) {
     if (peer.activeSlideId !== currentSlideId) continue;
@@ -177,10 +195,19 @@ export function computePeerOverlays(
       });
     }
 
+    if (peer.cursor) {
+      cursors.push({
+        x: peer.cursor.x,
+        y: peer.cursor.y,
+        color: peer.color,
+        label: peer.label,
+      });
+    }
+
     if (anchor) {
       labels.push({ x: anchor.x, y: anchor.y, text: peer.label, color: peer.color });
     }
   }
 
-  return { rings, labels, guides, cellRects };
+  return { rings, labels, guides, cellRects, cursors };
 }

@@ -960,6 +960,47 @@ function renderPeerOverlays(
     el.style.pointerEvents = 'none';
     overlay.appendChild(el);
   }
+
+  // Peer cursors: a small dot at the peer's live pointer with its name
+  // tag beside it. Painted last so a cursor is never hidden under a
+  // ring or another peer's tag. World coords → screen via the same
+  // `scale`/`pan` the rings use, so a cursor and its owner's selection
+  // ring can never drift apart during a pan or zoom.
+  for (const cursor of peers.cursors) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-peer-cursor';
+    el.style.position = 'absolute';
+    el.style.left = `${cursor.x * scale + px}px`;
+    el.style.top = `${cursor.y * scale + py}px`;
+    el.style.width = '10px';
+    el.style.height = '10px';
+    el.style.borderRadius = '50%';
+    el.style.background = cursor.color;
+    el.style.border = '2px solid #fff';
+    el.style.boxSizing = 'border-box';
+    el.style.pointerEvents = 'none';
+    // Anchor the dot's centre on the pointer position.
+    el.style.transform = 'translate(-50%, -50%)';
+    overlay.appendChild(el);
+
+    const tag = document.createElement('div');
+    tag.className = 'wfb-slides-peer-cursor-label';
+    tag.textContent = cursor.label;
+    tag.style.position = 'absolute';
+    tag.style.left = `${cursor.x * scale + px + 10}px`;
+    tag.style.top = `${cursor.y * scale + py + 10}px`;
+    tag.style.background = cursor.color;
+    tag.style.color = '#fff';
+    tag.style.font = '11px/1.4 system-ui, -apple-system, sans-serif';
+    tag.style.padding = '1px 6px';
+    tag.style.borderRadius = '3px';
+    tag.style.whiteSpace = 'nowrap';
+    tag.style.maxWidth = '140px';
+    tag.style.overflow = 'hidden';
+    tag.style.textOverflow = 'ellipsis';
+    tag.style.pointerEvents = 'none';
+    overlay.appendChild(tag);
+  }
 }
 
 function makeHandle(
