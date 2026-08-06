@@ -69,6 +69,41 @@ export const SUMMARY_DATA_BUDGET = 55000;
 // two `@claude fix` invocations are two spends and must show as two.
 export const FIX_EFFORT_MARKER = "<!-- agent-fix-effort -->";
 
+/**
+ * Is this comment one WE wrote, rather than one that merely mentions a marker?
+ *
+ * `includes(marker)` was the old test, and it deleted other people's comments.
+ * Both sweeps below run over EVERY comment on the PR, so any body containing the
+ * literal marker string was removed — and the strings are `<!-- agent-metric … -->`
+ * and `<!-- agent-metrics-summary -->`, which anything discussing this module
+ * quotes as a matter of course.
+ *
+ * That is not hypothetical. On #681 (a PR about pipeline observability) the
+ * on-demand review's own findings comment named `<!-- agent-metrics-summary -->`
+ * while explaining the comment surfaces — so `summarize`, running five seconds
+ * later in the same job, deleted the review. The run was green end to end and
+ * `safeDeleteComment` is best-effort, so nothing failed and nothing logged: the
+ * comment simply vanished. CodeRabbit reviewing metrics.mjs, a maintainer pasting
+ * a marker, and the pipeline's own paged latch are all exposed the same way.
+ *
+ * Two conditions, both cheap:
+ *   - POSITION. `renderSummary` and `serializeRecord` both emit the marker as the
+ *     very first characters of the body. A quotation is prose *about* a marker and
+ *     appears mid-sentence; ours is the body's opening. This alone fixes the bug.
+ *   - AUTHOR. Every writer here posts through a token, so our comments are always
+ *     a Bot. `user.type` is set by GitHub and cannot be chosen by a commenter.
+ *
+ * Fails toward KEEPING. An unknown author or a marker that is not at position 0 is
+ * somebody else's comment, and leaving a stale summary behind costs a duplicate;
+ * deleting the wrong one destroys work with no record that it happened.
+ */
+export function isOwnComment(comment, marker) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const body = typeof c.body === "string" ? c.body : "";
+  if (!body.startsWith(marker)) return false;
+  return Boolean(c.user && typeof c.user === "object" && c.user.type === "Bot");
+}
+
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
 /**
@@ -1050,7 +1085,7 @@ function cmdSummarize(args) {
   // Cleanup is best-effort (never fail the pipeline). Delete the OLD summary
   // comment(s) so only the fresh bottom one remains.
   for (const c of comments) {
-    if ((c.body || "").includes(SUMMARY_MARKER)) safeDeleteComment(c.id);
+    if (isOwnComment(c, SUMMARY_MARKER)) safeDeleteComment(c.id);
   }
   // Sweep the hidden per-session agent-metric comments EVERY round: each renders
   // as an empty comment box that floods the thread. On --final, sweep them all
@@ -1060,7 +1095,7 @@ function cmdSummarize(args) {
   // (SUMMARY_MARKER "agent-metrics-" never matches METRIC_PREFIX "agent-metric ",
   // so this can't touch the summary just posted.)
   for (const c of comments) {
-    if (!(c.body || "").includes(METRIC_PREFIX)) continue;
+    if (!isOwnComment(c, METRIC_PREFIX)) continue;
     if (isFinal) {
       safeDeleteComment(c.id);
       continue;

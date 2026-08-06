@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  isOwnComment,
   renderFixEffort,
   classifyFixResult,
   FIX_EFFORT_MARKER,
@@ -756,4 +757,70 @@ test("classifyFixResult: the failure taxonomy still comes from classifyResult", 
   assert.equal(classifyFixResult({ type: "result", subtype: "error_during_execution" }).ok, false);
   assert.equal(classifyFixResult({ type: "result", subtype: "success", terminal_reason: "max_turns" }).ok, false);
   assert.equal(classifyFixResult(null), null);
+});
+
+// --- the sweep must only delete OUR comments --------------------------------
+
+test("isOwnComment: a comment that merely QUOTES a marker is not ours", () => {
+  // The #681 failure, as a unit. The on-demand review's findings comment named
+  // `<!-- agent-metrics-summary -->` while explaining the harness's comment
+  // surfaces; `summarize` ran five seconds later and deleted the review. Nothing
+  // failed — safeDeleteComment is best-effort — so the comment just vanished.
+  const bot = { login: "yorkie-agent[bot]", type: "Bot" };
+  const review = {
+    user: bot,
+    body: "<!-- agent-review:abc -->\n## Review\nThe doc enumerates every surface: "
+      + `the paged latch, ${SUMMARY_MARKER}, and the rebuttal records.`,
+  };
+  assert.equal(isOwnComment(review, SUMMARY_MARKER), false);
+  // ...and the real summary, whose body OPENS with the marker, still is.
+  assert.equal(isOwnComment({ user: bot, body: `${SUMMARY_MARKER}\n## 🤖 Agent effort` }, SUMMARY_MARKER), true);
+});
+
+test("isOwnComment: CodeRabbit quoting metrics.mjs is not ours either", () => {
+  // It reviews this very file, and quoting code is what it does.
+  const body = `Consider documenting why \`${METRIC_PREFIX}\` records are swept.`;
+  assert.equal(isOwnComment({ user: { login: "coderabbitai[bot]", type: "Bot" }, body }, METRIC_PREFIX), false);
+});
+
+test("isOwnComment: fails toward KEEPING on an unknown author", () => {
+  // Deleting the wrong comment destroys work with no record; keeping a stale one
+  // costs a duplicate. Only the second is recoverable.
+  const body = `${SUMMARY_MARKER}\n## 🤖 Agent effort`;
+  assert.equal(isOwnComment({ user: { login: "harrykim8672", type: "User" }, body }, SUMMARY_MARKER), false);
+  assert.equal(isOwnComment({ body }, SUMMARY_MARKER), false);
+  assert.equal(isOwnComment({ user: null, body }, SUMMARY_MARKER), false);
+  assert.equal(isOwnComment(null, SUMMARY_MARKER), false);
+  assert.equal(isOwnComment({ user: { type: "Bot" } }, SUMMARY_MARKER), false);
+});
+
+test("isOwnComment: both markers are emitted at position 0 by their writers", () => {
+  // The position test is only sound because our own renderers put the marker
+  // first. Assert that against the real writers rather than trusting it.
+  const summary = renderSummary({
+    agg: { agents: [], sessions: 1, attempt: 1, turns: 1, tokens: 1, weightedTokens: 1, durationMs: 1, costUsd: 1 },
+    panelAgg: null, panelStats: null, panelAttribution: null, flips: [], scope: null,
+  });
+  assert.ok(summary.startsWith(SUMMARY_MARKER));
+  assert.ok(serializeRecord({ kind: "review-fix", turns: 1 }).startsWith(METRIC_PREFIX));
+});
+
+test("both sweeps actually route through isOwnComment", async () => {
+  // The tests above prove the predicate; they cannot prove `cmdSummarize` uses it,
+  // because those loops live in the CLI and need `gh`. Reverting either call site
+  // to a bare `includes` left every one of them green. Asserted at the source
+  // level, the same way the workflow invariants are.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./metrics.mjs", import.meta.url), "utf8");
+  const deletions = src.split("\n").filter((l) => l.includes("safeDeleteComment(c.id)"));
+  assert.ok(deletions.length >= 2, "both sweep loops still exist");
+  // No sweep may test a marker with a bare `includes` — that is the #681 bug.
+  for (const marker of ["SUMMARY_MARKER", "METRIC_PREFIX"]) {
+    assert.equal(
+      new RegExp(`includes\\(${marker}\\)\\s*\\)?\\s*safeDeleteComment`).test(src),
+      false,
+      `the ${marker} sweep must not delete on a bare includes()`,
+    );
+    assert.match(src, new RegExp(`isOwnComment\\(c, ${marker}\\)`), `the ${marker} sweep must use isOwnComment`);
+  }
 });
