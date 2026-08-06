@@ -38,6 +38,7 @@ import {
   FolderOutput,
   Frame,
   Image as ImageIcon,
+  ListFilter,
   MoreHorizontal,
   NotebookPen,
   Pencil,
@@ -62,8 +63,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -694,6 +697,22 @@ export function DocumentList({
     });
   };
 
+  /**
+   * How many documents of each type are in view, for the filter menu's counts.
+   *
+   * Counted over `data` — the current folder's documents before type filtering
+   * — deliberately: counting the filtered rows instead would zero every
+   * unchecked type the moment one is checked, which is the opposite of what
+   * the number is for.
+   */
+  const typeCounts = useMemo(() => {
+    const counts = new Map<DocumentType, number>();
+    for (const doc of data) {
+      counts.set(doc.type, (counts.get(doc.type) ?? 0) + 1);
+    }
+    return counts;
+  }, [data]);
+
   const showFolders = !!workspaceId && !!onNavigateFolder;
 
   // The unified row model: folders (when this list supports them and no type
@@ -1200,30 +1219,60 @@ export function DocumentList({
           className="w-full min-w-0 sm:max-w-xs"
         />
         <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
-        <div className="flex items-center gap-1">
-          {TYPE_OPTIONS.map((type) => {
-            const { label, Icon, color } = TYPE_META[type];
-            const active = typeFilters.has(type);
-            return (
-              <Tooltip key={type}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant={active ? "secondary" : "outline"}
-                    size="icon"
-                    aria-pressed={active}
-                    aria-label={`Filter by ${label}`}
-                    onClick={() => toggleType(type)}
-                    className={active ? undefined : "text-muted-foreground"}
-                  >
-                    <Icon className={`h-4 w-4 ${color}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+        {/*
+          One menu rather than a toggle button per type. Icon-only chips grew
+          with every new document type and were unlabelled without a hover —
+          which touch devices never deliver. Here the labels are text, the
+          trigger carries the active count, and adding a type widens nothing.
+        */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant={typeFilters.size > 0 ? "secondary" : "outline"}
+              className="flex items-center gap-2"
+              aria-label="Filter by type"
+            >
+              <ListFilter className="h-4 w-4" />
+              Type
+              {typeFilters.size > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums">
+                  {typeFilters.size}
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuLabel>Filter by type</DropdownMenuLabel>
+            {TYPE_OPTIONS.map((type) => {
+              const { label, Icon, color } = TYPE_META[type];
+              return (
+                <DropdownMenuCheckboxItem
+                  key={type}
+                  checked={typeFilters.has(type)}
+                  onCheckedChange={() => toggleType(type)}
+                  // Keep the menu open: these filters are multi-select, and
+                  // closing after each tick would make picking two a chore.
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <Icon className={`h-4 w-4 ${color}`} />
+                  <span className="flex-1">{label}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {typeCounts.get(type) ?? 0}
+                  </span>
+                </DropdownMenuCheckboxItem>
+              );
+            })}
+            {typeFilters.size > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setTypeFilters(new Set())}>
+                  Clear filters
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="ml-auto flex items-center gap-2">
