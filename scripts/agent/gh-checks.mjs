@@ -63,6 +63,59 @@ export function parseArgs(argv, { booleans = [] } = {}) {
   return a;
 }
 
+/** Permissions that mean "may drive the loop on this repo". Mirrors the
+ *  `['admin','maintain','write']` list every `@claude` workflow gates on. */
+export const WRITE_PERMISSIONS = Object.freeze(["admin", "maintain", "write"]);
+
+/**
+ * A memoized "does this login have write access?" lookup.
+ *
+ * WHY IT EXISTS: `author_association` is not a permission. It describes the
+ * commenter's relationship to the PR thread, and GitHub reports a repo
+ * maintainer as `CONTRIBUTOR` whenever their org membership is private or they
+ * have commits on the repo — which is what happened on #648, where four
+ * `@claude rerun` commands from a Maintain-level maintainer were all ignored by
+ * the round-budget floor while the command itself ran fine. The commands were
+ * gated by `getCollaboratorPermissionLevel` (authoritative) and their EFFECT by
+ * `author_association` (a hint), so the verb worked and its consequence was
+ * silently dropped.
+ *
+ * Both `permission` and `role_name` are checked: the legacy field collapses
+ * `maintain` to `write` on some responses, and the granular one is absent on
+ * others. Accepting either matches what the workflows already do.
+ *
+ * MEMOIZED, including failures. A PR has many comments from few people, and a
+ * login that 404s once (a deleted account, a lookup that is not permitted) must
+ * not be re-asked per comment.
+ *
+ * Returns `true` / `false` / `null`, and `null` — could not determine — is
+ * deliberately distinct from `false`. Callers decide which way an unknown falls;
+ * a shared default here would hide that choice from the place that has to make it.
+ */
+export function permissionResolver({ api = gh, log = console.error } = {}) {
+  const cache = new Map();
+  return function hasWriteAccess(login) {
+    const name = typeof login === "string" ? login.trim() : "";
+    if (name === "") return null;
+    if (cache.has(name)) return cache.get(name);
+    let verdict;
+    try {
+      const d = api(["api", `repos/{owner}/{repo}/collaborators/${encodeURIComponent(name)}/permission`]);
+      const level = String(d?.permission ?? "");
+      const role = String(d?.role_name ?? "");
+      verdict = WRITE_PERMISSIONS.includes(level) || WRITE_PERMISSIONS.includes(role);
+    } catch (err) {
+      // Unknown, not "no": the caller decides. A 404 here is genuinely "not a
+      // collaborator", but a 403/5xx is "we could not ask", and this layer
+      // cannot tell them apart from the CLI's exit status alone.
+      log(`permission: could not resolve ${name} (${err.message}).`);
+      verdict = null;
+    }
+    cache.set(name, verdict);
+    return verdict;
+  };
+}
+
 /**
  * Check runs for ONE commit, applying contract 1 from the header.
  *

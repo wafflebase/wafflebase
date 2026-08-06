@@ -2012,6 +2012,50 @@ this alone fixes it. AUTHOR: every writer here posts through a token, so ours ar
 always a Bot, and `user.type` is set by GitHub rather than chosen by the commenter.
 It fails toward KEEPING: a stale summary costs a duplicate, while deleting the
 wrong comment destroys work with no record that it happened.
+### `author_association` is not a permission
+
+`@claude rerun` moves the fix-round floor forward, and the guard decided whose
+rerun counted with `author_association`. On #648 a maintainer with **Maintain**
+ran it four times and GitHub reported every one of those comments as
+`CONTRIBUTOR` — association describes the commenter's relationship to the PR
+thread, not their access, and it reads `CONTRIBUTOR` for anyone with commits on
+the repo whose org membership is not public. So the floor was never set, the guard
+counted the PR's entire history, and it paged with *"tried 3 time(s) (limit 3)"*
+against a rerun that had reset nothing. The absent `since the last rerun` clause in
+that page is the tell.
+
+The verb itself worked. `.github/workflows/agent-rerun.yml` gates on `getCollaboratorPermissionLevel`
+— authoritative — so the label came off and CI re-ran, while the budget silently
+did not move. **Two checks for one question, disagreeing**: the command's
+permission to run, and the command's effect, resolved by different authorities.
+That is the same shape as the `agent:blocked` label bug — the action reports
+success and the consequence is dropped.
+
+`scripts/agent/rounds.mjs` had named this gap, but in the opposite direction: it worried about
+being too *permissive* (an org MEMBER without write passing). The failure that
+happened was too strict.
+
+`permissionResolver` in `scripts/agent/gh-checks.mjs` closes it — an injected
+`(login) => true | false | null` built from the same API the workflows use, so
+`scripts/agent/rounds.mjs` stays pure and testable. Association survives as a **fast-path
+accept**: OWNER/MEMBER/COLLABORATOR already mean write access and cost no call;
+anything else falls through to the authoritative check. Sufficient, never
+necessary — which is what it should always have been. Lookups memoize per login,
+failures included, so a PR with many comments from few people costs at most one
+call each.
+
+Fail direction: an unresolvable login does **not** set the floor. Not resetting
+leaves the PR paged for a human, which is where one the loop cannot finish
+belongs; resetting on a failed lookup would hand more attempts to the very party
+the budget bounds. The bot exclusion is still checked first and no resolver can
+override it — that is what stops the bounded party resetting its own bound.
+
+Still on association, deliberately: `isPagedLatchComment`'s human arm. It fails
+toward *reviewing*, so a maintainer's hand-written latch being ignored costs a
+review round rather than stopping one, and its literal copy in
+`.github/workflows/agent-review-panel.yml` (that job does no checkout, so it cannot import) would
+have to make an API call too. Recorded as a known, benign instance of the same
+signal.
 
 ### Phase 31: UI Issue Hunting
 

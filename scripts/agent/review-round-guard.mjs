@@ -33,6 +33,7 @@ import {
   runUrlFromEnv,
   whereToLookLine,
 } from "./guard-verdict.mjs";
+import { permissionResolver } from "./gh-checks.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -141,7 +142,16 @@ if (comments.some(isPagedLatchComment)) {
 // round/attempt caps", which on a PR that reached the cap means one panel round
 // and an immediate re-page. That is exactly what #648 did when it was un-stuck by
 // hand. The marker rerun leaves behind moves the round floor forward.
-const rerunAt = rerunPointFrom(comments);
+//
+// The floor is resolved against the SAME authority the command itself is gated on
+// (`getCollaboratorPermissionLevel`), not `author_association`. On #648 those two
+// disagreed: the verb ran — the label came off, CI re-ran — while GitHub reported
+// the maintainer's comments as `CONTRIBUTOR`, so the budget silently did not move
+// and the next round paged with "tried 3 time(s) (limit 3)" against a rerun that
+// had reset nothing. The resolver memoizes per login, so a PR with many comments
+// from few people costs at most one call each, and only for logins whose
+// association did not already settle it.
+const rerunAt = rerunPointFrom(comments, { trusts: permissionResolver({ api: ghJson }) });
 if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 
 // API/quota outage (every blocking lens failed on an API error) → the reviewer

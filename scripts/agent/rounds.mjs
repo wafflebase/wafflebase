@@ -100,28 +100,53 @@ export function isPagedLatchComment(comment) {
  * rerun the router did not (or miss one it did) and move the floor for a hand-back
  * that never happened.
  *
- * `author_association` is weaker than the `getCollaboratorPermissionLevel` gate the
- * command itself enforces — an org MEMBER without repo write passes here. Named as
- * a known gap rather than hidden: the consequence is extra fix attempts on a PR a
- * member asked about, which is a different order of problem from the agent
- * un-bounding itself, and closing it needs an API call this pure function cannot
- * make. The workflow still refuses to DO anything for such a user.
+ * `author_association` ALONE was the trust test here, and it was wrong in the
+ * direction this comment did not anticipate. It was named as a known gap for
+ * being too permissive (an org MEMBER without repo write passing); the failure
+ * that actually happened was the opposite. On #648 a maintainer with Maintain
+ * ran `@claude rerun` four times and GitHub reported every one of those comments
+ * as `CONTRIBUTOR` — association describes the commenter's relationship to the
+ * PR thread, not their permission, and it reads CONTRIBUTOR for anyone with
+ * commits on the repo whose org membership is not public. So the floor was never
+ * set, the guard counted the PR's whole history, and it paged with "tried 3
+ * time(s) (limit 3)" against a rerun that had reset nothing.
+ *
+ * The verb worked; only its consequence was dropped. `agent-rerun.yml` gates on
+ * `getCollaboratorPermissionLevel` — authoritative — so the label came off and CI
+ * re-ran, while the budget silently did not move. Two checks for one question,
+ * disagreeing.
+ *
+ * `trusts` closes it: an injected `(login) => true | false | null` that the guard
+ * builds from the same API the workflows use. Association is kept as a fast-path
+ * ACCEPT — when it says OWNER/MEMBER/COLLABORATOR that is already write access
+ * and costs no call — and the API is asked only when it does not. Sufficient, not
+ * necessary, which is what it always should have been.
+ *
+ * FAIL DIRECTION: an unresolvable login does NOT set the floor. Not resetting
+ * leaves the PR paged for a human, which is where a PR the loop cannot finish
+ * belongs; resetting on an unknown would hand more attempts to the bounded party
+ * on the strength of a failed lookup. With no `trusts` at all the function is
+ * exactly what it was before — pure, and association-only.
  */
-export function rerunPointFrom(comments) {
+export function rerunPointFrom(comments, opts) {
   const stamps = (Array.isArray(comments) ? comments : [])
-    .filter(isRerunCommand)
+    .filter((c) => isRerunCommand(c, opts))
     .map((c) => Date.parse(String(c.created_at ?? "")))
     .filter((n) => Number.isFinite(n));
   return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
 }
 
 /** Is this a maintainer's `@claude rerun`? Bots are refused — see rerunPointFrom. */
-export function isRerunCommand(comment) {
+export function isRerunCommand(comment, { trusts } = {}) {
   const c = comment && typeof comment === "object" ? comment : {};
   const user = c.user && typeof c.user === "object" ? c.user : {};
+  // Structural, and checked first: no App can present as a non-Bot, so this is
+  // what stops the bounded party resetting its own bound.
   if (user.type === "Bot") return false;
-  if (!TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return false;
-  return parseCommand(String(c.body ?? ""), { surface: "pr" }).command === "rerun";
+  if (parseCommand(String(c.body ?? ""), { surface: "pr" }).command !== "rerun") return false;
+  // Association is a sufficient signal, never a necessary one.
+  if (TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return true;
+  return typeof trusts === "function" && trusts(String(user.login ?? "")) === true;
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
