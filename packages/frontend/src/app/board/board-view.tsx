@@ -22,6 +22,7 @@ import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import { dropStickyAtViewportCenter } from "./sticky";
@@ -88,6 +89,10 @@ function mapBoardPeers(
       label: presence.username || "Anonymous",
       activeSlideId: SYNTHETIC_SLIDE_ID,
       selectedElementIds: presence.selectedElementIds,
+      // SP1 defined `cursor` on BoardPresence but never published or
+      // painted it; SP4 completes both ends. `null` (peer left the
+      // canvas) must become `undefined` so the overlay skips it.
+      cursor: presence.cursor ?? undefined,
     });
   }
   return views;
@@ -111,10 +116,11 @@ function mapBoardPeers(
  * `updatePresence` — those are `YorkieSlidesStore`-only conveniences,
  * not part of the shared `SlidesStore` interface) using the same
  * `getOthersPresences()` / `subscribe('others', ...)` / `doc.update`
- * primitives `YorkieSlidesStore` wraps. Peer cursor DOTS are not
- * rendered yet (`mapBoardPeers` has no cursor field) — that's a
- * deferred follow-up, so this client does not publish `cursor` into
- * presence (would be pure CRDT churn with nothing reading it).
+ * primitives `YorkieSlidesStore` wraps. The local pointer is published
+ * into `cursor` (rAF-coalesced via `createCursorPublisher`) and peer
+ * cursors are read back through `mapBoardPeers` — a bare selection ring
+ * is not enough to locate a collaborator working off-screen on an
+ * unbounded plane.
  */
 export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -422,6 +428,43 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       });
     });
 
+    // Broadcast the local pointer so peers can see where this user is
+    // working. A board is unbounded, so a selection ring alone does not
+    // locate a collaborator who is editing off-screen.
+    //
+    // Coalesced to one write per animation frame by `createCursorPublisher`
+    // (own testable module, see `board-cursor-publish.ts`) — a raw
+    // pointermove publish would push a CRDT presence update per mouse
+    // sample and flood the channel. Presence only — the document root is
+    // untouched.
+    const cursorPublisher = createCursorPublisher({
+      requestFrame: (cb) => requestAnimationFrame(cb),
+      cancelFrame: (handle) => cancelAnimationFrame(handle),
+      publish: (position) => {
+        doc.update((_, p) => {
+          p.set({ cursor: position });
+        });
+      },
+    });
+    const onCursorMove = (e: PointerEvent) => {
+      // Reuses the cached `canvasRect` maintained by the ResizeObserver
+      // above rather than calling `getBoundingClientRect()` here — this
+      // handler runs on every pointer sample.
+      cursorPublisher.queue(
+        screenToWorld(vp.current, {
+          x: e.clientX - canvasRect.left,
+          y: e.clientY - canvasRect.top,
+        }),
+      );
+    };
+    // Clear on leave so a departed cursor does not stick on peers'
+    // screens at the last position it was seen.
+    const onCursorLeave = () => cursorPublisher.queue(null);
+    if (!readOnly) {
+      container.addEventListener("pointermove", onCursorMove);
+      container.addEventListener("pointerleave", onCursorLeave);
+    }
+
     // --- wheel: ctrl/cmd zoom-at-cursor, plain pan ---
     //
     // Bound to `container`, not `canvas`: the overlay injects
@@ -579,6 +622,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
+      container.removeEventListener("pointermove", onCursorMove);
+      container.removeEventListener("pointerleave", onCursorLeave);
+      cursorPublisher.dispose();
       offSelection();
       offChange();
       offPeers();
