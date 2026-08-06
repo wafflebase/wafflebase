@@ -22,9 +22,22 @@
  *    events, and a world position quantized by the viewport transform
  *    repeats often.
  * 2. **Audience** (optional `shouldPublish`). Nobody is looking at a solo
- *    user's cursor. A gated frame does NOT record what it skipped, so the
- *    next queued position after a peer joins is published even if the
- *    pointer never moved again.
+ *    user's cursor.
+ *
+ * The audience gate skips a write, so it must never claim one happened:
+ * `published` — "what presence currently holds" — is updated ONLY on an
+ * actual write. A gated frame therefore leaves an intent undelivered,
+ * and {@link CursorPublisher.resend} is how the host says "the audience
+ * changed, deliver it now". Without that, a gate that closes over a
+ * pending `null` strands a ghost cursor in presence, and a user who was
+ * stationary when a peer joined stays invisible until they move.
+ *
+ * `published` starts UNKNOWN rather than `null`, because a publisher can
+ * outlive nothing but itself: `BoardView`'s mount effect re-runs (e.g.
+ * `workspaceId` resolving after first render) build a fresh publisher
+ * against a presence that may already carry a cursor. Assuming `null`
+ * there would swallow the next `pointerleave` as redundant and strand
+ * that cursor forever; assuming nothing costs at most one extra write.
  */
 export interface CursorPosition {
   x: number;
@@ -50,6 +63,13 @@ export interface CursorPublisher {
   /** Queue a position (or `null` for "pointer left") for the next frame. */
   queue(position: CursorPosition | null): void;
   /**
+   * Re-offer the last queued intent when it never made it into presence
+   * — call this when the audience opens (peer count 0 → >0). A no-op
+   * when nothing was ever queued, or when the last intent is already
+   * what presence holds, so it is safe to call on any peer change.
+   */
+  resend(): void;
+  /**
    * Cancel any pending scheduled frame without publishing. Safe to call
    * even when nothing was ever queued (e.g. a read-only mount that never
    * registered the pointer listeners) — a no-op in that case.
@@ -64,15 +84,24 @@ export function createCursorPublisher(deps: CursorPublisherDeps): CursorPublishe
   // indistinguishable from "nothing scheduled".
   let scheduled = false;
   let handle = 0;
+  // The last thing the pointer said — the INTENT, delivered or not.
   let pending: CursorPosition | null = null;
-  // What the peers currently see. Starts at `null` — presence carries no
-  // cursor until we write one — so a `pointerleave` before any move is
-  // correctly a no-op rather than a wasted "clear nothing" write.
-  let published: CursorPosition | null = null;
+  let everQueued = false;
+  // What presence currently holds. `undefined` = unknown (see the module
+  // comment); written only when a publish actually happens, so a frame
+  // dropped by the audience gate is never mistaken for a delivered one.
+  let published: CursorPosition | null | undefined = undefined;
 
   const unchanged = (position: CursorPosition | null): boolean => {
+    if (published === undefined) return false;
     if (position === null || published === null) return position === published;
     return position.x === published.x && position.y === published.y;
+  };
+
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    handle = deps.requestFrame(flush);
   };
 
   const flush = () => {
@@ -81,6 +110,8 @@ export function createCursorPublisher(deps: CursorPublisherDeps): CursorPublishe
     // and came back to the exact last-published point within one frame
     // leaves `pending` different from what was queued first.
     if (unchanged(pending)) return;
+    // Gate closed: publish nothing AND remember nothing. `pending` stays
+    // undelivered, so `resend()` can hand it over once it opens.
     if (deps.shouldPublish && !deps.shouldPublish()) return;
     published = pending === null ? null : { x: pending.x, y: pending.y };
     deps.publish(pending);
@@ -88,12 +119,18 @@ export function createCursorPublisher(deps: CursorPublisherDeps): CursorPublishe
 
   return {
     queue(position) {
+      everQueued = true;
       pending = position;
       if (scheduled) return;
       // Nothing to say this frame — don't even book one.
       if (unchanged(position)) return;
-      scheduled = true;
-      handle = deps.requestFrame(flush);
+      schedule();
+    },
+    resend() {
+      // Never invent a cursor for a pointer that never entered the canvas.
+      if (!everQueued) return;
+      if (unchanged(pending)) return;
+      schedule();
     },
     dispose() {
       if (!scheduled) return;

@@ -274,6 +274,13 @@ emits a SELF `presence-changed` that re-renders the whole React tree, so
 and skips the write entirely when `doc.getOthersPresences()` is empty —
 a solo user waving the mouse must not cost 60 React commits a second.
 
+A skipped write is remembered as *undelivered*, never as delivered, and
+`pushPeers` calls `cursorPublisher.resend()` when the peer count goes
+0 → >0. Without that replay the gate would lose state rather than just
+defer it: a user who was stationary when the peer joined would stay
+invisible, and a `pointerleave` that fell while solo would leave a ghost
+cursor parked in presence for the next peer to find.
+
 ### Files
 
 ```text
@@ -312,7 +319,10 @@ packages/frontend/src/app/board/
   keeps focus across cursor-only `setPeers` ticks, that the moved cursor
   still paints, and that the layer survives a full overlay rebuild.
 - `board-cursor-publish.test.ts` — rAF coalescing, the null-on-leave
-  delivery, the unchanged-position gate, and the audience gate.
+  delivery, the unchanged-position gate, the audience gate, and the
+  replay it needs: a stationary cursor becomes visible when the audience
+  opens, a `null` the closed gate swallowed is not remembered as
+  published, and a solo user still writes nothing at all.
 - `arrange-menu` — Align disabled at selection size 1 when
   `minAlignSelection={2}`, enabled at 2; slides default unchanged.
 - The full existing slides suite (import / export / round-trip / painter
@@ -359,6 +369,15 @@ packages/frontend/src/app/board/
   frame, skipped when the position has not moved or when there are no
   peers, and `null` on pointer leave. Presence only — the document root
   is never touched.
+- **The audience gate silently dropping state.** Skipping a write while
+  solo is only safe if the skip is remembered as *undelivered*: otherwise
+  a `pointerleave` that lands while nobody is watching strands a ghost
+  cursor in presence, and a user who was stationary when a peer joined
+  never appears. *Mitigation:* `published` (what presence holds) is
+  written only on a real publish, and `pushPeers` replays the pending
+  intent via `resend()` on the peer-count 0 → >0 transition. A fresh
+  publisher starts with `published` UNKNOWN, so a mount-effect re-run
+  cannot mistake a stale presence cursor for "nothing published".
 - **A pointer-rate presence channel amplified into pointer-rate DOM
   work.** Peer presence used to rebuild the entire overlay on every
   `setPeers` call, which was tolerable only because slides presence
@@ -375,8 +394,17 @@ packages/frontend/src/app/board/
   not re-fit, while the dropdown label still reads "Fit". Fit is an
   action, not a sticky mode; making it sticky needs a resize-time
   re-fit keyed on the label, which is deferred.
-- A peer presence change that is *not* cursor-only (they select
-  something, or their live drag frames move) still rebuilds the overlay
-  and so still blurs a local in-place text edit. This predates SP4 — it
-  is rare at edit rate — and the proper fix is the gesture/edit-lifecycle
-  signal tracked with the P2 live-frame broadcast work.
+- Any non-cursor peer activity still rebuilds the overlay, and so still
+  blurs a local in-place text edit. That is broader than presence: a peer
+  changing their selection or moving their live drag frames reaches it
+  through `setPeers` → `repaintOverlay()`, and **any remote document
+  edit** reaches it through `board-view.tsx`'s `store.onChange` →
+  `editor.markDirty()` → `repaintOverlay()`. Same class, same
+  pre-existing root (`renderOverlay` clears `overlay.innerHTML`, which
+  detaches the docs `TextEditor`'s hidden textarea), and still edit-rate
+  rather than pointer-rate. The proper fix is the deferred
+  gesture/edit-lifecycle signal tracked with the P2 live-frame broadcast
+  work; a focus restore is not it, because
+  `docs/src/view/text-box-editor.ts` wires blur → `cancelComposition()` →
+  `onCommit`, so by the time it would run the session has already
+  committed and the IME composition is gone.

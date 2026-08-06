@@ -392,18 +392,76 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     resizeObserver.observe(container);
 
+    // Broadcast the local pointer so peers can see where this user is
+    // working. A board is unbounded, so a selection ring alone does not
+    // locate a collaborator who is editing off-screen.
+    //
+    // Coalesced to at most one write per animation frame by
+    // `createCursorPublisher` (own testable module, see
+    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
+    // CRDT presence update per mouse sample and flood the channel.
+    // Presence only — the document root is untouched.
+    //
+    // "At most", because a presence write is not free even when the doc
+    // is untouched: it emits a SELF `presence-changed`, which
+    // `@yorkie-js/react` turns into a fresh state object, which
+    // re-renders this component and the whole toolbar tree. So the
+    // publisher drops a frame whose position has not moved, and
+    // `shouldPublish` drops the whole thing when there is nobody to see
+    // it — a solo user waving the mouse must not cost 60 React commits a
+    // second. A dropped write is remembered as undelivered, and
+    // `pushPeers` below replays it via `resend()` the moment the
+    // audience opens.
+    const cursorPublisher = createCursorPublisher({
+      requestFrame: (cb) => requestAnimationFrame(cb),
+      cancelFrame: (handle) => cancelAnimationFrame(handle),
+      shouldPublish: () => doc.getOthersPresences().length > 0,
+      publish: (position) => {
+        doc.update((_, p) => {
+          p.set({ cursor: position });
+        });
+      },
+    });
+    const onCursorMove = (e: PointerEvent) => {
+      // Reuses the cached `canvasRect` maintained by the ResizeObserver
+      // above rather than calling `getBoundingClientRect()` here — this
+      // handler runs on every pointer sample.
+      cursorPublisher.queue(
+        screenToWorld(vp.current, {
+          x: e.clientX - canvasRect.left,
+          y: e.clientY - canvasRect.top,
+        }),
+      );
+    };
+    // Clear on leave so a departed cursor does not stick on peers'
+    // screens at the last position it was seen.
+    const onCursorLeave = () => cursorPublisher.queue(null);
+    if (!readOnly) {
+      container.addEventListener("pointermove", onCursorMove);
+      container.addEventListener("pointerleave", onCursorLeave);
+    }
+
     // --- presence: peers ---
     //
     // `getOthersPresences()` / `subscribe('others', ...)` mirror
     // `YorkieSlidesStore.getPeers()` / `onPresenceChange()` verbatim —
     // read directly off `doc` since `YorkieBoardStore` doesn't wrap them
     // (see class doc comment).
+    let hadPeers = false;
     const pushPeers = () => {
       const peers = doc.getOthersPresences().map((p) => ({
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
       editor.setPeers(mapBoardPeers(peers, resolvedThemeRef.current));
+      // The audience just opened: hand over the cursor intent the gate
+      // above swallowed while nobody was watching. Without this, a user
+      // who was stationary when the peer joined stays invisible until
+      // they move, and a `pointerleave` that fell while solo leaves a
+      // ghost cursor parked in presence.
+      const hasPeers = peers.length > 0;
+      if (hasPeers && !hadPeers) cursorPublisher.resend();
+      hadPeers = hasPeers;
     };
     const offPeers = doc.subscribe("others", () => pushPeers());
     pushPeers();
@@ -433,53 +491,6 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
         p.set({ selectedElementIds: editor.getSelection().slice() });
       });
     });
-
-    // Broadcast the local pointer so peers can see where this user is
-    // working. A board is unbounded, so a selection ring alone does not
-    // locate a collaborator who is editing off-screen.
-    //
-    // Coalesced to at most one write per animation frame by
-    // `createCursorPublisher` (own testable module, see
-    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
-    // CRDT presence update per mouse sample and flood the channel.
-    // Presence only — the document root is untouched.
-    //
-    // "At most", because a presence write is not free even when the doc
-    // is untouched: it emits a SELF `presence-changed`, which
-    // `@yorkie-js/react` turns into a fresh state object, which
-    // re-renders this component and the whole toolbar tree. So the
-    // publisher drops a frame whose position has not moved, and
-    // `shouldPublish` drops the whole thing when there is nobody to see
-    // it — a solo user waving the mouse must not cost 60 React commits a
-    // second.
-    const cursorPublisher = createCursorPublisher({
-      requestFrame: (cb) => requestAnimationFrame(cb),
-      cancelFrame: (handle) => cancelAnimationFrame(handle),
-      shouldPublish: () => doc.getOthersPresences().length > 0,
-      publish: (position) => {
-        doc.update((_, p) => {
-          p.set({ cursor: position });
-        });
-      },
-    });
-    const onCursorMove = (e: PointerEvent) => {
-      // Reuses the cached `canvasRect` maintained by the ResizeObserver
-      // above rather than calling `getBoundingClientRect()` here — this
-      // handler runs on every pointer sample.
-      cursorPublisher.queue(
-        screenToWorld(vp.current, {
-          x: e.clientX - canvasRect.left,
-          y: e.clientY - canvasRect.top,
-        }),
-      );
-    };
-    // Clear on leave so a departed cursor does not stick on peers'
-    // screens at the last position it was seen.
-    const onCursorLeave = () => cursorPublisher.queue(null);
-    if (!readOnly) {
-      container.addEventListener("pointermove", onCursorMove);
-      container.addEventListener("pointerleave", onCursorLeave);
-    }
 
     // --- wheel: ctrl/cmd zoom-at-cursor, plain pan ---
     //

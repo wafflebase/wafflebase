@@ -145,11 +145,6 @@ describe("createCursorPublisher", () => {
     const publish = vi.fn();
     const publisher = createCursorPublisher({ ...scheduler, publish });
 
-    // A leave before anything was ever published clears nothing.
-    publisher.queue(null);
-    scheduler.flushAll();
-    expect(publish).not.toHaveBeenCalled();
-
     publisher.queue({ x: 3, y: 4 });
     scheduler.flushAll();
     publisher.queue(null);
@@ -157,11 +152,27 @@ describe("createCursorPublisher", () => {
     expect(publish).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenLastCalledWith(null);
 
-    // Re-entering and leaving again without moving still publishes the
-    // position once and the clear once — never a duplicate clear.
+    // Leaving again without having re-entered clears nothing new.
     publisher.queue(null);
     scheduler.flushAll();
     expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  // A publisher cannot know what presence already holds: `BoardView`'s
+  // mount effect re-runs (e.g. `workspaceId` resolving after the first
+  // render) build a fresh one against a presence that may still carry a
+  // cursor. Assuming "nothing published yet" would swallow the next
+  // pointerleave and strand that cursor on every peer's screen.
+  it("publishes the first queued value even when it is null", () => {
+    const scheduler = makeFakeScheduler();
+    const publish = vi.fn();
+    const publisher = createCursorPublisher({ ...scheduler, publish });
+
+    publisher.queue(null);
+    scheduler.flushAll();
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(null);
   });
 
   it("skips the publish while shouldPublish() is false, and resumes without needing a move", () => {
@@ -186,6 +197,122 @@ describe("createCursorPublisher", () => {
     scheduler.flushAll();
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish).toHaveBeenCalledWith({ x: 1, y: 1 });
+  });
+});
+
+/**
+ * The audience gate saves a solo user 60 presence writes a second, but a
+ * skipped write is not a delivered one: without a replay path it loses a
+ * stationary user's cursor and strands a departed one. `resend()` is that
+ * path, driven by the peer-count 0 → >0 transition in `BoardView`.
+ */
+describe("createCursorPublisher — audience re-open", () => {
+  function gatedHarness() {
+    const scheduler = makeFakeScheduler();
+    const publish = vi.fn();
+    let hasPeers = false;
+    const publisher = createCursorPublisher({
+      ...scheduler,
+      publish,
+      shouldPublish: () => hasPeers,
+    });
+    return {
+      scheduler,
+      publish,
+      publisher,
+      openAudience: () => {
+        hasPeers = true;
+      },
+    };
+  }
+
+  // Probe A: the user moved, then stopped, then a peer joined. No pointer
+  // event follows the join, so only a replay can make them visible.
+  it("makes a stationary cursor visible when the audience opens", () => {
+    const h = gatedHarness();
+
+    h.publisher.queue({ x: 42, y: 7 });
+    h.scheduler.flushAll();
+    expect(h.publish).not.toHaveBeenCalled();
+
+    h.openAudience();
+    h.publisher.resend();
+    h.scheduler.flushAll();
+
+    expect(h.publish).toHaveBeenCalledTimes(1);
+    expect(h.publish).toHaveBeenCalledWith({ x: 42, y: 7 });
+  });
+
+  // Probe B: a peer was present, then left, and the local pointerleave
+  // fell into the closed gate — presence still holds the old position, so
+  // the next peer to join would meet a ghost cursor.
+  it("replays a swallowed pointerleave instead of stranding a ghost cursor", () => {
+    const scheduler = makeFakeScheduler();
+    const publish = vi.fn();
+    let hasPeers = true;
+    const publisher = createCursorPublisher({
+      ...scheduler,
+      publish,
+      shouldPublish: () => hasPeers,
+    });
+
+    // A peer is watching: the position lands in presence.
+    publisher.queue({ x: 5, y: 5 });
+    scheduler.flushAll();
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenLastCalledWith({ x: 5, y: 5 });
+
+    // The peer leaves, then the local pointer leaves the canvas. The
+    // clear is gated away — presence still holds { x: 5, y: 5 }.
+    hasPeers = false;
+    publisher.queue(null);
+    scheduler.flushAll();
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    // A new peer joins. The swallowed clear must NOT have been recorded
+    // as delivered, or that stale cursor sits on their screen forever.
+    hasPeers = true;
+    publisher.resend();
+    scheduler.flushAll();
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenLastCalledWith(null);
+  });
+
+  it("still writes nothing at all while the user is solo", () => {
+    const h = gatedHarness();
+
+    h.publisher.queue({ x: 1, y: 1 });
+    h.publisher.queue({ x: 2, y: 2 });
+    h.scheduler.flushAll();
+    h.publisher.queue({ x: 3, y: 3 });
+    h.scheduler.flushAll();
+    // Even a peer-change tick that fires while still solo must not write.
+    h.publisher.resend();
+    h.scheduler.flushAll();
+
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("resend is a no-op when nothing was queued or when presence is current", () => {
+    const scheduler = makeFakeScheduler();
+    const publish = vi.fn();
+    const publisher = createCursorPublisher({ ...scheduler, publish });
+
+    // Never entered the canvas — must not invent a cursor.
+    publisher.resend();
+    scheduler.flushAll();
+    expect(publish).not.toHaveBeenCalled();
+    expect(scheduler.requestFrame).not.toHaveBeenCalled();
+
+    publisher.queue({ x: 1, y: 1 });
+    scheduler.flushAll();
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    // Already delivered — a peer joining must not re-write it.
+    publisher.resend();
+    scheduler.flushAll();
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 
   it("dispose is a safe no-op when nothing was ever queued", () => {
