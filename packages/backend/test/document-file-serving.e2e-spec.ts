@@ -136,6 +136,7 @@ describeDb('GET /documents/:id/file (member OR share token)', () => {
     const { id: fileId } = await fileService.upload(
       PDF_BYTES,
       'application/pdf',
+      'shared.pdf',
     );
     const pdfDoc = await prisma.document.create({
       data: {
@@ -155,6 +156,7 @@ describeDb('GET /documents/:id/file (member OR share token)', () => {
     const { id: otherFileId } = await fileService.upload(
       PDF_BYTES,
       'application/pdf',
+      'other.pdf',
     );
     const otherPdfDoc = await prisma.document.create({
       data: {
