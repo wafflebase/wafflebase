@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { format, output, outputError } from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
+import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
@@ -296,23 +296,90 @@ describe('--quiet does not suppress the body or the error envelope', () => {
 });
 
 // The guards above drive `parseAsync` directly, so they only describe the
-// shipped behavior if the entrypoint awaits the action promises too. Commander
-// drops them under the synchronous `parse()`, which turns a rejection into an
-// unhandled rejection instead of the error envelope — assert the binary keeps
-// using `parseAsync`.
-describe('bin entrypoint', () => {
-  const source = readFileSync(
-    new URL('../src/bin.ts', import.meta.url),
-    'utf-8',
-  );
+// shipped behavior if the entrypoint awaits the action promises too. These
+// exercise the entrypoint itself (`runCli`, which `src/bin.ts` is a one-line
+// delegate to — see test/bin.test.ts) with an action that rejects after a
+// microtask, i.e. the case no command handled itself. Under the synchronous
+// `parse()` commander drops the action promise, so the rejection escapes the
+// entrypoint's catch: nothing reaches stderr, the exit code stays 0, and the
+// first test below fails.
+describe('runCli entrypoint', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  const originalExitCode = process.exitCode;
 
-  it('drives commander with parseAsync, not the synchronous parse', () => {
-    expect(source).toContain('program.parseAsync(');
-    expect(source).not.toMatch(/program\.parse\s*\(/);
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(console, 'log').mockImplementation(() => {
+      /* swallow */
+    });
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      /* swallow */
+    });
+    process.exitCode = 0;
   });
 
-  it('routes an unhandled action rejection into the error envelope', () => {
-    expect(source).toMatch(/\.catch\(/);
-    expect(source).toContain('outputError');
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+    process.exitCode = originalExitCode;
+  });
+
+  class LateFailure extends Error {
+    readonly code = 'LATE_FAILURE';
+  }
+
+  /** A program whose only action rejects asynchronously, outside any try. */
+  function programWithRejectingAction(): Command {
+    const program = createProgram();
+    program.command('boom').action(async () => {
+      await Promise.resolve();
+      throw new LateFailure('kaboom');
+    });
+    return program;
+  }
+
+  it('envelopes an action rejection no command handled itself', async () => {
+    await expect(
+      runCli(programWithRejectingAction(), ['node', 'wafflebase', 'boom']),
+    ).resolves.toBeUndefined();
+
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error).toEqual({ code: 'LATE_FAILURE', message: 'kaboom' });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('leaves a successful run untouched', async () => {
+    const program = createProgram();
+    program.command('ok').action(async () => {
+      await Promise.resolve();
+      output({ ok: true }, 'json');
+    });
+
+    await runCli(program, ['node', 'wafflebase', 'ok']);
+
+    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('{\n  "ok": true\n}');
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('wires every namespace onto the default program', () => {
+    const names = buildProgram().commands.map((c) => c.name());
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'login',
+        'logout',
+        'status',
+        'ctx',
+        'docs',
+        'sheets',
+        'slides',
+        'notes',
+        'api-keys',
+        'schema',
+      ]),
+    );
   });
 });

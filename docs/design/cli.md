@@ -663,7 +663,8 @@ packages/cli/
   tsconfig.json
   vitest.config.ts
   src/
-    bin.ts               Entry point (#!/usr/bin/env node)
+    bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
+    cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
