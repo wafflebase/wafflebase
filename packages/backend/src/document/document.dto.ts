@@ -2,11 +2,13 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   Matches,
+  Min,
 } from 'class-validator';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
@@ -36,6 +38,18 @@ export class CreateDocumentDto {
   @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
 
+  // Blob metadata, accepted only alongside a fileId (the controller drops it
+  // otherwise). Advisory display data — never a security decision.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fileSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  mimeType?: string;
+
   @IsOptional()
   @IsUUID()
   folderId?: string;
@@ -54,6 +68,18 @@ export class CreateDocumentInWorkspaceDto {
   @IsString()
   @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
+
+  // Blob metadata, accepted only alongside a fileId (the controller drops it
+  // otherwise). Advisory display data — never a security decision.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fileSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  mimeType?: string;
 
   @IsUUID()
   workspaceId: string;
