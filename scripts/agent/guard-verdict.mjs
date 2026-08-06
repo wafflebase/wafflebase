@@ -119,6 +119,35 @@ export function renderGuardSummary(v = {}) {
 }
 
 /**
+ * The Actions run URL from the runner's own default env, or null when any
+ * piece is missing (a local run). Null, never a partial string: a URL built
+ * around an absent `GITHUB_RUN_ID` renders as a clickable link to
+ * `.../actions/runs/undefined`, which is worse than no link at all.
+ */
+export function runUrlFromEnv(env = process.env) {
+  const part = (k) => (typeof env[k] === "string" && env[k] !== "" ? env[k] : null);
+  const server = part("GITHUB_SERVER_URL");
+  const repo = part("GITHUB_REPOSITORY");
+  const run = part("GITHUB_RUN_ID");
+  return server && repo && run ? `${server}/${repo}/actions/runs/${run}` : null;
+}
+
+/**
+ * One "Where to look" line for a 🛑 page comment: the failed run, the job
+ * inside it, and the artifact carrying the transcript — the three clicks a
+ * page used to make a maintainer reconstruct from the Actions tab. Returns ""
+ * without a URL, so a page posted from a context with no run link renders
+ * exactly as it does today rather than pointing at nothing.
+ */
+export function whereToLookLine({ runUrl, job, step, artifact } = {}) {
+  if (!runUrl) return "";
+  const jobPart = job ? ` → job \`${job}\`` : "";
+  const stepPart = job && step ? `, step "${step}"` : "";
+  const artifactPart = artifact ? `; transcript in the \`${artifact}\` artifact` : "";
+  return `\n\nWhere to look: [this run](${runUrl})${jobPart}${stepPart}${artifactPart}.`;
+}
+
+/**
  * Append markdown to the job summary when running inside Actions; no-op (with
  * a stderr echo, so local runs still show it) otherwise. Never throws — this
  * is display, and a full disk or bad path must not fail the guard.

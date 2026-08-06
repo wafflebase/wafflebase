@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guardVerdictLine, renderGuardSummary } from "./guard-verdict.mjs";
+import { guardVerdictLine, renderGuardSummary, runUrlFromEnv, whereToLookLine } from "./guard-verdict.mjs";
 
 test("proceed line names the round being dispatched, not the failed count", () => {
   const line = guardVerdictLine({
@@ -93,4 +93,45 @@ test("rerun hand-back is stated when it holds the softer pages", () => {
     standstillCount: 0,
   });
   assert.match(md, /held for this one attempt/);
+});
+
+// --- "Where to look" (Phase 2) ----------------------------------------------
+
+test("runUrlFromEnv: a full env yields the run URL; any missing piece yields null", () => {
+  const env = {
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_REPOSITORY: "wafflebase/wafflebase",
+    GITHUB_RUN_ID: "123457",
+  };
+  assert.equal(runUrlFromEnv(env), "https://github.com/wafflebase/wafflebase/actions/runs/123457");
+  // Null, never a partial URL — ".../runs/undefined" is worse than no link.
+  for (const k of Object.keys(env)) {
+    assert.equal(runUrlFromEnv({ ...env, [k]: "" }), null, `${k}=""`);
+    const rest = { ...env };
+    delete rest[k];
+    assert.equal(runUrlFromEnv(rest), null, `${k} absent`);
+  }
+  assert.equal(runUrlFromEnv({}), null);
+});
+
+test("whereToLookLine: renders the run, job, step and artifact it is given — and nothing it is not", () => {
+  const full = whereToLookLine({
+    runUrl: "https://github.com/o/r/actions/runs/1",
+    job: "fix",
+    step: "Review-round guard",
+    artifact: "claude-fix-execution-output",
+  });
+  assert.equal(
+    full,
+    '\n\nWhere to look: [this run](https://github.com/o/r/actions/runs/1) → job `fix`, step "Review-round guard"; transcript in the `claude-fix-execution-output` artifact.',
+  );
+  // No URL → empty string, so a page posted outside Actions renders as today.
+  assert.equal(whereToLookLine({ job: "fix" }), "");
+  assert.equal(whereToLookLine(), "");
+  // A step without a job would dangle — it renders only alongside one.
+  assert.equal(
+    whereToLookLine({ runUrl: "u", step: "S" }),
+    "\n\nWhere to look: [this run](u).",
+  );
+  assert.equal(whereToLookLine({ runUrl: "u", job: "j" }), "\n\nWhere to look: [this run](u) → job `j`.");
 });

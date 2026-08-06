@@ -556,7 +556,80 @@ function renderAttribution(attr) {
   return out;
 }
 
-export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }) {
+/** Session kinds the pipeline itself records. Everything else renders as
+ * `other`: metric records are parsed from ANY comment on a public repo (the
+ * append-only ledger has no author gate), so `kind` is the one free-text field
+ * an outsider could steer into this bot-authored summary — allow-list it, and
+ * keep every other cell numeric. */
+const LEDGER_KINDS = new Set(["implement", "ci-fix", "review-fix", "review"]);
+
+/** Row cap for the ledger table. The record list is open-ended (any comment
+ * can carry a metric record), and an unbounded table could push the summary
+ * past GitHub's comment-size cap — which fails the post and silences the
+ * whole summary, a denial of the one surface this exists to keep alive. 30
+ * covers double MAX_REVIEW_ROUNDS' worth of sessions with room for kickoff
+ * and CI fixes; when it overflows, the NEWEST rows win (they are the ones a
+ * reader is diagnosing) and the omission is stated rather than silent. */
+export const MAX_LEDGER_ROWS = 30;
+
+/** A number cell, or "—" when the record never measured it. NEVER coerce a
+ * missing value to 0 — `Number(null) === 0`, and a legacy record with no
+ * `turns` did not do zero turns, it did an unmeasured amount. */
+function measured(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The per-session ledger: every record `cmdSummarize` aggregates, as one
+ * chronological row each, folded so the totals stay the headline. This is the
+ * answer to "what did round 3 cost" — the aggregates above it can only answer
+ * "what did everything cost". Zero new data collection: `dedupRecords` already
+ * yields these in ledger (chronological) order, and rendering happens before
+ * any sweep, so `--final` summaries carry the full table too.
+ *
+ * `review` and `review-fix` get a round ordinal from their position in that
+ * order — the nth panel record IS round n, the same reading `detectFlips`
+ * depends on. `implement`/`ci-fix` rows stay bare; the `#` column orders them.
+ */
+export function renderLedger(records) {
+  const list = (Array.isArray(records) ? records : []).filter((r) => r && typeof r === "object");
+  if (list.length === 0) return [];
+  const roundOf = { review: 0, "review-fix": 0 };
+  // Every row is BUILT (round ordinals and the # column come from the full
+  // chronological list) and then the table keeps only the newest
+  // MAX_LEDGER_ROWS — so a surviving row reads identically whether or not
+  // older ones were dropped, and the drop itself is stated.
+  const rows = list.map((r, i) => {
+    const kind = LEDGER_KINDS.has(r.kind) ? r.kind : "other";
+    const label = kind === "review" || kind === "review-fix" ? `${kind} (round ${++roundOf[kind]})` : kind;
+    const turns = measured(r.turns);
+    const weighted = measured(r.weightedTokens) ?? measured(r.tokens);
+    const cost = measured(r.costUsd);
+    const durMs = measured(r.durationMs);
+    // Seconds under a minute, same rule as renderFixEffort: a session that died
+    // in 18 seconds did no work, and "1m" hides exactly that.
+    const duration = durMs == null ? "—" : durMs < 60_000 ? `${Math.round(durMs / 1000)}s` : formatMinutes(durMs);
+    return `| ${i + 1} | ${label} | ${turns ?? "—"} | ${weighted == null ? "—" : formatTokens(weighted)} | ${cost == null ? "—" : formatUsd(cost)} | ${duration} |`;
+  });
+  const omitted = rows.length - MAX_LEDGER_ROWS;
+  return [
+    "",
+    `<details><summary>Per-session ledger (${list.length} session${list.length === 1 ? "" : "s"})</summary>`,
+    "",
+    ...(omitted > 0
+      ? [`_${omitted} earlier session(s) omitted — showing the most recent ${MAX_LEDGER_ROWS}; the totals above cover everything._`, ""]
+      : []),
+    "| # | Kind | Turns | Tokens (weighted) | Cost | Duration |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...rows.slice(-MAX_LEDGER_ROWS),
+    "",
+    "</details>",
+  ];
+}
+
+export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope, records }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
   // An on-demand `@claude review` posts a review record but no code-fix session,
   // so `aggregate([])` yields an all-zero `agg`. Rendering a "Code-fix agent"
@@ -706,6 +779,10 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
     // attribution, so pre-instrumentation PRs render exactly as before).
     lines.push(...renderAttribution(panelAttribution));
   }
+  // Per-session ledger last: the aggregates are the headline, the fold is the
+  // receipt. Callers that pass no `records` (older invocations, tests) render
+  // byte-identically to before the table existed.
+  lines.push(...renderLedger(records));
   return lines.join("\n");
 }
 
@@ -1077,7 +1154,7 @@ function cmdSummarize(args) {
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    const summary = renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope });
+    const summary = renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope, records });
     postComment(pr, isFinal ? summary : `${summary}\n${serializeSummaryData(embedList)}`);
   } catch (e) {
     return bail(`could not post summary for PR #${pr}: ${e.message}`);

@@ -9,6 +9,8 @@
 // A verdict is APPROVED iff it has zero critical/major findings.
 // Any unrecognized severity is treated as `major` (fail-safe).
 
+import { findingLocation } from "./novelty.mjs";
+
 export const KNOWN = ["critical", "major", "minor", "nit"];
 export const BLOCKING = new Set(["critical", "major"]);
 
@@ -58,6 +60,82 @@ export function countsStr(findings) {
   return KNOWN.map((s) => `${findings.filter((f) => f.severity === s).length} ${s}`).join(", ");
 }
 
+/**
+ * Neutralize `<!--` in a string that is about to be rendered into a body a
+ * trusted identity will post. Same ZWNJ-split technique as
+ * `scripts/agent/fix-report.mjs` and `scripts/agent/loop-status.mjs`, for the
+ * same reason: lens summaries are copied verbatim into a bot-authored PR
+ * comment (agent-review-on-demand.yml), and the paged latches trust the bot
+ * identity — so author-written prose (an adjudicated dispute's reason, a skip
+ * note) must not be able to smuggle a live `<!-- agent-review-paged -->` into
+ * that comment. Applied to the NEW author-adjacent strings only; lens/verifier
+ * model output keeps today's rendering.
+ */
+function neutralizeMarkers(text) {
+  return String(text ?? "").replace(/<!--/g, "<!-‌-");
+}
+
+/**
+ * The rendered locator for one finding: `file:line` when a line is known —
+ * from the finding's own `line`, or the first same-file `file:line` citation
+ * in its evidence (`findingLocation`'s rule) — else the bare file. Harvest's
+ * `parsePanelComment` already strips a `:line` suffix from the locator, so the
+ * richer form round-trips through the corpus reader unchanged.
+ */
+function locatorOf(f) {
+  const loc = findingLocation(f);
+  if (!loc) return "";
+  return loc.line ? `${loc.file}:${loc.line}` : loc.file;
+}
+
+/**
+ * The verifier's per-finding outcome marker. `unsettled` keeps its exact
+ * existing wording (it predates `verification` and other renderers read it);
+ * `verification` is the reporting-only field `annotateFindings` stamps —
+ * "confirmed-high" / "confirmed-low" / "errored". Absent on findings from
+ * rounds before the field existed, which renders exactly as today.
+ */
+function verifierMarker(f) {
+  if (f.unsettled) return " _(verifier could not settle this)_";
+  if (f.verification === "confirmed-high") return " _(verifier: confirmed, high confidence)_";
+  if (f.verification === "confirmed-low") return " _(verifier: confirmed, low confidence)_";
+  if (f.verification === "errored") return " _(UNVERIFIED — the verifier session errored)_";
+  return "";
+}
+
+/**
+ * The adjudication sub-bullet for a finding that survived a dispute or a
+ * fix-claim this round. The decision integer (`upheld`) has always been
+ * carried; the REASON was computed and then discarded from every human
+ * surface — this is where it finally lands. `skipped-by-author` is excluded:
+ * those get their own section below, where the note reads as what it is.
+ */
+function adjudicationNote(f) {
+  const a = f.adjudication;
+  if (!a || typeof a !== "object" || a.verdict === "skipped-by-author") return "";
+  const reason = neutralizeMarkers(String(a.reason ?? "").trim());
+  const quoted = reason ? ` — "${reason}"` : "";
+  if (a.verdict === "unadjudicated-fix-claim") {
+    return `\n  - fix claimed by the author, but the panel re-found this — counts as an upheld dispute${quoted}`;
+  }
+  // Enumerated verdicts ONLY — never a fallback label. A carried-forward
+  // finding's adjudication is exactly `{ upheld: N }`: the output.text carry
+  // strips the verdict and reason by design, so "no verdict" is the normal
+  // shape of history, not a variant of this round's decision. The ungrounded
+  // overturn is the one verdict string adjudicateRebuttals stores that is not
+  // its own label ("overturned" on a KEPT finding means the gate rejected the
+  // overturn); anything else — absent, "", or a future value — renders
+  // nothing, which is what that finding rendered before this existed.
+  const label =
+    a.verdict === "upheld" ? "**upheld**"
+    : a.verdict === "unresolved" ? "**upheld** (the adjudicator could not settle the dispute)"
+    : a.verdict === "errored" ? "**upheld** (the adjudicator session errored)"
+    : a.verdict === "overturned" ? "**upheld** (the overturn lacked grounded evidence)"
+    : null;
+  if (!label) return "";
+  return `\n  - dispute adjudicated: ${label}${quoted}`;
+}
+
 function section(findings, severity, heading) {
   const rows = findings.filter((f) => f.severity === severity);
   if (rows.length === 0) return "";
@@ -67,7 +145,7 @@ function section(findings, severity, heading) {
       // the human deciding how much to trust it. It means the verifier searched
       // and could not disprove the claim, which is NOT the same as having
       // confirmed it, and printing them identically would read as endorsement.
-      const unsettled = f.unsettled ? " _(verifier could not settle this)_" : "";
+      const marker = verifierMarker(f);
       // Other wordings of this same defect, folded in by the clustering pass.
       // Printed rather than dropped: merging is a judgement, and a reader — or
       // the fix agent — must be able to see what was merged and disagree. A
@@ -77,10 +155,38 @@ function section(findings, severity, heading) {
           f.mergedFrom.map((m) => `  - (${m.severity}) ${m.summary ?? "(no summary)"}`).join("\n") +
           "\n  </details>"
         : "";
-      return `- ${f.file ? `\`${f.file}\` — ` : ""}${f.summary ?? "(no summary)"}${unsettled}${merged}`;
+      const locator = locatorOf(f);
+      return `- ${locator ? `\`${locator}\` — ` : ""}${f.summary ?? "(no summary)"}${marker}${adjudicationNote(f)}${merged}`;
     })
     .join("\n");
   return `\n### ${heading} (${rows.length})\n${body}\n`;
+}
+
+/**
+ * Findings the AUTHOR reported it skipped, with its stated reason — the
+ * documented not-yet-built surface from the harness doc's fix-report section.
+ * They still gate (each is also listed in its severity section above); this
+ * section exists so the skip and its note are readable as a skip instead of
+ * looking like a finding the fixer silently ignored. Each skip counts as an
+ * upheld dispute toward the standstill bound.
+ */
+function authorSkipsSection(findings) {
+  const rows = findings.filter((f) => f.adjudication?.verdict === "skipped-by-author");
+  if (rows.length === 0) return "";
+  const body = rows
+    .map((f) => {
+      const locator = locatorOf(f);
+      const note = neutralizeMarkers(String(f.adjudication.reason ?? "").trim());
+      return `- ${locator ? `\`${locator}\` — ` : ""}${f.summary ?? "(no summary)"}` +
+        (note ? `\n  - author note: "${note}"` : "");
+    })
+    .join("\n");
+  return (
+    `\n### Author-reported skips (${rows.length} — still blocking)\n` +
+    "_The author explicitly skipped these rather than fixing or disputing them. " +
+    "They still gate, and each skip counts as an upheld dispute._\n" +
+    `${body}\n`
+  );
 }
 
 /**
@@ -162,6 +268,7 @@ export function renderSummaryMd(label, rawFindings, summaryText, { advisory = fa
     section(findings, "major", "Major") +
     section(findings, "minor", "Minor (non-blocking)") +
     section(findings, "nit", "Nit (non-blocking)") +
+    authorSkipsSection(findings) +
     demotedSection(demoted)
   );
 }
