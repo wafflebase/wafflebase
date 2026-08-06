@@ -75,4 +75,37 @@ describe("applyZoomValue", () => {
   it("returns undefined for a zero-area host", () => {
     expect(applyZoomValue(DEFAULT_VIEWPORT, 2, { w: 0, h: 0 }, frames)).toBeUndefined();
   });
+
+  // DEFAULT_VIEWPORT.zoom is 1, which makes `target / vp.zoom` and a bare
+  // `target` indistinguishable — every case above would pass even if the
+  // division were deleted. These two pin the conversion from a starting
+  // zoom that is NOT 1, so the factor math is actually exercised.
+  it("converts the absolute target through a non-1 starting zoom (0.5)", () => {
+    const vp = { panX: 10, panY: -20, zoom: 0.5 };
+    const next = applyZoomValue(vp, 2, host, frames);
+    expect(next).toBeDefined();
+    expect(next!.zoom).toBe(2); // NOT vp.zoom * 2 = 1
+    // The world point under the host centre before the call, computed from
+    // the ACTUAL starting viewport, must still be under the host centre
+    // after it.
+    const centreWorldBefore = {
+      x: (host.w / 2 - vp.panX) / vp.zoom,
+      y: (host.h / 2 - vp.panY) / vp.zoom,
+    };
+    expect(centreWorldBefore.x * next!.zoom + next!.panX).toBeCloseTo(host.w / 2);
+    expect(centreWorldBefore.y * next!.zoom + next!.panY).toBeCloseTo(host.h / 2);
+  });
+
+  it("converts the absolute target through a non-1 starting zoom (4)", () => {
+    const vp = { panX: -50, panY: 30, zoom: 4 };
+    const next = applyZoomValue(vp, 0.5, host, frames);
+    expect(next).toBeDefined();
+    expect(next!.zoom).toBe(0.5); // NOT vp.zoom * 0.5 = 2
+    const centreWorldBefore = {
+      x: (host.w / 2 - vp.panX) / vp.zoom,
+      y: (host.h / 2 - vp.panY) / vp.zoom,
+    };
+    expect(centreWorldBefore.x * next!.zoom + next!.panX).toBeCloseTo(host.w / 2);
+    expect(centreWorldBefore.y * next!.zoom + next!.panY).toBeCloseTo(host.h / 2);
+  });
 });
