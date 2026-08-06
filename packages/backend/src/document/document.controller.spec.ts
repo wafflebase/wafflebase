@@ -64,6 +64,90 @@ describe('DocumentController.createDocument fileId gating', () => {
       }),
     );
   });
+
+  it('forwards fileSize/mimeType when a fileId is present', async () => {
+    const createDocument = jest.fn().mockResolvedValue({ id: 'd1' });
+    const ctrl = makeController(createDocument);
+    await ctrl.createDocument(req, {
+      title: 'Doc.pdf',
+      type: 'pdf',
+      fileId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf',
+      fileSize: 1234,
+      mimeType: 'application/pdf',
+      workspaceId: 'w1',
+    } as never);
+    expect(createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileSize: 1234,
+        mimeType: 'application/pdf',
+      }),
+    );
+  });
+
+  it('drops fileSize/mimeType when no fileId is present, even if supplied', async () => {
+    const createDocument = jest.fn().mockResolvedValue({ id: 'd1' });
+    const ctrl = makeController(createDocument);
+    await ctrl.createDocument(req, {
+      title: 'Sheet',
+      // No fileId — a CRDT document must never carry blob metadata.
+      fileSize: 1234,
+      mimeType: 'application/pdf',
+      workspaceId: 'w1',
+    } as never);
+    expect(createDocument).toHaveBeenCalledTimes(1);
+    const call = createDocument.mock.calls[0][0];
+    expect(call).not.toHaveProperty('fileSize');
+    expect(call).not.toHaveProperty('mimeType');
+  });
+});
+
+describe('DocumentController.createInWorkspace blob metadata forwarding', () => {
+  function makeWorkspaceController(createDocument: jest.Mock) {
+    const documentService = { createDocument };
+    const workspaceService = {
+      assertMember: jest.fn().mockResolvedValue({}),
+      resolveId: jest.fn((id: string) => Promise.resolve(id)),
+    };
+    return new DocumentController(
+      documentService as never,
+      workspaceService as never,
+      { getSummaries: jest.fn() } as never,
+      { getObject: jest.fn() } as never,
+      { assertSameWorkspace: jest.fn() } as never,
+    );
+  }
+
+  it('forwards fileSize/mimeType when a fileId is present', async () => {
+    const createDocument = jest.fn().mockResolvedValue({ id: 'd1' });
+    const ctrl = makeWorkspaceController(createDocument);
+    await ctrl.createInWorkspace('w1', req, {
+      title: 'Doc.pdf',
+      type: 'pdf',
+      fileId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf',
+      fileSize: 5678,
+      mimeType: 'application/pdf',
+    } as never);
+    expect(createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileSize: 5678,
+        mimeType: 'application/pdf',
+      }),
+    );
+  });
+
+  it('drops fileSize/mimeType when no fileId is present, even if supplied', async () => {
+    const createDocument = jest.fn().mockResolvedValue({ id: 'd1' });
+    const ctrl = makeWorkspaceController(createDocument);
+    await ctrl.createInWorkspace('w1', req, {
+      title: 'Sheet',
+      fileSize: 5678,
+      mimeType: 'application/pdf',
+    } as never);
+    expect(createDocument).toHaveBeenCalledTimes(1);
+    const call = createDocument.mock.calls[0][0];
+    expect(call).not.toHaveProperty('fileSize');
+    expect(call).not.toHaveProperty('mimeType');
+  });
 });
 
 const WS = 'ws-1';

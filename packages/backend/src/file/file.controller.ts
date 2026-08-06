@@ -10,7 +10,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FileService } from './file.service';
-import { MAX_PDF_UPLOAD_BYTES } from './file.constants';
+import { MAX_FILE_UPLOAD_BYTES } from './file.constants';
 
 // Bulk uploads (dropping many files at once) burst past the global 120/min
 // default; match the inline-image routes' raised bucket.
@@ -26,14 +26,18 @@ export class FileController {
   // Cap the upload at the Multer layer so an oversized body is rejected during
   // parsing rather than being fully buffered into memory first.
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_PDF_UPLOAD_BYTES } }),
+    FileInterceptor('file', { limits: { fileSize: MAX_FILE_UPLOAD_BYTES } }),
   )
   async upload(
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; size: number; mimeType: string }> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    return this.fileService.upload(file.buffer, file.mimetype);
+    return this.fileService.upload(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
   }
 }

@@ -10,6 +10,8 @@ export async function createDocument(payload: {
   title: string;
   type?: DocumentType;
   fileId?: string;
+  fileSize?: number;
+  mimeType?: string;
 }): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`,

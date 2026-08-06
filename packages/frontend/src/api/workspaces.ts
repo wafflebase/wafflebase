@@ -279,6 +279,8 @@ export async function createWorkspaceDocument(
     title: string;
     type?: DocumentType;
     fileId?: string;
+    fileSize?: number;
+    mimeType?: string;
     folderId?: string | null;
   },
 ) {

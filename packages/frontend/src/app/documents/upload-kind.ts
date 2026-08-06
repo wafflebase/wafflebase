@@ -1,10 +1,12 @@
 /**
- * What a queued row produces. Every other kind is classified from a file
- * extension; `board` is deliberately absent from `EXT_TO_KIND` because no
- * file maps to it. It exists because an externally driven row
- * (`enqueueExternal` — today the Miro import) still has to say what it is
- * making, so consumers that switch on the kind can tell an import apart from
- * an upload.
+ * What a queued row produces — the document type the file becomes.
+ *
+ * `file` is the fallback for every extension without a richer handler: a blob
+ * document with no dedicated viewer. It is a rule, not a stopgap — see
+ * docs/design/generic-file-upload.md on `Document.type` as a viewer-routing
+ * key. `board` is deliberately absent from `EXT_TO_KIND` because no file maps
+ * to it; it exists for externally driven rows (`enqueueExternal`, today the
+ * Miro import).
  */
 export type UploadKind =
   | "sheet"
@@ -12,9 +14,8 @@ export type UploadKind =
   | "slides"
   | "pdf"
   | "image"
-  | "board";
-
-export const SKIP_REASON = "Unsupported file type";
+  | "board"
+  | "file";
 
 const EXT_TO_KIND: Record<string, UploadKind> = {
   xlsx: "sheet",
@@ -28,9 +29,9 @@ const EXT_TO_KIND: Record<string, UploadKind> = {
   webp: "image",
 };
 
-export function classifyUploadKind(fileName: string): UploadKind | null {
+export function classifyUploadKind(fileName: string): UploadKind {
   const dot = fileName.lastIndexOf(".");
-  if (dot < 0) return null;
+  if (dot < 0) return "file";
   const ext = fileName.slice(dot + 1).toLowerCase();
-  return EXT_TO_KIND[ext] ?? null;
+  return EXT_TO_KIND[ext] ?? "file";
 }

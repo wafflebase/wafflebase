@@ -30,6 +30,7 @@ export default tseslint.config(
             "buttonVariants",
             "toggleVariants",
             "useSidebar",
+            "sharedBlobKind",
           ],
         },
       ],

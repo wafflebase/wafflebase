@@ -11,6 +11,7 @@ import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import type { User } from "@/types/users";
 import { FileShell } from "./file-shell";
+import { GenericFileView } from "./generic-file-view";
 import { ImageViewer } from "./image-viewer";
 import {
   PdfCollabProvider,
@@ -122,11 +123,50 @@ function ImageFileLayout({
   );
 }
 
+function GenericFileLayout({
+  documentId,
+  title,
+  fileId,
+  fileSize,
+  createdAt,
+}: {
+  documentId: string;
+  title: string;
+  fileId?: string;
+  fileSize?: number;
+  createdAt?: string;
+}) {
+  return (
+    <FileShell
+      documentId={documentId}
+      headerActions={
+        <>
+          <DownloadFileButton
+            documentId={documentId}
+            title={title}
+            fileId={fileId}
+            label="Download file"
+          />
+          <ShareDialog documentId={documentId} />
+        </>
+      }
+    >
+      <GenericFileView
+        title={title}
+        fileId={fileId}
+        fileSize={fileSize}
+        createdAt={createdAt}
+      />
+    </FileShell>
+  );
+}
+
 /**
  * FileDetail is the `/f/:id` route shared by static blob documents. It
  * auth-gates on the current user, resolves the document `type`, then mounts
  * the matching layout: pdf → collaborative PDF (comments + presence over the
- * `pdf-<id>` Yorkie doc); image → a plain viewer with no Yorkie attachment.
+ * `pdf-<id>` Yorkie doc); image → a plain viewer with no Yorkie attachment;
+ * file → a static card (icon, name, size, download) with no Yorkie attachment.
  */
 export function FileDetail() {
   const { id } = useParams();
@@ -169,6 +209,17 @@ export function FileDetail() {
         documentId={id!}
         title={documentData.title}
         fileId={documentData.fileId}
+      />
+    );
+  }
+  if (documentData.type === "file") {
+    return (
+      <GenericFileLayout
+        documentId={id!}
+        title={documentData.title}
+        fileId={documentData.fileId}
+        fileSize={documentData.fileSize}
+        createdAt={documentData.createdAt}
       />
     );
   }

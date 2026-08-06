@@ -3,8 +3,10 @@ import { assertOk } from "./http-error";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
 
-/** Upload a blob (pdf or image); returns the stored blob id. */
-export async function uploadFile(file: File): Promise<{ id: string }> {
+/** Upload a blob; returns the stored blob id plus its recorded metadata. */
+export async function uploadFile(
+  file: File,
+): Promise<{ id: string; size: number; mimeType: string }> {
   const formData = new FormData();
   formData.append("file", file, file.name);
   const res = await fetchWithAuth(`${BACKEND_BASE}/files`, {
@@ -12,7 +14,7 @@ export async function uploadFile(file: File): Promise<{ id: string }> {
     body: formData,
   });
   await assertOk(res, "File upload failed");
-  return (await res.json()) as { id: string };
+  return (await res.json()) as { id: string; size: number; mimeType: string };
 }
 
 /** Document-scoped, permission-gated URL that streams the stored blob. */

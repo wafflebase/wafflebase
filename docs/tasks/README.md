@@ -22,6 +22,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | board sp4 editing parity (2026-08-06) | [20260806-board-sp4-editing-parity-todo.md](./active/20260806-board-sp4-editing-parity-todo.md) | [20260806-board-sp4-editing-parity-lessons.md](./active/20260806-board-sp4-editing-parity-lessons.md) |
 | dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./active/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./active/20260806-dependabot-alerts-lessons.md) |
 | eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./active/20260806-eval-replay-runner-todo.md) | - |
+| generic file upload (2026-08-06) | [20260806-generic-file-upload-todo.md](./active/20260806-generic-file-upload-todo.md) | [20260806-generic-file-upload-lessons.md](./active/20260806-generic-file-upload-lessons.md) |
 | capture collector (2026-08-05) | [20260805-capture-collector-todo.md](./active/20260805-capture-collector-todo.md) | - |
 | eval config identity (2026-08-05) | [20260805-eval-config-identity-todo.md](./active/20260805-eval-config-identity-todo.md) | - |
 | eval corpus skeleton (2026-08-05) | [20260805-eval-corpus-skeleton-todo.md](./active/20260805-eval-corpus-skeleton-todo.md) | - |
