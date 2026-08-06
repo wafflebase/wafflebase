@@ -1,6 +1,7 @@
 import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
+import { exitCodeFor } from '../errors.js';
 
 export type OutputFormat = 'json' | 'table' | 'csv';
 
@@ -34,14 +35,21 @@ function errorCode(error: unknown): string {
   return 'ERROR';
 }
 
+/**
+ * Errors are reported on stderr and classified into the documented exit
+ * contract (see `../errors.js`): `1` for anything the caller can fix,
+ * `2` for network/auth/server faults. `quiet` suppresses the body but not
+ * the classification — scripts branching on `$?` are the main consumer.
+ */
 export function outputError(error: unknown, quiet: boolean) {
+  const exitCode = exitCodeFor(error);
   if (quiet) {
-    process.exitCode = 1;
+    process.exitCode = exitCode;
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     JSON.stringify({ error: { code: errorCode(error), message } }, null, 2),
   );
-  process.exitCode = 1;
+  process.exitCode = exitCode;
 }

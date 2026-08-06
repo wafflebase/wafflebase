@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
 
@@ -84,7 +85,7 @@ export function registerSheetsImportCommand(parent: Command) {
         }
 
         const res = await getClient(opts).batchCells(docId, localOpts.tab, cells);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         const result = typeof res.data === 'object' && res.data !== null
           ? { imported: cellCount, ...res.data as Record<string, unknown> }
           : { imported: cellCount };

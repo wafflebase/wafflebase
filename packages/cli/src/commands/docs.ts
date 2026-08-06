@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
+import { exitCodeForStatus, httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
@@ -73,7 +74,7 @@ export function registerDocsCommand(program: Command) {
       try {
         const filterType = parseType(typeStr);
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         let data = res.data as unknown;
         if (filterType && Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -100,7 +101,7 @@ export function registerDocsCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, type);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -114,7 +115,7 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -132,7 +133,7 @@ export function registerDocsCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -150,7 +151,7 @@ export function registerDocsCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -191,12 +192,14 @@ export function registerDocsCommand(program: Command) {
           const body = res.data as { error?: { code?: string; message?: string } } | null;
           if (body?.error) {
             // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field.
+            // so agents reading stderr can act on the `code` field. The
+            // status still decides the exit class — a 401 SESSION_EXPIRED
+            // body must not read as a user error just because it is JSON.
             console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
+            process.exitCode = exitCodeForStatus(res.status);
             return;
           }
-          throw new Error(`HTTP ${res.status}`);
+          throw httpError(res.status);
         }
 
         runDocsContent({
@@ -253,10 +256,10 @@ export function registerDocsCommand(program: Command) {
           const body = res.data as { error?: { code?: string; message?: string } } | null;
           if (body?.error) {
             console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
+            process.exitCode = exitCodeForStatus(res.status);
             return;
           }
-          throw new Error(`HTTP ${res.status}`);
+          throw httpError(res.status);
         }
         const fetchedDoc = res.data;
 

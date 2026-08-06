@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { exitCodeForStatus } from '../errors.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -158,7 +159,7 @@ export async function runNotesImport(
       io.stderr(
         JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
       );
-      return { exitCode: 1 };
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
     return { exitCode: 0 };
@@ -187,7 +188,7 @@ export async function runNotesImport(
     io.stderr(
       JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
     );
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
@@ -211,7 +212,7 @@ export async function runNotesImport(
     io.stderr(
       JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
     );
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(JSON.stringify({ id: newId, title: inferredTitle }, null, 2));

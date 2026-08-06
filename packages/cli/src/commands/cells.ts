@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 
 export function registerCellsCommand(parent: Command) {
@@ -22,7 +23,7 @@ export function registerCellsCommand(parent: Command) {
           : range
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -62,7 +63,7 @@ export function registerCellsCommand(parent: Command) {
           formula ? undefined : value,
           formula ? value : undefined,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -88,7 +89,7 @@ export function registerCellsCommand(parent: Command) {
 
       try {
         const res = await getClient(opts).deleteCell(docId, tab, ref);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
@@ -135,7 +136,7 @@ export function registerCellsCommand(parent: Command) {
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
