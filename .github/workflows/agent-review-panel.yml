@@ -957,6 +957,64 @@ jobs:
             const infra = required.length > 0 && infraDetails.length === required.length ? infraDetails[0] : '';
             core.setOutput('infra', infra);
 
+      # OBSERVABILITY (Phase 1): make the run page self-explanatory — a per-lens
+      # verdict/verifier/cost table rendered from files the orchestrator already
+      # wrote (panel.json, review-lens-stats.json, review-timing.json,
+      # review-execution.json). Trusted copy from .trusted; display only, and
+      # best-effort: a summary failure must never fail the panel. A missing
+      # panel.json renders the fail-closed explanation instead of a table.
+      - name: Write panel job summary
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          # The narrow step is the one that actually decided what the reviewed
+          # diff was (same precedence the check-run title suffix uses).
+          SCOPE_MODE: ${{ steps.narrow.outputs.mode || steps.scope.outputs.mode }}
+          SCOPE_REASON: ${{ steps.scope.outputs.reason }}
+          SCOPE_ROUNDS: ${{ steps.scope.outputs.rounds }}
+        # [ -f ] guard: .trusted is the DEFAULT BRANCH's copy, so until this
+        # script has merged the step must skip quietly, not red every panel run.
+        run: |
+          [ -f .trusted/scripts/agent/panel-job-summary.mjs ] || { echo "panel-job-summary.mjs not on main yet; skipping"; exit 0; }
+          node .trusted/scripts/agent/panel-job-summary.mjs \
+            --review-dir .agent-review \
+            --pr "$PR" \
+            --scope-mode "$SCOPE_MODE" \
+            --scope-reason "$SCOPE_REASON" \
+            --scope-rounds "$SCOPE_ROUNDS"
+
+      # OBSERVABILITY (Phase 1): upsert the sticky `<!-- agent-loop-status -->`
+      # dashboard comment — round table, fix-round budget, latest decision. A
+      # PROJECTION derived from the unforgeable signals (commits, check runs,
+      # the paged latch) and re-derived IN FULL on every update, so a missed
+      # update self-heals on the next one; nothing may read it back to gate.
+      # Runs the trusted copy from .trusted with GITHUB_TOKEN — this job already
+      # holds issues:write for the set-state step, and the SDK step never sees
+      # this token, so the grant widens nothing.
+      - name: Update loop status (panel verdict)
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          BLOCKED: ${{ steps.panel.outputs.blocked }}
+          MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+        run: |
+          [ -f .trusted/scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          if [ "$BLOCKED" = "true" ]; then
+            NOTE="Panel requested changes — see the agent-review-* checks on this commit; the round guard decides whether another fix round runs."
+          elif [ "$BLOCKED" = "false" ]; then
+            NOTE="Panel approved — the ready gate promotes once CI is green."
+          else
+            NOTE="Panel finished without a readable verdict — every lens fails closed; see the run."
+          fi
+          node .trusted/scripts/agent/loop-status.mjs update "$PR" \
+            --event panel \
+            --note "$NOTE" \
+            --max-rounds "$MAX_ROUNDS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       # Hand the panel's own cost + reliability signals to whichever of
       # promote/fix runs next — THIS job deliberately has no issues:write /
       # pull-requests:write (its SDK cwd is the untrusted branch checkout), so
@@ -1198,6 +1256,31 @@ jobs:
           if [ "$code" -eq 1 ]; then echo "Not all ready-gates satisfied; leaving as draft."; fi
           if [ "$code" -eq 0 ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; fi
 
+      # OBSERVABILITY (Phase 1): reflect the promotion decision in the sticky
+      # loop-status comment — including the previously log-only "gates
+      # unsatisfied, leaving as draft" outcome. Default-branch checkout above
+      # has the script; GITHUB_TOKEN (issues:write is already granted here).
+      - name: Update loop status (promotion)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          READY: ${{ steps.gate.outputs.ready }}
+          MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+        run: |
+          [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          if [ "$READY" = "true" ]; then
+            EVENT=promoted
+            NOTE="All lens checks and CI green — PR promoted to ready for human review."
+          else
+            EVENT=not-promoted
+            NOTE="Panel approved, but the ready gate did not promote — a gate was unsatisfied or the flip failed; see the 'Run ready gate' step in the run."
+          fi
+          node ./scripts/agent/loop-status.mjs update "$PR" --event "$EVENT" --note "$NOTE" \
+            --max-rounds "$MAX_ROUNDS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       # This round's panel cost/reliability data (uploaded by the review-panel
       # job, which lacks write scope to record it itself) — record it into the
       # ledger regardless of whether the gate above actually promoted, since
@@ -1334,6 +1417,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
         run: node ./scripts/agent/set-state.mjs "$PR" blocked
+
+      # OBSERVABILITY (Phase 1): put the round-guard's decision — including the
+      # previously-silent PROCEED — on the PR's sticky loop-status comment. The
+      # guard's `verdict` output is presentation of values it already computed
+      # (guard-verdict.mjs holds no decision logic). Runs from the trusted main
+      # checkout on the runner's system node; the branch checkout happens later.
+      - name: Update loop status (round-guard decision)
+        if: always() && steps.guard.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          PAGED: ${{ steps.guard.outputs.paged }}
+          PROCEED: ${{ steps.guard.outputs.proceed }}
+          VERDICT: ${{ steps.guard.outputs.verdict }}
+          MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+        run: |
+          [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          if [ "$PAGED" = "true" ]; then EVENT=paged
+          elif [ "$PROCEED" = "true" ]; then EVENT=fix-dispatched
+          else EVENT=held; fi
+          node ./scripts/agent/loop-status.mjs update "$PR" --event "$EVENT" \
+            --note "${VERDICT:-The round guard made no decision — see the run.}" \
+            --max-rounds "$MAX_ROUNDS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # The fixer's work list, from the shared builder in scripts/agent/fix-brief.mjs.
       # This was ~100 lines of inline `github-script`; it moved out when
@@ -1569,6 +1677,19 @@ jobs:
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
 
+      # OBSERVABILITY (Phase 1): the fixer session's turns/cost/outcome on the
+      # run page. Staged trusted copy — the workspace is the branch checkout
+      # here, and a PR branched before this script shipped does not have it.
+      - name: Write fix session job summary
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" ] || { echo "session-job-summary.mjs not on main yet; skipping"; exit 0; }
+          node "$RUNNER_TEMP/agent-tools/session-job-summary.mjs" \
+            --execution "$RUNNER_TEMP/claude-execution-output.json" \
+            --kind review-fix \
+            --title "Review-fix agent session"
+
       # GAP FIX: a fix round that pushes NO commit dead-ends the loop silently —
       # no new commit → no new CI → no new panel → no next round — yet the fix
       # job still reports success, so nothing pages. Detect "fixer ran but the
@@ -1605,6 +1726,36 @@ jobs:
               | gh pr comment "$PR" --body-file -
             node ./scripts/agent/set-state.mjs "$PR" blocked || true
           fi
+
+      # OBSERVABILITY (Phase 1): reflect the fix outcome on the sticky
+      # loop-status comment — pushed (next round starts with CI) or paged.
+      # Staged trusted copy, same reason as the session-summary step. On a
+      # no-advance outcome the note must NOT point at "the page comment": on a
+      # hard fixer error the no-commit step above is skipped (deliberately not
+      # always(); the `stalled` net pages instead), so at this moment the page
+      # may not exist yet — name both possible pagers instead.
+      - name: Update loop status (fix outcome)
+        if: always() && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          BEFORE: ${{ steps.before-fix.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/loop-status.mjs" ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          AFTER="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)"
+          if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$AFTER" != "$BEFORE" ]; then
+            EVENT=fix-pushed
+            NOTE="Fixer pushed \`${AFTER:0:9}\` — CI and a fresh panel round run on it next."
+          else
+            EVENT=paged
+            NOTE="The fix round did not advance the branch — a page comment follows (from this job's no-commit check or the stalled safety net)."
+          fi
+          node "$RUNNER_TEMP/agent-tools/loop-status.mjs" update "$PR" --event "$EVENT" --note "$NOTE" \
+            --max-rounds "$MAX_ROUNDS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Record this review-fix session's effort into the PR metrics ledger
       # (fail-safe: continue-on-error + the script exits 0 on any error).
@@ -1820,6 +1971,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.page.outputs.pr }}
         run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+
+      # OBSERVABILITY (Phase 1): a stalled pipeline must flip the sticky
+      # loop-status comment to paged, not leave it claiming a round is in
+      # flight. Uses the main checkout done for the paged summary above.
+      - name: Update loop status (stalled)
+        if: steps.page.outputs.pr != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.page.outputs.pr }}
+          MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
+        run: |
+          [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          node ./scripts/agent/loop-status.mjs update "$PR" \
+            --event paged \
+            --note "The pipeline stopped without handing off — the page comment names the failing stage." \
+            --max-rounds "$MAX_ROUNDS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Self-heal the single-value state from the unforgeable signals (CI
       # conclusion, lens checks, draft flag, paged latch). On the stalled path

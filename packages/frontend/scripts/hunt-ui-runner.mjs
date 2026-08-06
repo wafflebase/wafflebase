@@ -45,6 +45,10 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 // unevaluable and the protocol had never heard of them. Importing across the boundary
 // is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
 import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+// One definition of a valid fault id, shared with the two agent-side boundaries.
+// All node builtins behind it (~15ms), and this file already reaches across for
+// `boundValue` for the same reason: a duplicated rule is a rule that drifts.
+import { assertFaultId } from "../../../scripts/agent/hunt-ui-probe.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -60,7 +64,7 @@ const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
 // --- argument parsing --------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { plan: null, serve: false, attempts: 1, out: null, port: 4177, timeoutMs: DEFAULT_ACTION_TIMEOUT_MS };
+  const out = { plan: null, serve: false, attempts: 1, out: null, port: 4177, timeoutMs: DEFAULT_ACTION_TIMEOUT_MS, fault: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--plan") out.plan = argv[++i];
@@ -69,8 +73,13 @@ function parseArgs(argv) {
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--timeout-ms") out.timeoutMs = Number(argv[++i]);
+    else if (a === "--fault") out.fault = argv[++i];
     else throw new Error(`hunt-ui-runner: unknown argument ${JSON.stringify(a)}`);
   }
+  // Shared with the two agent-side boundaries, and imported rather than copied
+  // BECAUSE this file has no test lane of its own — which is exactly where the copy
+  // went wrong. See `assertFaultId` for what a trailing `--fault` used to do.
+  assertFaultId(out.fault, { label: "--fault" });
   // Exactly one mode. Both would be ambiguous about which one the caller wanted, and
   // neither leaves nothing to do.
   if (out.serve && out.plan) throw new Error("hunt-ui-runner: --serve and --plan are mutually exclusive");
@@ -225,11 +234,16 @@ async function waitForReady(page, url) {
 }
 
 
-async function runAction(page, action, baseUrl, timeoutMs) {
+async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
   switch (action.type) {
     case "goto": {
       const surface = action.surface === "doc" ? "doc" : "sheet";
-      await waitForReady(page, `${baseUrl}/harness/hunt?surface=${surface}`);
+      // `?fault=` rides on the SAME navigation as `?surface=`, so a seeded defect
+      // survives every reset the plan performs. Injecting it once at boot instead
+      // would silently switch itself off the first time the agent navigated, and a
+      // positive control that stops controlling is worse than none.
+      const seed = fault ? `&fault=${encodeURIComponent(fault)}` : "";
+      await waitForReady(page, `${baseUrl}/harness/hunt?surface=${surface}${seed}`);
       return { value: surface };
     }
     case "click": {
@@ -316,11 +330,11 @@ async function openPage(browser, baseUrl) {
  * a candidate produced by the interactive path would replay down a subtly different
  * path and be dropped as non-deterministic, or worse, not be.
  */
-async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index }) {
+async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index, fault = null }) {
   let result = null;
   let error = null;
   try {
-    result = await runAction(page, action, baseUrl, timeoutMs);
+    result = await runAction(page, action, baseUrl, timeoutMs, fault);
   } catch (err) {
     error = String(err?.message ?? err);
   }
@@ -399,7 +413,7 @@ async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index 
  * multi-step behaviour unobservable. Isolation comes from the mount being
  * `MemStore`/`MemDocStore` with no backend, not from discarding state.
  */
-async function serve(browser, baseUrl, timeoutMs) {
+async function serve(browser, baseUrl, timeoutMs, fault = null) {
   const readline = await import("node:readline/promises");
   const { context, page, oracles } = await openPage(browser, baseUrl);
   let index = 0;
@@ -436,6 +450,11 @@ async function serve(browser, baseUrl, timeoutMs) {
           timeoutMs: Number.isFinite(req.timeoutMs) ? req.timeoutMs : timeoutMs,
           oracles,
           index: index++,
+          // Serve mode is the EXPLORER's path. Omitting this made the seeded control
+          // inert for every exploration session while still working under `--plan`,
+          // so the control passed its own lane and proved nothing about a real hunt —
+          // the exact failure the control exists to detect, in the control itself.
+          fault,
         });
         send({ id, observation });
       } catch (err) {
@@ -451,12 +470,12 @@ async function serve(browser, baseUrl, timeoutMs) {
 }
 
 /** One replay attempt: a whole plan against a fresh page. */
-async function runAttempt(browser, plan, baseUrl, timeoutMs) {
+async function runAttempt(browser, plan, baseUrl, timeoutMs, fault = null) {
   const { context, page, oracles } = await openPage(browser, baseUrl);
   try {
     const observations = [];
     for (const [index, action] of plan.actions.entries()) {
-      observations.push(await observeAction(page, action, { baseUrl, timeoutMs, oracles, index }));
+      observations.push(await observeAction(page, action, { baseUrl, timeoutMs, oracles, index, fault }));
     }
     return { observations };
   } finally {
@@ -507,12 +526,12 @@ try {
   if (args.serve) {
     // Serve mode owns stdout for the protocol, so it never produces a `result`
     // envelope. It returns when the caller sends `op:"close"` or closes stdin.
-    await serve(browser, baseUrl, args.timeoutMs);
+    await serve(browser, baseUrl, args.timeoutMs, args.fault);
     result = null;
   } else {
     const attempts = [];
     for (let i = 0; i < args.attempts; i++) {
-      attempts.push(await runAttempt(browser, plan, baseUrl, args.timeoutMs));
+      attempts.push(await runAttempt(browser, plan, baseUrl, args.timeoutMs, args.fault));
     }
     result = { ok: true, attempts };
   }

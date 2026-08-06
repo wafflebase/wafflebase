@@ -248,6 +248,230 @@ async function checkUndoCapability(page, baseUrl) {
   return problems;
 }
 
+/**
+ * The seeded positive control: does a KNOWN defect actually show up?
+ *
+ * Everything else in this file is a negative control — it proves the hunter does not
+ * report things that are fine. Nothing proved the opposite, and the two failures look
+ * identical from outside: a run that finds nothing because the app is healthy and a
+ * run that finds nothing because the instrument is dead both print zero.
+ *
+ * `?fault=drop-second-char` makes the harness swallow every second printable
+ * keystroke. Typing `ABCDEF` must therefore produce `ACE`. That is the cleanest
+ * possible ground-A shape — the app contradicting the agent's own input — so if the
+ * funnel can carry anything, it can carry this.
+ *
+ * BOTH DIRECTIONS ARE ASSERTED, and the second matters as much as the first. A fault
+ * that is always on would make every run report, which is a worse failure than a
+ * fault that never fires: it manufactures findings rather than merely missing them.
+ */
+const FAULT_TYPED = "ABCDEF";
+const FAULT_EXPECTED_WITH_FAULT = "ACE";
+
+async function typeIntoDoc(page, baseUrl, query) {
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc${query}`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const before = await page.evaluate(() => window.__WB_HUNT__.read("doc.text"));
+  await page.locator(`[data-testid="${HOST_TESTID}"] canvas`).first().click();
+  await page.keyboard.type(FAULT_TYPED);
+  // Poll for settlement rather than sleeping: the text lands asynchronously relative
+  // to the keystrokes, and this lane gates CI.
+  let text = before;
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    const next = await page.evaluate(() => window.__WB_HUNT__.read("doc.text"));
+    if (next !== before && next === text) break;
+    text = next;
+    if (Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
+  return { before, after: text };
+}
+
+async function checkSeededFault(page, baseUrl) {
+  const problems = [];
+
+  // 1. The fault is DECLARED in the DOM, so a seeded run can never be mistaken for a
+  //    real one when someone reads a report or a screenshot later.
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc&fault=drop-second-char`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const declared = await page.getAttribute("[data-testid='hunt-harness-root']", "data-hunt-harness-fault");
+  if (declared !== "drop-second-char") {
+    problems.push(`the active fault must be published on the root, got ${JSON.stringify(declared)}`);
+  }
+
+  // 2. An UNKNOWN fault id is ignored, not honoured. The registry is closed, so a
+  //    typo must degrade to a clean run rather than to some other defect.
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc&fault=not-a-real-fault`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const unknown = await page.getAttribute("[data-testid='hunt-harness-root']", "data-hunt-harness-fault");
+  if (unknown !== "none") problems.push(`an unknown fault id must be ignored, got ${JSON.stringify(unknown)}`);
+
+  // 3. WITH the fault: every second character is dropped.
+  const seeded = await typeIntoDoc(page, baseUrl, "&fault=drop-second-char");
+  if (!seeded.after.includes(FAULT_EXPECTED_WITH_FAULT)) {
+    problems.push(
+      `?fault=drop-second-char: typed ${FAULT_TYPED}, expected the document to contain ` +
+        `${FAULT_EXPECTED_WITH_FAULT}, got ${JSON.stringify(seeded.after.slice(0, 120))} — the positive ` +
+        "control is not injecting, so a clean hunt run proves nothing",
+    );
+  }
+  if (seeded.after.includes(FAULT_TYPED)) {
+    problems.push(`?fault=drop-second-char: the full ${FAULT_TYPED} survived, so nothing was dropped`);
+  }
+
+  // 4. WITHOUT it: the text arrives intact. This is the half that keeps a
+  //    permanently-on fault from turning every run into a false report.
+  const clean = await typeIntoDoc(page, baseUrl, "");
+  if (!clean.after.includes(FAULT_TYPED)) {
+    problems.push(
+      `the CLEAN route dropped characters: typed ${FAULT_TYPED}, got ` +
+        `${JSON.stringify(clean.after.slice(0, 120))} — either the fault leaked across navigations or ` +
+        "typing is genuinely broken, and those need opposite responses",
+    );
+  }
+
+  return problems;
+}
+
+/**
+ * The join nothing else covers: does a REAL reader value, produced by the real
+ * runner, actually drive the prediction protocol to a violated verdict?
+ *
+ * Every piece either side of this line is unit-tested. `assessExpectation` is tested
+ * against hand-written journals, and the runner is tested against scripted
+ * observations. Neither proves they fit, and a hand-written fixture asserting a
+ * property the pipeline does not have is the single most repeated defect in this
+ * whole build — a test named for a property, passing, while the property was false.
+ *
+ * So this drives `runUiPlan` (a real browser, a real journal) and hands the result to
+ * `assessExpectation` unmodified. It costs one extra Vite+Chromium boot (~7s) and
+ * that is the price of exercising the real producer rather than a stand-in.
+ *
+ * The plan is the canonical ground-A shape: type something, then on a LATER action
+ * predict that the document still contains it, traced to `@input:` — the agent's own
+ * keystrokes. With the fault seeded that must be `violated` AND `eligible`; without
+ * it, `held`. Both directions, because a protocol that always violates is worse than
+ * one that never does.
+ */
+const FUNNEL_PLAN = {
+  actions: [
+    { type: "goto", surface: "doc" },
+    { type: "read", reader: "doc.text" },
+    { type: "type", text: FAULT_TYPED },
+    {
+      type: "type",
+      text: "!",
+      expect: {
+        read: "doc.text",
+        op: "contains",
+        value: "@input:2",
+        ground: "A",
+        because: "the document must still contain what I typed a moment ago",
+      },
+    },
+  ],
+};
+
+async function checkPredictionFunnel(repoRoot) {
+  const problems = [];
+  const { runUiPlan } = await import(`${repoRoot}/scripts/agent/hunt-ui-probe.mjs`);
+  const { assessExpectation } = await import(`${repoRoot}/scripts/agent/hunt-ui-expect.mjs`);
+
+  // The journal the MCP tool would have built, assembled from what the runner
+  // actually returned — never hand-authored, which is the entire point.
+  const journalFrom = (observations) =>
+    observations.map((o, i) => ({
+      action: FUNNEL_PLAN.actions[i],
+      ok: o.ok === true,
+      value: o.value,
+      error: o.ok ? undefined : o.error,
+      oracles: o.oracles ?? [],
+    }));
+
+  for (const [label, fault, wantVerdict] of [
+    ["seeded", "drop-second-char", "violated"],
+    ["clean", null, "held"],
+  ]) {
+    let observations;
+    try {
+      observations = runUiPlan(FUNNEL_PLAN, { repoRoot, attempts: 1, fault })[0];
+    } catch (error) {
+      problems.push(`${label}: the plan could not run — ${error.message}`);
+      continue;
+    }
+    const atIndex = FUNNEL_PLAN.actions.length - 1;
+    const failing = observations[atIndex];
+    const prediction = assessExpectation(FUNNEL_PLAN.actions[atIndex].expect, failing?.actual, {
+      journal: journalFrom(observations),
+      snapshot: "",
+      charter: {},
+      actualError: failing?.actualError ?? null,
+      atIndex,
+    });
+    if (prediction.verdict !== wantVerdict) {
+      problems.push(
+        `${label}: expected the prediction to be ${wantVerdict}, got ${prediction.verdict}` +
+          ` (${prediction.detail ?? "no detail"}); read back ${JSON.stringify(String(failing?.actual).slice(0, 80))}`,
+      );
+    }
+    // A violation that is not ELIGIBLE never becomes a candidate, so a funnel that
+    // violates but grounds nothing is still a dead instrument.
+    if (wantVerdict === "violated" && prediction.eligible !== true) {
+      problems.push(
+        `${label}: the violation was not eligible — ${prediction.why ?? "no reason given"}. A ground-A ` +
+          "prediction traced to the agent's own input must ground, or nothing can ever be reported.",
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * The seeded control, through SERVE mode — the path the explorer actually uses.
+ *
+ * `checkPredictionFunnel` drives `--plan`, which is the REPLAY path. Those are two
+ * different code paths in the runner, and covering only one is how this shipped
+ * broken: `serve()` accepted `--fault` and never forwarded it to `observeAction`, so
+ * the control worked under `--plan`, passed its own lane, and was inert for every
+ * exploration session. A positive control that only proves itself is worth nothing.
+ *
+ * So this opens a real session the way `exploreUi` does and asserts the fault reaches
+ * it. Both directions again, for the same reason as everywhere else.
+ */
+async function checkSeededFaultInServeMode(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+
+  for (const [label, fault, wantContains] of [
+    ["seeded", "drop-second-char", "ACE"],
+    ["clean", null, FAULT_TYPED],
+  ]) {
+    let session;
+    try {
+      session = await openUiSession({ repoRoot, fault });
+      await session.act({ type: "goto", surface: "doc" });
+      await session.act({ type: "type", text: FAULT_TYPED });
+      const read = await session.act({ type: "read", reader: "doc.text" });
+      const text = String(read?.value ?? "");
+      if (!text.includes(wantContains)) {
+        problems.push(
+          `${label}: typed ${FAULT_TYPED} through a live session, expected the document to contain ` +
+            `${wantContains}, got ${JSON.stringify(text.slice(0, 120))}`,
+        );
+      }
+      if (fault && text.includes(FAULT_TYPED)) {
+        problems.push(`${label}: the full ${FAULT_TYPED} survived serve mode — the fault is not reaching the explorer's path`);
+      }
+    } catch (error) {
+      problems.push(`${label}: the session failed — ${error.message}`);
+    } finally {
+      await session?.close();
+    }
+  }
+  return problems;
+}
+
 async function loadPlaywright() {
   try {
     const mod = await import("playwright");
@@ -368,8 +592,28 @@ try {
     if (undoProblems.length === 0) {
       console.log("[verify:hunt-oracles] doc.canUndo tracks a real undo stack");
     }
+    const faultProblems = await checkSeededFault(page, baseUrl);
+    for (const p of faultProblems) failures.push(`seeded fault: ${p}`);
+    if (faultProblems.length === 0) {
+      console.log("[verify:hunt-oracles] ?fault=drop-second-char injects, and the clean route does not");
+    }
   } finally {
     await targetingContext.close();
+  }
+
+  // Outside the context above: this one drives `runUiPlan`, which owns its own
+  // browser and its own Vite. It is the last check because it is the slowest.
+  const repoRoot = path.resolve(frontendRoot, "..", "..");
+  const funnelProblems = await checkPredictionFunnel(repoRoot);
+  for (const p of funnelProblems) failures.push(`prediction funnel: ${p}`);
+  if (funnelProblems.length === 0) {
+    console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
+  }
+
+  const serveProblems = await checkSeededFaultInServeMode(repoRoot);
+  for (const p of serveProblems) failures.push(`seeded fault (serve mode): ${p}`);
+  if (serveProblems.length === 0) {
+    console.log("[verify:hunt-oracles] the seeded fault also reaches SERVE mode, which is the explorer's path");
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -390,5 +634,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting + undo capability passed.`,
+  `[verify:hunt-oracles] all ${CASES.length} oracle checks + cell targeting + undo capability + seeded fault + prediction funnel passed.`,
 );
