@@ -31,6 +31,14 @@ export interface ArrangeMenuProps {
   selectionSize: number;
   /** Whether a single group element is currently selected (enables Ungroup). */
   canUngroup?: boolean;
+  /**
+   * Minimum selection size for Align to be enabled. Defaults to 1,
+   * which is the slides behavior: `editor.align()` aligns a lone
+   * element to the 1920x1080 slide canvas. A board is an unbounded
+   * plane with no such rect, so a board mount passes 2 and only ever
+   * reaches `align()`'s selection-bounding-box branch.
+   */
+  minAlignSelection?: number;
 }
 
 /**
@@ -38,8 +46,13 @@ export interface ArrangeMenuProps {
  * actions into a single menu button. Rendered only in the object-selected
  * toolbar states (shape / image / text-element / mixed).
  */
-export function ArrangeMenu({ editor, selectionSize, canUngroup = false }: ArrangeMenuProps) {
-  const canAlign = !!editor && selectionSize > 0;
+export function ArrangeMenu({
+  editor,
+  selectionSize,
+  canUngroup = false,
+  minAlignSelection = 1,
+}: ArrangeMenuProps) {
+  const canAlign = !!editor && selectionSize >= minAlignSelection;
   const canDistribute = !!editor && selectionSize >= 3;
   const canGroup = !!editor && selectionSize >= 2;
 
