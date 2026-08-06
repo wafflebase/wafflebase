@@ -111,6 +111,19 @@ test("readersForSurface scopes to one surface plus the shared dom readers", () =
   );
 });
 
+// Same shape as the `readers["toString"]` bug already fixed in bridge.ts: a bare index
+// into an object literal resolves inherited keys, and spreading the resulting function
+// throws. A misconfigured surface must degrade the run, not crash it.
+test("readersForSurface survives an inherited key such as constructor", () => {
+  for (const surface of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+    assert.deepEqual(
+      readersForSurface(surface).map(([n]) => n),
+      UI_SHARED_READERS.map(([n]) => n),
+      `${surface} must fall back to the shared readers`,
+    );
+  }
+});
+
 test("describeReaders names the readers with their arity", () => {
   const text = describeReaders("sheet");
   assert.match(text, /sheet\.cellValue\(sref\) — /);

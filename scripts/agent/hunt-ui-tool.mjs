@@ -104,7 +104,15 @@ const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
  * slip degrades a run instead of crashing it mid-session.
  */
 export function readersForSurface(surface) {
-  return [...(UI_READERS_BY_SURFACE[surface] ?? []), ...UI_SHARED_READERS];
+  // Own-property test, not a bare index. `UI_READERS_BY_SURFACE["constructor"]` resolves
+  // through the prototype chain to a function, and spreading a function throws — so a
+  // misconfigured surface name crashed the run instead of degrading it. Exactly the bug
+  // already fixed once in `bridge.ts`, where `readers["toString"]` resolved to a function
+  // and got invoked; the same shape deserves the same guard.
+  const own = Object.prototype.hasOwnProperty.call(UI_READERS_BY_SURFACE, surface)
+    ? UI_READERS_BY_SURFACE[surface]
+    : [];
+  return [...own, ...UI_SHARED_READERS];
 }
 
 /**
@@ -414,9 +422,13 @@ export async function createUiServer(opts = {}) {
             .object({
               type: z.enum(UI_ACTION_TYPES).describe("What to do."),
               surface: z
-                .enum(UI_SURFACES)
+                // The run's OWN surface is the only member, so the wrong one is
+                // unrepresentable rather than merely refused. `checkSurfaceScope` still
+                // checks it — a bound that exists only in a schema the model could be
+                // served a stale copy of is not a bound.
+                .enum([surface])
                 .optional()
-                .describe(`For goto: which surface to mount. This run may only use "${surface}".`),
+                .describe(`For goto: which surface to mount. This run explores "${surface}" and no other.`),
               target: target.optional().describe("For click, and optionally for scroll: what to act on."),
               button: z.enum(["left", "right", "middle"]).optional().describe("For click: defaults to left."),
               clickCount: z.number().int().optional().describe("For click: 2 for a double-click."),

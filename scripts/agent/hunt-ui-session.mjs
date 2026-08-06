@@ -28,6 +28,7 @@
 
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 // Re-exported, not redeclared. `runUiPlan` and this client must spawn the SAME runner or
 // exploration and replay silently diverge, and two copies of a path constant is exactly
@@ -56,11 +57,22 @@ const DEFAULT_CLOSE_GRACE_MS = 5_000;
  * partial trailing line can never be parsed as a whole one — a response split across
  * two chunks is the failure that would otherwise show up as a random unparseable line
  * under load.
+ *
+ * A `StringDecoder` rather than `String(chunk)`, because a multi-byte character split
+ * across two chunks decodes to replacement characters — and A CORRUPTED READING IS
+ * WORSE THAN A LOST ONE. A lost reply times out and is reported as a fault; a corrupted
+ * one is fed to `equals`, disagrees with the baseline, and manufactures a `violated`
+ * verdict out of a transport artefact. That is precisely the fail-quiet inversion this
+ * hunter must not have. Measured before the fix: a reply carrying "안녕하세요" arrived as
+ * "���녕하세요".
  */
 function createLineReader(onLine) {
+  const decoder = new StringDecoder("utf8");
   let buffer = "";
   return (chunk) => {
-    buffer += String(chunk);
+    // A stream someone has already put in string mode hands us strings; the decoder
+    // only applies to raw bytes.
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     let nl;
     while ((nl = buffer.indexOf("\n")) !== -1) {
       const line = buffer.slice(0, nl);
@@ -107,6 +119,8 @@ export async function openUiSession({
     readyReject = rej;
   });
   let closed = false;
+  /** Whether the OS process is gone. `close()` must not wait for an exit twice. */
+  let exited = false;
   /** Kept so a crash can report what the runner said on the way down. */
   const stderrTail = [];
 
@@ -154,6 +168,7 @@ export async function openUiSession({
   // A runner that dies takes every in-flight request with it. Rejecting is the point:
   // a session that silently hangs would burn the whole `totalTimeoutMs` on one action.
   child.on("exit", (code, signal) => {
+    exited = true;
     if (closed) return;
     failAll(
       `hunt-ui-session: runner exited (code ${code}, signal ${signal ?? "none"})` +
@@ -162,12 +177,38 @@ export async function openUiSession({
   });
   child.on("error", (err) => failAll(`hunt-ui-session: runner could not start: ${err?.message ?? err}`));
 
+  // An EPIPE on the runner's stdin means the channel is gone, so nothing in flight can
+  // ever be answered. Routed through `failAll` rather than swallowed: a listener that
+  // discards the error would turn a dead pipe into a hang. (Node did not raise this as
+  // an unhandled error in testing, so this is insurance rather than a fixed defect.)
+  child.stdin?.on("error", (err) => {
+    if (closed) return;
+    failAll(`hunt-ui-session: runner stdin closed: ${err?.message ?? err}`);
+  });
+
+  /**
+   * Stop the runner. Used on the paths where NOBODY ELSE CAN.
+   *
+   * Once `openUiSession` throws, the caller never receives a session and so never gets a
+   * `close()` to call — the process would simply survive. Measured before this existed:
+   * after a readiness timeout, `child.killed` was null, leaving a Vite server and a
+   * Chromium running for the life of the machine.
+   */
+  const abandon = () => {
+    closed = true;
+    child.stdin?.end();
+    if (!exited) child.kill("SIGKILL");
+  };
+
   const readyTimer = setTimeout(
     () => failAll(`hunt-ui-session: runner was not ready within ${readyTimeoutMs}ms`),
     readyTimeoutMs,
   );
   try {
     await readyPromise;
+  } catch (err) {
+    abandon();
+    throw err;
   } finally {
     clearTimeout(readyTimer);
   }
@@ -208,6 +249,16 @@ export async function openUiSession({
     /** Shut down, then make sure. Idempotent. */
     async close() {
       if (closed) return;
+      // ALREADY GONE. A dead runner cannot answer the handshake, and `child.once("exit")`
+      // will never fire a second time — so awaiting it below hung forever. Measured: after
+      // the runner crashed, `close()` never resolved, which would strand the orchestrator
+      // at the end of every session that lost its browser.
+      if (exited) {
+        closed = true;
+        failAll("hunt-ui-session: session closed");
+        child.stdin?.end();
+        return;
+      }
       try {
         await request({ op: "close" }, closeGraceMs);
       } catch {
@@ -217,10 +268,12 @@ export async function openUiSession({
       closed = true;
       failAll("hunt-ui-session: session closed");
       child.stdin?.end();
-      const exited = new Promise((res) => child.once("exit", res));
+      // Named apart from the outer `exited` flag on purpose: a local `const exited` here
+      // shadowed it and put the early-return check above into its temporal dead zone.
+      const exitedPromise = new Promise((res) => child.once("exit", res));
       const killer = setTimeout(() => child.kill("SIGKILL"), closeGraceMs);
       try {
-        await exited;
+        await exitedPromise;
       } finally {
         clearTimeout(killer);
       }

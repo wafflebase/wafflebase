@@ -18,16 +18,26 @@ function fakeRunner({ autoReady = true } = {}) {
   child.stderr = new EventEmitter();
   child.written = [];
   child.killed = null;
-  child.stdin = {
-    write: (chunk) => {
-      child.written.push(JSON.parse(String(chunk).trim()));
-      return true;
-    },
-    end: () => {},
+  // An EventEmitter, because a real `child.stdin` is a stream and the session attaches an
+  // error listener to it. A plain object here would have hidden that.
+  child.stdin = new EventEmitter();
+  child.stdin.write = (chunk) => {
+    child.written.push(JSON.parse(String(chunk).trim()));
+    return true;
   };
+  child.stdin.end = () => {};
   child.kill = (signal) => {
     child.killed = signal ?? "SIGTERM";
+    // A REAL already-exited child emits nothing when signalled — the signal goes
+    // nowhere. Modelling that is what exposed close() hanging forever after a crash.
+    if (child.exited) return true;
+    child.exited = true;
     child.emit("exit", null, child.killed);
+    return true;
+  };
+  child.die = (code = 1) => {
+    child.exited = true;
+    child.emit("exit", code, null);
   };
   child.say = (obj) => child.stdout.emit("data", `${JSON.stringify(obj)}\n`);
   child.raw = (text) => child.stdout.emit("data", text);
@@ -141,12 +151,41 @@ test("act rejects when the runner never answers", async () => {
   await session.close();
 });
 
-test("openUiSession rejects if the runner never becomes ready", async () => {
+test("openUiSession rejects if the runner never becomes ready, and kills it", async () => {
   const child = fakeRunner({ autoReady: false });
   await assert.rejects(
     () => openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), readyTimeoutMs: 20, closeGraceMs: 20 }),
     /was not ready within 20ms/,
   );
+  // The caller never receives a session, so it never gets a close() to call. Nothing
+  // else can reap this process. Measured before the fix: child.killed was null, leaving
+  // a Vite server and a Chromium alive for the life of the machine.
+  assert.equal(child.killed, "SIGKILL", "a runner nobody can close must be killed here");
+});
+
+test("a runner that cannot start is also killed, not left behind", async () => {
+  const child = fakeRunner({ autoReady: false });
+  setImmediate(() => child.emit("error", new Error("ENOENT")));
+  await assert.rejects(() => openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), closeGraceMs: 20 }));
+  assert.equal(child.killed, "SIGKILL");
+});
+
+// A corrupted reading is worse than a lost one: fed to `equals` it disagrees with its
+// baseline and manufactures a `violated` verdict out of a transport artefact.
+test("a multi-byte character split across chunks is decoded intact", async () => {
+  const child = fakeRunner();
+  const session = await openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), closeGraceMs: 20 });
+  const p = session.act({ type: "read", reader: "doc.text" });
+  const full = Buffer.from(
+    `${JSON.stringify({ id: child.written[0].id, observation: { ok: true, value: "안녕하세요" } })}\n`,
+    "utf8",
+  );
+  // Cut INSIDE the first Hangul syllable, which is three bytes in UTF-8.
+  const cut = full.indexOf(Buffer.from("안", "utf8")) + 1;
+  child.stdout.emit("data", full.subarray(0, cut));
+  child.stdout.emit("data", full.subarray(cut));
+  assert.equal((await p).value, "안녕하세요");
+  await session.close();
 });
 
 test("a runner that dies rejects every in-flight request, with its stderr", async () => {
@@ -154,15 +193,15 @@ test("a runner that dies rejects every in-flight request, with its stderr", asyn
   const session = await openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), closeGraceMs: 20 });
   const p = session.act({ type: "read", reader: "doc.text" });
   child.stderr.emit("data", "Chromium crashed spectacularly\n");
-  child.emit("exit", 1, null);
+  child.die(1);
   await assert.rejects(() => p, /runner exited \(code 1/);
   await assert.rejects(() => p, /Chromium crashed spectacularly/);
-});
 
-test("a runner that cannot start rejects the open", async () => {
-  const child = fakeRunner({ autoReady: false });
-  setImmediate(() => child.emit("error", new Error("ENOENT")));
-  await assert.rejects(() => openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), closeGraceMs: 20 }), /could not start: ENOENT/);
+  // AND close() MUST STILL RETURN. `child.once("exit")` will never fire a second time,
+  // so awaiting it stranded the caller forever — measured: close() after a crash never
+  // resolved. node --test has no default per-test timeout, so a regression here hangs
+  // the whole lane rather than failing one case.
+  await session.close();
 });
 
 test("close sends op:close, is idempotent, and refuses later actions", async () => {
@@ -179,6 +218,18 @@ test("close sends op:close, is idempotent, and refuses later actions", async () 
   assert.ok(child.written.some((w) => w.op === "close"));
   await session.close(); // idempotent
   await assert.rejects(() => session.act({ type: "read", reader: "doc.text" }), /session is closed/);
+});
+
+// A dead pipe cannot answer anything in flight, so it must reject rather than hang. I
+// could not get Node to raise this as an unhandled error, so this covers insurance rather
+// than a reproduced defect — but untested insurance is not insurance.
+test("an stdin error rejects in-flight requests instead of hanging", async () => {
+  const child = fakeRunner();
+  const session = await openUiSession({ repoRoot: "/repo", spawnImpl: spawnFake(child), closeGraceMs: 20 });
+  const p = session.act({ type: "read", reader: "doc.text" });
+  child.stdin.emit("error", new Error("EPIPE"));
+  await assert.rejects(() => p, /stdin closed: EPIPE/);
+  await session.close();
 });
 
 // Otherwise every abandoned session leaks a Chromium and a Vite server.

@@ -400,7 +400,7 @@ async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index 
  * `MemStore`/`MemDocStore` with no backend, not from discarding state.
  */
 async function serve(browser, baseUrl, timeoutMs) {
-  const { readline } = await import("node:readline/promises").then((m) => ({ readline: m }));
+  const readline = await import("node:readline/promises");
   const { context, page, oracles } = await openPage(browser, baseUrl);
   let index = 0;
 

@@ -12,6 +12,7 @@ import {
   planCollection, prepareArtifact, runIdsFromKeys, safeEntries, summarize, walkArtifacts,
 } from "./collect-captures.mjs";
 import { createCaptureStore } from "./capture-store.mjs";
+import { fixtureGitEnv } from "./git-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1287,11 +1288,19 @@ test("the pushed-file count is the number of files pushed", () => {
   const command = m[1];
 
   const repo = mkdtempSync(path.join(tmpdir(), "collect-count-"));
+  // `fixtureGitEnv`, not the ambient environment. Git hooks run with `GIT_DIR` and
+  // `GIT_INDEX_FILE` exported, so `cwd` alone does NOT decide which repository these
+  // commands touch: run from a pre-commit hook, the `git add` below staged a.json,
+  // b.json and c.json into the REAL repository's index, and the following `git commit`
+  // shipped all three. The count then read 0 because `git diff --cached` was inspecting
+  // the wrong tree, so the symptom looked like a flaky assertion rather than an index
+  // being rewritten underneath. `git-env.mjs` exists for exactly this and says so.
+  const env = fixtureGitEnv(repo);
   try {
-    execFileSync("git", ["init", "--quiet"], { cwd: repo });
+    execFileSync("git", ["init", "--quiet"], { cwd: repo, env });
     for (const name of ["a.json", "b.json", "c.json"]) writeFileSync(path.join(repo, name), "{}");
-    execFileSync("git", ["add", "a.json", "b.json", "c.json"], { cwd: repo });
-    const out = execFileSync("bash", ["-c", `${command}; printf %s "$files"`], { cwd: repo, encoding: "utf8" });
+    execFileSync("git", ["add", "a.json", "b.json", "c.json"], { cwd: repo, env });
+    const out = execFileSync("bash", ["-c", `${command}; printf %s "$files"`], { cwd: repo, encoding: "utf8", env });
     assert.equal(out, "3", `the workflow's own count said ${JSON.stringify(out)} for 3 staged files`);
   } finally { rmSync(repo, { recursive: true, force: true }); }
 });
