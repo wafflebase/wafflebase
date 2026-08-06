@@ -384,12 +384,13 @@ only summarizes their conclusions, and the round guard — not the table — is 
 authority on the budget (the table's count uses the same `required_checks` set
 when the caller passes it).
 
-Two run-page companions shipped with it: `review-round-guard.mjs` now renders
-its decision — including the previously **silent PROCEED** — as a `verdict`
-step output plus a `$GITHUB_STEP_SUMMARY` block (`guard-verdict.mjs`, pure
-presentation with no decision logic), and `panel-job-summary.mjs` /
-`session-job-summary.mjs` put the per-lens verdict/verifier/cost table and each
-Claude session's turns/cost/outcome on the run page. The CI arm's attempts
+Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
+now renders its decision — including the previously **silent PROCEED** — as a
+`verdict` step output plus a `$GITHUB_STEP_SUMMARY` block
+(`scripts/agent/guard-verdict.mjs`, pure presentation with no decision logic),
+and `scripts/agent/panel-job-summary.mjs` /
+`scripts/agent/session-job-summary.mjs` put the per-lens verdict/verifier/cost
+table and each Claude session's turns/cost/outcome on the run page. The CI arm's attempts
 guard writes matching SKIPPED/PAGED/PROCEED summary blocks (inline in
 `github-script`, which cannot import a module — the same constraint behind the
 `gate` job's literal latch copy), and its paged-latch check is author-checked
