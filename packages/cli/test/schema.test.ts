@@ -1,8 +1,98 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createProgram } from '../src/commands/root.js';
+import {
+  registerSchemaCommand,
+  toSchemaListPayload,
+} from '../src/commands/schema.js';
+import { format, type OutputFormat } from '../src/output/formatter.js';
 import {
   getCommandSchema,
   getAllCommandSchemas,
 } from '../src/schema/registry.js';
+
+describe('schema command list output', () => {
+  let stdout: string[];
+
+  beforeEach(() => {
+    stdout = [];
+    vi.spyOn(console, 'log').mockImplementation((value) => {
+      stdout.push(String(value));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function runSchemaList(outputFormat: OutputFormat): Promise<string> {
+    const program = createProgram();
+    registerSchemaCommand(program);
+    await program.parseAsync(['schema', '--format', outputFormat], {
+      from: 'user',
+    });
+    expect(stdout).toHaveLength(1);
+    return stdout[0];
+  }
+
+  it('keeps the commands envelope for JSON output', async () => {
+    const result = JSON.parse(await runSchemaList('json')) as {
+      commands: unknown[];
+    };
+
+    expect(result).toEqual({
+      commands: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'login',
+          description: expect.any(String),
+          safety: expect.any(String),
+        }),
+      ]),
+    });
+    expect(result.commands.length).toBeGreaterThan(0);
+  });
+
+  it('renders command summaries as table rows', async () => {
+    const result = await runSchemaList('table');
+    const lines = result.split('\n');
+
+    expect(result).not.toBe('(no results)');
+    expect(lines[0].trim().split(/\s{2,}/)).toEqual([
+      'name',
+      'description',
+      'safety',
+    ]);
+    expect(lines).toHaveLength(getAllCommandSchemas().length + 2);
+    expect(result).toContain('login');
+  });
+
+  it('renders command summaries as CSV rows', async () => {
+    const result = await runSchemaList('csv');
+    const lines = result.split('\n');
+
+    expect(lines[0]).toBe('name,description,safety');
+    expect(lines).toHaveLength(getAllCommandSchemas().length + 1);
+    expect(lines[1]).toMatch(/^login,/);
+    expect(result).not.toMatch(/^commands,/);
+  });
+});
+
+describe('empty schema command list output', () => {
+  it('keeps an empty commands envelope for JSON', () => {
+    expect(format(toSchemaListPayload([], 'json'), 'json')).toBe(
+      '{\n  "commands": []\n}',
+    );
+  });
+
+  it('reports no table results for an empty command list', () => {
+    expect(format(toSchemaListPayload([], 'table'), 'table')).toBe(
+      '(no results)',
+    );
+  });
+
+  it('renders empty CSV for an empty command list', () => {
+    expect(format(toSchemaListPayload([], 'csv'), 'csv')).toBe('');
+  });
+});
 
 describe('schema registry', () => {
   it('returns all commands', () => {

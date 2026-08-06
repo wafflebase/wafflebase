@@ -1,7 +1,23 @@
 import { Command } from 'commander';
 import { getGlobalOpts } from './root.js';
-import { output } from '../output/formatter.js';
-import { getCommandSchema, getAllCommandSchemas } from '../schema/registry.js';
+import { output, type OutputFormat } from '../output/formatter.js';
+import {
+  getCommandSchema,
+  getAllCommandSchemas,
+  type CommandSchema,
+} from '../schema/registry.js';
+
+type SchemaListEntry = Pick<
+  CommandSchema,
+  'name' | 'description' | 'safety'
+>;
+
+export function toSchemaListPayload(
+  commands: readonly SchemaListEntry[],
+  format: OutputFormat,
+): { commands: readonly SchemaListEntry[] } | readonly SchemaListEntry[] {
+  return format === 'json' ? { commands } : commands;
+}
 
 export function registerSchemaCommand(program: Command) {
   program
@@ -30,7 +46,11 @@ export function registerSchemaCommand(program: Command) {
           description: c.description,
           safety: c.safety,
         }));
-        output({ commands }, opts.format, opts.quiet);
+        output(
+          toSchemaListPayload(commands, opts.format),
+          opts.format,
+          opts.quiet,
+        );
       }
     });
 }
