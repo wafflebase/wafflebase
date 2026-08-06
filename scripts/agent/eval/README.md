@@ -16,10 +16,12 @@ is `gh` and `git`.
 |---|---|---|
 | `store.mjs` | `EvalStore` — corpus items over an eval-data root; `store.captures` delegates to the merged `capture-store.mjs` | no |
 | `extract-corpus.mjs` | freeze a past PR into an item, and re-check a frozen one against a fresh extraction | no (uses `gh` + `git`) |
+| `config-hash.mjs` | `config_hash` — the fingerprint of a lens **configuration**, so two results can be told apart. Configuration only: the reviewer is the pair `(config_hash, panelSha)` | no |
+| `config-build.mjs` | lenses dir → config manifest + reproduction snapshot, and a snapshot back into a lenses dir the panel can load. Takes an output path; persisting a snapshot is the runner's wiring | no |
 
-The **runner** (replay an item through the panel), **config identity**
-(`config_hash`), the arm adapters and every scorer are not built yet. When they
-arrive they read items through `EvalStore` and nothing else.
+The **runner** (replay an item through the panel), the arm adapters and every
+scorer are not built yet. When they arrive they read items through `EvalStore` and
+nothing else.
 
 ## Code lives here; data does not
 

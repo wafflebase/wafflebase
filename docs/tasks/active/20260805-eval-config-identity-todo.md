@@ -148,6 +148,13 @@ Deliberately **not** a golden hash string. A test pinning `sha256:9f2c…` goes 
 every legitimate manifest change and teaches whoever is on the other end to update
 the constant, which is how a guard becomes a formality.
 
+**5. `scripts/agent/eval/README.md` says these modules exist.** Two rows in *"What
+exists today"* and one clause deleted from the not-built-yet sentence, which named
+config identity. Small, and the reason it is in this change rather than a follow-up:
+that sentence is the first thing a reader of the directory sees, and a README that
+says the thing you just landed does not exist is the same silent-staleness failure in
+documentation form. A follow-up would also cost a second review cycle for two lines.
+
 ## Corrected while building
 
 **The `samples` divergence runs the opposite way to the one the audit predicted, and
@@ -335,8 +342,12 @@ re-hardcoded value.
 ## Explicit non-goals
 
 - **No model invoked, no API key, no spend.** Everything here is `crypto` and `fs`.
-- **PR 3's files untouched** — `eval/store.mjs`, `eval/extract-corpus.mjs`,
-  `eval/README.md`. Two branches editing them is a merge conflict for no benefit.
+- **#677's code untouched** — `eval/store.mjs` and `eval/extract-corpus.mjs`. Nothing
+  here reads or extends the store. `eval/README.md` **is** edited, by two rows and one
+  deleted clause, because it is the file that tells a reader what this directory
+  contains and it would otherwise state that the thing this change lands is unbuilt.
+  That edit was held back while #677 was in flight — two branches editing one file is a
+  conflict for no benefit — and taken once it merged.
 - **No store method for persisting a snapshot.** The CLI takes an output path;
   wiring config into a run is the runner's job.
 - **Not the runner.** Nothing here replays anything.
@@ -437,6 +448,18 @@ the recursive test lane).
 
 - [x] **26 mutations applied one at a time, 26 caught** — see below.
 
+- [x] **The README no longer contradicts this change.** Its own stated completion
+      condition, run:
+
+      ```
+      $ grep -n "config identity\|config_hash" scripts/agent/eval/README.md
+      19:| `config-hash.mjs` | `config_hash` — the fingerprint of a lens **configuration** …
+      ```
+
+      One line, the new table row, and it asserts nothing is unbuilt. The remaining
+      "not built yet" sentence names the runner, the arm adapters and the scorers,
+      which is still true. No test reads this file, so the check is the grep.
+
 ### The mutations
 
 The seven the plan named, plus twelve this PR owes for what it added, plus seven for the
@@ -485,21 +508,6 @@ a string somebody typed.
 
 ## Not verified
 
-- **`scripts/agent/eval/README.md` is now stale, and this branch does not fix it.**
-  It is #677's file and the two branches were written in parallel, so the edit is left
-  to a follow-up rather than taken here. **Named as a task with its exact content and
-  its completion condition, so it cannot become a discovery:**
-
-  | | |
-  |---|---|
-  | File | `scripts/agent/eval/README.md` |
-  | Edit 1 | add two rows to the *"What exists today"* table: `config-hash.mjs` — "`config_hash`: configuration identity of a lens composition" — no model calls; `config-build.mjs` — "lenses dir → manifest + snapshot, and back" — no model calls |
-  | Edit 2 | in the sentence beginning *"The **runner** … are not built yet"*, remove **config identity (`config_hash`)** from the not-built list, leaving the runner, the arm adapters and the scorers |
-  | **Done when** | the file names both modules, and `grep -n 'config identity\|config_hash' scripts/agent/eval/README.md` returns no line asserting either is unbuilt |
-  | Owner | whoever merges this PR, or the PR 5 author — PR 5 touches the same README to add the runner row, so folding it in there costs nothing |
-
-  Deliberately **not** filed as a GitHub issue from this branch: an issue that
-  duplicates a task doc is a second place to forget. If it outlives PR 5, file one.
 - **That `high` is the SDK's runtime default, as opposed to its documented one.**
   Four independent upstream/SDK statements agree (decision 2) and no session was
   opened to observe it — that would cost money and prove one model's behaviour on one
