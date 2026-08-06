@@ -1,4 +1,4 @@
-import { classifyUploadKind, SKIP_REASON, type UploadKind } from "./upload-kind";
+import { classifyUploadKind, type UploadKind } from "./upload-kind";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
 import { importDocx } from "@/app/docs/docx-actions";
@@ -14,14 +14,13 @@ export type UploadStatus =
   | "parsing"
   | "uploading"
   | "done"
-  | "error"
-  | "skipped";
+  | "error";
 
 export interface UploadItem {
   id: string;
   file?: File; // retained for the worker; omitted from public reasoning
   fileName: string;
-  kind: UploadKind | null;
+  kind: UploadKind;
   workspaceId?: string;
   /** Folder the list was viewing when the file was enqueued (null = workspace
    *  root). Threaded into createDoc so a dropped file lands where the user is,
@@ -77,23 +76,17 @@ export function enqueue(
   workspaceId?: string,
   folderId?: string | null,
 ): UploadItem[] {
-  const created: UploadItem[] = files.map((file) => {
-    const kind = classifyUploadKind(file.name);
-    return {
-      id: `u${++seq}`,
-      // Skipped items are never processed, so don't pin their File blob in
-      // memory — only supported items need it for the worker.
-      file: kind ? file : undefined,
-      fileName: file.name,
-      kind,
-      workspaceId,
-      folderId,
-      status: kind ? "pending" : "skipped",
-      done: 0,
-      total: 0,
-      reason: kind ? undefined : SKIP_REASON,
-    };
-  });
+  const created: UploadItem[] = files.map((file) => ({
+    id: `u${++seq}`,
+    file,
+    fileName: file.name,
+    kind: classifyUploadKind(file.name),
+    workspaceId,
+    folderId,
+    status: "pending",
+    done: 0,
+    total: 0,
+  }));
   replace([...items, ...created]);
   return created;
 }
@@ -160,9 +153,7 @@ export function dismissItem(id: string): void {
 }
 
 export function clearFinished(): void {
-  replace(
-    items.filter((it) => it.status !== "done" && it.status !== "skipped"),
-  );
+  replace(items.filter((it) => it.status !== "done"));
 }
 
 export function nextPendingId(): string | undefined {
@@ -208,6 +199,8 @@ export interface UploadDeps {
       title: string;
       type: DocumentType;
       fileId?: string;
+      fileSize?: number;
+      mimeType?: string;
       folderId?: string | null;
     },
   ) => Promise<Document>;
@@ -247,7 +240,13 @@ function stripExt(name: string, ext: string, fallback: string): string {
  */
 async function getOrCreateDoc(
   item: UploadItem,
-  payload: { title: string; type: DocumentType; fileId?: string },
+  payload: {
+    title: string;
+    type: DocumentType;
+    fileId?: string;
+    fileSize?: number;
+    mimeType?: string;
+  },
 ): Promise<DocRef> {
   if (item.docId) {
     return { id: item.docId, type: payload.type };
@@ -361,24 +360,40 @@ async function runItem(item: UploadItem): Promise<void> {
           const warning =
             summary && summary !== "Imported with no fallbacks." ? summary : undefined;
           finish(item.id, created, warning);
-        } else if (item.kind === "pdf" || item.kind === "image") {
+        } else if (
+          item.kind === "pdf" ||
+          item.kind === "image" ||
+          item.kind === "file"
+        ) {
           patchItem(item.id, { status: "uploading" });
           const dot = item.fileName.lastIndexOf(".");
           const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
-          const fallback = item.kind === "pdf" ? "Untitled PDF" : "Untitled Image";
+          const fallback =
+            item.kind === "pdf"
+              ? "Untitled PDF"
+              : item.kind === "image"
+              ? "Untitled Image"
+              : "Untitled File";
           const title = stripExt(item.fileName, ext, fallback);
           // Upload the blob at most once per item: persist the returned fileId
           // immediately so a retry whose earlier failure was in createDoc reuses
           // the blob instead of orphaning it with a second upload.
           let fileId = item.fileId;
+          let size: number | undefined;
+          let mimeType: string | undefined;
           if (!fileId) {
-            ({ id: fileId } = await d.uploadFile(file));
+            const uploaded = await d.uploadFile(file);
+            fileId = uploaded.id;
+            size = uploaded.size;
+            mimeType = uploaded.mimeType;
             patchItem(item.id, { fileId });
           }
           const created = await getOrCreateDoc(item, {
             title,
             type: item.kind,
             fileId,
+            fileSize: size,
+            mimeType,
           });
           finish(item.id, created);
         }

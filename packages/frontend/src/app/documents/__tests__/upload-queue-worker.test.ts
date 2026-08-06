@@ -9,7 +9,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 describe("upload-queue worker", () => {
   beforeEach(() => q.__resetForTest());
 
-  it("processes a mixed batch to done/skipped", async () => {
+  it("processes a mixed batch of supported extensions to done", async () => {
     const deps = {
       importXlsx: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
@@ -111,6 +111,37 @@ describe("upload-queue worker", () => {
       expect.objectContaining({ type: "image", fileId: "img-1" }),
     );
     expect(deps.applyContent).not.toHaveBeenCalled();
+  });
+
+  it("uploads an unknown extension as a file document", async () => {
+    const deps = {
+      importXlsx: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.zip",
+        size: 4096,
+        mimeType: "application/zip",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("archive.zip")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1);
+    expect(deps.createDoc).toHaveBeenCalledWith(undefined, {
+      title: "archive",
+      type: "file",
+      fileId: "blob-1.zip",
+      fileSize: 4096,
+      mimeType: "application/zip",
+    });
+    expect(deps.applyContent).not.toHaveBeenCalled();
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
   });
 
   it("retries a rate-limited (429) image upload with backoff", async () => {
@@ -481,10 +512,10 @@ describe("upload-queue worker", () => {
     expect(q.getSnapshot().find((i) => i.id === item.id)).toBeUndefined();
   });
 
-  it("dismissing a skipped item removes it without any remote delete", async () => {
+  it("dismissing a pending item removes it without any remote delete", async () => {
     const deleteDoc = vi.fn(async () => {});
     q.startUploads(undefined, { deleteDoc } as never);
-    const [item] = q.enqueue([file("x.zip")]); // unsupported -> skipped
+    const [item] = q.enqueue([file("x.zip")]); // not yet started, no docId
     q.dismissItem(item.id);
     expect(deleteDoc).not.toHaveBeenCalled();
     expect(q.getSnapshot()).toHaveLength(0);
