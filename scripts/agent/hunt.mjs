@@ -28,9 +28,8 @@
 // `preflight` returns before the SDK is imported, so it works without `npm ci`.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { repoScopedEnv } from "./git-env.mjs";
 import path from "node:path";
+import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
 import { fileURLToPath } from "node:url";
 import {
   EXPLORER_SCHEMA,
@@ -552,64 +551,11 @@ function parseArgs(argv, start) {
   return a;
 }
 
+const strArg = (args, name) => sharedStrArg(args, name, fail);
+
 function fail(msg) {
   console.error(`hunt: ${msg}`);
   process.exit(1);
-}
-
-/**
- * Read a value-carrying flag. `parseArgs` sets a valueless flag (last token, or
- * followed by another `--flag`) to boolean `true`; hunt has no boolean flags, so
- * that always means a missing argument. Fail with a `hunt:`-prefixed usage error
- * rather than letting `true` reach `path.resolve` and throw a bare TypeError.
- */
-function strArg(args, name) {
-  const v = args[name];
-  if (v === true) fail(`--${name} needs a value`);
-  return v;
-}
-
-/**
- * `owner/repo` for the issue corpus. Resolved via `gh repo view` rather than by
- * parsing `git remote get-url origin`: this clone has three remotes (origin,
- * fork, hwisoo) and spec-to-pr.mjs's hardcoded `origin` assumption does not hold
- * here. Returns null rather than guessing, and the caller warns.
- */
-function repoSlug(repo) {
-  try {
-    return execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
-      cwd: repo,
-      encoding: "utf8",
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function gitSha(repo) {
-  try {
-    return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-      env: repoScopedEnv(repo),
-    }).trim();
-  } catch {
-    return "unknown";
-  }
-}
-
-/** Has anything under `globs` changed since `sha`? Drives ledger expiry. */
-function makeChangedSince(repo, globs) {
-  return (sha) => {
-    try {
-      const out = execFileSync("git", ["-C", repo, "log", "--oneline", `${sha}..HEAD`, "--", ...globs], {
-        env: repoScopedEnv(repo),
-        encoding: "utf8",
-      });
-      return out.trim() !== "";
-    } catch {
-      return false; // cannot tell → treat as unchanged (conservative)
-    }
-  };
 }
 
 async function cmdPreflight(args) {

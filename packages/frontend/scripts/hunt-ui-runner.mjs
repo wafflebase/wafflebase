@@ -45,6 +45,10 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 // unevaluable and the protocol had never heard of them. Importing across the boundary
 // is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
 import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+// One definition of a valid fault id, shared with the two agent-side boundaries.
+// All node builtins behind it (~15ms), and this file already reaches across for
+// `boundValue` for the same reason: a duplicated rule is a rule that drifts.
+import { assertFaultId } from "../../../scripts/agent/hunt-ui-probe.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -72,13 +76,10 @@ function parseArgs(argv) {
     else if (a === "--fault") out.fault = argv[++i];
     else throw new Error(`hunt-ui-runner: unknown argument ${JSON.stringify(a)}`);
   }
-  // The fault id becomes a query parameter, so its shape is validated here rather
-  // than trusted. It is developer-supplied today and the harness only honours ids it
-  // knows — but a value that reaches a URL should be constrained at the boundary it
-  // enters, not at the one it leaves.
-  if (out.fault !== null && !/^[a-z][a-z0-9-]*$/.test(out.fault)) {
-    throw new Error(`hunt-ui-runner: --fault must be a lowercase kebab-case id, got ${JSON.stringify(out.fault)}`);
-  }
+  // Shared with the two agent-side boundaries, and imported rather than copied
+  // BECAUSE this file has no test lane of its own — which is exactly where the copy
+  // went wrong. See `assertFaultId` for what a trailing `--fault` used to do.
+  assertFaultId(out.fault, { label: "--fault" });
   // Exactly one mode. Both would be ambiguous about which one the caller wanted, and
   // neither leaves nothing to do.
   if (out.serve && out.plan) throw new Error("hunt-ui-runner: --serve and --plan are mutually exclusive");

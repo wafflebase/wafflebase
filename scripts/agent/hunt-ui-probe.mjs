@@ -170,6 +170,32 @@ export function assertSafeActionPlan(plan) {
  * Only the timestamp moves, so only the timestamp is scrubbed: keeping the ordinal
  * preserves the distinction between block 3 and block 5, which is real signal.
  */
+/**
+ * Validate a seeded-fault id, or throw.
+ *
+ * ONE definition for all three boundaries that accept one — the runner's `--fault`,
+ * `runUiPlan`, and `openUiSession`. It lives here rather than beside each of them
+ * because the runner has no test lane of its own, and a copy there was where the real
+ * bug hid: `argv[++i]` for a trailing `--fault` is `undefined`, and a regex tested
+ * against `String(undefined)` matches the literal text "undefined" — all lowercase
+ * letters. So `--fault` with no value passed validation and produced a silently CLEAN
+ * run. A positive control that switches itself off is worse than none, because the
+ * run still looks like it proved something.
+ *
+ * Hence `typeof !== "string"` first. `null` — and ONLY null — means "no fault".
+ * `undefined` is an ERROR rather than a synonym for null, because the only way it
+ * reaches here is the trailing-flag case above: the caller asked for a fault and did
+ * not say which. Every in-process caller defaults the parameter to `null`, so none of
+ * them can hit this by accident.
+ */
+export function assertFaultId(fault, { label = "fault" } = {}) {
+  if (fault === null) return null;
+  if (typeof fault !== "string" || !/^[a-z][a-z0-9-]*$/.test(fault)) {
+    bad(`${label} needs a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
+  }
+  return fault;
+}
+
 export function scrubUiVolatile(text) {
   const once = scrubVolatile([String(text ?? "")])[0];
   return once.replace(/\bblock-\d{10,}-(\d+)\b/g, "block-<T>-$1");
@@ -280,12 +306,9 @@ export function runUiPlan(
   assertSafeActionPlan(plan);
   if (!Number.isInteger(attempts) || attempts < 1) bad(`attempts must be a positive integer, got ${attempts}`);
   // `fault` seeds a KNOWN defect into the harness — the positive control that proves
-  // the funnel can carry a finding end to end. Validated here as well as in the
-  // runner because this is the in-process boundary, and a caller should learn the id
-  // is malformed before a browser boots rather than after.
-  if (fault !== null && !/^[a-z][a-z0-9-]*$/.test(String(fault))) {
-    bad(`fault must be a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
-  }
+  // the funnel can carry a finding end to end. Checked before a browser boots, so a
+  // malformed id costs a millisecond rather than six seconds of Vite.
+  assertFaultId(fault);
 
   if (typeof runner === "function") return runner(plan, { repoRoot, attempts, port, fault });
 

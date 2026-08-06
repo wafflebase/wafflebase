@@ -545,7 +545,7 @@ test("exploreUi always closes its session, including when the model throws", asy
   assert.equal(closed, 1, "the session must be closed even when the session body throws");
 });
 
-test("exploreUi returns the journal the tool actually wrote", async () => {
+test("exploreUi's prompt carries the persona's rubric and THIS brief's task", async () => {
   const session = { act: async () => ({ ok: true }), close: async () => {} };
   const persona = { id: "p", title: "P", surface: "doc", rubric: "RUBRIC-MARKER", actionBudget: { maxActions: 5 } };
   const brief = { id: "b", task: "TASK-MARKER" };
@@ -566,12 +566,109 @@ test("exploreUi returns the journal the tool actually wrote", async () => {
     createServerImpl: async () => ({}),
   });
   assert.deepEqual(out.out.candidates, []);
-  assert.ok(Array.isArray(out.journal));
   // The brief's task and the persona's rubric both reach the model, or a persona's
   // briefs are decoration and every session explores the same way.
   assert.match(seenPrompt, /RUBRIC-MARKER/);
   assert.match(seenPrompt, /TASK-MARKER/);
   assert.match(seenPrompt, /at most 5 browser actions/);
+});
+
+test("exploreUi returns the journal the REAL tool wrote", async () => {
+  // This test used to stub `createServerImpl` away entirely and then assert
+  // `Array.isArray(out.journal)` — which is true of the empty array the stub leaves
+  // behind, so it could not fail. It asserted the name of a property nothing in the
+  // test exercised.
+  //
+  // `createUiTool` is pure (no SDK, no zod, no browser), so the real journal writer
+  // can be driven here. Now the assertion has something to be wrong about.
+  const { createUiTool } = await import("./hunt-ui-tool.mjs");
+  const persona = { id: "p", title: "P", surface: "doc", rubric: "r", actionBudget: { maxActions: 5 } };
+  const session = {
+    act: async (action) => (action.type === "read" ? { ok: true, value: "hello world" } : { ok: true, value: null }),
+    close: async () => {},
+  };
+
+  const out = await exploreUi(persona, { id: "b", task: "t" }, {
+    repo: "/nope",
+    context: { deferrals: "", issues: "", cfg: {} },
+    sessionLog: [],
+    openSession: async () => session,
+    // The REAL tool, over the real journal array exploreUi allocated.
+    createServerImpl: async (opts) => ({ __tool: createUiTool(opts) }),
+    askImpl: {
+      withRetry: (fn) => fn(),
+      askStructured: async ({ mcpServers }) => {
+        const tool = mcpServers.wafflebase.__tool;
+        await tool({ action: { type: "goto", surface: "doc" } });
+        await tool({ action: { type: "read", reader: "doc.text" } });
+        return { candidates: [], summary: "s" };
+      },
+    },
+  });
+
+  assert.equal(out.journal.length, 2, "every tool call must land in the journal exploreUi returns");
+  assert.equal(out.journal[0].action.type, "goto");
+  assert.equal(out.journal[1].action.reader, "doc.text");
+  assert.equal(out.journal[1].value, "hello world", "the journal holds what the session actually read");
+  assert.equal(out.actionCount, 2, "the budget counted both actions");
+});
+
+test("exploreUi gives each RETRY a fresh session, journal and budget", async () => {
+  // Documented as a correctness property and previously untested, because every stub
+  // used `withRetry: (fn) => fn()` — which never retries.
+  //
+  // The property matters concretely: the model in a second attempt counts its actions
+  // from 0, so `actionRefs: [0]` resolved against a journal still holding the FIRST
+  // attempt's entries would ship a reproduction of something else entirely. The
+  // honesty of every candidate depends on the journal describing exactly one session.
+  const { createUiTool } = await import("./hunt-ui-tool.mjs");
+  const opened = [];
+  const closed = [];
+  let attempt = 0;
+
+  const out = await exploreUi(
+    { id: "p", title: "P", surface: "doc", rubric: "r", actionBudget: { maxActions: 5 } },
+    { id: "b", task: "t" },
+    {
+      repo: "/nope",
+      context: { deferrals: "", issues: "", cfg: {} },
+      sessionLog: [],
+      openSession: async () => {
+        const id = opened.length;
+        const session = { id, act: async () => ({ ok: true, value: `from-session-${id}` }), close: async () => closed.push(id) };
+        opened.push(session);
+        return session;
+      },
+      createServerImpl: async (opts) => ({ __tool: createUiTool(opts) }),
+      askImpl: {
+        // A real retry: first attempt throws, second succeeds.
+        withRetry: async (fn) => {
+          try {
+            return await fn();
+          } catch {
+            return await fn();
+          }
+        },
+        askStructured: async ({ mcpServers }) => {
+          const tool = mcpServers.wafflebase.__tool;
+          await tool({ action: { type: "read", reader: "doc.text" } });
+          if (attempt++ === 0) throw new Error("transient API error");
+          await tool({ action: { type: "read", reader: "doc.blockCount" } });
+          return { candidates: [], summary: "s" };
+        },
+      },
+    },
+  );
+
+  assert.equal(opened.length, 2, "the retry must open a NEW session");
+  assert.ok(closed.includes(0), "the abandoned attempt's session must be closed — it is a Chromium and a Vite");
+  assert.equal(closed.length, 2, "and the surviving one closes too");
+
+  // The returned journal describes the SECOND attempt only. If it held both, index 0
+  // would point at the abandoned session's read.
+  assert.equal(out.journal.length, 2, "the journal must not accumulate across attempts");
+  assert.equal(out.journal[0].value, "from-session-1", "index 0 must belong to the surviving session");
+  assert.equal(out.actionCount, 2, "the budget resets with the journal, or the retry starts already spent");
 });
 
 // --- the whole funnel, with stubs -------------------------------------------
@@ -610,6 +707,9 @@ const FUNNEL_JOURNAL = [
     ok: true,
     value: null,
     oracles: [],
+    // Written by `createUiTool` via `assessExpectation` — the ONLY place a verdict
+    // exists. The report reads it from here, not from the observation.
+    prediction: { verdict: "violated", eligible: true, detail: 'expected to contain "ABCDEF", read "ACE"' },
   },
 ];
 
@@ -639,7 +739,10 @@ const FUNNEL_OBS = FUNNEL_JOURNAL.map((e, i) => ({
   ok: true,
   value: e.value,
   oracles: [],
-  ...(e.action.expect ? { actual: "ACE", verdict: "violated" } : {}),
+  // NO `verdict` here, deliberately. The runner reports `actual` and stops; the
+  // verdict is `assessExpectation`'s, written into the JOURNAL. A fixture that
+  // invents one on the observation is exactly how the "always unknown" bug hid.
+  ...(e.action.expect ? { actual: "ACE" } : {}),
 }));
 
 function funnelDeps(over = {}) {
@@ -683,6 +786,18 @@ test("runHunt carries a real candidate all the way to a report", async () => {
 
   // The citation on the record came from the VERIFIER, since the explorer supplies none.
   assert.deepEqual(out.reported[0].groundedIn, [CONFIRMED.groundedIn[0], CONFIRMED.groundedIn[0]]);
+
+  // The prediction verdict comes from the JOURNAL, where `assessExpectation` wrote
+  // it — not from the observation, which has no `verdict` field at all. Reading it
+  // off the observation made every reported finding say "unknown", and nothing
+  // failed because the fixture had invented the field.
+  assert.equal(out.reported[0].prediction.verdict, "violated");
+  assert.equal(out.reported[0].prediction.eligible, true);
+  assert.match(out.reported[0].prediction.detail, /ABCDEF/);
+  // ...alongside the expectation itself, so a reader sees what was claimed and how
+  // it was judged in one place.
+  assert.equal(out.reported[0].prediction.read, "doc.text");
+  assert.equal(out.reported[0].prediction.ground, "A");
   // The repro plan is written before the report names it, so the command can never
   // point at a file that does not exist.
   const planFile = [...written.keys()].find((f) => f.includes("repro-1.json"));
@@ -693,6 +808,78 @@ test("runHunt carries a real candidate all the way to a report", async () => {
   // And the ledger records the disposition, so the next run does not re-report it.
   assert.equal(out.ledgerAdds.length, 1);
   assert.equal(out.ledgerAdds[0].verdict, "reported");
+});
+
+test("runHunt forwards the seeded fault to the explorer AND to every replay", async () => {
+  // The exact failure this PR exists to fix, one layer up: the fault was accepted at
+  // the top and silently dropped before the thing that needed it. Exploration and
+  // replay must BOTH be seeded, or the candidate is found in a faulted browser and
+  // then replayed in a clean one — which would look like a flaky finding rather than
+  // like a broken control.
+  const exploreFaults = [];
+  const replayFaults = [];
+  const { deps } = funnelDeps({
+    fault: "drop-second-char",
+    exploreImpl: async (_p, _b, opts) => {
+      exploreFaults.push(opts.fault);
+      return { out: { candidates: [FUNNEL_CANDIDATE], summary: "s" }, journal: FUNNEL_JOURNAL, actionCount: 4, refusals: [] };
+    },
+    runPlanImpl: (_plan, opts) => {
+      replayFaults.push(opts.fault);
+      return Array.from({ length: opts.attempts ?? 1 }, () => FUNNEL_OBS);
+    },
+  });
+  await runHunt(deps);
+
+  assert.deepEqual(exploreFaults, ["drop-second-char"], "the explorer must run seeded");
+  assert.ok(replayFaults.length >= 2, "replay runs at least a claim pass and a determinism pass");
+  for (const f of replayFaults) {
+    assert.equal(f, "drop-second-char", "EVERY replay must run seeded, or the finding cannot reproduce");
+  }
+});
+
+test("runHunt on a CLEAN run seeds nothing, anywhere", async () => {
+  const seen = [];
+  const { deps } = funnelDeps({
+    exploreImpl: async (_p, _b, opts) => {
+      seen.push(opts.fault);
+      return { out: { candidates: [], summary: "s" }, journal: FUNNEL_JOURNAL, actionCount: 4, refusals: [] };
+    },
+  });
+  await runHunt(deps);
+  assert.deepEqual(seen, [null], "a normal hunt must never run against an injected defect");
+});
+
+test("runHunt: a SEEDED run writes NOTHING to the ledger", async () => {
+  // The stated safety property of the whole positive-control design. The ledger is
+  // keyed on the DEFECT, not the run, so recording a manufactured finding as
+  // "reported" would suppress a real one with the same reader/op/ground on a later
+  // run — a control that blinds the instrument it validates.
+  const { deps } = funnelDeps({ fault: "drop-second-char" });
+  const out = await runHunt(deps);
+
+  assert.equal(out.stats.reported, 1, "the seeded run still reports — that is what it proves");
+  assert.deepEqual(out.ledgerAdds, [], "but it must teach the ledger nothing");
+  assert.equal(out.seeded, "drop-second-char", "and it must SAY it was seeded, for cmdRun and the report");
+
+  // The identical run without the fault does record — otherwise the assertion above
+  // would pass for a pipeline that never writes a ledger entry at all.
+  const clean = await runHunt(funnelDeps().deps);
+  assert.equal(clean.stats.reported, 1);
+  assert.equal(clean.ledgerAdds.length, 1, "a real run MUST record, or dedupe across runs is dead");
+  assert.equal(clean.seeded, null);
+});
+
+test("runHunt: a seeded run discards DROP entries too, not just reported ones", async () => {
+  // Every ledger write is suppression. A seeded run's refuted candidate would
+  // otherwise record a "dropped" verdict against a real defect key.
+  const { deps } = funnelDeps({
+    fault: "drop-second-char",
+    verifyImpl: async () => ({ ...CONFIRMED, verdict: "refuted" }),
+  });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.refutedAfterReplay, 1);
+  assert.deepEqual(out.ledgerAdds, []);
 });
 
 test("runHunt: a refuted candidate counts as refutedAfterReplay, the precision signal", async () => {
@@ -755,7 +942,7 @@ test("runHunt: the verification cap truncates and SAYS SO, without touching the 
   many[1].actionRefs = [0, 1, 2, 4];
   many[2].failingRef = 5;
   many[2].actionRefs = [0, 1, 2, 5];
-  const obs = journal.map((e, i) => ({ index: i, action: e.action, ok: true, value: e.value, oracles: [], ...(e.action.expect ? { actual: "ACE", verdict: "violated" } : {}) }));
+  const obs = journal.map((e, i) => ({ index: i, action: e.action, ok: true, value: e.value, oracles: [], ...(e.action.expect ? { actual: "ACE" } : {}) }));
 
   const { deps } = funnelDeps({
     personas: [{ ...FUNNEL_PERSONA, maxVerified: 2 }],

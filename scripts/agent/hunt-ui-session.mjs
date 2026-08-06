@@ -34,7 +34,7 @@ import { StringDecoder } from "node:string_decoder";
 // exploration and replay silently diverge, and two copies of a path constant is exactly
 // how that starts.
 export { UI_RUNNER_REL } from "./hunt-ui-probe.mjs";
-import { UI_RUNNER_REL } from "./hunt-ui-probe.mjs";
+import { UI_RUNNER_REL, assertFaultId } from "./hunt-ui-probe.mjs";
 
 /** How long to wait for Vite + Chromium to come up before giving up. */
 const DEFAULT_READY_TIMEOUT_MS = 90_000;
@@ -102,11 +102,9 @@ export async function openUiSession({
   if (typeof repoRoot !== "string" || repoRoot === "") {
     throw new Error("hunt-ui-session: repoRoot is required");
   }
-  // Same shape check the plan path makes, for the same reason: this value becomes a
-  // query parameter, and a boundary that accepts anything is not a boundary.
-  if (fault !== null && !/^[a-z][a-z0-9-]*$/.test(String(fault))) {
-    throw new Error(`hunt-ui-session: fault must be a lowercase kebab-case id, got ${JSON.stringify(fault)}`);
-  }
+  // Same shape check the plan path makes, and the SAME function, so the three
+  // boundaries that accept a fault id cannot drift apart. They already did once.
+  assertFaultId(fault);
 
   const child = spawnImpl(
     process.execPath,

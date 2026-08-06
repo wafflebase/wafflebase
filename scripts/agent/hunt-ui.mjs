@@ -40,11 +40,10 @@
 // `scripts/agent/node_modules` — which is also how the `agent:tests` lane runs.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
 import { fileURLToPath } from "node:url";
 
-import { repoScopedEnv } from "./git-env.mjs";
 import {
   UI_EXPLORER_SCHEMA,
   UI_VERIFIER_SCHEMA,
@@ -184,6 +183,24 @@ export function uiActionEvidence(c) {
  */
 export function uiCitationsOf(_claimed, verdicts) {
   return (Array.isArray(verdicts) ? verdicts : []).flatMap((v) => (Array.isArray(v?.groundedIn) ? v.groundedIn : []));
+}
+
+/**
+ * The assessed verdict for a report, taken from the journal entry that holds it.
+ *
+ * Exported because the wrong source of this was invisible: an observation carries no
+ * `verdict`, so reading one off it produced `"unknown"` on every finding and nothing
+ * failed. `"unassessed"` rather than `"unknown"` when it is genuinely missing —
+ * "unknown" reads like a measurement that came back inconclusive, which is exactly
+ * the confusion that let the bug sit.
+ */
+export function pickPredictionVerdict(prediction) {
+  if (!prediction || typeof prediction !== "object") return { verdict: "unassessed" };
+  return {
+    verdict: typeof prediction.verdict === "string" ? prediction.verdict : "unassessed",
+    ...(prediction.detail ? { detail: prediction.detail } : {}),
+    ...(typeof prediction.eligible === "boolean" ? { eligible: prediction.eligible } : {}),
+  };
 }
 
 /** The gate options that turn the shared gate into the UI hunter's gate. */
@@ -666,54 +683,11 @@ function parseArgs(argv, start) {
   return a;
 }
 
+const strArg = (args, name) => sharedStrArg(args, name, fail);
+
 function fail(msg) {
   console.error(`hunt-ui: ${msg}`);
   process.exit(1);
-}
-
-function strArg(args, name) {
-  const v = args[name];
-  if (v === true) fail(`--${name} needs a value`);
-  return v;
-}
-
-function gitSha(repo) {
-  try {
-    return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-      env: repoScopedEnv(repo),
-    }).trim();
-  } catch {
-    return "unknown";
-  }
-}
-
-function repoSlug(repo) {
-  try {
-    return (
-      execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
-        cwd: repo,
-        encoding: "utf8",
-      }).trim() || null
-    );
-  } catch {
-    return null;
-  }
-}
-
-/** Has anything under `globs` changed since `sha`? Drives ledger expiry. */
-function makeChangedSince(repo, globs) {
-  return (sha) => {
-    try {
-      const out = execFileSync("git", ["-C", repo, "log", "--oneline", `${sha}..HEAD`, "--", ...globs], {
-        env: repoScopedEnv(repo),
-        encoding: "utf8",
-      });
-      return out.trim() !== "";
-    } catch {
-      return false;
-    }
-  };
 }
 
 function loadContext(repo, args, personas) {
@@ -855,7 +829,7 @@ async function cmdRun(args) {
 
   const context = loadContext(repo, args, personas);
   const sessionLog = [];
-  const { reported, dropped, skipped, stats, ledgerAdds } = await runHunt({
+  const out = await runHunt({
     personas,
     excluded,
     repo,
@@ -867,6 +841,7 @@ async function cmdRun(args) {
     sessionLog,
     fault,
   });
+  const { reported, dropped, skipped, stats, ledgerAdds } = out;
 
   mkdirSync(outDir, { recursive: true });
   const report = renderUiReport({
@@ -892,21 +867,13 @@ async function cmdRun(args) {
   // pipeline is worth running.
   writeFileSync(path.join(outDir, "hunt-ui-execution.json"), JSON.stringify(sessionLog));
 
-  // A SEEDED RUN MUST NOT TEACH THE LEDGER ANYTHING.
-  //
-  // Its findings are fabricated by construction — that is the point of a positive
-  // control — and the ledger is keyed on the defect, not on the run. Writing them
-  // would record a manufactured defect as "reported", and the next REAL run keying
-  // the same reader/op/ground would be suppressed as already-seen. A control that
-  // silently blinds the instrument it is validating is worse than no control.
-  //
-  // Refusing to write is the whole fix: nothing to clean up afterwards, and no
-  // "remember to delete seen.json" step for a human to forget.
-  if (fault) {
-    console.error(
-      `hunt-ui: seeded run (?fault=${fault}) — the ledger at ${ledgerFile} was NOT written, ` +
-        "so these fabricated findings cannot suppress a real one later",
-    );
+  // `runHunt` has already emptied `ledgerAdds` for a seeded run — see there for why
+  // the property lives in the tested function rather than in this branch. Skipping
+  // the write too is belt and braces: rewriting the file with identical content is
+  // harmless, but not touching it at all is the behaviour a reader expects from
+  // "a seeded run does not write the ledger".
+  if (out.seeded) {
+    console.error(`hunt-ui: seeded run — ${ledgerFile} left untouched`);
   } else {
     writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
   }
@@ -1075,7 +1042,6 @@ export async function runHunt({
         continue;
       }
 
-      const failing = firstObservations?.[cand.failingIndex];
       const record = {
         personaId: persona.id,
         briefId: cand.__brief,
@@ -1092,8 +1058,19 @@ export async function runHunt({
         },
         actions: cand.actions,
         failingIndex: cand.failingIndex,
+        // The verdict comes from the JOURNAL, not from the observation.
+        //
+        // The runner deliberately does not compare — it reports `actual` and stops,
+        // leaving the verdict to `hunt-ui-expect.mjs` in pure, testable code. So an
+        // observation has no `verdict` field at all, and reading one off it yielded
+        // "unknown" on every finding this pipeline could ever report. The journal
+        // entry is where `assessExpectation` wrote it, during exploration, which is
+        // also the verdict the candidate is actually claiming.
         prediction: cand.actions[cand.failingIndex]?.expect
-          ? { ...cand.actions[cand.failingIndex].expect, verdict: failing?.verdict ?? "unknown" }
+          ? {
+              ...cand.actions[cand.failingIndex].expect,
+              ...pickPredictionVerdict(cand.__journal?.[cand.failingRef]?.prediction),
+            }
           : null,
         oracles: oraclesFired(firstObservations),
         replay: rep,
@@ -1165,7 +1142,28 @@ export async function runHunt({
     }
   }
 
-  return { reported, dropped, skipped, stats, ledgerAdds };
+  // A SEEDED RUN MUST NOT TEACH THE LEDGER ANYTHING.
+  //
+  // Its findings are fabricated by construction — that is the point of a positive
+  // control — and the ledger is keyed on the DEFECT, not on the run. Recording them
+  // would file a manufactured defect as "reported", and the next REAL run keying the
+  // same reader/op/ground would be suppressed as already-seen. A control that
+  // silently blinds the instrument it validates is worse than no control.
+  //
+  // Enforced HERE rather than at the `writeFileSync` in `cmdRun`, because this is the
+  // function tests can reach. The stated safety property of the whole positive-control
+  // design cannot live in an unexported branch nothing exercises — that is how it
+  // becomes a comment describing behaviour the code does not have.
+  if (fault && ledgerAdds.length > 0) {
+    console.error(
+      `hunt-ui: seeded run (?fault=${fault}) — discarding ${ledgerAdds.length} ledger ` +
+        "entr" + (ledgerAdds.length === 1 ? "y" : "ies") +
+        " so fabricated findings cannot suppress a real one later",
+    );
+    ledgerAdds.length = 0;
+  }
+
+  return { reported, dropped, skipped, stats, ledgerAdds, seeded: fault ?? null };
 }
 
 /**
