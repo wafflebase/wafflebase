@@ -31,6 +31,7 @@ import {
   ArrowUp,
   ChevronsUpDown,
   Download,
+  File as FileIcon,
   FileDown,
   FileText,
   Folder as FolderIcon,
@@ -173,6 +174,7 @@ const TYPE_META: Record<
   pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-red-500" },
   image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
   board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
+  file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
 };
 
 /** Document types offered as filter chips, in display order. */
@@ -184,6 +186,7 @@ const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "pdf",
   "image",
   "board",
+  "file",
 ];
 
 /**
