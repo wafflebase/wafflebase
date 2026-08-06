@@ -1878,6 +1878,66 @@ describe('Editor canvas context menu — Change layout', () => {
     expect(labels).toContain('Insert text');
     ed.detach();
   });
+
+  it('"Select all" is in the empty-canvas menu and clicking it selects every element on the slide', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elAId = '';
+    let elBId = '';
+    store.batch(() => {
+      const slideId = store.read().slides[0].id;
+      elAId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 10, y: 10, w: 30, h: 30, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      elBId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 30, h: 30, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    const ed = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    expect(ed.getSelection()).toEqual([]);
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const item = [...menu.querySelectorAll('li')].find((li) => li.textContent === 'Select all') as HTMLElement;
+    expect(item).toBeTruthy();
+    item.click();
+    expect([...ed.getSelection()].sort()).toEqual([elAId, elBId].sort());
+    ed.detach();
+  });
+
+  it('"Fit to content" is absent from the empty-canvas menu when no onFitToContent hook is supplied', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const ed = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const labels = [...menu.querySelectorAll('li')].map((li) => li.textContent);
+    expect(labels).not.toContain('Fit to content');
+    ed.detach();
+  });
+
+  it('"Fit to content" appears and invokes the host hook when onFitToContent is supplied', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const onFitToContent = vi.fn();
+    const ed = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      onFitToContent,
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const item = [...menu.querySelectorAll('li')].find((li) => li.textContent === 'Fit to content') as HTMLElement;
+    expect(item).toBeTruthy();
+    item.click();
+    expect(onFitToContent).toHaveBeenCalledTimes(1);
+    ed.detach();
+  });
 });
 
 // ---------------------------------------------------------------------------
