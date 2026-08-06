@@ -1967,6 +1967,35 @@ record, sitting in the same thread. And `MAX_REVIEW_ROUNDS` still counts only
 autonomous rounds; an on-demand fix is deliberately outside that budget, which is
 the point of the verb but does mean a maintainer can spend past it by hand.
 
+### The metrics sweep deleted other people's comments
+
+`metrics.mjs summarize` posts the effort summary fresh each round and deletes the
+previous one. Both of its cleanup loops selected by `body.includes(marker)` over
+EVERY comment on the PR — so any comment containing the literal
+`<!-- agent-metrics-summary -->` or `<!-- agent-metric …-->` was removed, whoever
+wrote it and whatever it was.
+
+Observed on #681, a PR about pipeline observability. The on-demand review's own
+findings comment named `<!-- agent-metrics-summary -->` while enumerating the
+harness's comment surfaces; `summarize` runs in the same job four seconds later and
+deleted the review. Every job and step reported success, and `safeDeleteComment` is
+best-effort by design, so nothing failed and nothing logged it — the comment simply
+was not there. It looked like `@claude review` had produced only an effort comment.
+
+The exposure was general, not specific to the panel: CodeRabbit reviewing
+`scripts/agent/metrics.mjs` quotes markers as a matter of course, a maintainer can
+paste one, and the `--final` branch swept `METRIC_PREFIX` on a bare `includes` with
+no parse at all. Any PR that touches or discusses this module was affected, on
+every summarize — which runs in the on-demand review, promote, and fix.
+
+`isOwnComment` replaces both tests with two cheap conditions. POSITION: both
+`renderSummary` and `serializeRecord` emit the marker as the body's first
+characters, while a quotation is prose *about* a marker and appears mid-sentence —
+this alone fixes it. AUTHOR: every writer here posts through a token, so ours are
+always a Bot, and `user.type` is set by GitHub rather than chosen by the commenter.
+It fails toward KEEPING: a stale summary costs a duplicate, while deleting the
+wrong comment destroys work with no record that it happened.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:
