@@ -34,7 +34,7 @@
 // THIS RUN SPENDS MONEY. It spawns the panel, which calls models. Tests drive it
 // with `adapters/stub-panel.mjs` instead, which is why `--panel-script` exists.
 
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, renameSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -233,10 +233,13 @@ function countFiles(dir) {
  * `${dest}` into `sh -c` — the harness's only shell-out, over a value that arrives
  * from stored corpus metadata.
  *
- * The tree is built in a staging directory and RENAMED into the cache, so a
- * concurrent reader sees it absent or complete and never mid-extraction. The cache
- * root is shared across processes — it is keyed only by commit, under `tmpdir()` —
- * which is what makes that necessary rather than tidy.
+ * KNOWN LIMIT, deliberately not fixed here: the cache root is shared across
+ * processes — keyed only by commit, under `tmpdir()` — so two runners replaying the
+ * same commit address this path at once, and the `rmSync` below means a concurrent
+ * reader can observe the tree mid-rebuild. A staging-plus-rename version of this was
+ * written and REVERTED: it broke CI twice (see the task doc), the replays run as one
+ * serial `workflow_dispatch` job today, and PR 6 replaces `git archive` with a real
+ * worktree and has to decide the cache layout anyway.
  *
  * This is a `git archive`, which produces a tree with NO `.git`. That is why
  * nothing passes `--base-sha`: the novelty gate would find no repository to blame
@@ -252,68 +255,25 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
     const recorded = Number(readFileSync(mark, "utf8").trim().split(/\s+/)[1]);
     return { path: dest, files: Number.isFinite(recorded) ? recorded : countFiles(dest), error: null };
   }
-  // EXTRACT ASIDE, THEN RENAME INTO PLACE. The cache root is shared — it is under
-  // `tmpdir()`, keyed only by commit — so two runners replaying the same commit, or
-  // one runner starting while another is mid-extraction, both address this exact
-  // path. Building in place meant a reader could observe the tree DELETED (the
-  // `rmSync` below) or half-populated, and a lens handed a half-populated tree
-  // reasons from code that is genuinely missing and reports it as a finding. A
-  // rename is atomic, so `dest` is only ever absent or complete.
-  //
-  // The loser of a race is not an error: whoever renamed first left a tree of the
-  // same commit, which is what the marker records and what the caller wanted.
-  // EVERYTHING inside the try, including creating the staging directory, because
-  // this function's contract is that it never throws — it answers
-  // `{path: null, files: 0, error}` and lets the caller decide. The first version of
-  // the staging rewrite called `mkdtempSync` above the try and CI caught it on the
-  // first run: `mkdtempSync` does not create parent directories, so on a machine
-  // where the cache root did not exist yet the ENOENT escaped and took the whole run
-  // with it. It passed locally only because an earlier run had already created the
-  // directory — the same leftover-state trap as the test below, one level up.
-  let staging = null;
+  const tarPath = `${dest}.tar`;
   try {
-    // The cache ROOT, which nothing else creates: `mkdtempSync` needs its parent to
-    // exist and the old in-place `mkdirSync(dest, {recursive: true})` used to make it
-    // as a side effect.
-    mkdirSync(path.dirname(dest), { recursive: true });
-    staging = mkdtempSync(`${dest}.staging-`);
-    const tarPath = path.join(staging, "tree.tar");
-    const treeDir = path.join(staging, "tree");
-    mkdirSync(treeDir, { recursive: true });
-    execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], { stdio: "pipe" });
-    execFileSync("tar", ["-xf", tarPath, "-C", treeDir], { stdio: "pipe" });
-    let files = countFiles(treeDir);
+    rmSync(dest, { recursive: true, force: true });
     rmSync(tarPath, { force: true });
-    try {
-      renameSync(treeDir, dest);
-    } catch (e) {
-      // Somebody else got there first (or left debris). An existing tree of this
-      // commit is as good as ours, so reuse it rather than racing to replace it —
-      // replacing is what could pull the tree out from under a concurrent reader.
-      if (!existsSync(dest)) throw e;
-      // Count what is ACTUALLY there, not what we staged. The two agree whenever the
-      // winner extracted the same commit, which is the only case the cache key allows
-      // — but the marker must describe the tree the caller is about to be handed, or
-      // `repo_context_files` goes back to disagreeing between replicates by a
-      // different route than the one this PR fixed.
-      files = countFiles(dest);
-    }
-    // The marker LAST and beside the tree, never inside it — see `countFiles`. Written
-    // on the reuse path too: the winner may not have reached its own write yet, and a
-    // marker is what every later replicate reads instead of re-walking.
+    mkdirSync(dest, { recursive: true });
+    execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], { stdio: "pipe" });
+    execFileSync("tar", ["-xf", tarPath, "-C", dest], { stdio: "pipe" });
+    const files = countFiles(dest);
     writeFileSync(mark, `${commit} ${files}\n`);
     return { path: dest, files, error: null };
   } catch (e) {
+    rmSync(dest, { recursive: true, force: true });
     // Surface git's own stderr rather than swallowing it: a silent 0-file checkout
     // is how the #521 pilot billed $44 for a full diff-only run without anyone
     // noticing.
     const why = (e.stderr?.toString?.() || e.message || "").split("\n").find((l) => l.trim()) || "unknown";
     return { path: null, files: 0, error: why };
   } finally {
-    // Only ever our own staging directory, and only if we got as far as making one.
-    // `dest` is deliberately never removed on failure: it is either absent or a
-    // complete tree somebody else built.
-    if (staging) rmSync(staging, { recursive: true, force: true });
+    rmSync(tarPath, { force: true });
   }
 }
 

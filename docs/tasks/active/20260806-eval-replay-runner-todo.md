@@ -285,36 +285,42 @@ is injected now. And the `repo_context_files` stability test pre-wrote a marker 
 a third file standing in for whatever accumulates in a cache directory that outlives
 one run — which is what the fork's own in-tree marker was.
 
-**The commit cache is shared across processes, and a test proved it by failing.** The
-new `--require-repo-context` end-to-end went green-then-red depending on whether an
-earlier run had already materialised the fixture's `review_commit` into
-`tmpdir()/eval-repo-cache` — the guard cannot fire on a cache hit. Two consequences,
-both taken. The test now uses a sha no repository can hold, because **a test whose
-result depends on another process's leftovers is not testing what it says.** And
-`materializeRepoAt` now extracts into a staging directory and **renames** the tree into
-the cache, instead of `rmSync`-ing the destination and building in place: the old order
-meant a concurrent reader could observe the tree deleted or half-populated, and a lens
-handed a half-populated tree reasons from code that is genuinely missing and reports it
-as a finding. A rename is atomic, so the destination is only ever absent or complete,
-and the loser of a race reuses the winner's tree rather than replacing it.
+**A test depended on another process's leftovers, and the fix for that was one line —
+but I rewrote working code instead.** The new `--require-repo-context` end-to-end went
+green or red depending on whether an earlier run had already materialised the fixture's
+`review_commit` into `tmpdir()/eval-repo-cache`, because the guard cannot fire on a
+cache hit. The correct fix is the one that shipped: the test now uses a sha no
+repository can hold, because **a test whose result depends on another process's
+leftovers is not testing what it says.**
 
-**And the atomic-rename fix shipped with an ENOENT that only CI could see.**
-`mkdtempSync` does not create parent directories, and the in-place version it replaced
-used to create the cache root as a side effect of `mkdirSync(dest, {recursive: true})`.
-So on a machine where `tmpdir()/eval-repo-cache` did not exist yet — a fresh runner —
-the **first** materialisation threw. Worse, the call sat *above* the `try`, so the throw
-escaped a function whose stated contract is that it never throws, and it would have
-taken down a paid run partway through instead of degrading one item.
+What also shipped, and was then **REVERTED**, was a rewrite of `materializeRepoAt` to
+extract into a staging directory and `rename` it into the cache rather than `rmSync`-ing
+the destination and building in place. The reasoning was sound — the cache root is
+shared across processes, so a concurrent reader can observe the tree mid-rebuild — but
+the change was **optional, and it broke CI twice**:
 
-It passed locally for exactly one reason: an earlier end-to-end had already created that
-directory. **This is the same leftover-state trap as the test two paragraphs up, one
-level higher** — I fixed the test's dependence on stale cache *entries* and left the
-code's dependence on the cache *root* in place, and every one of my tests hid it by
-`mkdtempSync`-ing a cache root that therefore always existed. The fix creates the root
-and moves all of it inside the `try`; the two tests added are a cache root that is
-deliberately absent, and an assertion that `materializeRepoAt` never throws for any
-filesystem input at all. Generalises, again: **a fixture that constructs the
-precondition cannot test whether the code establishes it.**
+| Commit | Result |
+|---|---|
+| `177b29823` — the runner as reviewed | ✅ green, `agent:tests` in **3.3 s** |
+| `359efba42` — + the rename rewrite | ❌ `ENOENT` on a fresh runner |
+| `94f8063a5` — + the ENOENT fix | 🚫 `agent:tests` **hung 31 minutes**, cancelled |
+
+The ENOENT is worth recording because of *why* it was invisible: `mkdtempSync` does not
+create parent directories, and the in-place version had been creating the cache root as
+a side effect of `mkdirSync(dest, {recursive: true})`. Every local test hid it by
+`mkdtempSync`-ing its own cache root, so the root always existed. **A fixture that
+constructs the precondition cannot test whether the code establishes it** — the same
+leftover-state trap as the paragraph above, one level higher.
+
+The hang has **not** been diagnosed. It stopped after TAP test 305 with 31 minutes of
+silence inside `agent:tests`, and it does not reproduce locally, including at
+`--test-concurrency=2`. So the rewrite is reverted to the version that was green rather
+than iterated on: it addressed a mode the design does not have — spec decision 5 runs
+the replays as **one serial `workflow_dispatch` job** — and PR 6 replaces `git archive`
+with a real worktree and has to decide the cache layout anyway. The limit is now written
+down at `materializeRepoAt` instead of half-fixed. **When a reviewer's nitpick and your
+own failing test seem to agree, check whether the test needs a one-line fixture fix
+before you rewrite the code.**
 
 **Two hygiene items, both about not leaving evidence-shaped litter.** Each item's
 scratch directory is now removed **only when the item is `ok`** — for a failed item that
@@ -364,6 +370,11 @@ Nothing here is PR 6, and the seams it needs are named below rather than half-bu
   against a base that can actually resolve.
 - **`--require-repo-context` stays default OFF.** Flipping it belongs with the thing
   that makes it satisfiable.
+- **The commit cache is not made concurrency-safe.** It is shared across processes and
+  keyed only by commit, so two runners on one commit can collide. Written down at
+  `materializeRepoAt` rather than fixed: a staging-plus-rename version was tried and
+  reverted (see above), the replays run as one serial job today, and PR 6 replaces
+  `git archive` with a worktree and owns the cache layout.
 - **No per-run cost caps, and no panel timeout.** `runAgent` waits on the child
   indefinitely. A `--panel-timeout` that killed a hung panel is a cost guard, which is
   PR 6's line item, and the seam is `runAgent`'s `spawn` — one `setTimeout` plus a
@@ -400,8 +411,8 @@ Nothing here is PR 6, and the seams it needs are named below rather than half-bu
 Measured on this machine, at `scripts/agent`, with the lane's own command
 `node --test '**/*.test.mjs'`.
 
-- [x] **1180 tests · 0 fail · 0 skip**, against **1113 · 0 · 0** on `upstream/main`
-      `01b8d39c2`. Delta **+67**. The absolute numbers moved twice while this was in
+- [x] **1177 tests · 0 fail · 0 skip**, against **1113 · 0 · 0** on `upstream/main`
+      `01b8d39c2`. Delta **+64**. The absolute numbers moved twice while this was in
       review — #680 merged (+55) and then #678 (+56) — which is why the delta is the
       number to read and why it was re-measured on the branch's actual base each time
       rather than carried over.
@@ -419,10 +430,10 @@ Measured on this machine, at `scripts/agent`, with the lane's own command
       "backlog"` and `novelty: {origin: "relocated", …}` reaches the stored envelope's
       payload with both intact, plus `unsettled` and a field nothing in this repository
       has heard of.
-- [x] **34/34 mutations caught**, including all seven the plan named. Eight survived a
-      first pass — four in the original round, two covering fixes made in review, and
-      two covering the ENOENT CI found — and every one was a weakness in the tests
-      rather than the code. See *Corrected while building*.
+- [x] **31/31 mutations caught**, including all seven the plan named. Six survived a
+      first pass — four in the original round and two covering fixes made in review —
+      and every one was a weakness in the tests rather than the code. The three
+      mutations covering the reverted rename rewrite went with it.
 - [x] **Idempotence shown, not claimed.** Two invocations at one `--run-id` over a real
       corpus item: the second re-ran nothing, and `shasum` over both stored files is
       byte-identical.
@@ -435,7 +446,8 @@ Measured on this machine, at `scripts/agent`, with the lane's own command
 - [x] `panel_sha` present, 40-hex, and `validateRunEnvelope` refuses eight bad shapes.
 - [x] Verified from the **committed tree**, extracted with `git archive`, not the
       working copy — and with `tmpdir()/eval-repo-cache` deleted first, because the
-      one bug CI caught was invisible while that directory existed.
+      one bug CI caught was invisible while that directory existed. Also run at
+      `--test-concurrency=2`, matching a standard runner's CPU count.
 
 ### Not verified
 
