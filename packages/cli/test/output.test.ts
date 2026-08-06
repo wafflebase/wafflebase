@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Command } from 'commander';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { format, output, outputError } from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
+import { createProgram } from '../src/commands/root.js';
+import { registerDocsCommand } from '../src/commands/docs.js';
+import { registerSheetsCommand } from '../src/commands/sheets.js';
 
 describe('formatJson', () => {
   it('pretty-prints JSON', () => {
@@ -154,10 +158,7 @@ describe('output', () => {
     stdoutSpy.mockRestore();
   });
 
-  // Regression guard for #660: `--quiet` gates progress notices only, so
-  // it must not be threaded into the body/error emitters. Both take no
-  // `quiet` argument — a caller that tries to pass one fails to compile.
-  it('always prints the body', () => {
+  it('prints the body', () => {
     output({ a: 1 }, 'json');
     expect(stdoutSpy).toHaveBeenCalledOnce();
     expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('{\n  "a": 1\n}');
@@ -166,5 +167,113 @@ describe('output', () => {
   it('honors the requested format', () => {
     output([{ a: 1 }], 'csv');
     expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('a\n1');
+  });
+});
+
+// Regression guard for #660. Asserting on `output`/`outputError` directly
+// cannot catch this regression: after the signature change they take no
+// `quiet` argument, so a unit call always prints. The bug lived at the
+// command call sites, which read `--quiet` off the parsed global options —
+// so the guard has to drive a real command through commander with the flag
+// set and watch what reaches stdout/stderr. Reintroducing suppression at
+// any of these call sites fails these tests.
+describe('--quiet does not suppress the body or the error envelope', () => {
+  const ENV_KEYS = [
+    'WAFFLEBASE_CONFIG',
+    'WAFFLEBASE_API_KEY',
+    'WAFFLEBASE_SERVER',
+    'WAFFLEBASE_WORKSPACE',
+  ] as const;
+
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let savedEnv: Record<string, string | undefined>;
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    // Point at a config path that cannot exist so the resolved config comes
+    // purely from these env vars — no developer's ~/.wafflebase leaks in.
+    process.env.WAFFLEBASE_CONFIG = '/nonexistent/wafflebase-test.yaml';
+    process.env.WAFFLEBASE_API_KEY = 'wfb_test';
+    process.env.WAFFLEBASE_SERVER = 'https://api.test';
+    process.env.WAFFLEBASE_WORKSPACE = 'ws-1';
+
+    stdoutSpy = vi.spyOn(console, 'log').mockImplementation(() => {
+      /* swallow */
+    });
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      /* swallow */
+    });
+    process.exitCode = 0;
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+    vi.unstubAllGlobals();
+    process.exitCode = originalExitCode;
+  });
+
+  function stubFetch(status: number, data: unknown) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => data,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  function buildProgram(): Command {
+    const program = createProgram();
+    registerDocsCommand(program);
+    registerSheetsCommand(program);
+    return program;
+  }
+
+  async function run(...argv: string[]): Promise<void> {
+    await buildProgram().parseAsync(['node', 'wafflebase', ...argv]);
+  }
+
+  it('prints the result body for `docs list --quiet`', async () => {
+    stubFetch(200, [{ id: 'doc-1', title: 'Doc' }]);
+    await run('docs', 'list', '--quiet');
+    expect(stdoutSpy).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(stdoutSpy.mock.calls[0]?.[0]))).toEqual([
+      { id: 'doc-1', title: 'Doc' },
+    ]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('prints the result body for `sheets cells get --quiet`', async () => {
+    stubFetch(200, { A1: { value: '1' } });
+    await run('sheets', 'cells', 'get', 'doc-1', 'A1', '--quiet');
+    expect(stdoutSpy).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(stdoutSpy.mock.calls[0]?.[0]))).toEqual({
+      A1: { value: '1' },
+    });
+  });
+
+  it('respects --format while quiet (body is the redirected data)', async () => {
+    stubFetch(200, [{ id: 'doc-1', title: 'Doc' }]);
+    await run('docs', 'list', '--quiet', '--format', 'csv');
+    expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('id,title\ndoc-1,Doc');
+  });
+
+  it('prints the error envelope on stderr and exits 1 under --quiet', async () => {
+    stubFetch(500, null);
+    await run('docs', 'get', 'doc-1', '--quiet');
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error).toEqual({ code: 'ERROR', message: 'HTTP 500' });
+    expect(process.exitCode).toBe(1);
   });
 });
