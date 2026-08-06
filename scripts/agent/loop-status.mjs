@@ -56,6 +56,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { countFailedReviewRounds, rerunPointFrom, PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import {
   gh,
   ghJson,
@@ -358,6 +359,9 @@ export function renderLoopStatus({
 
 function bail(msg) {
   console.error(`loop-status: ${msg} (continuing without a status update)`);
+  // Exit-0 by design, so the step never shows failed — the warning is the one
+  // trace that the dashboard a maintainer is about to read went stale here.
+  emitBestEffortWarning(`loop-status failed: ${msg} — the loop-status dashboard comment may be stale`);
   process.exit(0);
 }
 

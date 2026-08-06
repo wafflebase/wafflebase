@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./active/20260806-agent-loop-observability-todo.md) | - |
+| eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./active/20260806-eval-replay-runner-todo.md) | - |
 | capture collector (2026-08-05) | [20260805-capture-collector-todo.md](./active/20260805-capture-collector-todo.md) | - |
 | eval config identity (2026-08-05) | [20260805-eval-config-identity-todo.md](./active/20260805-eval-config-identity-todo.md) | - |
 | eval corpus skeleton (2026-08-05) | [20260805-eval-corpus-skeleton-todo.md](./active/20260805-eval-corpus-skeleton-todo.md) | - |

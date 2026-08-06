@@ -1,4 +1,4 @@
-# Make the review→fix loop legible from the PR page (observability, phases 1–2)
+# Make the review→fix loop legible from the PR page (observability, phases 1–3)
 
 ## The problem
 
@@ -66,11 +66,35 @@ PR page a continuing loop and a dead loop looked identical; only pages spoke.
       partial URLs), the CI arm's attempts-cap and no-advance pages, the panel
       fix job's no-advance page and the `stalled` safety net.
 
-## Deliberately not done
+## The change, phase 3 — the dispute channel and the leftovers
 
-- Visible rebuttal bodies, warnings on silent `continue-on-error` steps, a
-  comment when an implement run dies without opening a PR — phase 3 of the
-  observability plan.
+- [x] **Visible rebuttal bodies** (`renderRebuttalComment` in
+      `scripts/agent/rebuttal.mjs`): the disputed finding, claim, citations
+      and the "claim awaiting adjudication, upholds by default" framing above
+      the unchanged hidden record. Read side untouched (marker matched
+      anywhere, author-gated). Two serialization hardenings shipped with it:
+      author fields `<!--`-neutralized (both paged-latch predicates are
+      containment tests gated on the App-token identity rebuttals post under),
+      and the `-->` terminator transport-escaped as in
+      `scripts/agent/fix-report.mjs` — fixing a pre-existing silent failure
+      where a dispute quoting any repo marker truncated its JSON and was
+      never posted.
+- [x] **Best-effort failure breadcrumbs** (`emitBestEffortWarning` in
+      `scripts/agent/guard-verdict.mjs`): the fail-safe scripts (set-state,
+      loop-status, metrics) exit 0 on operational failure BY DESIGN, so
+      `continue-on-error:` never observes them — their bail paths now emit a
+      `::warning::` annotation + job-summary line naming the consequence.
+      Opt-in per call site in `scripts/agent/metrics.mjs` (bail also serves
+      normal no-ops; warning on those teaches readers to ignore it). The
+      implement ack gained the `core.warning` catch the other inline
+      github-script steps already had.
+- [x] **Kickoff dead-run visibility** (`.github/workflows/agent-implement.yml`):
+      an always-step that comments on the issue when the run ends with no open
+      `agent/<issue>-*` PR — run link, artifact name, retry command — with
+      three-state honesty (PR found → silent; none → dead-run comment; PR list
+      unreadable → says so, never asserts a failure it did not verify).
+
+## Deliberately not done
 - Counting on-demand `@claude fix` rounds against `MAX_REVIEW_ROUNDS` (a loop
   behavior change, tracked separately in harness-engineering.md's "not yet
   built" list).

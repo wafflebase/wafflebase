@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 // scripts/agent/node_modules ABSENT, so a module that statically pulled in the
 // Agent SDK would take this whole file down with it (ask.test.mjs enforces this).
 import { classifyResult } from "./ask.mjs";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
@@ -1004,8 +1005,13 @@ function parseArgs(argv) {
 }
 
 // Metrics must NEVER fail the pipeline: log and exit 0 on any problem.
-function bail(msg) {
+// `consequence` is OPT-IN per call site, because bail() serves two different
+// sentences: genuine failures ("could not post the summary") and normal
+// no-ops ("no metrics recorded yet"). Warning on the no-ops would teach
+// readers to ignore the annotation — precision is what makes it worth having.
+function bail(msg, consequence) {
   console.error(`metrics: ${msg}`);
+  if (consequence) emitBestEffortWarning(`metrics: ${msg} — ${consequence}`);
   process.exit(0);
 }
 
@@ -1017,7 +1023,7 @@ function cmdRecord(args) {
   try {
     messages = JSON.parse(readFileSync(args.execution, "utf8"));
   } catch (e) {
-    return bail(`cannot read execution log ${args.execution}: ${e.message}`);
+    return bail(`cannot read execution log ${args.execution}: ${e.message}`, "this session's cost is missing from the effort ledger");
   }
   let rec;
   if (kind === "review") {
@@ -1054,7 +1060,7 @@ function cmdRecord(args) {
     // so concurrent sessions can't clobber each other's records.
     gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${pr}/comments`, "-f", `body=${serializeRecord(rec)}`]);
   } catch (e) {
-    return bail(`could not record metrics for PR #${pr}: ${e.message}`);
+    return bail(`could not record metrics for PR #${pr}: ${e.message}`, "this session's cost is missing from the effort ledger");
   }
   console.log(`recorded ${rec.kind} for PR #${pr}: turns=${rec.turns} tokens=${rec.tokens} ${formatMinutes(rec.durationMs)}`);
 }
@@ -1084,7 +1090,7 @@ function cmdEffort(args) {
   try {
     postComment(pr, body);
   } catch (e) {
-    return bail(`could not post fix-effort comment for PR #${pr}: ${e.message}`);
+    return bail(`could not post fix-effort comment for PR #${pr}: ${e.message}`, "the fix run's cost/outcome comment is missing from the PR");
   }
   console.log(
     `posted fix-agent effort for PR #${pr}`
@@ -1100,7 +1106,7 @@ function cmdSummarize(args) {
     comments = listAllComments(pr);
     prInfo = ghJson(["pr", "view", pr, "--json", "additions,deletions"]);
   } catch (e) {
-    return bail(`could not read metrics/PR for #${pr}: ${e.message}`);
+    return bail(`could not read metrics/PR for #${pr}: ${e.message}`, "the agent-effort summary was not refreshed");
   }
   // Records live in two places: this round's fresh per-session <!-- agent-metric -->
   // comments (append-only, one per session), and the CUMULATIVE ledger embedded in
@@ -1157,7 +1163,7 @@ function cmdSummarize(args) {
     const summary = renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope, records });
     postComment(pr, isFinal ? summary : `${summary}\n${serializeSummaryData(embedList)}`);
   } catch (e) {
-    return bail(`could not post summary for PR #${pr}: ${e.message}`);
+    return bail(`could not post summary for PR #${pr}: ${e.message}`, "the agent-effort summary was not refreshed");
   }
   // Cleanup is best-effort (never fail the pipeline). Delete the OLD summary
   // comment(s) so only the fresh bottom one remains.

@@ -148,6 +148,33 @@ export function whereToLookLine({ runUrl, job, step, artifact } = {}) {
 }
 
 /**
+ * Surface a best-effort failure as a run annotation + one job-summary line.
+ *
+ * The fail-safe scripts (set-state, loop-status, metrics) deliberately exit 0
+ * on any operational problem, so their `continue-on-error:` steps NEVER show a
+ * failed outcome — the failure lives only in a log nobody opens, and the
+ * symptom (a stale label, a missing effort comment) surfaces later with
+ * nothing connecting it to the cause. `::warning::` renders on the run page
+ * and in the PR checks-tab header, which is human-visible without opening
+ * logs.
+ *
+ * The workflow command goes to STDOUT — the runner only scans stdout for
+ * commands — and only when actually running inside Actions, so local runs
+ * stay clean (the caller's own stderr message is still printed). `%0A` etc.
+ * are not escaped because every caller passes single-line prose it wrote
+ * itself. Never throws: display only.
+ */
+export function emitBestEffortWarning(msg, env = process.env) {
+  if (env.GITHUB_ACTIONS !== "true") return;
+  try {
+    console.log(`::warning::${String(msg).replace(/\r?\n/g, " ")}`);
+    appendStepSummary(`⚠️ ${msg}`);
+  } catch {
+    /* display only */
+  }
+}
+
+/**
  * Append markdown to the job summary when running inside Actions; no-op (with
  * a stderr echo, so local runs still show it) otherwise. Never throws — this
  * is display, and a full disk or bad path must not fail the guard.
