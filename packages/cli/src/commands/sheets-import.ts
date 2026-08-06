@@ -2,7 +2,11 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
 
@@ -43,6 +47,7 @@ export function registerSheetsImportCommand(parent: Command) {
       }>();
 
       try {
+        const outFmt = parseOutputFormat(opts.format);
         const fmt = detectFormat(file, localOpts.fileFormat);
         const raw = readInput(file);
         let rows: string[][];
@@ -88,7 +93,7 @@ export function registerSheetsImportCommand(parent: Command) {
         const result = typeof res.data === 'object' && res.data !== null
           ? { imported: cellCount, ...res.data as Record<string, unknown> }
           : { imported: cellCount };
-        output(result, opts.format, opts.quiet);
+        output(result, outFmt, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }

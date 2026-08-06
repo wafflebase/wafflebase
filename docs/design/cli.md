@@ -264,7 +264,7 @@ wafflebase
   ├── schema [<command>]                     Describe command parameters and response shape
   │
   ├── ctx
-  │     ├── list                             List workspaces (* = active)
+  │     ├── list                             List workspaces (`active: true` marks the current one)
   │     └── switch <name|id>                 Switch active workspace
   │
   ├── api-keys (alias: api-key)

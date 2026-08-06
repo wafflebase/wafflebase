@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 
 export function registerCellsCommand(parent: Command) {
@@ -17,13 +21,14 @@ export function registerCellsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
       const { tab } = this.opts<{ tab: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = range?.includes(':')
           ? await getClient(opts).getCells(docId, tab, range)
           : range
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, fmt, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }
@@ -55,6 +60,7 @@ export function registerCellsCommand(parent: Command) {
       }
 
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).setCell(
           docId,
           tab,
@@ -63,7 +69,7 @@ export function registerCellsCommand(parent: Command) {
           formula ? value : undefined,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, fmt, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }
@@ -87,9 +93,10 @@ export function registerCellsCommand(parent: Command) {
       }
 
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteCell(docId, tab, ref);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, fmt, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }
@@ -130,13 +137,14 @@ export function registerCellsCommand(parent: Command) {
       }
 
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).batchCells(
           docId,
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, fmt, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }
