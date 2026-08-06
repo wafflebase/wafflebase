@@ -26,7 +26,13 @@ import {
   rerunPointFrom,
 } from "./rounds.mjs";
 import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
-import { appendStepSummary, guardVerdictLine, renderGuardSummary } from "./guard-verdict.mjs";
+import {
+  appendStepSummary,
+  guardVerdictLine,
+  renderGuardSummary,
+  runUrlFromEnv,
+  whereToLookLine,
+} from "./guard-verdict.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -87,7 +93,16 @@ const HANDOFF_NOTE =
 // stall / round-cap) — it only labels the page for the verdict line and the
 // job summary; the page comment itself stays exactly what `msg` says.
 function page(msg, reason = "paged") {
-  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${HANDOFF_NOTE}`]);
+  // "Where to look": the run this guard decided in, and the step whose log and
+  // summary carry the full decision detail. Empty (today's body, unchanged)
+  // when run outside Actions. No artifact named — the guard runs BEFORE the
+  // fixer, so at page time no fix transcript exists yet.
+  const where = whereToLookLine({
+    runUrl: runUrlFromEnv(),
+    job: process.env.GITHUB_JOB,
+    step: "Review-round guard",
+  });
+  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${where}${HANDOFF_NOTE}`]);
   // Labeling is intentionally NOT done here: the single-value state machine
   // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
   // output) runs set-state.mjs, which atomically strips every lifecycle label

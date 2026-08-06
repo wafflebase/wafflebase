@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guardVerdictLine, renderGuardSummary } from "./guard-verdict.mjs";
+import {
+  guardVerdictLine,
+  renderGuardSummary,
+  runUrlFromEnv,
+  whereToLookLine,
+  emitBestEffortWarning,
+} from "./guard-verdict.mjs";
 
 test("proceed line names the round being dispatched, not the failed count", () => {
   const line = guardVerdictLine({
@@ -93,4 +99,68 @@ test("rerun hand-back is stated when it holds the softer pages", () => {
     standstillCount: 0,
   });
   assert.match(md, /held for this one attempt/);
+});
+
+// --- "Where to look" (Phase 2) ----------------------------------------------
+
+test("runUrlFromEnv: a full env yields the run URL; any missing piece yields null", () => {
+  const env = {
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_REPOSITORY: "wafflebase/wafflebase",
+    GITHUB_RUN_ID: "123457",
+  };
+  assert.equal(runUrlFromEnv(env), "https://github.com/wafflebase/wafflebase/actions/runs/123457");
+  // Null, never a partial URL — ".../runs/undefined" is worse than no link.
+  for (const k of Object.keys(env)) {
+    assert.equal(runUrlFromEnv({ ...env, [k]: "" }), null, `${k}=""`);
+    const rest = { ...env };
+    delete rest[k];
+    assert.equal(runUrlFromEnv(rest), null, `${k} absent`);
+  }
+  assert.equal(runUrlFromEnv({}), null);
+});
+
+test("whereToLookLine: renders the run, job, step and artifact it is given — and nothing it is not", () => {
+  const full = whereToLookLine({
+    runUrl: "https://github.com/o/r/actions/runs/1",
+    job: "fix",
+    step: "Review-round guard",
+    artifact: "claude-fix-execution-output",
+  });
+  assert.equal(
+    full,
+    '\n\nWhere to look: [this run](https://github.com/o/r/actions/runs/1) → job `fix`, step "Review-round guard"; transcript in the `claude-fix-execution-output` artifact.',
+  );
+  // No URL → empty string, so a page posted outside Actions renders as today.
+  assert.equal(whereToLookLine({ job: "fix" }), "");
+  assert.equal(whereToLookLine(), "");
+  // A step without a job would dangle — it renders only alongside one.
+  assert.equal(
+    whereToLookLine({ runUrl: "u", step: "S" }),
+    "\n\nWhere to look: [this run](u).",
+  );
+  assert.equal(whereToLookLine({ runUrl: "u", job: "j" }), "\n\nWhere to look: [this run](u) → job `j`.");
+});
+
+// --- best-effort failure breadcrumbs (Phase 3) --------------------------------
+
+test("emitBestEffortWarning: a ::warning:: annotation inside Actions, silence outside", () => {
+  const logged = [];
+  const orig = console.log;
+  console.log = (s) => logged.push(s);
+  try {
+    // Outside Actions (local runs, tests): nothing — the caller's own stderr
+    // message is the record there.
+    emitBestEffortWarning("set-state failed: boom", {});
+    assert.equal(logged.length, 0);
+    // Inside Actions: one single-line stdout workflow command — the runner
+    // only scans stdout, and a newline would end the command mid-message.
+    emitBestEffortWarning("loop-status failed:\nmulti line", { GITHUB_ACTIONS: "true" });
+    const warning = logged.find((s) => s.startsWith("::warning::"));
+    assert.ok(warning, "no ::warning:: emitted inside Actions");
+    assert.match(warning, /loop-status failed: multi line/);
+    assert.doesNotMatch(warning, /\n/);
+  } finally {
+    console.log = orig;
+  }
 });

@@ -21,6 +21,8 @@ import {
   weightSeverity,
   SEVERITY_WEIGHTS,
   renderSummary,
+  renderLedger,
+  MAX_LEDGER_ROWS,
   serializeRecord,
   parseMetricComment,
   serializeSummaryData,
@@ -324,6 +326,92 @@ test("renderSummary: matches the requested bullet format", () => {
   assert.doesNotMatch(md, /### Review panel/);
   assert.match(md, /- Total-cost: \$3\.30 \(code-fix \$3\.30 \+ review \$0\.00\)/);
   assert.match(md, /- Total-tokens: ~300K weighted \(~1\.0M raw\)/);
+});
+
+// --- per-session ledger (Phase 2) -------------------------------------------
+
+test("renderLedger: one chronological row per record, with round ordinals for panel kinds", () => {
+  const lines = renderLedger([
+    { kind: "implement", turns: 78, weightedTokens: 1_900_000, costUsd: 14.2, durationMs: 42 * 60000 },
+    { kind: "ci-fix", turns: 31, weightedTokens: 600_000, costUsd: 4.15, durationMs: 18 * 60000 },
+    { kind: "review", turns: 210, weightedTokens: 3_100_000, costUsd: 11.8, durationMs: 18 * 60000 },
+    { kind: "review-fix", turns: 64, weightedTokens: 1_200_000, costUsd: 8.75, durationMs: 21 * 60000 },
+    { kind: "review", turns: 195, weightedTokens: 2_800_000, costUsd: 9.87, durationMs: 17 * 60000 },
+  ]);
+  const md = lines.join("\n");
+  assert.match(md, /Per-session ledger \(5 sessions\)/);
+  assert.match(md, /\| 1 \| implement \| 78 \| ~1\.9M \| \$14\.20 \| 42m \|/);
+  // The nth panel record IS round n — the same chronological reading
+  // detectFlips depends on.
+  assert.match(md, /\| 3 \| review \(round 1\) \| 210 \|/);
+  assert.match(md, /\| 4 \| review-fix \(round 1\) \| 64 \|/);
+  assert.match(md, /\| 5 \| review \(round 2\) \| 195 \|/);
+  // Folded, so the totals stay the headline.
+  assert.match(md, /<details><summary>/);
+});
+
+test("renderLedger: a missing value renders as —, never as 0", () => {
+  // Number(null) === 0: a legacy record with no `turns` did not do zero turns,
+  // it did an unmeasured amount. Same rule as guard-verdict's `n()`.
+  const md = renderLedger([{ kind: "implement" }]).join("\n");
+  assert.match(md, /\| 1 \| implement \| — \| — \| — \| — \|/);
+  // …while a genuine zero is a real measured value and renders as one.
+  const zero = renderLedger([{ kind: "ci-fix", turns: 0, weightedTokens: 0, costUsd: 0, durationMs: 0 }]).join("\n");
+  assert.match(zero, /\| 1 \| ci-fix \| 0 \| ~0 \| \$0\.00 \| 0s \|/);
+});
+
+test("renderLedger: sub-minute durations render in seconds, and raw tokens back up missing weighted", () => {
+  const md = renderLedger([{ kind: "review-fix", turns: 1, tokens: 50_000, costUsd: 0.4, durationMs: 18_000 }]).join("\n");
+  assert.match(md, /\| 18s \|/); // an agent that died in 18 seconds did no work — "1m" hides that
+  assert.match(md, /~50K/);
+});
+
+test("renderLedger: an unrecognized kind renders as `other`, never verbatim", () => {
+  // Metric records are parsed from ANY comment (the append-only ledger has no
+  // author gate), so `kind` is the one free-text field an outsider could steer
+  // into this bot-authored summary. The #681 ledger-injection shape.
+  const md = renderLedger([{ kind: "<!-- agent-review-paged -->", turns: 1, costUsd: 0.1, durationMs: 1000 }]).join("\n");
+  assert.ok(!md.includes("agent-review-paged"), "attacker kind rendered verbatim");
+  assert.match(md, /\| 1 \| other \| 1 \|/);
+});
+
+test("renderLedger: rows are capped at the newest MAX_LEDGER_ROWS, and the omission is stated", () => {
+  // The record list is open-ended (any comment can carry a record), and an
+  // unbounded table could push the summary past GitHub's comment-size cap —
+  // failing the post and silencing the whole summary.
+  const records = Array.from({ length: MAX_LEDGER_ROWS + 7 }, (_, i) => ({
+    kind: "review", turns: i + 1, weightedTokens: 1000, costUsd: 0.1, durationMs: 60000,
+  }));
+  const md = renderLedger(records).join("\n");
+  assert.match(md, new RegExp(`Per-session ledger \\(${MAX_LEDGER_ROWS + 7} sessions\\)`));
+  assert.match(md, new RegExp(`_7 earlier session\\(s\\) omitted — showing the most recent ${MAX_LEDGER_ROWS};`));
+  // The oldest rows are the dropped ones; the newest survive with their
+  // original chronological # and round ordinals intact.
+  assert.doesNotMatch(md, /\| 1 \| review \(round 1\) \|/);
+  assert.match(md, new RegExp(`\\| 8 \\| review \\(round 8\\) \\|`));
+  assert.match(md, new RegExp(`\\| ${MAX_LEDGER_ROWS + 7} \\| review \\(round ${MAX_LEDGER_ROWS + 7}\\) \\|`));
+  assert.equal((md.match(/\| \d+ \| review /g) || []).length, MAX_LEDGER_ROWS);
+  // At exactly the cap, nothing is omitted and no note renders.
+  const exact = renderLedger(records.slice(0, MAX_LEDGER_ROWS)).join("\n");
+  assert.doesNotMatch(exact, /omitted/);
+});
+
+test("renderLedger and renderSummary: no records → no table, byte-identical summary", () => {
+  assert.deepEqual(renderLedger([]), []);
+  assert.deepEqual(renderLedger(null), []);
+  const args = { agg: { agents: [], sessions: 1, attempt: 1, turns: 1, tokens: 1, weightedTokens: 1, costUsd: 1, durationMs: 60000 }, scope: "S" };
+  assert.equal(renderSummary({ ...args, records: [] }), renderSummary(args));
+});
+
+test("renderSummary: the ledger table renders when records are passed", () => {
+  const md = renderSummary({
+    agg: { agents: [], sessions: 1, attempt: 1, turns: 5, tokens: 10, weightedTokens: 10, costUsd: 0.1, durationMs: 60000 },
+    scope: "S",
+    records: [{ kind: "implement", turns: 5, weightedTokens: 10, costUsd: 0.1, durationMs: 60000 }],
+  });
+  assert.match(md, /Per-session ledger \(1 session\)/);
+  // Last, after every aggregate section — the fold is the receipt, not the headline.
+  assert.ok(md.indexOf("Per-session ledger") > md.indexOf("### Code-fix agent"));
 });
 
 test("renderSummary: with review-panel data, renders a separate section + combined total", () => {

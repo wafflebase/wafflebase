@@ -213,3 +213,133 @@ test("renderSummaryMd: a '### ' inside the lens's own prose cuts early but still
   assert.match(prose, /intro/);
   assert.ok(!prose.includes("CRIT_MARKER"));
 });
+
+// --- Phase 2 enrichment: locators, verifier outcomes, adjudication ----------
+
+test("renderSummaryMd: a finding with a line renders `file:line`", () => {
+  const md = renderSummaryMd("R", [{ severity: "major", file: "a.mjs", line: 42, summary: "s" }], "");
+  assert.match(md, /^- `a\.mjs:42` — s$/m);
+});
+
+test("renderSummaryMd: the line falls back to a same-file evidence citation, never a foreign one", () => {
+  // Same-file citation → the line is trusted and rendered.
+  const same = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "s", evidence: "the guard at a.mjs:88 covers undo only" },
+  ], "");
+  assert.match(same, /^- `a\.mjs:88` — s$/m);
+  // A citation for a DIFFERENT file must not be paired with this finding's file
+  // (findingLocation's rule) — the row keeps the bare file, exactly as today.
+  const foreign = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "s", evidence: "unlike other.mjs:7" },
+  ], "");
+  assert.match(foreign, /^- `a\.mjs` — s$/m);
+});
+
+test("renderSummaryMd: per-finding verifier outcomes are rendered, and their absence renders as today", () => {
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "confirmed one", verification: "confirmed-high" },
+    { severity: "major", file: "b.mjs", summary: "shaky one", verification: "confirmed-low" },
+    { severity: "major", file: "c.mjs", summary: "orphan one", verification: "errored" },
+    { severity: "major", file: "d.mjs", summary: "legacy one" },
+  ], "");
+  assert.match(md, /confirmed one _\(verifier: confirmed, high confidence\)_/);
+  assert.match(md, /shaky one _\(verifier: confirmed, low confidence\)_/);
+  assert.match(md, /orphan one _\(UNVERIFIED — the verifier session errored\)_/);
+  // A finding from before the field existed renders with no marker at all.
+  assert.match(md, /^- `d\.mjs` — legacy one$/m);
+  // `unsettled` keeps its exact existing wording and wins over `verification`.
+  const unsettled = renderSummaryMd("R", [
+    { severity: "major", file: "e.mjs", summary: "u", unsettled: true, verification: "confirmed-high" },
+  ], "");
+  assert.match(unsettled, /u _\(verifier could not settle this\)_/);
+  assert.doesNotMatch(unsettled, /confirmed, high/);
+});
+
+test("renderSummaryMd: an upheld dispute renders the adjudicator's decision and reason", () => {
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", line: 214, summary: "redo misses the guard",
+      adjudication: { upheld: 1, verdict: "upheld", reason: "the guard at store.ts:88 covers undo but not redo" } },
+  ], "");
+  assert.match(md, /^- `a\.mjs:214` — redo misses the guard$/m);
+  assert.match(md, /^ {2}- dispute adjudicated: \*\*upheld\*\* — "the guard at store\.ts:88 covers undo but not redo"$/m);
+});
+
+test("renderSummaryMd: adjudication wordings cover unresolved, errored, ungrounded-overturn and fix-claims", () => {
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "a", adjudication: { upheld: 1, verdict: "unresolved", reason: "could not tell" } },
+    { severity: "major", file: "b.mjs", summary: "b", adjudication: { upheld: 1, verdict: "errored", reason: "" } },
+    { severity: "major", file: "c.mjs", summary: "c", adjudication: { upheld: 1, verdict: "overturned", reason: "no citation given" } },
+    { severity: "major", file: "d.mjs", summary: "d", adjudication: { upheld: 1, verdict: "unadjudicated-fix-claim", reason: "moved the guard" } },
+  ], "");
+  assert.match(md, /\*\*upheld\*\* \(the adjudicator could not settle the dispute\) — "could not tell"/);
+  // An errored session has no reason to quote — the label stands alone.
+  assert.match(md, /^ {2}- dispute adjudicated: \*\*upheld\*\* \(the adjudicator session errored\)$/m);
+  // A kept "overturned" verdict means the gate rejected it as ungrounded.
+  assert.match(md, /\*\*upheld\*\* \(the overturn lacked grounded evidence\) — "no citation given"/);
+  assert.match(md, /fix claimed by the author, but the panel re-found this — counts as an upheld dispute — "moved the guard"/);
+});
+
+test("renderSummaryMd: a verdict-less adjudication (carried-forward history) renders no decision line", () => {
+  // The output.text carry strips adjudication to `{ upheld: N }` by design, so
+  // EVERY carried-forward finding with an adjudication has exactly that
+  // verdict-less shape. The fallback label used to declare "the overturn
+  // lacked grounded evidence" for it — a decision that never happened this
+  // round. No verdict → no line; unknown or empty verdict strings fail the
+  // same silent direction.
+  for (const adjudication of [{ upheld: 2 }, { upheld: 1, verdict: "" }, { upheld: 1, verdict: "future-value" }]) {
+    const md = renderSummaryMd("R", [
+      { severity: "major", file: "a.mjs", summary: "carried", adjudication },
+    ], "");
+    assert.doesNotMatch(md, /dispute adjudicated/, JSON.stringify(adjudication));
+    assert.doesNotMatch(md, /lacked grounded evidence/, JSON.stringify(adjudication));
+    assert.match(md, /^- `a\.mjs` — carried$/m); // the row itself is unchanged
+  }
+});
+
+test("renderSummaryMd: author-reported skips get their own section and still gate", () => {
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "needs the Store interface change",
+      adjudication: { upheld: 1, verdict: "skipped-by-author", reason: "tracked in #701" } },
+  ], "");
+  // Still counted and listed as a blocking finding…
+  assert.match(md, /changes requested/);
+  assert.match(md, /### Major \(1\)/);
+  // …and reported as a skip with the author's note, in its own section.
+  assert.match(md, /### Author-reported skips \(1 — still blocking\)/);
+  assert.match(md, /author note: "tracked in #701"/);
+  // The skip is NOT also rendered as a "dispute adjudicated" sub-bullet.
+  assert.doesNotMatch(md, /dispute adjudicated/);
+  // No skips → no section, so pre-#633 bodies render exactly as before.
+  assert.doesNotMatch(renderSummaryMd("R", [{ severity: "major", summary: "x" }], ""), /Author-reported skips/);
+});
+
+test("renderSummaryMd: author-written prose cannot smuggle a live hidden marker into the body", () => {
+  // This body is copied verbatim into a BOT-authored PR comment
+  // (agent-review-on-demand.yml), and the paged latches trust the bot identity —
+  // so the adjudication reason and the skip note, the two author-adjacent
+  // strings on this surface, are neutralized. A live latch here would freeze
+  // the loop (the #681 ledger-injection shape, one surface over).
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "s",
+      adjudication: { upheld: 1, verdict: "upheld", reason: 'see <!-- agent-review-paged --> above' } },
+    { severity: "major", file: "b.mjs", summary: "t",
+      adjudication: { upheld: 1, verdict: "skipped-by-author", reason: 'note <!-- agent-paged --> here' } },
+  ], "");
+  assert.ok(!md.includes("<!-- agent-review-paged -->"), "review latch survived into the body");
+  assert.ok(!md.includes("<!-- agent-paged -->"), "CI latch survived into the body");
+  // The prose itself still reads through — only the comment-open is split.
+  assert.match(md, /agent-review-paged/);
+  assert.match(md, /agent-paged/);
+});
+
+test("renderSummaryMd: the skips section is introduced by the same '\\n### ' marker the fixer cut relies on", () => {
+  // The cut contract above: nothing above the first "\n### " may be a finding.
+  // A skipped finding is blocking, so it must sit strictly below the cut.
+  const md = renderSummaryMd("R", [
+    { severity: "major", file: "a.mjs", summary: "SKIP_MARKER",
+      adjudication: { upheld: 1, verdict: "skipped-by-author", reason: "why" } },
+  ], "lens narration");
+  const prose = md.split("\n### ")[0];
+  assert.ok(!prose.includes("SKIP_MARKER"), "a skipped finding leaked above the cut");
+  assert.match(md, /\n### Author-reported skips/);
+});

@@ -70,6 +70,18 @@ const trim = (s, n) => (str(s).length > n ? str(s).slice(0, n) : str(s));
 // fence is no fence. Applied only to author fields; our own scaffolding is trusted.
 const defence = (s) => str(s).replace(/<\/?author-rebuttal>/gi, "[fence]");
 
+// Neutralize `<!--` in author-controlled text (ZWNJ-split, the fix-report.mjs
+// technique). Rebuttals are posted through the App token, and BOTH paged-latch
+// predicates are containment tests gated on exactly that trusted identity
+// (`rounds.mjs::isPagedLatchComment`, and the CI arm's literal copy) — so a
+// fixer claim containing `<!-- agent-review-paged -->` would freeze the loop
+// the moment this module posts it, visible body or not. Applied at
+// SERIALIZATION, the one writer, so the hidden record and the visible body
+// rendered from it are covered in the same place. A ZWNJ inside `<!-‌-` is
+// invisible to the adjudicator reading the claim and to `findingSimilarity`'s
+// word tokens, so matching and adjudication are unaffected.
+const neutral = (s) => str(s).replace(/<!--/g, "<!-‌-");
+
 // --- the record --------------------------------------------------------------
 
 /**
@@ -85,15 +97,64 @@ export function serializeRebuttal(rec) {
     v: REBUTTAL_VERSION,
     findingKey: trim(r.findingKey, 300),
     lens: trim(r.lens, 60),
-    file: trim(r.file, 300),
-    summary: trim(r.summary, 2000),
-    claim: trim(r.claim, 4000),
+    // `neutral` on every author-written field — see its docblock; a real path,
+    // summary or citation never contains `<!--`, so honest rebuttals are
+    // byte-unchanged.
+    file: neutral(trim(r.file, 300)),
+    summary: neutral(trim(r.summary, 2000)),
+    claim: neutral(trim(r.claim, 4000)),
     evidence: (Array.isArray(r.evidence) ? r.evidence : [])
       .filter((e) => typeof e === "string" && e.trim() !== "")
       .slice(0, 10)
-      .map((e) => trim(e, 500)),
+      .map((e) => neutral(trim(e, 500))),
   };
-  return `${REBUTTAL_MARKER}${JSON.stringify(payload)} -->`;
+  // ESCAPE THE TERMINATOR — the same transport escape, for the same reason, as
+  // scripts/agent/fix-report.mjs: these fields are author text that quotes this
+  // repo's own HTML markers, `JSON.stringify` does not escape `-->`, and
+  // `parseRebuttalComment`'s non-greedy match stops at the first one. Until
+  // this, a dispute whose claim quoted any marker failed the round-trip guard
+  // and was silently never posted — the author argued into the void. `\u002d`
+  // is the JSON escape for `-`, so `JSON.parse` restores the exact characters
+  // while the raw comment never contains `-->`.
+  return `${REBUTTAL_MARKER}${JSON.stringify(payload).replace(/-->/g, "-\\u002d>")} -->`;
+}
+
+/**
+ * The full comment body for one rebuttal: a human-readable header ABOVE the
+ * hidden record (the visible+hidden pattern fix-report.mjs uses). Until now
+ * the body was ONLY the marker — a maintainer scrolling the PR saw an
+ * empty-looking bot comment while a machine argument about removing a finding
+ * from the merge gate played out invisibly.
+ *
+ * Rendered FROM the parsed-back record, not from `rec`, so the visible text is
+ * exactly what the panel will read — same caps, same neutralization — and a
+ * record that does not round-trip renders nothing (the caller refuses to post,
+ * as cmdPost always has). The framing line is load-bearing: a reader must know
+ * this is a CLAIM awaiting adjudication, not a resolution.
+ *
+ * `parseRebuttalComment` matches the marker anywhere in the body and
+ * `fromRebuttalAuthor` gates on the comment's author, not its shape, so the
+ * read side is unaffected by the header.
+ */
+export function renderRebuttalComment(rec) {
+  const record = serializeRebuttal(rec);
+  const r = parseRebuttalComment(record);
+  if (!r) return null;
+  const evidence = r.evidence.length
+    ? r.evidence.map((e) => `\`${e}\``).join(", ")
+    : "_none cited_";
+  return [
+    "### ⚖️ Finding disputed (adjudicated next round)",
+    "",
+    `- \`${r.file}\` *(${r.lens || "?"})* — "${r.summary}"`,
+    `- Claim: ${r.claim}`,
+    `- Evidence: ${evidence}`,
+    "",
+    "A rebuttal does not resolve the finding. An independent adjudicator re-reads the " +
+      "code next round and upholds by default; two upheld disputes page a human.",
+    "",
+    record,
+  ].join("\n");
 }
 
 /**
@@ -471,11 +532,12 @@ function cmdPost(pr, args) {
     evidence,
     findingKey: findingKeyOf({ lens: args.lens, file: args.file, summary: args.summary }),
   };
-  const body = serializeRebuttal(rec);
-  // Round-trip before posting. A record this module cannot read back is a record
-  // the panel will ignore, and the author would never learn that the dispute went
-  // nowhere — the same silent failure the CLI exists to prevent.
-  if (!parseRebuttalComment(body)) {
+  // Visible header + hidden record. renderRebuttalComment round-trips the
+  // record before rendering — null means the panel could never read it back,
+  // and the author would never learn that the dispute went nowhere, the same
+  // silent failure the CLI exists to prevent.
+  const body = renderRebuttalComment(rec);
+  if (!body) {
     console.error("rebuttal post: the record did not round-trip; refusing to post an unreadable rebuttal.");
     process.exit(2);
   }

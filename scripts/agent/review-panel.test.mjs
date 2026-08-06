@@ -2371,6 +2371,41 @@ test("annotateFindings marks an unsettled finding without changing its lane", ()
   assert.equal(classify(gatingFindings(out)).conclusion, "failure");
 });
 
+test("annotateFindings stamps the per-finding verifier outcome, reporting-only", () => {
+  const out = annotateFindings(
+    [
+      { severity: "major", summary: "confirmed high" },
+      { severity: "major", summary: "confirmed low" },
+      { severity: "major", summary: "session threw" },
+      { severity: "minor", summary: "never sent" },
+    ],
+    [
+      { verdict: "confirmed", confidence: "high", reason: "", refutationGround: "none", groundedIn: [] },
+      { verdict: "confirmed", confidence: "low", reason: "", refutationGround: "none", groundedIn: [] },
+      null, // a null verdict for a BLOCKING finding means verifyFinding threw
+      null,
+    ],
+    null,
+    {},
+  );
+  assert.equal(out[0].verification, "confirmed-high");
+  assert.equal(out[1].verification, "confirmed-low");
+  // The per-finding face of the aggregate `unverified` banner — the same null
+  // verifierTally counts as `errored`, so the two cannot disagree.
+  assert.equal(out[2].verification, "errored");
+  assert.equal(out[2].lane, "blocking"); // reporting only — still gates
+  // Non-blocking findings are untouched (never verified, so nothing to report).
+  assert.equal(out[3].verification, undefined);
+});
+
+test("annotateFindings stamps no outcome at all when no verdicts array was supplied", () => {
+  // A caller passing no array is saying "nothing was verified here" — stamping
+  // every blocker "errored" for that would report an outage that never happened.
+  const out = annotateFindings([{ severity: "critical", summary: "s" }], null, null, {});
+  assert.equal(out[0].verification, undefined);
+  assert.equal(out[0].lane, "blocking"); // routing is unchanged
+});
+
 test("verifierTally counts absence claims and unresolved outcomes separately", () => {
   const findings = [
     { severity: "critical", claimType: "absence", summary: "no test" },

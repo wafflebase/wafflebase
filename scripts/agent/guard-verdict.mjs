@@ -119,6 +119,62 @@ export function renderGuardSummary(v = {}) {
 }
 
 /**
+ * The Actions run URL from the runner's own default env, or null when any
+ * piece is missing (a local run). Null, never a partial string: a URL built
+ * around an absent `GITHUB_RUN_ID` renders as a clickable link to
+ * `.../actions/runs/undefined`, which is worse than no link at all.
+ */
+export function runUrlFromEnv(env = process.env) {
+  const part = (k) => (typeof env[k] === "string" && env[k] !== "" ? env[k] : null);
+  const server = part("GITHUB_SERVER_URL");
+  const repo = part("GITHUB_REPOSITORY");
+  const run = part("GITHUB_RUN_ID");
+  return server && repo && run ? `${server}/${repo}/actions/runs/${run}` : null;
+}
+
+/**
+ * One "Where to look" line for a 🛑 page comment: the failed run, the job
+ * inside it, and the artifact carrying the transcript — the three clicks a
+ * page used to make a maintainer reconstruct from the Actions tab. Returns ""
+ * without a URL, so a page posted from a context with no run link renders
+ * exactly as it does today rather than pointing at nothing.
+ */
+export function whereToLookLine({ runUrl, job, step, artifact } = {}) {
+  if (!runUrl) return "";
+  const jobPart = job ? ` → job \`${job}\`` : "";
+  const stepPart = job && step ? `, step "${step}"` : "";
+  const artifactPart = artifact ? `; transcript in the \`${artifact}\` artifact` : "";
+  return `\n\nWhere to look: [this run](${runUrl})${jobPart}${stepPart}${artifactPart}.`;
+}
+
+/**
+ * Surface a best-effort failure as a run annotation + one job-summary line.
+ *
+ * The fail-safe scripts (set-state, loop-status, metrics) deliberately exit 0
+ * on any operational problem, so their `continue-on-error:` steps NEVER show a
+ * failed outcome — the failure lives only in a log nobody opens, and the
+ * symptom (a stale label, a missing effort comment) surfaces later with
+ * nothing connecting it to the cause. `::warning::` renders on the run page
+ * and in the PR checks-tab header, which is human-visible without opening
+ * logs.
+ *
+ * The workflow command goes to STDOUT — the runner only scans stdout for
+ * commands — and only when actually running inside Actions, so local runs
+ * stay clean (the caller's own stderr message is still printed). `%0A` etc.
+ * are not escaped because every caller passes single-line prose it wrote
+ * itself. Never throws: display only.
+ */
+export function emitBestEffortWarning(msg, env = process.env) {
+  if (env.GITHUB_ACTIONS !== "true") return;
+  try {
+    console.log(`::warning::${String(msg).replace(/\r?\n/g, " ")}`);
+    appendStepSummary(`⚠️ ${msg}`);
+  } catch {
+    /* display only */
+  }
+}
+
+/**
  * Append markdown to the job summary when running inside Actions; no-op (with
  * a stderr echo, so local runs still show it) otherwise. Never throws — this
  * is display, and a full disk or bad path must not fail the guard.
