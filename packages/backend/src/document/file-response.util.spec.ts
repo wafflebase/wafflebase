@@ -40,9 +40,9 @@ describe('fileResponseHeaders', () => {
   });
 
   it('percent-encodes non-ascii titles', () => {
-    expect(fileResponseHeaders('file', 'application/zip', '보고서').disposition).toBe(
-      "attachment; filename*=UTF-8''%EB%B3%B4%EA%B3%A0%EC%84%9C",
-    );
+    expect(
+      fileResponseHeaders('file', 'application/zip', '보고서').disposition,
+    ).toBe("attachment; filename*=UTF-8''%EB%B3%B4%EA%B3%A0%EC%84%9C");
   });
 
   it("appends the blob's extension (from fileId) to a title that lost it at upload", () => {
@@ -72,9 +72,7 @@ describe('fileResponseHeaders', () => {
       'Makefile',
       '11111111-2222-3333-4444-555555555555',
     );
-    expect(headers.disposition).toBe(
-      "attachment; filename*=UTF-8''Makefile",
-    );
+    expect(headers.disposition).toBe("attachment; filename*=UTF-8''Makefile");
   });
 
   it('still strips CR/LF when an extension is appended from fileId', () => {
@@ -89,29 +87,29 @@ describe('fileResponseHeaders', () => {
     expect(headers.disposition).toContain('.zip');
   });
 
-  it("falls back to an attachment for any type without a viewer rule", () => {
+  it('falls back to an attachment for any type without a viewer rule', () => {
     // A CRDT-typed row carrying a fileId is not reachable through the API,
     // but a migration or direct write could make one. It must not render.
-    for (const type of ["doc", "sheet", "slides", "note", "board", ""]) {
-      const headers = fileResponseHeaders(type, "text/html", "t");
-      expect(headers.contentType).toBe("application/octet-stream");
+    for (const type of ['doc', 'sheet', 'slides', 'note', 'board', '']) {
+      const headers = fileResponseHeaders(type, 'text/html', 't');
+      expect(headers.contentType).toBe('application/octet-stream');
       expect(headers.disposition).toMatch(/^attachment/);
     }
   });
 
-  it("echoes an image content type only on an exact, case-sensitive match", () => {
+  it('echoes an image content type only on an exact, case-sensitive match', () => {
     for (const stored of [
-      "image/png; charset=x",
-      "IMAGE/PNG",
-      " image/png",
-      "image/png ",
-      "image/pngx",
-      "text/html, image/png",
-      "image/png\n",
-      "image/svg+xml",
+      'image/png; charset=x',
+      'IMAGE/PNG',
+      ' image/png',
+      'image/png ',
+      'image/pngx',
+      'text/html, image/png',
+      'image/png\n',
+      'image/svg+xml',
     ]) {
-      expect(fileResponseHeaders("image", stored, "t").contentType).toBe(
-        "application/octet-stream",
+      expect(fileResponseHeaders('image', stored, 't').contentType).toBe(
+        'application/octet-stream',
       );
     }
   });

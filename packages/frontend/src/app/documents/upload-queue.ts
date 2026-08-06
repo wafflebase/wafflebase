@@ -84,7 +84,7 @@ export function enqueue(
   const created: UploadItem[] = files.map((file) => {
     const kind = classifyUploadKind(file.name);
     // Fail over-cap files here rather than after uploading the whole body.
-    const reason = uploadSizeError(kind, file.size);
+    const reason = uploadSizeError(kind, file.size, file.type);
     return {
       id: `u${++seq}`,
       // An item that will never run should not pin its File blob in memory.

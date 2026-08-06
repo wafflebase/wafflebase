@@ -34,8 +34,15 @@ const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 export function uploadSizeError(
   kind: UploadKind,
   bytes: number,
+  mimeType?: string,
 ): string | undefined {
-  const cap = kind === "image" ? MAX_IMAGE_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+  // Mirror the server's rule exactly (FileService.upload): the image cap
+  // applies when EITHER the extension is a raster one — which is what makes
+  // `kind` "image" — or the browser reports an image MIME. Checking only the
+  // kind let a 30 MB `.heic` typed `image/heic` pass here and fail server-side
+  // after its whole body had crossed the wire.
+  const isImage = kind === "image" || !!mimeType?.startsWith("image/");
+  const cap = isImage ? MAX_IMAGE_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
   if (bytes <= cap) return undefined;
   return `File is larger than the ${cap / 1024 / 1024} MB limit`;
 }

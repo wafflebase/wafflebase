@@ -73,4 +73,27 @@ describe('FileService.upload image support', () => {
       svc.upload(tooBig, 'image/png', 'photo.png'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('applies the image cap from the extension when the MIME lies', async () => {
+    // Keying the cap off the MIME alone let a client declare
+    // `application/octet-stream`, collect the 50 MB cap, then attach the
+    // `.png` blob to an `image` document — assertFileIdAllowed only checks
+    // the extension — so a 50 MB image slipped past the 25 MB limit.
+    const svc = makeService();
+    const tooBig = Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1);
+    await expect(
+      svc.upload(tooBig, 'application/octet-stream', 'photo.png'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('still gives a non-image the full cap', async () => {
+    const svc = makeService();
+    const big = Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1);
+    const result = await svc.upload(
+      big,
+      'application/octet-stream',
+      'archive.zip',
+    );
+    expect(result.id).toMatch(/\.zip$/);
+  });
 });

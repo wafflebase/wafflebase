@@ -32,4 +32,14 @@ describe("uploadSizeError", () => {
       "File is larger than the 50 MB limit",
     );
   });
+
+  it("applies the image cap when the MIME says image but the extension does not", () => {
+    // A .heic classifies as "file" (no EXT_TO_KIND entry) but the browser
+    // reports image/heic, and the server caps it at 25 MB from the MIME.
+    // Without this the body crossed the wire before failing.
+    expect(uploadSizeError("file", 30 * 1024 * 1024, "image/heic")).toBe(
+      "File is larger than the 25 MB limit",
+    );
+    expect(uploadSizeError("file", 30 * 1024 * 1024, "application/zip")).toBeUndefined();
+  });
 });

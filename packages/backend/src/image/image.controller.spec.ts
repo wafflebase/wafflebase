@@ -40,10 +40,7 @@ describe('ImageController.get', () => {
     });
     const ctrl = makeController(getObject);
     const res = makeRes();
-    await ctrl.get(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png',
-      res as never,
-    );
+    await ctrl.get('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png', res as never);
     expect(res.headers['Content-Type']).toBe('image/png');
     expect(res.headers['Cache-Control']).toContain('public');
     expect(res.end).toHaveBeenCalled();

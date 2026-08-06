@@ -12,6 +12,13 @@ import { randomUUID } from 'crypto';
 import { MAX_IMAGE_UPLOAD_BYTES } from './file.constants';
 import { safeExtension } from './file-extension.util';
 
+/**
+ * Extensions that make a blob an image for cap purposes, mirroring
+ * `FILE_ID_EXT.image` in document/document-file-id.util.ts — the guard that
+ * decides whether the blob may back an `image` document.
+ */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+
 @Injectable()
 export class FileService implements OnModuleInit {
   private s3: S3Client;
@@ -54,25 +61,31 @@ export class FileService implements OnModuleInit {
    * side (see document/file-response.util.ts), not here, because an upload-time
    * extension blacklist is defeated by renaming.
    *
-   * `mimeType` is client-supplied and untrusted. It is stored as data and used
-   * only to pick which size cap applies; lying can at most widen the cap to
-   * MAX_FILE_UPLOAD_BYTES, which Multer already enforces.
+   * Both `mimeType` and `originalName` are client-supplied and untrusted.
+   * Neither is a security decision: the MIME is stored as data, and the
+   * extension only reaches the object key through `safeExtension`.
    */
   async upload(
     file: Buffer,
     mimeType: string,
     originalName: string,
   ): Promise<{ id: string; size: number; mimeType: string }> {
-    const cap = mimeType.startsWith('image/')
-      ? MAX_IMAGE_UPLOAD_BYTES
-      : this.maxFileSize;
+    const ext = safeExtension(originalName);
+    // The image cap keys off BOTH signals on purpose. Keying off the MIME
+    // alone let a client upload `photo.png` as `application/octet-stream`,
+    // collect the 50 MB cap, and then attach that blob to an `image` document
+    // — `assertFileIdAllowed` only checks the extension — landing a 50 MB
+    // image and bypassing the 25 MB limit entirely.
+    const isImage =
+      mimeType.startsWith('image/') ||
+      (ext !== null && IMAGE_EXTENSIONS.has(ext));
+    const cap = isImage ? MAX_IMAGE_UPLOAD_BYTES : this.maxFileSize;
     if (file.length > cap) {
       throw new BadRequestException(
         `File too large (max ${cap / 1024 / 1024} MB)`,
       );
     }
     const contentType = mimeType || 'application/octet-stream';
-    const ext = safeExtension(originalName);
     const id = ext ? `${randomUUID()}.${ext}` : randomUUID();
     await this.s3.send(
       new PutObjectCommand({
