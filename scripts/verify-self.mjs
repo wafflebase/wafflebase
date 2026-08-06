@@ -24,7 +24,42 @@ const LANES = [
   // sh-expanded `**` would start running third-party test files.
   // `eval/test-lane.test.mjs` reads this line back and asserts every suite under
   // `eval/` is matched by it, at every depth.
-  { name: "agent:tests", cmd: "cd scripts/agent && node --test '**/*.test.mjs'" },
+  //
+  // WHY TWO FLAGS. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
+  // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
+  // access cancelled it by hand; teardown then reported six orphan processes
+  // (node, sh, node, sh, node, node). It never printed a `# tests` summary, and
+  // the same lane at that same commit prints 1180 of them locally — so the
+  // suite did NOT complete: 875 tests never reported. The offending change is
+  // reverted, and the log does not say which of two mechanisms stalled it:
+  // a test that hung while running, or a test FILE whose tests all finished
+  // while a child process it spawned kept its process alive. Reproducing both
+  // shapes together shows neither flag alone is enough — `--test-timeout` names
+  // the hung test and then hangs on the leaked child; `--test-force-exit` never
+  // fires, because a hung test never "finishes". Together they end the run.
+  //
+  //   --test-timeout=60000  cancels a test that hangs WHILE RUNNING and NAMES it
+  //     with its file and line, so the next one diagnoses itself. 60s is ~8x the
+  //     slowest single test measured here (7.7s, a CLI-spawning test, macOS) and
+  //     ~17x the lane's whole CI duration (3.5s). Deliberately loose: a flaky
+  //     timeout on a loaded runner would be worse than the hang it guards.
+  //
+  //   --test-force-exit  exits once every known test has finished, even with a
+  //     live handle or child holding the loop open. Note what this does NOT buy:
+  //     the run ends, it does not go red, and the leaked child survives until the
+  //     runner's own teardown reaps it. The job-level `timeout-minutes` in
+  //     `ci.yml` is the backstop for anything neither flag reaches.
+  //
+  // BOTH FLAGS GO BEFORE `--test`. `eval/test-lane.test.mjs` captures everything
+  // after `--test ` and treats each whitespace-separated token as a glob pattern;
+  // put them after and it reads `--test-timeout=60000` back as a pattern. It
+  // does not currently FAIL on that — its assertions are one-directional (every
+  // eval suite must match some pattern) — so this is a latent corruption a green
+  // test would not catch. Node does not care about the order; that extractor does.
+  {
+    name: "agent:tests",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test-force-exit --test '**/*.test.mjs'",
+  },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build" },

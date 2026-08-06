@@ -17,6 +17,19 @@ permissions:
 jobs:
   verify-self:
     runs-on: ubuntu-latest
+    # A ceiling on a hang, not a performance budget. Without it this job inherits
+    # GitHub's 360-minute default. On 2026-08-06 a regression stalled the
+    # `agent:tests` lane 2.3s in: run 31073290840 printed 305 of the 1180 tests
+    # that commit's lane prints locally, never printed a summary, and sat silent
+    # for 31.5 minutes until someone with write access cancelled it by hand.
+    # Uncancelled it would have burned six hours of runner time.
+    #
+    # 20 min is ~2.2x the slowest healthy run: across the 188 successful runs
+    # between 2026-07-31 and 2026-08-06, verify-self's max was 9.3 min, p99 9.3,
+    # median 8.6 — a distribution under a minute wide, so the headroom is large
+    # relative to the variance it has to absorb. It is also well under the 31.5
+    # minutes the incident actually cost, which a looser value would not be.
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -123,6 +136,12 @@ jobs:
   verify-browser:
     runs-on: ubuntu-latest
     needs: verify-self
+    # Same reasoning as verify-self, same sample: max 9.3 min, p95 7.6, median
+    # 6.5 across those 188 successful runs, so 20 min is ~2.2x the worst observed.
+    # This job's spread is the widest of the three (median to max is +43%) because
+    # it builds and runs a Playwright image, which is the part most exposed to
+    # registry and build-cache latency — a reason to keep the multiple, not shrink it.
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -166,6 +185,13 @@ jobs:
   verify-integration:
     runs-on: ubuntu-latest
     needs: verify-self
+    # 10 rather than 20: this job is genuinely shorter — max 4.4 min, p99 3.6,
+    # median 2.8 over the same 188 successful runs — and a ceiling that could
+    # never bind is not a ceiling. ~2.3x the worst observed, matching the multiple
+    # used on the other two jobs. The Postgres service and the Yorkie container
+    # are inside that measurement; the wait-for-port step below already gives up
+    # after 30s, so a stalled Yorkie fails with a diagnosis long before this.
+    timeout-minutes: 10
     env:
       DATABASE_URL: postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
       DATASOURCE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
