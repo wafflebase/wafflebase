@@ -1061,7 +1061,11 @@ export function DocumentList({
   // authed file endpoint. Other document types have nothing to download.
   const handleDownload = async (doc: Document) => {
     try {
-      await downloadDocumentFile({ id: String(doc.id), title: doc.title });
+      await downloadDocumentFile({
+        id: String(doc.id),
+        title: doc.title,
+        fileId: doc.fileId,
+      });
     } catch {
       toast.error(`Failed to download "${doc.title}"`);
     }
