@@ -280,7 +280,9 @@ Pure, two-pass, mirroring `parseSpTree`'s structure:
 
 Two report channels, deliberately distinct: `skipped` counts what is **absent**
 from the document, `approximated` counts what is **present but degraded**
-(today only `shape-kind`, an unrecognized Miro shape imported as a `rect`).
+(`shape-kind`, an unrecognized Miro shape imported as a `rect`, and
+`parent-position`, an item whose frame-relative coordinate could not be
+resolved — see **Coordinate space** below).
 Folding the second into the first told the user content was missing when it
 was not, under a Miro item type that does not exist.
 
