@@ -17,15 +17,23 @@ export function registerFilesCommand(program: Command) {
   files
     .command('upload <file>')
     .description('Upload any file as a document')
-    .option('--title <title>', 'Document title (default: file basename)')
+    .option(
+      '--title <title>',
+      'Document title (default: the filename, extension included)',
+    )
+    .option(
+      '--folder <id>',
+      'Folder to upload into (default: the workspace root)',
+    )
     .action(async function (this: Command, file: string) {
       const opts = getGlobalOpts(this);
-      const local = this.opts<{ title?: string }>();
+      const local = this.opts<{ title?: string; folder?: string }>();
       try {
         const result = await runFilesUpload(
           {
             file,
             title: local.title,
+            folder: local.folder,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
           },

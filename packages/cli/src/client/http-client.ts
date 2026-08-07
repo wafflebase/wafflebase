@@ -213,7 +213,7 @@ export class HttpClient {
     bytes: Uint8Array,
     fileName: string,
     mimeType: string,
-    title?: string,
+    fields: { title?: string; folderId?: string } = {},
   ): Promise<ApiResponse<FileDocument>> {
     const { res, sessionExpired } = await this.send(
       `${this.base}/files`,
@@ -230,7 +230,8 @@ export class HttpClient {
           bytes.byteLength,
         );
         form.append('file', new Blob([part], { type: mimeType }), fileName);
-        if (title) form.append('title', title);
+        if (fields.title) form.append('title', fields.title);
+        if (fields.folderId) form.append('folderId', fields.folderId);
         // No Content-Type — fetch sets it with the multipart boundary.
         return { method: 'POST', headers: auth, body: form };
       },

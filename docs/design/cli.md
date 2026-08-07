@@ -351,7 +351,8 @@ wafflebase
   │
   └── files (alias: file)
         ├── upload <file>                    Upload any file as a document
-        │     [--title <title>]               (default: file basename)
+        │     [--title <title>]               (default: filename, with ext)
+        │     [--folder <id>]                 (default: workspace root)
         ├── download <doc-id> [out]          (out: path, - for stdout;
         │     [--force]                       default: the document filename)
         ├── list                             List blob docs (file/pdf/image)

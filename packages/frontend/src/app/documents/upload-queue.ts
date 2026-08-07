@@ -392,7 +392,14 @@ async function runItem(item: UploadItem): Promise<void> {
               : item.kind === "image"
               ? "Untitled Image"
               : "Untitled File";
-          const title = stripExt(item.fileName, fallback);
+          // A blob document *is* the file, so its title is the whole
+          // filename. Unlike the converted branches above (an imported .xlsx
+          // becomes a native sheet named "Budget"), stripping here made
+          // `report.{zip,pdf,png}` indistinguishable in the list — and it
+          // discarded the only copy of an extension the backend's
+          // `safeExtension` rejects, which the download filename then could
+          // not restore.
+          const title = item.fileName.trim() || fallback;
           // Upload the blob at most once per item: persist the returned fileId
           // immediately so a retry whose earlier failure was in createDoc reuses
           // the blob instead of orphaning it with a second upload. fileSize/

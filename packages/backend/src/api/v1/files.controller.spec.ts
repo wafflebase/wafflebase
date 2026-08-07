@@ -26,6 +26,7 @@ describe('ApiV1FilesController.upload', () => {
     createDocument: jest.Mock;
     getDocumentOrThrow: jest.Mock;
   };
+  let folderService: { assertSameWorkspace: jest.Mock };
 
   const uploadReturns = (id: string) =>
     fileService.upload.mockResolvedValue({
@@ -49,9 +50,13 @@ describe('ApiV1FilesController.upload', () => {
         })),
       getDocumentOrThrow: jest.fn(),
     };
+    folderService = {
+      assertSameWorkspace: jest.fn().mockResolvedValue(undefined),
+    };
     controller = new ApiV1FilesController(
       fileService as never,
       documentService as never,
+      folderService as never,
     );
   });
 
@@ -113,7 +118,7 @@ describe('ApiV1FilesController.upload', () => {
     uploadReturns(`${UUID}.xlsx`);
     await controller.upload(WS, multer('budget.xlsx'), {}, req());
     expect(documentService.createDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'file', title: 'budget' }),
+      expect.objectContaining({ type: 'file', title: 'budget.xlsx' }),
     );
   });
 
@@ -134,11 +139,11 @@ describe('ApiV1FilesController.upload', () => {
     );
   });
 
-  it('titles the document from the filename, minus the extension', async () => {
+  it('titles the document with the whole filename, extension included', async () => {
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer('quarterly report.zip'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: 'quarterly report' }),
+      expect.objectContaining({ title: 'quarterly report.zip' }),
     );
 
     // Extension-less and dotfile names keep their whole name.
@@ -150,6 +155,25 @@ describe('ApiV1FilesController.upload', () => {
     await controller.upload(WS, multer('.gitignore'), {}, req());
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: '.gitignore' }),
+    );
+  });
+
+  // The title is the only place an extension the storage-key sanitizer
+  // rejects can survive: `safeExtension` drops `c++`, so the blob is stored
+  // under a bare uuid and the download filename has nothing to re-append.
+  it('keeps an extension the storage-key sanitizer would reject', async () => {
+    uploadReturns(UUID); // no extension in the key — `+` fails the sanitizer
+    await controller.upload(WS, multer('archive.c++'), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'archive.c++' }),
+    );
+  });
+
+  it('strips a directory prefix but not the extension', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await controller.upload(WS, multer('some/dir/bundle.zip'), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'bundle.zip' }),
     );
   });
 
@@ -179,12 +203,80 @@ describe('ApiV1FilesController.upload', () => {
     expect(fileService.upload).not.toHaveBeenCalled();
   });
 
-  it('truncates an over-long filename-derived title instead of failing', async () => {
+  // Truncation has to keep the extension, not just fit the cap: for one the
+  // sanitizer rejects there is no other copy of it, so a long `.c++` name
+  // would lose it permanently — the exact failure this whole change fixes.
+  it('truncates an over-long filename-derived title but keeps the extension', async () => {
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer(`${'x'.repeat(300)}.zip`), {}, req());
-    expect(documentService.createDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'x'.repeat(200) }),
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `${'x'.repeat(196)}.zip` }),
     );
+
+    uploadReturns(UUID);
+    await controller.upload(WS, multer(`${'y'.repeat(300)}.c++`), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `${'y'.repeat(196)}.c++` }),
+    );
+  });
+
+  it('falls back to plain truncation when the extension cannot fit', async () => {
+    uploadReturns(UUID);
+    // A 301-char "extension" cannot be reserved inside a 200-char cap, so the
+    // name is simply cut — `a.` plus 198 z's.
+    await controller.upload(WS, multer(`a.${'z'.repeat(300)}`), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `a.${'z'.repeat(198)}` }),
+    );
+  });
+
+  it('keeps the extension on viewer types too, not just `file`', async () => {
+    uploadReturns(`${UUID}.png`);
+    await controller.upload(WS, multer('shot.png'), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'image', title: 'shot.png' }),
+    );
+  });
+
+  it('creates at the workspace root when no folder is given', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await controller.upload(WS, multer('bundle.zip'), {}, req());
+    expect(folderService.assertSameWorkspace).not.toHaveBeenCalled();
+    const anyValue = expect.anything() as unknown;
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ folder: anyValue }),
+    );
+  });
+
+  it('connects an in-workspace folder', async () => {
+    uploadReturns(`${UUID}.zip`);
+    await controller.upload(
+      WS,
+      multer('bundle.zip'),
+      { folderId: 'folder-7' },
+      req(),
+    );
+    expect(folderService.assertSameWorkspace).toHaveBeenCalledWith(
+      'folder-7',
+      WS,
+    );
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ folder: { connect: { id: 'folder-7' } } }),
+    );
+  });
+
+  // The blob is the expensive part; a folder that fails the workspace check
+  // must not cost an upload, the same way an over-long title does not.
+  it("rejects another workspace's folder before storing anything", async () => {
+    uploadReturns(`${UUID}.zip`);
+    folderService.assertSameWorkspace.mockRejectedValue(
+      new BadRequestException('Folder must belong to the same workspace'),
+    );
+    await expect(
+      controller.upload(WS, multer('bundle.zip'), { folderId: 'other' }, req()),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(fileService.upload).not.toHaveBeenCalled();
+    expect(documentService.createDocument).not.toHaveBeenCalled();
   });
 
   it('clamps a client-supplied mime type to the persisted length', async () => {
@@ -249,9 +341,13 @@ describe('ApiV1FilesController.download', () => {
         fileId: `${UUID}.zip`,
       }),
     };
+    const folderService: { assertSameWorkspace: jest.Mock } = {
+      assertSameWorkspace: jest.fn(),
+    };
     controller = new ApiV1FilesController(
       fileService as never,
       documentService as never,
+      folderService as never,
     );
   });
 

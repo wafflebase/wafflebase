@@ -134,7 +134,7 @@ describe("upload-queue worker", () => {
 
     expect(deps.uploadFile).toHaveBeenCalledTimes(1);
     expect(deps.createDoc).toHaveBeenCalledWith(undefined, {
-      title: "archive",
+      title: "archive.zip",
       type: "file",
       fileId: "blob-1.zip",
       fileSize: 4096,
@@ -144,10 +144,14 @@ describe("upload-queue worker", () => {
     expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
   });
 
-  it("uploads a filename whose extension is regex-special without throwing", async () => {
-    // "c++" built a `RegExp(\\.c++$)` under the old stripExt, which throws
+  it("keeps a regex-special extension in the title", async () => {
+    // "c++" built a `RegExp(\\.c++$)` under an older stripExt, which throws
     // "Nothing to repeat" — the raw error text used to leak as the
     // user-facing failure reason instead of the upload succeeding.
+    //
+    // The title is now also the *only* place this extension survives: the
+    // backend's `safeExtension` rejects `c++`, so the blob is stored under a
+    // bare uuid and the download filename has nothing to re-append.
     const deps = {
       importXlsx: vi.fn(),
       importDocx: vi.fn(),
@@ -168,14 +172,40 @@ describe("upload-queue worker", () => {
 
     expect(deps.createDoc).toHaveBeenCalledWith(
       undefined,
-      expect.objectContaining({ title: "main" }),
+      expect.objectContaining({ title: "main.c++" }),
     );
     expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
   });
 
-  it("keeps a dotfile's full name instead of stripping it to the fallback", async () => {
-    // ".env" has its only dot at index 0 — `dot > 0` (not `>= 0`) is what
-    // keeps this from being treated as an extension-only name.
+  it("still strips the extension for a converted (non-blob) upload", async () => {
+    // An imported .xlsx becomes a native sheet, so its title is "budget", not
+    // "budget.xlsx". Only blob types are the file and keep the extension.
+    const deps = {
+      importXlsx: vi.fn(async (f: File) => ({ grid: {}, fileName: f.name })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    q.enqueue([file("budget.xlsx")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ type: "sheet", title: "budget" }),
+    );
+  });
+
+  it("keeps a dotfile's full name", async () => {
     const deps = {
       importXlsx: vi.fn(),
       importDocx: vi.fn(),

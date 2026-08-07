@@ -171,11 +171,29 @@ In `packages/frontend/src/app/documents/upload-queue.ts:364`, the blob branch
 widens from `pdf | image` to `pdf | image | file` — the pipeline is already
 identical (`uploadFile` → persist `fileId` before creating the document so a
 retry never orphans a second blob → `getOrCreateDoc`). Only the fallback title
-differs (`"Untitled File"`). Titles keep the existing rule: `stripExt` removes
-the extension (`report.zip` → `"report"`) and `downloadFileName` re-appends it
-from `fileId` on download, so the user gets `report.zip` back. A double
-extension degrades sanely: `archive.tar.gz` → title `archive.tar` → download
-`archive.tar.gz`.
+differs (`"Untitled File"`).
+
+**Titles keep the extension.** A blob document *is* the file, so `report.zip`
+is titled `report.zip`. The converted branches (`.xlsx` → sheet, `.docx` → doc,
+`.pptx` → slides) still strip, because an imported spreadsheet is a native
+document named "Budget", not "Budget.xlsx".
+
+This was originally specified the other way — `stripExt` removed the extension
+and `downloadFileName`/`attachmentFilename` re-appended it from the `fileId` —
+and shipped that way in v0.6.3. Production testing found two problems with it.
+Four uploads of `report.{zip,pdf,png,c++}` all listed as `report`,
+indistinguishable. Worse, the re-append reads the extension from the *storage
+key*, which has been through `safeExtension`'s `^[a-z0-9]{1,12}$` filter: `c++`
+is rejected, so that blob is stored under a bare uuid, and with the title
+stripped too the extension was gone for good — `archive.c++` downloaded as
+`archive`.
+
+Sourcing a display name from a sanitizer that exists to keep untrusted input
+out of an object key was the mistake. Widening `safeExtension` to admit `+` was
+rejected: it loosens that boundary to solve a display problem, and would still
+fail for the next character it does not cover. The key-based re-append remains
+for rows created before this change, where it is still the only way to recover
+the extension; its `endsWith` guard makes it a no-op for everything since.
 
 The "New" menu gains a **"File upload"** item calling `onImport("")` — an
 `accept`-less picker. Drag-and-drop needs no change at all; it never filtered by
