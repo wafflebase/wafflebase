@@ -281,7 +281,7 @@ All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `POST` | `/api/v1/workspaces/:wid/files` | Upload any file as a document (multipart `file`, optional `title`) |
+| `POST` | `/api/v1/workspaces/:wid/files` | Upload any file as a document (multipart `file`, optional `title`, optional `folderId`) |
 | `GET` | `/api/v1/workspaces/:wid/files/:documentId` | Download a blob document's bytes |
 
 Upload stores the blob and creates the document in one call (deleting the blob
@@ -290,6 +290,13 @@ if the row fails) and derives `type` from the stored extension — `.pdf` →
 parsed: an uploaded `.xlsx` is stored as bytes. Download reuses
 `fileResponseHeaders()`, so the derived-`Content-Type` rule is shared with
 `GET /documents/:id/file`. Caps are unchanged (50 MB; 25 MB for images).
+
+`title` defaults to the whole filename, **extension included** — a blob
+document is the file, and the title is the only copy of an extension that
+`safeExtension` rejects (a `.c++` blob is stored under a bare uuid). `folderId`
+is optional and goes through the same `assertSameWorkspace` check the web
+create path uses; both it and the title are resolved *before* the blob is
+stored, so a rejected value costs no upload.
 
 #### Tabs
 

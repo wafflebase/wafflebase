@@ -25,6 +25,7 @@ import {
 } from '../../document/document-file-id.util';
 import { fileResponseHeaders } from '../../document/file-response.util';
 import { FileService } from '../../file/file.service';
+import { FolderService } from '../../folder/folder.service';
 import {
   MAX_FILE_UPLOAD_BYTES,
   VALID_FILE_ID_PATTERN,
@@ -54,6 +55,7 @@ export class ApiV1FilesController {
   constructor(
     private readonly fileService: FileService,
     private readonly documentService: DocumentService,
+    private readonly folderService: FolderService,
   ) {}
 
   @Post()
@@ -65,7 +67,7 @@ export class ApiV1FilesController {
   async upload(
     @Param('workspaceId') workspaceId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { title?: string },
+    @Body() body: { title?: string; folderId?: string },
     @Req() req: AuthenticatedRequest,
   ) {
     if (!file) {
@@ -82,6 +84,15 @@ export class ApiV1FilesController {
     // Resolve the title before storing anything: a rejected title should not
     // cost an upload, even though the cleanup below would cover it.
     const title = defaultTitle(body?.title, file.originalname);
+    // Same reasoning as the title: resolve before storing anything, so a
+    // folder from another workspace costs no upload. `assertSameWorkspace` is
+    // the check `document.controller.ts` already applies on its create path —
+    // without it, a workspace-scoped caller could file a document into a
+    // folder they cannot otherwise reach.
+    const folderId = body?.folderId?.trim() || undefined;
+    if (folderId) {
+      await this.folderService.assertSameWorkspace(folderId, workspaceId);
+    }
     // Client-supplied and advisory only, but it is persisted, so hold it to
     // the same length the DTO path enforces.
     const mimeType = (file.mimetype ?? '').slice(0, MAX_MIME_TYPE_LENGTH);
@@ -105,6 +116,7 @@ export class ApiV1FilesController {
         mimeType: uploaded.mimeType,
         workspace: { connect: { id: workspaceId } },
         author: { connect: { id: Number(req.user.id) } },
+        ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
       });
     } catch (err) {
       // A blob is only reachable through its document row; without one it is
@@ -168,8 +180,23 @@ function defaultTitle(title: string | undefined, fileName: string): string {
     }
     return explicit;
   }
-  const base = fileName.split(/[\\/]/).pop() ?? fileName;
+  // The whole basename, extension included: a blob document *is* the file, so
+  // its title is the filename. Dropping the extension made four uploads of
+  // `report.{zip,pdf,png,c++}` indistinguishable in the list, and it was also
+  // the only surviving copy of an extension that `safeExtension` rejects — a
+  // `.c++` blob is stored under a bare uuid, so `attachmentFilename` has
+  // nothing to re-append and the download loses it for good.
+  const base = (fileName.split(/[\\/]/).pop() ?? fileName).trim();
+  if (base.length <= MAX_TITLE_LENGTH) return base || 'Untitled File';
+
+  // Truncating has to keep the extension, or the cap reintroduces exactly the
+  // loss this function was changed to prevent: for an extension the key
+  // sanitizer rejects, the title is the only copy, so a 300-character `.c++`
+  // name would come back extension-less. `dot > 0` leaves dotfiles alone.
   const dot = base.lastIndexOf('.');
-  const stem = (dot > 0 ? base.slice(0, dot) : base).trim();
-  return stem.slice(0, MAX_TITLE_LENGTH) || 'Untitled File';
+  const ext = dot > 0 ? base.slice(dot) : '';
+  if (ext && ext.length < MAX_TITLE_LENGTH) {
+    return `${base.slice(0, MAX_TITLE_LENGTH - ext.length)}${ext}`;
+  }
+  return base.slice(0, MAX_TITLE_LENGTH) || 'Untitled File';
 }

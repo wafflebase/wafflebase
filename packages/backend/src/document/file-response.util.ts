@@ -49,11 +49,19 @@ export function fileResponseHeaders(
 
 /**
  * Append the blob's extension (from its storage key, e.g. `<uuid>.zip`) to
- * the title so a downloaded attachment keeps it — the title itself never
- * carries one (`stripExt` removes it at upload time). Only treated as an
- * extension when the id actually contains a dot: an extension-less blob key
- * (a `file` upload with no discoverable extension) leaves the title as-is,
- * the same guard `generic-file-view.tsx` applies for its file-type badge.
+ * the title so a downloaded attachment keeps it.
+ *
+ * Uploads now title a blob document with the whole filename, so for anything
+ * stored since that change the title already carries the extension and the
+ * `endsWith` guard below makes this a no-op. It stays for two reasons: rows
+ * created before the change have a stripped title and still need it, and it
+ * is the only thing that recovers an extension for those rows.
+ *
+ * It cannot be the *primary* source, which is why the title changed: the key's
+ * extension has been through `safeExtension`, so anything it rejects (`c++`)
+ * is stored under a bare uuid with nothing to re-append. Only treated as an
+ * extension when the id actually contains a dot, the same guard
+ * `generic-file-view.tsx` applies for its file-type badge.
  */
 function attachmentFilename(title: string, fileId?: string): string {
   // A `Document.title` is NOT NULL, but this must never be the thing that

@@ -80,7 +80,7 @@ describe('runFilesUpload', () => {
       expect.any(Uint8Array),
       'photo.png',
       'image/png',
-      undefined,
+      {},
     );
     expect(JSON.parse(out.join(''))).toMatchObject({ id: 'doc-1' });
   });
@@ -97,7 +97,19 @@ describe('runFilesUpload', () => {
       expect.any(Uint8Array),
       'bundle.zip',
       'application/octet-stream',
-      'Q3 archive',
+      { title: 'Q3 archive' },
+    );
+  });
+
+  it('forwards a folder', async () => {
+    const { io } = makeIO();
+    const client = makeClient();
+    await runFilesUpload({ file: 'bundle.zip', folder: 'folder-7' }, client, io);
+    expect(client.uploadFileDocument).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'bundle.zip',
+      'application/octet-stream',
+      { folderId: 'folder-7' },
     );
   });
 
@@ -183,7 +195,20 @@ describe('runFilesUpload', () => {
     expect(JSON.parse(out.join(''))).toMatchObject({
       method: 'POST',
       path: '/files',
-      body: { title: 'bundle' },
+      body: { title: 'bundle.zip' },
+    });
+  });
+
+  it('shows the folder in the dry-run body', async () => {
+    const { io, out } = makeIO();
+    const client = makeClient();
+    await runFilesUpload(
+      { file: 'dir/bundle.zip', folder: 'folder-7', dryRun: true },
+      client,
+      io,
+    );
+    expect(JSON.parse(out.join(''))).toMatchObject({
+      body: { title: 'bundle.zip', folderId: 'folder-7' },
     });
   });
 

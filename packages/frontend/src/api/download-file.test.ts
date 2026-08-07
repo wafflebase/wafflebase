@@ -34,6 +34,29 @@ describe("downloadFileName", () => {
     ).toBe("report.zip");
   });
 
+  it("does not append a MIME extension over one the title already has", () => {
+    // Titles now carry the original filename, so the MIME fallback can
+    // disagree with an extension that is already there: `image/jpeg` maps to
+    // "jpg", which would have turned "photo.jpeg" into "photo.jpeg.jpg". The
+    // fallback is only for the older rows whose title was stored stripped.
+    expect(downloadFileName("photo.jpeg", undefined, "image/jpeg")).toBe(
+      "photo.jpeg",
+    );
+    // Same when the blob key is extension-less because the sanitizer rejected
+    // the extension — the title is the only correct name available.
+    expect(
+      downloadFileName(
+        "archive.c++",
+        "11111111-2222-3333-4444-555555555555",
+        "application/octet-stream",
+      ),
+    ).toBe("archive.c++");
+  });
+
+  it("still applies the MIME fallback to a stripped legacy title", () => {
+    expect(downloadFileName("shot", undefined, "image/jpeg")).toBe("shot.jpg");
+  });
+
   it("returns the bare title when neither fileId nor a known MIME is available", () => {
     expect(
       downloadFileName(
