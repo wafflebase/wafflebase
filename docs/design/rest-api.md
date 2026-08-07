@@ -167,7 +167,8 @@ PATCH  /api/v1/workspaces/:wid/documents/:did/tabs/:tid    Rename a tab ({ name 
 Reads and mutates tab metadata on the Yorkie document via `YorkieService`.
 Create/rename reuse the shared `@wafflebase/sheets` tab-name helpers
 (`generateTabId` / `getUniqueTabName` / `getNextDefaultSheetName` /
-`normalizeTabName`) through `yorkie/tab-ops.ts`, so CLI/API tabs follow the same
+`normalizeTabName`) through `packages/backend/src/yorkie/tab-ops.ts`, so CLI/API
+tabs follow the same
 naming and uniqueness rules as the editor. Create mirrors the editor
 `addSheetTab` mutation (`tabs` + `tabOrder` + empty `sheets[id]`); rename returns
 `404` (missing), `400` (blank), `409` (duplicate name).
