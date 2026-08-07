@@ -56,6 +56,12 @@ fits (1). Both flags ship because the evidence does not choose between them.
 - [x] **`timeout-minutes` on all three `ci.yml` jobs.** Values below.
 - [x] **`--test-timeout=60000` and `--test-force-exit` on the `agent:tests` lane**,
       both placed **before** `--test`.
+- [x] **Each lane runs in its own process group, and is reaped when it ends.**
+      Added in review: `--test-force-exit` ends the *runner* while a child a test
+      spawned is still alive, so without this the orphan outlives the lane and runs
+      alongside every later lane and the coverage steps after them. Ctrl-C is
+      forwarded by hand, because a detached lane no longer sits in the terminal's
+      foreground process group.
 
 ### Sizing `timeout-minutes`
 
@@ -127,7 +133,8 @@ does not care about flag order; that extractor does.
 
 ## Corrected while building
 
-**Three of the facts I was handed were wrong, one of them centrally.**
+**Three of the facts I was handed were wrong, one of them centrally — and a fourth
+claim was my own.**
 
 1. **"The suite completed and the process would not exit."** It did not complete —
    305 of 1180 tests, output stopping 2.3 s in. Everything downstream of that reading
@@ -141,6 +148,25 @@ does not care about flag order; that extractor does.
 3. **The set of `timeout-minutes` values in use includes 20 and 30**, which the
    handoff's list omitted. That is what let both chosen values come from the existing
    vocabulary instead of inventing a number.
+
+**4. And my own claim about `--test-force-exit` was too strong** — caught in review
+on #692, then measured. "The lane exits rather than hanging when a test leaks a
+child" holds only when the leaked child does **not** hold the runner's stdout.
+Spawned with `stdio: "inherit"`, the child keeps the test file's pipe open, the
+runner never learns those tests finished, and `--test-force-exit` — which fires
+"once all known tests have finished" — never fires. The runner does not exit at
+all:
+
+| leaked child | with both flags shipped |
+|---|---|
+| `stdio: "ignore"` | runner exits, lane returns in 0.8 s, orphan survives |
+| `stdio: "inherit"` | runner **never exits**; lane still blocked at 25 s |
+
+Both rows are the reason for the second half of this change. The first row is what
+`reapLaneGroup` fixes: the lane returns, verify-self carries on into the build and
+coverage lanes, and the orphan runs alongside them. The second row nothing here
+fixes, and the doc now says so instead of implying otherwise — `timeout-minutes` is
+the only bound on it, which is precisely why this PR is both halves.
 
 **And the described trap is real but not test-enforced.** Putting the flags after
 `--test` does corrupt the extracted pattern list — but `eval/test-lane.test.mjs`
@@ -162,10 +188,26 @@ anyway, but "the test will catch it" is not true and should not be relied on.
 - **`--test-force-exit` masks a leaked handle** → this is the real cost, and it is
   the direction chosen deliberately. The lane exits **green** on a leaked child
   rather than hanging, so a resource leak becomes invisible where it used to be
-  visible-as-a-hang. Job-level `timeout-minutes` is what remains for anything the
-  flags do not reach. Trading a 31-minute silence for a silent-but-correct pass is
+  visible-as-a-hang. Trading a 31-minute silence for a silent-but-correct pass is
   the right side of that trade for a gate that every PR waits on; it would be the
   wrong side for a leak detector, which this is not.
+- **`--test-force-exit` does not fire at all** when the leaked child inherited the
+  runner's stdout pipe (`stdio: "inherit"`). Then the test file's process never
+  closes its pipe, the runner never learns those tests finished, and "once all
+  known tests have finished" is never reached — so the lane hangs exactly as it
+  does today. Measured, not assumed; see *Corrected while building*. Nothing in
+  `verify-self.mjs` bounds this, and it is the reason the ceiling and the flags
+  ship together rather than either alone.
+- **The reap kills something a later lane needed** → it cannot: `reapLaneGroup`
+  signals a lane's process group only *after* that lane's process has already
+  exited, so the only members left are things the lane leaked. On a lane that
+  leaks nothing the kill is an immediate `ESRCH`, swallowed, and no lane's status
+  changes.
+- **A leaked process outlives the whole runner** → it does not, on the paths the
+  reap covers, and that is checked: a lane that orphans a child leaves zero
+  survivors by the next lane. Ctrl-C is covered too — `detached` takes the lane
+  out of the terminal's foreground group, so the signal is forwarded by hand.
+  Both are mutation-tested below.
 - **A hang the flags do not reach** (the runner itself wedges before any test starts,
   or `verify:fast` hangs rather than `agent:tests`) → unchanged by the lane flags,
   bounded by `timeout-minutes`. That is the whole reason both halves ship together.
@@ -193,36 +235,56 @@ anyway, but "the test will catch it" is not true and should not be relied on.
 
 - [x] **`eval/test-lane.test.mjs` passes unmodified** — 2 tests, 2 pass, 0 fail;
       file byte-identical to `upstream/main` (`diff` clean).
-- [x] **Lane green against a measured baseline.** `upstream/main`: 1118 tests,
-      1112 pass, 0 fail, **6 skipped**, 15.1 s. With both flags: **1118 / 1112 / 0 /
-      6, 14.8–15.1 s** — identical, no measurable cost. The 6 skips are the expected
-      pair of causes with no root `node_modules`: 5 from `lint-config.test.mjs`
-      without a root `eslint`, 1 from the Agent SDK not being installed.
+- [x] **Lane green against a measured baseline.** Re-measured on the branch after
+      it was updated from `main` (the suite grew; the figures below supersede the
+      1118 measured at `f2aabace6`). Pre-PR lane command: **1323 tests, 1317 pass,
+      0 fail, 6 skipped, 25.8 s.** With both flags: **1323 / 1317 / 0 / 6, 26.1 s.**
+      With the flags and the reap: **1323 / 1317 / 0 / 6, 25.5 s** — identical
+      counts, no measurable cost. The 6 skips are the expected pair of causes with
+      no root `node_modules`: 5 from `lint-config.test.mjs` without a root
+      `eslint`, 1 from the Agent SDK not being installed.
 - [x] **Both flags proven, on both failure modes, in one run matching the incident's
       multi-file shape** (four healthy files, one hanging test, one file that passes
       and leaks a live child). Scaffolding removed afterwards; it is not in the diff.
 
-      | flags | result |
-      |---|---|
-      | neither (today's lane) | 8 of 12 tests printed, **no summary**, still running at 45 s, orphan tree `node → node → sleep` |
-      | `--test-timeout` only | names the hang, then **still running at 40 s** on the leaked child |
-      | `--test-force-exit` only | **still running at 40 s** — a hung test never "finishes", so it never fires |
-      | **both** | exits **1** in **10 s**, full summary, hung test named with file and line |
+  | flags | result |
+  |---|---|
+  | neither (today's lane) | 8 of 12 tests printed, **no summary**, still running at 45 s, orphan tree `node → node → sleep` |
+  | `--test-timeout` only | names the hang, then **still running at 40 s** on the leaked child |
+  | `--test-force-exit` only | **still running at 40 s** — a hung test never "finishes", so it never fires |
+  | **both** | exits **1** in **10 s**, full summary, hung test named with file and line |
 
-      The named failure, verbatim:
+  The named failure, verbatim:
 
-      ```
-      ✖ hangs-mid-test: never settles (8002.124542ms)
-      test at sub/hangs-mid-test.test.mjs:2:1
-        'test timed out after 8000ms'
-      ```
+  ```
+  ✖ hangs-mid-test: never settles (8002.124542ms)
+  test at sub/hangs-mid-test.test.mjs:2:1
+    'test timed out after 8000ms'
+  ```
 
-      (8000 ms as a short stand-in for the shipped 60000, so the demo runs in
-      seconds. The mechanism is identical.)
+  (8000 ms as a short stand-in for the shipped 60000, so the demo runs in
+  seconds. The mechanism is identical.)
 - [x] **The incident reproduced**, including its process tree: `node --test` orphaned
       at `ppid=1` with two file-runner children, one holding a live `sleep`. That is
       the CI orphan list (`node`, `sh`, `node`, `sh`, `node`, `node`) minus
       `verify-self.mjs`'s own node and the `sh -c` it wraps each lane in.
+- [x] **The lane reap, end to end through the real `verify-self.mjs`**, driven by
+      synthetic lanes so every branch is reachable: stdout and stderr still
+      captured, exit code 7 still recorded with its `failureSummary`, the lane
+      after a failure still skipped, the runner still exits 1. A lane that
+      orphans a child shows **1** live child during the lane and **0** by the
+      next one, and the run leaves nothing behind.
+- [x] **Mutation-tested, all three parts** — each was broken in turn and the check
+      that protects it failed with the right symptom:
+
+  | mutation | symptom |
+  |---|---|
+  | drop `reapLaneGroup(pid)` | orphan survives into the next lane (`sleeps-next-lane:1`) |
+  | `detached: false` | orphan survives — the lane's pid is not a group id, so the signal lands on nothing |
+  | drop the SIGINT/SIGTERM forwarding | Ctrl-C exits the runner and **leaves the lane running** |
+- [x] **The `stdio: "inherit"` case reproduced**, which is what makes the claim
+      above measured rather than argued: with both flags shipped, the runner is
+      still alive at 25 s and never printed a summary.
 - [x] **`npx eslint scripts` exits 0**, at the lockfile-pinned `eslint@9.24.0` —
       **and exits 0 on `upstream/main` too**, so the 0 means something.
 - [x] **`actionlint` 1.7.7 clean** on `ci.yml`, before and after.
