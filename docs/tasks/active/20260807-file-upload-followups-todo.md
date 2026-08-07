@@ -68,56 +68,61 @@ from the CLI.
 
 ### Task 1 — blob titles keep their extension
 
-- [ ] Failing test first: `api/v1/files.controller.spec.ts` — uploading
+- [x] Failing test first: `api/v1/files.controller.spec.ts` — uploading
       `report.zip` with no explicit `--title` yields title `report.zip`;
       `archive.c++` yields `archive.c++`; an extension-less name is unchanged;
       an explicit title still wins; the 200-char cap and the `Untitled File`
       fallback still hold.
-- [ ] `defaultTitle()`: return the full basename rather than the stem. Keep
+- [x] `defaultTitle()`: return the full basename rather than the stem. Keep
       the path-separator strip, the length cap, and the fallback.
-- [ ] Failing test first: `upload-queue` test — a `file`/`pdf`/`image` item
+- [x] Failing test first: `upload-queue` test — a `file`/`pdf`/`image` item
       keeps `item.fileName` verbatim, while an `xlsx`/`docx`/`pptx` item still
       strips.
-- [ ] `upload-queue.ts:395`: use the filename as-is for the blob branch; leave
+- [x] `upload-queue.ts:395`: use the filename as-is for the blob branch; leave
       the three converted branches on `stripExt`.
-- [ ] `file-response.util.ts`: `attachmentFilename` keeps its re-append (older
+- [x] `file-response.util.ts`: `attachmentFilename` keeps its re-append (older
       rows have stripped titles) — its idempotence guard already covers a
       title that now ends in the extension. Correct the comment, which asserts
       "the title itself never carries one".
-- [ ] `file-response.util.spec.ts`: cover a title that already carries the
+- [x] `file-response.util.spec.ts`: cover a title that already carries the
       extension (no doubling), and a title with an extension the key lacks
       (`archive.c++` + bare-uuid key -> `archive.c++`).
 
 ### Task 2 — upload into a folder
 
-- [ ] Failing test first: `files.controller.spec.ts` — `folderId` in the
+- [x] Failing test first: `files.controller.spec.ts` — `folderId` in the
       multipart body is passed through to `createDocument`; a folder from
       another workspace is rejected; an absent `folderId` still creates at the
       root.
-- [ ] `files.controller.ts`: accept `folderId` in the body, gate it with the
+- [x] `files.controller.ts`: accept `folderId` in the body, gate it with the
       existing `folderService.assertSameWorkspace(folderId, workspaceId)` (the
       same call `document.controller.ts:129` uses), and connect the folder.
       Reject **before** storing the blob, so a bad folder does not cost an
       upload — matching how the title is resolved first today.
-- [ ] Failing test first: CLI `files upload --folder <id>` sends `folderId`.
-- [ ] CLI: `--folder <id>` option on `files upload`, threaded through
+- [x] Failing test first: CLI `files upload --folder <id>` sends `folderId`.
+- [x] CLI: `--folder <id>` option on `files upload`, threaded through
       `runFilesUpload`.
 
 ### Task 3 — docs
 
-- [ ] `packages/documentation/developers/cli.md`: document `--folder`, and
+- [x] `packages/documentation/developers/cli.md`: document `--folder`, and
       correct the `--title` default (it is the filename, not the stem).
-- [ ] `packages/backend/README.md`: the v1 files upload row gains `folderId`.
-- [ ] `docs/design/generic-file-upload.md`: record that blob titles keep the
+- [x] `packages/backend/README.md`: the v1 files upload row gains `folderId`.
+- [x] `docs/design/generic-file-upload.md`: record that blob titles keep the
       extension and that the download filename no longer depends on
       `safeExtension`.
 
 ### Wrap-up
 
-- [ ] `pnpm verify:fast` green.
-- [ ] Re-run the production CLI round trip that found this, including a
-      `--folder` upload and a `.c++` download, then delete the test documents.
-- [ ] Self code review over the branch diff before pushing.
+- [x] `pnpm verify:fast` green.
+- [x] Re-run the round trip that found this — **against a local full stack,
+      not production.** Production runs v0.6.3, which is the build these fixes
+      change, so it cannot confirm them; that has to wait for the next
+      release. Local: backend on the docker-compose Postgres/MinIO with
+      seeded workspace/folder/API-key fixtures, exercised through the built
+      CLI. Fixtures and documents deleted afterwards.
+- [ ] Self code review over the branch diff before pushing. **Not run** — the
+      session is configured not to dispatch review agents unasked.
 - [ ] PR: title <= 70 chars, body = Summary + Test plan.
 
 ## Risks
@@ -128,6 +133,30 @@ from the CLI.
 - **Titles are now longer** and can hit the 200-char cap sooner. A truncated
   title could lose the extension for a pathologically long filename; the cap
   is applied after, so this is accepted rather than special-cased.
+
+## Verification
+
+Run end-to-end against a local stack (docker-compose Postgres + MinIO, backend
+from this branch, the built CLI), with a seeded workspace, two folders in
+*different* workspaces, and a read+write API key:
+
+| Case | Before | After |
+| --- | --- | --- |
+| `upload wb063-test.zip` | title `wb063-test` | title `wb063-test.zip` |
+| `upload wb063-test.c++` | title `wb063-test` | title `wb063-test.c++`, key still bare `8fb13820-…` |
+| `upload wb063-test.pdf --folder folder-fixture` | no such option | `folderId: folder-fixture`, `type: pdf` |
+| `upload --folder <other workspace's folder>` | no such option | 400 "Folder must belong to the same workspace", nothing stored |
+| `download` the `.c++` doc | `wb063-test` (extension lost) | `wb063-test.c++`, sha256 matches the original |
+| `download` the `.zip` doc | `wb063-test.zip` | `wb063-test.zip` — not doubled |
+
+The `.c++` case is the one that matters: its storage key still has no
+extension (the sanitizer is unchanged, by design), so the download filename is
+now coming from the title. That is the whole point of the fix.
+
+While setting this up, `WorkspaceScopeGuard` was read to confirm the folder
+check is sound: it rewrites `request.params.workspaceId` to the resolved
+canonical id before the handler runs, so `assertSameWorkspace` compares a
+folder's `workspaceId` against an id and never against a slug.
 
 ## Review
 
