@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { NotePreview } from './preview.js';
 import {
   MERMAID_CARRIER_PATTERNS_VERSION,
@@ -230,6 +230,14 @@ describe('NotePreview', () => {
 // engine is stubbed here — real mermaid needs SVG layout APIs jsdom lacks.
 describe('NotePreview mermaid fences', () => {
   const DIAGRAM = '```mermaid\nflowchart LR\n  Editor --> Preview\n```';
+
+  /**
+   * One macrotask, which is all a render pass needs *once its modules are
+   * loaded* — every other step in it is a microtask, and microtasks all drain
+   * before a timer fires. It deliberately does not await the pass itself: two
+   * cases below park a pass inside a gated engine and assert on the DOM while
+   * it is still open, so waiting for completion would hang them.
+   */
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   function stubEngine(
@@ -240,6 +248,18 @@ describe('NotePreview mermaid fences', () => {
     const engine: MermaidLike = { initialize: vi.fn(), render: vi.fn(render) };
     return engine;
   }
+
+  beforeAll(async () => {
+    // The engine is stubbed, but the sanitizer is not: a pass always awaits the
+    // real `import('dompurify')` in `loadPurifier()`, and that is the one step
+    // in it that is not a microtask. On a cold module cache the resolution
+    // outlasts `flush()`'s single tick — which is how the first awaiting case
+    // flaked in CI while passing locally against a warm cache. Load the module
+    // once up front: `resetMermaidStateForTests()` still drops the memoized
+    // promise per case, but the module stays cached, so every later import
+    // settles in microtasks and one tick is deterministically enough.
+    await import('dompurify');
+  });
 
   beforeEach(() => {
     resetMermaidStateForTests();

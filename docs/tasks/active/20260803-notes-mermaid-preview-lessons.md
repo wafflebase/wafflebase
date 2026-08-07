@@ -122,3 +122,18 @@ entry, and typing a second diagram inserts a new throwaway source per
 keystroke. After ~40 keystrokes the stable diagram above it aged out and
 flashed back to source mid-typing. A cache whose hit rate depends on
 long-lived entries surviving short-lived ones has to re-insert on read.
+
+## `await setTimeout(0)` is only a flush once every module is loaded
+
+The mermaid suite advances its async render pass with a single macrotask
+(`flush()`), which is sound for the pass itself — every step in it bar one is a
+microtask, and microtasks all drain before a timer fires. The exception is the
+one real dynamic import left in the stubbed path: `loadPurifier()`'s
+`import('dompurify')`. On a warm module cache that settles inside the first
+tick (measured: exactly 1), so the suite passed locally and on four CI runs;
+on the fifth, a cold cache pushed the *first* awaiting case past its tick and
+the block was still `data-mermaid-pending`. Stubbing the engine did not make
+the pass synchronous — it just left one import as the only thing timing
+depended on, and nothing in the test said so. A suite that stubs the expensive
+dependency should load the surviving real ones in `beforeAll` rather than
+letting the first case pay for them inside its own flush budget.
