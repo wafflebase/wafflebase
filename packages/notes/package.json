@@ -60,6 +60,7 @@
     "@uiw/codemirror-theme-xcode": "^4.25.4",
     "@vscode/markdown-it-katex": "^1.1.1",
     "codemirror": "^6.0.2",
+    "dompurify": "^3.4.12",
     "highlight.js": "^11.10.0",
     "katex": "^0.16.11",
     "markdown-it": "^14.1.0",

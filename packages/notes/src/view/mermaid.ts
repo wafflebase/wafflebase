@@ -23,14 +23,18 @@
  *
  *   - `securityLevel: 'strict'` plus an extended `secure` key list, so
  *     mermaid sanitizes labels and ignores `click` directives.
- *   - `stripConfigDirectives()` removes `%%{init: ...}%%` directives and
- *     `config:`-bearing front matter from the fence body, so a note cannot
- *     push per-diagram config (notably `themeCSS`) into the `<style>` block
- *     mermaid emits. `securityLevel` is directive-protected; `themeCSS` and
- *     friends are only protected because we strip and pin them.
- *   - `sanitizeSvgMarkup()` re-parses the engine's output in an inert
- *     `<template>` and drops scripts, `on*` handlers, non-`#`/http(s) URL
- *     attributes and external CSS references before it reaches the live DOM.
+ *   - `stripConfigDirectives()` removes the two config carriers — `%%{...}%%`
+ *     directives and leading front matter — from the fence body, so a note
+ *     cannot push per-diagram config (notably `themeCSS`) into the `<style>`
+ *     block mermaid emits. It uses mermaid's own carrier patterns, because
+ *     `secure` only pins TOP-LEVEL keys: anything the strip misses but the
+ *     engine still recognizes reaches the config as a nested override.
+ *     `securityLevel` is directive-protected by mermaid itself; `themeCSS`
+ *     and friends are only protected because we strip and pin them.
+ *   - `sanitizeSvg()` runs the engine's output through DOMPurify (allowlist,
+ *     SVG+HTML profiles) and hands `apply()` a `DocumentFragment`, so the tree
+ *     that was inspected is the tree that reaches the document — no
+ *     re-serialize/re-parse step for a mutation-XSS gap to open in.
  *
  * `securityLevel: 'sandbox'` (mermaid's own advice for untrusted input) is
  * deliberately not used: it wraps every diagram in an iframe, which breaks
@@ -38,6 +42,8 @@
  * sanitize pass above is the substitute — the engine's sanitizer is then
  * defense in depth rather than the only defense.
  */
+
+import type { Config as PurifyConfig, DOMPurify as Purifier } from 'dompurify';
 
 /** Mermaid palette, following the preview's light/dark surface. */
 export type MermaidTheme = 'default' | 'dark';
@@ -64,7 +70,11 @@ const ERROR_ATTR = 'data-mermaid-error';
 /** Selects placeholders that still need a render attempt. */
 const PENDING_SELECTOR = `.${BLOCK_CLASS}[${PENDING_ATTR}]`;
 
-type Rendered = { svg: string } | { error: string };
+/**
+ * A rendered diagram is kept as a sanitized `DocumentFragment`, never as
+ * markup: `apply()` inserts a clone of it. See `sanitizeSvg()`.
+ */
+type Rendered = { node: DocumentFragment } | { error: string };
 
 /**
  * Render outcomes keyed by `theme source`. The preview re-renders on every
@@ -125,6 +135,21 @@ const loadMermaid: MermaidLoader = () => {
   return loaded;
 };
 
+let purifier: Promise<Purifier | null> | null = null;
+
+/**
+ * DOMPurify is loaded next to the engine rather than statically, so a note
+ * with no mermaid fence still downloads neither (mermaid depends on DOMPurify
+ * itself, so this costs no bytes a diagram was not already paying for). A
+ * failed load resolves to `null` and no diagram renders — the placeholders
+ * keep showing their source, which is the same degradation as a failed engine
+ * load and strictly better than painting unsanitized markup.
+ */
+function loadPurifier(): Promise<Purifier | null> {
+  purifier ??= import('dompurify').then((mod) => mod.default).catch(() => null);
+  return purifier;
+}
+
 /**
  * Config keys a `%%{init}%%` directive may not override. Mermaid strips only
  * the keys listed here, and its default list covers `securityLevel` but not
@@ -149,84 +174,121 @@ const SECURE_KEYS = [
   'look',
 ];
 
-/** `%%{init: {...}}%%` (and `%%{wrap}%%`-style) per-diagram directives. */
-const DIRECTIVE_RE = /%%\{[\s\S]*?\}%%/g;
-/** Leading YAML front matter, which can also carry a `config:` block. */
-const FRONTMATTER_RE = /^\s*-{3,}[ \t]*\r?\n([\s\S]*?)\r?\n-{3,}[ \t]*(?:\r?\n|$)/;
+/**
+ * Mermaid's own carrier patterns, copied verbatim from its `src/utils/regexes.ts`
+ * (`directiveRegex` / `frontMatterRegex`, mermaid 11.16.0). Recognizing LESS
+ * than the engine does is the whole failure mode here — a carrier we leave in
+ * place is one the engine still reads. Note in particular that the closing
+ * `}%%` of a directive is OPTIONAL for mermaid, so an unterminated `%%{init:`
+ * runs to the end of the diagram; matching that exactly means an unterminated
+ * directive is stripped exactly as far as mermaid would have read it.
+ */
+const DIRECTIVE_RE =
+  /%{2}{\s*(?:(\w+)\s*:|(\w+))\s*(?:(\w+)|((?:(?!}%{2}).|\r?\n)*))?\s*(?:}%{2})?/gi;
+const FRONTMATTER_RE = /^([^\S\n\r]*)-{3}\s*[\n\r](.*?)[\n\r]\1-{3}\s*[\n\r]+/s;
 
 /**
  * Removes note-supplied mermaid configuration from a fence body. `secure`
- * blocks the keys above even if a directive slips through; this strips the
- * carrier itself so nothing depends on that list being exhaustive.
+ * blocks the keys listed above, but only at the TOP level of the config, so a
+ * carrier that survives here can still deliver a nested override; this strips
+ * the carriers themselves rather than depending on that list.
+ *
+ * Front matter goes first (mermaid's own preprocess order) and goes
+ * unconditionally: it is dropped whether or not it looks like it carries
+ * `config:`, because YAML can spell that key in more ways than a regex can
+ * enumerate (`"config":`, `'config':`, `? config`, aliases). The cost is
+ * mermaid's front-matter `title:`/`displayMode:`, which the preview does not
+ * advertise; the alternative is a rule that can be spelled around.
  */
 export function stripConfigDirectives(source: string): string {
-  let stripped = source.replace(DIRECTIVE_RE, '');
-  const frontmatter = FRONTMATTER_RE.exec(stripped);
-  if (frontmatter && /^\s*config\s*:/m.test(frontmatter[1])) {
-    stripped = stripped.slice(frontmatter[0].length);
-  }
-  return stripped;
+  return source.replace(FRONTMATTER_RE, '').replace(DIRECTIVE_RE, '');
 }
 
-const SAFE_URL_RE = /^(?:#|https?:\/\/|mailto:)/i;
-/** Never legitimate inside a mermaid diagram; script-capable if present. */
-const DROPPED_TAGS = new Set([
-  'script',
-  'iframe',
-  'object',
-  'embed',
-  'link',
-  'base',
-  'meta',
-  'form',
-  // SMIL animation can retarget `href` to a javascript: URL after parsing.
-  'animate',
-  'animatemotion',
-  'animatetransform',
-  'set',
-  'handler',
-]);
-const URL_ATTRS = new Set(['href', 'xlink:href', 'src', 'action', 'formaction']);
+const PURIFY_CONFIG: PurifyConfig & { RETURN_DOM_FRAGMENT: true } = {
+  // SVG (+ filters) for the diagram, HTML for the `<foreignObject>` label
+  // subtree mermaid emits for html-label diagram types.
+  USE_PROFILES: { svg: true, svgFilters: true, html: true },
+  // DOMPurify excludes both by default because they are namespace-confusion
+  // and external-reference carriers in a sanitize-to-STRING pipeline. Mermaid
+  // needs them (labels are `<foreignObject>` subtrees, markers/icons are
+  // `<use>` references), and this pipeline returns nodes, so the serialize →
+  // re-parse step those attacks depend on never happens. `use` is still held
+  // to `ALLOWED_URI_REGEXP` below, i.e. same-document `#` references only.
+  ADD_TAGS: ['foreignobject', 'use'],
+  // `<foreignObject>` is an HTML integration point per the HTML spec, so the
+  // label subtree inside it is HTML and is checked against the HTML profile.
+  // DOMPurify's default map omits it only because it excludes the tag itself.
+  HTML_INTEGRATION_POINTS: { foreignobject: true, 'annotation-xml': true },
+  // Fetch carriers on top of DOMPurify's own denylist. None of these appear in
+  // mermaid output, and each would let note-derived markup pull a URL — an
+  // IP-logging beacon — into every reader's page.
+  FORBID_TAGS: ['img', 'image', 'audio', 'video', 'source', 'track', 'input'],
+  FORBID_ATTR: ['ping', 'srcset', 'background', 'lowsrc', 'dynsrc'],
+  // Narrower than DOMPurify's default URI allowlist: a diagram links out or
+  // links within itself, and nothing else.
+  ALLOWED_URI_REGEXP: /^(?:#|https?:\/\/|mailto:)/i,
+  // Nodes, not markup — see `sanitizeSvg()`.
+  RETURN_DOM_FRAGMENT: true,
+};
 
-/** Drops `@import` and off-page `url(...)` (beacon / external asset) refs. */
-function scrubCss(css: string): string {
-  return css
-    .replace(/@import[^;}]*;?/gi, '')
-    .replace(/url\(\s*(['"]?)(?!#)[^)]*\1\s*\)/gi, 'none');
+/**
+ * CSS constructs that fetch a URL. `url(#id)` is exempt: mermaid references
+ * its own in-document markers and gradients that way.
+ */
+const CSS_EXTERNAL_RE =
+  /@import|(?:image-set|image|src|cross-fade)\s*\(|url\(\s*['"]?\s*(?!#)/i;
+
+/**
+ * Resolves CSS escape sequences (`\40 import`, `\75 rl(...)`) so the check
+ * below cannot be spelled around: the CSS parser resolves them, so a check
+ * that reads the raw text sees a different stylesheet than the browser does.
+ * Used for DETECTION only — the original text is what survives, because
+ * decoding it would change what an escaped `}` or quote means.
+ */
+function decodeCssEscapes(css: string): string {
+  return css.replace(
+    /\\(?:([0-9a-f]{1,6})[ \t\n\r\f]?|([\s\S]))/gi,
+    (_match, hex: string | undefined, char: string | undefined) => {
+      if (hex === undefined) return char ?? '';
+      const code = Number.parseInt(hex, 16);
+      return String.fromCodePoint(
+        code > 0x10ffff || code === 0 ? 0xfffd : code,
+      );
+    },
+  );
+}
+
+function isSafeCss(css: string): boolean {
+  return (
+    !CSS_EXTERNAL_RE.test(css) && !CSS_EXTERNAL_RE.test(decodeCssEscapes(css))
+  );
 }
 
 /**
- * Re-parses engine output in an inert `<template>` and removes anything that
- * could execute or phone home, so the `innerHTML` assignment in `apply()`
- * does not rest on the engine's sanitizer alone.
+ * Sanitizes engine output for the DOM. Layer 3 of the SECURITY note above.
+ *
+ * DOMPurify — allowlist-based, and already in this feature's dependency graph
+ * because mermaid itself depends on it — does the element/attribute pass, and
+ * the result is returned as a `DocumentFragment` that `apply()` inserts
+ * directly. Deliberately NOT a string: sanitizing a tree and then
+ * re-serializing it for `innerHTML` re-parses it, and the tree that was
+ * inspected is then not the tree that reaches the document (mutation XSS).
+ *
+ * CSS is the one thing DOMPurify does not look inside, and an inline-SVG
+ * `<style>` is document-scoped — a surviving `@import`/`url()` would restyle
+ * the whole app or phone home from it. Mermaid namespaces its own rules under
+ * the per-diagram `#id`, so an offending block is dropped whole rather than
+ * patched: nothing legitimate needs the constructs being rejected.
  */
-export function sanitizeSvgMarkup(svg: string): string {
-  const template = document.createElement('template');
-  // Parsed, never connected: `<script>` inside a template is inert, and no
-  // resource in the fragment loads until it is adopted into the document.
-  template.innerHTML = svg;
-  for (const el of Array.from(template.content.querySelectorAll('*'))) {
-    const tag = el.tagName.toLowerCase();
-    if (DROPPED_TAGS.has(tag)) {
-      el.remove();
-      continue;
-    }
-    if (tag === 'style') {
-      el.textContent = scrubCss(el.textContent ?? '');
-      continue;
-    }
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith('on')) {
-        el.removeAttribute(attr.name);
-      } else if (URL_ATTRS.has(name) && !SAFE_URL_RE.test(attr.value.trim())) {
-        el.removeAttribute(attr.name);
-      } else if (name === 'style') {
-        el.setAttribute(attr.name, scrubCss(attr.value));
-      }
-    }
+export function sanitizeSvg(purify: Purifier, svg: string): DocumentFragment {
+  const fragment = purify.sanitize(svg, PURIFY_CONFIG);
+  for (const el of Array.from(fragment.querySelectorAll('style'))) {
+    if (!isSafeCss(el.textContent ?? '')) el.remove();
   }
-  return template.innerHTML;
+  for (const el of Array.from(fragment.querySelectorAll('[style]'))) {
+    if (!isSafeCss(el.getAttribute('style') ?? '')) el.removeAttribute('style');
+  }
+  return fragment;
 }
 
 /**
@@ -313,8 +375,10 @@ async function renderPass(
   const superseded = () => passSeq.get(root) !== generation;
   if (superseded()) return;
 
-  const mermaid = await load();
-  if (!mermaid || superseded()) return;
+  // The sanitizer is a hard requirement, not an enhancement: without it there
+  // is nothing to paint engine output with.
+  const [mermaid, purify] = await Promise.all([load(), loadPurifier()]);
+  if (!mermaid || !purify || superseded()) return;
 
   if (initializedTheme !== theme) {
     // `startOnLoad: false`: the preview drives rendering itself rather than
@@ -352,7 +416,7 @@ async function renderPass(
     let result: Rendered;
     try {
       const { svg } = await mermaid.render(id, stripConfigDirectives(source));
-      result = { svg: sanitizeSvgMarkup(svg) };
+      result = { node: sanitizeSvg(purify, svg) };
     } catch (err) {
       result = {
         error:
@@ -373,9 +437,12 @@ async function renderPass(
 function apply(el: Element, result: Rendered): void {
   el.removeAttribute(PENDING_ATTR);
   el.querySelector(`.${MESSAGE_CLASS}`)?.remove();
-  if ('svg' in result) {
+  if ('node' in result) {
     el.removeAttribute(ERROR_ATTR);
-    el.innerHTML = result.svg;
+    // Nodes, not markup: the sanitized tree goes into the document as-is,
+    // never back through an `innerHTML` re-parse. The cached fragment is
+    // cloned because inserting a fragment empties it.
+    el.replaceChildren(result.node.cloneNode(true));
     return;
   }
   // Unparseable diagram: keep the escaped source visible and label it, the
@@ -391,6 +458,7 @@ function apply(el: Element, result: Rendered): void {
 export function resetMermaidStateForTests(): void {
   renderCache.clear();
   loaded = null;
+  purifier = null;
   initializedTheme = null;
   passChain = Promise.resolve();
 }

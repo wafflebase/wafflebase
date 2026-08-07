@@ -361,19 +361,29 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   detached without a re-render). Together those make the undebounced
   per-keystroke `render()` safe.
 - **Security: three layers, not one.** The rendered SVG is the preview's only
-  `innerHTML` assignment of note-derived markup, and note content is untrusted
+  insertion of note-derived markup, and note content is untrusted
   (a collaborator or editor-role share-link visitor authors it, someone else
   renders it), so the `html: false` "no raw note HTML" rule is not delegated to
   the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
   sanitizes labels and ignores `click` directives, and an extended `secure` key
-  list pins the theming keys; (2) `stripConfigDirectives()` removes
-  `%%{init: ...}%%` directives and `config:`-bearing front matter from the
-  fence body, so a note cannot push `themeCSS`/`themeVariables` into the
-  document-scoped `<style>` mermaid emits inside the SVG; (3)
-  `sanitizeSvgMarkup()` re-parses the engine's output in an inert `<template>`
-  and drops scripts, `on*` handlers, URL attributes outside
-  `#`/`http(s)`/`mailto:`, and `@import`/external `url()` CSS references before
-  it reaches the live DOM. `securityLevel: 'sandbox'` (mermaid's own advice for
+  list pins the theming keys; (2) `stripConfigDirectives()` removes both config
+  carriers — `%%{...}%%` directives and leading front matter — from the fence
+  body, so a note cannot push `themeCSS`/`themeVariables` into the
+  document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
+  own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
+  the engine) and drops front matter unconditionally, because `secure` pins
+  only top-level keys — a carrier the strip under-recognizes still delivers a
+  nested override; (3) `sanitizeSvg()` runs the engine's output through
+  **DOMPurify** (allowlist, SVG + SVG-filter + HTML profiles, URI scheme
+  narrowed to `#`/`http(s)`/`mailto:`, fetch-capable tags forbidden) and
+  returns a `DocumentFragment` that is inserted as nodes — never re-serialized
+  and re-parsed, so the tree that was inspected is the tree that reaches the
+  document. CSS is the one thing DOMPurify does not inspect, so a `<style>`
+  element or `style` attribute whose text (raw *or* CSS-escape-decoded)
+  contains `@import`, an off-page `url()` or another fetch function is dropped
+  whole. DOMPurify is loaded next to the engine (`import('dompurify')`), which
+  costs no bytes a diagram was not already paying for — mermaid depends on it.
+  `securityLevel: 'sandbox'` (mermaid's own advice for
   untrusted input) is deliberately not used — it iframes every diagram, which
   breaks sizing, text selection and the light/dark surface; the local sanitize
   pass is the substitute.

