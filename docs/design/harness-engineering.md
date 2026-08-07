@@ -2033,16 +2033,30 @@ success and the consequence is dropped.
 
 `scripts/agent/rounds.mjs` had named this gap, but in the opposite direction: it worried about
 being too *permissive* (an org MEMBER without write passing). The failure that
-happened was too strict.
+happened was too strict. Both directions are real, and both are fixed below —
+the strict one is what paged #648, the permissive one would have handed the
+bounded party extra rounds on a rerun the workflow refused.
 
 `permissionResolver` in `scripts/agent/gh-checks.mjs` closes it — an injected
 `(login) => true | false | null` built from the same API the workflows use, so
-`scripts/agent/rounds.mjs` stays pure and testable. Association survives as a **fast-path
-accept**: OWNER/MEMBER/COLLABORATOR already mean write access and cost no call;
-anything else falls through to the authoritative check. Sufficient, never
-necessary — which is what it should always have been. Lookups memoize per login,
-failures included, so a PR with many comments from few people costs at most one
-call each.
+`scripts/agent/rounds.mjs` stays pure and testable.
+
+**The resolver is the only authority.** When one is supplied, `isRerunCommand`
+does not consult `author_association` at all. Association is *not* a fast-path
+accept, and it must not be: `MEMBER` is membership of the owning **org**, which
+says nothing about permission on this repo, and `COLLABORATOR` is satisfied by a
+read- or triage-only invite. Accepting either would move the floor for a
+commenter `.github/workflows/agent-rerun.yml` then refuses to run — the same two-authorities-
+disagreeing bug in the opposite direction, granting budget for a rerun that never
+happened. That is the gap `scripts/agent/rounds.mjs` had named and left open; it is closed now,
+in both directions. Lookups memoize per login, failures included, so a PR with
+many comments from few people costs at most one call each — and only for comments
+that already parsed as `rerun` from a non-Bot.
+
+The resolver-less form survives as the pure, association-only legacy behaviour.
+Its only caller is `scripts/agent/loop-status.mjs`, which is a **projection, never a gate**: at
+worst it displays a round count the guard will not honour. Every *gating* caller
+injects a resolver.
 
 Fail direction: an unresolvable login does **not** set the floor. Not resetting
 leaves the PR paged for a human, which is where one the loop cannot finish

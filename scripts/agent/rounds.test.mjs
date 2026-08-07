@@ -546,18 +546,42 @@ test("isRerunCommand: a maintainer reported as CONTRIBUTOR still sets the floor"
   assert.equal(rerunPointFrom([c], { trusts: () => true }), "2026-08-06T04:30:47.000Z");
 });
 
-test("isRerunCommand: association is a fast-path ACCEPT, never a requirement", () => {
+test("isRerunCommand: the resolver OVERRIDES a trusted-looking association", () => {
+  // The gap this closes: `MEMBER` is membership of the owning ORG and
+  // `COLLABORATOR` is satisfied by a read-only invite, so neither proves repo
+  // write. Accepting them would move the floor for a commenter
+  // `agent-rerun.yml` then refuses to run — budget granted for a rerun that
+  // never happened, which is the same two-authorities-disagreeing bug this
+  // function exists to remove, pointed the other way.
   const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
-  let asked = 0;
-  const trusts = () => { asked++; return false; };
-  // OWNER/MEMBER/COLLABORATOR already mean write access — no call is made.
+  const asked = [];
+  const denies = (login) => { asked.push(login); return false; };
+
   for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
-    assert.equal(isRerunCommand({ ...base, author_association: a }, { trusts }), true);
+    assert.equal(
+      isRerunCommand({ ...base, author_association: a }, { trusts: denies }),
+      false,
+      `${a} must not bypass the authoritative check`,
+    );
   }
-  assert.equal(asked, 0, "a trusted association must not cost an API call");
-  // Anything else falls through to the authoritative check.
-  assert.equal(isRerunCommand({ ...base, author_association: "NONE" }, { trusts }), false);
-  assert.equal(asked, 1);
+  assert.deepEqual(asked, ["m", "m", "m"], "every non-Bot rerun commenter is resolved");
+
+  // And it is a real check, not a blanket deny: the same associations pass when
+  // the resolver says the login actually has write access.
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR", "NONE", "CONTRIBUTOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }, { trusts: () => true }), true);
+  }
+});
+
+test("isRerunCommand: without a resolver it stays pure and association-only", () => {
+  // The resolver-less form is the legacy behaviour, kept so the function is
+  // testable without a network. `loop-status.mjs` is its only caller and is a
+  // projection, never a gate — no gating caller reaches this path.
+  const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }), true);
+  }
+  assert.equal(isRerunCommand({ ...base, author_association: "NONE" }), false);
 });
 
 test("FAIL DIRECTION: an unresolvable login does NOT reset the budget", () => {

@@ -50,7 +50,17 @@ export const PAGED_LATCH = "<!-- agent-review-paged -->";
  */
 export const PAGE_AUTHOR_LOGINS = Object.freeze(["github-actions[bot]", "yorkie-agent[bot]"]);
 
-/** Associations that mean "has write access to this repo". */
+/**
+ * Associations that mean "a human attached to this project", NOT "has write
+ * access" — `MEMBER` is org membership and `COLLABORATOR` is satisfied by a
+ * read-only invite, so neither proves repo permission. Only
+ * `permissionResolver` answers that.
+ *
+ * Good enough for `isPagedLatchComment`, whose fail direction is the safe one:
+ * over-accepting there LATCHES the PR — it stops the loop and hands it to a
+ * human. `isRerunCommand` is the opposite (accepting GRANTS budget) and so does
+ * not use this as an accept path when a resolver is available.
+ */
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 /**
@@ -117,16 +127,31 @@ export function isPagedLatchComment(comment) {
  * disagreeing.
  *
  * `trusts` closes it: an injected `(login) => true | false | null` that the guard
- * builds from the same API the workflows use. Association is kept as a fast-path
- * ACCEPT — when it says OWNER/MEMBER/COLLABORATOR that is already write access
- * and costs no call — and the API is asked only when it does not. Sufficient, not
- * necessary, which is what it always should have been.
+ * builds from the same API the workflows use. When it is supplied it is the ONLY
+ * authority — association is not consulted at all.
+ *
+ * Association is NOT kept as a fast-path accept, and an earlier revision of this
+ * comment was wrong to claim OWNER/MEMBER/COLLABORATOR "already mean write
+ * access". They do not. `MEMBER` is membership of the owning ORG, which on this
+ * repo says nothing about repo permission, and `COLLABORATOR` is satisfied by a
+ * read- or triage-only invite. Both would have moved the floor for a commenter
+ * `agent-rerun.yml` then REFUSED to run — the same "two checks for one question,
+ * disagreeing" shape this function exists to remove, just pointing the other
+ * way: budget granted for a rerun that never happened. Saving one memoized API
+ * call per rerun commenter is not worth reintroducing it.
  *
  * FAIL DIRECTION: an unresolvable login does NOT set the floor. Not resetting
  * leaves the PR paged for a human, which is where a PR the loop cannot finish
  * belongs; resetting on an unknown would hand more attempts to the bounded party
- * on the strength of a failed lookup. With no `trusts` at all the function is
- * exactly what it was before — pure, and association-only.
+ * on the strength of a failed lookup. That now covers a trusted-looking
+ * association whose permission lookup failed, which previously rode the
+ * fast path.
+ *
+ * With no `trusts` at all the function is exactly what it was before — pure, and
+ * association-only. The only caller without a resolver is `loop-status.mjs`,
+ * which is a PROJECTION, NEVER A GATE (see its header): the worst it can do is
+ * display a round count the guard will not honour. Every gating caller injects
+ * one.
  */
 export function rerunPointFrom(comments, opts) {
   const stamps = (Array.isArray(comments) ? comments : [])
@@ -144,9 +169,12 @@ export function isRerunCommand(comment, { trusts } = {}) {
   // what stops the bounded party resetting its own bound.
   if (user.type === "Bot") return false;
   if (parseCommand(String(c.body ?? ""), { surface: "pr" }).command !== "rerun") return false;
-  // Association is a sufficient signal, never a necessary one.
-  if (TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return true;
-  return typeof trusts === "function" && trusts(String(user.login ?? "")) === true;
+  // The resolver, when there is one, is the ONLY authority — it is the same
+  // question `agent-rerun.yml` asks, asked the same way, so the two cannot
+  // disagree. Association is consulted only in the pure, resolver-less form,
+  // which no gating caller uses.
+  if (typeof trusts === "function") return trusts(String(user.login ?? "")) === true;
+  return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
