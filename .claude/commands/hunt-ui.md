@@ -61,6 +61,15 @@ report, that is the signal to drop it.
    `violated`, and the clean route leaves it `held`. If this lane is red, a
    zero-report run means nothing at all.
 
+   **If you run the hunter itself with `--fault`, a REFUTATION is the pass.** The
+   verifiers read source to establish cause, and the fault lives in the harness route
+   in this repository — so they will identify it as our own instrumentation and refuse
+   it, every time. Measured: four independent sessions cited `page.tsx:112-128` and
+   described the mechanism exactly. The control passes when the explorer FINDS it,
+   replay REPRODUCES it, and the panel refutes it *for that reason*. It does not pass
+   by being reported, and making it reportable would mean blinding the verifier to the
+   repository — a worse instrument bought for a greener light.
+
 3. **HUMAN GATE (required).** Before spending money, tell the developer what one run
    costs and **STOP**. Use AskUserQuestion to get approval. Do not run without it.
 

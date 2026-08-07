@@ -2182,12 +2182,35 @@ not have, and this build has produced that exact defect more than once — inclu
 docblock in two files claiming the protocol treated the runner's oversized/unserializable
 markers as unevaluable when nothing implemented it.
 
+**A SEEDED RUN PASSES BY BEING REFUTED, NOT BY BEING REPORTED.** This phase was designed
+around the opposite claim — "run the persona against `?fault=` and assert the pipeline
+reports it end to end" — and the first live run showed that is unachievable, and should
+be. Verifiers establish CAUSE by reading source, and this fault lives in the harness
+route inside this repository. Four independent verifier sessions found it, cited
+`page.tsx:112-128`, described the mechanism exactly ("a per-install counter,
+`preventDefault()` on every second printable key"), confirmed the docs input path inserts
+text verbatim with no drop logic, and refuted at high confidence. That is the panel doing
+its job perfectly.
+
+The only way to make a seeded fault reportable is to blind the verifier to the
+repository, which buys a green control at the cost of the stage that stops
+plausible-but-wrong findings. So the criterion is: the explorer FINDS it, replay
+REPRODUCES it, and the panel refutes it *for the demonstrable reason that it is ours*.
+That is a STRONGER signal than a report would be — it proves the panel can locate a
+cause, which is exactly the capability the design's residual-risk section says everything
+now rests on.
+
 Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
-protocol; PR 3 (#678) the serve mode, the session client and the MCP tool; PR 4a the
-orchestrator, personas and the seeded control. Still to come: the first live run, repro
-minimization, the backend tier, and slides/board. Nothing is filed automatically; the
-output is a local report, and the CLI hunter's filing gate (20 accepted at >=90%)
-restarts for this surface because it generates candidates by a different mechanism.
+protocol; PR 3 (#678) the serve mode, the session client and the MCP tool; PR 4a (#684)
+the orchestrator, personas and the seeded control; #691 the four defects the first live
+runs exposed — a replay that scored 3/3 on plans where nothing ran, a turn ceiling below
+the action budget, a failed brief discarding its journal, and `-C` failing to scope git
+under a hook. Three seeded runs cost $13.42 in total and proved every stage: explorer,
+grounding, replay, verifier, gate, ledger guard, report. Still to come: the clean run
+that measures precision, repro minimization, the backend tier, and slides/board. Nothing
+is filed automatically; the output is a local report, and the CLI hunter's filing gate
+(20 accepted at >=90%) restarts for this surface because it generates candidates by a
+different mechanism.
 
 ## Harness Policy
 

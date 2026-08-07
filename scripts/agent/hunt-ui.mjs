@@ -638,9 +638,16 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
     ...(fault
       ? [
           `> ⚠️ **SEEDED RUN — NOT A HUNT.** This run injected the known defect \`${fault}\` into`,
-          "> the harness, so any finding below is MANUFACTURED and must not be filed. It exists",
-          "> to prove the pipeline can carry a defect end to end. The novelty ledger was",
-          "> deliberately not written.",
+          "> the harness, so any finding below is MANUFACTURED and must not be filed. The",
+          "> novelty ledger was deliberately not written.",
+          ">",
+          "> **A refutation here is SUCCESS, not failure.** The verifiers read source to",
+          "> establish cause, and this fault lives in the harness route — in this repository.",
+          "> A competent verifier will therefore identify it as our own instrumentation and",
+          "> refuse it, every time. The control passes when the explorer FINDS it, replay",
+          "> REPRODUCES it, and the panel refutes it *for that demonstrable reason*. It does",
+          "> NOT pass by being reported; making it reportable would mean blinding the",
+          "> verifier to the repository, which is a worse instrument, not a better control.",
           "",
         ]
       : []),
