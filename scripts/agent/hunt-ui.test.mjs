@@ -19,6 +19,8 @@ import {
   verifyUi,
   UI_GATE_OPTIONS,
   runHunt,
+  replayPlanFor,
+  replayDidRun,
 } from "./hunt-ui.mjs";
 import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS } from "./hunt-gate.mjs";
 import { UI_SURFACES } from "./hunt-ui-tool.mjs";
@@ -132,6 +134,28 @@ test("validatePersona rejects brief sets that would collide or say nothing", () 
     /share an id/,
   );
   assert.match(validatePersona({ ...PERSONA, briefs: [{ id: "a", task: "   " }] }).join(";"), /missing its task/);
+});
+
+test("validatePersona refuses a turn ceiling that cannot reach the action budget", () => {
+  // Found by the first live run, not by reasoning: `maxActions: 80` against
+  // `explorerMaxTurns: 60` meant the turn ceiling bound first, so both briefs died
+  // at `error_max_turns` after 61 turns having proposed nothing. $2.82 for two
+  // sessions that were configured never to finish.
+  const withBudget = (maxActions, explorerMaxTurns) => ({ ...PERSONA, actionBudget: { maxActions }, explorerMaxTurns });
+  assert.match(validatePersona(withBudget(80, 60)).join(";"), /must exceed/);
+  assert.match(validatePersona(withBudget(50, 50)).join(";"), /must exceed/, "equal is still unreachable");
+  assert.deepEqual(validatePersona(withBudget(50, 70)), []);
+  // Absent values are not a misconfiguration — both have defaults elsewhere.
+  assert.deepEqual(validatePersona({ ...PERSONA }), []);
+});
+
+test("the shipped personas keep turns comfortably above actions", () => {
+  // The CLI charters sit at 1.25-1.4x. Anything at or below 1x cannot succeed, and
+  // barely above it wastes the run on sessions that end mid-exploration.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    const ratio = p.explorerMaxTurns / p.actionBudget.maxActions;
+    assert.ok(ratio >= 1.2, `${p.id}: turns/actions is ${ratio.toFixed(2)}, too tight to finish`);
+  }
 });
 
 test("validatePersona floors verifiers at 2", () => {
@@ -902,6 +926,79 @@ test("runHunt: an ERRORED verifier drops but is NOT recorded, so it is retried",
   assert.equal(out.ledgerAdds.length, 0, "an unjudged candidate must stay eligible");
 });
 
+test("replayPlanFor replays the journal PREFIX, not the cited subset", () => {
+  // The false-reproduction bug, in one assertion. A model cites the actions that
+  // DEMONSTRATE its finding, not the ones that set up the state — all three
+  // candidates in the first live run cited ranges starting at 9 or 32, none
+  // including the opening `goto`.
+  const cand = { actionRefs: [2, 3], failingRef: 3 };
+  const plan = replayPlanFor(cand, FUNNEL_JOURNAL);
+  assert.equal(plan.actions.length, 4, "the prefix runs from action 0, not from the first citation");
+  assert.equal(plan.actions[0].type, "goto", "without this the browser never navigates and no reader works");
+  assert.equal(plan.failingIndex, 3, "and the failing action keeps its journal position");
+  // Out-of-range or missing refs yield no plan rather than a truncated one.
+  assert.equal(replayPlanFor({ failingRef: 99 }, FUNNEL_JOURNAL), null);
+  assert.equal(replayPlanFor({ failingRef: -1 }, FUNNEL_JOURNAL), null);
+  assert.equal(replayPlanFor({}, FUNNEL_JOURNAL), null);
+});
+
+test("replayDidRun refuses a run in which nothing worked", () => {
+  // Three attempts that all fail IDENTICALLY agree perfectly, so `uiPlanKey` matches
+  // and `replay()` scores them `reproduced` + `deterministic`. That is exactly how a
+  // browser which never navigated produced 3/3 on every candidate.
+  const failed = [
+    { ok: false, error: "hunt bridge is not installed" },
+    { ok: false, error: "hunt bridge is not installed" },
+  ];
+  assert.equal(replayDidRun(failed), false, "all-failed is not a reproduction");
+  assert.equal(replayDidRun([]), false);
+  assert.equal(replayDidRun(null), false);
+  // One success is enough — a click that missed among working actions is DATA, and
+  // refusing those would discard real findings.
+  assert.equal(replayDidRun([{ ok: false, error: "click missed" }, { ok: true, value: "x" }]), true);
+});
+
+test("runHunt drops a candidate whose replay never exercised the app", async () => {
+  // End to end: the guard has to bite in the pipeline, not just in isolation.
+  const allFailed = FUNNEL_JOURNAL.map((e, i) => ({ index: i, action: e.action, ok: false, error: "hunt bridge is not installed", oracles: [] }));
+  let verifierCalls = 0;
+  const { deps } = funnelDeps({
+    runPlanImpl: (_p, { attempts = 1 } = {}) => Array.from({ length: attempts }, () => allFailed),
+    verifyImpl: async () => { verifierCalls += 1; return CONFIRMED; },
+  });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.reproduced, 0, "identical failures must not score as a reproduction");
+  assert.equal(out.stats.reported, 0);
+  assert.equal(verifierCalls, 0, "and no verifier tokens are spent on it");
+  assert.match(out.dropped[0].why, /never exercised the app/);
+});
+
+test("runHunt replays the prefix, so a candidate citing no goto still navigates", async () => {
+  const plans = [];
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      // Cites only the last two actions — the shape every live candidate had.
+      out: { candidates: [{ ...FUNNEL_CANDIDATE, actionRefs: [2, 3], failingRef: 3 }], summary: "s" },
+      journal: FUNNEL_JOURNAL,
+      actionCount: 4,
+      refusals: [],
+    }),
+    runPlanImpl: (plan, { attempts = 1 } = {}) => {
+      plans.push(plan.actions.map((a) => a.type));
+      return Array.from({ length: attempts }, () => FUNNEL_OBS);
+    },
+  });
+  const out = await runHunt(deps);
+  assert.ok(plans.length > 0, "replay must have run");
+  for (const p of plans) {
+    assert.equal(p[0], "goto", `every replayed plan must start by navigating, got ${JSON.stringify(p)}`);
+    assert.equal(p.length, 4, "the whole prefix, not the citation");
+  }
+  assert.equal(out.stats.reported, 1);
+  // And the repro file a maintainer runs is the plan that actually reproduces.
+  assert.equal(out.reported[0].actions[0].type, "goto");
+});
+
 test("runHunt: a candidate that does not replay never reaches a verifier", async () => {
   let verifierCalls = 0;
   const drift = FUNNEL_OBS.map((o, i) => (i === 1 ? { ...o, value: "DIFFERENT" } : o));
@@ -985,6 +1082,75 @@ test("runHunt: a failed brief becomes a visible skip, not a silent zero", async 
   // And the report says so, so a zero cannot read as a clean bill of health.
   const md = renderUiReport({ runId: "r", headSha: "s", personas: ["doc-writer"], ...out });
   assert.match(md, /Personas that did NOT run/);
+});
+
+test("runHunt PERSISTS the journal of a brief that failed", async () => {
+  // The first live run's whole diagnostic loss. Both briefs hit `error_max_turns`,
+  // and because `briefResults` only collected successes, `explore-raw.json` was
+  // written as `[]` — no way to tell an explorer that was predicting well and ran
+  // out of room from one that spent sixty turns achieving nothing.
+  //
+  // A failed brief is the MOST likely thing to need diagnosing, so it is the last
+  // thing whose evidence should be discarded.
+  const partial = [
+    { action: { type: "goto", surface: "doc" }, ok: true, value: "doc", oracles: [] },
+    { action: { type: "read", reader: "doc.text" }, ok: true, value: "seed", oracles: [] },
+  ];
+  const { written, deps } = funnelDeps({
+    exploreImpl: async () => {
+      const err = new Error("hunt-ui query hit a run limit: error_max_turns after 61 turns");
+      err.journal = partial;
+      err.actionCount = 2;
+      err.refusals = [{ kind: "surface-scope", detail: "reader sheet.cellValue belongs to another surface" }];
+      throw err;
+    },
+  });
+  const out = await runHunt(deps);
+
+  const rawFile = [...written.keys()].find((f) => f.endsWith("explore-raw.json"));
+  assert.ok(rawFile, "explore-raw.json must still be written");
+  const raw = JSON.parse(written.get(rawFile));
+  assert.equal(raw.length, 1, "the failed brief must appear, not be omitted");
+  assert.match(raw[0].failed, /error_max_turns/, "and must SAY it did not finish");
+  assert.equal(raw[0].journal.length, 2, "with the actions it did manage");
+  assert.equal(raw[0].refusals.length, 1, "and its refusals, which explain wasted budget");
+
+  // The actions it ran still count in the funnel — they DID happen.
+  assert.equal(out.stats.actionsRun, 2);
+  assert.equal(out.stats.actionRefusals, 1);
+  // But it contributes no candidates, and is still a visible skip.
+  assert.equal(out.stats.proposed, 0);
+  assert.ok(out.skipped.some((s) => s.kind === "session-failed"));
+});
+
+test("exploreUi attaches its partial journal to the error it throws", async () => {
+  // The other half: `runHunt` can only persist what `exploreUi` hands it.
+  const { createUiTool } = await import("./hunt-ui-tool.mjs");
+  const session = { act: async () => ({ ok: true, value: "read-it" }), close: async () => {} };
+  const err = await exploreUi(
+    { id: "p", title: "P", surface: "doc", rubric: "r", actionBudget: { maxActions: 5 } },
+    { id: "b", task: "t" },
+    {
+      repo: "/nope",
+      context: { deferrals: "", issues: "", cfg: {} },
+      sessionLog: [],
+      openSession: async () => session,
+      createServerImpl: async (opts) => ({ __tool: createUiTool(opts) }),
+      askImpl: {
+        withRetry: (fn) => fn(),
+        askStructured: async ({ mcpServers }) => {
+          await mcpServers.wafflebase.__tool({ action: { type: "read", reader: "doc.text" } });
+          throw new Error("error_max_turns");
+        },
+      },
+    },
+  ).then(() => null, (e) => e);
+
+  assert.ok(err, "it must still throw — a failed brief is not a successful one");
+  assert.equal(err.journal.length, 1, "the action it managed must survive the throw");
+  assert.equal(err.journal[0].value, "read-it");
+  assert.equal(err.actionCount, 1);
+  assert.ok(Array.isArray(err.refusals));
 });
 
 test("runHunt: the ledger suppresses a defect already dispositioned", async () => {

@@ -36,6 +36,7 @@
 
 import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { repoScopedEnv } from "../git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -260,7 +261,20 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot }) {
     rmSync(dest, { recursive: true, force: true });
     rmSync(tarPath, { force: true });
     mkdirSync(dest, { recursive: true });
-    execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], { stdio: "pipe" });
+    // `repoScopedEnv`, because `-C` DOES NOT SCOPE GIT ON ITS OWN.
+    //
+    // `GIT_DIR` in the environment overrides both `-C` and `cwd`. Anything running
+    // inside a git hook has it set — `pre-push` runs `verify:self`, so the whole
+    // suite inherits it — and this call would then archive the AMBIENT repository at
+    // `commit` instead of `repoSource`. Silently: git succeeds, the tar extracts, and
+    // the panel reviews a tree from the wrong repository.
+    //
+    // The same class of failure the `#521` note above is about — a materialisation
+    // that looks fine and is not — which is why this is scoped rather than trusted.
+    execFileSync("git", ["-C", repoSource, "archive", "--format=tar", "-o", tarPath, commit], {
+      stdio: "pipe",
+      env: repoScopedEnv(repoSource),
+    });
     execFileSync("tar", ["-xf", tarPath, "-C", dest], { stdio: "pipe" });
     const files = countFiles(dest);
     writeFileSync(mark, `${commit} ${files}\n`);

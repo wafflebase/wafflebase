@@ -138,6 +138,23 @@ export function validatePersona(p) {
     problems.push("missing reportableSeverities[]");
   }
   if (Number(p.verifiers) < 2) problems.push("verifiers must be >= 2");
+  // The turn ceiling must EXCEED the action budget, or the action budget is
+  // unreachable and the session dies mid-exploration instead of reporting.
+  //
+  // Measured, not theorised: the first live run set `maxActions: 80` against
+  // `explorerMaxTurns: 60`, and both briefs died at `error_max_turns` after 61 turns
+  // having proposed nothing — $2.82 for two sessions that could never have finished.
+  // Every action costs at least one turn and the model needs turns to read and reason
+  // between them, so the CLI charters all sit at 1.25-1.4x. Anything at or below 1x
+  // is a configuration that cannot succeed.
+  const maxActions = p.actionBudget?.maxActions;
+  const maxTurns = p.explorerMaxTurns;
+  if (Number.isFinite(maxActions) && Number.isFinite(maxTurns) && maxTurns <= maxActions) {
+    problems.push(
+      `explorerMaxTurns (${maxTurns}) must exceed actionBudget.maxActions (${maxActions}) — ` +
+        "every action costs a turn, so the action budget is otherwise unreachable",
+    );
+  }
   // A persona whose declared surface has no readers could never predict anything.
   // Unreachable while `UI_SURFACES` is derived from the reader table, which is
   // exactly why it is worth asserting: it pins that derivation.
@@ -201,6 +218,57 @@ export function pickPredictionVerdict(prediction) {
     ...(prediction.detail ? { detail: prediction.detail } : {}),
     ...(typeof prediction.eligible === "boolean" ? { eligible: prediction.eligible } : {}),
   };
+}
+
+/**
+ * The action plan a candidate is REPLAYED from: the journal prefix up to and
+ * including the failing action, not the subset the model cited.
+ *
+ * ⚠️ THIS IS THE FIX FOR A FALSE-REPRODUCTION BUG THE FIRST LIVE RUN EXPOSED ⚠️
+ *
+ * `resolveActionRefs` maps the cited refs to actions, and a model cites the actions
+ * that DEMONSTRATE its finding — not the ones that set up the state. All three
+ * candidates in the first seeded run cited ranges like `[32..40]`, none of which
+ * included the opening `goto`. Replaying just those meant a browser that had never
+ * navigated: every read failed with "hunt bridge is not installed".
+ *
+ * And it scored `reproduced`, 3 of 3, deterministic — because all three attempts
+ * failed IDENTICALLY, so their plan keys matched. The determinism gate gave a perfect
+ * score to a replay in which nothing ran. Every candidate this pipeline produced
+ * would have "reproduced".
+ *
+ * The prefix is also what the design always said Stage 3 does: replay the entire
+ * sequence, not the failing action alone, because a mismatch that depends on earlier
+ * setup cannot be told apart from an artifact by replaying one step. Trusted code
+ * builds it from the journal, so this is reconstruction rather than model authorship
+ * — the citation is still what proves the interaction happened.
+ *
+ * PR 5's shrinker is the answer to the length this costs, and it can only shrink a
+ * plan that reproduces in the first place.
+ */
+export function replayPlanFor(candidate, journal) {
+  const entries = Array.isArray(journal) ? journal : [];
+  const failing = candidate?.failingRef;
+  if (!Number.isInteger(failing) || failing < 0 || failing >= entries.length) return null;
+  const actions = entries.slice(0, failing + 1).map((e) => ({ ...e.action }));
+  return { actions, failingIndex: failing };
+}
+
+/**
+ * Did this replay actually exercise the app?
+ *
+ * Fail-closed companion to the prefix fix above, and deliberately independent of it:
+ * `replay()` already refuses an EMPTY attempt, but an attempt in which every action
+ * ERRORED is just as empty in substance and was not covered. Three such attempts
+ * agree with each other perfectly, which is exactly how the bug above scored 3/3.
+ *
+ * One successful observation is enough — a plan may legitimately contain a click that
+ * missed or a read that failed, and refusing those would discard real findings. What
+ * cannot be a reproduction is a run where NOTHING worked.
+ */
+export function replayDidRun(observations) {
+  const list = Array.isArray(observations) ? observations : [];
+  return list.length > 0 && list.some((o) => o?.ok === true);
 }
 
 /** The gate options that turn the shared gate into the UI hunter's gate. */
@@ -349,6 +417,22 @@ export async function exploreUi(
       });
     });
     return { out, journal: live.journal, actionCount: live.budget.used, refusals: live.budget.refusals };
+  } catch (err) {
+    // CARRY THE JOURNAL OUT ON THE ERROR PATH TOO.
+    //
+    // Without this the partial journal dies with the exception, and the caller
+    // persists nothing — which defeats the one file that exists to explain a zero
+    // run. Measured on the first live run: both briefs hit `error_max_turns`,
+    // `explore-raw.json` was written as `[]`, and $2.82 bought no way to tell
+    // whether the explorer had been predicting well and run out of room or had
+    // spent sixty turns achieving nothing. The most likely failure mode was the
+    // one where diagnosis was impossible.
+    if (live) {
+      err.journal = live.journal;
+      err.actionCount = live.budget.used;
+      err.refusals = live.budget.refusals;
+    }
+    throw err;
   } finally {
     await live?.session.close();
   }
@@ -954,6 +1038,18 @@ export async function runHunt({
       } catch (err) {
         console.error(`hunt-ui: ${persona.id}/${brief.id} failed: ${err.message}`);
         skipped.push({ persona: `${persona.id}/${brief.id}`, kind: "session-failed", why: err.message });
+        // Keep what it DID do. A failed brief still explored, and those actions are
+        // the only evidence of why the run produced nothing — so they are persisted
+        // alongside the successful briefs' journals, with `out: null` so the
+        // candidate loop below contributes nothing from it.
+        briefResults.push({
+          brief,
+          out: null,
+          failed: err.message,
+          journal: err.journal ?? [],
+          actionCount: err.actionCount ?? 0,
+          refusals: err.refusals ?? [],
+        });
       }
     }
 
@@ -966,6 +1062,10 @@ export async function runHunt({
         JSON.stringify(
           briefResults.map((r) => ({
             brief: r.brief.id,
+            // Present only on a brief that did NOT finish. First thing to read when
+            // a run reports nothing: it separates "explored and found nothing" from
+            // "never got to answer", which are the same zero in the funnel.
+            ...(r.failed ? { failed: r.failed } : {}),
             summary: r.out?.summary,
             candidates: r.out?.candidates,
             journal: r.journal,
@@ -1032,13 +1132,30 @@ export async function runHunt({
       // NOT the live session the explorer used. Exploration is a session; replay is
       // a clean room, and sharing one mechanism is how state-dependent phantom
       // repros get through.
+      // The plan is the journal PREFIX, not the cited subset — see `replayPlanFor`
+      // for the false-reproduction bug that made this necessary.
+      const plan = replayPlanFor(cand, cand.__journal);
+      if (!plan) {
+        dropped.push({ title: cand.title, why: `failingRef ${JSON.stringify(cand.failingRef)} does not resolve into the journal` });
+        continue;
+      }
       let firstObservations;
       let rep;
       try {
-        firstObservations = runPlanImpl({ actions: cand.actions }, { repoRoot: repo, attempts: 1, fault })[0];
-        rep = replayUiCandidate(cand.actions, firstObservations, { repo, attempts: 3, fault, runPlan: runPlanImpl });
+        firstObservations = runPlanImpl({ actions: plan.actions }, { repoRoot: repo, attempts: 1, fault })[0];
+        rep = replayUiCandidate(plan.actions, firstObservations, { repo, attempts: 3, fault, runPlan: runPlanImpl });
       } catch (err) {
         dropped.push({ title: cand.title, why: `replay could not run: ${err.message}` });
+        continue;
+      }
+
+      // Fail closed: a run in which every action errored is not a reproduction, no
+      // matter how consistently the attempts agree with each other.
+      if (!replayDidRun(firstObservations)) {
+        dropped.push({
+          title: cand.title,
+          why: "replay never exercised the app — every action failed, so there is nothing to reproduce",
+        });
         continue;
       }
 
@@ -1056,8 +1173,8 @@ export async function runHunt({
           expected: cand.expected,
           observed: cand.observed,
         },
-        actions: cand.actions,
-        failingIndex: cand.failingIndex,
+        actions: plan.actions,
+        failingIndex: plan.failingIndex,
         // The verdict comes from the JOURNAL, not from the observation.
         //
         // The runner deliberately does not compare — it reports `actual` and stops,
@@ -1066,15 +1183,15 @@ export async function runHunt({
         // "unknown" on every finding this pipeline could ever report. The journal
         // entry is where `assessExpectation` wrote it, during exploration, which is
         // also the verdict the candidate is actually claiming.
-        prediction: cand.actions[cand.failingIndex]?.expect
+        prediction: plan.actions[plan.failingIndex]?.expect
           ? {
-              ...cand.actions[cand.failingIndex].expect,
+              ...plan.actions[plan.failingIndex].expect,
               ...pickPredictionVerdict(cand.__journal?.[cand.failingRef]?.prediction),
             }
           : null,
         oracles: oraclesFired(firstObservations),
         replay: rep,
-        replayEvidence: summarizeUiObservations(firstObservations, cand.actions),
+        replayEvidence: summarizeUiObservations(firstObservations, plan.actions),
         secrets: [context.cfg.apiKey].filter(Boolean),
       };
 
@@ -1121,7 +1238,7 @@ export async function runHunt({
         // than in the renderer so the report can never name a file that does not
         // exist.
         const planPath = path.join(personaDir, `repro-${reported.length + 1}.json`);
-        writeArtifact(planPath, JSON.stringify({ actions: cand.actions }, null, 2) + "\n");
+        writeArtifact(planPath, JSON.stringify({ actions: plan.actions }, null, 2) + "\n");
         record.planPath = path.relative(repo, planPath);
         record.groundedIn = uiCitationsOf(record.claimed, verdicts);
         reported.push(record);
