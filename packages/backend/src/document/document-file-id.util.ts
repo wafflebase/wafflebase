@@ -22,6 +22,25 @@ export function isBlobBacked(type: string | undefined): boolean {
 }
 
 /**
+ * Which blob-backed document type a stored blob should become, decided by the
+ * same extension table that then validates the pairing — so the two can never
+ * disagree. Mirrors the browser's `EXT_TO_KIND`
+ * (`packages/frontend/src/app/documents/upload-kind.ts`) for the blob-native
+ * formats; the parseable ones (`.xlsx`/`.docx`/`.pptx`) are deliberately absent
+ * because nothing here parses — an uploaded `.xlsx` is stored as bytes.
+ *
+ * Pass the **stored** `fileId`, not the client's filename: its extension has
+ * already been through `safeExtension`, so the returned type is guaranteed to
+ * satisfy `assertFileIdAllowed`.
+ */
+export function blobDocumentTypeFor(fileId: string): 'pdf' | 'image' | 'file' {
+  for (const type of ['pdf', 'image'] as const) {
+    if (FILE_ID_EXT[type]!.test(fileId)) return type;
+  }
+  return 'file';
+}
+
+/**
  * Contract guard: only blob-backed documents carry a `fileId`, and the blob's
  * extension must agree with the declared type.
  */

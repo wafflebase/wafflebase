@@ -211,6 +211,13 @@ cap applies — `image/*` gets the 25 MB cap, everything else 50 MB — but lyin
 about it can only widen the cap to 50 MB, which is the ceiling Multer enforces
 anyway.
 
+The CLI reaches the same capability through a v1 twin of this route,
+`POST /api/v1/workspaces/:wid/files`, which stores the blob and creates the
+document in a single call — see [`cli.md`](cli.md) §4 (`files` namespace) and
+[`rest-api.md`](rest-api.md) §5.6. It derives the document type from the stored
+extension using the same `FILE_ID_EXT` table that validates it, so the browser
+and the CLI cannot classify the same file differently.
+
 ### Serving & security
 
 Hosting arbitrary user bytes on the backend origin has exactly one serious

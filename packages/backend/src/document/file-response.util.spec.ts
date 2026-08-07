@@ -4,14 +4,35 @@ describe('fileResponseHeaders', () => {
   it('pins a pdf document to application/pdf regardless of what is stored', () => {
     expect(fileResponseHeaders('pdf', 'text/html', 'report')).toEqual({
       contentType: 'application/pdf',
-      disposition: 'inline',
+      disposition: "inline; filename*=UTF-8''report",
     });
+  });
+
+  it('names the file on inline dispositions too', () => {
+    // "Save as" in a browser, and `files download` in the CLI, both take the
+    // name from here; without it a PDF saves as the uuid in the URL.
+    expect(
+      fileResponseHeaders(
+        'pdf',
+        'application/pdf',
+        'report',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf',
+      ).disposition,
+    ).toBe("inline; filename*=UTF-8''report.pdf");
+    expect(
+      fileResponseHeaders(
+        'image',
+        'image/png',
+        'shot',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png',
+      ).disposition,
+    ).toBe("inline; filename*=UTF-8''shot.png");
   });
 
   it('serves an image inline only for the four safe raster types', () => {
     expect(fileResponseHeaders('image', 'image/png', 'shot')).toEqual({
       contentType: 'image/png',
-      disposition: 'inline',
+      disposition: "inline; filename*=UTF-8''shot",
     });
     // The adversarial case: a blob stored as html on an image document must
     // never render in the backend origin.
@@ -85,6 +106,17 @@ describe('fileResponseHeaders', () => {
     expect(headers.disposition).not.toContain('\r');
     expect(headers.disposition).not.toContain('\n');
     expect(headers.disposition).toContain('.zip');
+  });
+
+  it('degrades to the blob key rather than throwing on a missing title', () => {
+    const fileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf';
+    expect(
+      fileResponseHeaders('pdf', 'application/pdf', undefined as never, fileId)
+        .disposition,
+    ).toBe(`inline; filename*=UTF-8''${fileId}`);
+    expect(
+      fileResponseHeaders('file', 'application/zip', '   ').disposition,
+    ).toBe("attachment; filename*=UTF-8''download");
   });
 
   it('falls back to an attachment for any type without a viewer rule', () => {
