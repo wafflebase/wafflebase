@@ -34,7 +34,6 @@ export function registerTabsCommand(parent: Command) {
       if (type !== 'sheet') {
         outputError(
           new Error(`Unsupported tab type "${type}"; only "sheet" is supported.`),
-          opts.quiet,
         );
         return;
       }
@@ -48,9 +47,9 @@ export function registerTabsCommand(parent: Command) {
       try {
         const res = await getClient(opts).createTab(docId, body);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -74,9 +73,9 @@ export function registerTabsCommand(parent: Command) {
       try {
         const res = await getClient(opts).renameTab(docId, tabId, name);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }
