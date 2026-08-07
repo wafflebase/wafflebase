@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 443
+Total archived tasks: 444
 
 ## 2026/08 (19 tasks)
 
@@ -32,7 +32,7 @@ Total archived tasks: 443
 | design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
 
-## 2026/07 (94 tasks)
+## 2026/07 (95 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -40,6 +40,7 @@ Total archived tasks: 443
 | font size relative step (2026-07-31) | [20260731-font-size-relative-step-todo.md](./2026/07/20260731-font-size-relative-step-todo.md) | - |
 | panel feedback corpus (2026-07-31) | [20260731-panel-feedback-corpus-todo.md](./2026/07/20260731-panel-feedback-corpus-todo.md) | [20260731-panel-feedback-corpus-lessons.md](./2026/07/20260731-panel-feedback-corpus-lessons.md) |
 | reduce lens samples (2026-07-31) | [20260731-reduce-lens-samples-todo.md](./2026/07/20260731-reduce-lens-samples-todo.md) | [20260731-reduce-lens-samples-lessons.md](./2026/07/20260731-reduce-lens-samples-lessons.md) |
+| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./2026/07/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./2026/07/20260731-release-v0.6.2-lessons.md) |
 | docs nested table paste input routing (2026-07-30) | [20260730-docs-nested-table-paste-input-routing-todo.md](./2026/07/20260730-docs-nested-table-paste-input-routing-todo.md) | - |
 | restatement clustering (2026-07-30) | [20260730-restatement-clustering-todo.md](./2026/07/20260730-restatement-clustering-todo.md) | - |
 | token attribution (2026-07-30) | [20260730-token-attribution-todo.md](./2026/07/20260730-token-attribution-todo.md) | [20260730-token-attribution-lessons.md](./2026/07/20260730-token-attribution-lessons.md) |

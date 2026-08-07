@@ -18,11 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./active/20260807-release-v0.6.3-todo.md) | [20260807-release-v0.6.3-lessons.md](./active/20260807-release-v0.6.3-lessons.md) |
 | notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |
 | panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./active/20260803-panel-stage-detail-capture-todo.md) | - |
 | docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
 | board whiteboard elements (2026-07-31) | [20260731-board-whiteboard-elements-todo.md](./active/20260731-board-whiteboard-elements-todo.md) | [20260731-board-whiteboard-elements-lessons.md](./active/20260731-board-whiteboard-elements-lessons.md) |
-| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./active/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./active/20260731-release-v0.6.2-lessons.md) |
 | notes native undo (2026-07-30) | [20260730-notes-native-undo-todo.md](./active/20260730-notes-native-undo-todo.md) | [20260730-notes-native-undo-lessons.md](./active/20260730-notes-native-undo-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
@@ -39,7 +39,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 443
+- Archived task count: 444
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: notes undo cursor (2026-08-03)
+Latest active task: release v0.6.3 (2026-08-07)
