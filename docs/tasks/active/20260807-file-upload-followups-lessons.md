@@ -83,6 +83,37 @@ who else consumes this value, then reproducing it as a failing test.
 calling the change done. A green suite proves the readers were not tested for
 the new shape, not that they handle it.
 
+## "Accepted risk" is where a contradiction hides
+
+The plan's Risks section noted that the 200-char cap could truncate away the
+extension, and accepted it as a pathological case. Review rejected that, rightly:
+the whole point of the change is that the extension survives, so an exception at
+the cap fails for the same reason the original bug did — and for a
+sanitizer-rejected extension, the title is the only copy, so it is permanent.
+
+Writing the risk down felt like diligence. It was actually a place where the
+stated contract and the implementation disagreed, labelled instead of resolved.
+
+**Rule:** when writing an accepted risk, check whether it contradicts the
+guarantee the change is making. If it does, it is a bug with a note attached,
+not a trade-off.
+
+## A gate that does not run a linter is not enforcing it
+
+Six `prettier/prettier` violations shipped through `pnpm verify:fast` **and** a
+green CI `verify-self`. Neither runs `backend lint` — the gate covers
+`backend test` and `lint:arch` only. Worse, `backend lint` is
+`eslint … --fix`, so running it locally would have rewritten the files and
+reported success without ever surfacing that they had been committed wrong.
+
+Checking with `npx eslint <paths>` (no `--fix`) also turned up two
+`no-unsafe-assignment` errors the reviewer had not mentioned, from nesting jest
+matchers inside `expect.objectContaining`.
+
+**Rule:** "CI is green" bounds only what CI runs. Before trusting a formatting
+or lint claim, confirm the gate actually invokes that check — and invoke it in
+check mode, since an auto-fixing script cannot report a pre-existing violation.
+
 ## The docs gap was bigger than the reported one
 
 The ask was to document `--folder`. The docs site had no `files` section at

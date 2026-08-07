@@ -139,9 +139,15 @@ from the CLI.
 - **Existing documents keep their stripped titles.** The fix is forward-only.
   `attachmentFilename`'s key-based re-append is what keeps their downloads
   correct, which is why it stays rather than being replaced.
-- **Titles are now longer** and can hit the 200-char cap sooner. A truncated
+- ~~**Titles are now longer** and can hit the 200-char cap sooner. A truncated
   title could lose the extension for a pathologically long filename; the cap
-  is applied after, so this is accepted rather than special-cased.
+  is applied after, so this is accepted rather than special-cased.~~
+  **Overturned in review.** Accepting this was wrong: the contract this task
+  establishes is that the extension survives, and a carve-out at the cap
+  breaks it for exactly the reason the original bug did — and for a
+  sanitizer-rejected extension the title is the only copy, so the loss is
+  permanent. Truncation now reserves the extension's length, falling back to a
+  plain cut only when the extension itself cannot fit inside the cap.
 
 ## Verification
 
