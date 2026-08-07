@@ -2056,7 +2056,9 @@ In `packages/backend/README.md`, add a row to the API table (near the Documents/
 | `POST` | `/workspaces/:wid/miro/import` | JWT (member) | Read a Miro board's items + connectors using a caller-supplied access token (`{ token, boardUrl }`). The token is used for this request only — never stored or logged. Images are re-hosted into the workspace image bucket. |
 ```
 
-- [ ] **Step 4: Manual smoke**
+- [x] **Step 4: Manual smoke** — covered by real use after merge: the Step 8
+  follow-up below originated from an actual import of a ~3000-element board
+  with a live Miro token, which is what surfaced the progress-reporting gap.
 
 `docker compose up -d` + `pnpm dev`. With a real Miro token (from a Miro developer app or a personal token with `boards:read`) and a board containing at least one sticky, shape, text item, connector, and image:
 - Documents list → New/Import → "Import from Miro…" → paste token + URL → Import.
@@ -2068,7 +2070,7 @@ In `packages/backend/README.md`, add a row to the API table (near the Documents/
 
 Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff. Pay particular attention to: the token never appearing in a log, a response, or an error message; the image download using the token and `format=original`; and connectors resolving to the NEW element ids rather than Miro ids.
 
-- [ ] **Step 6: Capture lessons and archive**
+- [x] **Step 6: Capture lessons and archive**
 
 Lessons are captured; the archive move still runs at merge time. Fill in `docs/tasks/active/20260801-board-miro-import-lessons.md`, then `pnpm tasks:archive && pnpm tasks:index`. Commit the task docs together with `docs/tasks/README.md`.
 

@@ -72,7 +72,7 @@ React 19 + TanStack Query + Tailwind/shadcn; Jest (backend), Vitest (frontend).
   - `DocumentType` gains `"file"` on both sides; `Document` gains
     `fileSize?: number` and `mimeType?: string` (frontend type).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/backend/src/document/document-file-id.util.spec.ts`:
 
@@ -131,12 +131,12 @@ describe('assertFileIdAllowed', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- document-file-id.util.spec`
 Expected: FAIL — `isBlobBacked` is not exported.
 
-- [ ] **Step 3: Rewrite the util**
+- [x] **Step 3: Rewrite the util**
 
 Replace the whole of `packages/backend/src/document/document-file-id.util.ts`:
 
@@ -188,12 +188,12 @@ export function assertFileIdAllowed(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- document-file-id.util.spec`
 Expected: PASS
 
-- [ ] **Step 5: Add the Prisma migration**
+- [x] **Step 5: Add the Prisma migration**
 
 Add to `model Document` in `packages/backend/prisma/schema.prisma`, directly
 below `fileId`:
@@ -217,7 +217,7 @@ ALTER TABLE "Document" ADD COLUMN "mimeType" TEXT;
 Run: `pnpm --filter @wafflebase/backend exec prisma generate`
 Expected: client regenerates with the two fields.
 
-- [ ] **Step 6: Widen the type enums**
+- [x] **Step 6: Widen the type enums**
 
 In `packages/backend/src/document/document.dto.ts`, add `'file'` to
 `DOCUMENT_TYPES` after `'board'`.
@@ -262,7 +262,7 @@ and inside `export type Document = {` add:
   mimeType?: string;
 ```
 
-- [ ] **Step 7: Add the frontend predicate**
+- [x] **Step 7: Add the frontend predicate**
 
 Append to `packages/frontend/src/app/documents/document-list-utils.ts`:
 
@@ -286,12 +286,12 @@ Add `"file"` to the `getDocumentPath` switch beside `"pdf"`/`"image"`:
       return `/f/${doc.id}`;
 ```
 
-- [ ] **Step 8: Run the full gate**
+- [x] **Step 8: Run the full gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/backend/prisma packages/backend/src/document packages/backend/src/yorkie/yorkie-doc-key.ts packages/frontend/src/types/documents.ts packages/frontend/src/app/documents/document-list-utils.ts
@@ -320,7 +320,7 @@ git commit -m "Add the file document type and one blob-backed predicate"
   - `MAX_FILE_UPLOAD_BYTES` (replaces `MAX_PDF_UPLOAD_BYTES`)
   - widened `VALID_FILE_ID_PATTERN`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/backend/src/file/file-extension.util.spec.ts`:
 
@@ -353,12 +353,12 @@ describe('safeExtension', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- file-extension.util.spec`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the sanitizer**
+- [x] **Step 3: Implement the sanitizer**
 
 Create `packages/backend/src/file/file-extension.util.ts`:
 
@@ -378,12 +378,12 @@ export function safeExtension(fileName: string): string | null {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- file-extension.util.spec`
 Expected: PASS
 
-- [ ] **Step 5: Widen the constants**
+- [x] **Step 5: Widen the constants**
 
 Replace the top of `packages/backend/src/file/file.constants.ts`:
 
@@ -406,7 +406,7 @@ export const MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 Update the three importers of the old name — `file.config.ts:2,17`,
 `file.controller.ts:13,31`, `file.service.ts:12` — to `MAX_FILE_UPLOAD_BYTES`.
 
-- [ ] **Step 6: Drop the MIME allow-list from config**
+- [x] **Step 6: Drop the MIME allow-list from config**
 
 In `packages/backend/src/file/file.config.ts`, delete the `allowedMimeTypes`
 array entirely and set:
@@ -415,7 +415,7 @@ array entirely and set:
   maxFileSizeBytes: MAX_FILE_UPLOAD_BYTES,
 ```
 
-- [ ] **Step 7: Rewrite `FileService.upload`**
+- [x] **Step 7: Rewrite `FileService.upload`**
 
 In `packages/backend/src/file/file.service.ts`: delete the `MIME_TO_EXT` map,
 the `allowedMimeTypes` field, and its `constructor` assignment. Import
@@ -466,7 +466,7 @@ content type, which becomes neutral:
       contentType: response.ContentType || 'application/octet-stream',
 ```
 
-- [ ] **Step 8: Forward the original filename from the controller**
+- [x] **Step 8: Forward the original filename from the controller**
 
 In `packages/backend/src/file/file.controller.ts`, change the return to:
 
@@ -481,7 +481,7 @@ In `packages/backend/src/file/file.controller.ts`, change the return to:
 and widen the declared return type to
 `Promise<{ id: string; size: number; mimeType: string }>`.
 
-- [ ] **Step 9: Update the service spec**
+- [x] **Step 9: Update the service spec**
 
 In `packages/backend/src/file/file.service.spec.ts`: replace the
 `'file.allowedMimeTypes'` config entry with nothing, pass a third
@@ -510,12 +510,12 @@ In `packages/backend/src/file/file.service.spec.ts`: replace the
   });
 ```
 
-- [ ] **Step 10: Run the backend suite**
+- [x] **Step 10: Run the backend suite**
 
 Run: `pnpm backend test`
 Expected: PASS
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add packages/backend/src/file
@@ -536,7 +536,7 @@ git commit -m "Store any uploaded file, sanitizing the extension into the key"
 - Produces: `fileResponseHeaders(type: string, storedContentType: string,
   title: string): { contentType: string; disposition: string }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/backend/src/document/file-response.util.spec.ts`:
 
@@ -590,12 +590,12 @@ describe('fileResponseHeaders', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/backend test -- file-response.util.spec`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the util**
+- [x] **Step 3: Implement the util**
 
 Create `packages/backend/src/document/file-response.util.ts`:
 
@@ -647,12 +647,12 @@ function encodeRfc5987(value: string): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/backend test -- file-response.util.spec`
 Expected: PASS
 
-- [ ] **Step 5: Wire it into the controller**
+- [x] **Step 5: Wire it into the controller**
 
 In `packages/backend/src/document/document-file.controller.ts`, import
 `fileResponseHeaders` from `./file-response.util` and replace the response
@@ -668,12 +668,12 @@ block at the end of `getDocumentFile`:
     res.end(Buffer.from(body));
 ```
 
-- [ ] **Step 6: Run the backend suite**
+- [x] **Step 6: Run the backend suite**
 
 Run: `pnpm backend test`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/document
@@ -701,7 +701,7 @@ git commit -m "Derive the blob response type from the document type"
   - `createDocument` / `createWorkspaceDocument` payloads accept
     `fileSize?: number` and `mimeType?: string`.
 
-- [ ] **Step 1: Add the DTO fields**
+- [x] **Step 1: Add the DTO fields**
 
 In `packages/backend/src/document/document.dto.ts`, import `IsInt` and `Min`
 from `class-validator`, then add to **both** `CreateDocumentDto` and
@@ -721,7 +721,7 @@ from `class-validator`, then add to **both** `CreateDocumentDto` and
   mimeType?: string;
 ```
 
-- [ ] **Step 2: Thread them through both create paths**
+- [x] **Step 2: Thread them through both create paths**
 
 In `packages/backend/src/document/document.controller.ts`, in each of the two
 create handlers, after the existing `assertFileIdAllowed(body.type, body.fileId)`
@@ -738,7 +738,7 @@ call, build the metadata and spread it:
 and add `...blobMeta,` to the object passed to
 `this.documentService.createDocument({ ... })`.
 
-- [ ] **Step 3: Return the upload metadata to the client**
+- [x] **Step 3: Return the upload metadata to the client**
 
 In `packages/frontend/src/api/files.ts`, widen the return type:
 
@@ -755,14 +755,16 @@ and
   return (await res.json()) as { id: string; size: number; mimeType: string };
 ```
 
-- [ ] **Step 4: Accept the fields in both create helpers**
+- [x] **Step 4: Accept the fields in both create helpers**
 
 In `packages/frontend/src/api/documents.ts`, extend the `createDocument`
 payload type with `fileSize?: number;` and `mimeType?: string;`. Do the same
 for the `data` parameter of `createWorkspaceDocument` in
 `packages/frontend/src/api/workspaces.ts`.
 
-- [ ] **Step 5: Verify the round trip by hand**
+- **Step 5: Verify the round trip by hand — SKIPPED, no database available.**
+  Substituted with unit tests, which cover the units and not the flow. See
+  the Review section: the end-to-end flow remains unverified by hand.
 
 Run: `docker compose up -d && pnpm backend migrate && pnpm dev`
 Then upload a PDF from the documents list and confirm in psql:
@@ -774,12 +776,12 @@ ORDER BY "createdAt" DESC LIMIT 1;
 
 Expected: `fileSize` and `mimeType` are populated for the new row.
 
-- [ ] **Step 6: Run the gate**
+- [x] **Step 6: Run the gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/backend/src/document packages/frontend/src/api
@@ -810,7 +812,7 @@ git commit -m "Record blob size and mime type on the document row"
   - `UploadDeps["createDoc"]` payload gains `fileSize?` / `mimeType?`, and the
     worker's blob branch handles `pdf | image | file`.
 
-- [ ] **Step 1: Rewrite the failing test**
+- [x] **Step 1: Rewrite the failing test**
 
 Replace the third case in
 `packages/frontend/src/app/documents/__tests__/upload-kind.test.ts`:
@@ -825,12 +827,12 @@ Replace the third case in
   });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-kind`
 Expected: FAIL — receives `null`.
 
-- [ ] **Step 3: Rewrite `upload-kind.ts`**
+- [x] **Step 3: Rewrite `upload-kind.ts`**
 
 ```ts
 /**
@@ -872,12 +874,12 @@ export function classifyUploadKind(fileName: string): UploadKind {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-kind`
 Expected: PASS
 
-- [ ] **Step 5: Remove `skipped` from the queue**
+- [x] **Step 5: Remove `skipped` from the queue**
 
 In `packages/frontend/src/app/documents/upload-queue.ts`:
 
@@ -915,13 +917,13 @@ export function clearFinished(): void {
 }
 ```
 
-- [ ] **Step 6: Remove `skipped` from the panel**
+- [x] **Step 6: Remove `skipped` from the panel**
 
 In `packages/frontend/src/app/documents/upload-panel.tsx`, delete the two-line
 `if (item.status === "skipped")` branch at :31, and drop the
 `item.status === "skipped" ||` term from the condition at :118.
 
-- [ ] **Step 7: Teach the worker the `file` kind**
+- [x] **Step 7: Teach the worker the `file` kind**
 
 This lands in the same task as the classify fallback on purpose: between the
 two changes a dropped `.zip` would enqueue as `pending`, match no branch in the
@@ -992,7 +994,7 @@ Note `stripExt(name, "", fallback)` for an extension-less file builds the
 regex `\.$` which does not match, so the name passes through unchanged —
 `Makefile` stays `Makefile`.
 
-- [ ] **Step 8: Add the worker test**
+- [x] **Step 8: Add the worker test**
 
 In `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts`,
 following the existing pdf case's structure, add:
@@ -1028,7 +1030,7 @@ Match the existing file's helper names (`baseDeps`, `file`,
 `__setDepsForTest`, the worker-drain helper) — read the neighbouring pdf test
 and mirror it exactly rather than inventing helpers.
 
-- [ ] **Step 9: Update the queue tests**
+- [x] **Step 9: Update the queue tests**
 
 In `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts`,
 replace the first case:
@@ -1070,12 +1072,12 @@ In `__tests__/upload-panel.test.tsx`, delete any case asserting the
 "Unsupported" label and adjust fixtures that set `status: "skipped"` to
 `"error"` with an explicit `reason`.
 
-- [ ] **Step 10: Run the frontend suite**
+- [x] **Step 10: Run the frontend suite**
 
 Run: `pnpm frontend test`
 Expected: PASS
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents
@@ -1105,7 +1107,7 @@ already exists for PDF at
 `packages/frontend/src/app/documents/__tests__/upload-queue-worker.test.ts:377`,
 and the `file` kind goes through the identical branch — no new test needed.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/documents/__tests__/file-meta.test.ts`:
 
@@ -1149,12 +1151,12 @@ describe("uploadSizeError", () => {
 
 Import both from `@/app/documents/file-meta` at the top of the test.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- file-meta`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement it**
+- [x] **Step 3: Implement it**
 
 Create `packages/frontend/src/app/documents/file-meta.ts`:
 
@@ -1202,12 +1204,12 @@ export function uploadSizeError(
 
 Import `type UploadKind` from `./upload-kind` at the top of `file-meta.ts`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- file-meta`
 Expected: PASS
 
-- [ ] **Step 5: Reject over-cap files at enqueue time**
+- [x] **Step 5: Reject over-cap files at enqueue time**
 
 In `packages/frontend/src/app/documents/upload-queue.ts`, import
 `uploadSizeError` from `./file-meta` and re-do the `enqueue` body Task 5 wrote
@@ -1242,7 +1244,7 @@ an over-cap file; leave it.
 
 The worker branch itself already handles `file` — Task 5 Step 7 added it.
 
-- [ ] **Step 6: Add the enqueue guard test**
+- [x] **Step 6: Add the enqueue guard test**
 
 In `packages/frontend/src/app/documents/__tests__/upload-queue.test.ts`, add
 beside the other enqueue cases (match the existing `file(name)` helper, which
@@ -1259,12 +1261,12 @@ extend it with a size argument if it does not take one):
   });
 ```
 
-- [ ] **Step 7: Run the queue tests**
+- [x] **Step 7: Run the queue tests**
 
 Run: `pnpm --filter @wafflebase/frontend test -- upload-queue`
 Expected: PASS
 
-- [ ] **Step 8: Add the download action to blob rows**
+- [x] **Step 8: Add the download action to blob rows**
 
 `TYPE_META` and `TYPE_OPTIONS` already carry their `file` entry — Task 1 had to
 add it, because `TYPE_META` is a `Record<DocumentType, …>` and widening the
@@ -1286,7 +1288,7 @@ at :883, and in the bulk-download selection at :1067:
       isBlobBacked(d.type),
 ```
 
-- [ ] **Step 9: Add the "File upload" menu item**
+- [x] **Step 9: Add the "File upload" menu item**
 
 In `ImportMenuItems`, after the "Upload Image" item:
 
@@ -1300,12 +1302,12 @@ In `ImportMenuItems`, after the "Upload Image" item:
 An empty `accept` leaves the picker unfiltered — `pickFiles` assigns it to
 `input.accept` verbatim and `""` is the browser's "any file" default.
 
-- [ ] **Step 10: Run the gate**
+- [x] **Step 10: Run the gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add packages/frontend/src/app/documents
@@ -1327,7 +1329,7 @@ git commit -m "Upload, list, and pick files of any type"
 - Produces: `GenericFileView` — a presentational component taking
   `{ title: string; fileId?: string; fileSize?: number; createdAt?: string }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/files/__tests__/generic-file-view.test.tsx`:
 
@@ -1364,12 +1366,12 @@ describe("GenericFileView", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- generic-file-view`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the view**
+- [x] **Step 3: Implement the view**
 
 Create `packages/frontend/src/app/files/generic-file-view.tsx`:
 
@@ -1426,12 +1428,12 @@ export function GenericFileView({
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- generic-file-view`
 Expected: PASS
 
-- [ ] **Step 5: Route the third layout**
+- [x] **Step 5: Route the third layout**
 
 In `packages/frontend/src/app/files/file-detail.tsx`, add the layout beside
 `ImageFileLayout`:
@@ -1497,12 +1499,12 @@ document):
 
 Update the `FileDetail` doc comment to name the three layouts.
 
-- [ ] **Step 6: Run the gate**
+- [x] **Step 6: Run the gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/files
@@ -1530,7 +1532,7 @@ and `file` already arrive at the client. The frontend union omits `image`, and
 the `docKey` ternary falls through to `sheet-${id}` — so an image share link
 mounts a spreadsheet today. This task closes that.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/frontend/src/app/shared/__tests__/shared-blob-routing.test.ts`:
 
@@ -1558,12 +1560,12 @@ describe("sharedBlobKind", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- shared-blob-routing`
 Expected: FAIL — `sharedBlobKind` is not exported.
 
-- [ ] **Step 3: Widen the resolved-share type**
+- [x] **Step 3: Widen the resolved-share type**
 
 In `packages/frontend/src/api/share-links.ts`:
 
@@ -1584,7 +1586,7 @@ export type ResolvedShareLink = {
 };
 ```
 
-- [ ] **Step 4: Add the routing helper and the blob layout**
+- [x] **Step 4: Add the routing helper and the blob layout**
 
 In `packages/frontend/src/app/shared/shared-document.tsx`, above
 `SharedDocumentInner`:
@@ -1641,7 +1643,7 @@ can fetch the bytes (`fileUrl` already accepts a token —
 calls an authed documents endpoint, so gate that on `!token` — a share viewer
 sees the image without the arrows rather than a failed request.
 
-- [ ] **Step 5: Branch before the Yorkie provider**
+- [x] **Step 5: Branch before the Yorkie provider**
 
 Replace the existing `if (resolved.type === "pdf")` early return with:
 
@@ -1669,24 +1671,26 @@ Replace the existing `if (resolved.type === "pdf")` early return with:
 Keep the existing comment about mounting before the shared provider wrapper —
 it now covers both early returns.
 
-- [ ] **Step 6: Run the test**
+- [x] **Step 6: Run the test**
 
 Run: `pnpm --filter @wafflebase/frontend test -- shared-blob-routing`
 Expected: PASS
 
-- [ ] **Step 7: Smoke both share paths by hand**
+- **Step 7: Smoke both share paths by hand — SKIPPED, no database available.**
+  The whole-branch review caught what this would have (a shared `file` link
+  pointing at a download control that did not exist). Still unverified by hand.
 
 Run: `pnpm dev`. Upload a `.png` and a `.zip`, open each, create a view-only
 share link from the header, and open both links in a private window.
 Expected: the image renders in the image viewer, the zip shows the file card,
 and neither shows a spreadsheet grid.
 
-- [ ] **Step 8: Run the gate**
+- [x] **Step 8: Run the gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/frontend/src/api/share-links.ts packages/frontend/src/app/shared packages/frontend/src/app/files
@@ -1697,13 +1701,13 @@ git commit -m "Route shared blob documents away from the spreadsheet fallback"
 
 ## Wrap-up
 
-- [ ] Update `packages/backend/README.md`: the `Document` schema table gains
+- [x] Update `packages/backend/README.md`: the `Document` schema table gains
   `fileSize` / `mimeType`, and the `type` row's enum gains `file`.
-- [ ] Record lessons in
+- [x] Record lessons in
   `docs/tasks/active/20260806-generic-file-upload-lessons.md`.
-- [ ] Run `pnpm verify:self` before pushing (the pre-push hook runs it anyway).
-- [ ] Open the PR: title ≤70 chars, body = Summary + Test plan.
-- [ ] Dispatch a code review over the full branch diff before merge
+- [x] Run `pnpm verify:self` before pushing (the pre-push hook runs it anyway).
+- [x] Open the PR: title ≤70 chars, body = Summary + Test plan.
+- [x] Dispatch a code review over the full branch diff before merge
       (`superpowers:requesting-code-review` or `/code-review`).
 
 ## Review

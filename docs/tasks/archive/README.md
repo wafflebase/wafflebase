@@ -6,13 +6,38 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 423
+Total archived tasks: 443
 
-## 2026/07 (93 tasks)
+## 2026/08 (19 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| gh pages asset pruning (2026-08-07) | [20260807-gh-pages-asset-pruning-todo.md](./2026/08/20260807-gh-pages-asset-pruning-todo.md) | [20260807-gh-pages-asset-pruning-lessons.md](./2026/08/20260807-gh-pages-asset-pruning-lessons.md) |
+| agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./2026/08/20260806-agent-loop-observability-todo.md) | - |
+| board sp4 editing parity (2026-08-06) | [20260806-board-sp4-editing-parity-todo.md](./2026/08/20260806-board-sp4-editing-parity-todo.md) | [20260806-board-sp4-editing-parity-lessons.md](./2026/08/20260806-board-sp4-editing-parity-lessons.md) |
+| cli file upload (2026-08-06) | [20260806-cli-file-upload-todo.md](./2026/08/20260806-cli-file-upload-todo.md) | [20260806-cli-file-upload-lessons.md](./2026/08/20260806-cli-file-upload-lessons.md) |
+| dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./2026/08/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./2026/08/20260806-dependabot-alerts-lessons.md) |
+| eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./2026/08/20260806-eval-replay-runner-todo.md) | - |
+| generic file upload (2026-08-06) | [20260806-generic-file-upload-todo.md](./2026/08/20260806-generic-file-upload-todo.md) | [20260806-generic-file-upload-lessons.md](./2026/08/20260806-generic-file-upload-lessons.md) |
+| capture collector (2026-08-05) | [20260805-capture-collector-todo.md](./2026/08/20260805-capture-collector-todo.md) | - |
+| eval config identity (2026-08-05) | [20260805-eval-config-identity-todo.md](./2026/08/20260805-eval-config-identity-todo.md) | - |
+| eval corpus skeleton (2026-08-05) | [20260805-eval-corpus-skeleton-todo.md](./2026/08/20260805-eval-corpus-skeleton-todo.md) | - |
+| harvest panel rounds (2026-08-04) | [20260804-harvest-panel-rounds-todo.md](./2026/08/20260804-harvest-panel-rounds-todo.md) | - |
+| lint agent scripts (2026-08-04) | [20260804-lint-agent-scripts-todo.md](./2026/08/20260804-lint-agent-scripts-todo.md) | - |
+| panel concurrency (2026-08-04) | [20260804-panel-concurrency-todo.md](./2026/08/20260804-panel-concurrency-todo.md) | - |
+| real fix rounds (2026-08-04) | [20260804-real-fix-rounds-todo.md](./2026/08/20260804-real-fix-rounds-todo.md) | - |
+| cli dry run confirm gate (2026-08-03) | [20260803-cli-dry-run-confirm-gate-todo.md](./2026/08/20260803-cli-dry-run-confirm-gate-todo.md) | [20260803-cli-dry-run-confirm-gate-lessons.md](./2026/08/20260803-cli-dry-run-confirm-gate-lessons.md) |
+| finding level matching (2026-08-03) | [20260803-finding-level-matching-todo.md](./2026/08/20260803-finding-level-matching-todo.md) | - |
+| structured rebuttal (2026-08-03) | [20260803-structured-rebuttal-todo.md](./2026/08/20260803-structured-rebuttal-todo.md) | [20260803-structured-rebuttal-lessons.md](./2026/08/20260803-structured-rebuttal-lessons.md) |
+| design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
+| board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
+
+## 2026/07 (94 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | cache core split (2026-07-31) | [20260731-cache-core-split-todo.md](./2026/07/20260731-cache-core-split-todo.md) | [20260731-cache-core-split-lessons.md](./2026/07/20260731-cache-core-split-lessons.md) |
+| font size relative step (2026-07-31) | [20260731-font-size-relative-step-todo.md](./2026/07/20260731-font-size-relative-step-todo.md) | - |
 | panel feedback corpus (2026-07-31) | [20260731-panel-feedback-corpus-todo.md](./2026/07/20260731-panel-feedback-corpus-todo.md) | [20260731-panel-feedback-corpus-lessons.md](./2026/07/20260731-panel-feedback-corpus-lessons.md) |
 | reduce lens samples (2026-07-31) | [20260731-reduce-lens-samples-todo.md](./2026/07/20260731-reduce-lens-samples-todo.md) | [20260731-reduce-lens-samples-lessons.md](./2026/07/20260731-reduce-lens-samples-lessons.md) |
 | docs nested table paste input routing (2026-07-30) | [20260730-docs-nested-table-paste-input-routing-todo.md](./2026/07/20260730-docs-nested-table-paste-input-routing-todo.md) | - |
