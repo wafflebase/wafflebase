@@ -150,15 +150,33 @@ function runCommand(cmd, cwd) {
       chunks.push(data);
     });
 
-    // `close`, not `exit`, so the lane's tail output is captured before the
-    // report is written. Note what this does NOT cover: a leaked grandchild
-    // that inherited the lane's stdout pipe holds `close` open forever, and in
-    // that case the test runner never exits either, so `--test-force-exit`
-    // never fires. Nothing in this file bounds that — `ci.yml`'s
-    // `timeout-minutes` is the only thing that does.
-    proc.on("close", (exitCode) => {
+    // Reap on `exit`, NOT on `close`. `exit` fires when the lane's own process
+    // ends; `close` waits for its stdout and stderr to close as well, and an
+    // orphan that inherited those pipes holds them open indefinitely. Reaping
+    // from `close` therefore never runs in the one case that most needs it —
+    // measured: a lane that exits after backgrounding a pipe-holding child left
+    // the orphan alive and the runner blocked past 20s, never reaching the next
+    // lane. Killing the group here closes those pipes, which is what lets
+    // `close` arrive at all.
+    //
+    // Reaping before the drain finishes costs nothing: bytes already written
+    // sit in the pipe buffer and are still read after the writer dies. Only a
+    // process still producing output *after* its own lane exited loses
+    // anything, and that process is the leak.
+    proc.on("exit", () => {
       liveLaneGroups.delete(pid);
       reapLaneGroup(pid);
+    });
+
+    // `close`, not `exit`, for the RESULT, so the lane's tail output is in
+    // `chunks` before the report is written.
+    //
+    // Still not covered: a lane whose own process never exits — the
+    // `stdio: "inherit"` case in the comment on `agent:tests` above, where the
+    // test runner itself never learns its tests finished. Neither handler
+    // fires, so nothing here bounds it; `ci.yml`'s `timeout-minutes` is the
+    // only thing that does.
+    proc.on("close", (exitCode) => {
       resolve({ exitCode: exitCode ?? 1, output: Buffer.concat(chunks).toString() });
     });
   });

@@ -133,8 +133,8 @@ does not care about flag order; that extractor does.
 
 ## Corrected while building
 
-**Three of the facts I was handed were wrong, one of them centrally — and a fourth
-claim was my own.**
+**Three of the facts I was handed were wrong, one of them centrally — and two more
+were my own, both caught in review.**
 
 1. **"The suite completed and the process would not exit."** It did not complete —
    305 of 1180 tests, output stopping 2.3 s in. Everything downstream of that reading
@@ -167,6 +167,16 @@ Both rows are the reason for the second half of this change. The first row is wh
 coverage lanes, and the orphan runs alongside them. The second row nothing here
 fixes, and the doc now says so instead of implying otherwise — `timeout-minutes` is
 the only bound on it, which is precisely why this PR is both halves.
+
+**5. And the first version of the reap was in the wrong handler** — caught in the
+next round of review on #692. It hung off `close`, which waits for the lane's
+stdout and stderr to close; an orphan holding those pipes therefore prevented the
+very cleanup meant to kill it. Reproduced before fixing: a lane that exits after
+backgrounding a pipe-holding child left the orphan alive and the runner blocked
+past 20 s, never reaching the next lane. So the reap covered the case where it was
+optional and missed the case where it was load-bearing. It now hangs off `exit`,
+and `close` only drains and resolves. Two review rounds, two versions of the same
+mistake — assuming the process tree behaves the way the tidy story says.
 
 **And the described trap is real but not test-enforced.** Putting the flags after
 `--test` does corrupt the extracted pattern list — but `eval/test-lane.test.mjs`
@@ -204,10 +214,20 @@ anyway, but "the test will catch it" is not true and should not be relied on.
   leaks nothing the kill is an immediate `ESRCH`, swallowed, and no lane's status
   changes.
 - **A leaked process outlives the whole runner** → it does not, on the paths the
-  reap covers, and that is checked: a lane that orphans a child leaves zero
-  survivors by the next lane. Ctrl-C is covered too — `detached` takes the lane
-  out of the terminal's foreground group, so the signal is forwarded by hand.
-  Both are mutation-tested below.
+  reap covers, and that is checked: a lane that orphans a child leaves nothing
+  alive behind the run. (A killed orphan can still be visible to `pgrep` for a
+  moment as a not-yet-reaped zombie; it holds no pipe and no CPU.) Ctrl-C is
+  covered too — `detached` takes the lane out of the terminal's foreground group,
+  so the signal is forwarded by hand. Both are mutation-tested below.
+- **The orphan holds the lane's stdout, so the reap never runs** → this is why the
+  reap hangs off `exit` rather than `close`. `close` waits for the lane's stdout
+  and stderr to close, and an orphan that inherited those pipes holds them open,
+  so a reap placed in `close` cannot run in the one case that most needs it. That
+  is not hypothetical: with the reap in `close`, a lane that exits after
+  backgrounding a pipe-holding child left the runner blocked past 15 s, never
+  reaching the next lane, orphan alive. Moving it to `exit` closes those pipes,
+  which is what lets `close` arrive. Tail output is unaffected — bytes already in
+  the pipe are still drained after the writer dies.
 - **A hang the flags do not reach** (the runner itself wedges before any test starts,
   or `verify:fast` hangs rather than `agent:tests`) → unchanged by the lane flags,
   bounded by `timeout-minutes`. That is the whole reason both halves ship together.
@@ -236,11 +256,11 @@ anyway, but "the test will catch it" is not true and should not be relied on.
 - [x] **`eval/test-lane.test.mjs` passes unmodified** — 2 tests, 2 pass, 0 fail;
       file byte-identical to `upstream/main` (`diff` clean).
 - [x] **Lane green against a measured baseline.** Re-measured on the branch after
-      it was updated from `main` (the suite grew; the figures below supersede the
-      1118 measured at `f2aabace6`). Pre-PR lane command: **1323 tests, 1317 pass,
-      0 fail, 6 skipped, 25.8 s.** With both flags: **1323 / 1317 / 0 / 6, 26.1 s.**
-      With the flags and the reap: **1323 / 1317 / 0 / 6, 25.5 s** — identical
-      counts, no measurable cost. The 6 skips are the expected pair of causes with
+      it was updated from `main` (the suite keeps growing; the figures below
+      supersede the 1118 measured at `f2aabace6`). Pre-PR lane command:
+      **1331 tests, 1325 pass, 0 fail, 6 skipped.** With both flags: **1331 /
+      1325 / 0 / 6.** With the flags and the reap: **1331 / 1325 / 0 / 6** —
+      identical counts, and 25.5–26.1 s across the three, no measurable cost. The 6 skips are the expected pair of causes with
       no root `node_modules`: 5 from `lint-config.test.mjs` without a root
       `eslint`, 1 from the Agent SDK not being installed.
 - [x] **Both flags proven, on both failure modes, in one run matching the incident's
@@ -272,8 +292,11 @@ anyway, but "the test will catch it" is not true and should not be relied on.
       synthetic lanes so every branch is reachable: stdout and stderr still
       captured, exit code 7 still recorded with its `failureSummary`, the lane
       after a failure still skipped, the runner still exits 1. A lane that
-      orphans a child shows **1** live child during the lane and **0** by the
-      next one, and the run leaves nothing behind.
+      orphans a child shows **1** live child during the lane and the run leaves
+      nothing behind. Checked for both orphan shapes: one whose stdio is off the
+      lane's pipes, and one still **holding** them — the second used to block the
+      runner indefinitely and now completes, with the next lane reached and the
+      failing lane's tail output still captured in its `failureSummary`.
 - [x] **Mutation-tested, all three parts** — each was broken in turn and the check
       that protects it failed with the right symptom:
 
@@ -282,6 +305,7 @@ anyway, but "the test will catch it" is not true and should not be relied on.
   | drop `reapLaneGroup(pid)` | orphan survives into the next lane (`sleeps-next-lane:1`) |
   | `detached: false` | orphan survives — the lane's pid is not a group id, so the signal lands on nothing |
   | drop the SIGINT/SIGTERM forwarding | Ctrl-C exits the runner and **leaves the lane running** |
+  | reap from `close` instead of `exit` | runner blocks past 15 s, never reaches the next lane, orphan alive |
 - [x] **The `stdio: "inherit"` case reproduced**, which is what makes the claim
       above measured rather than argued: with both flags shipped, the runner is
       still alive at 25 s and never printed a summary.
