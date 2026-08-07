@@ -49,7 +49,7 @@ Tailwind v4 — see `packages/design-editor/package.json`.
 
 ## 2. Package layout
 
-```
+```text
 packages/design-editor/
 ├── index.html                     # Vite entry; mounts #root, loads /src/main.tsx
 ├── scene.html                     # SECOND Vite entry — one JS realm per scene frame (§7.8)
@@ -140,7 +140,7 @@ Liveness probe for the UI's bridge-health indicator. Side-effect free and
 GET-only, so the client can poll it without the `405` that hitting the
 POST-only `/mutate` with GET produces.
 
-```
+```http
 → GET /__design-editor/health
 ← 200 {
     "ok": true,
@@ -178,7 +178,7 @@ server-side (the browser cannot parse TypeScript) and returns each semantic
 token's **current binding form**, the palette's colour leaves, the raw scale
 values, and which tokens are reachable as utility classes.
 
-```
+```http
 → GET /__design-editor/introspect
 ← 200 {
     "ok": true,
@@ -205,6 +205,7 @@ values, and which tokens are reachable as utility classes.
 ```
 
 **`TokenBinding`** discriminant (`kind`):
+
 | kind | fields | meaning |
 |---|---|---|
 | `palette` | `ref` | authored as `palette.<key>` (dotted) — bound to the foundation |
@@ -376,7 +377,7 @@ remains the separate, coarser session-pristine escape hatch.
 Body `{ intents: MutationIntent[] }` → `{ ok, results: [{ located, reason?,
 label, file }], fsRevision }`. **Writes nothing.**
 
-```
+```http
 → POST /__design-editor/validate
   { "intents": [ { "kind": "class-rewrite", "file": "…/button.tsx",
                    "cvaName": "buttonVariants", "axis": "variant", "value": "default",
@@ -402,7 +403,7 @@ bridge learns which component sources to watch.
 
 Body `{ classes: string[] }` → `{ ok, added, rejected, hmr?, total, cap }`.
 
-```
+```http
 → POST /__design-editor/candidates  { "classes": ["hover:bg-chart-4/45", "BAD Class!"] }
 ← 200 { "ok": true, "added": ["hover:bg-chart-4/45"], "rejected": ["BAD Class!"],
         "hmr": "packages/design-editor/src/sandbox.css", "total": 1, "cap": 4000 }
@@ -557,7 +558,7 @@ solely for this.
 The engine mutates four files under `packages/core`. Understanding their
 relationship is required to understand `valueKind` and the cascade.
 
-```
+```text
 palette.ts  ──────────────┐   raw brand colors (#hex + rgb tuples + nested groups), `as const`
    (foundation)           │   e.g.  syrup: '#B8651A'
                           ▼
@@ -716,7 +717,7 @@ edits.
 `NodeAnchor = { file, component, path[], tag, fp, fpx? }`. **`path` is a hint;
 `fp` is the truth.**
 
-```
+```text
 fp  = sha1_8( ancestorTags | tag | attrNames.sorted() | IDENTITY_ATTRS values | directText[0..40] )
 fpx = sha1_8( fp | classTokens.sorted() | childTags )
 IDENTITY_ATTRS = to href id name htmlFor type value data-testid aria-label role key
@@ -1003,7 +1004,16 @@ The trust boundary between browser and filesystem:
 - `resolveSafe(file)` requires a **repo-relative** path, resolves it against
   `REPO_ROOT`, and rejects anything that escapes the root, contains a
   `FORBIDDEN_SEGMENTS` element (`node_modules` / `.git` / `dist`), or whose
-  extension is not in `ALLOWED_EXT` (`.json` / `.css` / `.ts` / `.tsx`).
+  extension is not in `ALLOWED_EXT` (`.json` / `.css` / `.ts` / `.tsx` /
+  `.jsx`).
+
+  `.jsx` is in the list to match §7.9's stamping contract, which runs for
+  `.tsx`/`.jsx` alike. The two must agree in one direction specifically: a file
+  the editor stamps is a file the editor makes *selectable*, so leaving `.jsx`
+  out of the write boundary would surface an editable-looking component whose
+  every edit the write path then rejects. wafflebase's own sources are all
+  `.tsx`, but a consumer project mounting this plugin (see
+  `design-editor-local-plugin.md`) need not be.
 - `backup(abs)` copies the pristine original to `<file>.bak` **before the first
   overwrite only** (never clobbering a true original across multiple edits in a
   session). Every mutation is trivially reversible; new files report
@@ -1080,7 +1090,7 @@ invalidate the cached transform of the `sandbox.css` that `@import`s it. Tailwin
 inlines the import at transform time without registering it as a watch dependency.
 The failure mode is nasty because everything else looks right:
 
-```
+```text
 warm the cache at the URL a live page holds   → 196438 bytes
 register a candidate, same URL again          → 196438 bytes   ← page keeps stale CSS
 same request with a new query string           → 197947 bytes   ← rule IS generated
@@ -1212,8 +1222,14 @@ query would need to refetch anyway.
 both sides drops a message whose `origin` is not our own, mirroring the rule the
 app's own `ThemeProvider` already applies.
 
-host → frame: `wb:set-theme`, `wb:set-selection`, `wb:set-hover`, `wb:measure`,
-`wb:set-picking`, `wb:set-token-vars`.
+host → frame: `wb:set-selection`, `wb:set-hover`, `wb:measure`,
+`wb:set-picking`, `wb:set-token-vars`, `wb:set-canvas-theme` (canvas scenes
+only — see §"The theme bridge" below for why the DOM path does not need it).
+
+**Theme is deliberately absent from that list.** There is no `wb:set-theme`;
+DOM scenes ride the pre-existing `theme-change` message, for the reason in the
+first bullet below. `wb:set-canvas-theme` is a genuine new typed message and is
+listed above, because a canvas scene cannot be reached by either mechanism.
 frame → host: `wb:ready` (carrying the runtime-selectable id set), `wb:select`,
 `wb:hover`, `wb:measured`, `wb:error` (`mount` | `render` | `compile` | `fetch`),
 `wb:classes`, `wb:route-change` (a navigation landed outside the scene's own
@@ -1222,11 +1238,14 @@ route — see the two-way route sync in `design-editor-sandbox-recipe.md` §2.11
 
 Three things worth recording:
 
-- **Theme is NOT a new message in practice.** `components/theme-provider.tsx`
+- **Theme is NOT a new message for DOM scenes.** `components/theme-provider.tsx`
   already detects an iframe, skips `localStorage`, reads `?theme=` and listens for
   `postMessage({type:'theme-change'})` from the same origin — it was built for the
   homepage's live-demo iframe. The sandbox sends exactly that and drives the real
   provider, rather than toggling a class the provider would then fight over.
+  `theme-change` is therefore the wire form, and there is no `wb:set-theme` in
+  `frame-protocol.ts`. Canvas scenes are the exception and do get a typed
+  message, `wb:set-canvas-theme`, because they never mount the provider at all.
 - **Picking is a MODE, not a modifier.** A click on `<Link to="/login">` is either
   a selection or a navigation; it cannot be both. The frame listens on the
   *capture* phase and calls `preventDefault` + `stopPropagation`, because a
@@ -1479,10 +1498,10 @@ Project roadmap (authoritative):
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1 & 2** | Design SDK Engine & Token Sandbox — this engine + the token/CVA/palette sandbox UI | **complete** (Undo/Redo §3.4, token families §3.3b, state tiers §6.4, live sync §7.3) |
+| **1 & 2** | Design Editor Engine & Token Sandbox — this engine + the token/CVA/palette sandbox UI | **complete** (Undo/Redo §3.4, token families §3.3b, state tiers §6.4, live sync §7.3) |
 | **2.5** | Robustness — external-change sync + runtime Tailwind candidates | **complete** (§3.5, §3.6, §7.6, §7.7) |
 | **3** | Layout Sandbox — `design-metadata.json`, layout intents, DOM + Canvas scenes, viewport + visual diff | **in progress** — CP2, CP3.1–3.4 and CP3.5 (the editing inspector, hardened) complete; **CP4 (Canvas scenes) in progress** |
-| **4** | Agentic PR Pipeline — approved AST diffs → Git commits → GitHub PRs | not started |
+| **4** | ~~Agentic PR Pipeline — approved AST diffs → Git commits → GitHub PRs~~ | **withdrawn** by the local-plugin pivot; a plugin running in the developer's own checkout writes their working tree directly (see the Phase 4 section below) |
 
 ### Phase 3 CP3.1–3.4 closeout — what landed in this revision
 
@@ -1841,10 +1860,22 @@ is what caught the unresolvable engine packages, which no other check in this
 package could see. It cannot see a runtime throw, a missing fixture, or a wrong
 layout, so it is a floor rather than a substitute.
 
-### Phase 4 — Agentic PR pipeline (not started)
+### Phase 4 — Agentic PR pipeline (withdrawn)
 
-Convert a batch of approved intents into a Git branch + commit(s) + a GitHub PR
-(instead of / in addition to writing the working tree). The engine already
-produces per-intent diffs, backups, and a transaction log with before/after text
-for every file it touched — which is most of a commit. What is missing is branch
-creation, commit-message synthesis from intent labels, and `gh`/API PR creation.
+**Withdrawn by the local-plugin pivot** (`design-editor-local-plugin.md`). It is
+recorded here because the reasoning is worth keeping, not because it is planned.
+
+The plan was to convert a batch of approved intents into a Git branch +
+commit(s) + a GitHub PR instead of / in addition to writing the working tree.
+The engine already produces per-intent diffs, backups, and a transaction log
+with before/after text for every file it touched — which is most of a commit;
+what was missing was branch creation, commit-message synthesis from intent
+labels, and `gh`/API PR creation.
+
+The pivot removes the premise rather than the remaining work. As a **local Vite
+plugin** the editor runs inside the developer's own checkout against their own
+working tree, so the commit they were going to review in a PR is a commit they
+can now make directly, with their normal tooling and review flow. A pipeline
+that opens PRs against the repository it is already running inside adds a round
+trip and a second identity to authenticate, and buys nothing the working-tree
+write does not already give.

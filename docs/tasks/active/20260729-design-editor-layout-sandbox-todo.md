@@ -75,8 +75,9 @@ Provable entirely by curl + `tsx`; no browser required.
 - [x] Client contract: `layoutEdits` in `EditState`, translators + inverses,
       the asymmetric ordering rule in `saveDiff`, `stableKey` in `editStateKey`,
       `anchors.ts`, `history.rebaseAnchors`.
-      *(`anchors.ts#planRebase` and `history.rebaseAnchors` are written and tested
-      but still have no callers — see CP3.5 item 2.)*
+      *(**Superseded.** At the time of writing, `anchors.ts#planRebase` and
+      `history.rebaseAnchors` were written and tested but had no callers. They
+      are wired now — see the CP3.5 section below.)*
 - [x] Verification: engine checks 9–15 + 12a, plus the pure-logic smoke script.
 
 ## CP3.1–3.4 scope — done
@@ -328,8 +329,11 @@ end-to-end check rather than re-litigate it here.
       with nothing to check it against. Sheets seeds real cell values AND formulas
       (a small "Q4 Revenue Model", cross-referencing cells) via `toSref` from
       `@wafflebase/sheets` — routed through the real function rather than
-      hand-written "A1" strings, since `toSref` is 0-indexed on row
-      (`toColumnLabel(c) + r`, so the top-left cell is "A0"). Docs seeds three real
+      hand-written "A1" strings. *(**Superseded**: this said `toSref` is
+      0-indexed on row and that the top-left cell is "A0". It is not —
+      `toSref` is `toColumnLabel(ref.c) + ref.r` over 1-based refs, so the
+      top-left cell is "A1". Routing through the real function is still the
+      right call; the stated reason was wrong.)* Docs seeds three real
       paragraphs via a `Tree` literal replacing `root.content` outright (the
       block/inline/text shape copied from `yorkie-doc-store.ts`'s own tree-building
       code, not invented). Notes seeds markdown via `Text.edit(0, 0, ...)` — the
@@ -376,9 +380,11 @@ content, slides deliberately left to production's own initializer.
 #### CP4.3 follow-up — four defects found in code review, all SILENT
 
 A review pass over the CP4.3 diff found four bugs that `tsc` and `pnpm smoke`
-both passed. Every one of them renders a *plausible* but wrong scene rather
-than erroring, which is the worst failure mode a design sandbox can have — a
-reviewer would take the wrong render at face value. All four are fixed, and
+both passed. Three of them render a *plausible* but wrong scene rather than
+erroring, which is the worst failure mode a design sandbox can have — a
+reviewer would take the wrong render at face value. The fourth (the realm
+mismatch below) is the loud one: `seed-notes.ts` threw and the docs scene
+mounted blank. All four are fixed, and
 each now has a check in `scripts/smoke-canvas.ts` that was verified to FAIL
 when the bug is reintroduced (a guard that cannot fail is not a guard).
 
@@ -591,6 +597,12 @@ inspector work above. Ordered by how independent each is.
       are implemented in `providers.tsx`. They render the same mount/render
       error `sheet-editor` already shows, tagged `CP4` in the list. Building
       real `Mem*Store` fixtures per engine is CP4 scope, explicitly deferred.
+
+      *(**Superseded** from "by design decision, list-only placeholders"
+      onwards. That was the CP3 plan; CP4 is what deferred work, and the CP4.3
+      section below records the yorkie-offline shim, the per-engine seeds and
+      the four scenes actually mounting. Read this paragraph as the plan of
+      record at the time, not as current behaviour.)*
 - [x] **Two-way route sync.** A shell scene's `MemoryRouter` only ever declared
       one page route, so navigating to a sibling nav item inside the frame
       (picking OFF) 404'd into an empty `<Outlet/>` — indistinguishable from a

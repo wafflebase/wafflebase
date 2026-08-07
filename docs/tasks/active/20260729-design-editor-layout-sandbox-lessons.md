@@ -3,7 +3,7 @@ title: design-editor-layout-sandbox — lessons
 target-version: 0.2.0
 ---
 
-# Lessons — Design SDK Phase 3
+# Lessons — Design Editor Phase 3
 
 ## CP2 (metadata + intents)
 

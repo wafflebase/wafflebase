@@ -19,7 +19,7 @@ target-version: 0.6.2
 **Author:** Design System Lead / Code Auditor pass
 **Date:** 2026-07-24
 **Scope:** `Button`, `Popover`, `Dropdown` primitives + the token layer feeding them
-**Repos/paths audited:** `packages/frontend/src/components/ui/`, `packages/frontend/src/index.css`, `packages/core/src/tokens/`, `docs/design/*.md`
+**Repos/paths audited:** `packages/frontend/src/components/ui/`, `packages/frontend/src/index.css`, `packages/core/src/tokens/`, `docs/design/**/*.md`
 
 ---
 
@@ -54,7 +54,7 @@ is the connective tissue and is already working.
 
 ### 1.0 How the token system is wired (context)
 
-```
+```text
 packages/core/src/tokens/           →  build-css.ts  →  @wafflebase/core/tokens.css
   palette.ts    raw oklch (Butter & Maple brand + neutrals)          │
   semantic.ts   light/dark role maps (primary, popover, border, …)   │  (CSS custom props)
@@ -289,10 +289,10 @@ The good news: the existing `tokens/*.ts → build-css.ts → tokens.css` shape 
 *already* a token-pipeline in miniature. The recommendation is to **swap the source
 format and generalize the transform**, not to rebuild.
 
-```
+```text
 ┌─────────────────┐   Tokens Studio    ┌──────────────────────────┐   Style Dictionary   ┌───────────────────────┐
 │      FIGMA      │  (GitHub sync via  │   GITHUB (wafflebase)    │  (replaces/augments  │   CONSUMERS           │
-│  Tokens Studio  │───  PR to repo) ──▶│  packages/core/tokens/   │──  build-css.ts) ───▶ │ • tokens.css (@theme) │
+│  Tokens Studio  │───  PR to repo) ──▶│ packages/core/src/tokens/│──  build-css.ts) ───▶ │ • tokens.css (@theme) │
 │    plugin       │◀── (2-way)         │  tokens.json  (DTCG)     │                       │ • tokens.ts constants │
 └─────────────────┘                    │  = SINGLE SOURCE OF TRUTH│                       │ • sheets/docs/slides  │
                                        └────────────┬─────────────┘                       │   canvas theme.ts     │

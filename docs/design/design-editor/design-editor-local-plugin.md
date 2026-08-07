@@ -110,7 +110,7 @@ Every file on `feat/design-system` falls into exactly one of three populations.
 
 **Target layout**
 
-```
+```text
 packages/
 ├── design-editor/                  # @wafflebase/design-editor  (published)
 │   ├── src/
@@ -128,9 +128,10 @@ packages/
     └── src/tokens/core-adapter.ts  # the @wafflebase/core four-file pipeline
 ```
 
-**The one-way dependency, restated.** Engine §1 currently says "nothing ever
-imports `design-sdk`", which was load-bearing for the frontend chunk budget.
-Under the split the rule becomes directional rather than absolute:
+**The one-way dependency, restated.** Engine §1 stated the rule under the
+package's former name — "nothing ever imports `design-sdk`" (**historical**;
+the package is `design-editor` now) — which was load-bearing for the frontend
+chunk budget. Under the split the rule becomes directional rather than absolute:
 
 > `design-sandbox` → `design-editor`, never the reverse. Nothing under
 > `packages/frontend` imports either. The published package declares no
@@ -200,7 +201,12 @@ transaction semantics.
 
 ```ts
 // consumer's vite.config.ts
-import { designEditor } from '@wafflebase/design-editor'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+// `cssVariables` is a TokenAdapter factory and ships from the same package as
+// the plugin — a consumer whose tokens are plain CSS custom properties should
+// not have to write an adapter to get the common case.
+import { designEditor, cssVariables } from '@wafflebase/design-editor'
 
 export default defineConfig({
   plugins: [

@@ -749,7 +749,7 @@ order can never produce a false "unsaved".
 **Approving a save sets `baseline = present`. It does not empty the maps.** This is
 the crux of the requested behaviour:
 
-```
+```text
 edit primary → red          past:[{}]  present:{red}  baseline:{}      → unsaved
 Save to Code                                          baseline:{red}   → saved
 ⌘Z                          past:[]    present:{}     baseline:{red}   → unsaved  ← Save re-enables
@@ -1024,10 +1024,10 @@ when instructed.
 
 | Phase | Scope |
 |---|---|
-| **1 & 2** | Design SDK Engine & Token Sandbox — the engine + this token/CVA/palette/state sandbox UI. **Complete.** |
+| **1 & 2** | Design Editor Engine & Token Sandbox — the engine + this token/CVA/palette/state sandbox UI. **Complete.** |
 | **2.5** | Robustness — external-change sync (§6.6) + runtime Tailwind candidates (§2.10). **Complete.** |
 | **3** | **Layout Sandbox** — DOM & Canvas scene rendering and editing. CP2 (metadata + intents) and CP3 (the DOM renderer + editing inspector) complete; **CP4 (Canvas scenes) in progress**. |
-| **4** | **Agentic PR Pipeline** — converting approved AST diffs to Git commits and GitHub PRs. |
+| **4** | ~~**Agentic PR Pipeline** — converting approved AST diffs to Git commits and GitHub PRs.~~ **Withdrawn** by the local-plugin pivot — the plugin runs in the developer's own checkout and writes their working tree directly. |
 
 ### Phase 2 closeout — what this revision added
 
@@ -1258,11 +1258,18 @@ extracting a subtree into a new component.
 Also deferred here: prop-level editing (toggling text/icons in a component,
 bounding-box overlay).
 
-### Phase 4 — Agentic PR pipeline (not started)
+### Phase 4 — Agentic PR pipeline (withdrawn)
 
-- Batch approved intents → Git branch + commit(s) (message synthesised from the
+**Withdrawn by the local-plugin pivot**
+(`design-editor-local-plugin.md`); see `design-editor-engine.md` §"Phase 4" for
+the full reasoning. As a local Vite plugin the editor already runs inside the
+developer's own checkout and writes their working tree, so the commit the
+pipeline would have opened a PR for is one they can make directly.
+
+- ~~Batch approved intents → Git branch + commit(s) (message synthesised from the
   intent labels) + a GitHub PR via `gh`/API, instead of / alongside the direct
-  working-tree write. The engine already yields per-intent diffs, backups, and a
-  transaction log holding before/after text for every file it touched.
-- `AgentPopover.onSubmit` is the entry point for agent-authored, natural-language →
-  intent flows.
+  working-tree write.~~ Withdrawn. The engine's per-intent diffs, backups, and
+  transaction log remain — they are what the working-tree write is built on.
+- `AgentPopover.onSubmit` is **not** withdrawn: it remains the entry point for
+  agent-authored, natural-language → intent flows, which never depended on the
+  PR pipeline.
