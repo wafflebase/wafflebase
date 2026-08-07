@@ -291,6 +291,31 @@ height, rotation?}` in degrees; the board's `Frame` is top-left + radians:
 coordinates map **1:1** with no scaling. Items sit where Miro had them, and
 the existing viewport lands the user on the content.
 
+**Coordinate space.** A position is only absolute when the item is top-level.
+Miro measures a **framed** item against its parent frame's **top-left**
+(`position.relativeTo === "parent_top_left"`, and `item.parent.id` names the
+frame); a parentless item is measured against the canvas centre
+(`canvas_center`). `resolveMiroFrames` walks the parent chain once for the
+whole payload and translates each item by its parent's resolved top-left —
+memoised, so depth costs nothing, and cycle-guarded because the payload is
+untrusted. Frames cannot be rotated in Miro, so a parent contributes a pure
+translation with no rotation to compose.
+
+Reading `position` as absolute regardless — the original SP3 behaviour —
+writes every framed item's *frame-local* offset, a small positive number
+bounded by the frame's size, straight into the world. A real 5,458-element
+import put 96% of its elements inside a single ~4,000 × 6,700 box beside the
+origin while the frames stayed spread across x ∈ [5,709, 46,263]: the board
+looked like all its content had been shoved into the left margin. Nothing
+about that failure is visible per-item, which is why the coordinate space is
+resolved in one place and everything else reads the resolved map.
+
+A frame can fall outside the import's item ceiling while its contents make it
+in. There is no absolute coordinate left to recover for those children, so
+they keep their frame-local position and are counted under
+`approximated['parent-position']` — misplaced but named, never silently
+misplaced.
+
 **HTML content.** Miro item text (`data.content`) is an HTML fragment — Miro
 documents `<p>`, `<a>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<u>`, `<s>`,
 `<span>`, `<br>` (text items additionally allow `<ol>`/`<ul>`/`<li>`). SP3
