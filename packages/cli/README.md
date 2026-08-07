@@ -53,7 +53,10 @@ wafflebase
 │   └── import <file>                      --replace <id> --yes for in-place
 │
 ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
-│   ├── tabs (alias: tab) list <doc-id>
+│   ├── tabs (alias: tab)
+│   │   ├── list <doc-id>
+│   │   ├── create <doc-id> [name]        --type sheet
+│   │   └── rename <doc-id> <tab-id> <name>
 │   ├── cells (alias: cell)
 │   │   ├── get <doc-id> [<range>]
 │   │   ├── set <doc-id> <ref> <value>     --formula
@@ -86,6 +89,8 @@ wafflebase docs list
 wafflebase docs create "Q1 Notes" --type doc
 
 # Spreadsheets
+wafflebase sheets tabs create abc-123 "History"
+wafflebase sheets tabs rename abc-123 tab-1 "Summary"
 wafflebase sheets cells get abc-123 A1:D100
 echo '{"A1":"Name","B1":"Score"}' | wafflebase sheets cells batch abc-123
 wafflebase sheets export abc-123 out.csv

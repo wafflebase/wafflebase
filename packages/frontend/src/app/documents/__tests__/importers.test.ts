@@ -2,6 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@wafflebase/sheets", () => ({
   importXlsxWorkbook: vi.fn(async () => [{ name: "S1", worksheet: {} }]),
+  // `xlsx-actions` reaches `getUniqueTabName` via the `tab-name` re-export,
+  // which now resolves through this module, so the mock must provide it.
+  getUniqueTabName: (
+    _tabs: Record<string, unknown>,
+    preferred: string,
+    fallback: string,
+  ) => preferred || fallback,
 }));
 
 import { importXlsx } from "@/app/spreadsheet/xlsx-actions";

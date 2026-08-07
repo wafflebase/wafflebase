@@ -202,6 +202,15 @@ import {
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
 } from './model/workbook/worksheet-document';
+export {
+  generateTabId,
+  normalizeTabName,
+  isTabNameTaken,
+  getUniqueTabName,
+  getNextDefaultSheetName,
+  buildTabNameNormalizationPatches,
+  type TabNamePatch,
+} from './model/workbook/tab-name';
 import {
   type Comment,
   type CommentAnchor,
