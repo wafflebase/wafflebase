@@ -24,7 +24,46 @@ const LANES = [
   // sh-expanded `**` would start running third-party test files.
   // `eval/test-lane.test.mjs` reads this line back and asserts every suite under
   // `eval/` is matched by it, at every depth.
-  { name: "agent:tests", cmd: "cd scripts/agent && node --test '**/*.test.mjs'" },
+  //
+  // WHY TWO FLAGS. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
+  // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
+  // access cancelled it by hand; teardown then reported six orphan processes
+  // (node, sh, node, sh, node, node). It never printed a `# tests` summary, and
+  // the same lane at that same commit prints 1180 of them locally — so the
+  // suite did NOT complete: 875 tests never reported. The offending change is
+  // reverted, and the log does not say which of two mechanisms stalled it:
+  // a test that hung while running, or a test FILE whose tests all finished
+  // while a child process it spawned kept its process alive. Reproducing both
+  // shapes together shows neither flag alone is enough — `--test-timeout` names
+  // the hung test and then hangs on the leaked child; `--test-force-exit` never
+  // fires, because a hung test never "finishes". Together they end the run.
+  //
+  //   --test-timeout=60000  cancels a test that hangs WHILE RUNNING and NAMES it
+  //     with its file and line, so the next one diagnoses itself. 60s is ~8x the
+  //     slowest single test measured here (7.7s, a CLI-spawning test, macOS) and
+  //     ~17x the lane's whole CI duration (3.5s). Deliberately loose: a flaky
+  //     timeout on a loaded runner would be worse than the hang it guards.
+  //
+  //   --test-force-exit  exits once every known test has finished, even with a
+  //     live handle or child holding the loop open. Note what this does NOT buy.
+  //     The run ends, it does not go red. And it only fires when the runner
+  //     learns the tests finished, which a child spawned `stdio: "inherit"`
+  //     prevents — it holds the test file's stdout open, so the runner never
+  //     exits at all and the lane hangs exactly as it does today (measured:
+  //     `ignore` returns in 0.8s, `inherit` still blocked at 25s). Only
+  //     `ci.yml`'s `timeout-minutes` bounds that one. The orphan the `ignore`
+  //     case leaves behind is what `reapLaneGroup` below cleans up.
+  //
+  // BOTH FLAGS GO BEFORE `--test`. `eval/test-lane.test.mjs` captures everything
+  // after `--test ` and treats each whitespace-separated token as a glob pattern;
+  // put them after and it reads `--test-timeout=60000` back as a pattern. It
+  // does not currently FAIL on that — its assertions are one-directional (every
+  // eval suite must match some pattern) — so this is a latent corruption a green
+  // test would not catch. Node does not care about the order; that extractor does.
+  {
+    name: "agent:tests",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test-force-exit --test '**/*.test.mjs'",
+  },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build" },
@@ -39,13 +78,67 @@ const LANES = [
   { name: "verify:entropy", cmd: "pnpm verify:entropy" },
 ];
 
+const IS_POSIX = process.platform !== "win32";
+
+/**
+ * SIGKILL everything still in `pid`'s process group.
+ *
+ * Called once a lane has already exited, so the only members left are things it
+ * leaked. `agent:tests` leaks by construction: `--test-force-exit` ends the test
+ * runner while a child a test spawned is still alive, and without this that child
+ * outlives the lane and runs alongside every later lane and the coverage steps
+ * after them. The 2026-08-06 incident's job teardown reported six such orphans.
+ *
+ * Negative pid means "the group", which is why `runCommand` spawns detached: a
+ * detached child is its own group LEADER, so its pid doubles as the group id.
+ * Attached, it inherits this runner's group instead, its pid is not a group id
+ * at all, and the signal lands on nothing (or on an unrelated group that
+ * happens to hold that number). Verified by mutation — dropping `detached`
+ * leaves the orphan running.
+ *
+ * Best-effort on purpose. ESRCH — the whole group already gone — is the normal
+ * case and must not fail a lane that passed.
+ */
+function reapLaneGroup(pid) {
+  if (!IS_POSIX || !pid) return;
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // Already gone. Nothing to report and nothing to do.
+  }
+}
+
+/**
+ * Lane process groups that have not been reaped yet.
+ *
+ * `detached` also detaches the lane from the terminal's foreground group, so a
+ * Ctrl-C that reaches this runner no longer reaches the lane. Forwarding it by
+ * hand keeps the old behaviour: interrupting `pnpm verify:self` (this file is
+ * the `pre-push` hook's entry point) still stops the build it started.
+ */
+const liveLaneGroups = new Set();
+for (const [signal, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+]) {
+  process.on(signal, () => {
+    for (const pid of liveLaneGroups) reapLaneGroup(pid);
+    process.exit(code);
+  });
+}
+
 function runCommand(cmd, cwd) {
   return new Promise((resolve) => {
     const chunks = [];
     const proc = spawn("sh", ["-c", cmd], {
       cwd,
       stdio: ["inherit", "pipe", "pipe"],
+      // See reapLaneGroup: its own process group is what makes the lane
+      // reapable as a unit.
+      detached: IS_POSIX,
     });
+    const { pid } = proc;
+    if (pid) liveLaneGroups.add(pid);
 
     proc.stdout.on("data", (data) => {
       process.stdout.write(data);
@@ -57,6 +150,32 @@ function runCommand(cmd, cwd) {
       chunks.push(data);
     });
 
+    // Reap on `exit`, NOT on `close`. `exit` fires when the lane's own process
+    // ends; `close` waits for its stdout and stderr to close as well, and an
+    // orphan that inherited those pipes holds them open indefinitely. Reaping
+    // from `close` therefore never runs in the one case that most needs it —
+    // measured: a lane that exits after backgrounding a pipe-holding child left
+    // the orphan alive and the runner blocked past 20s, never reaching the next
+    // lane. Killing the group here closes those pipes, which is what lets
+    // `close` arrive at all.
+    //
+    // Reaping before the drain finishes costs nothing: bytes already written
+    // sit in the pipe buffer and are still read after the writer dies. Only a
+    // process still producing output *after* its own lane exited loses
+    // anything, and that process is the leak.
+    proc.on("exit", () => {
+      liveLaneGroups.delete(pid);
+      reapLaneGroup(pid);
+    });
+
+    // `close`, not `exit`, for the RESULT, so the lane's tail output is in
+    // `chunks` before the report is written.
+    //
+    // Still not covered: a lane whose own process never exits — the
+    // `stdio: "inherit"` case in the comment on `agent:tests` above, where the
+    // test runner itself never learns its tests finished. Neither handler
+    // fires, so nothing here bounds it; `ci.yml`'s `timeout-minutes` is the
+    // only thing that does.
     proc.on("close", (exitCode) => {
       resolve({ exitCode: exitCode ?? 1, output: Buffer.concat(chunks).toString() });
     });
