@@ -238,6 +238,109 @@ test("scope describes the FROZEN diff; the merged PR's totals are kept as proven
   assert.equal(buildItemMeta(VIEW, big, "", {}).scope, "L");
 });
 
+/** A patch naming `p` with `hunks` hunk headers — the two inputs the spread rule reads. */
+function filePatch(p, hunks = 1) {
+  const lines = [`diff --git a/${p} b/${p}`, `--- a/${p}`, `+++ b/${p}`];
+  for (let i = 0; i < hunks; i++) lines.push(`@@ -${i + 1} +${i + 1} @@`, "-a", "+b");
+  return lines.join("\n");
+}
+
+/** `localization_scope` as it lands in `meta.json` — through buildItemMeta, never the helper. */
+function localizationOf(diff) {
+  const point = { review_commit: HEAD, review_base: BASE, review_point: "pr-open" };
+  return buildItemMeta(VIEW, diff, "", point).localization_scope;
+}
+
+test("localization_scope records how spread out the frozen diff is — all five values", () => {
+  // `scope` says how big, `changed_files` says which paths; neither says whether a
+  // reviewer is reading one hunk or nine modules, and those are different review
+  // problems at identical size. Asserted THROUGH buildItemMeta: localizationFromDiff
+  // has its own tests in classify.test.mjs, and what is untested is that the value
+  // reaches `meta.json` at all.
+  assert.equal(localizationOf(filePatch("scripts/agent/x.mjs", 1)), "single_hunk");
+  assert.equal(localizationOf(filePatch("scripts/agent/x.mjs", 2)), "single_file");
+
+  // A "module" is the FIRST TWO path segments, so two files under scripts/agent are
+  // one module and scripts/agent + packages/backend are two.
+  const sameModule = [filePatch("scripts/agent/a.mjs"), filePatch("scripts/agent/b.mjs")].join("\n");
+  assert.equal(localizationOf(sameModule), "multi_file");
+  const twoModules = [filePatch("scripts/agent/a.mjs"), filePatch("packages/backend/src/b.ts")].join("\n");
+  assert.equal(localizationOf(twoModules), "cross_module");
+
+  // The fifth value is not decoration. A diff that names no path is reachable here
+  // — `extractCorpus` skips such a PR as `no-changed-files`, but buildItemMeta runs
+  // BEFORE that check, so the field has to be a named state rather than undefined.
+  assert.equal(localizationOf("not a diff at all\n"), "unknown");
+});
+
+test("localization_scope comes from the FROZEN diff, never the merged PR's file list", () => {
+  // Same trap as `changed_files` and `additions`: `view.files` is the MERGED PR's
+  // file set, which includes whatever the post-review fix loop touched. Deriving the
+  // spread from it would describe a change nobody reviewed — and it would not even
+  // fail loudly, because it produces a perfectly plausible value.
+  const meta = buildItemMeta(VIEW, DIFF, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.equal(meta.localization_scope, "single_hunk");
+  const prModules = new Set(VIEW.files.map((f) => f.path.split("/").slice(0, 2).join("/")));
+  assert.equal(prModules.size, 2, "the merged PR spans two modules — so it would read cross_module");
+});
+
+test("a deleted file counts toward the spread, even though `+++` says /dev/null", () => {
+  // A deletion's only path is on the `diff --git` header, and `changed_files`
+  // already reads it there. Until PR 687 the spread rule did not, so a
+  // deletion-only diff froze as `unknown` however many modules it spanned — a
+  // permanent wrong value, because a corpus item is write-once.
+  const deleted = (p) => `diff --git a/${p} b/${p}\ndeleted file mode 100644\n--- a/${p}\n+++ /dev/null\n@@ -1 +0,0 @@\n-a`;
+  const twoModules = [deleted("scripts/agent/gone.mjs"), deleted("packages/backend/old.ts")].join("\n");
+  const meta = buildItemMeta(VIEW, twoModules, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.deepEqual(meta.changed_files, ["scripts/agent/gone.mjs", "packages/backend/old.ts"]);
+  assert.equal(meta.localization_scope, "cross_module");
+  assert.equal(localizationOf(deleted("scripts/agent/gone.mjs")), "single_hunk");
+});
+
+test("a mixed diff counts the deleted file, not only its hunks", () => {
+  // The sharp case. The deleted file's `@@` was counted while the file was not, so
+  // one modified file plus one deletion in another module answered `single_file`:
+  // a reviewer reading two modules recorded as reading one file. That is worse than
+  // `unknown`, because nothing about it looks wrong.
+  const mixed = [
+    DIFF.trimEnd(),
+    "diff --git a/packages/backend/old.ts b/packages/backend/old.ts",
+    "deleted file mode 100644",
+    "--- a/packages/backend/old.ts",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-x",
+  ].join("\n");
+  const meta = buildItemMeta(VIEW, mixed, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.deepEqual(meta.changed_files, ["scripts/agent/x.mjs", "packages/backend/old.ts"]);
+  assert.equal(meta.localization_scope, "cross_module");
+  // `changed_files` and the spread now agree on how many files there are, which is
+  // the invariant that failed: two paths must never read as one file.
+  assert.equal(meta.changed_files.length, 2);
+});
+
+test("a C-quoted path reads as `unknown` — the remaining gap in the imported helper", () => {
+  // The one cause of `unknown` left after the deletion fix above. Git wraps a path
+  // carrying a special or non-ASCII byte in quotes (`+++ "b/na\303\257ve.ts"`);
+  // `changedFilesFromDiff` decodes that and `localizationFromDiff` matches literal
+  // prefixes, so an all-quoted diff freezes with a populated `changed_files` and
+  // `unknown` spread. Left as is deliberately: the C-unquoter is private to this
+  // module, and copying it into `classify.mjs` would fork the path parser that the
+  // deletion bug just showed the cost of. Pinned so a reader of `unknown` on a real
+  // item knows this is the cause, and `eval/README.md` says the same.
+  const quoted = [
+    'diff --git "a/na\\303\\257ve.ts" "b/na\\303\\257ve.ts"',
+    '--- "a/na\\303\\257ve.ts"',
+    '+++ "b/na\\303\\257ve.ts"',
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+  ].join("\n");
+  const meta = buildItemMeta(VIEW, quoted, "", { review_commit: HEAD, review_base: BASE, review_point: "pr-open" });
+  assert.deepEqual(meta.changed_files, ["naïve.ts"], "the path itself parses fine");
+  assert.equal(meta.localization_scope, "unknown");
+});
+
 test("buildItemMeta carries what a replay needs, and no label_status", () => {
   const meta = buildItemMeta(VIEW, DIFF, "# Broken thing\n\nIt is broken.", {
     review_commit: HEAD,
@@ -273,6 +376,9 @@ test("manifestItem carries review_base into the index, not just into the item", 
     sha256_diff: contentSha256(DIFF),
     has_issue_spec: false,
     scope: "S",
+    // Beside `scope` on purpose: "small single-hunk items vs small cross-module
+    // ones" is one query, and it is answerable off the manifest alone.
+    localization_scope: "single_hunk",
     provenance: "human",
   });
 });
@@ -296,10 +402,16 @@ test("corpusItemDrift names every field that moved", () => {
   const stored = { meta: buildItemMeta(VIEW, otherDiff, "", base, DIFF_METHODS.forkPoint), diff: otherDiff, issueSpec: null };
   assert.deepEqual(corpusItemDrift(fresh, stored), ["diff.patch", "sha256_diff"]);
   // A second file appearing in the diff moves the changed-file list too, which is
-  // the drift a lens's path scoping would actually notice.
+  // the drift a lens's path scoping would actually notice — and, because the second
+  // file sits outside `scripts/agent`, the spread with it.
   const extraFile = `${DIFF}diff --git a/new.ts b/new.ts\n--- /dev/null\n+++ b/new.ts\n@@ -0,0 +1 @@\n+added\n`;
   const withFile = { meta: buildItemMeta(VIEW, extraFile, "", base, DIFF_METHODS.forkPoint), diff: extraFile, issueSpec: null };
-  assert.deepEqual(corpusItemDrift(fresh, withFile), ["diff.patch", "sha256_diff", "meta.changed_files"]);
+  assert.deepEqual(corpusItemDrift(fresh, withFile), [
+    "diff.patch",
+    "sha256_diff",
+    "meta.localization_scope",
+    "meta.changed_files",
+  ]);
 
   for (const [field, over] of [
     ["meta.review_commit", { review_commit: FORK }],
@@ -323,6 +435,27 @@ test("corpusItemDrift catches a stored item whose own hash no longer matches its
   const drift = corpusItemDrift({ meta, diff: DIFF, issueSpec: "" }, tampered);
   assert.ok(drift.includes("diff.patch"));
   assert.ok(drift.includes("stored sha256_diff vs stored diff.patch"));
+});
+
+test("a derived field in the drift list catches a change in the DERIVATION, not the bytes", () => {
+  // Why `localization_scope` is compared at all when the diff is already compared
+  // byte-for-byte: the bytes prove the INPUT is stable and say nothing about the
+  // derivation. Both states below are invisible to every other entry in the list.
+  const base = { review_commit: HEAD, review_base: BASE, review_point: "pr-open" };
+  const meta = buildItemMeta(VIEW, DIFF, "", base, DIFF_METHODS.forkPoint);
+  const fresh = { meta, diff: DIFF, issueSpec: "" };
+
+  // An upstream edit to `localizationFromDiff`, seen from here: same bytes, same
+  // hash, different meaning.
+  const reDerived = { meta: { ...meta, localization_scope: "single_file" }, diff: DIFF, issueSpec: null };
+  assert.deepEqual(corpusItemDrift(fresh, reDerived), ["meta.localization_scope"]);
+
+  // An item frozen BEFORE the field existed. This is the case the field was added
+  // early to avoid: absent must be drift, so the item is reported and refused —
+  // not re-indexed as `= unchanged` with the field permanently missing.
+  const older = { ...meta };
+  delete older.localization_scope;
+  assert.deepEqual(corpusItemDrift(fresh, { meta: older, diff: DIFF, issueSpec: null }), ["meta.localization_scope"]);
 });
 
 // --- the manifest ------------------------------------------------------------
@@ -458,6 +591,10 @@ test("extractCorpus freezes an item, indexes it, and exits 0", () => {
     assert.equal(store.hasCorpusItem("pr-664"), true);
     assert.deepEqual(store.getCorpus("2026-08-05a").map((i) => i.id), ["pr-664"]);
     assert.equal(store.getCorpusItemInput("pr-664").meta.review_base, BASE);
+    // Through the store and back off disk: a corpus item is write-once, so a field
+    // that reaches `buildItemMeta` but not `meta.json` is missing forever.
+    assert.equal(store.getCorpusItemInput("pr-664").meta.localization_scope, "single_hunk");
+    assert.deepEqual(store.getCorpus("2026-08-05a").map((i) => i.localization_scope), ["single_hunk"]);
   } finally {
     cleanup();
   }
@@ -502,12 +639,16 @@ test("an extraction that DIFFERS from the stored item is reported and refused", 
 test("--dry-run computes everything and writes nothing", () => {
   const { root, store, cleanup } = tempStore();
   try {
-    const result = runExtract(store, { dryRun: true });
+    const logs = [];
+    const result = runExtract(store, { dryRun: true, log: (m) => logs.push(m) });
     assert.equal(result.written, 1);
     assert.equal(result.manifest.item_count, 1);
     assert.equal(store.hasCorpusItem("pr-664"), false);
     assert.equal(existsSync(path.join(root, "corpus")), false, "not one byte may land under the root");
     assert.match(summarize(result).line, /would freeze 1 item/);
+    // The `+` line is the only place a human sees a derived field while the item can
+    // still be refused, so `--dry-run` prints the spread beside the size.
+    assert.match(logs.join("\n"), /\+ pr-664 \(1 files, \+1\/-1 S, single_hunk,/);
   } finally {
     cleanup();
   }

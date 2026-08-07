@@ -108,12 +108,40 @@ export function extractStructuredText(data, model = "model", maxTokens = 0) {
   return text;
 }
 
+/**
+ * How spread out a diff is. Also frozen into a corpus item's
+ * `meta.localization_scope` (PR 687), which is what made the deletion case below
+ * load-bearing: an item is write-once, so a wrong value there is permanent.
+ *
+ * `+++ b/<path>` alone does not name every changed file. A DELETION has
+ * `+++ /dev/null`, and a pure rename has no `+++` line at all, so both were
+ * invisible here — and not merely as `unknown`. A diff of one modified file plus
+ * one deleted file in another module counted the deleted file's HUNKS but not the
+ * file, and answered `single_file`: a reviewer reading two modules recorded as
+ * reading one, which is worse than an honest `unknown` because it is plausible.
+ * So the `diff --git a/… b/<path>` header is read too. Adding it unconditionally
+ * is safe — for an ordinary modification it names the same path the `+++` line
+ * does, and `files` is a Set, so a rename cannot be counted twice either.
+ *
+ * Still returns `unknown` for a diff that names no path at all, and for one whose
+ * paths git C-quoted (`+++ "b/na\303\257ve.ts"`, when a path carries a special or
+ * non-ASCII byte): decoding that is `changedFilesFromDiff`'s job in
+ * `eval/extract-corpus.mjs` and duplicating it here would fork a second path
+ * parser. Documented as the remaining cause of `unknown` in `eval/README.md`.
+ */
 export function localizationFromDiff(diff) {
   const files = new Set();
   let hunks = 0;
   for (const line of String(diff || "").split("\n")) {
     if (line.startsWith("+++ b/")) files.add(line.slice(6));
     else if (line.startsWith("@@")) hunks++;
+    else {
+      // Greedy `a/.+` so a path containing " b/" resolves to the LAST one, which
+      // is the same rule `changedFilesFromDiff` uses. Quoted headers are skipped
+      // deliberately (see above).
+      const m = /^diff --git a\/.+ b\/(.+)$/.exec(line);
+      if (m) files.add(m[1]);
+    }
   }
   if (files.size === 0) return "unknown";
   if (files.size === 1) return hunks <= 1 ? "single_hunk" : "single_file";
