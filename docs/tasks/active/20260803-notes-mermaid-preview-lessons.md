@@ -5,11 +5,15 @@
 `harness.config.json`'s `maxChunkCount` was 147 and the frontend built
 **exactly** 147 chunks on `main` — so any dependency that code-splits itself
 fails the gate. `mermaid` splits per diagram type (36 `import()`s plus shared
-cytoscape/d3/dagre/katex chunks) → 213 chunks measured. There is no way to
+cytoscape/d3/dagre/katex chunks) → +66 chunks measured. There is no way to
 guess that number: I built the frontend twice (`git stash -u` for the
-baseline) and diffed both the count and `notes-view-*.js` (1297.18 → 1299.43
-kB, which is the proof the engine really is deferred). Any future heavy dep
-should budget for that same two-build measurement.
+baseline) and diffed both the count and `notes-view-*.js`. Re-measured after
+the rebase: 144 → 210 chunks, `notes-view-*.js` 1298.92 → 1302.82 kB (+3.90
+kB, which is the proof the engine really is deferred). Note the baseline
+itself moves as `main` moves — the numbers are only meaningful when both
+builds come from the same tree, so they have to be re-taken after a rebase,
+not carried over from the first measurement. Any future heavy dep should
+budget for that same two-build measurement.
 
 ## Folding a self-splitting vendor into one chunk is a trap
 
@@ -49,7 +53,8 @@ fresh checkout must `pnpm --filter @wafflebase/docs build` and
 run that cannot sit through `verify:self`'s several minutes), disclosed on the
 PR; CI then ran the full `verify:self` lanes on the pushed branch. This is a
 bypass, not a default: skipping the hook is only defensible because the same
-lanes are mandatory on the PR, and the pre-commit gate was never skipped.
+lanes are mandatory on the PR, and the pre-commit gate was never skipped. The
+takeover commit did not use it — `verify:self` ran locally before the push.
 
 ## An untrusted-content `innerHTML` needs a local sanitizer, not a config flag
 
@@ -76,6 +81,39 @@ promise chain and giving each pass a generation to check turned out to be
 strictly simpler than a debounce, and it also makes the cache correct: a
 failure is then a deterministic property of the source rather than a
 concurrency artifact, which is what makes caching failures safe.
+
+## A conflicting PR stops getting CI at all — silently
+
+This PR sat untouched for two days, and the cause was not the agent loop. A
+`pull_request` workflow runs against `refs/pull/N/merge`; once `#653` landed
+on `main` and made this branch conflict, GitHub could not build that ref and
+simply **stopped creating runs** — the fix commit pushed on 08-05 has zero
+check runs. Everything downstream is keyed off a CI run: the review panel
+rides on one, and `agent-rerun.yml` re-runs `ci.yml` *for the head SHA*, so
+`@claude rerun` found nothing to re-run and reported success while doing
+nothing. The state label (`agent:fixing`) stayed stuck as a symptom.
+
+No workflow or script in `.github/` reads `mergeable` / `mergeStateStatus`
+(`git grep CONFLICTING .github/ scripts/agent` hits only the eval corpus), so
+this failure mode is invisible to the pipeline and applies to every managed
+PR. The unblock is a new head SHA on a conflict-free branch — a rebase, not a
+rerun. Worth a pipeline guard: page a human when a managed PR goes
+`CONFLICTING`, since no amount of agent effort can recover from it.
+
+## Stubbing the engine hides everything a browser would have caught
+
+Four review rounds and ~$40 of agent effort ran against a jsdom suite that
+stubs mermaid with a raw SVG string, and the honest self-assessment on the PR
+was "the rendered diagram was not visually confirmed." A ten-minute headless
+Chrome run against a throwaway Vite page found a real defect none of the
+rounds could see: `prose` styles a bare `<pre>` as a *dark* code block
+(`--tw-prose-pre-code` is near-white), and the mermaid source fallback has no
+inner `.hljs` element to override it the way `pre.note-code` does — so on the
+light `#f6f8fa` background the fallback rendered at **1.16:1** contrast
+(invisible), breaking the exact "it always degrades to readable source"
+property the whole design rests on. It also refuted a blocking blast-radius
+finding in one shot: two diagram types rendered with no Node polyfill. When a
+change's core claim is visual, a browser check is not optional polish.
 
 ## A bounded cache read on every keystroke must be LRU, not FIFO
 

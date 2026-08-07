@@ -63,3 +63,37 @@ block.
 - Non-mermaid fences keep their existing highlight + copy-button behavior.
 - Invalid mermaid still shows the source (no blank block, no thrown error).
 - Mermaid is not downloaded on note routes without a mermaid fence.
+
+## Human takeover (2026-08-07)
+
+The autonomous loop stalled on 2026-08-05: `#653` landed on `main` on 08-04
+and made the PR conflict, so GitHub could no longer build the
+`refs/pull/632/merge` ref and stopped scheduling `pull_request` CI. With no CI
+run on the head SHA, the review panel — which rides on a CI run — never
+engaged again, and `@claude rerun` (which re-runs `ci.yml` **for the head
+SHA**) had nothing to re-run. Picked up by hand from there.
+
+- [x] Rebase onto `main` (only `pnpm-lock.yaml` conflicted; regenerated)
+- [x] Verify in a real browser — the gap every prior round left open
+- [x] Fix the light-mode source fallback (contrast 1.16:1 → 13.78:1)
+- [x] Fix diagram centring (`text-align` cannot centre a block `svg`)
+- [x] Re-measure the chunk budget against the rebased tree
+
+### Browser verification (headless Chrome, both themes)
+
+Every prior round stubbed the engine, so nothing had ever proved mermaid
+loads and lays out in a browser. Driven through a throwaway Vite page
+mounting the real `NotePreview` (removed afterwards):
+
+| Check | Result |
+| --- | --- |
+| `flowchart` + `sequenceDiagram` (two per-type lazy chunks) | both rendered |
+| Unparseable fence | source kept, error line shown, nothing thrown |
+| `<img onerror>` / `<script>` in a label | no execution, 0 `<script>`, 0 `on*` |
+| `%%{init: {"themeCSS": …}}%%` restyling the page | blocked — page unchanged |
+| Non-mermaid ` ```js ` fence | still highlighted |
+| Dark theme | palette repainted (node fill `#1f2020`) |
+
+This also settles the disputed blast-radius finding — mermaid's Node-only
+`@iconify/utils` transitive deps never execute in the browser path, since two
+diagram types rendered without a polyfill.
