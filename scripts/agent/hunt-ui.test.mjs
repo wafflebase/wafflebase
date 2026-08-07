@@ -62,6 +62,10 @@ test("each rubric injects its OWN surface's constraints and not the other's", ()
   assert.match(byId["sheet-author"].rubric, /canUndo/, "sheet rubric must name the undo reader");
   assert.match(byId["sheet-author"].rubric, /no-op|DOES NOT WORK/i, "sheet rubric must state undo is a no-op");
   assert.match(byId["doc-writer"].rubric, /per-keystroke/, "doc rubric must state undo is per-keystroke");
+  // The third measured trap, and the one the first CLEAN run produced: undo/redo
+  // clears the selection on this surface, so a formatting click afterwards silently
+  // no-ops. A whole ground-A finding was built on not knowing that.
+  assert.match(byId["doc-writer"].rubric, /CLEAR THE SELECTION/i, "doc rubric must warn that undo/redo clears the selection");
 
   // And the constraints must NOT bleed across: an explorer told about a toolbar it
   // cannot reach wastes budget discovering that.
