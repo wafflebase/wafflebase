@@ -40,9 +40,9 @@ export function registerNotesCommand(program: Command) {
             (d) => d.type === 'note',
           );
         }
-        output(data, opts.format, opts.quiet);
+        output(data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -61,9 +61,9 @@ export function registerNotesCommand(program: Command) {
         }
         const res = await getClient(opts).createDocument(title, 'note');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -75,9 +75,9 @@ export function registerNotesCommand(program: Command) {
       try {
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -93,9 +93,9 @@ export function registerNotesCommand(program: Command) {
       try {
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -111,9 +111,9 @@ export function registerNotesCommand(program: Command) {
       try {
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -160,7 +160,7 @@ export function registerNotesCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -214,7 +214,7 @@ export function registerNotesCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -245,7 +245,7 @@ export function registerNotesImportCommand(notes: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

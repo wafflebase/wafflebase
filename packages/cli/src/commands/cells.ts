@@ -23,9 +23,9 @@ export function registerCellsCommand(parent: Command) {
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -63,9 +63,9 @@ export function registerCellsCommand(parent: Command) {
           formula ? value : undefined,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -89,9 +89,9 @@ export function registerCellsCommand(parent: Command) {
       try {
         const res = await getClient(opts).deleteCell(docId, tab, ref);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -107,38 +107,43 @@ export function registerCellsCommand(parent: Command) {
         data?: string;
       }>();
 
-      let cells: Record<string, unknown>;
-      if (dataStr) {
-        cells = JSON.parse(dataStr);
-      } else {
-        // Read from stdin
-        const chunks: Buffer[] = [];
-        for await (const chunk of process.stdin) {
-          chunks.push(chunk as Buffer);
-        }
-        cells = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
-      }
-
-      if (opts.dryRun) {
-        printDryRun(
-          getConfig(opts),
-          'PATCH',
-          `/documents/${docId}/tabs/${tab}/cells`,
-          { cells },
-        );
-        return;
-      }
-
+      // The input read + JSON.parse live inside the try: a malformed
+      // `--data '{'` or a failed stdin read is the most likely way this
+      // command fails, and outside the try it escaped as a rejected action
+      // promise instead of the `{ error: { code, message } }` envelope on
+      // stderr with exit 1.
       try {
+        let cells: Record<string, unknown>;
+        if (dataStr) {
+          cells = JSON.parse(dataStr);
+        } else {
+          // Read from stdin
+          const chunks: Buffer[] = [];
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer);
+          }
+          cells = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+        }
+
+        if (opts.dryRun) {
+          printDryRun(
+            getConfig(opts),
+            'PATCH',
+            `/documents/${docId}/tabs/${tab}/cells`,
+            { cells },
+          );
+          return;
+        }
+
         const res = await getClient(opts).batchCells(
           docId,
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

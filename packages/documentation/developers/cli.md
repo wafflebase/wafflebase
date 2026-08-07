@@ -106,7 +106,7 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |
 | `--format <fmt>` | Output format: `json`, `table`, `csv` (also `md` / `text` on `docs content` and `slides content`, `pdf` / `docx` on `docs export`, `pptx` on `slides export`) | `json` |
-| `--quiet` | Suppress output | `false` |
+| `--quiet` | Suppress progress notices; the result body and the JSON error envelope are always emitted | `false` |
 | `--verbose` | Verbose output | `false` |
 | `--dry-run` | Show request without executing | `false` |
 

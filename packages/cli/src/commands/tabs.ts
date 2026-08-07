@@ -13,9 +13,9 @@ export function registerTabsCommand(parent: Command) {
       try {
         const res = await getClient(opts).listTabs(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

@@ -663,7 +663,8 @@ packages/cli/
   tsconfig.json
   vitest.config.ts
   src/
-    bin.ts               Entry point (#!/usr/bin/env node)
+    bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
+    cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
@@ -1011,6 +1012,10 @@ is the agent interface. This approach has key advantages:
   suppresses the "Exported to X" notice.
 - Errors: a single JSON line on stderr with shape
   `{"error":{"code":"…","message":"…","command":"docs.content"}}`.
+  `--quiet` does not suppress it — a non-zero exit with no bytes on
+  either stream leaves the caller with nothing to act on. Only progress
+  notices are display output; the envelope is the machine-readable
+  failure signal, and stderr already survives stdout redirection.
 
 ### 10. Error Matrix
 
