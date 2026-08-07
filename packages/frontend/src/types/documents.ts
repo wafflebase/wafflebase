@@ -1,4 +1,12 @@
-export type DocumentType = "sheet" | "doc" | "slides" | "pdf" | "note" | "image" | "board";
+export type DocumentType =
+  | "sheet"
+  | "doc"
+  | "slides"
+  | "pdf"
+  | "note"
+  | "image"
+  | "board"
+  | "file";
 
 /**
  * Backend-projected "currently editing" user. The server unwraps Yorkie's
@@ -35,6 +43,11 @@ export type Document = {
   folderId?: string | null;
   author?: DocumentAuthor | null;
   editors?: DocumentEditor[];
+  // Blob storage key + metadata, present only on file-backed documents
+  // (pdf/image/file).
+  fileId?: string;
+  fileSize?: number;
+  mimeType?: string;
   // Whether the current user may delete or move this document (workspace owner
   // or the document's author). Set only by the documents-list endpoints; the
   // backend stays the real gate. Absent → treat as not manageable.

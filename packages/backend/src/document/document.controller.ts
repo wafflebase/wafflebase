@@ -121,6 +121,11 @@ export class DocumentController {
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    // Blob metadata rides with the blob: without a fileId there is nothing for
+    // it to describe, so it is dropped rather than trusted.
+    const blobMeta = body.fileId
+      ? { fileSize: body.fileSize, mimeType: body.mimeType }
+      : {};
     if (body.folderId) {
       await this.folderService.assertSameWorkspace(body.folderId, workspaceId);
     }
@@ -128,6 +133,7 @@ export class DocumentController {
       title: body.title,
       type: body.type ?? 'sheet',
       fileId: body.fileId,
+      ...blobMeta,
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
       ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),
@@ -194,6 +200,11 @@ export class DocumentController {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
     assertFileIdAllowed(body.type, body.fileId);
+    // Blob metadata rides with the blob: without a fileId there is nothing for
+    // it to describe, so it is dropped rather than trusted.
+    const blobMeta = body.fileId
+      ? { fileSize: body.fileSize, mimeType: body.mimeType }
+      : {};
     if (body.folderId) {
       await this.folderService.assertSameWorkspace(
         body.folderId,
@@ -204,6 +215,7 @@ export class DocumentController {
       title: body.title,
       type: body.type ?? 'sheet',
       fileId: body.fileId,
+      ...blobMeta,
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
       ...(body.folderId ? { folder: { connect: { id: body.folderId } } } : {}),

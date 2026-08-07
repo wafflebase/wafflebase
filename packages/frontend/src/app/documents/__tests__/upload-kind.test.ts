@@ -15,9 +15,11 @@ describe("classifyUploadKind", () => {
     expect(classifyUploadKind("anim.gif")).toBe("image");
     expect(classifyUploadKind("shot.webp")).toBe("image");
   });
-  it("returns null for unsupported types", () => {
-    expect(classifyUploadKind("archive.zip")).toBeNull();
-    expect(classifyUploadKind("vector.svg")).toBeNull();
-    expect(classifyUploadKind("noext")).toBeNull();
+  it("falls back to file for anything else", () => {
+    expect(classifyUploadKind("archive.zip")).toBe("file");
+    expect(classifyUploadKind("vector.svg")).toBe("file");
+    expect(classifyUploadKind("clip.mp4")).toBe("file");
+    expect(classifyUploadKind("noext")).toBe("file");
+    expect(classifyUploadKind("trailing.")).toBe("file");
   });
 });

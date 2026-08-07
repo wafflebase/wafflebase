@@ -32,7 +32,9 @@ Then synthesize into a ranked report of docs needing updates.
 - [x] Present findings to user
 - [x] Fix the 27 significant-drift docs (workflow `wf_08374543-9be`, all edited)
 - [x] Verify the 4 factual-bug corrections + agent-added specifics by hand
-- [ ] Optional follow-up: 57 minor-drift docs (cosmetic stale paths/symbols)
+- Optional follow-up, **deferred**: 57 minor-drift docs (cosmetic stale
+  paths/symbols). Out of scope for this task — see the findings file for the
+  per-doc list if it is ever picked up.
 
 ## Result (complete — 100/100)
 

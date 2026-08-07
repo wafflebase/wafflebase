@@ -376,6 +376,73 @@ const registry: CommandSchema[] = [
     aliases: ['note.export'],
   },
 
+  // Files (blob documents) namespace
+  {
+    name: 'files.upload',
+    description:
+      'Upload any file as a document (stored as bytes; never parsed)',
+    safety: 'write',
+    parameters: {
+      file: { type: 'string', required: true, description: 'Source file path (no stdin: the type comes from the filename)' },
+      '--title': { type: 'string', required: false, description: 'Document title (default: file basename)' },
+    },
+    response: { id: 'string', title: 'string', type: 'string', fileSize: 'number', mimeType: 'string' },
+    aliases: ['file.upload'],
+  },
+  {
+    name: 'files.download',
+    description: 'Download the bytes of a file document',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      out: { type: 'string', required: false, description: 'Output path, - for stdout (default: the document filename)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'binary', description: 'Stored file bytes' },
+    aliases: ['file.download'],
+  },
+  {
+    name: 'files.list',
+    description: 'List blob documents (file, pdf, image) in workspace',
+    safety: 'read-only',
+    parameters: {
+      '--type': { type: 'string', required: false, description: 'Filter by a single type (file|pdf|image)' },
+    },
+    response: { type: 'array', items: { id: 'string', title: 'string', type: 'string', fileSize: 'number' } },
+    aliases: ['file.list'],
+  },
+  {
+    name: 'files.get',
+    description: 'Show file document metadata',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string', title: 'string', type: 'string', fileSize: 'number', mimeType: 'string' },
+    aliases: ['file.get'],
+  },
+  {
+    name: 'files.rename',
+    description: 'Rename a file document',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      title: { type: 'string', required: true, description: 'New title' },
+    },
+    response: { id: 'string', title: 'string' },
+    aliases: ['file.rename'],
+  },
+  {
+    name: 'files.delete',
+    description: 'Delete a file document and its stored bytes',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+    },
+    response: { id: 'string' },
+    aliases: ['file.delete'],
+  },
+
   // Sheets namespace — canonical names live under sheets.*
   {
     name: 'sheets.tabs.list',

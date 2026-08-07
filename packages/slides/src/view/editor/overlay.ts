@@ -25,7 +25,7 @@ import {
   rotatedResizeCursor,
   type ResizeHandle,
 } from './hit-test';
-import type { PeerOverlays } from './peers';
+import type { PeerCursor, PeerOverlays } from './peers';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -959,6 +959,68 @@ function renderPeerOverlays(
     el.style.textOverflow = 'ellipsis';
     el.style.pointerEvents = 'none';
     overlay.appendChild(el);
+  }
+}
+
+/**
+ * Paint peer cursors — a small dot at each peer's live pointer with its
+ * name tag beside it — into a DEDICATED layer.
+ *
+ * Deliberately not part of {@link renderPeerOverlays}: cursors update at
+ * pointer rate, and `renderOverlay` rebuilds the whole overlay DOM
+ * (`overlay.innerHTML = ''`), which detaches — and so blurs — the
+ * in-place text-box editor mounted in that same overlay. Painting into
+ * its own layer lets the editor refresh cursors ~60×/s without touching
+ * the selection chrome or the text box.
+ *
+ * `layer` is expected to sit at the overlay's origin, so the world →
+ * screen math here (`world * scale + pan`) is the same one the rings use
+ * and a cursor can never drift from its owner's selection ring.
+ */
+export function renderPeerCursors(
+  layer: HTMLDivElement,
+  cursors: readonly PeerCursor[],
+  options: { scale: number; panX?: number; panY?: number },
+): void {
+  layer.innerHTML = '';
+  const { scale } = options;
+  const px = options.panX ?? 0;
+  const py = options.panY ?? 0;
+
+  for (const cursor of cursors) {
+    const el = document.createElement('div');
+    el.className = 'wfb-slides-peer-cursor';
+    el.style.position = 'absolute';
+    el.style.left = `${cursor.x * scale + px}px`;
+    el.style.top = `${cursor.y * scale + py}px`;
+    el.style.width = '10px';
+    el.style.height = '10px';
+    el.style.borderRadius = '50%';
+    el.style.background = cursor.color;
+    el.style.border = '2px solid #fff';
+    el.style.boxSizing = 'border-box';
+    el.style.pointerEvents = 'none';
+    // Anchor the dot's centre on the pointer position.
+    el.style.transform = 'translate(-50%, -50%)';
+    layer.appendChild(el);
+
+    const tag = document.createElement('div');
+    tag.className = 'wfb-slides-peer-cursor-label';
+    tag.textContent = cursor.label;
+    tag.style.position = 'absolute';
+    tag.style.left = `${cursor.x * scale + px + 10}px`;
+    tag.style.top = `${cursor.y * scale + py + 10}px`;
+    tag.style.background = cursor.color;
+    tag.style.color = '#fff';
+    tag.style.font = '11px/1.4 system-ui, -apple-system, sans-serif';
+    tag.style.padding = '1px 6px';
+    tag.style.borderRadius = '3px';
+    tag.style.whiteSpace = 'nowrap';
+    tag.style.maxWidth = '140px';
+    tag.style.overflow = 'hidden';
+    tag.style.textOverflow = 'ellipsis';
+    tag.style.pointerEvents = 'none';
+    layer.appendChild(tag);
   }
 }
 

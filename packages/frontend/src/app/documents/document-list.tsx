@@ -31,12 +31,14 @@ import {
   ArrowUp,
   ChevronsUpDown,
   Download,
-  FileDown,
+  File as FileIcon,
   FileText,
+  FileUp,
   Folder as FolderIcon,
   FolderOutput,
   Frame,
   Image as ImageIcon,
+  ListFilter,
   MoreHorizontal,
   NotebookPen,
   Pencil,
@@ -61,8 +63,11 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -102,6 +107,7 @@ import {
   compareDates,
   formatRelativeTime,
   getDocumentPath,
+  isBlobBacked,
   lastModified,
   matchesSearch,
   matchesTypes,
@@ -159,7 +165,7 @@ const FOLDER_KEY_PREFIX = "folder:";
 
 /**
  * Single source of truth for each document type's label, icon, and color.
- * The title cell and the filter chips both derive from this so a new type
+ * The title cell and the filter menu both derive from this so a new type
  * needs one edit, not several.
  */
 const TYPE_META: Record<
@@ -173,9 +179,10 @@ const TYPE_META: Record<
   pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-red-500" },
   image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
   board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
+  file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
 };
 
-/** Document types offered as filter chips, in display order. */
+/** Document types offered in the filter menu, in display order. */
 const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "sheet",
   "doc",
@@ -184,6 +191,7 @@ const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
   "pdf",
   "image",
   "board",
+  "file",
 ];
 
 /**
@@ -248,11 +256,58 @@ function dateColumn(
   };
 }
 
+/** The blank-document entries, in the order the menu presents them. */
+const CREATE_ITEMS: ReadonlyArray<{
+  type: DocumentType;
+  title: string;
+  label: string;
+}> = [
+  { type: "doc", title: "New Document", label: "New Document" },
+  { type: "sheet", title: "New Sheet", label: "New Sheet" },
+  { type: "slides", title: "New Presentation", label: "New Presentation" },
+  { type: "note", title: "New Note", label: "New Note" },
+  { type: "board", title: "Untitled board", label: "New Board" },
+];
+
 /**
- * The four file-import entries shared by both "New" dropdown copies (the
- * toolbar one and the empty-state one). Each opens a multi-select picker
- * filtered to its type and routes the result through `onImport`, which
- * queues the batch for background upload instead of importing inline.
+ * The "create a blank document" entries shared by both "New" dropdown copies
+ * (the toolbar one and the empty-state one). Icon and colour come from
+ * `TYPE_META`, so a type's appearance is defined once for the menu, the title
+ * cell, and the filter menu alike.
+ */
+function CreateMenuItems({
+  onCreate,
+}: {
+  onCreate: (payload: { title: string; type: DocumentType }) => void;
+}) {
+  return (
+    <>
+      {CREATE_ITEMS.map(({ type, title, label }) => {
+        const { Icon, color } = TYPE_META[type];
+        return (
+          <DropdownMenuItem
+            key={type}
+            onClick={() => onCreate({ title, type })}
+          >
+            <Icon className={`mr-2 h-4 w-4 ${color}`} />
+            {label}
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The "bring something in" entries shared by both "New" dropdown copies.
+ *
+ * There is deliberately ONE file entry rather than one per format. Every
+ * picker routes to the same place — `onImport` hands the batch to the upload
+ * queue, which decides the document type from the extension via
+ * `classifyUploadKind` — so the per-format entries differed only in the filter
+ * string passed to the OS file dialog. Since the queue accepts any file (see
+ * docs/design/generic-file-upload.md), that distinction stopped carrying
+ * information and only made the user pick the right door.
  */
 function ImportMenuItems({
   onImport,
@@ -266,27 +321,9 @@ function ImportMenuItems({
 }) {
   return (
     <>
-      <DropdownMenuItem onClick={() => onImport(".xlsx")}>
-        <FileDown className="mr-2 h-4 w-4 text-green-600" />
-        Import XLSX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".docx")}>
-        <FileDown className="mr-2 h-4 w-4 text-blue-500" />
-        Import DOCX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".pptx")}>
-        <FileDown className="mr-2 h-4 w-4 text-orange-500" />
-        Import PPTX
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => onImport(".pdf")}>
-        <IconFileTypePdf className="mr-2 h-4 w-4 text-red-500" />
-        Upload PDF
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={() => onImport(".png,.jpg,.jpeg,.gif,.webp")}
-      >
-        <ImageIcon className="mr-2 h-4 w-4 text-pink-500" />
-        Upload Image
+      <DropdownMenuItem onClick={() => onImport("")}>
+        <FileUp className="mr-2 h-4 w-4 text-muted-foreground" />
+        Upload files…
       </DropdownMenuItem>
       {/*
         Workspace-scoped, like "New folder" above: the import needs a workspace
@@ -660,12 +697,28 @@ export function DocumentList({
     });
   };
 
+  /**
+   * How many documents of each type are in view, for the filter menu's counts.
+   *
+   * Counted over `data` — the current folder's documents before type filtering
+   * — deliberately: counting the filtered rows instead would zero every
+   * unchecked type the moment one is checked, which is the opposite of what
+   * the number is for.
+   */
+  const typeCounts = useMemo(() => {
+    const counts = new Map<DocumentType, number>();
+    for (const doc of data) {
+      counts.set(doc.type, (counts.get(doc.type) ?? 0) + 1);
+    }
+    return counts;
+  }, [data]);
+
   const showFolders = !!workspaceId && !!onNavigateFolder;
 
   // The unified row model: folders (when this list supports them and no type
   // filter is active, since folders have no type) followed by documents. The
   // pinned `kind` sort keeps folders above documents regardless of the user's
-  // chosen column, and type-chip filtering runs here so it composes cleanly
+  // chosen column, and type filtering runs here so it composes cleanly
   // with the table's own text search and sorting.
   const rows = useMemo<ListRow[]>(() => {
     const folderRows: ListRow[] =
@@ -880,7 +933,7 @@ export function DocumentList({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {(doc.type === "image" || doc.type === "pdf") && (
+              {isBlobBacked(doc.type) && (
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
                     e.stopPropagation();
@@ -1049,22 +1102,24 @@ export function DocumentList({
     });
   };
 
-  // Download a single blob-backed document (pdf/image) through the authed file
-  // endpoint. Other document types have nothing to download.
+  // Download a single blob-backed document (pdf/image/file) through the
+  // authed file endpoint. Other document types have nothing to download.
   const handleDownload = async (doc: Document) => {
     try {
-      await downloadDocumentFile({ id: String(doc.id), title: doc.title });
+      await downloadDocumentFile({
+        id: String(doc.id),
+        title: doc.title,
+        fileId: doc.fileId,
+      });
     } catch {
       toast.error(`Failed to download "${doc.title}"`);
     }
   };
 
-  // The pdf/image documents in the current selection — what a bulk "Download"
-  // acts on.
+  // The blob-backed documents in the current selection — what a bulk
+  // "Download" acts on.
   const downloadableSelected = data.filter(
-    (d) =>
-      selectedDocIds.includes(String(d.id)) &&
-      (d.type === "image" || d.type === "pdf"),
+    (d) => selectedDocIds.includes(String(d.id)) && isBlobBacked(d.type),
   );
 
   const handleBulkDownload = async () => {
@@ -1164,30 +1219,67 @@ export function DocumentList({
           className="w-full min-w-0 sm:max-w-xs"
         />
         <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-1">
-        <div className="flex items-center gap-1">
-          {TYPE_OPTIONS.map((type) => {
-            const { label, Icon, color } = TYPE_META[type];
-            const active = typeFilters.has(type);
-            return (
-              <Tooltip key={type}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant={active ? "secondary" : "outline"}
-                    size="icon"
-                    aria-pressed={active}
-                    aria-label={`Filter by ${label}`}
-                    onClick={() => toggleType(type)}
-                    className={active ? undefined : "text-muted-foreground"}
-                  >
-                    <Icon className={`h-4 w-4 ${color}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+        {/*
+          One menu rather than a toggle button per type. Icon-only chips grew
+          with every new document type and were unlabelled without a hover —
+          which touch devices never deliver. Here the labels are text, the
+          trigger carries the active count, and adding a type widens nothing.
+        */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            {/*
+              No `aria-label` here on purpose: it would replace the button's
+              inner content as the accessible name, so the active-filter badge
+              below would never be announced and a screen-reader user would
+              hear the same thing whether or not the list was filtered. The
+              visible "Type" text is the name; the badge adds the state.
+            */}
+            <Button
+              type="button"
+              variant={typeFilters.size > 0 ? "secondary" : "outline"}
+              className="flex items-center gap-2"
+            >
+              <ListFilter className="h-4 w-4" />
+              Type
+              {typeFilters.size > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground tabular-nums">
+                  {typeFilters.size}
+                  <span className="sr-only"> filters active</span>
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuLabel>Filter by type</DropdownMenuLabel>
+            {TYPE_OPTIONS.map((type) => {
+              const { label, Icon, color } = TYPE_META[type];
+              return (
+                <DropdownMenuCheckboxItem
+                  key={type}
+                  checked={typeFilters.has(type)}
+                  onCheckedChange={() => toggleType(type)}
+                  // Keep the menu open: these filters are multi-select, and
+                  // closing after each tick would make picking two a chore.
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <Icon className={`h-4 w-4 ${color}`} />
+                  <span className="flex-1">{label}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {typeCounts.get(type) ?? 0}
+                  </span>
+                </DropdownMenuCheckboxItem>
+              );
+            })}
+            {typeFilters.size > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setTypeFilters(new Set())}>
+                  Clear filters
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="ml-auto flex items-center gap-2">
@@ -1196,64 +1288,19 @@ export function DocumentList({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({ title: "New Sheet" })
-              }
-            >
-              <Sheet className="mr-2 h-4 w-4 text-green-600" />
-              New Sheet
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Document",
-                  type: "doc",
-                })
-              }
-            >
-              <FileText className="mr-2 h-4 w-4 text-blue-500" />
-              New Document
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Note",
-                  type: "note",
-                })
-              }
-            >
-              <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
-              New Note
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "New Presentation",
-                  type: "slides",
-                })
-              }
-            >
-              <Presentation className="mr-2 h-4 w-4 text-orange-500" />
-              New Presentation
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                createDocumentMutation.mutate({
-                  title: "Untitled board",
-                  type: "board",
-                })
-              }
-            >
-              <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
-              New Board
-            </DropdownMenuItem>
+            <CreateMenuItems
+              onCreate={(payload) => createDocumentMutation.mutate(payload)}
+            />
             {workspaceId && (
-              <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
-                <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-                New folder
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
+                  <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                  New folder
+                </DropdownMenuItem>
+              </>
             )}
+            <DropdownMenuSeparator />
             <ImportMenuItems
               onImport={handleImportPick}
               onImportMiro={() => setMiroImportOpen(true)}
@@ -1387,60 +1434,12 @@ export function DocumentList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Sheet",
-                            })
+                        <CreateMenuItems
+                          onCreate={(payload) =>
+                            createDocumentMutation.mutate(payload)
                           }
-                        >
-                          <Sheet className="mr-2 h-4 w-4 text-green-600" />
-                          New Sheet
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Document",
-                              type: "doc",
-                            })
-                          }
-                        >
-                          <FileText className="mr-2 h-4 w-4 text-blue-500" />
-                          New Document
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Note",
-                              type: "note",
-                            })
-                          }
-                        >
-                          <NotebookPen className="mr-2 h-4 w-4 text-purple-500" />
-                          New Note
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "New Presentation",
-                              type: "slides",
-                            })
-                          }
-                        >
-                          <Presentation className="mr-2 h-4 w-4 text-orange-500" />
-                          New Presentation
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            createDocumentMutation.mutate({
-                              title: "Untitled board",
-                              type: "board",
-                            })
-                          }
-                        >
-                          <Frame className="mr-2 h-4 w-4 text-fuchsia-600" />
-                          New Board
-                        </DropdownMenuItem>
+                        />
+                        <DropdownMenuSeparator />
                         <ImportMenuItems
                           onImport={handleImportPick}
                           onImportMiro={() => setMiroImportOpen(true)}

@@ -3,9 +3,9 @@ import { fileUrl } from "./files";
 
 /**
  * Fallback extension by blob MIME type, used when a document's stored `fileId`
- * (which carries the original extension) isn't available on the caller — e.g.
- * the documents list, whose projection omits it. Covers the blob types the app
- * accepts (pdf + the image formats).
+ * (which carries the original extension) isn't available on the caller, or
+ * when the blob key has no dot at all (an extension-less `file` upload).
+ * Covers the blob types the app accepts (pdf + the image formats).
  */
 const MIME_EXT: Record<string, string> = {
   "application/pdf": "pdf",
@@ -26,7 +26,7 @@ export function downloadFileName(
   mime?: string,
 ): string {
   const ext =
-    fileId?.split(".").pop()?.toLowerCase() ||
+    (fileId?.includes(".") ? fileId.split(".").pop() : undefined)?.toLowerCase() ||
     (mime ? MIME_EXT[mime] : undefined);
   if (!ext) return title;
   return title.toLowerCase().endsWith(`.${ext}`) ? title : `${title}.${ext}`;

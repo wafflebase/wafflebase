@@ -31,6 +31,14 @@ export interface ArrangeMenuProps {
   selectionSize: number;
   /** Whether a single group element is currently selected (enables Ungroup). */
   canUngroup?: boolean;
+  /**
+   * Minimum selection size for Align to be enabled. Defaults to 1,
+   * which is the slides behavior: `editor.align()` aligns a lone
+   * element to the 1920x1080 slide canvas. A board is an unbounded
+   * plane with no such rect, so a board mount passes 2 and only ever
+   * reaches `align()`'s selection-bounding-box branch.
+   */
+  minAlignSelection?: number;
 }
 
 /**
@@ -38,8 +46,17 @@ export interface ArrangeMenuProps {
  * actions into a single menu button. Rendered only in the object-selected
  * toolbar states (shape / image / text-element / mixed).
  */
-export function ArrangeMenu({ editor, selectionSize, canUngroup = false }: ArrangeMenuProps) {
-  const canAlign = !!editor && selectionSize > 0;
+export function ArrangeMenu({
+  editor,
+  selectionSize,
+  canUngroup = false,
+  minAlignSelection = 1,
+}: ArrangeMenuProps) {
+  const canAlign = !!editor && selectionSize >= minAlignSelection;
+  // Rotation turns the selection about its own centre, so unlike Align it
+  // needs no reference rect and stays available for a lone element — a
+  // board raising `minAlignSelection` must not disable it.
+  const canRotate = !!editor && selectionSize >= 1;
   const canDistribute = !!editor && selectionSize >= 3;
   const canGroup = !!editor && selectionSize >= 2;
 
@@ -149,13 +166,13 @@ export function ArrangeMenu({ editor, selectionSize, canUngroup = false }: Arran
 
         {/* Rotate */}
         <DropdownMenuItem
-          disabled={!canAlign}
+          disabled={!canRotate}
           onClick={() => editor?.rotateBy(Math.PI / 2)}
         >
           Rotate 90° clockwise
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!canAlign}
+          disabled={!canRotate}
           onClick={() => editor?.rotateBy(-Math.PI / 2)}
         >
           Rotate 90° counter-clockwise

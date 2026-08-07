@@ -18,6 +18,8 @@ import { WorkspaceService } from '../../workspace/workspace.service';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { YorkieAdminService } from '../../yorkie/yorkie-admin.service';
 import { yorkieDocKey } from '../../yorkie/yorkie-doc-key';
+import { FileService } from '../../file/file.service';
+import { VALID_FILE_ID_PATTERN } from '../../file/file.constants';
 
 @Controller('api/v1/workspaces/:workspaceId/documents')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
@@ -26,6 +28,7 @@ export class ApiV1DocumentsController {
     private readonly documentService: DocumentService,
     private readonly yorkieAdminService: YorkieAdminService,
     private readonly workspaceService: WorkspaceService,
+    private readonly fileService: FileService,
   ) {}
 
   @Get()
@@ -119,6 +122,22 @@ export class ApiV1DocumentsController {
         );
       }
     }
-    return this.documentService.deleteDocument({ id: documentId });
+    const deleted = await this.documentService.deleteDocument({
+      id: documentId,
+    });
+    if (doc.fileId && VALID_FILE_ID_PATTERN.test(doc.fileId)) {
+      // Same cleanup the JWT delete does. It became routine here once `POST
+      // /files` let this surface create blob documents in the first place;
+      // without it every CLI delete leaks its bytes. Best-effort — a failed
+      // cleanup must not fail the delete, but log it so an orphaned object has
+      // operational visibility.
+      await this.fileService.delete(doc.fileId).catch((err) => {
+        console.warn(
+          `[ApiV1DocumentsController] Failed to delete blob ${doc.fileId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
+    return deleted;
   }
 }
