@@ -34,6 +34,21 @@ test("loc: real blob link with line, code span without blobBase, nothing without
   assert.equal(loc(F("major", "", "x"), base), "");
 });
 
+test("loc: URL-encodes reserved chars in the path (slashes preserved, label raw)", () => {
+  const base = "https://github.com/o/r/blob/sha";
+  // ')' would close the Markdown link early; '#'/'?'/space would break the URL.
+  assert.equal(
+    loc(F("major", "src/a(b).ts", "x", { line: 3 }), base),
+    "[`src/a(b).ts:3`](https://github.com/o/r/blob/sha/src/a%28b%29.ts#L3)",
+  );
+  assert.equal(
+    loc(F("major", "d/weird #?.ts", "x"), base),
+    "[`d/weird #?.ts`](https://github.com/o/r/blob/sha/d/weird%20%23%3F.ts)",
+  );
+  // slashes stay separators, not %2F
+  assert.match(loc(F("major", "a/b/c.ts", "x"), base), /\/a\/b\/c\.ts\)$/);
+});
+
 test("headline counts + verdict, blocking expanded and first", () => {
   const out = renderReviewComment([
     lens("correctness", "Correctness", [F("critical", "a.ts", "boom", { line: 5 }), F("minor", "a.ts", "small")]),
@@ -142,6 +157,24 @@ test("truncation drops WHOLE collapsed blocks with a stated count; blocking stay
   assert.match(out, /#### 🚫 Blocking \(1\)/); // blocking always kept
   assert.match(out, /the blocker/);
   assert.match(out, /hidden for length/); // truncation stated
+});
+
+test("oversized blocking evidence never drops a blocking finding, and maxChars holds", () => {
+  const big = "E".repeat(5000);
+  const findings = Array.from({ length: 6 }, (_, i) => F("major", `f${i}.ts`, `blocker ${i}`, { evidence: big }));
+  const out = renderReviewComment([lens("correctness", "Correctness", findings)], { maxChars: 1200 });
+  for (let i = 0; i < 6; i++) {
+    assert.ok(out.includes(`blocker ${i}`), `blocking finding "blocker ${i}" must be retained`);
+  }
+  assert.ok(out.length <= 1200, `comment length ${out.length} must respect maxChars`);
+  assert.ok(!out.includes(big), "evidence too large for the budget is dropped, not the finding");
+});
+
+test("blocking one-liners overflowing the cap are counted, never silently dropped", () => {
+  const findings = Array.from({ length: 30 }, (_, i) => F("major", `pkg/f${i}.ts`, `blocking issue number ${i}`));
+  const out = renderReviewComment([lens("correctness", "Correctness", findings)], { maxChars: 600 });
+  assert.ok(out.length <= 600, `length ${out.length} <= 600`);
+  assert.match(out, /blocking findings? hidden for length/); // the dropped blockers are stated
 });
 
 // ---- CLI + collectLenses over a real .agent-review tree --------------------

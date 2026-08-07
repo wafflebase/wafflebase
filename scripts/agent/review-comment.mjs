@@ -55,7 +55,14 @@ export function loc(f, blobBase) {
   const line = Number.isInteger(f.line) && f.line > 0 ? f.line : null;
   const label = line ? `${file}:${line}` : file;
   if (!blobBase) return `\`${label}\``;
-  const url = `${blobBase.replace(/\/$/, "")}/${file}${line ? `#L${line}` : ""}`;
+  // Encode each path segment (preserving the `/` separators) so a filename with a
+  // reserved char — `)` would end the Markdown link early, `#`/`?` would start a
+  // fragment/query — produces a valid commit URL. The label keeps the raw path.
+  // encodeURIComponent leaves `()` unescaped, but `)` is exactly what closes the
+  // link, so encode parens too.
+  const enc = (s) => encodeURIComponent(s).replace(/\(/g, "%28").replace(/\)/g, "%29");
+  const encodedPath = file.split("/").map(enc).join("/");
+  const url = `${blobBase.replace(/\/$/, "")}/${encodedPath}${line ? `#L${line}` : ""}`;
   return `[\`${label}\`](${url})`;
 }
 
@@ -72,18 +79,24 @@ function mergedNote(f) {
   );
 }
 
-// One expanded blocking finding: the one-line summary + linkable ref + lens tag,
-// with the longer `evidence` and any merged wordings tucked into a fold.
-function blockingItem(f, blobBase) {
+// The one-liner for a blocking finding — summary + linkable ref + lens tag. This
+// is the part that is NEVER dropped: every blocking finding is published at least
+// this much (see the budget assembly in renderReviewComment).
+function blockingHead(f, blobBase) {
   const where = loc(f, blobBase);
-  const head = `- ${where ? `**${where}** — ` : ""}${oneLine(f.summary) || "(no summary)"}` +
+  return `- ${where ? `**${where}** — ` : ""}${oneLine(f.summary) || "(no summary)"}` +
     ` <sup>${f._lens}</sup>` +
     (f.unsettled ? " _(verifier could not settle this)_" : "");
+}
+
+// The collapsible extra for a blocking finding — its longer `evidence` and any
+// merged wordings. "" when there is none. Appended to the one-liner only while
+// the comment is under budget, so oversized evidence can never push a blocking
+// finding out — it just loses its (collapsible) detail.
+function blockingEvidence(f) {
   const ev = typeof f.evidence === "string" && f.evidence.trim();
-  const merged = mergedNote(f);
-  if (!ev && !merged) return head;
   const evBlock = ev ? `\n\n  <details><summary>evidence</summary>\n\n  ${f.evidence.trim().replace(/\n/g, "\n  ")}\n  </details>` : "";
-  return head + evBlock + merged;
+  return evBlock + mergedNote(f);
 }
 
 // One row inside a collapsed minor/nit block. `showSev` prefixes the severity
@@ -181,13 +194,6 @@ export function renderReviewComment(lenses, { blobBase = "", maxChars = DEFAULT_
     .map((f, i) => ({ f, i }))
     .sort((a, b) => rankSev(a.f) - rankSev(b.f) || (lensOrder.get(a.f._lens) - lensOrder.get(b.f._lens)) || a.i - b.i)
     .map((x) => x.f);
-  const blockingSection = blocking.length
-    ? `\n\n#### 🚫 Blocking (${blocking.length})\n` + blockingSorted.map((f) => blockingItem(f, blobBase)).join("\n")
-    : "";
-
-  // MANDATORY region — never truncated.
-  const mandatory = `${header}\n${headline}${unverifiedNote}${blockingSection}`;
-
   // Optional collapsed blocks, appended in priority order against the budget.
   const optional = [];
   for (const l of perLens) {
@@ -220,21 +226,65 @@ export function renderReviewComment(lenses, { blobBase = "", maxChars = DEFAULT_
     });
   }
 
-  // Fit optional blocks under the budget; whole blocks only. Anything that
-  // doesn't fit is reported as a count, never dropped silently.
-  let out = mandatory;
-  let hiddenFindings = 0;
+  // ---- assemble under maxChars, enforcing it over EVERYTHING ---------------
+  // Guaranteed minimum: header + headline + note + EVERY blocking finding's
+  // one-liner. Evidence folds and the collapsed sections are added only while
+  // under budget; whatever doesn't fit is reported as a count, never dropped
+  // silently. This is what keeps oversized blocking evidence from either
+  // exceeding GitHub's cap or slicing a blocking finding out downstream.
+  const NOTE_MARGIN = 200; // reserve room for the "… N hidden" notice
+  const budget = Math.max(0, maxChars - NOTE_MARGIN);
+  const preamble = `${header}\n${headline}${unverifiedNote}`;
+
+  let out = preamble;
+  let hiddenBlocking = 0;
+  const shown = []; // indices of blockingSorted whose one-liner was kept
+  if (blocking.length) {
+    out += `\n\n#### 🚫 Blocking (${blocking.length})`;
+    for (let i = 0; i < blockingSorted.length; i++) {
+      const line = `\n${blockingHead(blockingSorted[i], blobBase)}`;
+      // One-liners are the guaranteed minimum, but a pathological count still
+      // must not exceed the cap — keep as many as fit, count the rest.
+      if (out.length + line.length <= budget) { out += line; shown.push(i); }
+      else hiddenBlocking++;
+    }
+    // Add each kept finding's evidence fold, front-to-back, while under budget —
+    // rebuilt so the fold sits under its own finding. Skipped entirely (no
+    // rebuild) in the common case where no blocking finding carries evidence.
+    if (shown.some((i) => blockingEvidence(blockingSorted[i]))) {
+      let rebuilt = `\n\n#### 🚫 Blocking (${blocking.length})`;
+      let used = preamble.length + rebuilt.length;
+      for (const i of shown) {
+        const head = `\n${blockingHead(blockingSorted[i], blobBase)}`;
+        const evid = blockingEvidence(blockingSorted[i]);
+        if (evid && used + head.length + evid.length <= budget) {
+          rebuilt += head + evid; used += head.length + evid.length;
+        } else {
+          rebuilt += head; used += head.length;
+        }
+      }
+      out = preamble + rebuilt;
+    }
+  }
+
+  // Fit optional collapsed blocks under the budget; whole blocks only.
+  let hiddenOptional = 0;
   let stopped = false;
   for (const block of optional) {
-    if (!stopped && out.length + block.md.length + 2 <= maxChars) {
+    if (!stopped && out.length + block.md.length + 2 <= budget) {
       out += `\n\n${block.md}`;
     } else {
       stopped = true;
-      hiddenFindings += block.count;
+      hiddenOptional += block.count;
     }
   }
-  if (stopped && hiddenFindings > 0) {
-    out += `\n\n… _(${plural(hiddenFindings, "further finding", "further findings")} hidden for length; full detail in the review artifacts.)_`;
+
+  const hidden = hiddenBlocking + hiddenOptional;
+  if (hidden > 0) {
+    const parts = [];
+    if (hiddenBlocking) parts.push(plural(hiddenBlocking, "blocking finding", "blocking findings"));
+    if (hiddenOptional) parts.push(plural(hiddenOptional, "other finding", "other findings"));
+    out += `\n\n… _(${parts.join(" + ")} hidden for length; full detail in the review artifacts.)_`;
   }
   return out;
 }

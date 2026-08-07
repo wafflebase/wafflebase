@@ -402,7 +402,7 @@ Components:
     `<summary>`), and the long reviewer prose + relocated/pre-existing findings
     collapsed below. A lens with zero findings is omitted; collapsed sections
     past a char budget are dropped with a stated count (blocking findings never
-    are). It is PRESENTATION ONLY — it reads the same `verdict.json` findings and
+    are). It is PRESENTATION ONLY — it reads the same `.agent-review/<lens>/verdict.json` findings and
     changes nothing about detection, severity, or the gate; the autonomous
     panel's per-lens check bodies still go through `severity.mjs::renderSummaryMd`
     untouched, and the on-demand path falls back to that per-lens concatenation
