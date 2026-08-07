@@ -50,7 +50,17 @@ export const PAGED_LATCH = "<!-- agent-review-paged -->";
  */
 export const PAGE_AUTHOR_LOGINS = Object.freeze(["github-actions[bot]", "yorkie-agent[bot]"]);
 
-/** Associations that mean "has write access to this repo". */
+/**
+ * Associations that mean "a human attached to this project", NOT "has write
+ * access" — `MEMBER` is org membership and `COLLABORATOR` is satisfied by a
+ * read-only invite, so neither proves repo permission. Only
+ * `permissionResolver` answers that.
+ *
+ * Good enough for `isPagedLatchComment`, whose fail direction is the safe one:
+ * over-accepting there LATCHES the PR — it stops the loop and hands it to a
+ * human. `isRerunCommand` is the opposite (accepting GRANTS budget) and so does
+ * not use this as an accept path when a resolver is available.
+ */
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 /**
@@ -100,28 +110,71 @@ export function isPagedLatchComment(comment) {
  * rerun the router did not (or miss one it did) and move the floor for a hand-back
  * that never happened.
  *
- * `author_association` is weaker than the `getCollaboratorPermissionLevel` gate the
- * command itself enforces — an org MEMBER without repo write passes here. Named as
- * a known gap rather than hidden: the consequence is extra fix attempts on a PR a
- * member asked about, which is a different order of problem from the agent
- * un-bounding itself, and closing it needs an API call this pure function cannot
- * make. The workflow still refuses to DO anything for such a user.
+ * `author_association` ALONE was the trust test here, and it was wrong in the
+ * direction this comment did not anticipate. It was named as a known gap for
+ * being too permissive (an org MEMBER without repo write passing); the failure
+ * that actually happened was the opposite. On #648 a maintainer with Maintain
+ * ran `@claude rerun` four times and GitHub reported every one of those comments
+ * as `CONTRIBUTOR` — association describes the commenter's relationship to the
+ * PR thread, not their permission, and it reads CONTRIBUTOR for anyone with
+ * commits on the repo whose org membership is not public. So the floor was never
+ * set, the guard counted the PR's whole history, and it paged with "tried 3
+ * time(s) (limit 3)" against a rerun that had reset nothing.
+ *
+ * The verb worked; only its consequence was dropped. `agent-rerun.yml` gates on
+ * `getCollaboratorPermissionLevel` — authoritative — so the label came off and CI
+ * re-ran, while the budget silently did not move. Two checks for one question,
+ * disagreeing.
+ *
+ * `trusts` closes it: an injected `(login) => true | false | null` that the guard
+ * builds from the same API the workflows use. When it is supplied it is the ONLY
+ * authority — association is not consulted at all.
+ *
+ * Association is NOT kept as a fast-path accept, and an earlier revision of this
+ * comment was wrong to claim OWNER/MEMBER/COLLABORATOR "already mean write
+ * access". They do not. `MEMBER` is membership of the owning ORG, which on this
+ * repo says nothing about repo permission, and `COLLABORATOR` is satisfied by a
+ * read- or triage-only invite. Both would have moved the floor for a commenter
+ * `agent-rerun.yml` then REFUSED to run — the same "two checks for one question,
+ * disagreeing" shape this function exists to remove, just pointing the other
+ * way: budget granted for a rerun that never happened. Saving one memoized API
+ * call per rerun commenter is not worth reintroducing it.
+ *
+ * FAIL DIRECTION: an unresolvable login does NOT set the floor. Not resetting
+ * leaves the PR paged for a human, which is where a PR the loop cannot finish
+ * belongs; resetting on an unknown would hand more attempts to the bounded party
+ * on the strength of a failed lookup. That now covers a trusted-looking
+ * association whose permission lookup failed, which previously rode the
+ * fast path.
+ *
+ * With no `trusts` at all the function is exactly what it was before — pure, and
+ * association-only. The only caller without a resolver is `loop-status.mjs`,
+ * which is a PROJECTION, NEVER A GATE (see its header): the worst it can do is
+ * display a round count the guard will not honour. Every gating caller injects
+ * one.
  */
-export function rerunPointFrom(comments) {
+export function rerunPointFrom(comments, opts) {
   const stamps = (Array.isArray(comments) ? comments : [])
-    .filter(isRerunCommand)
+    .filter((c) => isRerunCommand(c, opts))
     .map((c) => Date.parse(String(c.created_at ?? "")))
     .filter((n) => Number.isFinite(n));
   return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
 }
 
 /** Is this a maintainer's `@claude rerun`? Bots are refused — see rerunPointFrom. */
-export function isRerunCommand(comment) {
+export function isRerunCommand(comment, { trusts } = {}) {
   const c = comment && typeof comment === "object" ? comment : {};
   const user = c.user && typeof c.user === "object" ? c.user : {};
+  // Structural, and checked first: no App can present as a non-Bot, so this is
+  // what stops the bounded party resetting its own bound.
   if (user.type === "Bot") return false;
-  if (!TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return false;
-  return parseCommand(String(c.body ?? ""), { surface: "pr" }).command === "rerun";
+  if (parseCommand(String(c.body ?? ""), { surface: "pr" }).command !== "rerun") return false;
+  // The resolver, when there is one, is the ONLY authority — it is the same
+  // question `agent-rerun.yml` asks, asked the same way, so the two cannot
+  // disagree. Association is consulted only in the pure, resolver-less form,
+  // which no gating caller uses.
+  if (typeof trusts === "function") return trusts(String(user.login ?? "")) === true;
+  return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
