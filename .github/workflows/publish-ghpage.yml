@@ -33,10 +33,29 @@ jobs:
           pnpm build:all
 
       - name: Create asset manifest
+        # Covers both hashed-asset trees: the frontend's own `assets/` and the
+        # VitePress `docs/assets/` copied in by build:all. Anything missing here
+        # is invisible to the cleanup step below and accumulates forever.
+        #
+        # A manifest that silently omits a tree is worse than no manifest at
+        # all: cleanup deletes by set, so the omitted tree's current build
+        # would be pruned away. `find` exits non-zero on a missing directory
+        # but still writes what it did find, and without pipefail `sort`
+        # swallows that — so assert the directories and enable pipefail.
         run: |
+          set -o pipefail
           mkdir -p packages/frontend/dist/.manifests
-          (cd packages/frontend/dist && find assets -type f | sort) \
-            > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
+          (
+            cd packages/frontend/dist
+            for dir in assets docs/assets; do
+              if [ ! -d "$dir" ]; then
+                # stderr, not stdout: this subshell's stdout is the manifest.
+                echo "::error::Build output $dir is missing; refusing to write a partial manifest" >&2
+                exit 1
+              fi
+            done
+            find assets docs/assets -type f | LC_ALL=C sort
+          ) > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
@@ -48,39 +67,66 @@ jobs:
           keep_files: true
 
       - name: Cleanup old assets
+        # `keep_files: true` above never deletes, so this step is the only
+        # counterweight. It is set-based, not diff-based: the keep-set is the
+        # union of the newest KEEP_COUNT manifests, and every tracked file under
+        # the hashed-asset trees outside that set goes. A diff over expired
+        # manifests can never reach a file no manifest ever named, which is how
+        # ~300 generations of docs/assets/chunks piled up and pushed the Pages
+        # deployment past the 600s timeout in actions/deploy-pages.
         run: |
           git fetch origin gh-pages
           git worktree add gh-pages-tmp origin/gh-pages
 
           cd gh-pages-tmp
 
-          # Keep only the 5 most recent manifests
-          MANIFESTS=($(ls -1 .manifests/*.txt 2>/dev/null | sort -r))
-          KEEP_COUNT=5
+          # Retain this many deployments' worth of hashed assets, so clients
+          # holding a cached index.html can still load what it references.
+          KEEP_COUNT=3
 
-          if [ ${#MANIFESTS[@]} -le $KEEP_COUNT ]; then
-            echo "Only ${#MANIFESTS[@]} manifests found, nothing to clean up"
+          # Trees the manifests describe, and the only ones we prune.
+          # pdfjs/ is excluded on purpose: stable, unhashed filenames.
+          ASSET_DIRS="assets docs/assets"
+
+          MANIFESTS=($(ls -1 .manifests/*.txt 2>/dev/null | sort -r))
+
+          if [ ${#MANIFESTS[@]} -eq 0 ]; then
+            echo "No manifests found, nothing to clean up"
             cd ..
             git worktree remove gh-pages-tmp
             exit 0
           fi
 
-          # Collect assets to keep (union of recent manifests)
-          : > /tmp/keep-assets.txt
-          for f in "${MANIFESTS[@]:0:$KEEP_COUNT}"; do
-            cat "$f" >> /tmp/keep-assets.txt
-          done
-          sort -u /tmp/keep-assets.txt -o /tmp/keep-assets.txt
+          # Deleting by set makes a bad manifest catastrophic rather than a
+          # no-op, so refuse rather than empty the site. Non-empty is not
+          # enough: a manifest covering only one of the trees would prune the
+          # other tree's current build, so require every tree to appear.
+          if [ ! -s "${MANIFESTS[0]}" ]; then
+            echo "::error::Newest manifest ${MANIFESTS[0]} is empty; refusing to prune"
+            exit 1
+          fi
 
-          # Remove assets only referenced by old manifests
+          for dir in $ASSET_DIRS; do
+            if ! grep -q "^$dir/" "${MANIFESTS[0]}"; then
+              echo "::error::Newest manifest ${MANIFESTS[0]} names nothing under $dir/; refusing to prune"
+              exit 1
+            fi
+          done
+
+          # Keep-set: every asset named by the KEEP_COUNT most recent manifests.
+          cat "${MANIFESTS[@]:0:$KEEP_COUNT}" | LC_ALL=C sort -u > /tmp/keep-assets.txt
+          git ls-files -- $ASSET_DIRS | LC_ALL=C sort > /tmp/tracked-assets.txt
+          LC_ALL=C comm -23 /tmp/tracked-assets.txt /tmp/keep-assets.txt > /tmp/stale-assets.txt
+
           CHANGED=false
+
+          if [ -s /tmp/stale-assets.txt ]; then
+            echo "Pruning $(wc -l < /tmp/stale-assets.txt) asset(s) older than $KEEP_COUNT deployments"
+            tr '\n' '\0' < /tmp/stale-assets.txt | xargs -0 git rm -q --
+            CHANGED=true
+          fi
+
           for f in "${MANIFESTS[@]:$KEEP_COUNT}"; do
-            while IFS= read -r asset; do
-              if ! grep -qxF "$asset" /tmp/keep-assets.txt && [ -f "$asset" ]; then
-                git rm -q "$asset"
-                CHANGED=true
-              fi
-            done < "$f"
             git rm -q "$f"
             CHANGED=true
           done
@@ -88,8 +134,10 @@ jobs:
           if [ "$CHANGED" = true ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -m "Clean up assets older than 5 deployments"
+            git commit -m "Clean up assets older than $KEEP_COUNT deployments"
             git push origin HEAD:gh-pages
+          else
+            echo "Nothing to clean up"
           fi
 
           cd ..

@@ -46,6 +46,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "../gh-checks.mjs";
 import { CORPUS_ITEM_FILES, EvalStore, contentSha256 } from "./store.mjs";
 import { scopeSize } from "../metrics.mjs"; // the pipeline's own S/M/L rule, not a second one
+import { localizationFromDiff } from "../classify.mjs"; // and the pipeline's own spread rule, likewise
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -273,6 +274,15 @@ export function buildItemMeta(view, diff, issueSpec, reviewPoint = {}, diffMetho
     additions,
     deletions,
     scope: scopeSize(additions, deletions),
+    // HOW SPREAD OUT the change is, which `scope` and `changed_files` between them
+    // cannot express: `scope` says how big, `changed_files` says which paths, and
+    // neither says whether a reviewer is reading one hunk or nine modules. Those
+    // are different review problems at identical size, so segmentation needs the
+    // axis recorded rather than recomputed by each reader off `changed_files` —
+    // which could not recover `single_hunk` at all (hunk counts are not in the
+    // path list). Taken from the FROZEN DIFF for the same reason additions is:
+    // the merged PR's file list spans whatever the post-review fix loop touched.
+    localization_scope: localizationFromDiff(diff),
     // Of the MERGED PR, kept as provenance. Not a size proxy for the review.
     pr_additions: Number(view.additions) || 0,
     pr_deletions: Number(view.deletions) || 0,
@@ -281,7 +291,14 @@ export function buildItemMeta(view, diff, issueSpec, reviewPoint = {}, diffMetho
   };
 }
 
-/** The compact index entry that goes in a corpus manifest. */
+/**
+ * The compact index entry that goes in a corpus manifest.
+ *
+ * `localization_scope` rides along beside `scope` because the two are one query:
+ * "compare the panel on small-single-hunk items against small-cross-module ones"
+ * is answerable off the manifest alone, and without the field here it means
+ * opening every item's `meta.json` to re-read a value already computed.
+ */
 export function manifestItem(meta) {
   return {
     id: meta.id,
@@ -294,6 +311,7 @@ export function manifestItem(meta) {
     sha256_diff: meta.sha256_diff,
     has_issue_spec: meta.has_issue_spec,
     scope: meta.scope,
+    localization_scope: meta.localization_scope,
     provenance: meta.provenance,
   };
 }
@@ -314,7 +332,27 @@ export function corpusItemDrift(fresh, stored) {
   if (fresh.diff !== s.diff) drift.push("diff.patch");
   if (fresh.meta.sha256_diff !== sMeta.sha256_diff) drift.push("sha256_diff");
   if (contentSha256(String(s.diff ?? "")) !== sMeta.sha256_diff) drift.push("stored sha256_diff vs stored diff.patch");
-  for (const field of ["review_commit", "review_base", "review_point", "diff_method"]) {
+  // `localization_scope` is DERIVED from the diff, and a derived field belongs in
+  // this list precisely because the diff is already compared. The bytes prove the
+  // INPUT is stable; they say nothing about the derivation. Edit
+  // `localizationFromDiff` — change what counts as a module, count hunks
+  // differently — and a re-extraction produces a different value from identical
+  // bytes, which no other entry here can see: the diff matches, the hash matches,
+  // only the meaning moved. It also covers the opposite direction, an item frozen
+  // BEFORE the field existed: `undefined` against a real value is drift, so such
+  // an item is reported and refused instead of being silently re-indexed without
+  // the field. That second case is the trap this list has to keep answering,
+  // because it reopens for every derived field anyone adds after a freeze — the
+  // rule is that a new derived field goes in here in the same commit that adds it,
+  // otherwise the only run that could have noticed prints `= unchanged`.
+  //
+  // `additions`/`deletions`/`scope` are the same class of field and are NOT here
+  // yet — a gap, not a distinction, and named so nobody reads their absence as an
+  // argument. This one is the urgent case of the three because its derivation is
+  // the only one that lives OUTSIDE this module: `localizationFromDiff` belongs to
+  // `classify.mjs`, which is maintained for the labelling pipeline's reasons and
+  // can be edited by someone who has never heard of the corpus.
+  for (const field of ["review_commit", "review_base", "review_point", "diff_method", "localization_scope"]) {
     if (fresh.meta[field] !== sMeta[field]) drift.push(`meta.${field}`);
   }
   const freshFiles = fresh.meta.changed_files ?? [];
@@ -620,9 +658,15 @@ export function extractCorpus({
     }
     written++;
     items.push(manifestItem(meta));
+    // `localization_scope` prints on THIS line and not on the `= unchanged` one:
+    // the `+` line is what `--dry-run` shows a human before they freeze anything,
+    // and a derived field is only checkable while the item can still be refused.
+    // The `=` line reports an item that is already immutable, and the drift list
+    // above is what guards that path.
     log(
       `  + ${meta.id} (${meta.changed_files.length} files, +${meta.additions}/-${meta.deletions} ${meta.scope}, ` +
-        `issue_spec=${meta.has_issue_spec}, @${meta.review_point} ${meta.review_commit.slice(0, 8)}, ${method})`,
+        `${meta.localization_scope}, issue_spec=${meta.has_issue_spec}, @${meta.review_point} ` +
+        `${meta.review_commit.slice(0, 8)}, ${method})`,
     );
   }
 

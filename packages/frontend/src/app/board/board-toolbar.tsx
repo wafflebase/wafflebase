@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
-import { Toolbar } from "@/components/ui/toolbar";
+import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -18,10 +18,26 @@ import { Button } from "@/components/ui/button";
 import { ShapePicker } from "../slides/shape-picker";
 import { LinePicker } from "../slides/line-picker";
 import { isLineToolKind } from "../slides/line-picker-helpers";
+import type { ZoomController } from "../slides/zoom-controller";
+import { getToolbarState, type ToolbarState } from "../slides/toolbar/state";
+import { UndoRedoGroup } from "../slides/toolbar/global-controls";
+import { ZoomControl } from "../slides/toolbar/zoom-control";
+import { ShapeControls } from "../slides/toolbar/shape-controls";
+import { ImageControls } from "../slides/toolbar/image-controls";
+import { TextElementControls } from "../slides/toolbar/text-element-controls";
+import { TextEditSection } from "../slides/toolbar/text-edit-section";
+import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
+import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS } from "./sticky";
 
 export interface BoardToolbarProps {
   editor: SlidesEditor | null;
+  /**
+   * The board's `SlidesStore` adapter. Needed by the contextual
+   * controls (they read element data through it) and by Undo/Redo.
+   */
+  store?: SlidesStore | null;
+  zoomController?: ZoomController | null;
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
@@ -30,9 +46,14 @@ export interface BoardToolbarProps {
 }
 
 /**
- * Minimal insert toolbar for the board infinite canvas: Select / Text /
- * Sticky ▾ / Image / Shape ▾ / Line ▾. Mirrors `slides/toolbar/insert-group.tsx`'s
- * wiring against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
+ * Morphing toolbar for the board infinite canvas.
+ *
+ * ```text
+ * [↶][↷] │ [Zoom ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * ```
+ *
+ * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
+ * against the reused `SlidesEditor`'s `setInsertMode` / `getInsertMode` /
  * `onInsertModeChange` API, minus the one control that doesn't apply to a
  * board:
  *
@@ -41,14 +62,25 @@ export interface BoardToolbarProps {
  *   etc.) a table element's handlers call, and board paste already
  *   strips tables on the way in. Surfacing `<TablePicker>` would let a
  *   user create a table that then crashes as soon as it's edited.
+ *
+ * The contextual zone reuses the slides toolbar's LEAF controls, routed
+ * off the same `getToolbarState`. The slides SHELLS (`SlidesToolbar` /
+ * `ObjectSection`) are deliberately not reused: they hardcode the slides
+ * `InsertGroup` (with that table picker) and route a `table` selection
+ * into `TableControls`.
  */
 export function BoardToolbar({
   editor,
+  store = null,
+  zoomController = null,
   disabled,
   onInsertSticky,
   onInsertImage,
 }: BoardToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
+  const [state, setState] = useState<ToolbarState>(() =>
+    getToolbarState(editor, store),
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Color chosen from the palette, applied in `onCloseAutoFocus` (below) so
   // the sticky is created only after Radix has finished closing the menu —
@@ -62,8 +94,45 @@ export function BoardToolbar({
     return editor.onInsertModeChange(() => setInsertMode(editor.getInsertMode()));
   }, [editor]);
 
+  // Contextual state: which leaf controls the selection/text-edit state
+  // calls for. `onCurrentSlideChange` / `onCellSelectionChange` are
+  // deliberately not subscribed (unlike `SlidesToolbar`): a board has one
+  // fixed synthetic slide and never has tables.
+  useEffect(() => {
+    if (!editor) {
+      setState(getToolbarState(null, store));
+      return;
+    }
+    const refresh = () => setState(getToolbarState(editor, store));
+    refresh();
+    const offs = [
+      editor.onSelectionChange(refresh),
+      editor.onTextEditingChange(refresh),
+      store?.onChange?.(refresh) ?? (() => {}),
+    ];
+    return () => offs.forEach((off) => off());
+  }, [editor, store]);
+
+  // The board's synthetic deck pins `defaultLight` (see
+  // `boardToSlidesDocument`), which is also what the renderer resolves
+  // themed colours against — so the picker's swatches and the painted
+  // result agree. A board has no theme switcher.
+  //
+  // Memoized on `store` to skip the READ, not for reference stability:
+  // `defaultLight` is a module-level const, so `themes[0]` is already
+  // referentially stable. `YorkieBoardStore.read()` drops its `cachedDoc`
+  // on every change and this toolbar re-renders on that same change
+  // (`store.onChange` above), so an unmemoized read would redo the full
+  // per-element deep unwrap of the whole board once per edit just to
+  // reach a constant.
+  const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
+
   return (
     <Toolbar>
+      <UndoRedoGroup store={store} />
+      <ToolbarSeparator className="mx-1" />
+      <ZoomControl controller={zoomController} />
+      <ToolbarSeparator className="mx-1" />
       {/* Select — pressed when insertMode === null (Esc/default state).
           onClick rather than onPressedChange so a second click while
           already in select mode is a no-op instead of toggling to
@@ -211,6 +280,50 @@ export function BoardToolbar({
         onSelect={(kind) => editor?.setInsertMode(kind)}
         disabled={disabled || !editor}
       />
+
+      {state.kind === "object" && (
+        <>
+          <ToolbarSeparator className="mx-1" />
+          {(state.selectionType === "shape" ||
+            state.selectionType === "connector") && (
+            <ShapeControls
+              editor={editor}
+              store={store}
+              theme={theme}
+              ids={state.ids}
+            />
+          )}
+          {state.selectionType === "image" && (
+            // No `upload` on purpose: the Replace affordance stays inert
+            // on a board this pass — the insert block's Image button is
+            // the board's image path.
+            <ImageControls editor={editor} store={store} ids={state.ids} />
+          )}
+          {state.selectionType === "text-element" && (
+            <TextElementControls
+              editor={editor}
+              store={store}
+              theme={theme}
+              ids={state.ids}
+            />
+          )}
+          {/* `table` renders nothing: a board never creates tables (no
+              picker, paste strips them) and `YorkieBoardStore` throws
+              `notSupported` on every table op. */}
+          <ArrangeMenu
+            editor={editor}
+            selectionSize={state.ids.length}
+            canUngroup={canUngroupSelection(editor, store, state.ids)}
+            minAlignSelection={2}
+          />
+        </>
+      )}
+      {state.kind === "text-edit" && (
+        <>
+          <ToolbarSeparator className="mx-1" />
+          <TextEditSection state={state} editor={editor} />
+        </>
+      )}
     </Toolbar>
   );
 }

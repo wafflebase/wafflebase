@@ -277,6 +277,20 @@ All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API
 | `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) |
 | `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
 
+#### Files (blob documents)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/v1/workspaces/:wid/files` | Upload any file as a document (multipart `file`, optional `title`) |
+| `GET` | `/api/v1/workspaces/:wid/files/:documentId` | Download a blob document's bytes |
+
+Upload stores the blob and creates the document in one call (deleting the blob
+if the row fails) and derives `type` from the stored extension — `.pdf` →
+`pdf`, `png|jpg|jpeg|gif|webp` → `image`, everything else → `file`. Nothing is
+parsed: an uploaded `.xlsx` is stored as bytes. Download reuses
+`fileResponseHeaders()`, so the derived-`Content-Type` rule is shared with
+`GET /documents/:id/file`. Caps are unchanged (50 MB; 25 MB for images).
+
 #### Tabs
 
 | Method | Route | Description |
@@ -321,14 +335,21 @@ Key models managed by Prisma:
 | `email` | String | Unique |
 | `photo` | String? | Profile photo URL |
 
-**Document** — a document of any type (sheet / doc / slide / note / board / pdf / image)
+**Document** — a document of any type (sheet / doc / slides / note / board / pdf / image / file)
+
+`type` is a **viewer-routing key** — "which viewer or editor opens this" — not
+a file format. `pdf` and `image` are blobs with dedicated viewers; `file` is a
+blob with none (see
+[`docs/design/generic-file-upload.md`](../../docs/design/generic-file-upload.md)).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
 | `title` | String | |
-| `type` | String | Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image) |
-| `fileId` | String? | Blob storage key for static file types (pdf/image) |
+| `type` | String | Document type, default `"sheet"` (sheet/doc/slides/note/board/pdf/image/file) |
+| `fileId` | String? | Blob storage key for the blob-backed types (pdf/image/file) |
+| `fileSize` | Int? | Blob size in bytes; null for the CRDT types |
+| `mimeType` | String? | Client-reported blob MIME. Display data only — never a serving or access decision |
 | `authorID` | Int? | FK to User |
 | `workspaceId` | String | FK to Workspace (CASCADE) |
 | `folderId` | String? | FK to Folder (`SetNull`); null = workspace root |
@@ -387,6 +408,7 @@ src/
 │   ├── documents.controller.ts # Document CRUD via API
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
+│   ├── files.controller.ts    # Blob document upload/download (any file)
 │   └── workspace-scope.guard.ts # Workspace access verification
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)

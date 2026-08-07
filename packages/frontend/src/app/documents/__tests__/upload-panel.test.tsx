@@ -21,7 +21,6 @@ describe("UploadPanel", () => {
     // toBeTruthy() gives the same assertion strength as toBeInTheDocument().
     expect(screen.getByText("deck.pptx")).toBeTruthy();
     expect(screen.getByText("archive.zip")).toBeTruthy();
-    expect(screen.getByText(/unsupported/i)).toBeTruthy();
   });
 
   it("shows an externally driven import's own progress wording", () => {
