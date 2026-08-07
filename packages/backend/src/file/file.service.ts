@@ -23,6 +23,7 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 export class FileService implements OnModuleInit {
   private s3: S3Client;
   private bucket: string;
+  private prefix: string;
   private maxFileSize: number;
 
   constructor(private config: ConfigService) {
@@ -31,6 +32,13 @@ export class FileService implements OnModuleInit {
     const accessKey = this.config.get<string>('file.accessKey')!;
     const secretKey = this.config.get<string>('file.secretKey')!;
     this.bucket = this.config.get<string>('file.bucket')!;
+    // Trim surrounding separators so `wafflebase`, `wafflebase/` and
+    // `/wafflebase/` all name the same namespace instead of producing keys
+    // with an empty segment (`wafflebase//<id>`).
+    this.prefix = (this.config.get<string>('file.prefix') ?? '').replace(
+      /^\/+|\/+$/g,
+      '',
+    );
     this.maxFileSize = this.config.get<number>('file.maxFileSizeBytes')!;
 
     this.s3 = new S3Client({
@@ -39,6 +47,20 @@ export class FileService implements OnModuleInit {
       credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
       forcePathStyle: true, // Required for MinIO
     });
+  }
+
+  /**
+   * Prepend the configured storage prefix so a deployment can namespace its
+   * objects inside a shared bucket. The prefix is a storage-layout concern:
+   * the id persisted in the DB stays bare, and every S3 call re-derives the
+   * key through here, so retrieval and deletion stay symmetric with upload.
+   *
+   * Like the bucket and endpoint it sits beside, the prefix describes where a
+   * deployment's objects live and is fixed for that deployment's lifetime:
+   * changing it after uploads orphans the objects written under the old one.
+   */
+  private storageKey(id: string): string {
+    return this.prefix ? `${this.prefix}/${id}` : id;
   }
 
   async onModuleInit(): Promise<void> {
@@ -90,7 +112,7 @@ export class FileService implements OnModuleInit {
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.bucket,
-        Key: id,
+        Key: this.storageKey(id),
         Body: file,
         ContentType: contentType,
       }),
@@ -102,7 +124,7 @@ export class FileService implements OnModuleInit {
     id: string,
   ): Promise<{ body: Uint8Array; contentType: string }> {
     const response = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: id }),
+      new GetObjectCommand({ Bucket: this.bucket, Key: this.storageKey(id) }),
     );
     const body = response.Body
       ? await (
@@ -117,7 +139,10 @@ export class FileService implements OnModuleInit {
 
   async delete(id: string): Promise<void> {
     await this.s3.send(
-      new DeleteObjectCommand({ Bucket: this.bucket, Key: id }),
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: this.storageKey(id),
+      }),
     );
   }
 }
