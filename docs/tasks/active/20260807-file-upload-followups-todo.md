@@ -87,6 +87,15 @@ from the CLI.
 - [x] `file-response.util.spec.ts`: cover a title that already carries the
       extension (no doubling), and a title with an extension the key lacks
       (`archive.c++` + bare-uuid key -> `archive.c++`).
+- [x] **Blast radius, found by re-reading the diff:** the frontend's
+      `download-file.ts` has a second, *guessing* fallback the server does not
+      — a MIME→extension map. It was safe only because titles never had an
+      extension. With titles carrying one it could disagree and double:
+      `image/jpeg` maps to `jpg`, turning `photo.jpeg` into `photo.jpeg.jpg`.
+      Reproduced as a failing test, then fixed by skipping the MIME guess when
+      the title already ends in an extension. The `fileId` fallback needs no
+      such guard — it came from this same filename — and the legacy
+      stripped-title path is unchanged.
 
 ### Task 2 — upload into a folder
 

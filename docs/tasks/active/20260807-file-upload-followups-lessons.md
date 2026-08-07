@@ -68,6 +68,21 @@ caused two separate errors.
 one at a time. A checklist that is edited faster than it is checked is
 decoration.
 
+## Changing a value's shape means auditing everyone who reads it
+
+Titles never carried an extension, so every consumer was written against that
+assumption — and one of them had a *second*, guessing fallback the server side
+does not: a MIME→extension map in `download-file.ts`. Harmless while titles were
+bare; with an extension present it could disagree and double, turning
+`photo.jpeg` into `photo.jpeg.jpg` because `image/jpeg` maps to `jpg`.
+
+Every test still passed. It surfaced only from re-reading the diff and asking
+who else consumes this value, then reproducing it as a failing test.
+
+**Rule:** when you change what a field contains, grep its readers before
+calling the change done. A green suite proves the readers were not tested for
+the new shape, not that they handle it.
+
 ## The docs gap was bigger than the reported one
 
 The ask was to document `--folder`. The docs site had no `files` section at
