@@ -159,10 +159,18 @@ These delegate to the existing `DocumentService` for Prisma operations.
 #### 5.2 Tabs (spreadsheets only)
 
 ```
-GET    /api/v1/workspaces/:wid/documents/:did/tabs    List tabs (id, name, type, order)
+GET    /api/v1/workspaces/:wid/documents/:did/tabs        List tabs (id, name, type, order)
+POST   /api/v1/workspaces/:wid/documents/:did/tabs        Create a sheet tab ({ name?, type? })
+PATCH  /api/v1/workspaces/:wid/documents/:did/tabs/:tid    Rename a tab ({ name })
 ```
 
-Reads tab metadata from the Yorkie document via `YorkieService`.
+Reads and mutates tab metadata on the Yorkie document via `YorkieService`.
+Create/rename reuse the shared `@wafflebase/sheets` tab-name helpers
+(`generateTabId` / `getUniqueTabName` / `getNextDefaultSheetName` /
+`normalizeTabName`) through `yorkie/tab-ops.ts`, so CLI/API tabs follow the same
+naming and uniqueness rules as the editor. Create mirrors the editor
+`addSheetTab` mutation (`tabs` + `tabOrder` + empty `sheets[id]`); rename returns
+`404` (missing), `400` (blank), `409` (duplicate name).
 
 #### 5.3 Cells (spreadsheets only)
 

@@ -1,0 +1,67 @@
+# REST + CLI tab create / rename
+
+## Goal
+
+Expose tab (worksheet) **create** and **rename** through the REST API v1 and the
+`wafflebase` CLI. Today `tabs` is read-only (`GET` only), so agents/scripts can
+list tabs but cannot add or rename them. This unblocks multi-tab document setup
+from the CLI (e.g. a "Summary" + "History" two-tab layout).
+
+## Design
+
+Yorkie spreadsheet root shape (already used by `cells.controller` / `tabs.controller`):
+- `root.tabs[tabId]: TabMeta` — `{ id, name, type, kind? }`
+- `root.tabOrder: string[]` — display order
+- `root.sheets[tabId]: Worksheet` — cell data (`createWorksheet()`)
+
+Create mirrors the frontend `addSheetTab` mutation exactly:
+```
+r.tabs[tabId] = { id, name, type: 'sheet' }
+r.tabOrder.push(tabId)
+r.sheets[tabId] = createWorksheet()
+```
+Rename mirrors `handleRenameTab`: validate tab exists, `normalizeTabName`, reject
+blank, keep names unique.
+
+### Shared helpers move
+`normalizeTabName` / `isTabNameTaken` / `getUniqueTabName` /
+`getNextDefaultSheetName` / `buildTabNameNormalizationPatches` + a new
+`generateTabId` currently live in frontend `app/documents/tab-name.ts`. They are
+pure functions over `TabMeta` — relocate into `@wafflebase/sheets`
+(`model/workbook/tab-name.ts`), export from the package index, and make the
+frontend file re-export from there (keeps existing importers working, gives the
+backend access). Frontend `document-detail.tsx` drops its local `generateTabId`.
+
+## Endpoints
+
+- `POST /api/v1/workspaces/:wid/documents/:did/tabs`
+  body `{ name?: string, type?: 'sheet' }` → `{ id, name, type }`
+  - name omitted → `getNextDefaultSheetName`; provided → `getUniqueTabName`
+- `PATCH /api/v1/workspaces/:wid/documents/:did/tabs/:tabId`
+  body `{ name: string }` → `{ id, name, type }`
+  - 404 if tab missing; 400 if name blank
+
+## CLI
+
+- `wafflebase sheets tabs create <doc-id> [name] [--type sheet]`
+- `wafflebase sheets tabs rename <doc-id> <tab-id> <name>`
+- http-client `createTab` / `renameTab`; schema registry entries; update
+  `sheets-*` skill / README command tree.
+
+## Tasks
+
+- [ ] Move tab-name helpers into `@wafflebase/sheets`; add `generateTabId`; export; rewire frontend
+- [ ] Backend: `POST` create + `PATCH` rename in `tabs.controller.ts` (TDD: e2e spec)
+- [ ] CLI: `create` / `rename` commands + http-client + schema registry
+- [ ] CLI skill/README doc update
+- [ ] `pnpm verify:fast` green
+- [ ] Self code-review over branch diff; address blocking findings
+- [ ] Rebase on origin/main; open PR (Summary + Test plan)
+
+## Test plan
+
+- sheets unit: tab-name helpers still pass after move
+- backend e2e: create adds tab to `tabOrder`+`tabs`+`sheets`; rename updates name;
+  rename missing tab → 404; blank name → 400; created name uniqueness
+- CLI: `tabs create`/`rename` dry-run shape; typecheck + unit
+- manual: create + rename two tabs on the live "Mentee History" doc

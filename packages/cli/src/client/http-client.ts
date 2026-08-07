@@ -329,6 +329,12 @@ export class HttpClient {
   listTabs(docId: string) {
     return this.request<unknown[]>('GET', `/documents/${docId}/tabs`);
   }
+  createTab(docId: string, body: { name?: string; type?: string }) {
+    return this.request('POST', `/documents/${docId}/tabs`, body);
+  }
+  renameTab(docId: string, tabId: string, name: string) {
+    return this.request('PATCH', `/documents/${docId}/tabs/${tabId}`, { name });
+  }
 
   // Cells
   getCells(docId: string, tabId: string, range?: string) {

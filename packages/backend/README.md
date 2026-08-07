@@ -315,6 +315,8 @@ stored, so a rejected value costs no upload.
 | Method | Route | Description |
 |--------|-------|-------------|
 | `GET` | `/api/v1/workspaces/:wid/documents/:did/tabs` | List tabs (id, name, type) |
+| `POST` | `/api/v1/workspaces/:wid/documents/:did/tabs` | Create a sheet tab (`{ name?, type? }`; name auto-uniqued, omitted → next `SheetN`) |
+| `PATCH` | `/api/v1/workspaces/:wid/documents/:did/tabs/:tid` | Rename a tab (`{ name }`; 404 missing, 400 blank, 409 duplicate) |
 
 #### Cells
 

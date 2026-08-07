@@ -455,6 +455,34 @@ const registry: CommandSchema[] = [
     aliases: ['tab.list', 'tabs.list', 'sheet.tabs.list', 'sheet.tab.list', 'sheets.tab.list'],
   },
   {
+    name: 'sheets.tabs.create',
+    description: 'Create a new sheet tab',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      name: {
+        type: 'string',
+        required: false,
+        description: 'Tab name (omit for the next SheetN)',
+      },
+      '--type': { type: 'string', required: false, description: 'Tab type', default: 'sheet' },
+    },
+    response: { id: 'string', name: 'string', type: 'string' },
+    aliases: ['tab.create', 'tabs.create', 'sheet.tabs.create', 'sheet.tab.create', 'sheets.tab.create'],
+  },
+  {
+    name: 'sheets.tabs.rename',
+    description: 'Rename a tab',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      'tab-id': { type: 'string', required: true, description: 'Tab ID' },
+      name: { type: 'string', required: true, description: 'New tab name' },
+    },
+    response: { id: 'string', name: 'string', type: 'string' },
+    aliases: ['tab.rename', 'tabs.rename', 'sheet.tabs.rename', 'sheet.tab.rename', 'sheets.tab.rename'],
+  },
+  {
     name: 'sheets.cells.get',
     description: 'Get cells from a spreadsheet tab',
     safety: 'read-only',
