@@ -12,12 +12,19 @@ import { WorkspaceModule } from '../../workspace/workspace.module';
 import { ApiKeyModule } from '../../api-key/api-key.module';
 import { ImageModule } from '../../image/image.module';
 import { FileModule } from '../../file/file.module';
+import { FolderModule } from '../../folder/folder.module';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { ApiKeyAuthGuard } from '../../api-key/api-key-auth.guard';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 
 @Module({
-  imports: [WorkspaceModule, ApiKeyModule, ImageModule, FileModule],
+  imports: [
+    WorkspaceModule,
+    ApiKeyModule,
+    ImageModule,
+    FileModule,
+    FolderModule,
+  ],
   controllers: [
     ApiV1DocumentsController,
     ApiV1TabsController,

@@ -1,5 +1,7 @@
 import { fileResponseHeaders } from './file-response.util';
 
+const UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
 describe('fileResponseHeaders', () => {
   it('pins a pdf document to application/pdf regardless of what is stored', () => {
     expect(fileResponseHeaders('pdf', 'text/html', 'report')).toEqual({
@@ -127,6 +129,37 @@ describe('fileResponseHeaders', () => {
       expect(headers.contentType).toBe('application/octet-stream');
       expect(headers.disposition).toMatch(/^attachment/);
     }
+  });
+
+  // Uploads now keep the extension in the title, so the key-based re-append
+  // must not double it — while still covering rows stored before that change.
+  it('does not double an extension the title already carries', () => {
+    expect(
+      fileResponseHeaders('file', 'application/zip', 'bundle.zip', `${UUID}.zip`)
+        .disposition,
+    ).toBe("attachment; filename*=UTF-8''bundle.zip");
+
+    // Case-insensitively, too.
+    expect(
+      fileResponseHeaders('file', 'application/zip', 'bundle.ZIP', `${UUID}.zip`)
+        .disposition,
+    ).toBe("attachment; filename*=UTF-8''bundle.ZIP");
+  });
+
+  it('keeps a title extension the storage key does not have', () => {
+    // `safeExtension` rejects `c++`, so the blob is stored under a bare uuid.
+    // The title is the only thing carrying the extension; it must survive.
+    expect(
+      fileResponseHeaders('file', 'application/octet-stream', 'archive.c++', UUID)
+        .disposition,
+    ).toBe("attachment; filename*=UTF-8''archive.c%2B%2B");
+  });
+
+  it('still re-appends for a row stored before titles kept the extension', () => {
+    expect(
+      fileResponseHeaders('file', 'application/zip', 'bundle', `${UUID}.zip`)
+        .disposition,
+    ).toBe("attachment; filename*=UTF-8''bundle.zip");
   });
 
   it('echoes an image content type only on an exact, case-sensitive match', () => {

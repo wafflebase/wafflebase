@@ -67,12 +67,18 @@ export function parseHintFor(fileName: string): string | undefined {
   return `Note: uploading as raw bytes. Use \`wafflebase ${command}\` to import it as an editable document instead.`;
 }
 
+/** Optional document fields sent alongside the blob in the multipart body. */
+export interface FileDocumentFields {
+  title?: string;
+  folderId?: string;
+}
+
 export interface FilesUploadClient {
   uploadFileDocument: (
     bytes: Uint8Array,
     fileName: string,
     mimeType: string,
-    title?: string,
+    fields: FileDocumentFields,
   ) => Promise<{ ok: boolean; status: number; data: FileDocument }>;
 }
 
@@ -102,8 +108,10 @@ export interface RunFilesUploadArgs {
    *  document type and download extension both come from the filename, and
    *  stdin has none. */
   file: string;
-  /** Document title. Defaults to the filename without its extension. */
+  /** Document title. Defaults to the filename, extension included. */
   title?: string;
+  /** Folder id to create the document in. Defaults to the workspace root. */
+  folder?: string;
   quiet?: boolean;
   dryRun?: boolean;
 }
@@ -122,7 +130,11 @@ export async function runFilesUpload(
   client: FilesUploadClient,
   io: FilesUploadIO = defaultFilesUploadIO,
 ): Promise<RunFilesUploadResult> {
-  const { file, title, quiet = false, dryRun = false } = args;
+  const { file, title, folder, quiet = false, dryRun = false } = args;
+  const fields: FileDocumentFields = {
+    ...(title ? { title } : {}),
+    ...(folder ? { folderId: folder } : {}),
+  };
 
   if (file === '-') {
     io.stderr(
@@ -164,7 +176,10 @@ export async function runFilesUpload(
           path: '/files',
           body: {
             file: `<${size} bytes of ${fileName}>`,
-            title: title ?? basename(fileName, extname(fileName)),
+            // The server defaults the title to the whole filename, extension
+            // included — a blob document *is* the file.
+            title: title ?? fileName,
+            ...(folder ? { folderId: folder } : {}),
           },
         },
         null,
@@ -196,12 +211,7 @@ export async function runFilesUpload(
     return { exitCode: 1 };
   }
 
-  const res = await client.uploadFileDocument(
-    bytes,
-    fileName,
-    mimeType,
-    title,
-  );
+  const res = await client.uploadFileDocument(bytes, fileName, mimeType, fields);
   if (!res.ok) {
     io.stderr(
       JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),

@@ -117,6 +117,8 @@ The command tree groups commands under plural namespaces:
 - **`docs`** — manage and read both spreadsheet and word-processor documents
 - **`sheets`** — spreadsheet-specific operations (tabs, cells, CSV/JSON import/export)
 - **`slides`** — slide-deck operations (read content, import/export `.pptx`)
+- **`notes`** — markdown note operations
+- **`files`** — upload and download any file stored as a document
 - **`api-keys`** — workspace API key management
 - **`ctx`**, **`schema`**, **`login`/`logout`/`status`** — top-level utilities
 
@@ -476,6 +478,73 @@ wafflebase slides import deck.pptx --dry-run
 | `--title <title>` | New deck title | file basename |
 | `--replace <doc-id>` | Existing deck to overwrite | — |
 | `--yes` | Skip the confirmation prompt under `--replace` | `false` |
+
+## files (alias: file)
+
+Store **any** file as a document. Unlike the `import` commands, nothing is
+parsed — the bytes are stored verbatim and served back unchanged.
+
+The document `type` is derived from the file's extension and decides which
+viewer opens it: `.pdf` → `pdf`, `png/jpg/jpeg/gif/webp` → `image`, and
+everything else → `file`, a blob with no dedicated viewer.
+
+```bash
+# Upload any file
+wafflebase files upload report.pdf
+wafflebase files upload archive.zip --title "Q3 backup"
+
+# Upload into a folder
+wafflebase files upload archive.zip --folder 08485320-7bf9-465e-964e-19aa9f1c7f11
+
+# List blob documents, optionally by type
+wafflebase files list
+wafflebase files list --type image
+
+# Download (defaults to the document's filename; `-` writes to stdout)
+wafflebase files download <doc-id>
+wafflebase files download <doc-id> ./out.zip --force
+
+# Metadata, rename, delete
+wafflebase files get <doc-id>
+wafflebase files rename <doc-id> "Better name"
+wafflebase files delete <doc-id>
+```
+
+**`files upload` options**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--title <title>` | Document title | the filename, **extension included** |
+| `--folder <id>` | Folder to upload into | the workspace root |
+
+**`files download` options**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--force` | Overwrite an existing output file | `false` |
+
+**`files list` options**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type <type>` | Filter to one of `file`, `pdf`, `image` | all three |
+
+::: tip Titles keep the extension
+A blob document *is* the file, so `report.zip` is titled `report.zip` — not
+`report`. This is what keeps `report.zip`, `report.pdf` and `report.png`
+distinguishable in the documents list, and it is the only place an extension
+survives when the storage-key sanitizer rejects it (`.c++`, for instance).
+:::
+
+::: warning Size limits
+50 MB per file, except images at 25 MB. The cap is checked locally before
+the bytes go over the wire.
+:::
+
+Uploading a format another namespace can parse (`.xlsx`, `.docx`, `.pptx`,
+`.csv`, `.md`) still stores it as raw bytes and prints a one-line hint
+pointing at the matching `import` command. The CLI does what the command
+says rather than redirecting.
 
 ## api-keys (alias: api-key)
 
