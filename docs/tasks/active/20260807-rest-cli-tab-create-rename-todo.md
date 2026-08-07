@@ -15,7 +15,7 @@ Yorkie spreadsheet root shape (already used by `cells.controller` / `tabs.contro
 - `root.sheets[tabId]: Worksheet` — cell data (`createWorksheet()`)
 
 Create mirrors the frontend `addSheetTab` mutation exactly:
-```
+```ts
 r.tabs[tabId] = { id, name, type: 'sheet' }
 r.tabOrder.push(tabId)
 r.sheets[tabId] = createWorksheet()
@@ -37,9 +37,18 @@ backend access). Frontend `document-detail.tsx` drops its local `generateTabId`.
 - `POST /api/v1/workspaces/:wid/documents/:did/tabs`
   body `{ name?: string, type?: 'sheet' }` → `{ id, name, type }`
   - name omitted → `getNextDefaultSheetName`; provided → `getUniqueTabName`
+  - **a duplicate name never 409s here** — it is de-duplicated to
+    `"<name> (2)"` and returned in the response. Create is idempotent-ish by
+    design so a script can post the same name twice without branching; only
+    rename can conflict, because a rename has one specific tab it must land on
+    and no free suffix to take.
+  - 400 if `type` is anything other than `"sheet"`
 - `PATCH /api/v1/workspaces/:wid/documents/:did/tabs/:tabId`
   body `{ name: string }` → `{ id, name, type }`
   - 404 if tab missing; 400 if name blank
+  - **409 if another tab already holds that name** (case-insensitive, after
+    trim; renaming a tab to its own current name is not a conflict)
+- Both, plus `GET .../tabs`: 400 if the document is not a `sheet`.
 
 ## CLI
 
@@ -62,6 +71,11 @@ backend access). Frontend `document-detail.tsx` drops its local `generateTabId`.
 
 - sheets unit: tab-name helpers still pass after move
 - backend e2e: create adds tab to `tabOrder`+`tabs`+`sheets`; rename updates name;
-  rename missing tab → 404; blank name → 400; created name uniqueness
-- CLI: `tabs create`/`rename` dry-run shape; typecheck + unit
+  rename missing tab → 404; blank name → 400; **rename to an existing name → 409**;
+  created name uniqueness (create de-duplicates instead of conflicting);
+  **list/create/rename on a non-`sheet` document → 400, without opening a
+  Yorkie document**
+- CLI: `tabs create`/`rename` dry-run shape; client call + body per subcommand;
+  `--type` other than `sheet` rejected before both the request and the dry-run
+  print; typecheck + unit
 - manual: create + rename two tabs on the live "Mentee History" doc

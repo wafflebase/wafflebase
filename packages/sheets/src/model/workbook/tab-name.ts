@@ -8,12 +8,33 @@ export type TabNamePatch = {
   name: string;
 };
 
+const TAB_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const TAB_ID_LENGTH = 12;
+
 /**
  * Generates a unique tab id. Time + random suffix keeps concurrent creates
  * (local and remote) from colliding on the same key.
+ *
+ * The suffix is CSPRNG-derived and 12 chars wide (~62 bits), not the 4 chars
+ * of `Math.random().toString(36)` it replaced. Four base36 chars is only ~1.7M
+ * values, and the timestamp does not help: two creates race precisely when
+ * they land in the same millisecond, which is when the prefix is identical.
+ * A collision is not a cosmetic id clash — `root.tabs[tabId]`,
+ * `root.sheets[tabId]` and `tabOrder` are all keyed by it, so two creations
+ * merge into one tab and one worksheet's cells are lost.
+ *
+ * `getRandomValues`, not `randomUUID`: this package runs in the browser, and
+ * `randomUUID` is unavailable outside secure contexts (see
+ * `api/analytics.ts`). `getRandomValues` has no such restriction and is
+ * already what `createWorksheetAxisId` uses for the same reason.
  */
 export function generateTabId(): string {
-  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const bytes = crypto.getRandomValues(new Uint8Array(TAB_ID_LENGTH));
+  let suffix = '';
+  for (let i = 0; i < TAB_ID_LENGTH; i++) {
+    suffix += TAB_ID_CHARS[bytes[i] % 36];
+  }
+  return `tab-${Date.now()}-${suffix}`;
 }
 
 /**

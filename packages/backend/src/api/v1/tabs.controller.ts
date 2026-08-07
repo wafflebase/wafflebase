@@ -24,14 +24,29 @@ export class ApiV1TabsController {
     private readonly documentService: DocumentService,
   ) {}
 
-  private async assertDocumentInWorkspace(
-    documentId: string,
-    workspaceId: string,
-  ) {
-    await this.documentService.getDocumentOrThrow({
+  /**
+   * Workspace membership AND document type.
+   *
+   * The type check is not cosmetic. `withDocument` defaults to the `sheet-`
+   * docKey prefix, so a `doc`/`slides`/`pdf` document reaching here does not
+   * open ITS Yorkie document — it attaches an empty one under `sheet-<id>`
+   * that no editor will ever open. `list` would then report zero tabs for a
+   * document that has content, and `create` would throw on `root.tabs[tabId]`
+   * (undefined on a fresh root) after having already created that phantom.
+   */
+  private async assertSheetDocument(documentId: string, workspaceId: string) {
+    const doc = await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
+
+    if (doc.type !== 'sheet') {
+      throw new BadRequestException(
+        `Tabs are only available on sheet documents; "${documentId}" is a "${doc.type}" document.`,
+      );
+    }
+
+    return doc;
   }
 
   @Get()
@@ -39,7 +54,7 @@ export class ApiV1TabsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
 
     return this.yorkieService.withDocument(
       documentId,
@@ -68,7 +83,7 @@ export class ApiV1TabsController {
     @Param('documentId') documentId: string,
     @Body() body: { name?: string; type?: string },
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
 
     if (body?.type !== undefined && body.type !== 'sheet') {
       throw new BadRequestException(
@@ -92,7 +107,7 @@ export class ApiV1TabsController {
     @Param('tabId') tabId: string,
     @Body() body: { name?: string },
   ) {
-    await this.assertDocumentInWorkspace(documentId, workspaceId);
+    await this.assertSheetDocument(documentId, workspaceId);
 
     return this.yorkieService.withDocument(documentId, (doc) => {
       const resolution = resolveRename(

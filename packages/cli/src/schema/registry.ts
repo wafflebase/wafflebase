@@ -465,7 +465,12 @@ const registry: CommandSchema[] = [
         required: false,
         description: 'Tab name (omit for the next SheetN)',
       },
-      '--type': { type: 'string', required: false, description: 'Tab type', default: 'sheet' },
+      '--type': {
+        type: 'string',
+        required: false,
+        description: 'Tab type; only "sheet" is supported',
+        default: 'sheet',
+      },
     },
     response: { id: 'string', name: 'string', type: 'string' },
     aliases: ['tab.create', 'tabs.create', 'sheet.tabs.create', 'sheet.tab.create', 'sheets.tab.create'],

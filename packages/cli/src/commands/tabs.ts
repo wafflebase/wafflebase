@@ -23,10 +23,21 @@ export function registerTabsCommand(parent: Command) {
   tab
     .command('create <doc-id> [name]')
     .description('Create a new sheet tab (name optional -> next SheetN)')
-    .option('--type <type>', 'Tab type', 'sheet')
+    .option('--type <type>', 'Tab type (only "sheet" is supported)', 'sheet')
     .action(async function (this: Command, docId: string, name?: string) {
       const opts = getGlobalOpts(this);
       const { type } = this.opts<{ type: string }>();
+      // Checked BEFORE the dry-run branch, not just before the request: a
+      // dry run that prints a body the server would reject is worse than no
+      // dry run at all, since its whole job is to show what would happen.
+      // `sheet` is the only type the REST endpoint accepts.
+      if (type !== 'sheet') {
+        outputError(
+          new Error(`Unsupported tab type "${type}"; only "sheet" is supported.`),
+          opts.quiet,
+        );
+        return;
+      }
       const body: { name?: string; type?: string } = { type };
       if (name !== undefined) body.name = name;
 

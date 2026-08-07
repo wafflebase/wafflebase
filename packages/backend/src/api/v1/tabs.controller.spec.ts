@@ -14,6 +14,7 @@ describe('ApiV1TabsController create/rename', () => {
   let controller: ApiV1TabsController;
   let root: SpreadsheetDocument;
   let documentService: { getDocumentOrThrow: jest.Mock };
+  let withDocument: jest.Mock;
 
   beforeEach(() => {
     root = createSpreadsheetDocument(); // { tab-1: "Sheet1" }
@@ -23,13 +24,14 @@ describe('ApiV1TabsController create/rename', () => {
       getRoot: () => root,
       update: (fn: (r: SpreadsheetDocument) => void) => fn(root),
     };
-    const yorkieService = {
-      withDocument: jest.fn(async (_id: string, cb: (d: typeof doc) => unknown) =>
-        cb(doc),
-      ),
-    };
+    withDocument = jest.fn((_id: string, cb: (d: typeof doc) => unknown) =>
+      Promise.resolve(cb(doc)),
+    );
+    const yorkieService = { withDocument };
     documentService = {
-      getDocumentOrThrow: jest.fn().mockResolvedValue({ id: DOC, workspaceId: WS }),
+      getDocumentOrThrow: jest
+        .fn()
+        .mockResolvedValue({ id: DOC, workspaceId: WS, type: 'sheet' }),
     };
     controller = new ApiV1TabsController(
       yorkieService as never,
@@ -90,7 +92,9 @@ describe('ApiV1TabsController create/rename', () => {
     });
 
     it('409s a duplicate name', async () => {
-      const created = (await controller.create(WS, DOC, { name: 'History' })) as {
+      const created = (await controller.create(WS, DOC, {
+        name: 'History',
+      })) as {
         id: string;
       };
       await expect(
@@ -99,5 +103,34 @@ describe('ApiV1TabsController create/rename', () => {
       // unchanged
       expect(root.tabs[created.id].name).toBe('History');
     });
+  });
+
+  describe('non-sheet documents', () => {
+    // `withDocument` defaults to the `sheet-` docKey prefix, so a doc/slides
+    // document would not open ITS Yorkie document — it would attach an empty
+    // one under `sheet-<id>`. Reported as an empty tab list on `list`, and on
+    // `create` as a 500 from `root.tabs[tabId]` AFTER that phantom existed.
+    // Rejecting before `withDocument` is what keeps it from being created.
+    beforeEach(() => {
+      documentService.getDocumentOrThrow.mockResolvedValue({
+        id: DOC,
+        workspaceId: WS,
+        type: 'doc',
+      });
+    });
+
+    it.each(['list', 'create', 'rename'] as const)(
+      '400s %s without opening a Yorkie document',
+      async (op) => {
+        const call = {
+          list: () => controller.list(WS, DOC),
+          create: () => controller.create(WS, DOC, { name: 'X' }),
+          rename: () => controller.rename(WS, DOC, 'tab-1', { name: 'X' }),
+        }[op];
+
+        await expect(call()).rejects.toBeInstanceOf(BadRequestException);
+        expect(withDocument).not.toHaveBeenCalled();
+      },
+    );
   });
 });
