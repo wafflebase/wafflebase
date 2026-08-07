@@ -28,6 +28,7 @@ const MIME_TO_EXT: Record<string, string> = {
 export class ImageService implements OnModuleInit {
   private s3: S3Client;
   private bucket: string;
+  private prefix: string;
   private maxFileSize: number;
   private allowedMimeTypes: string[];
 
@@ -37,8 +38,11 @@ export class ImageService implements OnModuleInit {
     const accessKey = this.config.get<string>('image.accessKey')!;
     const secretKey = this.config.get<string>('image.secretKey')!;
     this.bucket = this.config.get<string>('image.bucket')!;
+    this.prefix = this.config.get<string>('image.prefix') ?? '';
     this.maxFileSize = this.config.get<number>('image.maxFileSizeBytes')!;
-    this.allowedMimeTypes = this.config.get<string[]>('image.allowedMimeTypes')!;
+    this.allowedMimeTypes = this.config.get<string[]>(
+      'image.allowedMimeTypes',
+    )!;
 
     this.s3 = new S3Client({
       endpoint,
@@ -46,6 +50,16 @@ export class ImageService implements OnModuleInit {
       credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
       forcePathStyle: true, // Required for MinIO
     });
+  }
+
+  /**
+   * Prepend the configured storage prefix so a deployment can namespace its
+   * objects inside a shared bucket. Applied to every S3 call (composing on the
+   * outside of the caller's own `keyPrefix`), while the id returned to callers
+   * stays bare — the prefix is purely a storage-layout concern.
+   */
+  private storageKey(key: string): string {
+    return this.prefix ? `${this.prefix}/${key}` : key;
   }
 
   async onModuleInit(): Promise<void> {
@@ -57,7 +71,7 @@ export class ImageService implements OnModuleInit {
       } catch (err) {
         // Bucket creation may fail during tests or when storage is unreachable.
         // Log and continue so the module can still boot.
-        // eslint-disable-next-line no-console
+
         console.warn(
           `[ImageService] Failed to ensure bucket "${this.bucket}":`,
           err instanceof Error ? err.message : err,
@@ -95,7 +109,7 @@ export class ImageService implements OnModuleInit {
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.bucket,
-        Key: key,
+        Key: this.storageKey(key),
         Body: file,
         ContentType: mimeType,
       }),
@@ -110,11 +124,13 @@ export class ImageService implements OnModuleInit {
     const response = await this.s3.send(
       new GetObjectCommand({
         Bucket: this.bucket,
-        Key: id,
+        Key: this.storageKey(id),
       }),
     );
     const body = response.Body
-      ? await (response.Body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray()
+      ? await (
+          response.Body as { transformToByteArray: () => Promise<Uint8Array> }
+        ).transformToByteArray()
       : new Uint8Array();
     return {
       body,
@@ -126,7 +142,7 @@ export class ImageService implements OnModuleInit {
     await this.s3.send(
       new DeleteObjectCommand({
         Bucket: this.bucket,
-        Key: id,
+        Key: this.storageKey(id),
       }),
     );
   }

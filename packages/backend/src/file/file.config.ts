@@ -14,5 +14,8 @@ export const fileConfig = registerAs('file', () => ({
   region: process.env.FILE_STORAGE_REGION || (isDev ? 'us-east-1' : ''),
   accessKey: process.env.FILE_STORAGE_ACCESS_KEY || (isDev ? 'minioadmin' : ''),
   secretKey: process.env.FILE_STORAGE_SECRET_KEY || (isDev ? 'minioadmin' : ''),
+  // Optional object-key prefix so a deployment can namespace its files inside
+  // a bucket shared with another app. Empty (default) keeps keys at the root.
+  prefix: process.env.FILE_STORAGE_PREFIX || '',
   maxFileSizeBytes: MAX_FILE_UPLOAD_BYTES,
 }));
