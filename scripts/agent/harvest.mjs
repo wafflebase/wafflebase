@@ -255,15 +255,81 @@ export function fileClassesOf(files) {
   return [...new Set((Array.isArray(files) ? files : []).map((f) => classifyFile(f)))].sort();
 }
 
-// CodeRabbit on this repo (CHILL profile) opens every inline finding with a
-// three-field italic header:  _<category>_ | _<severity>_ | _<effort>_
+// CodeRabbit's finding header has had FOUR vintages on this repository, and the
+// classifier used to read one of them.
 //
-// The plan for this module specified the UPSTREAM CodeRabbit vocabulary instead
-// ("Potential issue" / "Refactor suggestion" / "Nitpick"). Nothing in this
-// repository has ever emitted those strings — every inline finding back to #525
-// uses the header below — so that classifier would have matched zero comments and
-// reported an empty corpus as a clean bill of health.
-const CR_HEADER = /^\s*_([^_\n]+)_\s*\|\s*_([^_\n]+)_\s*\|\s*_([^_\n]+)_/;
+// The comment that stood here said the upstream vocabulary ("Potential issue" /
+// "Refactor suggestion" / "Nitpick") had never been emitted here — "every inline
+// finding back to #525 uses the header below". That is true back to #525 and
+// wrong before it, and it was wrong in two directions at once: 470 inline
+// findings carry `_Potential issue_ | _Major_` (the upstream vocabulary, in a
+// TWO-field header), and another 64 carry it in a single italic field. Measured
+// 2026-08-07 over every inline review comment in the repo: 935 three-field, 475
+// two-field, 64 single-italic, 11 bold-title.
+//
+// The two-field header is NOT a retired vintage. Its most recent use is #692 on
+// 2026-08-07, in the current CHILL vocabulary — CodeRabbit simply omits the
+// effort field sometimes. A parser keyed on field COUNT is therefore blind to
+// live output, not just to history, which is why fields are matched by
+// vocabulary below rather than by position.
+//
+//   three-field   _<category>_ | _<severity>_ | _<effort>_
+//   two-field     _<category>_ | _<severity>_
+//   single-italic _<category>_   OR   _<effort>_        (ambiguous — see below)
+//   bold-title    **Title.**                            (no category, no severity)
+//
+// The `_` delimiter also occurs INSIDE a field, because GitHub emoji shortcodes
+// contain underscores (`_:hammer_and_wrench: Refactor suggestion_`). So a header
+// line is split on `|` and each part unwrapped, rather than matched with one
+// `[^_]+` regex — that regex stops at the first inner underscore and drops the
+// finding.
+const CR_FIELD = /^_(.+)_$/;
+
+/** Field count → vintage name. Index 0 is unused; a zero-field header is not one. */
+const CR_ARITY_VINTAGE = ["", "single-italic", "two-field", "three-field"];
+
+/**
+ * CodeRabbit's severity vocabulary, translated to ours AT THE ARM BOUNDARY.
+ *
+ * `normalizeSeverity` is deliberately NOT used here. It maps anything unknown to
+ * `major` as a fail-safe for our own gate, and CodeRabbit's scale has a word ours
+ * does not: `trivial`, its below-minor tier, which appears 307 times. Running it
+ * through `normalizeSeverity` files every one as a BLOCKING major — findings
+ * CodeRabbit marks as the lowest tier it has, entering the corpus as gate-blocking
+ * defects. Adding `trivial` to `severity.mjs`'s `KNOWN` would fix it in the wrong
+ * place: `KNOWN` is the shared source of truth for what blocks a PR in OUR panel,
+ * our lenses never emit `trivial`, and a foreign vocabulary gets translated where
+ * it crosses rather than absorbed into ours.
+ */
+const CR_SEVERITY = new Map([
+  ["critical", "critical"],
+  ["major", "major"],
+  ["minor", "minor"],
+  ["nit", "nit"],
+  ["trivial", "nit"],
+]);
+
+// The two category vocabularies. WHICH ONE a finding used is kept on the finding:
+// the switch was sharp (last upstream-vocabulary comment 2026-06-22T00:20:46Z,
+// first CHILL one 2026-06-23T06:56:21Z) and it is a real confound in any count
+// taken across it, so a parser that normalised both into one shape would make
+// "did the format change?" unanswerable.
+const CR_CHILL_CATEGORIES = new Set([
+  "functional correctness",
+  "security & privacy",
+  "maintainability & code quality",
+  "performance & scalability",
+  "stability & availability",
+  "data integrity & integration",
+]);
+const CR_UPSTREAM_CATEGORIES = new Set(["potential issue", "refactor suggestion", "nitpick", "verification agent"]);
+
+// The effort field, enumerated for one reason: a SINGLE italic field is ambiguous.
+// It carries a category in the 2025 vintage (`_⚠️ Potential issue_`) and an effort
+// in the 2026-05 one (`_⚡ Quick win_`), and 212 of the 226 single-field headers in
+// review bodies are efforts. Reading position 1 as "the category" would file
+// "quick win" as a CodeRabbit category on 212 findings.
+const CR_EFFORTS = new Set(["quick win", "low value", "heavy lift", "poor tradeoff"]);
 
 // Only the two categories that map onto a lens WITHOUT judgement. The rest —
 // Maintainability, Performance, Stability, Data Integrity — each plausibly belong
@@ -278,42 +344,101 @@ const CR_CATEGORY_TO_LENS = new Map([
 /** The bot's login, in the two shapes GitHub returns it. */
 const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
 
-/** Strip emoji/punctuation from a CodeRabbit header field, leaving the words. */
+/** Strip emoji/punctuation from a CodeRabbit header field, leaving the words.
+ *  GitHub emoji shortcodes go first: `:hammer_and_wrench:` would otherwise
+ *  survive as the word `hammerandwrench` and make the category unrecognisable. */
 const headerWords = (s) =>
   str(s)
+    .replace(/:[a-z0-9_+-]+:/gi, " ")
     .replace(/[^\p{Letter}\p{Number}&\s-]/gu, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
 
 /**
+ * Read one CodeRabbit header LINE, in any of the three italic vintages.
+ * `null` when the line is not a header.
+ *
+ * Fields are assigned BY VOCABULARY, not by position — that is what makes one
+ * function read all three arities, and what disambiguates the single-field case.
+ *
+ * `severity: ""` means CodeRabbit stated no severity we recognise, and it is a
+ * deliberate third state rather than a default. Defaulting to `major` files nits
+ * as blockers (the bug above); defaulting to `nit` silently demotes a real
+ * blocker the day CodeRabbit adds a word. Both are silent; an empty severity is
+ * not, because `BLOCKING.has("")` is false, so an unrecognised severity is
+ * withheld from the corpus rather than guessed into it — and `severityRaw`
+ * carries the word CodeRabbit actually wrote so the gap is nameable. A fifth
+ * vintage will happen.
+ */
+export function classifyCodeRabbitHeader(line) {
+  const parts = str(line).trim().split("|").map((p) => p.trim());
+  if (parts.length > 3) return null;
+  const fields = [];
+  for (const p of parts) {
+    const m = CR_FIELD.exec(p);
+    if (!m) return null;
+    fields.push(headerWords(m[1]));
+  }
+  let category = "", vocabulary = "", severity = "", severityRaw = "", effort = "";
+  const unrecognised = [];
+  for (const f of fields) {
+    if (CR_CHILL_CATEGORIES.has(f)) { category = f; vocabulary = "chill"; }
+    else if (CR_UPSTREAM_CATEGORIES.has(f)) { category = f; vocabulary = "upstream"; }
+    else if (CR_SEVERITY.has(f)) { severity = CR_SEVERITY.get(f); severityRaw = f; }
+    else if (CR_EFFORTS.has(f)) { effort = f; }
+    else if (f !== "") unrecognised.push(f);
+  }
+  // Recognised NOTHING in any of the three vocabularies: an italic caption or an
+  // emphasised sentence, not a finding header. Without this, any `_word_` line
+  // becomes a severity-less finding.
+  if (category === "" && severity === "" && effort === "") return null;
+  return {
+    vintage: CR_ARITY_VINTAGE[fields.length] ?? "",
+    category,
+    vocabulary,
+    severity,
+    severityRaw,
+    effort,
+    unrecognised,
+  };
+}
+
+/**
  * Read one CodeRabbit inline comment as a finding, or `null` if it is not one.
  *
  * `null` covers the two things CodeRabbit posts that are not findings: threaded
  * replies to a maintainer ("@user, thanks for the fix…") and its auto-generated
- * walkthroughs. Both lack the header. Returning null on a MISSING header rather
- * than defaulting the severity is the whole reason severities are read only after
- * a header matched: `normalizeSeverity` maps anything unknown to `major`
- * (fail-safe for a gate), so running every reply through it would file each one
- * as a blocking-severity candidate and bury the real ones.
+ * walkthroughs. Neither opens with a header or a bolded title. Returning null on
+ * a MISSING header rather than defaulting the severity is why severity is read
+ * only after a header matched — see `classifyCodeRabbitHeader`.
  *
- * Non-blocking severities are dropped. This corpus measures the GATE, and a minor
- * maintainability note our panel also happened not to raise is not a gate
- * failure. Widening to minor is a one-line change if the blocking-only corpus
- * turns out too thin to learn from.
+ * EVERY severity is returned, including non-blocking ones. The blocking-only
+ * filter used to live here, and it now lives at the caller (`harvestPr`), where
+ * it is visible as the corpus policy it is rather than a property of "what
+ * CodeRabbit wrote". Widen at the parser, filter at the caller: this function is
+ * the repo's only reader of CodeRabbit's format, and a second consumer that
+ * wants nits must not have to re-implement the header to get them.
  */
 export function classifyCodeRabbitComment(body) {
-  const m = CR_HEADER.exec(str(body));
-  if (!m) return null;
-  const severity = normalizeSeverity(headerWords(m[2]));
-  if (!BLOCKING.has(severity)) return null;
-  const category = headerWords(m[1]);
-  // First bolded line after the header is CodeRabbit's one-line title.
-  const title = /\*\*(.+?)\*\*/s.exec(str(body))?.[1]?.replace(/\s+/g, " ").trim() ?? "";
+  const text = str(body);
+  const first = text.split("\n").find((l) => l.trim() !== "") ?? "";
+  const head = classifyCodeRabbitHeader(first);
+  // The 2024 vintage states no category and no severity at all — the body opens
+  // straight on the bolded title. Accepted because a threaded reply never does
+  // (verified: of 481 inline comments with no italic header, 376 open with
+  // `@user`, 26 with `<details>`, and the 11 that open bold are all findings).
+  const bold = head === null ? /^\s*\*\*(.+?)\*\*/s.exec(first) : null;
+  if (head === null && bold === null) return null;
+  const title = /\*\*(.+?)\*\*/s.exec(text)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
   return {
-    category,
-    severity,
-    lens: CR_CATEGORY_TO_LENS.get(category) ?? "",
+    category: head?.category ?? "",
+    vocabulary: head?.vocabulary ?? "",
+    severity: head?.severity ?? "",
+    severityRaw: head?.severityRaw ?? "",
+    effort: head?.effort ?? "",
+    vintage: head?.vintage ?? "bold-title",
+    lens: CR_CATEGORY_TO_LENS.get(head?.category ?? "") ?? "",
     summary: title,
     detail: codeRabbitDetail(body),
   };
@@ -352,10 +477,220 @@ const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
 export function codeRabbitDetail(body) {
   const text = str(body);
   const cut = text.search(CR_PROSE_END);
-  return (cut === -1 ? text : text.slice(0, cut))
-    .replace(CR_HEADER, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const prose = cut === -1 ? text : text.slice(0, cut);
+  // Drop the header LINE if the first non-blank line is one, in any vintage. This
+  // used to be a `.replace(CR_HEADER, "")` against the three-field regex, which
+  // left a two-field or single-italic header sitting in the compared text — where
+  // it contributes `potential`, `issue`, `major` to every comparison and inflates
+  // containment on exactly the vocabulary every finding shares.
+  const lines = prose.split("\n");
+  const i = lines.findIndex((l) => l.trim() !== "");
+  if (i !== -1 && classifyCodeRabbitHeader(lines[i]) !== null) lines.splice(i, 1);
+  return lines.join("\n").replace(/\s+/g, " ").trim();
+}
+
+// --- CodeRabbit's OTHER half: the review body --------------------------------
+//
+// Most of what CodeRabbit writes is not an inline comment. It is nested inside the
+// REVIEW body — `pulls/{n}/reviews`, an endpoint this module has never called —
+// under collapsed `<details>` sections, one per tier:
+//
+//   <details><summary>🧹 Nitpick comments (2)</summary><blockquote>
+//     <details><summary>path/to/file.ts (1)</summary><blockquote>
+//       `97-114`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_
+//       **The title.**
+//       prose…
+//
+// Measured 2026-08-07 over all 638 PRs: 1626 findings across 513 tier sections in
+// 403 of the 558 CodeRabbit reviews that carry a body — against 436 the inline
+// path returns.
+//
+// Each section DECLARES its own count in its title, and so does each file
+// sub-section — which is the denominator this parser is checked against, per
+// section, rather than a total nobody can falsify.
+
+/**
+ * Tier titles, matched against the `headerWords` form — lower-cased, emoji and
+ * PUNCTUATION stripped, so the 2024 combined title has no comma here. Writing
+ * these with the comma is a real mistake and it was made once while building
+ * this: the section then matched no tier, and an unmatched section contributes
+ * NEITHER its findings nor its declared count, so the shortfall check that is
+ * supposed to catch exactly this reported a clean 0 of 0.
+ *
+ * The 2024 vintage names three tiers in one title, and a keyword match on
+ * "Nitpick comments" misses it.
+ */
+const CR_TIERS = [
+  [/^nitpick comments$/, "nitpick"],
+  [/^additional comments$/, "additional"],
+  [/^additional comments not posted$/, "additional"],
+  [/^duplicate comments$/, "duplicate"],
+  [/^outside diff range comments$/, "outside-diff-range"],
+  [/^minor comments$/, "minor"],
+  [/^comments failed to post$/, "failed-to-post"],
+  [/^outside diff range codebase verification and nitpick comments$/, "combined"],
+];
+
+/**
+ * Section titles that are NOT findings, so that anything matching neither this
+ * list nor `CR_TIERS` can be REPORTED rather than silently skipped.
+ *
+ * This is the guard for the failure above. Without it a new tier name — and
+ * CodeRabbit has introduced four of them on this repo already — reads as "this
+ * review had no findings", which is the one conclusion this module must never
+ * reach by accident.
+ */
+const CR_NON_FINDING_SECTIONS = [
+  /^files selected for processing$/,
+  /^files ignored due to path filters$/,
+  /^files skipped from review as they are similar to previous changes$/,
+  /^files skipped from review due to trivial changes$/,
+  /^files with no reviewable changes$/,
+  /^review profile/,
+  /^commits$/,
+  /^code graph analysis$/,
+  /^additional context used$/,
+];
+
+/** `<summary>Title (N)</summary>` — used for both tier sections and the file
+ *  sub-sections inside them. The `(N)` is the declared count. */
+const CR_SUMMARY = /<summary>([^<]*?)\s*\((\d+)\)<\/summary>/g;
+
+/**
+ * Three locator shapes, all three live in this repository's history:
+ *   `97-114`:              backticked — the common one
+ *   62-75:                 bare — the "Comments failed to post" tier
+ *   Line range hint `4-15`: prefixed — the 2024 vintage
+ * Anchored to the start of a line so the `- Around line 39-43:` bullets inside the
+ * `🤖 Prompt for AI Agents` blocks cannot match.
+ */
+const CR_LOCATOR = /^[ \t>]*(?:Line range hint[ \t]+)?(?:`([^`\n]{1,200})`|(\d+(?:-\d+)?))[ \t]*:[ \t]*(.*)$/gm;
+
+/** HTML wrapping that sits between a locator and its header. */
+const CR_WRAPPER = /^(?:<\/?details>|<summary>.*<\/summary>|<\/?blockquote>|-{3,})$/;
+
+/** Slice from the first `<blockquote>` after `start` to its MATCHING close.
+ *  Counted rather than searched: tier sections nest file sub-sections, and a
+ *  non-counting scan ends the tier at the first inner `</blockquote>` — which
+ *  silently truncates every multi-file section to its first file. */
+function crBlockAt(text, start) {
+  const open = text.indexOf("<blockquote>", start);
+  if (open === -1) return null;
+  let depth = 0;
+  const re = /<\/?blockquote>/g;
+  re.lastIndex = open;
+  let m;
+  while ((m = re.exec(text))) {
+    depth += m[0] === "<blockquote>" ? 1 : -1;
+    if (depth === 0) return text.slice(open + "<blockquote>".length, m.index);
+  }
+  // Unclosed section: keep the rest rather than dropping it. Read paths degrade to
+  // fewer records and never throw, and a truncated tail loses findings silently.
+  return text.slice(open + "<blockquote>".length);
+}
+
+/** A file sub-section title rather than a tier: `packages/slides/src/x.ts (1)`.
+ *  Matched on "contains no whitespace" rather than on an extension, so `.gitignore`
+ *  and `Dockerfile` are files too — every tier title is prose and has a space. */
+const CR_FILE_TITLE = /^\S+$/;
+
+/**
+ * The tier sections of one review body, each with the count it declares, plus
+ * `unrecognised` — titles that carry a count but match no tier and no known
+ * non-finding section.
+ *
+ * `unrecognised` is the whole point of returning a second list. A tier this
+ * parser does not know is indistinguishable, from the outside, from a review that
+ * found nothing.
+ */
+export function codeRabbitReviewSections(body) {
+  const text = str(body);
+  const sections = [];
+  const unrecognised = [];
+  CR_SUMMARY.lastIndex = 0;
+  let m;
+  while ((m = CR_SUMMARY.exec(text))) {
+    const raw = m[1].trim();
+    const title = headerWords(raw);
+    const hit = CR_TIERS.find(([re]) => re.test(title));
+    if (!hit) {
+      // A file sub-section, or a section that is not findings at all.
+      if (!CR_FILE_TITLE.test(raw) && !CR_NON_FINDING_SECTIONS.some((re) => re.test(title))) {
+        unrecognised.push({ title: raw, declared: Number(m[2]) });
+      }
+      continue;
+    }
+    const block = crBlockAt(text, m.index);
+    if (block === null) continue;
+    sections.push({ tier: hit[1], title: raw, declared: Number(m[2]), body: block });
+  }
+  return { sections, unrecognised };
+}
+
+/**
+ * Every finding in one CodeRabbit review body, with the tier it came from.
+ *
+ * Returns `{findings, declared, shortfall}`. `declared` is what CodeRabbit's own
+ * section titles claim and `shortfall` is `declared - findings.length` — the
+ * denominator travels with the count, so a consumer can tell "this review had no
+ * nitpicks" from "this parser could not read them", which are the same number
+ * today and must never be.
+ *
+ * The tier is kept ON each finding rather than pooled. They are different claims:
+ * a ♻️ Duplicate is the same defect said twice and double-counts any volume
+ * metric, and ⚠️ Outside diff range is a finding about code the PR did not touch,
+ * which is a different comparison entirely. A scorer can pool later; it cannot
+ * unpool.
+ */
+export function parseCodeRabbitReview(body) {
+  const findings = [];
+  let declared = 0;
+  const { sections, unrecognised } = codeRabbitReviewSections(body);
+  for (const section of sections) {
+    declared += section.declared;
+    const text = section.body;
+    // Offset → enclosing file path, from the file sub-section titles.
+    const files = [];
+    CR_SUMMARY.lastIndex = 0;
+    let f;
+    while ((f = CR_SUMMARY.exec(text))) files.push({ at: f.index, path: f[1].trim() });
+    CR_LOCATOR.lastIndex = 0;
+    let m;
+    const hits = [];
+    while ((m = CR_LOCATOR.exec(text))) {
+      let rest = m[3].trim();
+      // The header is often below the locator, under some HTML wrapping.
+      if (rest === "" || CR_WRAPPER.test(rest)) {
+        const tail = text.slice(CR_LOCATOR.lastIndex, CR_LOCATOR.lastIndex + 600).split("\n");
+        rest = (tail.find((l) => l.trim() !== "" && !CR_WRAPPER.test(l.trim())) ?? "").trim();
+      }
+      const head = classifyCodeRabbitHeader(rest);
+      const bold = head === null ? /^\*\*(.+?)\*\*/s.exec(rest) : null;
+      if (head === null && bold === null) continue;
+      let file = "";
+      for (const x of files) if (x.at < m.index) file = x.path; else break;
+      hits.push({ at: m.index, locator: m[1] ?? m[2] ?? "", file, head });
+    }
+    for (let i = 0; i < hits.length; i++) {
+      const h = hits[i];
+      const span = text.slice(h.at, i + 1 < hits.length ? hits[i + 1].at : text.length);
+      findings.push({
+        tier: section.tier,
+        file: h.file,
+        locator: h.locator,
+        category: h.head?.category ?? "",
+        vocabulary: h.head?.vocabulary ?? "",
+        severity: h.head?.severity ?? "",
+        severityRaw: h.head?.severityRaw ?? "",
+        effort: h.head?.effort ?? "",
+        vintage: h.head?.vintage ?? "bold-title",
+        lens: CR_CATEGORY_TO_LENS.get(h.head?.category ?? "") ?? "",
+        summary: /\*\*(.+?)\*\*/s.exec(span)?.[1]?.replace(/\s+/g, " ").trim() ?? "",
+        detail: codeRabbitDetail(span.replace(CR_LOCATOR, "").trimStart()),
+      });
+    }
+  }
+  return { findings, declared, shortfall: declared - findings.length, unrecognised };
 }
 
 // --- the panel's findings, as posted on a human PR ---------------------------
@@ -914,6 +1249,14 @@ function listCommits(pr, api) {
   return Array.isArray(out) ? out : [];
 }
 
+/** The REVIEWS on a PR — a different endpoint from `pulls/{n}/comments`, and the
+ *  one that carries the nitpick, duplicate and outside-diff-range tiers. See
+ *  `parseCodeRabbitReview`: most of what CodeRabbit writes is in here. */
+function listReviews(pr, api) {
+  const out = api(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/reviews?per_page=100`]);
+  return Array.isArray(out) ? out : [];
+}
+
 function commitFiles(sha, api) {
   const out = api(["api", `repos/{owner}/{repo}/commits/${sha}`]);
   return Array.isArray(out?.files) ? out.files : [];
@@ -1197,6 +1540,26 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
     const finding = classifyCodeRabbitComment(rc.body);
     if (!finding) continue;
+    // BLOCKING ONLY, and this filter lives HERE rather than in the parser.
+    //
+    // It used to sit inside `classifyCodeRabbitComment`, which made "what
+    // CodeRabbit wrote" and "what this corpus files" the same function — so
+    // widening the parser to read the vintages it was blind to would have
+    // flooded this corpus with nits, in a change whose entire purpose is to READ
+    // more. The parser now returns everything CodeRabbit wrote; the corpus policy
+    // is stated here, where it is visible as a policy.
+    //
+    // The policy itself is unchanged: this corpus measures the GATE, and a minor
+    // maintainability note our panel also happened not to raise is not a gate
+    // failure. What changes is the INPUT — a two-field header carrying a major is
+    // now readable, so more real blockers reach this line and none that were
+    // reaching it stop.
+    //
+    // `severity: ""` (CodeRabbit stated a severity we do not recognise, or stated
+    // none) is not blocking and is withheld here, which is the recoverable
+    // direction: no row is written, so a later harvest re-proposes it once the
+    // vocabulary is mapped.
+    if (!BLOCKING.has(finding.severity)) continue;
     const files = interestingFiles([str(rc.path)]);
     if (files.length === 0) continue;
 
@@ -1286,6 +1649,67 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         : "",
     suppressed,
   };
+}
+
+/**
+ * What CodeRabbit actually wrote on one PR, from BOTH endpoints, counted against
+ * the denominators CodeRabbit itself states.
+ *
+ * Reports rather than records: it writes nothing, proposes no candidate and does
+ * not touch `misses.jsonl`. It exists because every defect this parser has had
+ * was a smaller-than-truth count that looked like a working one — the three-field
+ * regex returned findings, the keyword tier match returned zero, the severity
+ * filter returned a clean list of blockers, and none of them errored. A count
+ * whose denominator is printed beside it is the only version of this that can be
+ * caught being wrong.
+ *
+ * `declared` is CodeRabbit's own per-section total. `shortfall` is what this
+ * parser could not read out of that. NEVER throws: each endpoint is caught
+ * separately and degrades to fewer records.
+ */
+export function auditCodeRabbit(pr, { api = gh, log = console.error } = {}) {
+  const bump = (o, k) => { o[k] = (o[k] ?? 0) + 1; };
+  const inline = { comments: 0, findings: 0, byVintage: {}, bySeverity: {} };
+  const review = { bodies: 0, withSections: 0, declared: 0, parsed: 0, byTier: {}, byVintage: {}, bySeverity: {} };
+  try {
+    for (const rc of listReviewComments(pr, api)) {
+      if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
+      inline.comments++;
+      const f = classifyCodeRabbitComment(rc.body);
+      if (!f) continue;
+      inline.findings++;
+      bump(inline.byVintage, f.vintage);
+      bump(inline.bySeverity, f.severity === "" ? `(unrecognised: ${f.severityRaw || "none stated"})` : f.severity);
+    }
+  } catch (err) {
+    log(`#${pr}: could not list review comments (${err.message}); inline counts are incomplete.`);
+  }
+  try {
+    for (const rv of listReviews(pr, api)) {
+      if (!CODERABBIT_LOGINS.has(str(rv?.user?.login))) continue;
+      if (str(rv.body).trim() === "") continue;
+      review.bodies++;
+      const { findings, declared } = parseCodeRabbitReview(rv.body);
+      if (declared === 0 && findings.length === 0) continue;
+      review.withSections++;
+      review.declared += declared;
+      review.parsed += findings.length;
+      for (const f of findings) {
+        bump(review.byTier, f.tier);
+        bump(review.byVintage, f.vintage);
+        bump(review.bySeverity, f.severity === "" ? `(unrecognised: ${f.severityRaw || "none stated"})` : f.severity);
+      }
+      // Named, not summarised. A review whose sections declare more than this
+      // parser read is the exact failure this module keeps re-shipping, so it is
+      // reported per review with its own numbers rather than folded into a total.
+      if (declared !== findings.length) {
+        log(`#${pr}: review ${rv.id} declares ${declared} finding(s) in its section titles; this parser read ${findings.length}.`);
+      }
+    }
+  } catch (err) {
+    log(`#${pr}: could not list reviews (${err.message}); review-body counts are incomplete.`);
+  }
+  return { pr: String(pr), inline, review };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -1456,8 +1880,50 @@ function cmdHarvest(args) {
   );
 }
 
+/** `--audit`: print what CodeRabbit wrote, per PR, with its own denominators.
+ *  Read-only — it never writes `misses.jsonl` and proposes no candidate. */
+function cmdAudit(args) {
+  const api = gh;
+  let prs;
+  if (args.pr) {
+    prs = [String(args.pr)];
+  } else {
+    try {
+      prs = listCandidatePrs({ since: args.since, api });
+    } catch (err) {
+      console.error(`harvest: could not list PRs (${err.message}); nothing audited.`);
+      process.exit(0);
+    }
+  }
+  const total = { comments: 0, inline: 0, declared: 0, parsed: 0 };
+  const tiers = {}, vintages = {};
+  for (const pr of prs) {
+    const a = auditCodeRabbit(pr, { api });
+    total.comments += a.inline.comments;
+    total.inline += a.inline.findings;
+    total.declared += a.review.declared;
+    total.parsed += a.review.parsed;
+    for (const [k, v] of Object.entries(a.review.byTier)) tiers[k] = (tiers[k] ?? 0) + v;
+    for (const o of [a.inline.byVintage, a.review.byVintage]) for (const [k, v] of Object.entries(o)) vintages[k] = (vintages[k] ?? 0) + v;
+    console.log(
+      `#${a.pr}\tinline ${a.inline.findings}/${a.inline.comments} comment(s)` +
+        `\treview-body ${a.review.parsed}/${a.review.declared} declared across ${a.review.bodies} body(ies)`,
+    );
+  }
+  const pct = total.declared === 0 ? "n/a" : `${((total.parsed / total.declared) * 100).toFixed(1)}%`;
+  console.error(
+    `harvest: ${prs.length} PR(s). Inline: ${total.inline} finding(s) from ${total.comments} CodeRabbit comment(s). ` +
+      `Review bodies: ${total.parsed} of ${total.declared} declared (${pct}). ` +
+      `Total ${total.inline + total.parsed}.`,
+  );
+  if (total.parsed !== total.declared) {
+    console.error(`harvest: ${total.declared - total.parsed} declared review-body finding(s) were NOT read; each review is named above.`);
+  }
+  console.error(`harvest: by vintage ${JSON.stringify(vintages)}; by review-body tier ${JSON.stringify(tiers)}.`);
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = parseArgs(process.argv, { booleans: ["append"] });
+  const args = parseArgs(process.argv, { booleans: ["append", "audit"] });
   if (args.pr !== undefined && !/^\d+$/.test(String(args.pr))) {
     console.error("harvest: --pr takes a PR number");
     process.exit(2);
@@ -1466,5 +1932,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error("harvest: --since takes an ISO date (YYYY-MM-DD)");
     process.exit(2);
   }
-  cmdHarvest(args);
+  if (args.audit) cmdAudit(args);
+  else cmdHarvest(args);
 }

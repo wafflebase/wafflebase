@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { renderSummaryMd } from "./severity.mjs";
+import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
 import {
   SCHEMA,
   LABELS,
@@ -19,6 +19,8 @@ import {
   interestingFiles,
   fileClassesOf,
   classifyCodeRabbitComment,
+  classifyCodeRabbitHeader,
+  parseCodeRabbitReview,
   codeRabbitDetail,
   attributeToPanel,
   parsePanelComment,
@@ -350,16 +352,176 @@ const CR_MAJOR_STABILITY =
   "_🩺 Stability & Availability_ | _🟠 Major_ | _⚡ Quick win_\n\n**Missing `if: always()`.**\n\nThe step is skipped on failure.";
 const CR_REPLY = "`@dlgpdmsly2`, thanks for the thorough fix and verification. The revised distinction is correct.";
 
+// The other three vintages, each VERBATIM from this repository's API. They are
+// pinned with their PR and comment id so anyone can re-fetch and diff them; a
+// hand-written header only proves the regex matches its author's idea of the
+// format, which is how the three-field-only version shipped in the first place.
+//
+// `repos/wafflebase/wafflebase/pulls/comments` → comment 3733719133 (PR #692,
+// 2026-08-07). NOTE THE DATE: the two-field header is not a retired vintage, it
+// is current output with the effort field omitted.
+const CR_TWO_FIELD_LIVE =
+  "_🩺 Stability & Availability_ | _🟠 Major_\n\n**Reap the process group on `exit`, not only on `close`.**\n\nA leaked descendant can retain `proc.stdout` or `proc.stderr` after the shell exits.";
+// comment 2837785711 (PR #15, 2026-02-22) — two fields, UPSTREAM vocabulary.
+const CR_TWO_FIELD_UPSTREAM =
+  "_⚠️ Potential issue_ | _🟠 Major_\n\n**No timeout on `fetch` calls — requests can hang indefinitely.**\n\n`sendSignedRequest` delegates to `fetch` (Line 262) without an `AbortSignal` timeout.";
+// comment 2041141880 (PR #11, 2025-04-13) — ONE italic field, and it is a
+// CATEGORY.
+const CR_SINGLE_ITALIC =
+  "_🛠️ Refactor suggestion_\n\n**Add error handling to the useMe hook.**\n\nCurrently, errors from `fetchMe()` are handled within that function via toast messages.";
+// comment 1702452902 (PR #6, 2024-08-03) — no header at all, straight to the
+// bolded title.
+const CR_BOLD_TITLE =
+  "**Consider optimizing the `hasContents` method.**\n\nThe current implementation iterates through each reference in the range and checks the store.";
+// comment 3457646724 (PR #407, 2026-06-23T06:56:21Z) — the FIRST comment in the
+// CHILL vocabulary, three fields.
+const CR_THREE_FIELD_CHILL =
+  "_🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_\n\n**Validate `srgb` input before embedding it into XML.**\n\n`colorChildXml` currently interpolates raw `c.value` into `val=\"...\"`.";
+
 test("classifyCodeRabbitComment: reads the header this repo actually emits", () => {
   assert.deepEqual(classifyCodeRabbitComment(CR_MAJOR_CORRECTNESS), {
     category: "functional correctness",
+    vocabulary: "chill",
     severity: "major",
+    severityRaw: "major",
+    effort: "heavy lift",
+    vintage: "three-field",
     lens: "correctness",
     summary: "Guard public mutation APIs at the read-only boundary.",
     detail:
       "**Guard public mutation APIs at the read-only boundary.** This flag only protects event handlers.",
   });
   assert.equal(classifyCodeRabbitComment(CR_MAJOR_SECURITY).lens, "security");
+});
+
+test("classifyCodeRabbitComment: reads all FOUR header vintages, from real bodies", () => {
+  // The regex this replaces required three italic fields, so eras 1 and 2 —
+  // 550 of the 1485 inline findings in this repo, measured 2026-08-07 — returned
+  // null and read as "CodeRabbit said nothing here".
+  const live = classifyCodeRabbitComment(CR_TWO_FIELD_LIVE);
+  assert.equal(live.vintage, "two-field");
+  assert.equal(live.category, "stability & availability");
+  assert.equal(live.vocabulary, "chill");
+  assert.equal(live.severity, "major");
+  assert.equal(live.effort, ""); // the field the two-field vintage omits
+
+  const upstream = classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM);
+  assert.equal(upstream.vintage, "two-field");
+  assert.equal(upstream.category, "potential issue");
+  assert.equal(upstream.vocabulary, "upstream");
+  assert.equal(upstream.severity, "major");
+
+  const single = classifyCodeRabbitComment(CR_SINGLE_ITALIC);
+  assert.equal(single.vintage, "single-italic");
+  assert.equal(single.category, "refactor suggestion");
+  assert.equal(single.severity, ""); // this vintage states no severity at all
+
+  const bold = classifyCodeRabbitComment(CR_BOLD_TITLE);
+  assert.equal(bold.vintage, "bold-title");
+  assert.equal(bold.category, "");
+  assert.equal(bold.severity, "");
+  assert.equal(bold.summary, "Consider optimizing the `hasContents` method.");
+
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vintage, "three-field");
+});
+
+test("classifyCodeRabbitComment: WHICH vocabulary the category came from is kept", () => {
+  // The switch was sharp — last upstream-vocabulary comment 2026-06-22T00:20:46Z,
+  // first CHILL one 2026-06-23T06:56:21Z — so era is a real confound in any count
+  // taken across it. A parser that normalised both into one shape would make "did
+  // the format change?" unanswerable from the output.
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vocabulary, "chill");
+  assert.equal(classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM).vocabulary, "upstream");
+});
+
+test("classifyCodeRabbitComment: a lone italic field is a category OR an effort", () => {
+  // 212 of the 226 single-field headers in this repo's review bodies are EFFORTS
+  // (`_⚡ Quick win_`), not categories. Reading position 1 as "the category" would
+  // file "quick win" as a CodeRabbit category on every one of them.
+  const effort = classifyCodeRabbitComment("_⚡ Quick win_\n\n**Coverage gap.**\n\nprose");
+  assert.equal(effort.effort, "quick win");
+  assert.equal(effort.category, "");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).category, "refactor suggestion");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).effort, "");
+});
+
+test("classifyCodeRabbitComment: the `_` delimiter also occurs INSIDE a field", () => {
+  // GitHub emoji shortcodes contain underscores. A `_([^_]+)_` field regex stops
+  // at the first inner underscore and drops the finding — this is real, from
+  // review 2526885510 on PR #10 (2025-01-01).
+  const f = classifyCodeRabbitComment("_:hammer_and_wrench: Refactor suggestion_\n\n**Update the action version**\n\nprose");
+  assert.equal(f.category, "refactor suggestion");
+  assert.equal(f.vintage, "single-italic");
+});
+
+test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
+  // This is why severity is read only AFTER a header matched. normalizeSeverity
+  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
+  // reply through it would file every "thanks for the fix" as a blocking candidate
+  // and bury the real ones.
+  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
+  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
+  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+  // An italic line recognised in NO vocabulary is a caption, not a header.
+  assert.equal(classifyCodeRabbitComment("_see the diagram below_\n\nprose"), null);
+});
+
+test("classifyCodeRabbitComment: non-blocking severities are RETURNED, not dropped", () => {
+  // They used to be dropped HERE, which made "what CodeRabbit wrote" and "what
+  // this corpus files" the same function. The blocking-only rule is the corpus's
+  // policy and now lives at the caller — see the harvestPr test below, which is
+  // what actually holds that behaviour in place.
+  const minor = classifyCodeRabbitComment(CR_MINOR_MAINTAIN);
+  assert.equal(minor.severity, "minor");
+  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**").severity, "nit");
+});
+
+test("classifyCodeRabbitComment: `trivial` becomes `nit`, and never reaches normalizeSeverity", () => {
+  // CodeRabbit's below-minor tier. `severity.mjs`'s KNOWN has no `trivial` and maps
+  // anything unknown to `major` as a fail-safe for OUR gate, so routing it through
+  // normalizeSeverity files 307 lowest-tier nits as BLOCKING majors. Translated at
+  // the arm boundary instead: KNOWN is the shared source of truth for what blocks a
+  // PR in our panel, and our lenses never emit `trivial`.
+  const f = classifyCodeRabbitComment("_📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**Reuse the shared type.**\n\nprose");
+  assert.equal(f.severity, "nit");
+  assert.equal(f.severityRaw, "trivial");
+  assert.ok(!BLOCKING.has(f.severity), "a trivial nit must never be blocking");
+  assert.equal(normalizeSeverity("trivial"), "major"); // the trap this avoids, still live
+});
+
+test("classifyCodeRabbitComment: an UNRECOGNISED severity is empty, not guessed", () => {
+  // The decision here is the default, not the mapping. `major` files nits as
+  // blockers; `nit` silently demotes a real blocker the day CodeRabbit adds a
+  // word. Both are silent. Empty is not: BLOCKING.has("") is false, so the finding
+  // is withheld rather than guessed into the corpus, and severityRaw names the gap.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**x**\n\nprose");
+  assert.equal(f.severity, "");
+  assert.equal(f.severityRaw, "");
+  assert.equal(f.category, "functional correctness");
+  assert.ok(!BLOCKING.has(f.severity));
+});
+
+test("classifyCodeRabbitHeader: fields are assigned by VOCABULARY, not by position", () => {
+  // Position is not stable across vintages — the same slot holds a category in
+  // one and an effort in another — so one function reads all three arities by
+  // asking which vocabulary each field belongs to.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_"), {
+    vintage: "three-field",
+    category: "functional correctness",
+    vocabulary: "chill",
+    severity: "major",
+    severityRaw: "major",
+    effort: "quick win",
+    unrecognised: [],
+  });
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").severity, "major");
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").category, "");
+  // A word in no vocabulary is CARRIED, not dropped and not guessed at.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟣 Catastrophic_").unrecognised, ["catastrophic"]);
+  // Not a header at all.
+  assert.equal(classifyCodeRabbitHeader("**A bolded title.**"), null);
+  assert.equal(classifyCodeRabbitHeader("_a_ | _b_ | _c_ | _d_"), null);
+  assert.equal(classifyCodeRabbitHeader(""), null);
 });
 
 test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => {
@@ -371,21 +533,193 @@ test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => 
   assert.equal(stability.lens, "");
 });
 
-test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
-  // This is why severity is read only AFTER a header matched. normalizeSeverity
-  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
-  // reply through it would file every "thanks for the fix" as a blocking candidate
-  // and bury the real ones.
-  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
-  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
-  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+// --- parseCodeRabbitReview ---------------------------------------------------
+//
+// Every fixture below is a VERBATIM slice of a real `pulls/{n}/reviews` response,
+// pinned with its PR and review id. Truncated at the end only — never edited.
+
+// review 4628429920 (PR #435, 2026-07-03). The modern shape: a tier section
+// wrapping one file sub-section per file, each declaring its own count.
+const RV_NITPICK = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/slides/src/import/pptx/text.ts (1)</summary><blockquote>",
+  "",
+  "`97-114`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Reuse the shared `TextInset` type instead of an inline duplicate.**",
+  "",
+  "The return type here structurally duplicates `TextInset` from `../../model/element`.",
+  "",
+  "</blockquote></details>",
+  "<details>",
+  "<summary>packages/slides/src/view/canvas/text-renderer.ts (1)</summary><blockquote>",
+  "",
+  "`185-222`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Add a direct regression test for the `body.inset` fallback**",
+  "",
+  "A small case here would lock that precedence in.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6, 2024-08-03). The COMBINED title, which names three
+// tiers at once, and the `Line range hint` locator.
+const RV_COMBINED_2024 = [
+  "<details>",
+  "<summary>Outside diff range, codebase verification and nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>src/worksheet/coordinates.ts (1)</summary><blockquote>",
+  "",
+  "`120-155`: **LGTM! Consider adding inline comments for clarity.**",
+  "",
+  "The `toBorderRanges` function correctly calculates and returns the border ranges.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 4698770133 (PR #477, 2026-07-14). The BARE locator — no backticks.
+const RV_FAILED_TO_POST = [
+  "<details>",
+  "<summary>🛑 Comments failed to post (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>docs/design/design-system-unification.md (1)</summary><blockquote>",
+  "",
+  "62-75: _📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "**Update the remaining CSS import example.**",
+  "",
+  "Change it to `@wafflebase/core/tokens.css`.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6). `Line range hint` prefixes the locator, and the
+// header is a bolded title on the NEXT line.
+const RV_LINE_RANGE_HINT = [
+  "<details>",
+  "<summary>Additional comments not posted (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>test/sheet/sheet.test.ts (2)</summary><blockquote>",
+  "",
+  "Line range hint `4-15`: ",
+  "**LGTM! The test case is well-structured and covers the basic functionality.**",
+  "",
+  "The test case for setting and getting data in the `Sheet` class correctly validates.",
+  "",
+  "---",
+  "",
+  "Line range hint `17-22`: ",
+  "**LGTM! The test case is well-structured and covers the expected behavior.**",
+  "",
+  "The test case for updating the selection correctly validates the expected behavior.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: reads the tier the inline endpoint cannot see", () => {
+  // `pulls/{n}/comments` does not return these. They are nested in the REVIEW
+  // body, an endpoint this module never called: 1626 findings across 638 PRs,
+  // against 436 the inline path returned. Measured 2026-08-07.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NITPICK);
+  assert.equal(declared, 2);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 0);
+  assert.equal(findings[0].tier, "nitpick");
+  assert.equal(findings[0].file, "packages/slides/src/import/pptx/text.ts");
+  assert.equal(findings[0].locator, "97-114");
+  assert.equal(findings[0].severity, "nit"); // `Trivial`, translated
+  assert.equal(findings[0].summary, "Reuse the shared `TextInset` type instead of an inline duplicate.");
+  // The SECOND file's finding, which a non-counting blockquote scan loses: the
+  // tier section would end at the first inner `</blockquote>`.
+  assert.equal(findings[1].file, "packages/slides/src/view/canvas/text-renderer.ts");
 });
 
-test("classifyCodeRabbitComment: non-blocking severities are dropped", () => {
-  // The corpus measures the GATE. A minor maintainability note our panel also did
-  // not raise is not a gate failure.
-  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN), null);
-  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**"), null);
+test("parseCodeRabbitReview: the count travels with its DENOMINATOR", () => {
+  // Every defect this parser has had was a smaller-than-truth count that looked
+  // like a working one. `declared` is CodeRabbit's own section total, so "no
+  // nitpicks" and "could not read the nitpicks" stop being the same number.
+  const { declared, findings, shortfall } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🧹 Nitpick comments (5)"),
+  );
+  assert.equal(declared, 5);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 3);
+});
+
+test("parseCodeRabbitReview: all three section-title vintages, and all three locators", () => {
+  // The 2024 title names three tiers at once, so a keyword match on "Nitpick
+  // comments" misses it — and an unmatched section contributes neither findings
+  // NOR its declared count, so the shortfall check reports a clean 0 of 0.
+  const combined = parseCodeRabbitReview(RV_COMBINED_2024);
+  assert.equal(combined.declared, 1);
+  assert.equal(combined.findings.length, 1);
+  assert.equal(combined.findings[0].tier, "combined");
+  assert.equal(combined.findings[0].vintage, "bold-title");
+
+  // Bare locator, no backticks.
+  const failed = parseCodeRabbitReview(RV_FAILED_TO_POST);
+  assert.equal(failed.findings.length, 1);
+  assert.equal(failed.findings[0].tier, "failed-to-post");
+  assert.equal(failed.findings[0].locator, "62-75");
+  assert.equal(failed.findings[0].severity, "minor");
+
+  // `Line range hint` prefix, with the title on the following line.
+  const hinted = parseCodeRabbitReview(RV_LINE_RANGE_HINT);
+  assert.equal(hinted.declared, 2);
+  assert.equal(hinted.findings.length, 2);
+  assert.equal(hinted.findings[0].locator, "4-15");
+  assert.equal(hinted.findings[0].file, "test/sheet/sheet.test.ts");
+});
+
+test("parseCodeRabbitReview: the TIER is kept on every finding, never pooled", () => {
+  // They are different claims. A ♻️ Duplicate is the same defect said twice and
+  // double-counts any volume metric; ⚠️ Outside diff range is about code the PR
+  // did not touch, which is a different comparison entirely. A scorer can pool
+  // later; it cannot unpool.
+  const dup = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "♻️ Duplicate comments (2)"));
+  assert.deepEqual([...new Set(dup.findings.map((f) => f.tier))], ["duplicate"]);
+  const odr = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "⚠️ Outside diff range comments (2)"));
+  assert.deepEqual([...new Set(odr.findings.map((f) => f.tier))], ["outside-diff-range"]);
+});
+
+test("parseCodeRabbitReview: a tier it does not know is REPORTED, not skipped", () => {
+  // CodeRabbit has introduced four tier names on this repo already. An unknown one
+  // is indistinguishable, from the outside, from a review that found nothing —
+  // which is the one conclusion this module must never reach by accident.
+  const { findings, declared, unrecognised } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🆕 Speculative comments (2)"),
+  );
+  assert.equal(findings.length, 0);
+  assert.equal(declared, 0);
+  assert.deepEqual(unrecognised, [{ title: "🆕 Speculative comments", declared: 2 }]);
+  // File sub-sections and the housekeeping sections are NOT reported as unknown.
+  assert.deepEqual(parseCodeRabbitReview(RV_NITPICK).unrecognised, []);
+  assert.deepEqual(
+    parseCodeRabbitReview("<details><summary>📒 Files selected for processing (4)</summary></details>").unrecognised,
+    [],
+  );
+});
+
+test("parseCodeRabbitReview: never throws, and degrades to fewer findings", () => {
+  for (const bad of [null, undefined, "", 7, {}, "<details><summary>🧹 Nitpick comments (2)</summary>"]) {
+    const out = parseCodeRabbitReview(bad);
+    assert.ok(Array.isArray(out.findings));
+  }
 });
 
 // --- toMissRecord ------------------------------------------------------------
@@ -581,6 +915,43 @@ test("harvestPr: proposes both signatures, and only from reviewable code", () =>
   assert.equal(cr.lens, "correctness");
   assert.equal(cr.severity, "major");
   assert.equal(cr.evidence.commentId, "3650043440");
+});
+
+test("harvestPr: keeps ONLY blocking CodeRabbit findings — the filter the parser gave up", () => {
+  // This test is the one that holds the corpus policy in place now. It used to
+  // live inside `classifyCodeRabbitComment` ("non-blocking severities are
+  // dropped"), which meant widening the parser to read the vintages it was blind
+  // to would have flooded this corpus with nits. The parser returns everything
+  // CodeRabbit wrote; the caller decides what the corpus files.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 10, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: CR_MINOR_MAINTAIN },
+      { id: 11, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**A trivial nit.**\n\nprose" },
+      // A severity in no vocabulary we know: withheld, NOT defaulted to major.
+      { id: 12, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**Unknown severity.**\n\nprose" },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.deepEqual(records.filter((r) => r.source === "coderabbit"), []);
+  // …and every severity the parser DID hand it was readable, so this is a filter
+  // rather than a parse failure.
+  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN).severity, "minor");
+});
+
+test("harvestPr: a two-field header now reaches the corpus — the widening, end to end", () => {
+  // The header on #692, posted 2026-08-07. `classifyCodeRabbitComment` returned
+  // null for it before this change, so a Major finding from CodeRabbit on a PR the
+  // panel had reviewed was filed as nothing at all.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 3733719133, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, html_url: "https://x/d", body: CR_TWO_FIELD_LIVE },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  const cr = records.filter((r) => r.source === "coderabbit");
+  assert.equal(cr.length, 1);
+  assert.equal(cr[0].severity, "major");
+  assert.equal(cr[0].evidence.commentId, "3733719133");
 });
 
 test("harvestPr: EVERY harvested candidate is unverified", () => {
