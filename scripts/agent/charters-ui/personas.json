@@ -32,12 +32,12 @@
     "maxCandidates": 8,
     "reportableSeverities": ["critical", "major"],
     "actionBudget": {
-      "maxActions": 80,
+      "maxActions": 50,
       "perActionTimeoutMs": 30000,
       "totalTimeoutMs": 900000
     },
-    "explorerMaxTurns": 60,
-    "verifierMaxTurns": 20
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 35
   },
   {
     "id": "sheet-author",
@@ -71,11 +71,11 @@
     "maxCandidates": 8,
     "reportableSeverities": ["critical", "major"],
     "actionBudget": {
-      "maxActions": 80,
+      "maxActions": 50,
       "perActionTimeoutMs": 30000,
       "totalTimeoutMs": 900000
     },
-    "explorerMaxTurns": 60,
-    "verifierMaxTurns": 20
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 35
   }
 ]

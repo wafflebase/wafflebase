@@ -14,6 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fixtureGitEnv } from "../git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -367,7 +368,27 @@ test("materialising a real commit from an EMPTY cache counts what it extracted",
   // `novelty.test.mjs` and `git-env.test.mjs` already use.
   const cache = mkdtempSync(path.join(tmpdir(), "eval-repo-cache-test-"));
   const src = mkdtempSync(path.join(tmpdir(), "eval-repo-src-test-"));
-  const git = (...a) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], { cwd: src, stdio: "pipe", encoding: "utf8" });
+  // `fixtureGitEnv`, NOT the ambient environment — the same helper
+  // `novelty.test.mjs`, `git-env.test.mjs` and `collect-captures.test.mjs` already
+  // use for their fixture repos, and this was the only site that did not.
+  //
+  // `cwd` alone does not scope git. When the suite runs inside a git hook — which is
+  // what `pre-push` does — git exports `GIT_DIR` and `GIT_INDEX_FILE` into the
+  // environment, and those OVERRIDE `cwd`. So this helper operated on the real
+  // repository: it added `a.mjs`/`b.mjs` to the developer's index and committed them
+  // as `t <t@t> "two files"`, then the test's `rm -rf` of its temp dir left every
+  // tracked file reading as deleted. Observed exactly that on this branch.
+  //
+  // Two consequences, both bad: `pnpm verify:self` fails from inside any hook, so
+  // `git push` is blocked for everyone; and a test suite writes commits into the
+  // repository it is testing.
+  const git = (...a) =>
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], {
+      cwd: src,
+      env: fixtureGitEnv(src),
+      stdio: "pipe",
+      encoding: "utf8",
+    });
   try {
     git("init", "--quiet");
     writeFileSync(path.join(src, "a.mjs"), "export const a = 1;\n");
