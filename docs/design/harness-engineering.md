@@ -537,7 +537,19 @@ Components:
     the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
     comment, records NO check runs and drives no promote/fix, so it never touches
     the merge gate. Works on any PR incl. forks (read-only). PR author OR
-    maintainer, throttled per head SHA. The comment ends with a collapsed
+    maintainer, throttled per head SHA. The comment is rendered by
+    `scripts/agent/review-comment.mjs` in a **triage layout**: a one-line
+    verdict + counts headline, then EVERY blocking (critical/major) finding
+    expanded and first (each a linkable `file:line` to the reviewed commit,
+    lens-tagged), with minor/nit findings collapsed per lens (count in the
+    `<summary>`), and the long reviewer prose + relocated/pre-existing findings
+    collapsed below. A lens with zero findings is omitted; collapsed sections
+    past a char budget are dropped with a stated count (blocking findings never
+    are). It is PRESENTATION ONLY — it reads the same `.agent-review/<lens>/verdict.json` findings and
+    changes nothing about detection, severity, or the gate; the autonomous
+    panel's per-lens check bodies still go through `severity.mjs::renderSummaryMd`
+    untouched, and the on-demand path falls back to that per-lens concatenation
+    if the triage render is unavailable. The comment then ends with a collapsed
     **"Prompt for AI Agents"** fold (`scripts/agent/ai-prompt.mjs`) — the blocking
     (critical/major, non-demoted) findings rendered as a fenced, copy-pasteable fix
     instruction, so a maintainer can hand the whole review to their own coding agent

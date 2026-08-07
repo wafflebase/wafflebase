@@ -500,6 +500,24 @@ jobs:
           --review-dir .agent-review
           --out /tmp/ai-prompt.md
 
+      # Build the TRIAGE-layout comment region (headline counts, blocking findings
+      # expanded and first, minor/nit + prose collapsed per lens) from the SAME
+      # verdict.json findings. Presentation only — no check runs, no gate change.
+      # --blob-base makes each file:line a real link to the reviewed commit. Runs
+      # the TRUSTED main copy; continue-on-error + fail-safe empty output so the
+      # comment step falls back to the old per-lens concatenation if this is empty.
+      - name: Build the triage review comment
+        if: always()
+        continue-on-error: true
+        env:
+          BLOB_BASE: https://github.com/${{ github.repository }}/blob/${{ needs.authorize.outputs.head_sha }}
+        run: >-
+          node .trusted/scripts/agent/review-comment.mjs
+          --review-dir .agent-review
+          --lenses .trusted/scripts/agent/lenses/lenses.json
+          --blob-base "$BLOB_BASE"
+          --out /tmp/review-comment.md
+
       # EDIT the "running" placeholder authorize posted (comment_id) into the
       # findings — aggregate panel.json + each lens's summary.md. No check runs;
       # advisory only. Fails closed to a note if the panel crashed. If the
@@ -587,11 +605,21 @@ jobs:
               if (p) promptSection = `\n\n${p}`;
             } catch { /* no prompt file (nothing blocked, or panel crashed) */ }
             const note = '\n\n_Advisory only — this on-demand review records no status checks and does not gate merge; a human approval is still required._';
-            let body = `${marker}\n${header}\n\n${bodies.join('\n\n')}${tally}${promptSection}${note}`;
+            // Prefer the TRIAGE region (headline counts, blocking findings first +
+            // expanded, minor/nit + prose collapsed) built by review-comment.mjs
+            // above — it already carries its own 🔴/🟢 header and does finding-aware
+            // truncation. Best-effort: if it's empty/missing (older trusted copy or
+            // the build step failed), fall back to the original per-lens summary.md
+            // concatenation so the comment is never stranded.
+            let region = '';
+            try { region = fs.readFileSync('/tmp/review-comment.md', 'utf8').trim(); } catch { /* fall back below */ }
+            if (!region) region = `${header}\n\n${bodies.join('\n\n')}`;
+            let body = `${marker}\n${region}${tally}${promptSection}${note}`;
             // GitHub comment hard limit is 65536 chars; trim from the tail if huge.
             // `tally` + `promptSection` are re-appended after the cut, like `note`:
             // a body long enough to truncate is one with many findings, which is
             // exactly when "were these verified?" and the fix prompt matter most.
+            // (The triage region self-truncates to a budget, so this is a backstop.)
             if (body.length > 65000) body = body.slice(0, 64900) + '\n\n… _(truncated)_' + tally + promptSection + note;
             await publish(body);
 
