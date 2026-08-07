@@ -38,9 +38,18 @@
  *
  * `securityLevel: 'sandbox'` (mermaid's own advice for untrusted input) is
  * deliberately not used: it wraps every diagram in an iframe, which breaks
- * sizing, text selection and the preview's light/dark surface. The app-side
- * sanitize pass above is the substitute — the engine's sanitizer is then
- * defense in depth rather than the only defense.
+ * sizing, text selection and the preview's light/dark surface. Be precise
+ * about what that costs, because layer 3 is NOT an equivalent substitute:
+ * outside sandbox mode `mermaid.render()` appends its own `d<id>` host div to
+ * `document.body`, lays the diagram out there (it needs a rendered box to
+ * measure text), and only then serializes it — so the engine's output exists
+ * in the reader's live document *before* `sanitizeSvg()` ever sees it. What
+ * guards that window is mermaid's own strict-mode sanitizing (the engine
+ * DOMPurifies label content as it builds the tree) plus layer 2 stripping the
+ * carriers a note could steer the engine with; layer 3 governs what *persists*
+ * in the preview, and is defense in depth over the engine's own final
+ * DOMPurify pass. Sandbox mode remains the only way to close the layout
+ * window itself, and that trade is knowingly taken.
  */
 
 import type { Config as PurifyConfig, DOMPurify as Purifier } from 'dompurify';
@@ -175,10 +184,24 @@ const SECURE_KEYS = [
 ];
 
 /**
+ * The mermaid release the carrier patterns below were copied from. They are
+ * verbatim copies of a NON-EXPORTED upstream module, so nothing here can be
+ * derived from the installed engine at runtime, and `mermaid: ^11.16.0` lets a
+ * routine minor/patch upgrade move the patterns while these copies stay put —
+ * exactly the drift that leaves a live carrier behind.
+ *
+ * `preview.test.ts` asserts this equals the installed `mermaid` version, so an
+ * upgrade fails the suite until someone re-diffs `src/utils/regexes.ts` and
+ * moves this constant.
+ */
+export const MERMAID_CARRIER_PATTERNS_VERSION = '11.16.0';
+
+/**
  * Mermaid's own carrier patterns, copied verbatim from its `src/utils/regexes.ts`
- * (`directiveRegex` / `frontMatterRegex`, mermaid 11.16.0). Recognizing LESS
- * than the engine does is the whole failure mode here — a carrier we leave in
- * place is one the engine still reads. Note in particular that the closing
+ * (`directiveRegex` / `frontMatterRegex`, mermaid
+ * `MERMAID_CARRIER_PATTERNS_VERSION`). Recognizing LESS than the engine does is
+ * the whole failure mode here — a carrier we leave in place is one the engine
+ * still reads. Note in particular that the closing
  * `}%%` of a directive is OPTIONAL for mermaid, so an unterminated `%%{init:`
  * runs to the end of the diagram; matching that exactly means an unterminated
  * directive is stripped exactly as far as mermaid would have read it.
@@ -213,7 +236,8 @@ const PURIFY_CONFIG: PurifyConfig & { RETURN_DOM_FRAGMENT: true } = {
   // needs them (labels are `<foreignObject>` subtrees, markers/icons are
   // `<use>` references), and this pipeline returns nodes, so the serialize →
   // re-parse step those attacks depend on never happens. `use` is still held
-  // to `ALLOWED_URI_REGEXP` below, i.e. same-document `#` references only.
+  // to `ALLOWED_URI_REGEXP` below, which is the same allowlist every other
+  // reference in the tree answers to.
   ADD_TAGS: ['foreignobject', 'use'],
   // `<foreignObject>` is an HTML integration point per the HTML spec, so the
   // label subtree inside it is HTML and is checked against the HTML profile.
@@ -224,9 +248,21 @@ const PURIFY_CONFIG: PurifyConfig & { RETURN_DOM_FRAGMENT: true } = {
   // IP-logging beacon — into every reader's page.
   FORBID_TAGS: ['img', 'image', 'audio', 'video', 'source', 'track', 'input'],
   FORBID_ATTR: ['ping', 'srcset', 'background', 'lowsrc', 'dynsrc'],
-  // Narrower than DOMPurify's default URI allowlist: a diagram links out or
-  // links within itself, and nothing else.
-  ALLOWED_URI_REGEXP: /^(?:#|https?:\/\/|mailto:)/i,
+  // DOMPurify's default URI allowlist with the scheme list narrowed to what a
+  // diagram needs: it links out (`http(s)`, `mailto:`) or within itself (`#`,
+  // which the `[^a-z]` branch covers), and nothing else — no `ftp`/`tel`/
+  // `callto`/`sms`/`cid`/`xmpp`/`matrix`.
+  //
+  // The two trailing branches are the default's own, and are NOT optional:
+  // DOMPurify applies this regexp to the value of every allowed attribute that
+  // is not `data-*`/`aria-*`/URI-safe, not just to the ones that hold a URL.
+  // They are what lets a non-URI value through — `d="M0,0 L4,2"`,
+  // `transform="translate(4,2)"`, `fill="none"`, `width="120"`, `viewBox`.
+  // Dropping them strips a real diagram down to an empty `<svg>`. They still
+  // reject anything carrying a scheme, `javascript:` and `data:` included,
+  // because `[a-z+.\-]+` must be followed by a character that is not `:`.
+  ALLOWED_URI_REGEXP:
+    /^(?:(?:https?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   // Nodes, not markup — see `sanitizeSvg()`.
   RETURN_DOM_FRAGMENT: true,
 };
@@ -283,6 +319,20 @@ function isSafeCss(css: string): boolean {
 export function sanitizeSvg(purify: Purifier, svg: string): DocumentFragment {
   const fragment = purify.sanitize(svg, PURIFY_CONFIG);
   for (const el of Array.from(fragment.querySelectorAll('style'))) {
+    // The browser builds the stylesheet from the element's *child text
+    // content* — its direct `Text` children, concatenated — while
+    // `textContent` concatenates every descendant's text. The two differ
+    // exactly when a `<style>` has an element child, and this pipeline
+    // manufactures that case: mermaid serializes an HTML-namespace raw-text
+    // `<style>`, and DOMPurify re-parses it inside `<svg>`, where the same
+    // bytes are markup. `@im<title>x</title>port` then reads as `@import` to
+    // the CSS parser and as `@imxport` to the check below. Mermaid never emits
+    // a `<style>` with an element child, so drop the block rather than trying
+    // to reconcile the two readings.
+    if (el.firstElementChild) {
+      el.remove();
+      continue;
+    }
     if (!isSafeCss(el.textContent ?? '')) el.remove();
   }
   for (const el of Array.from(fragment.querySelectorAll('[style]'))) {
@@ -424,9 +474,13 @@ async function renderPass(
             ? `Diagram error: ${err.message}`
             : 'Diagram error',
       };
-      // mermaid renders into a detached `d<id>` host element and only cleans
-      // it up on success, so drop it here rather than leaking one node per
-      // failed parse (a diagram is unparseable while it is being typed).
+    } finally {
+      // Outside sandbox mode mermaid lays the diagram out in a `d<id>` host
+      // div it appends to `document.body` (see the SECURITY note above), and
+      // removes it only on the success path. Clean up unconditionally: on a
+      // failed parse it would otherwise leak one host — with the engine's
+      // un-DOMPurified output still in it — per keystroke, since a diagram is
+      // unparseable for most of the time it is being typed.
       document.getElementById(`d${id}`)?.remove();
     }
     remember(key, result);

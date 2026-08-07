@@ -1,6 +1,8 @@
+import { createRequire } from 'node:module';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotePreview } from './preview.js';
 import {
+  MERMAID_CARRIER_PATTERNS_VERSION,
   mermaidFenceHtml,
   renderMermaidBlocks,
   resetMermaidStateForTests,
@@ -243,6 +245,20 @@ describe('NotePreview mermaid fences', () => {
     resetMermaidStateForTests();
   });
 
+  it('still targets the mermaid release its carrier patterns came from', () => {
+    // `stripConfigDirectives()` uses verbatim copies of mermaid's
+    // `directiveRegex`/`frontMatterRegex`, which live in a non-exported module
+    // — there is nothing to import and compare against at runtime. Under
+    // `mermaid: ^11.16.0` a routine minor/patch upgrade can move those
+    // patterns while the copies stay put, and recognizing LESS than the engine
+    // does is the failure mode: the carrier we leave behind is one the engine
+    // still reads. So pin the version instead — an upgrade fails here until
+    // someone re-diffs `src/utils/regexes.ts` and moves the constant.
+    const require = createRequire(import.meta.url);
+    const { version } = require('mermaid/package.json') as { version: string };
+    expect(version).toBe(MERMAID_CARRIER_PATTERNS_VERSION);
+  });
+
   it('emits a source-carrying placeholder, not a highlighted code block', () => {
     const preview = new NotePreview({
       mermaidLoader: async () => stubEngine(),
@@ -411,25 +427,31 @@ describe('NotePreview mermaid fences', () => {
     expect(block.querySelector('.edge')?.getAttribute('style')).toContain(
       'url(#grad)',
     );
-    expect(block.querySelector('use')).toBeTruthy();
+    // A <use> that kept the element but lost the reference renders nothing.
+    expect(block.querySelector('use')?.getAttribute('xlink:href')).toBe(
+      '#arrow',
+    );
     // htmlLabels diagrams put their label text in a foreignObject subtree.
     expect(block.querySelector('foreignObject .label')?.textContent).toBe(
       'Editor',
     );
   });
 
-  it('drops CSS whose fetch is spelled with escapes, and img entirely', async () => {
-    // Two ways a string-level scrub is escaped around: CSS escape sequences
-    // (the parser resolves `\40 import` to `@import`), and markup that is
-    // inert where it was inspected but live once re-parsed (`<img>` inside
-    // `<style>` breaks out of foreign content on an innerHTML round trip).
+  it('drops CSS whose fetch is spelled with escapes, and fetching tags', async () => {
+    // A string-level scrub is escaped around with CSS escape sequences (the
+    // parser resolves `\40 import` to `@import`), so the check decodes before
+    // it looks. The fetch-capable tags are separate markup, not text inside a
+    // <style>: an <img> there would be removed with the block that carries it,
+    // which would say nothing about FORBID_TAGS.
     const engine = stubEngine(async () => ({
       svg:
         '<svg><g style="background:\\75 rl(https://evil.example/c)"/>' +
         '<style>\\40 import "https://evil.example/x.css";' +
         '.n{background:\\75 rl(https://evil.example/beacon)}</style>' +
-        '<style>.m{background:url("https://evil.example/b")}' +
-        '<img src=x onerror=alert(1)></style></svg>',
+        '<image href="https://evil.example/pixel.png"/>' +
+        '<img src="https://evil.example/pixel.png">' +
+        '<foreignObject><div><img src="https://evil.example/label.png">' +
+        '</div></foreignObject></svg>',
     }));
     const preview = new NotePreview({ mermaidLoader: async () => engine });
     document.body.appendChild(preview.el);
@@ -438,11 +460,75 @@ describe('NotePreview mermaid fences', () => {
 
     const block = preview.el.querySelector('.note-mermaid')!;
     expect(block.querySelector('style')).toBeNull();
+    // Both the SVG <image> and the HTML <img>, including one reached through
+    // the foreignObject label subtree the HTML profile is enabled for.
     expect(block.querySelector('img')).toBeNull();
+    expect(block.querySelector('image')).toBeNull();
     expect(block.textContent).not.toContain('evil.example');
     expect(block.querySelector('g')?.hasAttribute('style')).toBe(false);
 
     preview.el.remove();
+  });
+
+  it('drops a <style> whose CSS an element child splits past the check', async () => {
+    // The browser builds the stylesheet from the element's *child text
+    // content*, so `@im<title>x</title>port` is `@import` to the CSS parser
+    // while `textContent` reads `@imxport`. Mermaid never emits a <style> with
+    // an element child; DOMPurify manufactures one, because the raw-text
+    // <style> mermaid serialized is re-parsed inside <svg>, where the same
+    // bytes are markup.
+    const engine = stubEngine(async () => ({
+      svg:
+        '<svg><style>@im<title>x</title>port ' +
+        '"https://evil.example/x.css";</style></svg>',
+    }));
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    document.body.appendChild(preview.el);
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid')!;
+    expect(block.querySelector('style')).toBeNull();
+    expect(block.textContent).not.toContain('evil.example');
+
+    preview.el.remove();
+  });
+
+  it('keeps the geometry and presentation attributes of a real diagram', async () => {
+    // DOMPurify applies ALLOWED_URI_REGEXP to EVERY allowed attribute that is
+    // not data-*/aria-*/URI-safe — `d`, `transform`, `viewBox`, `width`,
+    // `fill` included — so a regexp narrowed to actual URL shapes silently
+    // renders every diagram as an empty <svg>. Real mermaid cannot run under
+    // jsdom, so this fixture stands in for its output.
+    const engine = stubEngine(async () => ({
+      svg:
+        '<svg viewBox="0 0 120 40" width="120" height="40">' +
+        '<g transform="translate(4,2)" class="node">' +
+        '<path d="M0,0 L4,2 L0,4" fill="none" stroke-width="2" ' +
+        'marker-end="url(#arrow)"/>' +
+        '<rect x="0" y="0" rx="3" width="60" height="20"/>' +
+        '<text text-anchor="middle" dy="0.3em">A</text></g></svg>',
+    }));
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    const block = preview.el.querySelector('.note-mermaid')!;
+    const svg = block.querySelector('svg')!;
+    expect(svg.getAttribute('viewBox')).toBe('0 0 120 40');
+    expect(svg.getAttribute('width')).toBe('120');
+    expect(block.querySelector('g')?.getAttribute('transform')).toBe(
+      'translate(4,2)',
+    );
+    const path = block.querySelector('path')!;
+    expect(path.getAttribute('d')).toBe('M0,0 L4,2 L0,4');
+    expect(path.getAttribute('fill')).toBe('none');
+    expect(path.getAttribute('stroke-width')).toBe('2');
+    expect(path.getAttribute('marker-end')).toBe('url(#arrow)');
+    expect(block.querySelector('rect')?.getAttribute('rx')).toBe('3');
+    expect(block.querySelector('text')?.getAttribute('text-anchor')).toBe(
+      'middle',
+    );
   });
 
   it('strips an unterminated config directive, which mermaid still reads', async () => {

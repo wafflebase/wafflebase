@@ -373,20 +373,36 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
   the engine) and drops front matter unconditionally, because `secure` pins
   only top-level keys — a carrier the strip under-recognizes still delivers a
-  nested override; (3) `sanitizeSvg()` runs the engine's output through
-  **DOMPurify** (allowlist, SVG + SVG-filter + HTML profiles, URI scheme
-  narrowed to `#`/`http(s)`/`mailto:`, fetch-capable tags forbidden) and
-  returns a `DocumentFragment` that is inserted as nodes — never re-serialized
-  and re-parsed, so the tree that was inspected is the tree that reaches the
-  document. CSS is the one thing DOMPurify does not inspect, so a `<style>`
-  element or `style` attribute whose text (raw *or* CSS-escape-decoded)
-  contains `@import`, an off-page `url()` or another fetch function is dropped
-  whole. DOMPurify is loaded next to the engine (`import('dompurify')`), which
-  costs no bytes a diagram was not already paying for — mermaid depends on it.
-  `securityLevel: 'sandbox'` (mermaid's own advice for
-  untrusted input) is deliberately not used — it iframes every diagram, which
-  breaks sizing, text selection and the light/dark surface; the local sanitize
-  pass is the substitute.
+  nested override — and the copies are version-pinned
+  (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
+  `mermaid` in `preview.test.ts`) so an upgrade under the caret range cannot
+  move the engine's patterns out from under them unnoticed; (3) `sanitizeSvg()`
+  runs the engine's output through **DOMPurify** (allowlist, SVG + SVG-filter +
+  HTML profiles, fetch-capable tags forbidden) and returns a
+  `DocumentFragment` that is inserted as nodes — never re-serialized and
+  re-parsed, so the tree that was inspected is the tree that reaches the
+  document. Its `ALLOWED_URI_REGEXP` is DOMPurify's **default** with the scheme
+  list narrowed to `http(s)`/`mailto:` (`#` falls out of the default's own
+  non-letter branch): the default's trailing "not a URI at all" branches must
+  stay, because DOMPurify applies that regexp to every allowed attribute value
+  that is not `data-*`/`aria-*`/URI-safe — dropping them strips `d`,
+  `transform`, `viewBox`, `width`, `fill` and renders every diagram empty.
+  CSS is the one thing DOMPurify does not inspect, so a `<style>` element or
+  `style` attribute whose text (raw *or* CSS-escape-decoded) contains
+  `@import`, an off-page `url()` or another fetch function is dropped whole,
+  as is any `<style>` with an element child — the browser builds a sheet from
+  *child text content*, so an element child splits a construct past a
+  `textContent` check. DOMPurify is loaded next to the engine
+  (`import('dompurify')`), which costs no bytes a diagram was not already
+  paying for — mermaid depends on it. `securityLevel: 'sandbox'` (mermaid's own
+  advice for untrusted input) is deliberately not used — it iframes every
+  diagram, which breaks sizing, text selection and the light/dark surface.
+  That trade is knowingly taken, and layer 3 is **not** an equivalent
+  substitute: outside sandbox mode the engine appends its own `d<id>` host div
+  to `document.body` and lays the diagram out there before serializing, so its
+  output is briefly in the live document ahead of our pass. Mermaid's own
+  strict-mode sanitizing plus layer 2's carrier strip guard that window; layer
+  3 governs what persists.
 
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 
