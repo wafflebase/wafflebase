@@ -8,8 +8,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataSourceFormFields } from "@/components/datasource-form-fields";
-import { testDataSourceConnection } from "@/api/datasources";
-import { createWorkspaceDataSource } from "@/api/workspaces";
+import {
+  createWorkspaceDataSource,
+  testWorkspaceDataSourceConfig,
+} from "@/api/workspaces";
 import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
@@ -39,7 +41,6 @@ export function DataSourceDialog({
   const [sslEnabled, setSslEnabled] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedId, setSavedId] = useState<string | null>(null);
 
   const resetForm = () => {
     setName("");
@@ -49,7 +50,6 @@ export function DataSourceDialog({
     setUsername("");
     setPassword("");
     setSslEnabled(false);
-    setSavedId(null);
   };
 
   const handleSave = async () => {
@@ -64,7 +64,6 @@ export function DataSourceDialog({
         password,
         sslEnabled,
       });
-      setSavedId(ds.id);
       toast.success("DataSource created");
       onCreated(ds);
       resetForm();
@@ -78,41 +77,16 @@ export function DataSourceDialog({
   };
 
   const handleTest = async () => {
-    if (!savedId) {
-      // Save first, then test
-      setSaving(true);
-      try {
-        const ds = await createWorkspaceDataSource(workspaceId, {
-          name: name || "Untitled",
-          host,
-          port: Number(port),
-          database,
-          username,
-          password,
-          sslEnabled,
-        });
-        setSavedId(ds.id);
-
-        setTesting(true);
-        const result = await testDataSourceConnection(ds.id);
-        if (result.success) {
-          toast.success("Connection successful");
-        } else {
-          toast.error(`Connection failed: ${result.error}`);
-        }
-      } catch (error) {
-        if (isAuthExpiredError(error)) return;
-        toast.error("Failed to test connection");
-      } finally {
-        setSaving(false);
-        setTesting(false);
-      }
-      return;
-    }
-
     setTesting(true);
     try {
-      const result = await testDataSourceConnection(savedId);
+      const result = await testWorkspaceDataSourceConfig(workspaceId, {
+        host,
+        port: Number(port),
+        database,
+        username,
+        password,
+        sslEnabled,
+      });
       if (result.success) {
         toast.success("Connection successful");
       } else {
@@ -162,7 +136,7 @@ export function DataSourceDialog({
           <Button
             variant="outline"
             onClick={handleTest}
-            disabled={testing || !host || !database}
+            disabled={testing || saving || !host || !database || !username}
           >
             {testing ? "Testing..." : "Test Connection"}
           </Button>
