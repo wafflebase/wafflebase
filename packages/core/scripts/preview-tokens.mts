@@ -46,32 +46,43 @@ interface Request {
 const NAMES = ['palette', 'semantic', 'radius', 'typography'] as const;
 const toMap = (block: Array<[string, string]>) => Object.fromEntries(block);
 
-/** Scratch dirs from previous requests, removed once the next one succeeds. */
-const stale: string[] = [];
-
 async function handle(req: Request) {
   const files = req.files ?? {};
   const missing = NAMES.filter((n) => typeof files[n] !== 'string');
   if (missing.length) throw new Error(`files must include ${missing.join(', ')}`);
 
   const dir = mkdtempSync(join(tmpdir(), 'wb-preview-tokens-'));
-  stale.push(dir);
-  for (const n of NAMES) writeFileSync(join(dir, `${n}.ts`), files[n]!, 'utf8');
+  // Each request owns its scratch dir and removes it in its OWN `finally`.
+  //
+  // NOT a shared "delete the previous one" list: the line handler starts
+  // requests concurrently without awaiting, so a request that finishes first
+  // would delete an older request's directory while that request's dynamic
+  // imports were still resolving — and a request whose module evaluation
+  // THREW (an intermediate, syntactically-invalid token edit, which is the
+  // common case during live editing) would never reach the cleanup at all and
+  // leak its directory for the worker's lifetime.
+  //
+  // Deleting the files here is safe because `Promise.all` has already
+  // evaluated all four modules — including `semantic.ts`'s import of
+  // `./palette` — so nothing is left to resolve off disk, and the modules
+  // stay resident in the ESM registry.
+  try {
+    for (const n of NAMES) writeFileSync(join(dir, `${n}.ts`), files[n]!, 'utf8');
 
-  const load = async (n: string) => import(pathToFileURL(join(dir, `${n}.ts`)).href);
-  const [p, s, r, t] = await Promise.all(NAMES.map(load));
-  const sources: TokenSources = {
-    palette: p.palette,
-    semantic: s.semantic,
-    radius: r.radius,
-    typography: t.typography,
-  };
+    const load = async (n: string) => import(pathToFileURL(join(dir, `${n}.ts`)).href);
+    const [p, s, r, t] = await Promise.all(NAMES.map(load));
+    const sources: TokenSources = {
+      palette: p.palette,
+      semantic: s.semantic,
+      radius: r.radius,
+      typography: t.typography,
+    };
 
-  const { light, dark } = tokenBlocks(sources);
-  // Keep only the newest scratch dir; the imported modules stay resident in the
-  // ESM registry, so deleting the files afterwards is safe.
-  while (stale.length > 1) rmSync(stale.shift()!, { recursive: true, force: true });
-  return { light: toMap(light), dark: toMap(dark) };
+    const { light, dark } = tokenBlocks(sources);
+    return { light: toMap(light), dark: toMap(dark) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const rl = createInterface({ input: process.stdin });
@@ -90,8 +101,4 @@ rl.on('line', (line) => {
       process.stdout.write(`${JSON.stringify({ id, ok: false, error })}\n`);
     }
   })();
-});
-
-process.on('exit', () => {
-  for (const d of stale) rmSync(d, { recursive: true, force: true });
 });

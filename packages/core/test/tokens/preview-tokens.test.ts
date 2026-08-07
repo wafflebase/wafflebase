@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -79,6 +80,11 @@ function startWorker() {
 
 const worker = startWorker();
 afterAll(() => worker.stop());
+
+/** The worker's scratch directories currently on disk, by `mkdtemp` prefix. */
+function scratchDirs(): string[] {
+  return readdirSync(tmpdir()).filter((n) => n.startsWith('wb-preview-tokens-'));
+}
 
 /** Swap a hex literal in the palette SOURCE, the way a staged edit would. */
 function patchSyrup(files: Files, hex: string): Files {
@@ -161,6 +167,49 @@ describe('preview-tokens worker', () => {
       const good = await worker.send(sources());
       expect(good.ok).toBe(true);
       expect(good.light?.['--wb-syrup']).toBe('#B8651A');
+    },
+    60_000,
+  );
+
+  it(
+    'removes the scratch directory of a request whose modules threw',
+    async () => {
+      // Cleanup used to run only on the SUCCESS path, so every failed request
+      // leaked its scratch directory for the worker's lifetime. Live editing
+      // makes that the common case, not the rare one: each keystroke through a
+      // half-typed hex literal is one syntactically-invalid request.
+      //
+      // The response is written after `handle()` settles, and the directory is
+      // removed in its `finally` — so by the time a reply is in hand, cleanup
+      // has already run or has been skipped for good. No polling needed.
+      const before = scratchDirs();
+      for (let i = 0; i < 3; i++) {
+        const bad = await worker.send({ ...sources(), palette: 'export const palette = (' });
+        expect(bad.ok).toBe(false);
+      }
+
+      expect(scratchDirs().filter((d) => !before.includes(d))).toEqual([]);
+    },
+    60_000,
+  );
+
+  it(
+    'serves concurrent requests without deleting each other\'s scratch directory',
+    async () => {
+      // The line handler starts each request without awaiting the previous one,
+      // so two can be in flight at once. Cleanup used to be a shared FIFO that
+      // deleted the OLDEST directory whenever any request finished — which, if
+      // the second request finished first, pulled the files out from under the
+      // first one's still-resolving dynamic imports.
+      const [a, b] = await Promise.all([
+        worker.send(patchSyrup(sources(), '#0000FF')),
+        worker.send(patchSyrup(sources(), '#00FF00')),
+      ]);
+
+      expect(a.ok, a.error).toBe(true);
+      expect(b.ok, b.error).toBe(true);
+      expect(a.light?.['--wb-syrup']).toBe('#0000FF');
+      expect(b.light?.['--wb-syrup']).toBe('#00FF00');
     },
     60_000,
   );
