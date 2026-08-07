@@ -54,6 +54,16 @@ rejected — correctly, since nothing in that window could have changed it.
   produced this way within minutes of the protocol first running.
 - **`doc.canUndo` exists — ask it** before predicting anything about undo, rather
   than assuming an undoable entry exists.
+- **UNDO AND REDO CLEAR THE SELECTION on this surface.** `restoreSelectionFromPresence`
+  restores a selection from presence, and the harness store has no presence — so it
+  takes the `setRange(null)` branch every time. After any undo or redo you have NO
+  selection, and a toolbar button that acts on a selection will silently do nothing:
+  no mutation, no history entry. Measured — a live run produced a confident,
+  reproducible, ground-A finding built entirely on this ("a single Undo reverted two
+  operations"), and it was wrong: the intervening Clear-formatting click had no-opped
+  because the redo before it had cleared the selection. **Re-establish the selection
+  after any undo/redo, and read `doc.selection` to confirm it, before predicting
+  anything about a formatting action.**
 - **`doc.fontSizes` and friends report the WHOLE document**, not your selection.
   This is the single most likely way to produce a reproducible, traceable finding
   that is nonetheless wrong: select two of five paragraphs, increase the size, and
