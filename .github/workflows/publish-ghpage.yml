@@ -36,10 +36,26 @@ jobs:
         # Covers both hashed-asset trees: the frontend's own `assets/` and the
         # VitePress `docs/assets/` copied in by build:all. Anything missing here
         # is invisible to the cleanup step below and accumulates forever.
+        #
+        # A manifest that silently omits a tree is worse than no manifest at
+        # all: cleanup deletes by set, so the omitted tree's current build
+        # would be pruned away. `find` exits non-zero on a missing directory
+        # but still writes what it did find, and without pipefail `sort`
+        # swallows that — so assert the directories and enable pipefail.
         run: |
+          set -o pipefail
           mkdir -p packages/frontend/dist/.manifests
-          (cd packages/frontend/dist && find assets docs/assets -type f | LC_ALL=C sort) \
-            > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
+          (
+            cd packages/frontend/dist
+            for dir in assets docs/assets; do
+              if [ ! -d "$dir" ]; then
+                # stderr, not stdout: this subshell's stdout is the manifest.
+                echo "::error::Build output $dir is missing; refusing to write a partial manifest" >&2
+                exit 1
+              fi
+            done
+            find assets docs/assets -type f | LC_ALL=C sort
+          ) > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
@@ -81,12 +97,21 @@ jobs:
             exit 0
           fi
 
-          # Deleting by set makes an empty manifest catastrophic rather than a
-          # no-op, so refuse rather than empty the site.
+          # Deleting by set makes a bad manifest catastrophic rather than a
+          # no-op, so refuse rather than empty the site. Non-empty is not
+          # enough: a manifest covering only one of the trees would prune the
+          # other tree's current build, so require every tree to appear.
           if [ ! -s "${MANIFESTS[0]}" ]; then
             echo "::error::Newest manifest ${MANIFESTS[0]} is empty; refusing to prune"
             exit 1
           fi
+
+          for dir in $ASSET_DIRS; do
+            if ! grep -q "^$dir/" "${MANIFESTS[0]}"; then
+              echo "::error::Newest manifest ${MANIFESTS[0]} names nothing under $dir/; refusing to prune"
+              exit 1
+            fi
+          done
 
           # Keep-set: every asset named by the KEEP_COUNT most recent manifests.
           cat "${MANIFESTS[@]:0:$KEEP_COUNT}" | LC_ALL=C sort -u > /tmp/keep-assets.txt
