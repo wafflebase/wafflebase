@@ -38,7 +38,13 @@ export class ImageService implements OnModuleInit {
     const accessKey = this.config.get<string>('image.accessKey')!;
     const secretKey = this.config.get<string>('image.secretKey')!;
     this.bucket = this.config.get<string>('image.bucket')!;
-    this.prefix = this.config.get<string>('image.prefix') ?? '';
+    // Trim surrounding separators so `wafflebase`, `wafflebase/` and
+    // `/wafflebase/` all name the same namespace instead of producing keys
+    // with an empty segment (`wafflebase//<id>`).
+    this.prefix = (this.config.get<string>('image.prefix') ?? '').replace(
+      /^\/+|\/+$/g,
+      '',
+    );
     this.maxFileSize = this.config.get<number>('image.maxFileSizeBytes')!;
     this.allowedMimeTypes = this.config.get<string[]>(
       'image.allowedMimeTypes',
@@ -57,6 +63,10 @@ export class ImageService implements OnModuleInit {
    * objects inside a shared bucket. Applied to every S3 call (composing on the
    * outside of the caller's own `keyPrefix`), while the id returned to callers
    * stays bare — the prefix is purely a storage-layout concern.
+   *
+   * Like the bucket and endpoint it sits beside, the prefix describes where a
+   * deployment's objects live and is fixed for that deployment's lifetime:
+   * changing it after uploads orphans the objects written under the old one.
    */
   private storageKey(key: string): string {
     return this.prefix ? `${this.prefix}/${key}` : key;
@@ -71,7 +81,7 @@ export class ImageService implements OnModuleInit {
       } catch (err) {
         // Bucket creation may fail during tests or when storage is unreachable.
         // Log and continue so the module can still boot.
-
+        // eslint-disable-next-line no-console
         console.warn(
           `[ImageService] Failed to ensure bucket "${this.bucket}":`,
           err instanceof Error ? err.message : err,

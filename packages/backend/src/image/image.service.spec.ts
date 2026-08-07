@@ -53,6 +53,10 @@ describe('ImageService storage prefix', () => {
     const svc = makeService();
     const { id } = await svc.upload(Buffer.from('x'), 'image/png', 'a.png');
     expect(lastKey(PutObjectCommand)).toBe(id);
+    await svc.getObject(id);
+    expect(lastKey(GetObjectCommand)).toBe(id);
+    await svc.delete(id);
+    expect(lastKey(DeleteObjectCommand)).toBe(id);
   });
 
   it('prepends the configured prefix on upload, get, and delete', async () => {
@@ -79,5 +83,20 @@ describe('ImageService storage prefix', () => {
     // The returned url is the logical (unprefixed) path the controller serves;
     // retrieval re-applies the config prefix via getObject.
     expect(url).toBe(`/images/ws-123/${id}`);
+  });
+
+  it.each(['wafflebase/', '/wafflebase', '/wafflebase/'])(
+    'normalizes surrounding separators in %p to one namespace',
+    async (configured) => {
+      const svc = makeService(configured);
+      const { id } = await svc.upload(Buffer.from('x'), 'image/png', 'a.png');
+      expect(lastKey(PutObjectCommand)).toBe(`wafflebase/${id}`);
+    },
+  );
+
+  it('stays bare when the prefix is only separators', async () => {
+    const svc = makeService('/');
+    const { id } = await svc.upload(Buffer.from('x'), 'image/png', 'a.png');
+    expect(lastKey(PutObjectCommand)).toBe(id);
   });
 });

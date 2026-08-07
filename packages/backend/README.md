@@ -33,6 +33,18 @@ PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
 BACKEND_JSON_BODY_LIMIT=25mb            # Optional, body-parser limit
+FILE_STORAGE_PREFIX=                    # Optional, object-key prefix for the
+                                        # file bucket. Set it to namespace
+                                        # wafflebase's objects inside a bucket
+                                        # shared with another app; empty
+                                        # (default) keeps keys at the root.
+                                        # Surrounding "/" are trimmed. Fixed
+                                        # for the deployment's lifetime —
+                                        # changing it after uploads orphans
+                                        # the objects already stored.
+IMAGE_STORAGE_PREFIX=                   # Optional, the same for the image
+                                        # bucket. Composes outside the
+                                        # per-workspace key prefix.
 YORKIE_RPC_ADDR=http://localhost:8080   # Optional, Yorkie RPC/admin endpoint
 YORKIE_PUBLIC_KEY=                      # Optional, project public key (SDK)
 YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
