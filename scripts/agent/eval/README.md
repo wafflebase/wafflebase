@@ -83,18 +83,84 @@ questions:
 
 Every record carries which one it came from, and one call never mixes them.
 
-**Today the lane-aware path is inert, and that is expected.** Every replay so far
-runs with the novelty gate OFF, so `lane: "backlog"` cannot occur and every
-blocking finding routes to `blocking` by default. `panel.gate_state` rides on
-every record so a gate-off run is never pooled with a gate-on one.
+**The lane-aware path is live, and older envelopes still are not.** #713
+described it as inert because every replay to that point ran with the novelty
+gate OFF; a replay now materialises a real worktree and passes `--base-sha`, so
+`lane: "backlog"` occurs. Envelopes stored before that still read
+`gate.state: "off-no-base-sha"` and still route every blocking finding to
+`blocking` by default — which is why `panel.gate_state` rides on every record
+and why a gate-off run is never pooled with a gate-on one.
 
 ## Replaying an item
 
 ```bash
 EVAL=../wafflebase-agent-eval
-node scripts/agent/eval/run.mjs --root "$EVAL" --corpus-version 2026-08-05a
+node scripts/agent/eval/run.mjs --root "$EVAL" --corpus-version 2026-08-05a \
+  --max-cost-usd 25
 node scripts/agent/eval/run.mjs --help          # every flag
 ```
+
+### What a replay is a replay *of*
+
+Two things make it the reviewer that ships rather than an approximation of one,
+and neither is sufficient alone:
+
+- **The review tree is a real linked git worktree** at the item's `review_commit`,
+  not a `git archive` tree. An archived tree has no `.git`, so nothing in it can
+  be blamed.
+- **The item's frozen `review_base` is passed as `--base-sha`**, so the panel's
+  novelty gate runs and blocking findings route through the novelty lane #668
+  added.
+
+Be precise about what was wrong before, because the loose version of it is not
+true: findings **did** carry a lane. `routeFinding` returns `blocking` when
+novelty is `unknown`, so every replayed finding was labelled `blocking` — which
+looks like a correct answer. What could not occur was the **demotion**:
+`lane: "backlog"` requires an origin of `relocated`, which requires a `git blame`
+of a tree that has a `.git`. So a replay did not merely lack information, it
+answered the gate's question **wrong**, in the direction that reads as normal, on
+every relocated finding in the corpus.
+
+The envelope records both halves, as `gate.state` and `base_sha_passed`, and a
+`--base-sha` that was passed while the panel reports the gate off is
+`gate-degraded`: fatal to the run, not a footnote.
+
+One worktree per commit per run, under a `mkdtemp` root, **deregistered and
+deleted when the run ends** — a worktree is registered in the source
+repository's `.git`, so leaving one behind is state in someone else's clone.
+Nothing outside that root is ever passed to `git worktree remove`, and
+`git worktree prune` is never called: it deregisters by reachability rather than
+by ownership, and a developer's clone routinely has several worktrees of its own.
+
+### Bounding what a run can spend
+
+Two guards, different shapes, because the facts arrive at different times:
+
+| Guard | Bounds | Can it be forgotten? |
+|---|---|---|
+| `--panel-timeout <s>` | **one item**, in *time* — kills the panel's whole process group | no — defaults to 2700 s and cannot be switched off |
+| `--max-cost-usd <n>` | **the run**, in *dollars* — stops before the next item | no — **required**, with `--no-cost-cap` as the explicit way to run unbounded |
+
+The cap follows `--root`'s rule rather than being a default-off flag. A cap
+chosen for you would silently truncate a legitimate run, so it is not chosen for
+you — it is *asked for*, and so is its absence. A truncated run is recoverable:
+raise the cap, resume the same `--run-id`, pay for nothing twice. Money already
+spent is not.
+
+`--max-cost-usd` **cannot stop the item it is spending on**, because the panel
+writes its cost as it exits. That is the honest limit of the claim. The budget is
+seeded from what is already stored, so resuming a run id resumes its budget too.
+
+The timeout signals the process **group**, not the child — the same technique
+`reapLaneGroup` in `scripts/verify-self.mjs` uses, and for the same incident.
+Measured with a stub that spawns a grandchild: a plain `child.kill()` ends the
+child and the grandchild survives both that signal and a later `SIGKILL` aimed at
+the reaped pid. The real panel has grandchildren for the same reason the stub
+does — the Agent SDK's `query()` starts its own subprocess. Unlike
+`reapLaneGroup`, which reaps a lane that has already exited, this kills a **live**
+panel, so it is SIGTERM first and SIGKILL after a grace: there may be buffered
+output worth flushing, including the `novelty gate:` line the whole assertion
+reads.
 
 `--run-id` is what makes a replay resumable and a replicate distinguishable.
 Re-invoking with the same id **re-runs nothing**: items already stored are skipped,
@@ -111,18 +177,41 @@ not interchangeable:
 | `reason` | What happened | Stops the run? |
 |---|---|---|
 | `panel-exit` | the panel exited non-zero | no — a single item can crash on its own |
+| `panel-timeout` | it never exited, and its process group was killed | no |
 | `no-panel-json` | it exited 0 and wrote no usable `panel.json` | no |
 | `gate-degraded` | the novelty gate's state disagrees with what was asked for | **yes** |
 | `gate-unreported` | the panel printed no gate line at all | **yes** |
 | `no-lens-diff` | the capture omits the routed diff each lens read | **yes** |
 | `infra` | a lens hit auth/quota, so the reviewer never ran | no |
 | `no-output` | the panel made no SDK calls | no |
-| `no-repo-context` | `--require-repo-context` and the tree would not materialise | no |
+| `no-repo-context` | `--require-repo-context` and the tree would not materialise | no — refused before the spawn |
+| `no-base-sha` | the item carries no usable `review_base` | no — refused before the spawn |
+| `base-unresolved` | it carries one, and the materialised tree does not have it | no — refused before the spawn |
 | `exception` | the runner itself threw on this item | no |
 
 The three that stop the run are **misconfigurations**, identical for every
 remaining item, and each of those items costs money. The failing item is stored
 first — the evidence is what makes it fixable — and then the run aborts.
+
+The test for "stops the run" is *not* "would the next item fail the same way" —
+it is **"would the next item cost money before failing the same way."** The three
+pre-spawn refusals are run-wide in practice (a shallow clone breaks every item's
+base) and are still per-item, because a run of seven free refusals costs nothing
+and names seven remedies instead of one.
+
+A run itself ends in one of four states, and they are as closed a vocabulary as
+the reasons — `run.json`'s `status` is not validated by the store, so `run.mjs`
+owns it:
+
+| `status` | What it means | What to do |
+|---|---|---|
+| `complete` | every planned item is stored | nothing |
+| `partial` | some are not, and nothing stopped the run on purpose | look at the items |
+| `aborted` | a run-stopping reason was hit | **fix something**, then start a new run |
+| `capped` | the run stopped itself at `--max-cost-usd` | raise the cap and **resume the same run id** |
+
+`capped` is deliberately not `aborted`: nothing is wrong with a capped run, its
+stored items are real verdicts, and the two need opposite responses.
 
 Why the taxonomy is this fussy: the version this replaces reached `status: "ok"`
 with zero findings for four separate broken reasons. In a precision metric a false
@@ -277,8 +366,10 @@ true.
 | Limit | What it means in practice |
 |---|---|
 | **The branch panel is what gets measured** | A replay runs `review-panel.mjs` *from the branch it is checked out on*, so a branch behind `upstream/main` measures a reviewer that is **not what ships**. `panel_sha` in every envelope makes that visible after the fact, and a dirty tree outside `eval/` is refused before the fact — but neither tells you the branch is *stale*. Check that yourself: `git diff --name-only HEAD upstream/main -- scripts/agent/ \| grep -v eval/` |
-| **The replay tree is an archive, not a checkout** | `run.mjs` materialises `review_commit` with `git archive`, so lenses do get real surrounding code — but the tree has **no `.git`**, so the novelty gate cannot `blame` and nothing passes `--base-sha`. Every replay today therefore measures the gate **OFF**, which the envelope records as `gate.state: "off-no-base-sha"` rather than leaving implicit. A real worktree, and `--base-sha` with it, is PR 6 |
-| **A diff-only replay over-flags** | The verifier greps the repo **tree**, so replaying with `--no-repo-context` explodes verifier fan-out — that is what billed **$44** on the #521 pilot. `--require-repo-context` refuses to spend on a 0-file checkout, and it is **opt-in today** |
+| **The replay tree needs the review commit to still exist locally** | `run.mjs` materialises `review_commit` as a real **linked git worktree** and passes `review_base` as `--base-sha`, so the novelty gate runs and `lane: "backlog"` is reachable. The cost is a precondition: `--repo-source` must actually hold that commit. It often does not — `wafflebase` squash-merges, so a PR head is never reachable from `main`; `extract-corpus.mjs` fetches it to `refs/eval/pr/<n>`; and deleting those refs leaves an unreachable object that `git gc` eventually prunes. **The runner does not fetch it back** — it refuses the item, for free, naming the `git fetch` that fixes it. Keep the `refs/eval/*` refs, or re-fetch before a run |
+| **A shallow clone cannot run the gate** | The worktree shares the source repository's object store, so on a shallow checkout `review_commit` can be present while `review_base` is not. That is CI's default. The runner asks `baseResolves` **before** spawning and refuses the item as `base-unresolved` rather than paying for a panel that would report the gate OFF — but a shallow lane still replays nothing until it is deepened |
+| **A diff-only replay over-flags** | The verifier greps the repo **tree**, so replaying with `--no-repo-context` explodes verifier fan-out — that is what billed **$44** on the #521 pilot. `--require-repo-context` refuses to spend on a 0-file checkout and is **on by default**; `--no-require-repo-context` degrades per item instead, and a run that used it records `repo_context: "tree-optional"` because its items may then differ in fidelity from each other |
+| **A cost cap cannot stop the item it is spending on** | The panel writes `review-execution.json` as it exits, so what an item cost is unknown until it has finished. `--max-cost-usd` therefore stops the run **before the next item** and never mid-item; the only per-item bound is `--panel-timeout`, and it bounds **time, not dollars**. A run started with `--no-cost-cap` is bounded only by that timeout and by its item count, which the run says out loud at start |
 | **The corpus is unlabeled** unless `labels/` says otherwise | Anything computed against "the union of what the runs found" measures *coverage versus what the panel can find across repeated tries*, not *versus every real bug* |
 | **`review_point: head` skews approve** | The merged state of a PR is the state after review comments were addressed, so the bugs a reviewer would have found are already fixed. It is offered for comparison, not as a default |
 | **Single review pass** | An item replays one pass: no multi-round fix loop and no prior-findings recheck, so round-to-round behaviour is out of scope |
@@ -294,8 +385,14 @@ modules.
 
 ```bash
 node --test "scripts/agent/eval/*.test.mjs"      # this directory
-cd scripts/agent && node --test '**/*.test.mjs'  # exactly what CI's agent:tests lane runs
+# exactly what CI's agent:tests lane runs (#692 added both flags)
+cd scripts/agent && node --test-timeout=60000 --test-force-exit --test '**/*.test.mjs'
 ```
+
+**Do not run `run.test.mjs` twice concurrently on one machine.** Its
+raw-output-retention test snapshots `os.tmpdir()` for `eval-item-*` directories
+and asserts none appeared, so two parallel runs both fail there. Pre-existing
+since #682, harmless in CI (one runner), and not a symptom of anything you did.
 
 `eval/test-lane.test.mjs` reads that lane out of `scripts/verify-self.mjs` and
 asserts every suite under `eval/` is matched by its glob, at every depth. The lane

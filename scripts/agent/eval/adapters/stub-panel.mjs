@@ -34,8 +34,22 @@
 //                      blocking, valid, infraError }]
 //   execution       the review-execution.json array
 //   wallMs          number for review-timing.json
+//   hang            boolean, default false — write everything, then NEVER EXIT
+//   spawnGrandchild boolean, default false — with `hang`, also start a child
+//                   process that ignores SIGTERM
+//
+// WHY A HANG MODE, AND WHY IT SPAWNS A GRANDCHILD. Both are shapes of exit
+// behaviour, which is the same thing `exitCode` already models — not a step
+// towards modelling the panel. The grandchild is the load-bearing half: the real
+// panel's `query()` starts its own subprocess per lens, so a stub that hung
+// alone would let a plain `child.kill()` pass the timeout test while leaving in
+// production exactly the orphans #682's CI hang ended with. It inherits stdio on
+// purpose — holding the parent's pipes open is what stops `close` from firing,
+// which is the half of that hang a timeout alone does not fix. The pids go to
+// `stub-pids.json` so a test can assert on the PROCESSES, not on the promise.
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { parseArgs } from "../../gh-checks.mjs";
 import { stageDetailDiffContentEnabled } from "../../review-panel.mjs";
@@ -48,6 +62,8 @@ const DEFAULT_SPEC = {
   gate: "auto",
   baseResolves: true,
   lensDiffMode: "auto",
+  hang: false,
+  spawnGrandchild: false,
   lenses: [
     {
       id: "correctness",
@@ -150,4 +166,22 @@ for (const l of spec.lenses) {
   }
 }
 
-process.exit(spec.exitCode ?? 0);
+// A panel that never exits, optionally with a subprocess of its own. Last, so
+// everything above has already been written: the interesting case is a panel that
+// LOOKS like it is working and simply never finishes, not one that produced
+// nothing.
+if (spec.hang) {
+  const pids = { panel: process.pid, grandchild: null };
+  if (spec.spawnGrandchild) {
+    // Ignores SIGTERM and outlives its parent unless the whole GROUP is
+    // signalled — measured behaviour for a process reached only by `child.kill()`.
+    const gc = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], {
+      stdio: "inherit",
+    });
+    pids.grandchild = gc.pid;
+  }
+  write("stub-pids.json", pids);
+  setInterval(() => {}, 1000);
+} else {
+  process.exit(spec.exitCode ?? 0);
+}
