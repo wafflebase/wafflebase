@@ -292,6 +292,83 @@ describe('mapMiroItems', () => {
     expect(inits).toHaveLength(3);
   });
 
+  it('places a framed item at its absolute position, not the frame-local one', () => {
+    // Miro expresses a framed item's position against the FRAME'S TOP-LEFT.
+    // Read as absolute, every framed item on a board collapses onto the world
+    // origin while the frames themselves stay spread out — which is exactly
+    // what a real import produced: 96% of elements inside one small box.
+    const { inits, approximated } = mapMiroItems({
+      items: [
+        { id: 'f1', type: 'frame', ...at(10000, 5000, 400, 200), data: { title: 'Sprint' } },
+        {
+          id: 's1',
+          type: 'sticky_note',
+          position: { x: 50, y: 60, relativeTo: 'parent_top_left' },
+          geometry: { width: 20, height: 10 },
+          parent: { id: 'f1' },
+          data: { content: 'note' },
+        },
+      ],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+
+    const sticky = inits.find((i) => (i as any).data?.kind === 'roundRect')!;
+    // Frame top-left is (9800, 4900); the sticky centre is 50/60 inside it.
+    expect(sticky.frame).toMatchObject({ x: 9840, y: 4955, w: 20, h: 10 });
+    expect(approximated).toEqual({});
+  });
+
+  it('reports a framed item whose parent never arrived as an approximation', () => {
+    const { inits, approximated } = mapMiroItems({
+      items: [{
+        id: 's1',
+        type: 'sticky_note',
+        position: { x: 50, y: 60, relativeTo: 'parent_top_left' },
+        geometry: { width: 20, height: 10 },
+        parent: { id: 'cut-by-the-item-limit' },
+        data: { content: 'note' },
+      }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+
+    expect(inits).toHaveLength(1);
+    expect(inits[0].frame).toMatchObject({ x: 40, y: 55 });
+    expect(approximated).toEqual({ 'parent-position': 1 });
+  });
+
+  it('does not count an unresolvable parent on an item it skipped anyway', () => {
+    // The counter reports what reached the document in a degraded form. An
+    // unsupported type is absent entirely — it belongs under `skipped` only.
+    const { skipped, approximated } = mapMiroItems({
+      items: [{ id: 'e1', type: 'embed', ...at(0, 0), parent: { id: 'gone' } }],
+      connectors: [],
+      resolveImageUrl: identity,
+    });
+    expect(skipped).toEqual({ embed: 1 });
+    expect(approximated).toEqual({});
+  });
+
+  it('picks connector sites from the resolved absolute positions', () => {
+    // `b` sits to the right of `a` in ABSOLUTE terms only after both are
+    // resolved against their frames; comparing the raw frame-local values
+    // would place them on top of each other and pick the wrong sides.
+    const { inits } = mapMiroItems({
+      items: [
+        { id: 'fL', type: 'frame', ...at(0, 0, 200, 200) },
+        { id: 'fR', type: 'frame', ...at(5000, 0, 200, 200) },
+        { id: 'a', type: 'shape', position: { x: 100, y: 100 }, geometry: { width: 40, height: 40 }, parent: { id: 'fL' }, data: { shape: 'rectangle' } },
+        { id: 'b', type: 'shape', position: { x: 100, y: 100 }, geometry: { width: 40, height: 40 }, parent: { id: 'fR' }, data: { shape: 'rectangle' } },
+      ],
+      connectors: [{ id: 'c1', startItem: { id: 'a' }, endItem: { id: 'b' } }],
+      resolveImageUrl: identity,
+    });
+    const connector = inits.find((i) => i.type === 'connector') as any;
+    expect(connector.start.siteIndex).toBe(1); // E
+    expect(connector.end.siteIndex).toBe(3); // W
+  });
+
   it('skips unsupported item types and counts them by type', () => {
     const { inits, skipped } = mapMiroItems({
       items: [

@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./active/20260807-board-miro-parent-relative-position-todo.md) | - |
 | file upload followups (2026-08-07) | [20260807-file-upload-followups-todo.md](./active/20260807-file-upload-followups-todo.md) | [20260807-file-upload-followups-lessons.md](./active/20260807-file-upload-followups-lessons.md) |
 | release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./active/20260807-release-v0.6.3-todo.md) | - |
 | corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./active/20260806-corpus-localization-scope-todo.md) | - |
@@ -45,4 +46,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 443
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: file upload followups (2026-08-07)
+Latest active task: board miro parent relative position (2026-08-07)
