@@ -135,14 +135,22 @@ describe('fileResponseHeaders', () => {
   // must not double it — while still covering rows stored before that change.
   it('does not double an extension the title already carries', () => {
     expect(
-      fileResponseHeaders('file', 'application/zip', 'bundle.zip', `${UUID}.zip`)
-        .disposition,
+      fileResponseHeaders(
+        'file',
+        'application/zip',
+        'bundle.zip',
+        `${UUID}.zip`,
+      ).disposition,
     ).toBe("attachment; filename*=UTF-8''bundle.zip");
 
     // Case-insensitively, too.
     expect(
-      fileResponseHeaders('file', 'application/zip', 'bundle.ZIP', `${UUID}.zip`)
-        .disposition,
+      fileResponseHeaders(
+        'file',
+        'application/zip',
+        'bundle.ZIP',
+        `${UUID}.zip`,
+      ).disposition,
     ).toBe("attachment; filename*=UTF-8''bundle.ZIP");
   });
 
@@ -150,8 +158,12 @@ describe('fileResponseHeaders', () => {
     // `safeExtension` rejects `c++`, so the blob is stored under a bare uuid.
     // The title is the only thing carrying the extension; it must survive.
     expect(
-      fileResponseHeaders('file', 'application/octet-stream', 'archive.c++', UUID)
-        .disposition,
+      fileResponseHeaders(
+        'file',
+        'application/octet-stream',
+        'archive.c++',
+        UUID,
+      ).disposition,
     ).toBe("attachment; filename*=UTF-8''archive.c%2B%2B");
   });
 

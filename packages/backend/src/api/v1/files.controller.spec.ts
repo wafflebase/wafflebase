@@ -203,11 +203,30 @@ describe('ApiV1FilesController.upload', () => {
     expect(fileService.upload).not.toHaveBeenCalled();
   });
 
-  it('truncates an over-long filename-derived title instead of failing', async () => {
+  // Truncation has to keep the extension, not just fit the cap: for one the
+  // sanitizer rejects there is no other copy of it, so a long `.c++` name
+  // would lose it permanently — the exact failure this whole change fixes.
+  it('truncates an over-long filename-derived title but keeps the extension', async () => {
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer(`${'x'.repeat(300)}.zip`), {}, req());
-    expect(documentService.createDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'x'.repeat(200) }),
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `${'x'.repeat(196)}.zip` }),
+    );
+
+    uploadReturns(UUID);
+    await controller.upload(WS, multer(`${'y'.repeat(300)}.c++`), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `${'y'.repeat(196)}.c++` }),
+    );
+  });
+
+  it('falls back to plain truncation when the extension cannot fit', async () => {
+    uploadReturns(UUID);
+    // A 301-char "extension" cannot be reserved inside a 200-char cap, so the
+    // name is simply cut — `a.` plus 198 z's.
+    await controller.upload(WS, multer(`a.${'z'.repeat(300)}`), {}, req());
+    expect(documentService.createDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: `a.${'z'.repeat(198)}` }),
     );
   });
 
@@ -223,8 +242,9 @@ describe('ApiV1FilesController.upload', () => {
     uploadReturns(`${UUID}.zip`);
     await controller.upload(WS, multer('bundle.zip'), {}, req());
     expect(folderService.assertSameWorkspace).not.toHaveBeenCalled();
+    const anyValue = expect.anything() as unknown;
     expect(documentService.createDocument).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ folder: expect.anything() }),
+      expect.not.objectContaining({ folder: anyValue }),
     );
   });
 
@@ -321,10 +341,13 @@ describe('ApiV1FilesController.download', () => {
         fileId: `${UUID}.zip`,
       }),
     };
+    const folderService: { assertSameWorkspace: jest.Mock } = {
+      assertSameWorkspace: jest.fn(),
+    };
     controller = new ApiV1FilesController(
       fileService as never,
       documentService as never,
-      { assertSameWorkspace: jest.fn() } as never,
+      folderService as never,
     );
   });
 

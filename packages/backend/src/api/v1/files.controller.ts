@@ -187,5 +187,16 @@ function defaultTitle(title: string | undefined, fileName: string): string {
   // `.c++` blob is stored under a bare uuid, so `attachmentFilename` has
   // nothing to re-append and the download loses it for good.
   const base = (fileName.split(/[\\/]/).pop() ?? fileName).trim();
+  if (base.length <= MAX_TITLE_LENGTH) return base || 'Untitled File';
+
+  // Truncating has to keep the extension, or the cap reintroduces exactly the
+  // loss this function was changed to prevent: for an extension the key
+  // sanitizer rejects, the title is the only copy, so a 300-character `.c++`
+  // name would come back extension-less. `dot > 0` leaves dotfiles alone.
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot) : '';
+  if (ext && ext.length < MAX_TITLE_LENGTH) {
+    return `${base.slice(0, MAX_TITLE_LENGTH - ext.length)}${ext}`;
+  }
   return base.slice(0, MAX_TITLE_LENGTH) || 'Untitled File';
 }
