@@ -21,9 +21,72 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | **`run.mjs`** | **the runner** — replay frozen items through the panel and store an immutable envelope per item. Idempotent and resumable by `--run-id` | **YES — this one spends money** |
 | `adapters/reviewer.mjs` | the panel behind the target-adapter seam: `prepareInput` / `runAgent` / `captureArtifacts`, and the one place the subprocess contract lives | no (it spawns; the panel calls) |
 | `adapters/stub-panel.mjs` | a stand-in panel that writes canned output and exits with a chosen code. Every test of the runner uses it, which is why the whole subsystem is testable for free | no |
+| `finding-record.mjs` | **the normalised finding record** — one shape both arms map into, its builder and a strict validator. Owns the `gating` vocabulary: whether a finding gated is a four-valued answer, never a boolean | no |
+| `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
 
-The arm adapters and every scorer are not built yet. When they arrive they read
-items through `EvalStore` and nothing else.
+The CodeRabbit adapter, the cross-arm matcher and every scorer are not built
+yet. When they arrive they read items through `EvalStore` and nothing else.
+
+## One record, two arms
+
+A comparison needs one shape. The panel writes `verdict.json` findings carrying
+`lane`, `novelty`, `unsettled` and a per-finding verifier outcome; CodeRabbit
+posts markdown comments. `finding-record.mjs` is the shape both map into, and
+`adapters/panel.mjs` fills our side:
+
+```bash
+EVAL=../wafflebase-agent-eval
+node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id>
+node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id> --population sampled --json
+```
+
+Records are **derived, never stored**: recomputable from an immutable envelope,
+deterministically and for free. Persisting them would spend the store's
+write-once rule on a shape that is cheap to recompute and expensive to correct.
+
+### "Did this finding gate?" is not a boolean
+
+Since #668 the answer rests on the `lane` the novelty gate routed on, not on
+severity: a `critical` routed to `backlog` is reported and does **not** gate. So
+the record answers with `gates` · `does-not-gate` · `unknown` ·
+`not-applicable`, and names the cause in `gating_basis`.
+
+`unknown` exists because a lane can be legitimately absent and **absence has
+more than one cause**. A boolean cannot spell "we could not tell", so the moment
+one is written every unknown becomes one of the two answers — silently, and in
+the direction that inflates the blocking population. The causes are kept apart:
+
+| `gating_basis` | `gating` | What it means |
+|---|---|---|
+| `lane-blocking` | `gates` | the gate looked at it and kept it on the gate |
+| `lane-backlog` | `does-not-gate` | real, but the code predates this change |
+| `lane-discarded` | `does-not-gate` | the verifier concretely refuted it |
+| `non-blocking-severity` | `does-not-gate` | minor/nit never reach the gate, so the missing lane is the design and not missing data |
+| `lane-absent` | `unknown` | blocking severity, no lane recorded — a capture predating #668, or the `sampled` population |
+| `lane-unrecognized` | `unknown` | a lane outside `LANES` |
+| `no-gate-in-arm` | `not-applicable` | the arm has no merge gate. CodeRabbit never gates, which is not uncertainty |
+
+The panel's own `findingGates` reads a **missing** lane as gating. That is right
+for a gate — it fails toward blocking because it is deciding whether to stop a
+merge — and wrong for a scorer, which must not turn "not recorded" into a
+verdict. Two jobs, two rules.
+
+### Two populations, never pooled
+
+One envelope holds two different sets of findings, and they answer different
+questions:
+
+| `population` | What it is | Has a lane? |
+|---|---|---|
+| `reported` | `verdict.json`'s findings — what the panel **said**, after dedupe, clustering, verification and routing. The like-for-like comparator against CodeRabbit's posted comments | yes |
+| `sampled` | every finding every detection sample raised, before any of that. Answers "what could this panel find across repeated tries?", which CodeRabbit has no counterpart to | no — `annotateFindings` runs later, so every blocker reads `unknown` |
+
+Every record carries which one it came from, and one call never mixes them.
+
+**Today the lane-aware path is inert, and that is expected.** Every replay so far
+runs with the novelty gate OFF, so `lane: "backlog"` cannot occur and every
+blocking finding routes to `blocking` by default. `panel.gate_state` rides on
+every record so a gate-off run is never pooled with a gate-on one.
 
 ## Replaying an item
 
@@ -220,7 +283,7 @@ true.
 | **`review_point: head` skews approve** | The merged state of a PR is the state after review comments were addressed, so the bugs a reviewer would have found are already fixed. It is offered for comparison, not as a default |
 | **Single review pass** | An item replays one pass: no multi-round fix loop and no prior-findings recheck, so round-to-round behaviour is out of scope |
 | **`gh pr view` returns a bounded commit list** | `review_point: pr-open` and `first` pick from the commits `gh` reports. A PR with an unusually long commit history may resolve its review point from a truncated list |
-| **Exact-string finding keys read low** | Where anything downstream keys findings on `file::lowercased-summary`, one defect reworded counts as two. Upstream `finding-match.mjs` (#646) exists to fix that; the limit travels with whichever scorer still uses the string key |
+| **Exact-string finding keys read low** | `finding_key` on every record is `file::lowercased-summary` — `finding-key.mjs`, the panel's own key — so **one defect reworded counts as two**. That is deliberate rather than unfixed: anything that must agree with `dedupeFindings`, `compareSampleAgreement` or `review-lens-stats.json` has to key findings the way they do, and a looser key here would make our numbers quietly stop matching the panel's. The cross-arm matcher applies `finding-match.mjs` (#646) as a **second, different mechanism** for "the same defect, said differently" — identity and similarity are two jobs. The limit travels with whichever scorer uses the string key |
 
 Two rows of the fork's table are **not** reproduced here because the modules they
 describe are not in this directory yet: the stage-pilot's one-item-per-dispatch

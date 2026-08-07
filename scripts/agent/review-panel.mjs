@@ -48,6 +48,13 @@ import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort 
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
+// The finding identity key, which used to be a private `const` here. Its own
+// docblock warned that "a second copy of this expression could drift looser than
+// the merge it is supposed to agree with", and there was already a second copy —
+// inline, inside `compareSampleAgreement`. Moving it out is what lets both the
+// merge and the agreement metric be built ON one expression, and what lets a
+// reader outside this file key findings the same way without a fourth copy.
+import { findingKey } from "./finding-key.mjs";
 // The similarity metric is NOT re-derived here. `rounds.mjs` already owns it for
 // the non-convergence detector, and it was calibrated against real panel output
 // (PR #564's design-fit lens emitting four wordings of one defect, measured
@@ -568,15 +575,6 @@ export function dedupeFindings(findings) {
   }
   return order.map((k) => byKey.get(k));
 }
-
-/**
- * `dedupeFindings`' collision key: file plus case- and whitespace-insensitive
- * summary. Extracted so `sameFinding` can be built ON it rather than beside it —
- * a second copy of this expression could drift looser than the merge it is
- * supposed to agree with, and that drift is what would let a verification be
- * skipped for a finding the merge then keeps separately.
- */
-const findingKey = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
 
 /** 0=critical … 3=nit. Lower is more severe. */
 const severityRank = (f) => KNOWN.indexOf(normalizeSeverity(f && f.severity));
@@ -1262,8 +1260,12 @@ export function parsePriorFindings(text) {
 export function compareSampleAgreement(sampleFindingsList) {
   const list = Array.isArray(sampleFindingsList) ? sampleFindingsList : [];
   if (list.length < 2) return "single";
-  const keyOf = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
-  const keySets = list.map((findings) => new Set(coerceFindings(findings).map(keyOf)));
+  // `findingKey` itself, not a copy of it. This line WAS a byte-identical inline
+  // copy of the expression, i.e. exactly the drift its own docblock warns about:
+  // the agreement score and the merge have to answer "is this the same finding?"
+  // the same way, or `review-lens-stats.json` reports agreement over a population
+  // `dedupeFindings` never collapsed.
+  const keySets = list.map((findings) => new Set(coerceFindings(findings).map(findingKey)));
   const setsEqual = (a, b) => a.size === b.size && [...a].every((k) => b.has(k));
   const disjointPair = (a, b) => [...a].every((k) => !b.has(k));
   if (keySets.every((s) => setsEqual(s, keySets[0]))) return "identical";
