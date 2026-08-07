@@ -296,10 +296,16 @@ Miro measures a **framed** item against its parent frame's **top-left**
 (`position.relativeTo === "parent_top_left"`, and `item.parent.id` names the
 frame); a parentless item is measured against the canvas centre
 (`canvas_center`). `resolveMiroFrames` walks the parent chain once for the
-whole payload and translates each item by its parent's resolved top-left —
-memoised, so depth costs nothing, and cycle-guarded because the payload is
-untrusted. Frames cannot be rotated in Miro, so a parent contributes a pure
-translation with no rotation to compose.
+whole payload and translates each item by its parent's resolved top-left.
+Frames cannot be rotated in Miro, so a parent contributes a pure translation
+with no rotation to compose.
+
+The walk is **iterative and memoised**, not recursive: `MAX_ITEMS` admits a
+5,000-long parent chain, that is inside a browser's stack limit, and the
+mapper runs in the browser. It is also cycle-guarded, and never dereferences
+`parent.id` on the strength of `relativeTo` alone — the payload is untrusted,
+and `mapMiroItems` converts the whole board in one call, so anything that
+throws on a single malformed item costs the entire import.
 
 Reading `position` as absolute regardless — the original SP3 behaviour —
 writes every framed item's *frame-local* offset, a small positive number
@@ -314,7 +320,10 @@ A frame can fall outside the import's item ceiling while its contents make it
 in. There is no absolute coordinate left to recover for those children, so
 they keep their frame-local position and are counted under
 `approximated['parent-position']` — misplaced but named, never silently
-misplaced.
+misplaced. The same holds for anything *descended* from such an item, and for
+anything caught in a parent cycle: an offset from an unresolved coordinate is
+unresolved too, so the flag propagates down the chain rather than stopping at
+the direct child.
 
 **HTML content.** Miro item text (`data.content`) is an HTML fragment — Miro
 documents `<p>`, `<a>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<u>`, `<s>`,

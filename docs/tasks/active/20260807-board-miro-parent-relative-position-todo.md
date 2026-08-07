@@ -57,6 +57,24 @@ coordinate, collapsing all of them onto the origin.
 - [ ] Update `docs/design/board/board-miro-import.md` with the coordinate rule.
 - [ ] `pnpm verify:fast`.
 
+## Review findings applied
+
+Self-review over the branch diff raised three, all in `resolveMiroFrames`:
+
+- **Critical** — `item.parent!.id!` threw for an item carrying
+  `relativeTo: "parent_top_left"` with no `parent`. `mapMiroItems` converts
+  the whole board in one call, so one malformed item lost the entire import
+  with an opaque `Cannot read properties of undefined` in the row's error.
+- **Important** — only the *direct* child of a missing parent was reported;
+  a grandchild was offset from an unresolved coordinate and emitted with no
+  report, which is the silent misplacement the counter exists to prevent.
+- **Minor** — the recursive walk overflowed the stack around 5,000 deep, and
+  `MAX_ITEMS` is exactly 5,000 (lower still in a browser).
+
+All three are closed by resolving each chain iteratively — climb to the
+nearest resolved / absolute / unresolvable ancestor, then apply the offsets
+back down, propagating the unresolved flag as it goes.
+
 ## Notes / limits
 
 - A rotated parent would also rotate its children's offsets. Miro frames are

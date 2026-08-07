@@ -54,6 +54,10 @@ export function miroFrame(
  * `relativeTo` decides it when present. When it is absent the parent link is
  * the signal: an item only has a `parent` because it sits inside a frame, and
  * that is precisely the case Miro reports frame-locally.
+ *
+ * Note that `parent_top_left` alone claims a parent-relative position without
+ * proving a usable parent exists — the payload is untrusted, so the resolver
+ * treats that as unresolvable rather than dereferencing `parent.id`.
  */
 function isParentRelative(item: MiroFramedLike): boolean {
   const relativeTo = item.position?.relativeTo;
@@ -75,12 +79,18 @@ function isParentRelative(item: MiroFramedLike): boolean {
  * A parent contributes a pure translation by its own resolved top-left. Miro
  * frames cannot be rotated, so there is no rotation to compose.
  *
- * Resolution walks the parent chain and is memoised, so an item is converted
- * once however deep it sits. `orphans` names the items whose parent is not in
- * `items` at all — the import's item ceiling can cut a frame while keeping its
- * contents. Their raw position is kept (there is no absolute coordinate left
- * to recover) and the caller reports them rather than misplacing them
- * silently.
+ * `orphans` names every item whose absolute position could NOT be determined:
+ * one that claims a parent the payload does not contain — the import's item
+ * ceiling can cut a frame while keeping its contents — one caught in a parent
+ * cycle, and anything DESCENDED from either, since an offset from an
+ * unresolved coordinate is unresolved too. Their raw position is kept, because
+ * there is no absolute coordinate left to recover, and the caller reports them
+ * rather than misplacing them silently.
+ *
+ * The walk is iterative, not recursive: `MiroService.MAX_ITEMS` allows a
+ * 5,000-long parent chain, which is within a browser's stack limit, and this
+ * runs in the browser. Each chain is resolved top-down and memoised, so an
+ * item is converted once however deep it sits.
  */
 export function resolveMiroFrames(items: MiroFramedLike[]): {
   frames: Map<string, Frame>;
@@ -92,33 +102,62 @@ export function resolveMiroFrames(items: MiroFramedLike[]): {
   const frames = new Map<string, Frame>();
   const orphans = new Set<string>();
 
-  const resolve = (item: MiroFramedLike, chain: Set<string>): Frame => {
-    const cached = frames.get(item.id);
-    if (cached) return cached;
+  for (const item of items) {
+    if (frames.has(item.id)) continue;
 
-    const local = miroFrame(item.position, item.geometry);
-    let frame = local;
+    // Climb to the nearest ancestor that is already resolved, is absolute, or
+    // cannot be resolved at all, collecting the unresolved chain on the way.
+    const chain: MiroFramedLike[] = [];
+    const onChain = new Set<string>();
+    let anchor: Frame | undefined;
+    let anchorUnresolved = false;
 
-    if (isParentRelative(item)) {
-      const parent = byId.get(item.parent!.id!);
-      // A cycle is not something Miro produces, but the payload is untrusted
-      // and a self-referential parent would recurse forever. Treat it like a
-      // missing parent: keep the raw position and report it.
-      if (!parent || chain.has(parent.id)) {
-        orphans.add(item.id);
-      } else {
-        chain.add(item.id);
-        const parentFrame = resolve(parent, chain);
-        chain.delete(item.id);
-        frame = { ...local, x: local.x + parentFrame.x, y: local.y + parentFrame.y };
+    let cursor: MiroFramedLike | undefined = item;
+    while (cursor) {
+      const resolved = frames.get(cursor.id);
+      if (resolved) {
+        anchor = resolved;
+        anchorUnresolved = orphans.has(cursor.id);
+        break;
       }
+      chain.push(cursor);
+      onChain.add(cursor.id);
+      if (!isParentRelative(cursor)) break;
+
+      const parentId: string | undefined = cursor.parent?.id;
+      const parent: MiroFramedLike | undefined =
+        typeof parentId === 'string' ? byId.get(parentId) : undefined;
+      // No parent to offset by, or one that leads back into this chain. A
+      // cycle is not something Miro produces, but the payload is untrusted and
+      // an unguarded walk would never terminate.
+      if (!parent || onChain.has(parent.id)) break;
+      cursor = parent;
     }
 
-    frames.set(item.id, frame);
-    return frame;
-  };
+    // Then apply the offsets back down, each item translating the one below it.
+    let parentFrame = anchor;
+    let parentUnresolved = anchorUnresolved;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const node = chain[i];
+      const local = miroFrame(node.position, node.geometry);
+      let frame = local;
+      let unresolved = false;
 
-  for (const item of items) resolve(item, new Set([item.id]));
+      if (isParentRelative(node)) {
+        if (parentFrame) {
+          frame = { ...local, x: local.x + parentFrame.x, y: local.y + parentFrame.y };
+          unresolved = parentUnresolved;
+        } else {
+          unresolved = true;
+        }
+      }
+
+      frames.set(node.id, frame);
+      if (unresolved) orphans.add(node.id);
+      parentFrame = frame;
+      parentUnresolved = unresolved;
+    }
+  }
 
   return { frames, orphans };
 }
