@@ -46,11 +46,7 @@ export function registerSchemaCommand(program: Command) {
           description: c.description,
           safety: c.safety,
         }));
-        output(
-          toSchemaListPayload(commands, opts.format),
-          opts.format,
-          opts.quiet,
-        );
+        output(toSchemaListPayload(commands, opts.format), opts.format);
       }
     });
 }
