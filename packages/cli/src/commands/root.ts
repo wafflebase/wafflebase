@@ -51,7 +51,11 @@ export function createProgram(): Command {
     .option('--workspace <id>', 'Workspace ID')
     .option('--profile <name>', 'Config profile', 'default')
     .option('--format <fmt>', 'Output format (json, table, csv)', 'json')
-    .option('--quiet', 'Suppress output', false)
+    .option(
+      '--quiet',
+      'Suppress progress notices (result body and errors still print)',
+      false,
+    )
     .option('--verbose', 'Verbose output', false)
     .option('--dry-run', 'Show request without executing', false);
 

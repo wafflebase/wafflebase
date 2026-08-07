@@ -1,5 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
 import { FileService } from './file.service';
 import { MAX_IMAGE_UPLOAD_BYTES } from './file.constants';
 
@@ -20,17 +25,23 @@ jest.mock('@aws-sdk/client-s3', () => {
   };
 });
 
-function makeService(): FileService {
+function makeService(prefix = ''): FileService {
   const values: Record<string, unknown> = {
     'file.endpoint': 'http://localhost:9000',
     'file.region': 'us-east-1',
     'file.accessKey': 'minioadmin',
     'file.secretKey': 'minioadmin',
     'file.bucket': 'wafflebase-files',
+    'file.prefix': prefix,
     'file.maxFileSizeBytes': 50 * 1024 * 1024,
   };
   const config = { get: (k: string) => values[k] } as unknown as ConfigService;
   return new FileService(config);
+}
+
+function lastKey(command: unknown): string {
+  const calls = (command as jest.Mock).mock.calls as Array<[{ Key: string }]>;
+  return calls[calls.length - 1][0].Key;
 }
 
 describe('FileService.upload validation', () => {
@@ -95,5 +106,47 @@ describe('FileService.upload image support', () => {
       'archive.zip',
     );
     expect(result.id).toMatch(/\.zip$/);
+  });
+});
+
+describe('FileService storage prefix', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('leaves the object key bare when no prefix is configured', async () => {
+    const svc = makeService();
+    const { id } = await svc.upload(Buffer.from('x'), 'text/plain', 'a.txt');
+    expect(lastKey(PutObjectCommand)).toBe(id);
+    await svc.getObject(id);
+    expect(lastKey(GetObjectCommand)).toBe(id);
+    await svc.delete(id);
+    expect(lastKey(DeleteObjectCommand)).toBe(id);
+  });
+
+  it('prepends the configured prefix on upload, get, and delete', async () => {
+    const svc = makeService('wafflebase');
+    const { id } = await svc.upload(Buffer.from('x'), 'text/plain', 'a.txt');
+    // The id returned to callers (and persisted) stays bare...
+    expect(id).not.toContain('/');
+    // ...while every S3 call re-derives the prefixed storage key.
+    expect(lastKey(PutObjectCommand)).toBe(`wafflebase/${id}`);
+    await svc.getObject(id);
+    expect(lastKey(GetObjectCommand)).toBe(`wafflebase/${id}`);
+    await svc.delete(id);
+    expect(lastKey(DeleteObjectCommand)).toBe(`wafflebase/${id}`);
+  });
+
+  it.each(['wafflebase/', '/wafflebase', '/wafflebase/'])(
+    'normalizes surrounding separators in %p to one namespace',
+    async (configured) => {
+      const svc = makeService(configured);
+      const { id } = await svc.upload(Buffer.from('x'), 'text/plain', 'a.txt');
+      expect(lastKey(PutObjectCommand)).toBe(`wafflebase/${id}`);
+    },
+  );
+
+  it('stays bare when the prefix is only separators', async () => {
+    const svc = makeService('/');
+    const { id } = await svc.upload(Buffer.from('x'), 'text/plain', 'a.txt');
+    expect(lastKey(PutObjectCommand)).toBe(id);
   });
 });

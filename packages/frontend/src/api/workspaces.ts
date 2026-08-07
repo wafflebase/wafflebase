@@ -1,4 +1,5 @@
 import type { Document, DocumentType } from "@/types/documents";
+import type { TestConnectionResult } from "@/types/datasource";
 import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
@@ -315,5 +316,28 @@ export async function createWorkspaceDataSource(
     body: JSON.stringify(data),
   });
   await assertOk(res, "Failed to create datasource");
+  return res.json();
+}
+
+/**
+ * Tests workspace data source settings without saving them.
+ */
+export async function testWorkspaceDataSourceConfig(
+  workspaceId: string,
+  data: {
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    sslEnabled: boolean;
+  },
+): Promise<TestConnectionResult> {
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/datasources/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  await assertOk(res, "Failed to test connection");
   return res.json();
 }

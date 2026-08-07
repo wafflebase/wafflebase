@@ -125,6 +125,18 @@ Static blob documents — upload, store, and view (no CRDT editing).
 | [generic-file-upload.md](generic-file-upload.md) | Generic file upload — accept **any** file as a `"file"` document (blob with no dedicated viewer), reusing the type-agnostic `Document.fileId` / `wafflebase-files` / `GET /documents/:id/file` spine; defines `Document.type` as a viewer-routing key, adds `fileSize`/`mimeType` columns (quota-ready), inverts safety from an upload allow-list to a **serving** rule (response `Content-Type` derived from document type, `file` always `attachment` + octet-stream), deletes the upload queue's `skipped` path, and fixes image/file share links falling through to a `sheet-<id>` Yorkie doc. Quota, presigned upload, and new previews deferred |
 | [image-viewer.md](image-viewer.md) | Image viewer — `"image"` document type mirroring PDF's static blob spine (reuses `Document.fileId`, `wafflebase-files` bucket, type-agnostic `GET /documents/:id/file`); png/jpeg/gif/webp only, 25 MB cap; joins the multi-file upload queue; `<img>` viewer at `/f/:id` with zoom/download + workspace prev/next; inline lazy list thumbnails (client downscale). Comments/sharing + gallery/grid view deferred |
 
+## Design Editor
+
+Dev-only design-system editor — a Vite plugin that renders a project's real
+routes, and writes edits back into its JSX/token source.
+
+| Document                                                                       | Description                                                                                        |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| [design-editor-local-plugin.md](design-editor/design-editor-local-plugin.md)   | **Start here.** Local-plugin pivot (shipped as an installable Vite plugin, not a hosted service), the `@wafflebase/design-editor` ↔ `packages/design-sandbox` package boundary, the shadcn/Tailwind-v4/CVA support matrix, the `TokenAdapter` seam that keeps the four-file `@wafflebase/core` token pipeline out of the generic package, the enumerated couplings to replace with configuration, and the PR rollout order. Withdraws the Phase 4 GitHub-PR pipeline (git is the consumer's) |
+| [design-editor-engine.md](design-editor/design-editor-engine.md)               | Engine spec — the dev-only mutation bridge, the AST mutator, the JSX node model shared by the extractor / injector / stamper, the introspection and transaction protocol, and the Vite integration hosting them (`?wbFrame=` module ids, the stamping transform, the network kill-switch, HMR state preservation) |
+| [design-editor-sandbox-recipe.md](design-editor/design-editor-sandbox-recipe.md) | Editor UI — the three-pane shell, the host↔frame boundary, real providers with substituted data, the three selection outcomes, and the two-altitude edit history (edits vs writes). Written as a scaffolding recipe; kept as the description of the shipped UI (see the pivot doc) |
+| [design-editor-audit.md](design-editor/design-editor-audit.md)                 | July-2026 design-system audit — establishes wafflebase's frontend as shadcn/Radix/Tailwind-v4/CVA with a single-source token layer; the evidence base for the editor's support matrix and the argument for the `TokenAdapter` seam |
+
 ## Common
 
 Infrastructure, frontend/backend, and cross-cutting concerns.

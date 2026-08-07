@@ -537,7 +537,19 @@ Components:
     the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
     comment, records NO check runs and drives no promote/fix, so it never touches
     the merge gate. Works on any PR incl. forks (read-only). PR author OR
-    maintainer, throttled per head SHA. The comment ends with a collapsed
+    maintainer, throttled per head SHA. The comment is rendered by
+    `scripts/agent/review-comment.mjs` in a **triage layout**: a one-line
+    verdict + counts headline, then EVERY blocking (critical/major) finding
+    expanded and first (each a linkable `file:line` to the reviewed commit,
+    lens-tagged), with minor/nit findings collapsed per lens (count in the
+    `<summary>`), and the long reviewer prose + relocated/pre-existing findings
+    collapsed below. A lens with zero findings is omitted; collapsed sections
+    past a char budget are dropped with a stated count (blocking findings never
+    are). It is PRESENTATION ONLY — it reads the same `.agent-review/<lens>/verdict.json` findings and
+    changes nothing about detection, severity, or the gate; the autonomous
+    panel's per-lens check bodies still go through `severity.mjs::renderSummaryMd`
+    untouched, and the on-demand path falls back to that per-lens concatenation
+    if the triage render is unavailable. The comment then ends with a collapsed
     **"Prompt for AI Agents"** fold (`scripts/agent/ai-prompt.mjs`) — the blocking
     (critical/major, non-demoted) findings rendered as a fenced, copy-pasteable fix
     instruction, so a maintainer can hand the whole review to their own coding agent
@@ -1695,6 +1707,56 @@ the gating step would leave every overturned finding un-removable from the summa
 round loop actually routes `merged` through it, since that loop lives in `main()`
 and no unit test can reach it.
 
+#### The bound was still inert: the count died in the round that computed it
+
+Stamping the lens made disputes *match*; it did not make the counter *persist*.
+An upheld finding is RE-CREATED (`{...f, adjudication}`) by `adjudicateRebuttals`
+and `applySkipClaims` in `scripts/agent/review-panel.mjs`, and those copies lived
+only in `gating` — what the check's conclusion is computed from — while
+`writeVerdict` persisted `merged`'s pre-adjudication originals into verdict.json.
+verdict.json is where the panel workflow reads `adjudication.upheld` into the
+check run's `output.text`, and `output.text` is the unforgeable channel both the
+next round's carry-forward and the round guard's `exhaustedFindings` count from.
+So the increment died in the same round that computed it: every round re-derived
+`upheldCount(prior) + 1` from a prior count of 0, the counter could never reach
+`MAX_REBUTTAL_ROUNDS`, the standstill page could never fire, and a finding could
+be re-disputed forever — bounded only by the round cap, which pages with a far
+less specific message than the one this bound exists to send.
+
+`substituteAdjudicated` closes it: the adjudicated copies replace their originals
+in what `writeVerdict` persists, paired back by object identity
+(`applySkipClaims` is a positional map; `adjudicateRebuttals` returns its
+re-creations as `replaced` pairs). Mapping copies back to originals also fixed a
+latent half of the same bug — a finding that was skip-claimed and *then*
+overturned appeared in `dropped` as the skip copy, which the old identity filter
+over `merged` could never remove.
+
+Persisting the count exposed two more places the same integer silently died on
+the way into round N+1, both in the merge:
+
+- **`mergeCluster` dropped `adjudication` from folded wordings**, while the
+  workflow comment above the `output.text` builder already claimed the opposite
+  ("carried on folded wordings too … see upheldCount"). A rebutted finding means
+  the code did not change, so the next fresh pass almost always re-finds it — and
+  the fresh representative wins the cluster slot, so the carried count had to
+  survive in `mergedFrom`, where `upheldCount` takes the cluster max. It now does,
+  integer only, exactly as the workflow trims it.
+- **`dedupeFindings` handed a byte-identical collision to the fresh copy** and
+  discarded the carried one's count with it. The winner now absorbs the loser's
+  higher `upheld` (`absorbUpheld`), so the counter is carried by the collision,
+  never decided by it — a dedup that can zero the rebuttal counter is a bound the
+  merge order gets to move.
+
+This is a BEHAVIOUR change, not a refactor: the standstill page in
+`scripts/agent/review-round-guard.mjs` becomes reachable for the first time. A
+finding disputed and upheld in two rounds now pages a human instead of buying a
+third adjudication session, which is the destination Phase 28 specified for a
+question the loop cannot settle. An end-to-end two-round test in
+`scripts/agent/review-panel.test.mjs` drives the real wiring — merge, gate,
+adjudicate, substitute, carry forward — and asserts `upheldCount` reaches 2
+through both merge paths, alongside a source-level test that the round loop
+routes `writeVerdict`'s input through `substituteAdjudicated` at all.
+
 ### Phase 29: Lint the agent control plane
 
 **Principle:** Mechanical Enforcement — the cheapest check that could have caught it.
@@ -2012,6 +2074,64 @@ this alone fixes it. AUTHOR: every writer here posts through a token, so ours ar
 always a Bot, and `user.type` is set by GitHub rather than chosen by the commenter.
 It fails toward KEEPING: a stale summary costs a duplicate, while deleting the
 wrong comment destroys work with no record that it happened.
+### `author_association` is not a permission
+
+`@claude rerun` moves the fix-round floor forward, and the guard decided whose
+rerun counted with `author_association`. On #648 a maintainer with **Maintain**
+ran it four times and GitHub reported every one of those comments as
+`CONTRIBUTOR` — association describes the commenter's relationship to the PR
+thread, not their access, and it reads `CONTRIBUTOR` for anyone with commits on
+the repo whose org membership is not public. So the floor was never set, the guard
+counted the PR's entire history, and it paged with *"tried 3 time(s) (limit 3)"*
+against a rerun that had reset nothing. The absent `since the last rerun` clause in
+that page is the tell.
+
+The verb itself worked. `.github/workflows/agent-rerun.yml` gates on `getCollaboratorPermissionLevel`
+— authoritative — so the label came off and CI re-ran, while the budget silently
+did not move. **Two checks for one question, disagreeing**: the command's
+permission to run, and the command's effect, resolved by different authorities.
+That is the same shape as the `agent:blocked` label bug — the action reports
+success and the consequence is dropped.
+
+`scripts/agent/rounds.mjs` had named this gap, but in the opposite direction: it worried about
+being too *permissive* (an org MEMBER without write passing). The failure that
+happened was too strict. Both directions are real, and both are fixed below —
+the strict one is what paged #648, the permissive one would have handed the
+bounded party extra rounds on a rerun the workflow refused.
+
+`permissionResolver` in `scripts/agent/gh-checks.mjs` closes it — an injected
+`(login) => true | false | null` built from the same API the workflows use, so
+`scripts/agent/rounds.mjs` stays pure and testable.
+
+**The resolver is the only authority.** When one is supplied, `isRerunCommand`
+does not consult `author_association` at all. Association is *not* a fast-path
+accept, and it must not be: `MEMBER` is membership of the owning **org**, which
+says nothing about permission on this repo, and `COLLABORATOR` is satisfied by a
+read- or triage-only invite. Accepting either would move the floor for a
+commenter `.github/workflows/agent-rerun.yml` then refuses to run — the same two-authorities-
+disagreeing bug in the opposite direction, granting budget for a rerun that never
+happened. That is the gap `scripts/agent/rounds.mjs` had named and left open; it is closed now,
+in both directions. Lookups memoize per login, failures included, so a PR with
+many comments from few people costs at most one call each — and only for comments
+that already parsed as `rerun` from a non-Bot.
+
+The resolver-less form survives as the pure, association-only legacy behaviour.
+Its only caller is `scripts/agent/loop-status.mjs`, which is a **projection, never a gate**: at
+worst it displays a round count the guard will not honour. Every *gating* caller
+injects a resolver.
+
+Fail direction: an unresolvable login does **not** set the floor. Not resetting
+leaves the PR paged for a human, which is where one the loop cannot finish
+belongs; resetting on a failed lookup would hand more attempts to the very party
+the budget bounds. The bot exclusion is still checked first and no resolver can
+override it — that is what stops the bounded party resetting its own bound.
+
+Still on association, deliberately: `isPagedLatchComment`'s human arm. It fails
+toward *reviewing*, so a maintainer's hand-written latch being ignored costs a
+review round rather than stopping one, and its literal copy in
+`.github/workflows/agent-review-panel.yml` (that job does no checkout, so it cannot import) would
+have to make an API call too. Recorded as a known, benign instance of the same
+signal.
 
 ### Phase 31: UI Issue Hunting
 

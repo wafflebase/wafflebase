@@ -135,8 +135,17 @@ All endpoints require JWT authentication (`JwtAuthGuard`).
 | GET | `/datasources/:id` | Get single datasource |
 | PATCH | `/datasources/:id` | Update datasource fields |
 | DELETE | `/datasources/:id` | Delete datasource |
-| POST | `/datasources/:id/test` | Test connection (SELECT 1) |
+| POST | `/datasources/:id/test` | Test connection (SELECT 1) for a saved datasource |
 | POST | `/datasources/:id/query` | Execute a SQL query |
+| POST | `/workspaces/:workspaceId/datasources/test` | Test connection settings sent in the body, without saving |
+
+Testing is save-free: the creation dialog validates settings through the
+workspace-scoped endpoint, which never writes to Prisma, so abandoning the
+dialog leaves nothing behind. The id-based variant remains for the edit dialog,
+where the record already exists. Both share one probe in `DataSourceService`,
+which flattens the `AggregateError` thrown by `client.connect()` when every
+resolved address fails — otherwise the reason reaches the client as an empty
+string.
 
 The workspace-scoped routes are the primary surface; the flat `POST /datasources`
 still exists for backward compatibility but requires a `workspaceId` in its body
@@ -148,7 +157,9 @@ all of the caller's workspaces.
 Datasources are **workspace-scoped**. Every operation resolves the datasource's
 `workspaceId` and calls `workspaceService.assertMember(workspaceId, userId)`, so
 any member of the owning workspace can read, query, edit, or delete it — not just
-the creator (`authorID`, which is retained for auditing).
+the creator (`authorID`, which is retained for auditing). The save-free test
+endpoint has no record to resolve, so it checks membership on the workspace in
+its path, mirroring the sibling create route.
 
 #### Password Encryption
 

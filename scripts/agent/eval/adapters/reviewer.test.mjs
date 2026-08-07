@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import {
   DIFF_CONTENT_STATES,
   GATE_STATES,
+  KILL_GRACE_MS,
   PANEL_FLAGS,
   PANEL_OUTPUT_FILES,
   parseGateState,
@@ -48,7 +49,7 @@ const DIFF = [
 const ITEM = { diff: DIFF, changedFiles: ["scripts/agent/x.mjs"], issueSpec: null };
 
 /** Run the stub panel through the real adapter, with `spec` driving the stub. */
-async function replay(spec = {}, { item = ITEM, env = {}, baseSha = null } = {}) {
+async function replay(spec = {}, { item = ITEM, env = {}, baseSha = null, timeoutMs = null } = {}) {
   const work = mkdtempSync(path.join(tmpdir(), "reviewer-adapter-test-"));
   const specPath = path.join(work, "spec.json");
   writeFileSync(specPath, JSON.stringify(spec));
@@ -60,8 +61,22 @@ async function replay(spec = {}, { item = ITEM, env = {}, baseSha = null } = {})
     repoDir: path.join(work, "repo"),
     env: { ...process.env, STUB_PANEL_SPEC: specPath, ...env },
     baseSha,
+    timeoutMs,
   });
   return { work, inputs, ran, cap: adapter.captureArtifacts(ran), cleanup: () => rmSync(work, { recursive: true, force: true }) };
+}
+
+/** Is this pid alive? Signal 0 asks without delivering anything. */
+const alive = (pid) => {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+};
+
+/** Wait until every pid is reaped, or give up — SIGKILL is not instantaneous. */
+async function waitGone(pids, ms = 4000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until && pids.some(alive)) await new Promise((r) => setTimeout(r, 50));
+  return pids.filter(alive);
 }
 
 const argvOf = (work) => JSON.parse(readFileSync(path.join(work, "out", "stub-argv.json"), "utf8"));
@@ -398,6 +413,77 @@ test("a lens with no stage detail is skipped rather than keyed empty", async () 
   try {
     assert.deepEqual(Object.keys(r.cap.payload.stageDetail), ["correctness"]);
     assert.equal(r.cap.diffContent.lensesWithDetail, 1);
+  } finally {
+    r.cleanup();
+  }
+});
+
+// --- the panel that never exits ----------------------------------------------
+
+test("a panel that never exits is killed BY PROCESS GROUP, and the grandchild dies with it", async () => {
+  // THE ASSERTION IS ON THE PROCESSES, NOT ON THE PROMISE. Both halves of #682's
+  // 31-minute CI hang are visible here: 305 tests `ok` with no summary line (the
+  // promise never resolved) and six orphans at teardown (the tree was still
+  // alive). A test that only checked `ran.timedOut` would pass against a
+  // `child.kill()` that leaves the grandchild running — the same thing
+  // `reapLaneGroup`'s own mutation found one level up, where dropping `detached`
+  // left the orphan alive.
+  //
+  // The timeout is generous relative to what it measures because the stub has to
+  // reach the point of spawning its grandchild first, and under a loaded test
+  // lane that takes a while. A tighter one killed the stub mid-startup and the
+  // test then proved nothing about grandchildren — which is how the settle-path
+  // race `killedByTimeout` now covers was found.
+  const TIMEOUT = 2000;
+  const t0 = Date.now();
+  const r = await replay({ hang: true, spawnGrandchild: true }, { timeoutMs: TIMEOUT });
+  const elapsed = Date.now() - t0;
+  try {
+    const pids = JSON.parse(readFileSync(path.join(r.work, "out", "stub-pids.json"), "utf8"));
+    assert.ok(pids.panel > 0 && pids.grandchild > 0, `the stub did not report both pids: ${JSON.stringify(pids)}`);
+    assert.equal(r.ran.timedOut, true);
+    // `null`, never a made-up non-zero code and never the code a SIGTERM'd child
+    // happens to exit with: "we stopped it" is a different fact from "it crashed".
+    assert.equal(r.ran.code, null);
+    assert.equal(r.cap.timedOut, true, "the capture dropped the timeout — the classifier would file it as a generic panel-exit");
+    assert.match(r.cap.stderr, new RegExp(`killed after ${TIMEOUT}ms`));
+    const survivors = await waitGone([pids.panel, pids.grandchild]);
+    assert.deepEqual(survivors, [], `the kill left ${survivors.length} process(es) alive: ${survivors.join(", ")}`);
+
+    // And the promise settled on OUR timer. This is the other half of the hang
+    // and the reason waiting for `close` is not an option: the grandchild
+    // inherited the child's stdio fds, so `close` waits on a process nobody is
+    // tracking to release a pipe — which, for a panel that never exits, is never.
+    assert.ok(elapsed >= TIMEOUT, `resolved after ${elapsed}ms, before the timeout could have fired`);
+    assert.ok(elapsed < TIMEOUT + KILL_GRACE_MS + 8000, `resolving took ${elapsed}ms, which is not "our timer fired"`);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a panel that finishes inside the timeout is untouched by it", async () => {
+  // The other direction, and the one that matters for a paid run: a generous
+  // ceiling must not discard a slow-but-working replay. Also pins that the timer
+  // is cleared — a leaked one would keep the event loop alive past the suite.
+  const r = await replay({}, { timeoutMs: 60_000 });
+  try {
+    assert.equal(r.ran.timedOut, false);
+    assert.equal(r.ran.code, 0);
+    assert.equal(r.cap.timedOut, false);
+    assert.equal(r.cap.payload.findings.length, 1);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("no timeout is still no timeout — the adapter does not invent one", async () => {
+  // `run.mjs` is where the ceiling is mandatory; the adapter takes what it is
+  // given, so a caller passing nothing gets today's behaviour rather than a
+  // surprise default that could kill a working panel.
+  const r = await replay({}, { timeoutMs: null });
+  try {
+    assert.equal(r.ran.timedOut, false);
+    assert.equal(r.ran.code, 0);
   } finally {
     r.cleanup();
   }

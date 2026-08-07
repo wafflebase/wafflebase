@@ -303,7 +303,9 @@ wafflebase
   │
   ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
   │     ├── tabs (alias: tab)
-  │     │     └── list <doc-id>              List tabs in a spreadsheet
+  │     │     ├── list <doc-id>              List tabs in a spreadsheet
+  │     │     ├── create <doc-id> [name]     Create a sheet tab (--type sheet)
+  │     │     └── rename <doc-id> <tab-id> <name>   Rename a tab
   │     ├── cells (alias: cell)
   │     │     ├── get <doc-id> [<range>]     Get cells (default: all, or A1, or A1:C10)
   │     │     ├── set <doc-id> <ref> <value> [--tab] [--formula]
@@ -663,7 +665,8 @@ packages/cli/
   tsconfig.json
   vitest.config.ts
   src/
-    bin.ts               Entry point (#!/usr/bin/env node)
+    bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
+    cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
@@ -675,7 +678,7 @@ packages/cli/
       notes.ts           notes list/create/get/rename/delete + content/export/import
       files.ts           files upload/download/list/get/rename/delete
       sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
-      tabs.ts            sheets tabs list
+      tabs.ts            sheets tabs list / create / rename
       cells.ts           sheets cells get/set/batch/delete
       sheets-import.ts   sheets import CSV/JSON
       sheets-export.ts   sheets export CSV/JSON
@@ -889,6 +892,8 @@ Schema entries by command (canonical plural names):
 | `docs.export`            | read-only     | file write is local                                    |
 | `docs.import`            | write         | `safety` becomes `destructive` with `--replace`        |
 | `sheets.tabs.list`       | read-only     |                                                        |
+| `sheets.tabs.create`     | write         |                                                        |
+| `sheets.tabs.rename`     | write         |                                                        |
 | `sheets.cells.get`       | read-only     |                                                        |
 | `sheets.cells.set`       | write         |                                                        |
 | `sheets.cells.batch`     | write         |                                                        |
@@ -1011,6 +1016,10 @@ is the agent interface. This approach has key advantages:
   suppresses the "Exported to X" notice.
 - Errors: a single JSON line on stderr with shape
   `{"error":{"code":"…","message":"…","command":"docs.content"}}`.
+  `--quiet` does not suppress it — a non-zero exit with no bytes on
+  either stream leaves the caller with nothing to act on. Only progress
+  notices are display output; the envelope is the machine-readable
+  failure signal, and stderr already survives stdout redirection.
 
 ### 10. Error Matrix
 

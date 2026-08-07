@@ -218,8 +218,9 @@ All endpoints require `JwtAuthGuard`. Access is **workspace-scoped**: each
 route resolves the datasource's `workspaceId` and calls
 `WorkspaceService.assertMember`, so any member of the owning workspace has full
 access (datasources are owned by a workspace, not by their author). Companion
-workspace-scoped routes (`POST`/`GET /workspaces/:workspaceId/datasources`) list
-and create within one workspace.
+workspace-scoped routes (`POST`/`GET /workspaces/:workspaceId/datasources`, plus
+`POST /workspaces/:workspaceId/datasources/test`) list, create, and test within
+one workspace; those resolve the workspace from the path instead.
 
 **`POST /datasources`**
 - Body: `{ name, host, port?, database, username, password, sslEnabled? }`
@@ -240,7 +241,13 @@ and create within one workspace.
 - Deletes the datasource connection.
 
 **`POST /datasources/:id/test`**
-- Tests the connection by running `SELECT 1`.
+- Tests a saved connection by running `SELECT 1`.
+- Returns `{ success: boolean, error?: string }`.
+
+**`POST /workspaces/:workspaceId/datasources/test`**
+- Body: `{ host, port?, database, username, password, sslEnabled? }`
+- Tests connection settings that have not been saved, so the creation dialog
+  can validate before anything is written. Persists nothing.
 - Returns `{ success: boolean, error?: string }`.
 
 **`POST /datasources/:id/query`**

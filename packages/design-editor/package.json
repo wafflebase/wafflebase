@@ -1,0 +1,15 @@
+{
+  "name": "@wafflebase/design-editor",
+  "version": "0.6.2",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only Vite plugin that renders a project's real routes and writes edits back into its JSX and token source.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

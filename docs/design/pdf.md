@@ -98,8 +98,19 @@ Mirror the existing `image/` module rather than overloading it (keeps
   separate **25 MB** cap for images (`MAX_IMAGE_UPLOAD_BYTES`), enforced
   per category (`packages/backend/src/file/file.constants.ts`). Reuses the
   `packages/backend/src/image/image.config.ts` env pattern
-  (`FILE_STORAGE_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, dev
-  defaults to the same MinIO endpoint).
+  (`FILE_STORAGE_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, plus an
+  optional `FILE_STORAGE_PREFIX` to namespace objects inside a shared
+  bucket; dev defaults to the same MinIO endpoint). The prefix applies at
+  the S3 key boundary only — the id returned to callers and stored in
+  `Document.fileId` stays bare, so upload/get/delete re-derive the same
+  key with no schema change. Surrounding `/` are trimmed, so
+  `wafflebase`, `wafflebase/` and `/wafflebase/` name one namespace.
+  Like the bucket it sits beside, the prefix describes **where a
+  deployment's objects live and is fixed for that deployment's
+  lifetime**: there is deliberately no fallback read against a previous
+  prefix, so changing it after uploads orphans the objects already
+  stored. Migrate the bucket's objects first if a live deployment has to
+  move.
 - `packages/backend/src/file/file.controller.ts`:
   - `POST /files` — JWT, multipart `file`, returns `{ id }`. This runs
     **before** the document exists (upload-then-create flow), so it is

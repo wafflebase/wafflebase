@@ -16,10 +16,9 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const res = await getClient(opts).createApiKey(name);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        // Never suppress output — the raw key is shown only once
-        output(res.data, opts.format, false);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -31,9 +30,9 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const res = await getClient(opts).listApiKeys();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -45,9 +44,9 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const res = await getClient(opts).revokeApiKey(keyId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        output(res.data, opts.format);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

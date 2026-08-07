@@ -21,10 +21,13 @@ import { fileURLToPath } from "node:url";
 import { EvalStore, contentSha256 } from "./store.mjs";
 import {
   DEFAULT_PANEL_SCRIPT,
+  DEFAULT_PANEL_TIMEOUT_S,
   FATAL_REASONS,
   GATE_NOT_RUN,
   ITEM_REASONS,
+  RUN_STATUSES,
   classifyItemOutcome,
+  cleanupRepoCache,
   main,
   materializeRepoAt,
   panelEnv,
@@ -33,6 +36,14 @@ import {
   summarizeRun,
 } from "./run.mjs";
 import { GATE_STATES } from "./adapters/reviewer.mjs";
+// THE REAL PREDICATES THE PANEL CALLS, not a stub's canned gate line. A stub that
+// prints `novelty gate: on` because its spec said so proves nothing about whether
+// the tree this runner builds can actually be blamed, which is the entire fidelity
+// claim of the worktree. `routeFinding` is the gate's own router, so the three
+// together answer the question end to end — does a replay of this tree produce the
+// lane the shipped gate would? All free: no model, no network.
+import { baseResolves, noveltyOf } from "../novelty.mjs";
+import { routeFinding } from "../review-panel.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUB = path.join(HERE, "adapters", "stub-panel.mjs");
@@ -62,27 +73,85 @@ const OK = Object.freeze({
   diffContentRequested: true,
 });
 
-/** A store rooted in a throwaway directory, holding one frozen corpus item. */
-function tempCorpus({ itemId = "pr-664", diff = DIFF, reviewCommit = "61101a1bdbdffb9acb88772cae4c9347c69f413b" } = {}) {
+/**
+ * A store rooted in a throwaway directory, holding `count` frozen corpus items.
+ *
+ * More than one only matters to the cost cap, whose whole claim is about the item
+ * it did NOT spawn — a property no single-item fixture can express.
+ */
+function tempCorpus({
+  itemId = "pr-664",
+  diff = DIFF,
+  reviewCommit = "61101a1bdbdffb9acb88772cae4c9347c69f413b",
+  reviewBase = "35206e5859788062cfddfd0fc12b0a5754655a8d",
+  count = 1,
+} = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "eval-run-test-"));
   const store = new EvalStore(root);
-  const meta = {
-    id: itemId,
-    source_pr: 664,
-    review_commit: reviewCommit,
-    review_base: "35206e5859788062cfddfd0fc12b0a5754655a8d",
-    review_point: "pr-open",
-    diff_method: "fork-point",
-    changed_files: ["scripts/agent/x.mjs"],
-    additions: 1,
-    deletions: 1,
-    scope: "S",
-    has_issue_spec: false,
-    sha256_diff: contentSha256(diff),
-  };
-  store.putCorpusItem(itemId, { meta, diff, changedFiles: meta.changed_files, issueSpec: "" });
-  store.putCorpusManifest("v-test", { corpus_version: "v-test", item_count: 1, items: [{ id: itemId }] });
-  return { root, store, itemId, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  const ids = [itemId, ...Array.from({ length: count - 1 }, (_, i) => `${itemId}-x${i + 1}`)];
+  for (const id of ids) {
+    const meta = {
+      id,
+      source_pr: 664,
+      review_commit: reviewCommit,
+      review_base: reviewBase,
+      review_point: "pr-open",
+      diff_method: "fork-point",
+      changed_files: ["scripts/agent/x.mjs"],
+      additions: 1,
+      deletions: 1,
+      scope: "S",
+      has_issue_spec: false,
+      sha256_diff: contentSha256(diff),
+    };
+    store.putCorpusItem(id, { meta, diff, changedFiles: meta.changed_files, issueSpec: "" });
+  }
+  store.putCorpusManifest("v-test", { corpus_version: "v-test", item_count: ids.length, items: ids.map((id) => ({ id })) });
+  return { root, store, itemId, itemIds: ids, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+/**
+ * A throwaway git repository with two real commits, and the shas a novelty probe
+ * needs: `base` is the first, `head` the second.
+ *
+ * The second commit RELOCATES a distinctive line as well as adding one — moved
+ * from `src/a.mjs` to `src/moved.mjs` — because `relocated` is the only
+ * origin `DEMOTING_ORIGINS` holds, and therefore the only way a finding reaches
+ * `lane: "backlog"`. That lane is the one this whole change makes reachable, so
+ * the fixture has to be able to produce it.
+ *
+ * `fixtureGitEnv`, never the ambient environment: `cwd` alone does not scope git,
+ * and under a hook — `pre-push` runs `verify:self`, so the whole suite inherits
+ * `GIT_DIR` and `GIT_INDEX_FILE` — a helper like this one already once committed
+ * its fixture files into the developer's real repository.
+ */
+function tempGitRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), "eval-src-repo-"));
+  const git = (...a) =>
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], {
+      cwd: dir,
+      env: fixtureGitEnv(dir),
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+  const MOVED = "export const distinctiveHelperForNoveltyProbe = () => 42;";
+  git("init", "--quiet");
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  writeFileSync(path.join(dir, "src", "a.mjs"), `export const a = 1;\nexport const b = 2;\n${MOVED}\n`);
+  writeFileSync(path.join(dir, "README.md"), "# fixture\n");
+  git("add", "src/a.mjs", "README.md");
+  git("commit", "--quiet", "-m", "base");
+  const base = git("rev-parse", "HEAD").trim();
+
+  // A line the change genuinely ADDED, and the same distinctive line MOVED to a
+  // new file. `introduced` and `relocated` from one commit, which is what lets
+  // one fixture drive both lanes.
+  writeFileSync(path.join(dir, "src", "a.mjs"), "export const a = 1;\nexport const b = 2;\nexport const addedByTheChange = 3;\n");
+  writeFileSync(path.join(dir, "src", "moved.mjs"), `${MOVED}\n`);
+  git("add", "src/a.mjs", "src/moved.mjs");
+  git("commit", "--quiet", "-m", "the change");
+  const head = git("rev-parse", "HEAD").trim();
+  return { dir, base, head, git, movedLine: MOVED, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 /**
@@ -96,6 +165,11 @@ function tempCorpus({ itemId = "pr-664", diff = DIFF, reviewCommit = "61101a1bdb
  * runner insists on being told.
  */
 async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}) {
+  // The cost cap is REQUIRED, so every invocation has to answer it. A stub panel
+  // reports a fixed cost and spends nothing, so the honest answer for a test that
+  // is not about the cap is `--no-cost-cap` — and the tests that ARE about it pass
+  // their own flag in `extra`, which this must not then contradict.
+  const capAnswered = extra.some((a) => a === "--max-cost-usd" || a === "--no-cost-cap");
   const specPath = path.join(root, `spec-${extra.join("_").replace(/[^a-z0-9]/gi, "") || "default"}.json`);
   writeFileSync(specPath, JSON.stringify(spec));
   const prev = process.env.STUB_PANEL_SPEC;
@@ -113,6 +187,7 @@ async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}
       "--panel-script", STUB,
       "--panel-sha", PANEL_SHA,
       ...(noRepoContext ? ["--no-repo-context"] : []),
+      ...(capAnswered ? [] : ["--no-cost-cap"]),
       ...extra,
     ]);
     return { code, logs };
@@ -239,18 +314,57 @@ test("--root and --corpus-version have no default, and the refusal names the for
   // #675's rule: git history is permanent, so one forgotten flag that fell back to a
   // path inside this repository would commit run data into `wafflebase` for good.
   const none = resolveRunOptions(["node", "run.mjs"]);
-  assert.equal(none.errors.length, 2);
+  assert.equal(none.errors.length, 3);
   assert.match(none.errors.join(" "), /--root is required and has no default/);
   assert.match(none.errors.join(" "), /--corpus-version is required/);
   assert.match(resolveRunOptions(["node", "run.mjs", "--out", "/tmp/x"]).errors[0], /the fork harness called this --out/);
-  assert.deepEqual(resolveRunOptions(["node", "run.mjs", "--root", "/tmp/x", "--corpus-version", "v1"]).errors, []);
+  assert.deepEqual(resolveRunOptions(["node", "run.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--no-cost-cap"]).errors, []);
+});
+
+test("the cost cap has no default either, and an unbounded run has to be asked for", () => {
+  // THE SAME RULE AS `--root`, applied to the other irreversible thing this CLI
+  // does. A forgotten `--root` writes data that cannot be unwritten; a forgotten
+  // ceiling spends money that cannot be unspent, and the #521 pilot is what that
+  // looks like — $44 for roughly one usable data point. The first draft of this
+  // defaulted to no cap on the argument that a cap chosen for someone silently
+  // truncates a legitimate run. True, and the wrong trade: a truncated run is
+  // resumable under the same `--run-id` and pays for nothing twice.
+  const named = ["node", "run.mjs", "--root", "/tmp/x", "--corpus-version", "v1"];
+  const forgotten = resolveRunOptions(named);
+  assert.equal(forgotten.errors.length, 1, "omitting the cap must be a usage error, not a default");
+  assert.match(forgotten.errors[0], /--max-cost-usd <n> is required and has no default/);
+  // ...and the refusal names the way out, or it just teaches people to guess.
+  assert.match(forgotten.errors[0], /--no-cost-cap/);
+
+  // Both answers are accepted, and only one of them is a number.
+  const capped = resolveRunOptions([...named, "--max-cost-usd", "25"]);
+  assert.deepEqual(capped.errors, []);
+  assert.equal(capped.maxCostUsd, 25);
+  const refused = resolveRunOptions([...named, "--no-cost-cap"]);
+  assert.deepEqual(refused.errors, []);
+  assert.equal(refused.maxCostUsd, null, "an explicit refusal still reads as no ceiling downstream");
+
+  // Saying both is a contradiction, on the same rule the repo-context pair follows.
+  assert.match(
+    resolveRunOptions([...named, "--max-cost-usd", "25", "--no-cost-cap"]).errors.join(" "),
+    /--max-cost-usd and --no-cost-cap contradict each other/,
+  );
 });
 
 test("the option defaults that decide cost and fidelity are the intended ones", () => {
-  const o = resolveRunOptions(["node", "run.mjs", "--root", "/tmp/x", "--corpus-version", "v1"]);
-  // Opposite defaults for opposite reasons — see `resolveRunOptions`.
-  assert.equal(o.requireRepoContext, false, "flipping this belongs with PR 6's worktree");
+  const o = resolveRunOptions(["node", "run.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--no-cost-cap"]);
+  // ON, now that a worktree makes it satisfiable. A diff-only replay over-flags,
+  // which explodes the verifier fan-out and is what billed $44 on the #521 pilot.
+  assert.equal(o.requireRepoContext, true, "an item whose tree will not materialise must not be silently replayed diff-only");
+  assert.equal(o.requireRepoContextRelaxed, false);
   assert.equal(o.diffContent, true, "the routed diff must ride along, because its absence is silent");
+  // A ceiling always exists. There is no invocation of this CLI that spawns a
+  // panel with no upper bound on how long it may run.
+  assert.equal(o.panelTimeoutMs, DEFAULT_PANEL_TIMEOUT_S * 1000);
+  assert.ok(o.panelTimeoutMs > 0);
+  // No ceiling here — but only because this invocation ASKED for none. There is no
+  // default; the flag has its own test above.
+  assert.equal(o.maxCostUsd, null);
   assert.equal(o.panelScript, path.resolve(DEFAULT_PANEL_SCRIPT));
   assert.equal(o.configId, "baseline");
   // Measured from `scripts/agent/package.json`, never a literal. The version this
@@ -270,6 +384,60 @@ test("the option defaults that decide cost and fidelity are the intended ones", 
   assert.match(o.runId, /__baseline$/);
   assert.equal(resolveRunOptions(["node", "run.mjs", "--root", "/x", "--corpus-version", "v", "--no-diff-content"]).diffContent, false);
   assert.equal(resolveRunOptions(["node", "run.mjs", "--root", "/x", "--corpus-version", "v", "--no-repo-context"]).repoSource, null);
+});
+
+test("two flags about repo context resolve by rule, and contradict LOUDLY", () => {
+  const opt = (...extra) => resolveRunOptions(["node", "run.mjs", "--root", "/x", "--corpus-version", "v", "--no-cost-cap", ...extra]);
+  // The rule: a DEFAULT may be overridden silently, an EXPLICIT flag may not be
+  // contradicted. `--no-repo-context` alone is a narrower request, not a conflict
+  // — there is no tree to require — so it turns the guard off and says so.
+  const diffOnly = opt("--no-repo-context");
+  assert.deepEqual(diffOnly.errors, []);
+  assert.equal(diffOnly.requireRepoContext, false);
+  assert.equal(diffOnly.noRepoContext, true);
+
+  // The escape hatch the flip would otherwise remove: try for a tree, degrade if
+  // it is not there. Recorded on the run, because such a run may MIX fidelities.
+  const relaxed = opt("--no-require-repo-context");
+  assert.deepEqual(relaxed.errors, []);
+  assert.equal(relaxed.requireRepoContext, false);
+  assert.equal(relaxed.requireRepoContextRelaxed, true);
+  assert.notEqual(relaxed.repoSource, null, "the relaxed run still tries to build the tree");
+
+  // Stating both intentions is a usage error, in both pairs. Resolving it
+  // silently either way is how a run measures something nobody asked for.
+  assert.match(opt("--require-repo-context", "--no-repo-context").errors.join(" "), /contradict each other/);
+  assert.match(opt("--require-repo-context", "--no-require-repo-context").errors.join(" "), /contradict each other/);
+  // ...and the redundant-but-consistent case is not an error: saying the default
+  // out loud is allowed.
+  assert.deepEqual(opt("--require-repo-context").errors, []);
+  assert.equal(opt("--require-repo-context").requireRepoContext, true);
+});
+
+test("the two spend guards validate their own inputs, and the timeout cannot be switched off", () => {
+  const opt = (...extra) =>
+    resolveRunOptions([
+      "node", "run.mjs", "--root", "/x", "--corpus-version", "v",
+      // Only when the case under test does not answer the cap itself, or the two
+      // would contradict and every assertion below would pass for the wrong reason.
+      ...(extra.includes("--max-cost-usd") ? [] : ["--no-cost-cap"]),
+      ...extra,
+    ]);
+  assert.equal(opt("--panel-timeout", "90").panelTimeoutMs, 90_000);
+  assert.equal(opt("--max-cost-usd", "12.5").maxCostUsd, 12.5);
+  // Zero is a cap, and a meaningful one: spawn nothing.
+  assert.equal(opt("--max-cost-usd", "0").maxCostUsd, 0);
+  assert.deepEqual(opt("--max-cost-usd", "0").errors, []);
+  // Zero is NOT a timeout. "No ceiling" is the state this guard exists to end, so
+  // it is not spellable — and the refusal says why, because otherwise it is the
+  // first thing anyone reaches for after one false positive.
+  for (const bad of ["0", "-1", "nonsense", ""]) {
+    assert.match(opt("--panel-timeout", bad).errors.join(" "), /--panel-timeout must be a positive number/, `--panel-timeout ${bad} was accepted`);
+  }
+  assert.match(opt("--panel-timeout", "0").errors.join(" "), /no way to disable it/);
+  for (const bad of ["-1", "nonsense"]) {
+    assert.match(opt("--max-cost-usd", bad).errors.join(" "), /--max-cost-usd must be a non-negative number/, `--max-cost-usd ${bad} was accepted`);
+  }
 });
 
 // --- which panel ran --------------------------------------------------------
@@ -411,6 +579,222 @@ test("materialising a real commit from an EMPTY cache counts what it extracted",
   } finally {
     rmSync(cache, { recursive: true, force: true });
     rmSync(src, { recursive: true, force: true });
+  }
+});
+
+// --- the worktree, and whether it can actually be blamed ---------------------
+
+test("THE FIDELITY CLAIM: the materialised tree is one the real novelty gate can run in", async () => {
+  // The whole of this change, asserted against the REAL functions the panel
+  // calls rather than against a stub's canned gate line. `baseResolves` is
+  // literally what `review-panel.mjs` calls before printing `novelty gate: on`,
+  // and `noveltyOf` is what decides the lane a blocking finding is routed on.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const mat = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    assert.equal(mat.error, null, `the worktree did not materialise: ${mat.error}`);
+
+    // 1. The base resolves. This is the exact predicate, with the exact argument
+    //    order, that gates the panel's `novelty gate: on` line.
+    assert.equal(await baseResolves(mat.path, src.base), true, "the panel would print `novelty gate: OFF — does not resolve`");
+
+    // 2. And blame answers. This is the part a resolving base does NOT imply.
+    const novelty = await noveltyOf({ repo: mat.path, file: "src/a.mjs", line: 3, baseSha: src.base });
+    assert.notEqual(novelty.origin, "unknown", `blame answered nothing in the materialised tree: ${JSON.stringify(novelty)}`);
+    assert.equal(novelty.addedBy, src.head, "blame attributed the changed line to the wrong commit");
+
+    // 3. THE CONTRAST, which is the mutation baked in: the tree this replaces was
+    //    a `git archive`, and in one of those both answers above are negative. So
+    //    reverting `materializeRepoAt` to an archive cannot leave this test green.
+    const archived = path.join(cache, "as-an-archive");
+    mkdirSync(archived, { recursive: true });
+    const tar = path.join(cache, "t.tar");
+    src.git("archive", "--format=tar", "-o", tar, src.head);
+    execFileSync("tar", ["-xf", tar, "-C", archived], { stdio: "pipe" });
+    assert.ok(existsSync(path.join(archived, "src", "a.mjs")), "the contrast tree is not a tree");
+    assert.equal(existsSync(path.join(archived, ".git")), false, "an archive is supposed to have no .git — that was the whole problem");
+    assert.equal(await baseResolves(archived, src.base), false, "an archived tree resolved a base sha, so this test cannot detect the regression it exists for");
+    assert.equal((await noveltyOf({ repo: archived, file: "src/a.mjs", line: 3, baseSha: src.base })).origin, "unknown");
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    src.cleanup();
+  }
+});
+
+test("THE TRANSITION: `lane: \"backlog\"` is reachable in a replay, and was not before", async () => {
+  // The sharpest statement of what changed, and it needs the gate's own router
+  // rather than a claim about the gate line. What was NEVER true of a replay is
+  // not "findings carried no lane" — `routeFinding` returns `blocking` when
+  // novelty is `unknown`, so every replayed finding was labelled `blocking`,
+  // which looks exactly like a correct answer. What could not occur is the
+  // DEMOTION: `backlog` requires `DEMOTING_ORIGINS` to match, which requires
+  // `relocated`, which requires a `git blame` of a tree that has a `.git`.
+  //
+  // So a replay against an archived tree did not merely lack information — it
+  // silently answered the gate's question WRONG, in the one direction that
+  // reads as normal, on every relocated finding in the corpus.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const mat = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    const finding = { severity: "major", file: "src/moved.mjs", line: 1, summary: "the moved helper is wrong" };
+
+    // In the WORKTREE: git can see that this line's content predates the base,
+    // so the gate demotes it. This is `lane: "backlog"`, produced end to end by
+    // the real prober and the real router.
+    const inWorktree = await noveltyOf({ repo: mat.path, file: "src/moved.mjs", line: 1, baseSha: src.base });
+    assert.equal(inWorktree.origin, "relocated", `the fixture did not produce a relocation: ${JSON.stringify(inWorktree)}`);
+    assert.equal(routeFinding(finding, { novelty: inWorktree }), "backlog");
+
+    // In an ARCHIVE — the tree every replay used to get — the same line, the same
+    // base and the same router answer `blocking`. Same finding, same code, two
+    // different gate decisions, and only one of them is what shipped.
+    const archived = path.join(cache, "as-an-archive");
+    mkdirSync(archived, { recursive: true });
+    const tar = path.join(cache, "t.tar");
+    src.git("archive", "--format=tar", "-o", tar, src.head);
+    execFileSync("tar", ["-xf", tar, "-C", archived], { stdio: "pipe" });
+    const inArchive = await noveltyOf({ repo: archived, file: "src/moved.mjs", line: 1, baseSha: src.base });
+    assert.equal(inArchive.origin, "unknown");
+    assert.equal(
+      routeFinding(finding, { novelty: inArchive }),
+      "blocking",
+      "the archived tree did not route this to blocking, so the transition this test claims is not the one being measured",
+    );
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    src.cleanup();
+  }
+});
+
+test("a review_commit that is not a sha is refused BEFORE it becomes a path", () => {
+  // `commit` is interpolated into `dest`, and `dest` is later handed to
+  // `git worktree remove --force` and to `rmSync(..., { recursive: true })`. The
+  // safety argument for that teardown is that it only ever addresses paths under
+  // this run's own `mkdtemp` root, and a `..` in the commit is what would break
+  // it. `validateCorpusItem` refuses a non-sha `review_commit` at the store's
+  // WRITE path — this is the read-path backstop, the same one `review_base` gets,
+  // because the corpus is a separate hand-committed repository.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  // A real directory a traversing value would resolve onto. If the guard is
+  // removed, `removeWorktreeAt` reaches this with `rmSync` and it stops existing.
+  const sibling = path.join(path.dirname(cache), `${path.basename(cache)}-neighbour`);
+  mkdirSync(path.join(sibling, "precious"), { recursive: true });
+  try {
+    for (const bad of [`../${path.basename(sibling)}`, "HEAD", src.head.slice(0, 12), src.head.toUpperCase(), ""]) {
+      const mat = materializeRepoAt({ repoSource: src.dir, commit: bad, cacheRoot: cache });
+      assert.equal(mat.path, null, `commit ${JSON.stringify(bad)} was materialised`);
+      assert.equal(mat.files, 0);
+      assert.ok(mat.error, `commit ${JSON.stringify(bad)} produced no error`);
+    }
+    // Not "an error was returned" — nothing outside the cache root was touched.
+    assert.equal(existsSync(path.join(sibling, "precious")), true, "a traversing review_commit reached a path outside the run's own root");
+    // ...and a short sha or an uppercase one is refused for FIDELITY, not safety:
+    // both resolve in git, and either would key the cache by a string that is not
+    // the frozen commit. The message says what to do about it.
+    assert.match(
+      materializeRepoAt({ repoSource: src.dir, commit: src.head.slice(0, 12), cacheRoot: cache }).error,
+      /40 lowercase hex characters/,
+    );
+    // The real sha still works, so the guard is not simply refusing everything.
+    assert.ok(materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache }).path);
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    rmSync(sibling, { recursive: true, force: true });
+    src.cleanup();
+  }
+});
+
+test("the materialised tree is a REGISTERED worktree, and cleanup deregisters exactly it", () => {
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const mat = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    // A linked worktree's `.git` is a FILE holding a `gitdir:` pointer. If this is
+    // a directory, something checked out a whole second repository.
+    assert.ok(statSync(path.join(mat.path, ".git")).isFile(), ".git is not a worktree pointer file");
+    assert.equal(src.git("-C", mat.path, "rev-parse", "HEAD").trim(), src.head, "HEAD is not at the review commit, so blame would date every line against the wrong tree");
+    const listed = () => src.git("worktree", "list", "--porcelain");
+    assert.ok(listed().includes(mat.path), "the tree is not registered as a worktree in the source repo");
+
+    // Deregistered, not merely deleted. A worktree lives in the SOURCE repo's
+    // `.git`, so `rmSync` alone would leave administrative state in somebody
+    // else's clone after every run.
+    assert.equal(cleanupRepoCache(src.dir, cache), 1);
+    assert.equal(existsSync(mat.path), false);
+    assert.equal(existsSync(cache), false);
+    assert.equal(listed().includes(mat.path), false, "the worktree entry survived cleanup");
+    // Idempotent: an aborted run and a normal one both reach this path.
+    assert.equal(cleanupRepoCache(src.dir, cache), 0);
+  } finally {
+    src.cleanup();
+  }
+});
+
+test("git's own pointer file is NOT counted, or an empty checkout would satisfy the guard", () => {
+  // `--require-repo-context` fires on `contextFiles === 0`. A worktree's `.git`
+  // pointer is a real file in the tree, so counting it would make an empty
+  // checkout report 1 and the guard would never fire again — configured, on, and
+  // inert. That is the exact shape of failure `assertEffort` already shipped.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const mat = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    assert.ok(existsSync(path.join(mat.path, ".git")), "there is no pointer file to exclude, so this test proves nothing");
+    // The fixture's second commit holds exactly three files.
+    assert.equal(mat.files, 3, "the count includes git's bookkeeping");
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    src.cleanup();
+  }
+});
+
+test("the same commit materialised twice gives an identical path and an identical count", () => {
+  // K replicates of one item must not disagree about a fidelity field: a scorer
+  // segmenting on `repo_context_files` would split one population in two.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const first = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    const second = materializeRepoAt({ repoSource: src.dir, commit: src.head, cacheRoot: cache });
+    assert.equal(first.error, null);
+    assert.equal(second.error, null);
+    assert.equal(second.path, first.path, "two items at one commit built two different trees");
+    assert.equal(second.files, first.files);
+    // And the second call is a CACHE HIT rather than a second `worktree add`,
+    // which would have failed on an existing directory.
+    assert.equal(src.git("worktree", "list", "--porcelain").split(/\n/).filter((l) => l.startsWith("worktree ")).length, 2);
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    src.cleanup();
+  }
+});
+
+test("a review commit the clone does not have is refused with the fetch that fixes it", () => {
+  // The normal state, not an edge case: `wafflebase` squash-merges so a PR head is
+  // never reachable from `main`, `extract-corpus` fetches it to `refs/eval/pr/<n>`
+  // to freeze the item, and the freeze plan's cleanup step deletes those refs.
+  const src = tempGitRepo();
+  const cache = mkdtempSync(path.join(tmpdir(), "eval-worktrees-test-"));
+  try {
+    const gone = materializeRepoAt({ repoSource: src.dir, commit: "f".repeat(40), cacheRoot: cache, sourcePr: 471 });
+    assert.equal(gone.path, null);
+    assert.equal(gone.files, 0);
+    assert.match(gone.error, /is not in /);
+    // The remedy is the point. A refusal a reader cannot act on is a refusal that
+    // gets worked around by turning the guard off.
+    assert.match(gone.error, /refs\/pull\/471\/head:refs\/eval\/pr\/471/, "the refusal does not name the fetch that fixes it");
+    // Nothing was built, and nothing was registered, on the way to finding out.
+    assert.equal(existsSync(path.join(cache, "f".repeat(40))), false);
+    assert.equal(src.git("worktree", "list", "--porcelain").split(/\n/).filter((l) => l.startsWith("worktree ")).length, 1);
+    // With no PR number the message still names a runnable command.
+    const anon = materializeRepoAt({ repoSource: src.dir, commit: "e".repeat(40), cacheRoot: cache });
+    assert.match(anon.error, /git -C .* fetch origin e{40}/);
+  } finally {
+    cleanupRepoCache(src.dir, cache);
+    src.cleanup();
   }
 });
 
@@ -633,6 +1017,261 @@ test("END TO END: --require-repo-context stores a zero-cost error and spawns not
   }
 });
 
+// --- the gate, end to end, against a tree that can answer --------------------
+
+test("END TO END: a real worktree, --base-sha from the item, and a gate that is ON", async () => {
+  // The whole change in one run: a frozen corpus item, a worktree at its
+  // `review_commit`, its `review_base` passed as `--base-sha`, and an envelope
+  // that records the gate as `on`. Before this, every replay recorded
+  // `off-no-base-sha`.
+  const src = tempGitRepo();
+  const c = tempCorpus({ reviewCommit: src.head, reviewBase: src.base });
+  try {
+    const { code, logs } = await runCli(c.root, {}, ["--repo-source", src.dir], { noRepoContext: false });
+    assert.equal(code, 0, logs.join("\n"));
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.status, "ok", JSON.stringify(got.envelope.error));
+    assert.equal(got.envelope.gate.state, "on", "the replayed gate is still not the shipped gate");
+    assert.equal(got.envelope.base_sha_passed, true);
+    // The panel ECHOED the base it was given, so this asserts the VALUE survived
+    // the argv round trip into the child — stronger than reading back the array
+    // the adapter built, which an audit could re-derive without a subprocess.
+    assert.ok(got.envelope.gate.line.includes(src.base), `the panel was given a different base: ${got.envelope.gate.line}`);
+    assert.equal(got.envelope.repo_context_files, 3, "the lens read no surrounding code");
+    // A `backlog` finding survives the whole lane into the stored payload. The
+    // stub supplies the lane rather than computing it — only the real panel can
+    // do that — but the lane's SURVIVAL is this harness's job, and it is the
+    // field that cannot be recovered later, because the tree is gone after merge.
+    assert.equal(got.payload.findings[0].lane, "backlog");
+    const run = c.store.getRun(runIdOf(c.root));
+    assert.equal(run.runJson.repo_context, "tree");
+    assert.equal(run.runJson.status, "complete");
+    // And the worktree does not outlive the run: it was registered in the source
+    // repository, so leaving it is administrative state in someone else's clone.
+    assert.equal(src.git("worktree", "list", "--porcelain").split(/\n/).filter((l) => l.startsWith("worktree ")).length, 1);
+  } finally {
+    c.cleanup();
+    src.cleanup();
+  }
+});
+
+test("END TO END: --base-sha reaches the panel's argv, and dropping it is what gate-degraded catches", async () => {
+  // The two halves of #682's assertion, now that both are reachable. `baseResolves:
+  // false` is a panel that was handed a base and could not use it — the silent
+  // degradation case — and it must ABORT rather than record a gate-off replay.
+  const src = tempGitRepo();
+  const c = tempCorpus({ reviewCommit: src.head, reviewBase: src.base });
+  try {
+    const { code, logs } = await runCli(c.root, { baseResolves: false }, ["--repo-source", src.dir], { noRepoContext: false });
+    assert.equal(code, 1);
+    const runId = runIdOf(c.root);
+    const got = c.store.getItem(runId, c.itemId);
+    assert.equal(got.envelope.reason, "gate-degraded");
+    assert.equal(got.envelope.gate.state, "off-base-sha-unresolved");
+    assert.ok(logs.some((l) => l.includes("ABORTED")), logs.join("\n"));
+    assert.equal(c.store.getRun(runId).runJson.status, "aborted");
+
+    // The failed item keeps its raw output, and that is where the child's own
+    // record of what it was told lives. Asserting the FLAG against the stub's
+    // `stub-argv.json` turns "the runner passes --base-sha" from an intention
+    // into a contract observed from the other side of a subprocess boundary.
+    const line = logs.find((l) => l.includes("raw panel output kept at"));
+    assert.ok(line, logs.join("\n"));
+    const outDir = line.slice(line.indexOf("kept at ") + "kept at ".length).trim();
+    const argv = JSON.parse(readFileSync(path.join(outDir, "stub-argv.json"), "utf8"));
+    assert.ok(argv.includes("--base-sha"), `the panel was never given --base-sha: ${argv.join(" ")}`);
+    assert.equal(argv[argv.indexOf("--base-sha") + 1], src.base, "the base passed was not the item's frozen review_base");
+    rmSync(path.dirname(outDir), { recursive: true, force: true });
+  } finally {
+    c.cleanup();
+    src.cleanup();
+  }
+});
+
+test("END TO END: an item with no usable review_base is refused, NOT replayed with the gate off", async () => {
+  // The failure mode `gate-degraded` cannot see, because it fires on a base that
+  // was PASSED and did not take. With nothing passed there is nothing to
+  // disagree with, so a fallback here would look clean forever — and would be a
+  // silent return to exactly the gate-off replay this change ends.
+  //
+  // THE FIXTURE WRITES `meta.json` BY HAND, and that is the scenario rather than
+  // a shortcut: `validateCorpusItem` already refuses this at the store's WRITE
+  // path — `putCorpusItem` would throw before the runner ever saw it — while
+  // `getCorpusItemInput` does not re-validate what it READS. The corpus is a
+  // separate, hand-committed repository, so the read door is a real door. This
+  // test only exists because the write-path validator does not stand in it.
+  const src = tempGitRepo();
+  for (const bad of ["", null, "not-a-sha", "F".repeat(40)]) {
+    const c = tempCorpus({ reviewCommit: src.head });
+    try {
+      const metaPath = path.join(c.root, "corpus", "items", c.itemId, "meta.json");
+      const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+      assert.match(meta.review_base, SHA40, "the store accepted an invalid review_base, so this fixture is not the case it claims");
+      writeFileSync(metaPath, JSON.stringify({ ...meta, review_base: bad }, null, 2));
+
+      const { code, logs } = await runCli(c.root, {}, ["--repo-source", src.dir], { noRepoContext: false });
+      assert.equal(code, 1);
+      const got = c.store.getItem(runIdOf(c.root), c.itemId);
+      assert.equal(got.envelope.reason, "no-base-sha", `review_base ${JSON.stringify(bad)} was accepted`);
+      assert.equal(got.envelope.gate.state, GATE_NOT_RUN, "no panel ran, so no reported gate state could be honest");
+      // Zero cost: refused BEFORE the spawn, which is the only kind of guard that
+      // is worth anything on a tool that spends money.
+      assert.equal(got.envelope.cost_usd, 0);
+      assert.equal(got.envelope.calls, 0);
+      assert.ok(logs.some((l) => l.includes("no model calls")), logs.join("\n"));
+    } finally {
+      c.cleanup();
+    }
+  }
+  src.cleanup();
+});
+
+test("END TO END: a base that does not resolve in the tree is refused for free, before the spawn", async () => {
+  // A base sha shaped correctly and absent from the clone. `gate-degraded` would
+  // catch this too — after a full panel spawn has been paid for. This asks the
+  // same question with the same predicate for nothing, and the case it is really
+  // for is a SHALLOW clone, which is CI's default checkout.
+  const src = tempGitRepo();
+  const c = tempCorpus({ reviewCommit: src.head, reviewBase: "a".repeat(40) });
+  try {
+    const { code, logs } = await runCli(c.root, {}, ["--repo-source", src.dir], { noRepoContext: false });
+    assert.equal(code, 1);
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.reason, "base-unresolved");
+    assert.equal(got.envelope.cost_usd, 0);
+    assert.equal(got.envelope.calls, 0);
+    assert.equal(got.envelope.gate.state, GATE_NOT_RUN);
+    assert.match(got.envelope.error.message, /unshallow/, "the refusal does not name the usual cause or its remedy");
+    assert.ok(logs.some((l) => l.includes("no model calls")), logs.join("\n"));
+  } finally {
+    c.cleanup();
+    src.cleanup();
+  }
+});
+
+test("END TO END: a deliberate diff-only run passes no base, and that is not a degradation", async () => {
+  // The one place `off-no-base-sha` is still the honest answer. It must not
+  // become `no-base-sha`: the operator asked for a lower-fidelity replay and got
+  // one, and the run records which it was. The item's `review_base` is perfectly
+  // good here — it is simply not asked for, because there is no tree to use it in.
+  const c = tempCorpus();
+  try {
+    const { code } = await runCli(c.root, {});
+    assert.equal(code, 0);
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.status, "ok");
+    assert.equal(got.envelope.gate.state, "off-no-base-sha");
+    assert.equal(got.envelope.base_sha_passed, false);
+    assert.equal(c.store.getRun(runIdOf(c.root)).runJson.repo_context, "diff-only");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("END TO END: --no-require-repo-context degrades instead of refusing, and the run SAYS it may be mixed", async () => {
+  // The escape hatch, and the reason it is recorded: such a run can hold items of
+  // two different fidelities, and pooling those is averaging two reviewers.
+  const c = tempCorpus({ reviewCommit: "d".repeat(40) });
+  try {
+    const { code } = await runCli(c.root, {}, ["--no-require-repo-context", "--repo-source", c.root], { noRepoContext: false });
+    // The item still replays — diff-only, because the tree is not there.
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.reason, null, "the relaxed run refused an item anyway");
+    assert.equal(got.envelope.status, "ok");
+    assert.equal(got.envelope.repo_context_files, 0);
+    assert.equal(code, 0);
+    assert.equal(c.store.getRun(runIdOf(c.root)).runJson.repo_context, "tree-optional");
+  } finally {
+    c.cleanup();
+  }
+});
+
+// --- the two spend guards ----------------------------------------------------
+
+test("END TO END: a panel that never exits is a panel-timeout, with its own reason", async () => {
+  // Not `panel-exit`. A killed child reports `code: null`, so without a check
+  // above the exit code a runaway panel would be filed under the same reason as
+  // one that crashed on a large diff — and only one of those is a reason to
+  // change the timeout.
+  const c = tempCorpus();
+  try {
+    const { code, logs } = await runCli(c.root, { hang: true, spawnGrandchild: true }, ["--panel-timeout", "1"]);
+    assert.equal(code, 1);
+    const got = c.store.getItem(runIdOf(c.root), c.itemId);
+    assert.equal(got.envelope.status, "error");
+    assert.equal(got.envelope.reason, "panel-timeout", logs.join("\n"));
+    assert.match(got.envelope.error.message, /did not exit within 1000ms/);
+    // Not fatal: the run may continue, because a timeout is the failure most
+    // likely to be about one item. Bounding a run of them is the cost cap's job.
+    assert.equal(c.store.getRun(runIdOf(c.root)).runJson.status, "complete");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("END TO END: the cost cap stops the run, and the item it stopped was never spawned", async () => {
+  // The assertion is on what did NOT run. One item costs $0.42 in the stub's
+  // execution log, so a $0.30 cap admits the first and must refuse the second.
+  const c = tempCorpus({ count: 2 });
+  try {
+    const { code, logs } = await runCli(c.root, {}, ["--max-cost-usd", "0.30"]);
+    assert.equal(code, 1, "a capped run is incomplete and must not report success");
+    const runId = runIdOf(c.root);
+    assert.deepEqual(c.store.listItems(runId), [c.itemIds[0]], "the second item has an envelope, so it was replayed");
+    const run = c.store.getRun(runId);
+    // `capped`, not `aborted`. Nothing is misconfigured: the run did what it was
+    // told and stopped at the budget, and the two need different responses.
+    assert.equal(run.runJson.status, "capped");
+    assert.ok(RUN_STATUSES.includes(run.runJson.status));
+    assert.match(run.runJson.notes, /cost cap/);
+    // NO SILENT TRUNCATION: the skipped item is named, in the notes and the log.
+    assert.match(run.runJson.notes, new RegExp(c.itemIds[1]));
+    assert.ok(logs.some((l) => l.includes("STOPPED AT THE COST CAP")), logs.join("\n"));
+    assert.ok(logs.some((l) => l.includes("not replayed") && l.includes(c.itemIds[1])), logs.join("\n"));
+    assert.equal(run.runJson.max_cost_usd, 0.3);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("END TO END: a cap of zero spawns nothing at all, and a resumed run resumes its budget", async () => {
+  // `--max-cost-usd 0` is the degenerate case that proves the check runs BEFORE
+  // the spawn rather than after the first item.
+  const c = tempCorpus({ count: 2 });
+  try {
+    const zero = await runCli(c.root, {}, ["--run-id", "capped-run", "--max-cost-usd", "0"]);
+    assert.equal(zero.code, 1);
+    assert.deepEqual(c.store.listItems("capped-run"), [], "an item was replayed under a zero cap");
+
+    // Resume with room for exactly one item ($0.42 each), then resume AGAIN with
+    // the same cap: the second resume must count what the first already spent. A
+    // budget that reset per invocation would let three resumes of a $0.40 run
+    // spend $1.26 while every one of them reported staying inside the cap.
+    const one = await runCli(c.root, {}, ["--run-id", "capped-run", "--max-cost-usd", "0.40"]);
+    assert.equal(one.code, 1);
+    assert.deepEqual(c.store.listItems("capped-run"), [c.itemIds[0]]);
+    const again = await runCli(c.root, {}, ["--run-id", "capped-run", "--max-cost-usd", "0.40"]);
+    assert.equal(again.code, 1);
+    assert.deepEqual(c.store.listItems("capped-run"), [c.itemIds[0]], "the resumed run spent past the cap it was given");
+    assert.equal(c.store.getRun("capped-run").runJson.status, "capped");
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("a run's status comes from a closed vocabulary, like an item's reason does", () => {
+  // `run.json.status` is NOT validated by the store — `validateRunEnvelope`
+  // checks item envelopes only — so the vocabulary is owned here, and a fifth
+  // value appearing as a bare literal would reach disk unnoticed.
+  assert.deepEqual([...RUN_STATUSES].sort(), ["aborted", "capped", "complete", "partial"]);
+  const src = readFileSync(path.join(HERE, "run.mjs"), "utf8");
+  const assigned = /const status = ([^;]+);/.exec(src);
+  assert.ok(assigned, "run.mjs no longer decides the run status in one place");
+  for (const m of assigned[1].matchAll(/"([^"]+)"/g)) {
+    assert.ok(RUN_STATUSES.includes(m[1]), `run.mjs writes the run status ${JSON.stringify(m[1])}, which is not in RUN_STATUSES`);
+  }
+});
+
 test("every gate state an envelope can carry is declared somewhere", () => {
   // `GATE_STATES` is what the panel can REPORT; `GATE_NOT_RUN` is what the runner
   // writes when no panel ran. Together they are the closed set, and a third value
@@ -684,6 +1323,56 @@ test("END TO END: a failed item KEEPS its raw panel output; an ok item does not"
     rmSync(path.join(tmpdir(), kept[0]), { recursive: true, force: true });
   } finally {
     bad.cleanup();
+  }
+});
+
+test("END TO END: a PRE-SPAWN refusal keeps no scratch directory, because it has no evidence to keep", async () => {
+  // The keep-the-evidence rule above is about a panel that ran and failed. A
+  // refusal happens before `prepareInput`, so its `eval-item-*` directory is
+  // empty — and this PR added three reasons that refuse, over a run that is
+  // MEANT to produce seven of them at once. Kept, that is seven empty
+  // directories per run in `tmpdir()`, indistinguishable from real evidence.
+  const scratchDirs = () => new Set(readdirSync(tmpdir()).filter((d) => d.startsWith("eval-item-")));
+  const c = tempCorpus();
+  try {
+    const before = scratchDirs();
+    // `--require-repo-context` with a `--repo-source` that has no such commit:
+    // the first of the three refusals, and the cheapest to reach.
+    const { code, logs } = await runCli(c.root, {}, ["--repo-source", c.root], { noRepoContext: false });
+    assert.equal(code, 1);
+    assert.ok(logs.some((l) => l.includes("no model calls")), logs.join("\n"));
+    const left = [...scratchDirs()].filter((d) => !before.has(d));
+    assert.deepEqual(left, [], `a refusal left an empty scratch directory behind: ${left.join(", ")}`);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("END TO END: a throw inside the item loop still deregisters the worktree", async () => {
+  // The teardown is not a tidy-up. A worktree is registered in the SOURCE
+  // repository's `.git`, so skipping it leaves administrative state in a
+  // developer's own clone — and everything in the loop can throw. This drives the
+  // reachable one: a corpus item whose `meta.json` is not JSON, which the store
+  // refuses by throwing from `getCorpusItemInput`, outside the per-item `catch`
+  // that covers only the panel call.
+  const src = tempGitRepo();
+  const c = tempCorpus({ reviewCommit: src.head, reviewBase: src.base, count: 2 });
+  const listed = () => src.git("worktree", "list", "--porcelain");
+  const lensDirs = () => new Set(readdirSync(tmpdir()).filter((d) => d.startsWith("eval-lenses-")));
+  try {
+    const beforeLenses = lensDirs();
+    writeFileSync(path.join(c.root, "corpus", "items", c.itemIds[1], "meta.json"), "{ not json");
+    await assert.rejects(
+      () => runCli(c.root, {}, ["--repo-source", src.dir], { noRepoContext: false }),
+      /unreadable meta\.json/,
+    );
+    // The first item DID materialise a worktree before the second item threw, so
+    // there is something real to have leaked.
+    assert.equal(listed().includes("eval-worktrees-"), false, "a worktree survived the throw, registered in the source repository");
+    assert.deepEqual([...lensDirs()].filter((d) => !beforeLenses.has(d)), [], "the materialised lenses dir survived the throw");
+  } finally {
+    c.cleanup();
+    src.cleanup();
   }
 });
 

@@ -3414,13 +3414,14 @@ test("the fresh pass alone — no carry-forward — is also matchable", async ()
   assert.equal(res.tally.matched, 1);
 });
 
-test("stamping preserves object IDENTITY, which mergedAfter removes by", async () => {
+test("stamping preserves object IDENTITY, which substituteAdjudicated pairs by", async () => {
   // This is why the stamp goes on `merged` and not on the gating subset. The
-  // caller drops overturned findings with `merged.filter((f) => !overturnedOut.has(f))`
-  // and `gatingFindings` filters without copying, so a copy made at the gating step
-  // would make every overturned finding un-removable — overturned for the check
-  // run and still rendered as blocking for the human.
-  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  // caller substitutes adjudicated copies into `merged` by identity
+  // (`substituteAdjudicated`) and `gatingFindings` filters without copying, so a
+  // copy made at the gating step would make every overturned finding
+  // un-removable — overturned for the check run and still rendered as blocking
+  // for the human.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
   const merged = stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID);
   const gating = gatingFindings(merged);
   assert.equal(gating[0], merged[0], "gatingFindings must hand back the same objects `merged` holds");
@@ -3430,8 +3431,7 @@ test("stamping preserves object IDENTITY, which mergedAfter removes by", async (
     adjudicate: async () => ({ verdict: "overturned", confidence: "high", reason: "r", overturnGround: "already-guarded", groundedIn: ["src/a.ts:12"] }),
   });
   assert.equal(res.tally.overturned, 1);
-  const overturnedOut = new Set(res.dropped);
-  assert.equal(merged.filter((f) => !overturnedOut.has(f)).length, 0, "the overturned finding must leave the summary too");
+  assert.equal(substituteAdjudicated(merged, gating, gating, res).length, 0, "the overturned finding must leave the summary too");
 });
 
 test("a model-supplied `lens` is OVERWRITTEN, not preserved", async () => {
@@ -3550,6 +3550,130 @@ test("applySkipClaims: an unmatched finding is returned untouched, and no claims
   assert.equal(applySkipClaims([finding], other)[0].adjudication, undefined);
   assert.equal(applySkipClaims([finding], [])[0], finding); // same object — no copy, no annotation
   assert.deepEqual(applySkipClaims(undefined, other), []);
+});
+
+// --- substituteAdjudicated: the count must survive into verdict.json ---------
+
+// An upheld finding is RE-CREATED with its `adjudication`, and the copy used to
+// live only in `gating` while writeVerdict persisted `merged`'s pre-adjudication
+// originals. verdict.json feeds the check run's output.text, output.text feeds
+// the next round's carry-forward and the round guard's `exhaustedFindings` — so
+// the counter died in the same round that computed it, `upheldCount` restarted
+// at 0 every time, and the standstill page (MAX_REBUTTAL_ROUNDS upheld disputes)
+// was structurally unreachable. These tests assemble the round loop's real
+// wiring, because adjudicateRebuttals and writeVerdict each passed their own
+// tests while the bound stayed inert end to end.
+
+const upholding = async () => ({ verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] });
+
+test("an upheld adjudication reaches the array writeVerdict persists", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  // A demoted finding rides along to prove the non-gating lane, which never
+  // reaches adjudication, passes through untouched and in place.
+  const demoted = { severity: "major", file: "src/c.ts", summary: "a stale cache header on a pre-existing endpoint", lane: "backlog" };
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding(), demoted])), LENS_ID);
+  const gatingRaw = gatingFindings(merged);
+  const afterSkips = applySkipClaims(gatingRaw, []);
+  const adjudged = await adjudicateRebuttals(afterSkips, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: upholding,
+  });
+  const mergedAfter = substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
+
+  assert.equal(mergedAfter.length, 2, "nothing dropped, nothing invented");
+  const upheld = mergedAfter.find((f) => f.summary === DEFECT);
+  // THE regression: `mergedAfter` is what writeVerdict serialises into
+  // verdict.json. The old inline filter passed the original through, so this
+  // field was always absent there no matter how many times a dispute was upheld.
+  assert.equal(upheld.adjudication.upheld, 1);
+  assert.equal(upheld, adjudged.findings.find((f) => f.summary === DEFECT), "the persisted object IS the adjudicated copy");
+  assert.equal(mergedAfter.find((f) => f.lane === "backlog"), merged.find((f) => f.lane === "backlog"), "the demoted lane passes through by identity");
+  assert.deepEqual(mergedAfter.map((f) => f.summary), merged.map((f) => f.summary), "order is merged's own");
+});
+
+test("a skip-claimed copy persists, and overturning it still clears the summary", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  const claims = [{ lens: LENS_ID, file: "src/a.ts", summary: DEFECT, note: "needs a migration", status: "skipped" }];
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID);
+  const gatingRaw = gatingFindings(merged);
+  const afterSkips = applySkipClaims(gatingRaw, claims);
+  assert.notEqual(afterSkips[0], gatingRaw[0], "the skip uphold re-created the finding");
+
+  // No rebuttal: the skip copy itself is what must persist. This is the pairing
+  // substituteAdjudicated derives positionally from applySkipClaims' map.
+  const inert = await adjudicateRebuttals(afterSkips, { rebuttals: [], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID });
+  const kept = substituteAdjudicated(merged, gatingRaw, afterSkips, inert);
+  assert.equal(kept[0].adjudication.upheld, 1);
+  assert.equal(kept[0].adjudication.verdict, "skipped-by-author");
+
+  // A rebuttal that wins on the same finding: `dropped` then holds the skip
+  // COPY, not the `merged` original — an identity filter over `merged` could
+  // never remove it (the latent half of the same bug), so the finding would be
+  // overturned for the check run and still rendered as blocking for the human.
+  const overturned = await adjudicateRebuttals(afterSkips, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "overturned", confidence: "high", reason: "r", overturnGround: "already-guarded", groundedIn: ["src/a.ts:12"] }),
+  });
+  assert.equal(overturned.dropped[0], afterSkips[0], "dropped holds the copy, not the original");
+  assert.equal(substituteAdjudicated(merged, gatingRaw, afterSkips, overturned).length, 0, "mapped back to the original and removed");
+});
+
+test("two rounds: the upheld count crosses the round boundary and reaches the paging bound", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  const { upheldTwice, exhaustedFindings } = await import("./rebuttal.mjs");
+
+  // One round of the real wiring: merge, gate, adjudicate a dispute, substitute.
+  const round = async (raised) => {
+    const merged = stampLens(clusterFindings(dedupeFindings(raised)), LENS_ID);
+    const gatingRaw = gatingFindings(merged);
+    const afterSkips = applySkipClaims(gatingRaw, []);
+    const adjudged = await adjudicateRebuttals(afterSkips, {
+      rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+      adjudicate: upholding,
+    });
+    return substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
+  };
+
+  // Round 1: fresh finding, disputed, upheld once.
+  const [persisted1] = await round([freshFinding()]);
+  assert.equal(persisted1.adjudication.upheld, 1);
+  assert.equal(upheldTwice(persisted1), false);
+
+  // Between rounds the workflow carries `{…, adjudication: {upheld}}` through
+  // output.text — integer only, exactly as the workflow trims it — and
+  // tagPriorFindings stamps the lens back on.
+  const carried = { ...freshFinding(), lens: LENS_ID, adjudication: { upheld: persisted1.adjudication.upheld } };
+
+  // Round 2, restated: the fresh pass re-finds the defect in DIFFERENT (here
+  // longer, so it wins the representative slot) words, and clusterFindings folds
+  // the carried twin into the fresh representative. The count must survive the
+  // fold — it rides in `mergedFrom`, where upheldCount reads the cluster max.
+  // This is the common case: a rebutted finding means the code did not change,
+  // so the next fresh pass almost always re-finds it.
+  const restated = { ...freshFinding(), summary: `${DEFECT} in the request handler` };
+  const [persisted2a] = await round([restated, carried]);
+  assert.equal(persisted2a.adjudication.upheld, 2, "round 2 counted ON TOP of round 1, not from zero");
+  assert.equal(upheldTwice(persisted2a), true);
+  assert.equal(exhaustedFindings([persisted2a]).length, 1, "the round guard now pages on it");
+
+  // Round 2, byte-identical: the twins collide in dedupeFindings instead, where
+  // the fresh copy wins the slot. The count must survive the collision too.
+  const [persisted2b] = await round([freshFinding(), carried]);
+  assert.equal(persisted2b.adjudication.upheld, 2);
+  assert.equal(upheldTwice(persisted2b), true);
+});
+
+test("the round loop persists the ADJUDICATED copies, not the originals", async () => {
+  // Same rationale as the stampLens wiring test above: substituteAdjudicated is
+  // proven correct by the tests around it, but the call lives in main()'s
+  // per-lens loop, which no unit test drives — deleting the call would leave
+  // every one of them green while verdict.json silently lost the counter again.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-panel.mjs", import.meta.url), "utf8");
+  const assignments = src.split("\n").filter((l) => /^\s*const mergedAfter =/.test(l));
+  assert.equal(assignments.length, 1, "exactly one `mergedAfter` assignment in the round loop");
+  assert.match(assignments[0], /substituteAdjudicated\(merged, gatingRaw, afterSkips, adjudged\)/);
+  assert.match(src, /writeVerdict\(lensOut, lens, mergedAfter, summary/, "and mergedAfter is what writeVerdict persists");
 });
 
 test("applySkipClaims: the verdict string comes from the code, not the claim", async () => {

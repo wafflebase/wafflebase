@@ -19,8 +19,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./active/20260807-board-miro-parent-relative-position-todo.md) | - |
+| eval finding record (2026-08-07) | [20260807-eval-finding-record-todo.md](./active/20260807-eval-finding-record-todo.md) | - |
 | file upload followups (2026-08-07) | [20260807-file-upload-followups-todo.md](./active/20260807-file-upload-followups-todo.md) | [20260807-file-upload-followups-lessons.md](./active/20260807-file-upload-followups-lessons.md) |
 | release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./active/20260807-release-v0.6.3-todo.md) | - |
+| storage key prefix (2026-08-07) | [20260807-storage-key-prefix-todo.md](./active/20260807-storage-key-prefix-todo.md) | - |
+| ci timeouts (2026-08-06) | [20260806-ci-timeouts-todo.md](./active/20260806-ci-timeouts-todo.md) | - |
 | corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./active/20260806-corpus-localization-scope-todo.md) | - |
 | notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |
 | panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./active/20260803-panel-stage-detail-capture-todo.md) | - |

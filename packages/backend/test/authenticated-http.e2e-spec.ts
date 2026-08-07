@@ -266,4 +266,48 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
     expect(queryResponse.body.rowCount).toBe(1);
     expect(queryResponse.body.truncated).toBe(false);
   });
+
+  it('tests connection settings without persisting a datasource', async () => {
+    const member = await createUser();
+    const outsider = await createUser();
+    const workspace = await createWorkspace(prisma, member.id);
+    const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
+
+    const payload = {
+      host: pgConfig.host,
+      port: pgConfig.port,
+      database: pgConfig.database,
+      username: pgConfig.username,
+      password: pgConfig.password,
+      sslEnabled: false,
+    };
+
+    await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/datasources/test`)
+      .set('Cookie', authCookie(outsider))
+      .send(payload)
+      .expect(403);
+
+    const okResponse = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/datasources/test`)
+      .set('Cookie', authCookie(member))
+      .send(payload)
+      .expect(201);
+    expect(okResponse.body).toEqual({ success: true });
+
+    // A failure reports its cause rather than an empty string, which is what
+    // the dialog used to show when connect() rejected with an AggregateError.
+    const failResponse = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/datasources/test`)
+      .set('Cookie', authCookie(member))
+      .send({ ...payload, database: 'no-such-database-wafflebase' })
+      .expect(201);
+    expect(failResponse.body.success).toBe(false);
+    expect(failResponse.body.error).toBeTruthy();
+
+    // The whole point: testing writes nothing.
+    expect(
+      await prisma.dataSource.count({ where: { workspaceId: workspace.id } }),
+    ).toBe(0);
+  });
 });

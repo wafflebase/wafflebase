@@ -526,3 +526,105 @@ test("fixAttemptCommits: the STALL door sees fix rounds only, like the cap", () 
   assert.deepEqual(fixAttemptCommits(PR648, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), []);
   for (const bad of [null, undefined, "x", 7]) assert.deepEqual(fixAttemptCommits(bad, ROUND_NAMES), []);
 });
+
+// --- the rerun floor must use permission, not author_association ------------
+
+test("isRerunCommand: a maintainer reported as CONTRIBUTOR still sets the floor", () => {
+  // #648, exactly. Four `@claude rerun` commands from a Maintain-level maintainer
+  // were all reported CONTRIBUTOR — association describes the relationship to the
+  // PR thread, not permission — so the floor was never set and the guard counted
+  // the PR's whole history, paging "tried 3 time(s) (limit 3)" against a rerun
+  // that had reset nothing.
+  const c = {
+    user: { login: "harrykim8672", type: "User" },
+    author_association: "CONTRIBUTOR",
+    body: "@claude rerun",
+    created_at: "2026-08-06T04:30:47Z",
+  };
+  assert.equal(isRerunCommand(c), false, "association alone still refuses — that is the bug");
+  assert.equal(isRerunCommand(c, { trusts: () => true }), true, "the authoritative check accepts");
+  assert.equal(rerunPointFrom([c], { trusts: () => true }), "2026-08-06T04:30:47.000Z");
+});
+
+test("isRerunCommand: the resolver OVERRIDES a trusted-looking association", () => {
+  // The gap this closes: `MEMBER` is membership of the owning ORG and
+  // `COLLABORATOR` is satisfied by a read-only invite, so neither proves repo
+  // write. Accepting them would move the floor for a commenter
+  // `agent-rerun.yml` then refuses to run — budget granted for a rerun that
+  // never happened, which is the same two-authorities-disagreeing bug this
+  // function exists to remove, pointed the other way.
+  const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  const asked = [];
+  const denies = (login) => { asked.push(login); return false; };
+
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(
+      isRerunCommand({ ...base, author_association: a }, { trusts: denies }),
+      false,
+      `${a} must not bypass the authoritative check`,
+    );
+  }
+  assert.deepEqual(asked, ["m", "m", "m"], "every non-Bot rerun commenter is resolved");
+
+  // And it is a real check, not a blanket deny: the same associations pass when
+  // the resolver says the login actually has write access.
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR", "NONE", "CONTRIBUTOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }, { trusts: () => true }), true);
+  }
+});
+
+test("isRerunCommand: without a resolver it stays pure and association-only", () => {
+  // The resolver-less form is the legacy behaviour, kept so the function is
+  // testable without a network. `loop-status.mjs` is its only caller and is a
+  // projection, never a gate — no gating caller reaches this path.
+  const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }), true);
+  }
+  assert.equal(isRerunCommand({ ...base, author_association: "NONE" }), false);
+});
+
+test("FAIL DIRECTION: an unresolvable login does NOT reset the budget", () => {
+  // Resetting on a failed lookup would hand more attempts to the very party the
+  // budget bounds. Leaving it paged sends the PR to a human, which is where one
+  // the loop cannot finish belongs.
+  const c = { user: { login: "who", type: "User" }, author_association: "NONE", body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  assert.equal(isRerunCommand(c, { trusts: () => null }), false);
+  assert.equal(isRerunCommand(c, { trusts: () => undefined }), false);
+  assert.equal(isRerunCommand(c, { trusts: () => "yes" }), false, "only a strict true counts");
+  assert.equal(rerunPointFrom([c], { trusts: () => null }), null);
+  // And with no resolver at all the function is exactly what it was before.
+  assert.equal(isRerunCommand(c), false);
+});
+
+test("a BOT is refused before any permission lookup", () => {
+  // The structural exclusion is what stops the bounded party resetting its own
+  // bound; a resolver must never be able to override it.
+  let asked = 0;
+  const c = {
+    user: { login: "yorkie-agent[bot]", type: "Bot" },
+    author_association: "OWNER",
+    body: "@claude rerun",
+    created_at: "2026-08-06T00:00:00Z",
+  };
+  assert.equal(isRerunCommand(c, { trusts: () => { asked++; return true; } }), false);
+  assert.equal(asked, 0);
+});
+
+test("rerunPointFrom: the NEWEST qualifying rerun wins", () => {
+  const mk = (t) => ({ user: { login: "m", type: "User" }, author_association: "CONTRIBUTOR", body: "@claude rerun", created_at: t });
+  const got = rerunPointFrom([mk("2026-08-04T06:01:06Z"), mk("2026-08-06T04:30:47Z"), mk("2026-08-05T01:30:10Z")], { trusts: () => true });
+  assert.equal(got, "2026-08-06T04:30:47.000Z");
+});
+
+test("the guard actually passes a permission resolver to rerunPointFrom", async () => {
+  // The tests above prove the predicate; they cannot prove review-round-guard.mjs
+  // supplies `trusts`, because that call is top-level CLI code needing `gh`.
+  // Without it the module falls back to association-only — i.e. straight back to
+  // the #648 behaviour, with every one of these tests still green.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  assert.match(src, /rerunPointFrom\(comments,\s*\{\s*trusts:\s*permissionResolver\(/);
+  assert.match(src, /permissionResolver\(\{\s*api:\s*ghJson\s*\}\)/, "the resolver needs PARSED json, not this module's string-returning gh()");
+  assert.match(src, /import \{ permissionResolver \} from "\.\/gh-checks\.mjs"/);
+});
