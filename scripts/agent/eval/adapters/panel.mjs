@@ -20,17 +20,20 @@
 // `gatingOf` in `finding-record.mjs` reads `severity.mjs`'s own `BLOCKING` and
 // `normalizeSeverity`, so "what blocks a PR" has one definition.
 //
-// WHAT IS INERT TODAY, STATED PLAINLY. Every replay so far runs with the novelty
-// gate OFF (`gate.state: "off-no-base-sha"`), because the runner materialises
-// the review tree with `git archive` and an archive has no `.git` to blame.
-// With no base, `noveltyOf` answers `origin: "unknown"` for everything and
-// `routeFinding` returns `blocking` — so blocking findings DO carry a lane, and
-// it is always `blocking`. `lane: "backlog"` cannot occur until the fidelity PR
-// gives the panel a real worktree and a `--base-sha`. The lane-aware code below
-// is therefore correct, tested, and changes no number on today's data. What it
-// changes is that the number will be right when it can be wrong — and
-// `panel.gate_state` rides on every record so nobody pools a gate-off run with a
-// gate-on one, which is the whole reason the envelope records it.
+// WHAT WAS INERT WHEN THIS WAS WRITTEN, AND IS NOT NOW. #713 landed this module
+// describing the lane-aware path as inert, because every replay to that point
+// ran with the novelty gate OFF (`gate.state: "off-no-base-sha"`): the runner
+// materialised the review tree with `git archive`, an archive has no `.git` to
+// blame, `noveltyOf` answered `origin: "unknown"` for everything and
+// `routeFinding` returned `blocking`. So blocking findings DID carry a lane, and
+// it was always `blocking`. The fidelity PR gives the runner a real worktree and
+// a `--base-sha`, so `lane: "backlog"` now occurs and `lane-backlog` →
+// `does-not-gate` is a live answer rather than a reachable-later one.
+//
+// Envelopes stored BEFORE that change still read gate-off, and this module must
+// keep reading them correctly rather than assuming the new fidelity — which is
+// exactly why `panel.gate_state` rides on every record: nobody pools a gate-off
+// run with a gate-on one, and the two now genuinely coexist in the store.
 //
 // NOTHING IS WRITTEN. Records are derived data: recomputable from an immutable
 // envelope, deterministically and for free, so persisting them buys nothing and
