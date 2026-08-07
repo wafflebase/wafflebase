@@ -1,5 +1,5 @@
-import { generateId, type ElementInit, type Endpoint } from '@wafflebase/slides';
-import { miroFrame } from './geometry';
+import { generateId, type ElementInit, type Endpoint, type Frame } from '@wafflebase/slides';
+import { resolveMiroFrames } from './geometry';
 import { pickConnectorSite } from './connector-sites';
 import { miroShapeKind } from './shape-kind';
 import { stickyHex } from './colors';
@@ -57,9 +57,15 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
   const approximated: Record<string, number> = {};
   const approx = (kind: string) => { approximated[kind] = (approximated[kind] ?? 0) + 1; };
 
+  // --- pass 0: board-absolute geometry ---
+  // Resolved over the WHOLE payload, not just the mappable items: a frame is
+  // the parent that positions its contents, and it has to be reachable here
+  // even in the shapes where it would not itself be emitted.
+  const { frames: absolute, orphans } = resolveMiroFrames(input.items);
+
   // --- pass 1: id map + frames ---
   const idMap = new Map<string, string>();
-  const frames = new Map<string, ReturnType<typeof miroFrame>>();
+  const frames = new Map<string, Frame>();
   const mappable: MiroItemLike[] = [];
 
   for (const item of input.items) {
@@ -79,7 +85,11 @@ export function mapMiroItems(input: MiroImportInput): MiroMapResult {
     }
     const elementId = generateId();
     idMap.set(item.id, elementId);
-    frames.set(item.id, miroFrame(item.position, item.geometry));
+    frames.set(item.id, absolute.get(item.id)!);
+    // Counted here, not in `resolveMiroFrames`: `approximated` reports what
+    // reached the document in a degraded form, and an item that was skipped
+    // above never reaches it at all.
+    if (orphans.has(item.id)) approx('parent-position');
     mappable.push(item);
   }
 

@@ -99,6 +99,15 @@ describe("summarizeImport", () => {
 });
 
 describe("describeApproximation", () => {
+  it("names the missing frame as the reason an item may be misplaced", () => {
+    // The item IS in the document, at the wrong spot — the wording has to say
+    // "misplaced", not "skipped", or the user goes looking for lost content.
+    const text = describeApproximation("parent-position", 4);
+    expect(text).toContain("4");
+    expect(text).toContain("frame");
+    expect(text).not.toContain("skipped");
+  });
+
   it("falls back to a generic wording for an unknown degradation kind", () => {
     expect(describeApproximation("some-future-kind", 3)).toContain(
       "some-future-kind",
