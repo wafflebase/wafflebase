@@ -119,7 +119,10 @@ describe('DataSourceService', () => {
     });
 
     const createClient = jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     const result = await service.executeQuery('ds-1', {
@@ -130,11 +133,17 @@ describe('DataSourceService', () => {
       expect.objectContaining({ plaintextPassword: 'plain-secret' }),
     );
     expect(client.connect).toHaveBeenCalledTimes(1);
-    expect(client.query).toHaveBeenNthCalledWith(1, "SET statement_timeout = '30000'");
+    expect(client.query).toHaveBeenNthCalledWith(
+      1,
+      "SET statement_timeout = '30000'",
+    );
     expect(client.query).toHaveBeenNthCalledWith(2, "SET TimeZone = 'UTC'");
     expect(client.query).toHaveBeenNthCalledWith(3, "SET DateStyle = 'ISO'");
     expect(client.query).toHaveBeenNthCalledWith(4, "SET lc_monetary = 'C'");
-    expect(client.query).toHaveBeenNthCalledWith(5, 'SELECT * FROM (SELECT id FROM users) AS _q LIMIT 10001');
+    expect(client.query).toHaveBeenNthCalledWith(
+      5,
+      'SELECT * FROM (SELECT id FROM users) AS _q LIMIT 10001',
+    );
     expect(client.end).toHaveBeenCalledTimes(1);
 
     expect(result.columns).toEqual([{ name: 'id', dataTypeID: 23 }]);
@@ -158,7 +167,10 @@ describe('DataSourceService', () => {
     client.query.mockResolvedValue({ rows: [], fields: [] });
 
     const createClient = jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     await service.testConnection('ds-1');
@@ -172,8 +184,11 @@ describe('DataSourceService', () => {
     const client = createMockPgClient();
     client.query.mockResolvedValue({ rows: [], fields: [] });
 
-    jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+    const createClient = jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     const result = await service.testConfig({
@@ -186,6 +201,14 @@ describe('DataSourceService', () => {
     expect(result).toEqual({ success: true });
     expect(client.query).toHaveBeenCalledWith('SELECT 1');
     expect(client.end).toHaveBeenCalledTimes(1);
+
+    // `port` and `sslEnabled` were omitted above, so this pins the defaults
+    // `testConfig` fills in. An unsaved test connection has no row to read
+    // them from, which is exactly why it must supply them itself — silently
+    // dropping either would probe a different server than the dialog says.
+    expect(createClient).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 5432, sslEnabled: false }),
+    );
 
     expect(prisma.dataSource.create).not.toHaveBeenCalled();
     expect(prisma.dataSource.findUnique).not.toHaveBeenCalled();
@@ -201,7 +224,10 @@ describe('DataSourceService', () => {
     );
 
     jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     const result = await service.testConfig({
@@ -228,7 +254,10 @@ describe('DataSourceService', () => {
     );
 
     jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     const result = await service.testConfig({
@@ -266,7 +295,10 @@ describe('DataSourceService', () => {
     });
 
     jest
-      .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
       .mockReturnValue(client);
 
     await expect(

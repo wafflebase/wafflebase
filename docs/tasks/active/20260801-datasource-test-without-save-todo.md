@@ -70,10 +70,20 @@ causes live in `.errors`. `probe` must flatten that into a readable message.
 ### Task 3: Frontend — API client
 
 **Files:**
-- Edit: `packages/frontend/src/api/datasources.ts`
+- ~~Edit: `packages/frontend/src/api/datasources.ts`~~ — **superseded**, see below.
 
-- [x] **Step 1:** Add `testDataSourceConfig(workspaceId, payload)` posting to the
-      new endpoint. Keep `testDataSourceConnection(id)` for the edit dialog.
+- [x] **Step 1:** ~~Add `testDataSourceConfig(workspaceId, payload)` posting to the
+      new endpoint.~~ Keep `testDataSourceConnection(id)` for the edit dialog.
+
+**Superseded during implementation.** It shipped as
+`testWorkspaceDataSourceConfig(workspaceId, payload)` in
+`packages/frontend/src/api/workspaces.ts`, not in `datasources.ts`. The split
+is by SCOPE, not by subject: `workspaces.ts` already owned the
+workspace-scoped datasource calls (`fetchWorkspaceDataSources`,
+`createWorkspaceDataSource`) while `datasources.ts` owns the id-scoped ones
+(`fetchDataSource`, `testDataSourceConnection`). The new endpoint is
+`POST workspaces/:workspaceId/datasources/test`, so it belongs with its
+neighbours. `docs/design/sheets/datasource.md` is the current contract.
 
 ### Task 4: Frontend — dialog drops `savedId`
 

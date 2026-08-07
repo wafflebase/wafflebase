@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataSourceDialog } from "@/components/datasource-dialog";
+import { toast } from "sonner";
 
 const createWorkspaceDataSource = vi.fn();
 const testWorkspaceDataSourceConfig = vi.fn();
@@ -39,6 +40,8 @@ describe("DataSourceDialog", () => {
   beforeEach(() => {
     createWorkspaceDataSource.mockReset();
     testWorkspaceDataSourceConfig.mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
     testWorkspaceDataSourceConfig.mockResolvedValue({ success: true });
     createWorkspaceDataSource.mockResolvedValue({ id: "ds-1" });
   });
@@ -60,6 +63,30 @@ describe("DataSourceDialog", () => {
       password: "",
       sslEnabled: false,
     });
+    expect(createWorkspaceDataSource).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the server's reason when the test connection fails", async () => {
+    // A failed probe is a 200 with `success: false`, not a throw — so the
+    // reason only reaches the user if the dialog reads `result.error`. Without
+    // this the whole point of testing before saving is lost: the user learns
+    // it failed but not that the host is refusing connections.
+    testWorkspaceDataSourceConfig.mockResolvedValue({
+      success: false,
+      error: "connect ECONNREFUSED",
+    });
+
+    renderDialog();
+    const user = await fillRequiredFields();
+
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Connection failed: connect ECONNREFUSED",
+      ),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
     expect(createWorkspaceDataSource).not.toHaveBeenCalled();
   });
 
