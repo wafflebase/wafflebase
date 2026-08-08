@@ -20,6 +20,39 @@
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
+/**
+ * How many times the surrounding source renders. `static` is once and is the
+ * only scope where a structural edit is well-defined; the other two are reached
+ * by crossing an inline function boundary and never recover.
+ *
+ * @typedef {'static'|'iteration'|'callback'} Scope
+ */
+
+/**
+ * A member of a parent's numbered child list, with the scope it sits in and the
+ * `owner` a splice offset must be taken from.
+ *
+ * @typedef {{node: ts.Node, owner: ts.Node, scope: Scope}} JsxChild
+ */
+
+/**
+ * The synthetic container `returnsRoot` builds around the JSX expressions a
+ * function returns. NOT a `ts.Node` — every reader has to test `isReturnsRoot`
+ * before touching AST-only members, which is why it carries a discriminant.
+ *
+ * @typedef {{__wbReturns: true, jsx: ts.Node[]}} ReturnsRoot
+ */
+
+/**
+ * Anything the walker can stand on: a real AST node, or the synthetic root.
+ *
+ * @typedef {ts.Node | ReturnsRoot} JsxRootNode
+ */
+
+/**
+ * @param {string} fileText
+ * @param {string} [fileName]
+ */
 export function parse(fileText, fileName = 'source.tsx') {
   return ts.createSourceFile(fileName, fileText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 }
@@ -37,6 +70,10 @@ export const IDENTITY_ATTRS = [
 /** Iteration methods whose callback body is an `iteration` scope. */
 const ITERATION_METHODS = new Set(['map', 'flatMap', 'filter', 'forEach', 'reduce']);
 
+/**
+ * @param {ts.Node} n
+ * @returns {n is ts.JsxElement | ts.JsxSelfClosingElement}
+ */
 const isElement = (n) => ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n);
 
 /**
@@ -57,10 +94,24 @@ const isElement = (n) => ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n);
  * The container itself (`path: []`) is not editable — there are no attributes on
  * a return list, and you cannot splice a JSX child into one.
  */
+/**
+ * @param {ts.Node[]} jsx
+ * @returns {ReturnsRoot}
+ */
 const returnsRoot = (jsx) => ({ __wbReturns: true, jsx });
-export const isReturnsRoot = (n) => !!n && n.__wbReturns === true;
 
-/** Tag name as written: `div`, `Link`, `Card.Header`. A fragment is `<>`. */
+/**
+ * @param {unknown} n
+ * @returns {n is ReturnsRoot}
+ */
+export const isReturnsRoot = (n) =>
+  !!n && /** @type {ReturnsRoot} */ (n).__wbReturns === true;
+
+/**
+ * Tag name as written: `div`, `Link`, `Card.Header`. A fragment is `<>`.
+ *
+ * @param {JsxRootNode} node
+ */
 export function tagOf(node) {
   if (isReturnsRoot(node)) return '#returns';
   if (ts.isJsxElement(node)) return node.openingElement.tagName.getText();
@@ -68,7 +119,12 @@ export function tagOf(node) {
   return '<>';
 }
 
-/** The JSX attribute list, or an empty array for a fragment / returns root. */
+/**
+ * The JSX attribute list, or an empty array for a fragment / returns root.
+ *
+ * @param {JsxRootNode} node
+ * @returns {readonly ts.JsxAttributeLike[]}
+ */
 function attrPropsOf(node) {
   if (isReturnsRoot(node)) return [];
   if (ts.isJsxElement(node)) return node.openingElement.attributes.properties;
@@ -80,9 +136,11 @@ function attrPropsOf(node) {
  * Attribute names (spreads as `...`), the values of `IDENTITY_ATTRS`, and the
  * `className` string literal when there is one.
  *
+ * @param {JsxRootNode} node
  * @returns {{names: string[], identity: Record<string, string>, className: string | null}}
  */
 export function attrsOf(node) {
+  /** @type {string[]} */
   const names = [];
   /** @type {Record<string, string>} */
   const identity = {};
@@ -119,6 +177,9 @@ export function attrsOf(node) {
  * `className={cn("a b", other)}` we take the FIRST string literal inside the
  * expression — that is the authored class blob in every shadcn/`cn()` call in
  * this codebase, and editing anything else would be a guess.
+ *
+ * @param {JsxRootNode} node
+ * @returns {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null}
  */
 export function classLiteralOf(node) {
   for (const p of attrPropsOf(node)) {
@@ -127,7 +188,9 @@ export function classLiteralOf(node) {
     if (!init) return null;
     if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) return init;
     if (!ts.isJsxExpression(init) || !init.expression) return null;
+    /** @type {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null} */
     let found = null;
+    /** @param {ts.Node} n */
     const visit = (n) => {
       if (found) return;
       if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
@@ -142,7 +205,11 @@ export function classLiteralOf(node) {
   return null;
 }
 
-/** Concatenated direct `JsxText` children, whitespace-collapsed. */
+/**
+ * Concatenated direct `JsxText` children, whitespace-collapsed.
+ *
+ * @param {JsxRootNode} node
+ */
 export function directTextOf(node) {
   if (isReturnsRoot(node)) return '';
   if (!ts.isJsxElement(node) && !ts.isJsxFragment(node)) return '';
@@ -180,10 +247,12 @@ export function directTextOf(node) {
  * deleting the element out of `{cond && <div/>}` would leave a bare `{}`, and
  * deleting the whole expression would silently drop the condition.
  *
- * @returns {{node: ts.Node, owner: ts.Node, scope: 'static'|'iteration'|'callback'}[]}
+ * @param {JsxRootNode} node
+ * @param {Scope} [parentScope]
+ * @returns {JsxChild[]}
  */
 export function childrenOf(node, parentScope = 'static') {
-  /** @type {{node: ts.Node, owner: ts.Node, scope: 'static'|'iteration'|'callback'}[]} */
+  /** @type {JsxChild[]} */
   const out = [];
   if (isReturnsRoot(node)) {
     // Each returned expression contributes its JSX: a returned fragment is
@@ -197,6 +266,12 @@ export function childrenOf(node, parentScope = 'static') {
   return out;
 }
 
+/**
+ * @param {ts.Node} c
+ * @param {Scope} scope
+ * @param {JsxChild[]} out
+ * @param {ts.Node} owner
+ */
 function pushChild(c, scope, out, owner) {
   if (isElement(c)) {
     out.push({ node: c, owner, scope });
@@ -226,6 +301,11 @@ function pushChild(c, scope, out, owner) {
  * contributes no numbered node here. That is not a gap: for
  * `items.map(renderRow)` the JSX lives in `renderRow`, which `findJsxRoots`
  * exposes as its OWN walkable root where it is `static` and fully editable.
+ *
+ * @param {ts.Node} expr
+ * @param {Scope} scope
+ * @param {JsxChild[]} out
+ * @param {ts.Node} [owner]
  */
 function pushExpr(expr, scope, out, owner) {
   if (isElement(expr)) {
@@ -264,10 +344,17 @@ function pushExpr(expr, scope, out, owner) {
   }
 }
 
+/**
+ * @param {ts.ArrowFunction | ts.FunctionExpression} fn
+ * @param {Scope} scope
+ * @param {JsxChild[]} out
+ * @param {ts.Node} [owner]
+ */
 function pushFnBody(fn, scope, out, owner) {
   if (!ts.isBlock(fn.body)) return pushExpr(fn.body, scope, out, owner);
   // Block body: collect `return <jsx>` at any depth WITHIN this function, but do
   // not descend into nested functions (their JSX belongs to their own scope).
+  /** @param {ts.Node} n */
   const visit = (n) => {
     if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n)) return;
     if (ts.isReturnStatement(n) && n.expression) pushExpr(n.expression, scope, out, owner);
@@ -292,6 +379,7 @@ function pushFnBody(fn, scope, out, owner) {
  * JSX. That is the same wrong-node-silently failure `resolveNode` already treats
  * ambiguity as absence to avoid, so the name is reported rather than resolved.
  *
+ * @param {ts.SourceFile} sf
  * @returns {{roots: Record<string, JsxRootNode>, ambiguous: Set<string>,
  *            defaultExport: string | null}}
  */
@@ -300,6 +388,7 @@ export function findJsxRoots(sf) {
   const roots = {};
   /** @type {Set<string>} */
   const ambiguous = new Set();
+  /** @type {string | null} */
   let defaultExport = null;
 
   /**
@@ -307,21 +396,27 @@ export function findJsxRoots(sf) {
    * synthetic returns root. Returns nested inside callbacks (`useEffect`
    * cleanups, `.map` bodies) are skipped — they belong to their own scope, not
    * to this function's render output.
+   *
+   * @param {ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression} fn
+   * @returns {ReturnsRoot | null}
    */
   const rootJsxOf = (fn) => {
     if (!fn.body) return null;
     /** @type {ts.Node[]} */
     const returned = [];
+    /** @param {ts.Node} expr */
     const take = (expr) => {
       const e = ts.isParenthesizedExpression(expr) ? expr.expression : expr;
       // Only expressions that actually contain JSX become returns; a
       // `return null` guard contributes nothing.
+      /** @type {JsxChild[]} */
       const probe = [];
       pushExpr(e, 'static', probe);
       if (probe.length) returned.push(e);
     };
     if (!ts.isBlock(fn.body)) take(fn.body);
     else {
+      /** @param {ts.Node} n */
       const visit = (n) => {
         if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n)) return;
         if (ts.isReturnStatement(n) && n.expression) {
@@ -335,14 +430,20 @@ export function findJsxRoots(sf) {
     return returned.length ? returnsRoot(returned) : null;
   };
 
+  /** @param {ts.FunctionDeclaration} node */
   const isExportDefault = (node) =>
     !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
 
+  /**
+   * @param {string} name
+   * @param {ReturnsRoot} root
+   */
   const addRoot = (name, root) => {
     if (name in roots) ambiguous.add(name);
     roots[name] = root;
   };
 
+  /** @param {ts.Node} node */
   const visit = (node) => {
     if (ts.isFunctionDeclaration(node) && node.name) {
       const root = rootJsxOf(node);
@@ -371,16 +472,12 @@ export function findJsxRoots(sf) {
 }
 
 /**
- * A walkable root: either a real AST node, or the synthetic wrapper
- * `returnsRoot` builds around the list of expressions a function returns.
- *
- * @typedef {ts.Node | {__wbReturns: true, jsx: ts.Node[]}} JsxRootNode
- */
-
-/**
  * @typedef {object} JsxEntry
- * @property {ts.Node} node
- * @property {ts.Node} owner        The direct member of the parent's child list
+ * @property {JsxRootNode} node     A `ts.Node` for every entry EXCEPT the root of
+ *                                  a walk, which is the synthetic `ReturnsRoot`.
+ *                                  `resolveNode` tests `isReturnsRoot(hit.node)`
+ *                                  precisely because this can be either.
+ * @property {JsxRootNode} owner    The direct member of the parent's child list
  *                                  through which `node` was reached. `owner !==
  *                                  node` marks the node structurally read-only —
  *                                  see `childrenOf`. Read by `resolveNode`.
@@ -403,12 +500,28 @@ export function findJsxRoots(sf) {
  * Pre-order walk of one root, yielding every numbered node with its path and
  * fingerprint. The root itself is `path: []`.
  *
+ * `_sf` is unused and kept anyway: every public entry point in this module takes
+ * the `SourceFile` first, and this one is a published API whose argument
+ * positions three consumers already call by. Dropping it would be a breaking
+ * change to buy nothing.
+ *
+ * @param {ts.SourceFile} _sf
+ * @param {JsxRootNode} root
+ * @param {Scope} [scope]
  * @returns {Generator<JsxEntry>}
  */
-export function* walkJsx(sf, root, scope = 'static') {
+export function* walkJsx(_sf, root, scope = 'static') {
   yield* walkNode(root, [], [], scope, root);
 }
 
+/**
+ * @param {JsxRootNode} node
+ * @param {number[]} path
+ * @param {string[]} ancestorTags
+ * @param {Scope} scope
+ * @param {JsxRootNode} owner
+ * @returns {Generator<JsxEntry>}
+ */
 function* walkNode(node, path, ancestorTags, scope, owner) {
   const tag = tagOf(node);
   const { names, identity, className } = attrsOf(node);
@@ -445,6 +558,13 @@ function* walkNode(node, path, ancestorTags, scope, owner) {
  * `ancestorTags` (tag names, not indices) does not disambiguate identical
  * siblings — they share ancestors — but it blocks the more dangerous
  * cross-subtree false match, where an edit lands elsewhere in the tree entirely.
+ *
+ * `identity` is REQUIRED while the rest are not, which matches the body rather
+ * than the symmetry: the other fields are read through `??`, `identity` is
+ * indexed directly and omitting it throws. Typed as it behaves.
+ *
+ * @param {{ancestorTags?: string[], tag: string, attrNames?: string[],
+ *          identity: Record<string, string>, text?: string}} parts
  */
 export function fpOf({ ancestorTags, tag, attrNames, identity, text }) {
   const idStr = IDENTITY_ATTRS.map((a) => `${a}=${identity[a] ?? ''}`).join(';');
@@ -475,6 +595,10 @@ export function fpOf({ ancestorTags, tag, attrNames, identity, text }) {
  * from "ambiguous, discard your edit" into a silent recovery.
  *
  * Class tokens are SORTED so a reorder does not invalidate it.
+ *
+ * @param {string} fp
+ * @param {string | null} className
+ * @param {string[]} [childTags]
  */
 export function fpxOf(fp, className, childTags) {
   const classes = (className ?? '').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -484,6 +608,10 @@ export function fpxOf(fp, className, childTags) {
     .slice(0, 8);
 }
 
+/**
+ * @param {number[]} a
+ * @param {number[]} b
+ */
 const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
@@ -533,6 +661,7 @@ export function resolveNode(sf, anchor, opts = {}) {
   if (at && at.tag === anchor.tag && at.fp === anchor.fp) {
     hit = at;
   } else {
+    /** @param {JsxEntry[]} list */
     const uniq = (list) => (list.length === 1 ? list[0] : null);
     hit =
       (anchor.fpx ? uniq(entries.filter((e) => e.fpx === anchor.fpx)) : null) ??
@@ -583,9 +712,19 @@ export function resolveNode(sf, anchor, opts = {}) {
   return { located: true, entry: hit, relocated };
 }
 
-/** The node at `path` within `root`, or null. */
-export function nodeAt(sf, root, path) {
+/**
+ * The node at `path` within `root`, or null.
+ *
+ * `_sf` is unused, for the same published-signature reason as `walkJsx`.
+ *
+ * @param {ts.SourceFile} _sf
+ * @param {JsxRootNode} root
+ * @param {number[]} path
+ * @returns {JsxRootNode | null}
+ */
+export function nodeAt(_sf, root, path) {
   let node = root;
+  /** @type {Scope} */
   let scope = 'static';
   for (const i of path) {
     const kids = childrenOf(node, scope);
