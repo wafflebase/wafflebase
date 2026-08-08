@@ -450,6 +450,24 @@ export function classifyCodeRabbitComment(body) {
 const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
 
 /**
+ * Leading blockquote markers, which are markup rather than words.
+ *
+ * CodeRabbit puts a tier section inside a GitHub alert block (`> [!CAUTION]`)
+ * whenever its findings fall outside the diff, and that prefixes EVERY line of the
+ * section with `> ` — sometimes `> > `. 96 of this repo's 558 CodeRabbit review
+ * bodies look like that, back to 2026-04.
+ *
+ * Stripped ONCE, at the two entry points (`codeRabbitReviewSections` and
+ * `codeRabbitDetail`), rather than tolerated with a `>` in each of the four
+ * line-anchored patterns below. That was the first attempt and it does not work:
+ * an EMPTY quoted line is `>` alone, which is not blank and matches no wrapper, so
+ * the header-below-the-locator search stops on it and reads no header. Normalising
+ * the text is one mechanism; four permissive character classes are four chances to
+ * miss one.
+ */
+const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>[ \t]*)+/gm;
+
+/**
  * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
  * prose under it, stopping at the first `<details>`, fence or HTML comment.
  *
@@ -475,7 +493,14 @@ const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
  * `around lines N - M` range — where more text is strictly better.
  */
 export function codeRabbitDetail(body) {
-  const text = str(body);
+  // Blockquote markers come off FIRST, before the prose boundary is searched for.
+  // A review-body finding inside a `> [!CAUTION]` alert has `> ` on every line, so
+  // `<details>` reads as `> <details>` and the boundary is never found — the detail
+  // then runs to the end of the finding and swallows the `🤖 Prompt for AI Agents`
+  // block, whose boilerplate is exactly what the docblock above says must never
+  // reach the comparison. Measured before this strip: 146 of 1626 review-body
+  // findings (9.0%) carried that boilerplate in `detail`, median length 1590.
+  const text = str(body).replace(CR_BLOCKQUOTE_PREFIX, "");
   const cut = text.search(CR_PROSE_END);
   const prose = cut === -1 ? text : text.slice(0, cut);
   // Drop the header LINE if the first non-blank line is one, in any vintage. This
@@ -566,7 +591,8 @@ const CR_SUMMARY = /<summary>([^<]*?)\s*\((\d+)\)<\/summary>/g;
  */
 const CR_LOCATOR = /^[ \t>]*(?:Line range hint[ \t]+)?(?:`([^`\n]{1,200})`|(\d+(?:-\d+)?))[ \t]*:[ \t]*(.*)$/gm;
 
-/** HTML wrapping that sits between a locator and its header. */
+/** HTML wrapping that sits between a locator and its header. Sees de-quoted text —
+ *  `codeRabbitReviewSections` strips blockquote markers from the section body. */
 const CR_WRAPPER = /^(?:<\/?details>|<summary>.*<\/summary>|<\/?blockquote>|-{3,})$/;
 
 /** Slice from the first `<blockquote>` after `start` to its MATCHING close.
@@ -622,7 +648,10 @@ export function codeRabbitReviewSections(body) {
     }
     const block = crBlockAt(text, m.index);
     if (block === null) continue;
-    sections.push({ tier: hit[1], title: raw, declared: Number(m[2]), body: block });
+    // De-quoted ONCE here, so every line-anchored pattern downstream sees plain
+    // text. See `CR_BLOCKQUOTE_PREFIX`: an outside-diff tier arrives wrapped in a
+    // `> [!CAUTION]` alert with `> ` on every line.
+    sections.push({ tier: hit[1], title: raw, declared: Number(m[2]), body: block.replace(CR_BLOCKQUOTE_PREFIX, "") });
   }
   return { sections, unrecognised };
 }

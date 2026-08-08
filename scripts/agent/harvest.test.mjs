@@ -715,6 +715,141 @@ test("parseCodeRabbitReview: a tier it does not know is REPORTED, not skipped", 
   );
 });
 
+// review 4881457209 (PR #716, 2026-08-07T09:05:21Z) — VERBATIM, including the
+// `> ` on every line. CodeRabbit puts the outside-diff-range tier inside a GitHub
+// alert block, which quotes the whole section: 96 of this repo's 558 CodeRabbit
+// review bodies look like this, back to 2026-04.
+const RV_ALERT_QUOTED = [
+  "**Actionable comments posted: 3**",
+  "",
+  "> [!CAUTION]",
+  "> Some comments are outside the diff and can’t be posted inline due to platform limitations.",
+  "> ",
+  "> <details>",
+  "> <summary>⚠️ Outside diff range comments (1)</summary><blockquote>",
+  "> ",
+  "> <details>",
+  "> <summary>scripts/agent/eval/run.mjs (1)</summary><blockquote>",
+  "> ",
+  "> `421-426`: _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+  "> ",
+  "> **Validate `commit` before using it as a path segment.**",
+  "> ",
+  "> `dest` is `path.join(cacheRoot, commit)`, and `commit` comes from `input.meta?.review_commit`.",
+  "> ",
+  "> <details>",
+  "> <summary>🤖 Prompt for AI Agents</summary>",
+  "> ",
+  "> ```",
+  "> Verify each finding against current code. Fix only still-valid issues, skip the",
+  "> rest with a brief reason, keep changes minimal, and validate.",
+  "> ```",
+  "> ",
+  "> </details>",
+  "> ",
+  "> <!-- cr-comment:v1:a75b5b8a102fa57e5705e12a -->",
+  "> ",
+  "> </blockquote></details>",
+  "> ",
+  "> </blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a tier quoted inside a GitHub alert block", () => {
+  // Every line carries `> `, so anything anchored on `^` without tolerating it
+  // fails. The counts came out right here from the start; `detail` did not, which
+  // is why this asserts the FIELD and not just the tally.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_ALERT_QUOTED);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0);
+  const f = findings[0];
+  assert.equal(f.tier, "outside-diff-range");
+  assert.equal(f.file, "scripts/agent/eval/run.mjs"); // from the enclosing <summary>, not the finding's line
+  assert.equal(f.locator, "421-426"); // the ONLY location a body finding has
+  assert.equal(f.category, "security & privacy");
+  assert.equal(f.severity, "major");
+  assert.equal(f.lens, "security"); // the existing category→lens map, unchanged
+  assert.equal(f.summary, "Validate `commit` before using it as a path segment.");
+});
+
+test("codeRabbitDetail: strips blockquote markers itself, without a de-quoting caller", () => {
+  // `parseCodeRabbitReview` already de-quotes the section body, so this strip is
+  // belt to that braces — and it is tested DIRECTLY rather than through the review
+  // path, because through that path it is unreachable and an untested guard is
+  // decoration. It is kept because this function is exported: a caller must not
+  // have to know to normalise first.
+  const quoted = [
+    "> _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+    "> ",
+    "> **A quoted finding.**",
+    "> ",
+    "> The prose that should survive.",
+    "> ",
+    "> <details>",
+    "> <summary>🤖 Prompt for AI Agents</summary>",
+    "> Verify each finding against current code.",
+    "> </details>",
+  ].join("\n");
+  assert.equal(codeRabbitDetail(quoted), "**A quoted finding.** The prose that should survive.");
+  // A quote RUN, not just one level. Not observed in this repo (0 of 558 review
+  // bodies and 0 of 1891 inline comments carry a nested `> > `), but markdown nests
+  // quotes and an alert block inside a quote would produce it, so the pattern
+  // matches runs — asserted here so that `+` is not decoration.
+  assert.equal(codeRabbitDetail("> > **Nested.**\n> > \n> > Prose."), "**Nested.** Prose.");
+});
+
+test("codeRabbitDetail: the AI-agents boilerplate never reaches the comparison", () => {
+  // The failure this guards is named at length in codeRabbitDetail's docblock:
+  // "Verify each finding against current code…" contributes `code`, `fix`,
+  // `issues`, `changes`, `validate` to EVERY comparison, inflating containment on
+  // the vocabulary every finding already shares — eating real misses where the
+  // panel had the most findings. A `> `-quoted body defeated the prose boundary,
+  // so 146 of 1626 review-body findings (9.0%) carried it.
+  const { detail } = parseCodeRabbitReview(RV_ALERT_QUOTED).findings[0];
+  assert.ok(!detail.includes("Verify each finding against current code"), "boilerplate leaked into detail");
+  assert.ok(!detail.includes("Prompt for AI Agents"), "structured block leaked into detail");
+  assert.ok(!detail.includes("cr-comment:v1"), "the fingerprint marker leaked into detail");
+  assert.ok(!detail.includes(">"), "blockquote markers survived into detail");
+  // …and the prose that SHOULD be there still is.
+  assert.ok(detail.includes("Validate `commit` before using it as a path segment."));
+  assert.ok(detail.includes("path.join(cacheRoot, commit)"));
+});
+
+test("parseCodeRabbitReview: quoted section AND header on the next line", () => {
+  // THE ONE CONSTRUCTED FIXTURE HERE, and it is labelled because the others are
+  // not. Both halves are real and independently attested — 96 review bodies quote
+  // a tier section inside an alert block, and the header sits on the line BELOW
+  // the locator in #11 and #477 — but no body in this repo currently does both at
+  // once, so this combination is a union rather than an observation. It is kept
+  // because CodeRabbit mixes its own markup freely and the union costs one
+  // character class; if it is ever cut, cut this test with it rather than leaving
+  // an assertion nothing backs.
+  const body = [
+    "> <details>",
+    "> <summary>🧹 Nitpick comments (1)</summary><blockquote>",
+    "> ",
+    "> <details>",
+    "> <summary>scripts/agent/harvest.mjs (1)</summary><blockquote>",
+    "> ",
+    "> `12-14`: ",
+    "> <details>",
+    "> <summary>❓ Verification inconclusive</summary>",
+    "> ",
+    "> **A title below its own locator.**",
+    "> ",
+    "> prose here",
+    "> ",
+    "> </blockquote></details>",
+    "> ",
+    "> </blockquote></details>",
+  ].join("\n");
+  const { findings, declared } = parseCodeRabbitReview(body);
+  assert.equal(declared, 1);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].locator, "12-14");
+  assert.equal(findings[0].file, "scripts/agent/harvest.mjs");
+  assert.equal(findings[0].summary, "A title below its own locator.");
+});
+
 test("parseCodeRabbitReview: never throws, and degrades to fewer findings", () => {
   for (const bad of [null, undefined, "", 7, {}, "<details><summary>🧹 Nitpick comments (2)</summary>"]) {
     const out = parseCodeRabbitReview(bad);
