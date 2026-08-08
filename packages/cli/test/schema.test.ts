@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import { createProgram } from '../src/commands/root.js';
 import {
   registerSchemaCommand,
@@ -73,6 +74,26 @@ describe('schema command list output', () => {
     expect(lines).toHaveLength(getAllCommandSchemas().length + 1);
     expect(lines[1]).toMatch(/^login,/);
     expect(result).not.toMatch(/^commands,/);
+  });
+
+  it('renders command summaries as YAML rows', async () => {
+    const result = await runSchemaList('yaml');
+    const rows = parseYaml(result) as Array<{
+      name: string;
+      description: string;
+      safety: string;
+    }>;
+
+    expect(rows).toHaveLength(getAllCommandSchemas().length);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'login',
+          description: expect.any(String),
+          safety: expect.any(String),
+        }),
+      ]),
+    );
   });
 });
 
