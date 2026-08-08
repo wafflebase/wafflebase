@@ -81,6 +81,15 @@ The frontend depends on `@wafflebase/sheets`, `@wafflebase/docs`, and
 - [pnpm](https://pnpm.io/) v10+
 - [Docker](https://www.docker.com/)
 
+The repository ships an [`.nvmrc`](.nvmrc), so if you use
+[nvm](https://github.com/nvm-sh/nvm) you can select the expected Node
+version with:
+
+```bash
+nvm install   # first run only — installs the version in .nvmrc
+nvm use
+```
+
 ### 1. Install dependencies
 
 ```bash
