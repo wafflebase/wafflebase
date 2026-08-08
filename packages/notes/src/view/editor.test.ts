@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { MemNoteStore } from '../store/memory.js';
 import { initialize } from './editor.js';
+import { NotePreview } from './preview.js';
 
 describe('initialize', () => {
   it('mounts an editor showing the store text and a rendered preview', () => {
@@ -179,6 +180,89 @@ describe('initialize', () => {
       new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }),
     );
     expect(store.getText()).toBe('hello!');
+
+    api.dispose();
+    container.remove();
+  });
+
+  // A theme switch has to repaint the preview: mermaid bakes its palette into
+  // the SVG it emits, so diagrams would otherwise keep the old colours.
+  it('repaints the preview on a theme switch while it is visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+
+    // A marker only survives if render() did not replace the preview's markup.
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
+    expect(previewEl.querySelector('h1')).toBeTruthy();
+
+    // Same theme again: no-op, so no repaint.
+    previewEl.appendChild(marker);
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    api.dispose();
+    container.remove();
+  });
+
+  // The repaint alone is not enough: the preview owns the mermaid palette, and
+  // re-rendering without pushing the new one just repaints the old colours.
+  it('pushes the new palette into the preview on a theme switch', () => {
+    const setTheme = vi.spyOn(NotePreview.prototype, 'setTheme');
+    try {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+
+      api.setTheme('dark');
+      expect(setTheme).toHaveBeenCalledWith('dark');
+
+      // The palette follows the editor back, and an unchanged theme is a no-op.
+      api.setTheme('light');
+      expect(setTheme).toHaveBeenLastCalledWith('light');
+      api.setTheme('light');
+      expect(setTheme).toHaveBeenCalledTimes(2);
+
+      api.dispose();
+      container.remove();
+    } finally {
+      setTheme.mockRestore();
+    }
+  });
+
+  it('skips the theme repaint while the preview is hidden', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // 'edit' hides the preview; repainting it there is wasted work (and would
+    // download the mermaid engine for a pane nobody is looking at).
+    const api = initialize(
+      container,
+      new MemNoteStore('# Hi'),
+      'light',
+      false,
+      'edit',
+    );
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    // Switching back into a preview-visible mode repaints it.
+    api.setViewMode('both');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
 
     api.dispose();
     container.remove();

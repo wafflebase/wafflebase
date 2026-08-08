@@ -323,6 +323,87 @@ is ever produced. `<details open>` renders expanded by default; a stray
 `</details>` with no matching open falls through and is escaped as literal
 text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
 
+#### Mermaid diagrams — shipped (issue #625)
+
+A ` ```mermaid ` fence renders as a diagram rather than a code block, matching
+GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
+`preview.ts` branches on the info string; everything else lives in
+`packages/notes/src/view/mermaid.ts`:
+
+- **Placeholder first, SVG later.** The fence emits a synchronous
+  `<div class="note-mermaid" data-mermaid-pending>` carrying the *escaped*
+  diagram source in a `<pre>`. `NotePreview.render()` then kicks
+  `renderMermaidBlocks()`, which swaps in the SVG. A diagram that has not
+  rendered yet, does not parse, or whose engine failed to load therefore
+  degrades to readable source instead of a blank block; a parse failure also
+  prepends the mermaid error message.
+- **Lazily imported.** `mermaid` (~3 MB, and it splits itself per diagram
+  type) is reached only through `import('mermaid')` inside that module, so it
+  costs the notes route nothing until a note actually contains a mermaid
+  fence — `notes-view-*.js` grew 2.25 kB. The measured chunk-count effect is
+  recorded in `harness.config.json`'s `maxChunkCountReason`.
+- **Cached per (source, theme).** Split mode re-renders on every keystroke;
+  outcomes (SVG *and* errors — a diagram is unparseable for most of the time
+  it is being typed) are memoized in a bounded **least-recently-used** map
+  (reads move the entry back to the end, so a stable diagram is not evicted by
+  the one-shot sources typing an adjacent diagram produces), and cache hits are
+  applied inside the synchronous `render()` call so an unchanged diagram never
+  flashes back to source. Mermaid bakes the palette into its SVG, so the
+  light/dark theme is part of the key and `NoteEditorAPI.setTheme` repaints the
+  preview.
+- **One pass at a time.** Mermaid's config (including the palette) and layout
+  engine are process-global singletons, so passes are queued on a single chain:
+  at most one `mermaid.render()` is ever in flight, and a diagram can no longer
+  be laid out under one theme while being cached under the other's key. Each
+  `render()` also bumps a per-root pass counter, so a pass whose DOM a newer
+  `render()` replaced abandons its remaining diagrams instead of racing for
+  them (`root.contains(el)` remains as a second guard for a placeholder
+  detached without a re-render). Together those make the undebounced
+  per-keystroke `render()` safe.
+- **Security: three layers, not one.** The rendered SVG is the preview's only
+  insertion of note-derived markup, and note content is untrusted
+  (a collaborator or editor-role share-link visitor authors it, someone else
+  renders it), so the `html: false` "no raw note HTML" rule is not delegated to
+  the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
+  sanitizes labels and ignores `click` directives, and an extended `secure` key
+  list pins the theming keys; (2) `stripConfigDirectives()` removes both config
+  carriers — `%%{...}%%` directives and leading front matter — from the fence
+  body, so a note cannot push `themeCSS`/`themeVariables` into the
+  document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
+  own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
+  the engine) and drops front matter unconditionally, because `secure` pins
+  only top-level keys — a carrier the strip under-recognizes still delivers a
+  nested override — and the copies are version-pinned
+  (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
+  `mermaid` in `preview.test.ts`) so an upgrade under the caret range cannot
+  move the engine's patterns out from under them unnoticed; (3) `sanitizeSvg()`
+  runs the engine's output through **DOMPurify** (allowlist, SVG + SVG-filter +
+  HTML profiles, fetch-capable tags forbidden) and returns a
+  `DocumentFragment` that is inserted as nodes — never re-serialized and
+  re-parsed, so the tree that was inspected is the tree that reaches the
+  document. Its `ALLOWED_URI_REGEXP` is DOMPurify's **default** with the scheme
+  list narrowed to `http(s)`/`mailto:` (`#` falls out of the default's own
+  non-letter branch): the default's trailing "not a URI at all" branches must
+  stay, because DOMPurify applies that regexp to every allowed attribute value
+  that is not `data-*`/`aria-*`/URI-safe — dropping them strips `d`,
+  `transform`, `viewBox`, `width`, `fill` and renders every diagram empty.
+  CSS is the one thing DOMPurify does not inspect, so a `<style>` element or
+  `style` attribute whose text (raw *or* CSS-escape-decoded) contains
+  `@import`, an off-page `url()` or another fetch function is dropped whole,
+  as is any `<style>` with an element child — the browser builds a sheet from
+  *child text content*, so an element child splits a construct past a
+  `textContent` check. DOMPurify is loaded next to the engine
+  (`import('dompurify')`), which costs no bytes a diagram was not already
+  paying for — mermaid depends on it. `securityLevel: 'sandbox'` (mermaid's own
+  advice for untrusted input) is deliberately not used — it iframes every
+  diagram, which breaks sizing, text selection and the light/dark surface.
+  That trade is knowingly taken, and layer 3 is **not** an equivalent
+  substitute: outside sandbox mode the engine appends its own `d<id>` host div
+  to `document.body` and lays the diagram out there before serializing, so its
+  output is briefly in the live document ahead of our pass. Mermaid's own
+  strict-mode sanitizing plus layer 2's carrier strip guard that window; layer
+  3 governs what persists.
+
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 
 CommonMark has a genuine ambiguity: a lone `-` on the line after a paragraph is
