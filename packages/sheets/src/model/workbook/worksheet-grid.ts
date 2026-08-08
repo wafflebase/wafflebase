@@ -29,6 +29,9 @@ function ensureAxisLength(
 ): void {
   const order = axis === 'row' ? (ws.rowOrder ??= []) : (ws.colOrder ??= []);
   const prefix = axis === 'row' ? 'r' : 'c';
+  if (order.length >= minLength) {
+    return;
+  }
   const existing = new Set(order);
 
   while (order.length < minLength) {

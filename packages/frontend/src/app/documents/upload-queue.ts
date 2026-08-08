@@ -1,7 +1,10 @@
 import { classifyUploadKind, type UploadKind } from "./upload-kind";
 import { uploadSizeError } from "./file-meta";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
-import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
+import {
+  importSheetFile,
+  sheetImportBaseName,
+} from "@/app/spreadsheet/sheet-import-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadFile } from "@/api/files";
@@ -201,7 +204,7 @@ interface DocRef {
 }
 
 export interface UploadDeps {
-  importXlsx: typeof importXlsx;
+  importSheetFile: typeof importSheetFile;
   importDocx: typeof importDocx;
   importPptxFile: typeof importPptxFile;
   uploadFile: typeof uploadFile;
@@ -223,7 +226,7 @@ export interface UploadDeps {
 }
 
 const defaultDeps: UploadDeps = {
-  importXlsx,
+  importSheetFile,
   importDocx,
   importPptxFile,
   uploadFile,
@@ -345,8 +348,8 @@ async function runItem(item: UploadItem): Promise<void> {
       try {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
-          const { document } = await d.importXlsx(file);
-          const title = stripExt(item.fileName, "Imported Sheet");
+          const { document } = await d.importSheetFile(file);
+          const title = sheetImportBaseName(item.fileName);
           const created = await getOrCreateDoc(item, { title, type: "sheet" });
           // Persist the parsed content into the Yorkie doc now (see
           // apply-imported-content.ts) so "done" means it is actually saved —

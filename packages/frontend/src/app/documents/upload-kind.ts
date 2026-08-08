@@ -19,6 +19,9 @@ export type UploadKind =
 
 const EXT_TO_KIND: Record<string, UploadKind> = {
   xlsx: "sheet",
+  json: "sheet",
+  jsonl: "sheet",
+  ndjson: "sheet",
   docx: "doc",
   pptx: "slides",
   pdf: "pdf",
