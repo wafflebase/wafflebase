@@ -1,8 +1,9 @@
 import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
+import { formatYaml } from './yaml.js';
 
-export type OutputFormat = 'json' | 'table' | 'csv';
+export type OutputFormat = 'json' | 'table' | 'csv' | 'yaml';
 
 export function format(data: unknown, fmt: OutputFormat): string {
   switch (fmt) {
@@ -12,6 +13,10 @@ export function format(data: unknown, fmt: OutputFormat): string {
       return formatTable(data);
     case 'csv':
       return formatCsv(data);
+    case 'yaml':
+      return formatYaml(data);
+    default:
+      throw new Error(`Unsupported output format: ${String(fmt)}`);
   }
 }
 

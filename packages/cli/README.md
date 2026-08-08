@@ -74,7 +74,7 @@ wafflebase
 ```
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
-`--format json|table|csv` (default `json`), `--quiet` (suppresses
+`--format json|table|csv|yaml` (default `json`), `--quiet` (suppresses
 progress notices only — the result body and the JSON error envelope are
 always emitted), `--verbose`,
 `--dry-run`. The `--format` flag also doubles as the per-content shape
