@@ -128,6 +128,7 @@ import {
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
+import { quantizeResizeFrame } from './grid-snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
 import {
@@ -320,6 +321,29 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * Omitted on a slides mount, where the entry is skipped entirely.
    */
   onFitToContent?: () => void;
+  /**
+   * World-space grid step to quantize move and resize onto, or `null`
+   * when the host's snap-to-grid setting is off. Consulted per gesture
+   * frame, not per mount: the board's step is derived from live zoom
+   * (`gridStep(zoom)`), so a value would be stale the moment the user
+   * scrolled.
+   *
+   * A slide has no grid, so a slides mount omits this and every grid
+   * path stays unreachable. See `./grid-snap` for what the step does
+   * and `snapDelta`'s `grid` parameter for where it sits relative to
+   * edge / guide snapping (last).
+   */
+  getSnapGrid?: () => number | null;
+  /**
+   * Extra items appended to the empty-canvas context menu, read when the
+   * menu opens so the host can reflect live state (a toggle's check
+   * mark). Prefix with a `'---'` separator item if the host wants one.
+   *
+   * This is the general form of the bespoke `onFitToContent` hook above
+   * — board-only menu entries have no reason to each earn their own
+   * editor option.
+   */
+  hostCanvasMenuItems?: () => ContextMenuItem[];
 }
 
 export interface SlidesEditor {
@@ -3382,6 +3406,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const fit = this.options.onFitToContent;
       items.push({ label: 'Fit to content', run: () => fit() });
     }
+    // Host-owned entries (the board's "Snap to grid") go before the
+    // slide-scoped block below, so the separator that block opens with
+    // still reads as dividing document actions from slide actions.
+    if (this.options.hostCanvasMenuItems) {
+      items.push(...this.options.hostCanvasMenuItems());
+    }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
     // on (`notSupported`). Board mounts pass `suppressSlideChrome:
@@ -5204,6 +5234,7 @@ class SlidesEditorImpl implements SlidesEditor {
         otherFrames,
         { w: SLIDE_WIDTH, h: deckSlideHeight(doc.meta) },
         doc.guides,
+        this.activeSnapGrid(ev),
       );
       const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
       // Re-lock after snap + smart-guides: both evaluations run independently
@@ -6240,6 +6271,49 @@ class SlidesEditorImpl implements SlidesEditor {
     }
   }
 
+  /**
+   * The grid step in force for this gesture frame, or `null` for no grid
+   * snapping. Reads the host's live setting (`getSnapGrid`) unless Alt is
+   * held, the Miro/Figma convention for "let me place this freely just
+   * this once". Shift is not available for it — the drag paths already
+   * spend it on axis lock and aspect preservation.
+   *
+   * A non-finite or non-positive step is treated as "off" rather than
+   * propagated: the board derives it from zoom, and a corrupted viewport
+   * must not turn every drag into a `NaN` frame write.
+   */
+  /**
+   * `frame` with the handle's moving edges rounded onto the host's grid,
+   * or unchanged when the grid does not apply to this frame.
+   *
+   * Three ways out, all of them cases where rounding would fight an
+   * intent the user has already expressed more specifically:
+   *
+   * - `matchedSize` — an equal-size smart guide won, so the user is
+   *   matching a peer's exact dimensions. Rounding would break the match
+   *   the dashed outline is at that moment promising.
+   * - Shift — "preserve aspect". Rounding one edge changes the ratio.
+   * - Alt / grid off — handled by {@link activeSnapGrid}.
+   */
+  private gridSizedFrame(
+    frame: Frame,
+    handle: ResizeHandle,
+    ev: { altKey: boolean; shiftKey: boolean },
+    matchedSize: boolean,
+  ): Frame {
+    if (matchedSize || ev.shiftKey) return frame;
+    const step = this.activeSnapGrid(ev);
+    if (step === null) return frame;
+    return quantizeResizeFrame(frame, handle, step);
+  }
+
+  private activeSnapGrid(ev: { altKey: boolean }): number | null {
+    if (ev.altKey) return null;
+    const step = this.options.getSnapGrid?.() ?? null;
+    if (step === null || !Number.isFinite(step) || step <= 0) return null;
+    return step;
+  }
+
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
@@ -6308,10 +6382,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const matched = ev.shiftKey
         ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h, guides: [] as SmartGuide[] }
         : matchSize({ x: raw.x, y: raw.y, w: raw.w, h: raw.h }, handle, otherFrames);
-      live.worldFrame = {
-        ...raw,
-        x: matched.x, y: matched.y, w: matched.w, h: matched.h,
-      };
+      live.worldFrame = this.gridSizedFrame(
+        { ...raw, x: matched.x, y: matched.y, w: matched.w, h: matched.h },
+        handle,
+        ev,
+        matched.guides.length > 0,
+      );
       if (isTable) {
         // Deferred-resize: the committed table stays painted on the
         // canvas and a translucent ghost table — with cells scaled
@@ -6463,6 +6539,11 @@ class SlidesEditorImpl implements SlidesEditor {
       );
       let result = raw;
       let guides: SmartGuide[] = [];
+      // The bbox the children will actually be redistributed over: `raw`
+      // corrected first by the equal-size smart guide, then by the grid.
+      // Both are bbox-level corrections, so they share one re-run below
+      // rather than each translating back to dx/dy on their own.
+      let bbox: Frame = raw.newBbox;
       if (!ev.shiftKey) {
         const matched = matchSize(
           { x: raw.newBbox.x, y: raw.newBbox.y, w: raw.newBbox.w, h: raw.newBbox.h },
@@ -6470,33 +6551,38 @@ class SlidesEditorImpl implements SlidesEditor {
           otherFrames,
         );
         guides = matched.guides;
-        if (
-          matched.w !== raw.newBbox.w ||
-          matched.h !== raw.newBbox.h ||
-          matched.x !== raw.newBbox.x ||
-          matched.y !== raw.newBbox.y
-        ) {
-          // Translate the matched bbox back to the dx/dy that produced it.
-          // For 'e' / 's' handles: dx/dy is the size delta. For 'w' / 'n':
-          // dx/dy is the edge offset (resizeFrame does `left = start.x + dx`
-          // for 'w' and `top = start.y + dy` for 'n'), so the sign is the
-          // signed displacement of the moving edge, NOT the size delta.
-          const matchedDx =
-            handle.includes('e') ? matched.w - startBbox.w
-            : handle.includes('w') ? matched.x - startBbox.x
-            : 0;
-          const matchedDy =
-            handle.includes('s') ? matched.h - startBbox.h
-            : handle.includes('n') ? matched.y - startBbox.y
-            : 0;
-          result = resizeMultiFrames(
-            { scope, startBbox, snapshots },
-            handle,
-            matchedDx,
-            matchedDy,
-            false,
-          );
-        }
+        bbox = {
+          ...raw.newBbox,
+          x: matched.x, y: matched.y, w: matched.w, h: matched.h,
+        };
+      }
+      bbox = this.gridSizedFrame(bbox, handle, ev, guides.length > 0);
+      if (
+        bbox.w !== raw.newBbox.w ||
+        bbox.h !== raw.newBbox.h ||
+        bbox.x !== raw.newBbox.x ||
+        bbox.y !== raw.newBbox.y
+      ) {
+        // Translate the corrected bbox back to the dx/dy that produced it.
+        // For 'e' / 's' handles: dx/dy is the size delta. For 'w' / 'n':
+        // dx/dy is the edge offset (resizeFrame does `left = start.x + dx`
+        // for 'w' and `top = start.y + dy` for 'n'), so the sign is the
+        // signed displacement of the moving edge, NOT the size delta.
+        const correctedDx =
+          handle.includes('e') ? bbox.w - startBbox.w
+          : handle.includes('w') ? bbox.x - startBbox.x
+          : 0;
+        const correctedDy =
+          handle.includes('s') ? bbox.h - startBbox.h
+          : handle.includes('n') ? bbox.y - startBbox.y
+          : 0;
+        result = resizeMultiFrames(
+          { scope, startBbox, snapshots },
+          handle,
+          correctedDx,
+          correctedDy,
+          false,
+        );
       }
       live.result = result;
       this.paintMultiResizeLive(snapshots, result, startSlide, guides);

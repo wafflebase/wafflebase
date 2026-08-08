@@ -152,4 +152,60 @@ describe('snapDelta', () => {
     expect(result.dx).toBe(10);
     expect(result.guides).toEqual([]);
   });
+
+  describe('grid', () => {
+    // Far from the slide centre on both axes so the built-in
+    // slide-center candidate never interferes.
+    const BBOX = { x: 13, y: 27, w: 100, h: 100 };
+
+    it('is off by default — omitting the argument changes nothing', () => {
+      const result = snapDelta(BBOX, 5, 5, [], SLIDE);
+      expect(result.dx).toBe(5);
+      expect(result.dy).toBe(5);
+    });
+
+    it('quantizes the bbox left/top onto the grid', () => {
+      // left 13+5=18 → 20 (dx 5 → 7); top 27+5=32 → 40 (dy 5 → 13).
+      const result = snapDelta(BBOX, 5, 5, [], SLIDE, [], 20);
+      expect(result.dx).toBe(7);
+      expect(result.dy).toBe(13);
+    });
+
+    it('quantizes on the negative half of the plane too', () => {
+      const result = snapDelta({ ...BBOX, x: -113, y: -127 }, 0, 0, [], SLIDE, [], 20);
+      expect(-113 + result.dx).toBe(-120);
+      expect(-127 + result.dy).toBe(-120);
+    });
+
+    it('emits no guide — the painted grid is its own feedback', () => {
+      const result = snapDelta(BBOX, 5, 5, [], SLIDE, [], 20);
+      expect(result.guides).toEqual([]);
+    });
+
+    it('loses to an element edge on the axis that edge won', () => {
+      // Peer's left edge at 607 — deliberately NOT on the lattice, so
+      // "the edge won" and "the grid won" give different answers. The
+      // dragged left edge lands at 610, within the 8-unit threshold.
+      const others: Frame[] = [f(607, 400, 100, 100)];
+      const result = snapDelta(BBOX, 597, 5, others, SLIDE, [], 20);
+      expect(13 + result.dx).toBe(607);
+      // Per-axis: Y had no edge candidate, so the grid still takes it.
+      expect(27 + result.dy).toBe(40);
+    });
+
+    it('loses to a user guide', () => {
+      const guides = [{ id: 'g1', axis: 'x' as const, position: 507 }];
+      const result = snapDelta(BBOX, 497, 0, [], SLIDE, guides, 20);
+      expect(13 + result.dx).toBe(507);
+      expect(result.guides[0]).toMatchObject({ kind: 'guide', guideId: 'g1' });
+    });
+
+    it('ignores a degenerate step rather than emitting NaN', () => {
+      for (const bad of [0, -20, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const result = snapDelta(BBOX, 5, 5, [], SLIDE, [], bad);
+        expect(result.dx).toBe(5);
+        expect(result.dy).toBe(5);
+      }
+    });
+  });
 });

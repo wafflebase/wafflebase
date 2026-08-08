@@ -3196,3 +3196,145 @@ describe('group resize commit — bake into children', () => {
     expect(group1.data.children[0].frame.h).toBeCloseTo(childAFrameBefore.h * sy, 3);
   });
 });
+
+describe('Editor snap to grid (host-supplied step)', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+  });
+
+  /**
+   * A single 200x100 shape at (100, 100) — far enough from the slide
+   * centre (960, 540) on both axes that the built-in slide-centre snap
+   * candidate never fires, so what the assertions see is the grid.
+   */
+  function withShape() {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return { canvas, overlay, store };
+  }
+
+  const frameOf = (store: ReturnType<typeof makeFixture>['store']) =>
+    store.read().slides[0].elements[0].frame;
+
+  function drag(
+    canvas: HTMLCanvasElement,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    modifiers: { altKey?: boolean; shiftKey?: boolean } = {},
+  ): void {
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: from.x, clientY: from.y, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: to.x, clientY: to.y, bubbles: true, ...modifiers,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: to.x, clientY: to.y, bubbles: true, ...modifiers,
+    }));
+  }
+
+  it('quantizes a move drag onto the host step', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    // Raw delta (+37, +22) would land the frame at (137, 122).
+    drag(canvas, { x: 150, y: 150 }, { x: 187, y: 172 });
+    expect(frameOf(store).x).toBe(140);
+    expect(frameOf(store).y).toBe(120);
+  });
+
+  it('places freely with no host step — the slides mount is unaffected', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    drag(canvas, { x: 150, y: 150 }, { x: 187, y: 172 });
+    expect(frameOf(store).x).toBe(137);
+    expect(frameOf(store).y).toBe(122);
+  });
+
+  it('suspends the grid while Alt is held', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    drag(canvas, { x: 150, y: 150 }, { x: 187, y: 172 }, { altKey: true });
+    expect(frameOf(store).x).toBe(137);
+    expect(frameOf(store).y).toBe(122);
+  });
+
+  it('quantizes the edge a resize handle moves, leaving the anchor edge', () => {
+    const { canvas, overlay, store } = withShape();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const startX = parseFloat(eHandle.style.left) + 4;
+    const startY = parseFloat(eHandle.style.top) + 4;
+    // Right edge 300 + 37 = 337 → 340, so w becomes 240 and x holds.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: startX, clientY: startY, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: startX + 37, clientY: startY, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: startX + 37, clientY: startY, bubbles: true,
+    }));
+    expect(frameOf(store).x).toBe(100);
+    expect(frameOf(store).w).toBe(240);
+  });
+
+  it('appends host items to the empty-canvas context menu and runs them', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const run = vi.fn();
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      hostCanvasMenuItems: () => [
+        { label: '---', run: () => undefined },
+        { label: 'Snap to grid', selected: true, run },
+      ],
+    });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const item = [...menu.querySelectorAll('li')].find((li) =>
+      li.textContent?.includes('Snap to grid'),
+    ) as HTMLElement;
+    expect(item).toBeTruthy();
+    // `selected: true` draws the check-mark column, so the label alone
+    // is not the text content — the toggle state is visible.
+    expect(item.textContent).toContain('✓');
+    item.click();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});

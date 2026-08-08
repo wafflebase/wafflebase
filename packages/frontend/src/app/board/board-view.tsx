@@ -36,8 +36,11 @@ import type { ZoomController } from "../slides/zoom-controller";
 import { createBoardZoomBinding, createBoardZoomController } from "./board-zoom";
 import {
   applyGridBackground,
+  gridStep,
   loadGridKind,
+  loadGridSnap,
   saveGridKind,
+  saveGridSnap,
   type BoardGridKind,
 } from "./board-grid";
 
@@ -194,6 +197,21 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const gridKindRef = useRef(gridKind);
   gridKindRef.current = gridKind;
 
+  // Snap to grid. A SEPARATE toggle from the mode above (`none` still
+  // snaps), mirrored into a ref because the editor reads it through a
+  // `getSnapGrid` callback built once inside the mount effect.
+  const [gridSnap, setGridSnap] = useState<boolean>(loadGridSnap);
+  const gridSnapRef = useRef(gridSnap);
+  gridSnapRef.current = gridSnap;
+  // The context-menu item lives in the slides editor (built at mount) but
+  // has to drive React state the toolbar renders from. A ref-held setter
+  // keeps that closure current without re-running the mount effect.
+  const setGridSnapRef = useRef<(next: boolean) => void>(() => {});
+  setGridSnapRef.current = (next: boolean) => {
+    setGridSnap(next);
+    saveGridSnap(next);
+  };
+
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
     setDidMount(true);
@@ -277,6 +295,23 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // minimap) — the call only ever happens after mount, so the
       // declaration order stays readable without hoisting.
       onFitToContent: () => zoom.fit(),
+      // Snap move/resize onto the grid the user can see: the same
+      // `gridStep(zoom)` ladder that paints it. Read per gesture frame,
+      // so a zoom mid-drag changes the step under the cursor exactly as
+      // it changes the painted lines.
+      getSnapGrid: () =>
+        gridSnapRef.current ? gridStep(vp.current.zoom) : null,
+      // Right-click the empty canvas → the same toggle the toolbar has.
+      // This is where Miro puts it, and it is the only place a user
+      // deep in a drag-heavy flow will look.
+      hostCanvasMenuItems: () => [
+        { label: "---", run: () => undefined },
+        {
+          label: "Snap to grid",
+          selected: gridSnapRef.current,
+          run: () => setGridSnapRef.current(!gridSnapRef.current),
+        },
+      ],
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -763,6 +798,8 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
             setGridKind(kind);
             saveGridKind(kind);
           }}
+          gridSnap={gridSnap}
+          onGridSnapChange={(next) => setGridSnapRef.current(next)}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}

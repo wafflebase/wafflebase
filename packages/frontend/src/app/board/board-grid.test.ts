@@ -6,7 +6,10 @@ import {
   gridBackgroundStyle,
   gridStep,
   loadGridKind,
+  loadGridSnap,
   saveGridKind,
+  saveGridSnap,
+  DEFAULT_GRID_SNAP,
 } from "./board-grid";
 
 /** First number in a `"12px 34px"`-style CSS value. */
@@ -204,6 +207,46 @@ describe("grid kind persistence", () => {
     });
     expect(loadGridKind()).toBe(DEFAULT_GRID_KIND);
     expect(() => saveGridKind("line")).not.toThrow();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("grid snap persistence", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("round-trips through localStorage", () => {
+    saveGridSnap(true);
+    expect(loadGridSnap()).toBe(true);
+    saveGridSnap(false);
+    expect(loadGridSnap()).toBe(false);
+  });
+
+  it("falls back to the default for a missing or corrupted value", () => {
+    expect(loadGridSnap()).toBe(DEFAULT_GRID_SNAP);
+    localStorage.setItem("wafflebase.board.grid-snap", "yes");
+    expect(loadGridSnap()).toBe(DEFAULT_GRID_SNAP);
+  });
+
+  it("is stored independently of the grid mode", () => {
+    // The two are separate settings — `none` + snap on is valid, and
+    // must not be collapsible by one write clobbering the other.
+    saveGridKind("none");
+    saveGridSnap(true);
+    expect(loadGridKind()).toBe("none");
+    expect(loadGridSnap()).toBe(true);
+  });
+
+  it("survives storage that throws (private mode, blocked cookies)", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    expect(loadGridSnap()).toBe(DEFAULT_GRID_SNAP);
+    expect(() => saveGridSnap(true)).not.toThrow();
     vi.restoreAllMocks();
   });
 });

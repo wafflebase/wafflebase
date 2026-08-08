@@ -201,10 +201,59 @@ This also made `commitViewport` in `board-view.tsx` the single chokepoint
 for pan/zoom: minimap-navigate, wheel, and space/middle-drag each used to
 repeat the same `setViewport` + `repaintViewport` pair inline.
 
-**Snap to grid is deliberately not part of this.** Miro keeps it a
-separate toggle too. It extends `snapDelta` (`slides/view/editor/snap.ts`)
-with grid candidates and carries a drag / resize / connector regression
-surface that display alone does not.
+### Snap to grid
+
+A second, independent toggle (Miro keeps them separate too): the mode
+controls what is *drawn*, snap controls where things *land*, and
+`Grid: None` + snap on is a real preference. Off by default, unlike the
+display — drawing lines changes nothing about a board, while snapping
+changes where every subsequent drag ends up, and a Miro-imported board's
+elements sit at arbitrary coordinates that an on-by-default snap would
+relocate the first time anyone nudged one.
+
+The step is the **visible** grid — the same `gridStep(zoom)` the
+background is painted from — so the user always lands on a line they can
+see. Move and resize snap; connector endpoints and rotation do not.
+
+Two additive `SlidesEditorOptions` carry it, and a slides mount passes
+neither, so slides behavior is bit-identical:
+
+```ts
+getSnapGrid?: () => number | null;          // world step, null = off
+hostCanvasMenuItems?: () => ContextMenuItem[];
+```
+
+`getSnapGrid` is a callback because the step depends on live zoom and the
+editor is built once. `hostCanvasMenuItems` is the general form of the
+bespoke `onFitToContent` hook — board-only menu entries should not each
+earn an editor option — and carries the `Snap to grid` item that
+right-clicking the empty canvas offers alongside the toolbar's checkbox.
+
+Inside the editor the grid is a **fallback, not a candidate**. On each
+axis, `snapDelta` runs its existing slide-centre / guide / element-edge
+contest first, and only where nothing won inside the 8-unit threshold
+does it quantize the bbox's left/top edge onto the lattice. Aligning to
+another object is the stronger intent, and a grid that outranked edges
+would make two shapes impossible to butt together unless their sizes
+happened to be multiples of the step. Resize goes through
+`quantizeResizeFrame` (`slides/view/editor/grid-snap.ts`), which rounds
+only the edges the dragged handle moves and leaves the anchor edge fixed.
+
+Unlike edge snapping, grid snapping has **no threshold** — it rounds. The
+nearest grid line is never more than half a step away, so reusing the
+8-unit band would leave the toggle inert whenever the step grew past it
+(at zoom 0.25 the step is 80 world units, so it would engage a fifth of
+the time). It emits no `SnapGuide` either: the painted grid is its own
+feedback, and a line drawn on every frame of every drag is noise.
+
+Escape hatches, in the order a user reaches for them: hold **Alt/Option**
+to suspend the grid for one gesture (Shift is already spent on axis lock
+and aspect); an equal-size smart-guide match or a Shift-held aspect
+resize suppresses it too, since both are more specific intents that
+rounding would break. Rotated elements grid-snap on move but not on
+resize — `frame.x/y/w/h` describe the pre-rotation box, so its edges are
+not the ones on screen and rounding them would align the shape to
+nothing.
 
 ### Data model & Yorkie store
 
