@@ -7,11 +7,19 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconPointer, IconLetterT, IconNote, IconPhoto } from "@tabler/icons-react";
+import {
+  IconPointer,
+  IconLetterT,
+  IconNote,
+  IconPhoto,
+  IconGrid3x3,
+} from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -29,6 +37,13 @@ import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS } from "./sticky";
+import { DEFAULT_GRID_KIND, type BoardGridKind } from "./board-grid";
+
+const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "dot", label: "Dot grid" },
+  { value: "line", label: "Line grid" },
+];
 
 export interface BoardToolbarProps {
   editor: SlidesEditor | null;
@@ -38,6 +53,13 @@ export interface BoardToolbarProps {
    */
   store?: SlidesStore | null;
   zoomController?: ZoomController | null;
+  /**
+   * Background grid mode. A view-local, per-user preference (not board
+   * state), so it is owned by `BoardView` and persisted to `localStorage`
+   * rather than living in the Yorkie document — see `board-grid.ts`.
+   */
+  gridKind?: BoardGridKind;
+  onGridKindChange?: (kind: BoardGridKind) => void;
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
@@ -49,7 +71,7 @@ export interface BoardToolbarProps {
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
  * ```
  *
  * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
@@ -73,6 +95,8 @@ export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
+  gridKind = DEFAULT_GRID_KIND,
+  onGridKindChange,
   disabled,
   onInsertSticky,
   onInsertImage,
@@ -132,6 +156,43 @@ export function BoardToolbar({
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <ZoomControl controller={zoomController} />
+
+      {/* Grid ▾ — the background grid mode, next to Zoom because both are
+          view controls that change nothing in the document. Deliberately
+          NOT gated on `disabled`/`editor`: it is a per-user view
+          preference, so it stays usable while the workspace is still
+          resolving and on a board the user cannot edit. */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2"
+                aria-label="Grid"
+              >
+                <IconGrid3x3 size={16} />
+                <span aria-hidden>▾</span>
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Grid</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start">
+          <DropdownMenuRadioGroup
+            value={gridKind}
+            onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
+          >
+            {GRID_OPTIONS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <ToolbarSeparator className="mx-1" />
       {/* Select — pressed when insertMode === null (Esc/default state).
           onClick rather than onPressedChange so a second click while
