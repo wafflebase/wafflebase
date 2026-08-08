@@ -213,7 +213,11 @@ relocate the first time anyone nudged one.
 
 The step is the **visible** grid — the same `gridStep(zoom)` the
 background is painted from — so the user always lands on a line they can
-see. Move and resize snap; connector endpoints and rotation do not.
+see. Move and resize **drags** snap. Connector endpoints, rotation, and
+the arrow-key nudge do not: the first two have no lattice to speak of,
+and nudge exists precisely to place something a fixed 1 / 10 units off
+whatever the surrounding geometry is — quantizing it would make the
+first arrow press jump instead of nudge.
 
 Two additive `SlidesEditorOptions` carry it, and a slides mount passes
 neither, so slides behavior is bit-identical:
@@ -235,9 +239,14 @@ contest first, and only where nothing won inside the 8-unit threshold
 does it quantize the bbox's left/top edge onto the lattice. Aligning to
 another object is the stronger intent, and a grid that outranked edges
 would make two shapes impossible to butt together unless their sizes
-happened to be multiples of the step. Resize goes through
-`quantizeResizeFrame` (`slides/view/editor/grid-snap.ts`), which rounds
-only the edges the dragged handle moves and leaves the anchor edge fixed.
+happened to be multiples of the step. Smart guides (equal spacing,
+equal distance) run *after* `snapDelta` and can pull an axis back off
+the lattice by up to 8 units — same rule, one layer further out.
+Resize goes through `quantizeResizeFrame`
+(`slides/view/editor/grid-snap.ts`), which rounds only the edges the
+dragged handle moves and leaves the anchor edge fixed; an equal-size
+match suppresses it **per axis**, so a width that happens to match a
+peer does not stop the height from finding the grid.
 
 Unlike edge snapping, grid snapping has **no threshold** — it rounds. The
 nearest grid line is never more than half a step away, so reusing the
@@ -246,14 +255,27 @@ nearest grid line is never more than half a step away, so reusing the
 the time). It emits no `SnapGuide` either: the painted grid is its own
 feedback, and a line drawn on every frame of every drag is noise.
 
-Escape hatches, in the order a user reaches for them: hold **Alt/Option**
-to suspend the grid for one gesture (Shift is already spent on axis lock
-and aspect); an equal-size smart-guide match or a Shift-held aspect
-resize suppresses it too, since both are more specific intents that
-rounding would break. Rotated elements grid-snap on move but not on
-resize — `frame.x/y/w/h` describe the pre-rotation box, so its edges are
-not the ones on screen and rounding them would align the shape to
-nothing.
+Escape hatches, in the order a user reaches for them: hold
+**Alt/Option** to suspend the grid — sampled per pointer frame, so
+releasing it mid-drag brings the grid straight back (Shift is already
+spent on axis lock and aspect); an equal-size smart-guide match or a
+Shift-held aspect resize suppresses it too, since both are more
+specific intents that rounding would break. Rotated elements grid-snap
+on move but not on resize — `frame.x/y/w/h` describe the pre-rotation
+box, so its edges are not the ones on screen and rounding them would
+align the shape to nothing.
+
+One gating rule is load-bearing rather than ergonomic: the grid does
+not engage until the gesture has travelled `SLOW_DOUBLE_CLICK_MAX_
+DISTANCE_PX` (3 px). Both `startDrag` and `startResize` arm on
+*pointerdown* with no movement threshold, because the release of a
+plain select-click must stay a no-op. Every other snap returns a zero
+correction for a zero-length delta and so passes that through; the grid
+does not — it quantizes — so without the gate a single stray
+`pointermove` inside a click would commit a batch, push an undo entry,
+and yank an off-grid element by up to half a step. On a Miro-imported
+board, where nothing is on the lattice to begin with, that would fire
+on essentially every click.
 
 ### Data model & Yorkie store
 

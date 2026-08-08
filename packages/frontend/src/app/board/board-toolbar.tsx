@@ -199,7 +199,16 @@ export function BoardToolbar({
                 // grid is on without opening the menu.
                 aria-label={`Grid: ${gridLabel}`}
               >
-                <IconGrid3x3 size={16} className={gridKind === "none" ? "opacity-50" : undefined} />
+                {/* Dimmed only when the grid does NOTHING. `None` + snap
+                    on is a supported combination, and a dimmed icon there
+                    would be the one always-visible affordance claiming a
+                    feature that is in fact active. */}
+                <IconGrid3x3
+                  size={16}
+                  className={
+                    gridKind === "none" && !gridSnap ? "opacity-50" : undefined
+                  }
+                />
                 <span aria-hidden>▾</span>
               </Button>
             </DropdownMenuTrigger>

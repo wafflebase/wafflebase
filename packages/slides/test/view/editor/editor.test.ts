@@ -3338,3 +3338,194 @@ describe('Editor snap to grid (host-supplied step)', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Editor snap to grid — gesture gating and multi-selection', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+  });
+
+  function addShape(
+    store: ReturnType<typeof makeFixture>['store'],
+    frame: { x: number; y: number; w: number; h: number },
+  ): string {
+    let id = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      id = store.addElement(sid, {
+        type: 'shape',
+        frame: { ...frame, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    return id;
+  }
+
+  it('a zero-delta pointermove inside a click leaves the element untouched', () => {
+    // Regression: unlike every other snap, the grid returns a NON-ZERO
+    // correction for a zero-length delta, so the `liveDx === 0 &&
+    // liveDy === 0` guard that keeps a select-click out of the undo
+    // history stops holding the moment a grid is configured. Browsers do
+    // emit same-position pointermove samples during a click.
+    const { canvas, overlay, store } = makeFixture();
+    addShape(store, { x: 137, y: 122, w: 200, h: 100 });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 200, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 200, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 200, clientY: 150, bubbles: true,
+    }));
+    const frame = store.read().slides[0].elements[0].frame;
+    expect(frame.x).toBe(137);
+    expect(frame.y).toBe(122);
+  });
+
+  it('a sub-threshold tremor moves by the raw delta, not to the lattice', () => {
+    // A 1-px twitch is still a 1-px move (pre-existing behaviour, shared
+    // with the no-grid path). What must NOT happen is the grid turning
+    // it into a jump of up to half a step — 10 units here, 40 at zoom
+    // 0.25 on a board whose imported elements are off-grid by
+    // construction.
+    const { canvas, overlay, store } = makeFixture();
+    addShape(store, { x: 137, y: 122, w: 200, h: 100 });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 200, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 201, clientY: 151, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 201, clientY: 151, bubbles: true,
+    }));
+    const frame = store.read().slides[0].elements[0].frame;
+    expect(frame.x).toBe(138);
+    expect(frame.y).toBe(123);
+  });
+
+  it('a sub-threshold tremor on a resize handle does not quantize the edge', () => {
+    // `startResize`'s onUp commits `live.worldFrame` unconditionally —
+    // there is no zero-delta guard to fall back on, so the gate is the
+    // only thing standing between a twitch and a snapped-away edge.
+    const { canvas, overlay, store } = makeFixture();
+    addShape(store, { x: 100, y: 100, w: 207, h: 100 });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const hx = parseFloat(eHandle.style.left) + 4;
+    const hy = parseFloat(eHandle.style.top) + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: hx + 1, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: hx + 1, clientY: hy, bubbles: true,
+    }));
+    // The raw 1 px lands (as it does with no grid at all); what must not
+    // happen is the right edge at 308 being pulled back to 300.
+    expect(store.read().slides[0].elements[0].frame.w).toBe(208);
+  });
+
+  it('quantizes a multi-selection resize and scales children off the snapped bbox', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const aId = addShape(store, { x: 100, y: 100, w: 100, h: 100 });
+    const bId = addShape(store, { x: 300, y: 100, w: 100, h: 100 });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    editor.setSelection([aId, bId]);
+    editor.render();
+    // Selection bbox spans x 100..400 (w = 300).
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const hx = parseFloat(eHandle.style.left) + 4;
+    const hy = parseFloat(eHandle.style.top) + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    // Right edge 400 + 47 = 447 → 440, so the bbox width becomes 340 and
+    // the scale factor is 340/300 rather than 347/300.
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: hx + 47, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: hx + 47, clientY: hy, bubbles: true,
+    }));
+    const elements = store.read().slides[0].elements;
+    const a = elements.find((el) => el.id === aId)!;
+    const b = elements.find((el) => el.id === bId)!;
+    const sx = 340 / 300;
+    // Anchor edge (the bbox left at 100) holds; children scale about it.
+    expect(a.frame.x).toBeCloseTo(100, 3);
+    expect(a.frame.w).toBeCloseTo(100 * sx, 3);
+    expect(b.frame.x + b.frame.w).toBeCloseTo(440, 3);
+    // The unmoved axis is untouched — 'e' moves no horizontal edge's
+    // vertical counterpart.
+    expect(a.frame.y).toBeCloseTo(100, 3);
+    expect(a.frame.h).toBeCloseTo(100, 3);
+  });
+
+  it('lets an equal-size match hold one axis while the grid still takes the other', () => {
+    // `matchSize` emits per-axis guides, so a width that happens to
+    // match a peer must not also stop the height from finding the grid.
+    const { canvas, overlay, store } = makeFixture();
+    const target = addShape(store, { x: 100, y: 100, w: 200, h: 107 });
+    // Peer 500 units away with a width of 247 — inside matchSize's
+    // 8-unit band once the drag stretches the target to ~250, and NOT a
+    // multiple of 20, so "the match held" and "the grid won" differ.
+    addShape(store, { x: 900, y: 600, w: 247, h: 33 });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    editor.setSelection([target]);
+    editor.render();
+    const seHandle = overlay.querySelector<HTMLDivElement>('[data-handle="se"]')!;
+    const hx = parseFloat(seHandle.style.left) + 4;
+    const hy = parseFloat(seHandle.style.top) + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    // +50 wide → 250, which matchSize pulls to the peer's 247.
+    // +6 tall → bottom 213, which the grid rounds to 220.
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: hx + 50, clientY: hy + 6, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: hx + 50, clientY: hy + 6, bubbles: true,
+    }));
+    const frame = store.read().slides[0].elements.find((el) => el.id === target)!.frame;
+    expect(frame.w).toBe(247);
+    expect(frame.y + frame.h).toBe(220);
+  });
+});

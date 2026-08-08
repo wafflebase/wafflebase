@@ -5234,7 +5234,11 @@ class SlidesEditorImpl implements SlidesEditor {
         otherFrames,
         { w: SLIDE_WIDTH, h: deckSlideHeight(doc.meta) },
         doc.guides,
-        this.activeSnapGrid(ev),
+        // `peakRawClientDist` is already the gesture's "was this a drag
+        // or a click" measure (it gates slow-double-click entry below),
+        // so the grid reuses it rather than inventing a second threshold
+        // that could disagree with it.
+        this.activeSnapGrid(ev, peakRawClientDist >= SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX),
       );
       const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
       // Re-lock after snap + smart-guides: both evaluations run independently
@@ -6272,43 +6276,71 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   /**
-   * The grid step in force for this gesture frame, or `null` for no grid
-   * snapping. Reads the host's live setting (`getSnapGrid`) unless Alt is
-   * held, the Miro/Figma convention for "let me place this freely just
-   * this once". Shift is not available for it — the drag paths already
-   * spend it on axis lock and aspect preservation.
-   *
-   * A non-finite or non-positive step is treated as "off" rather than
-   * propagated: the board derives it from zoom, and a corrupted viewport
-   * must not turn every drag into a `NaN` frame write.
-   */
-  /**
    * `frame` with the handle's moving edges rounded onto the host's grid,
-   * or unchanged when the grid does not apply to this frame.
+   * or unchanged where the grid does not apply.
    *
-   * Three ways out, all of them cases where rounding would fight an
-   * intent the user has already expressed more specifically:
+   * `matchedAxes` reports which axes an equal-size smart guide claimed:
+   * the user is matching a peer's exact dimensions there, and rounding
+   * would break the match the dashed outline is at that moment
+   * promising. It is consulted PER AXIS, like every other snap decision
+   * — a width that happens to match a peer must not also stop the height
+   * from finding the grid.
    *
-   * - `matchedSize` — an equal-size smart guide won, so the user is
-   *   matching a peer's exact dimensions. Rounding would break the match
-   *   the dashed outline is at that moment promising.
-   * - Shift — "preserve aspect". Rounding one edge changes the ratio.
-   * - Alt / grid off — handled by {@link activeSnapGrid}.
+   * Shift bows out wholesale instead: it means "preserve aspect", and
+   * rounding either edge changes the ratio. Alt, an absent host grid,
+   * and a gesture that has not moved yet are handled by
+   * {@link activeSnapGrid}.
    */
   private gridSizedFrame(
     frame: Frame,
     handle: ResizeHandle,
     ev: { altKey: boolean; shiftKey: boolean },
-    matchedSize: boolean,
+    moved: boolean,
+    matchedAxes: readonly ('x' | 'y')[],
   ): Frame {
-    if (matchedSize || ev.shiftKey) return frame;
-    const step = this.activeSnapGrid(ev);
+    if (ev.shiftKey) return frame;
+    const step = this.activeSnapGrid(ev, moved);
     if (step === null) return frame;
-    return quantizeResizeFrame(frame, handle, step);
+    const quantized = quantizeResizeFrame(frame, handle, step);
+    // `quantizeResizeFrame` touches x/w on the horizontal axis and y/h on
+    // the vertical one, so restoring a claimed axis is exactly a restore
+    // of that pair.
+    return {
+      ...quantized,
+      ...(matchedAxes.includes('x') ? { x: frame.x, w: frame.w } : {}),
+      ...(matchedAxes.includes('y') ? { y: frame.y, h: frame.h } : {}),
+    };
   }
 
-  private activeSnapGrid(ev: { altKey: boolean }): number | null {
-    if (ev.altKey) return null;
+  /**
+   * The grid step in force for this gesture frame, or `null` for no grid
+   * snapping. Reads the host's live setting (`getSnapGrid`).
+   *
+   * Two ways it comes back `null` even with a grid configured:
+   *
+   * - **Alt is held** — the Miro/Figma convention for "let me place this
+   *   freely just this once". Sampled per frame, so releasing Alt
+   *   mid-drag brings the grid straight back. Shift is not available for
+   *   the job; the drag paths already spend it on axis lock and aspect
+   *   preservation.
+   * - **`moved` is false** — the gesture has not travelled far enough to
+   *   be a drag. Both `startDrag` and `startResize` arm on *pointerdown*
+   *   with no movement threshold, because the release of a plain
+   *   select-click must stay a no-op (Google Slides parity). Quantizing
+   *   would break that contract in the one way the existing guards
+   *   cannot catch: unlike every other snap, the grid returns a NON-ZERO
+   *   correction for a zero-length delta, so a single stray
+   *   `pointermove` inside a click would commit a batch, push an undo
+   *   entry, and yank an off-grid element by up to half a step (40 world
+   *   units at zoom 0.25). A board imported from Miro is off-grid by
+   *   construction, so that would fire on more or less every click.
+   *
+   * A non-finite or non-positive step is treated as "off" rather than
+   * propagated: the board derives it from zoom, and a corrupted viewport
+   * must not turn every drag into a `NaN` frame write.
+   */
+  private activeSnapGrid(ev: { altKey: boolean }, moved: boolean): number | null {
+    if (ev.altKey || !moved) return null;
     const step = this.options.getSnapGrid?.() ?? null;
     if (step === null || !Number.isFinite(step) || step <= 0) return null;
     return step;
@@ -6372,7 +6404,14 @@ class SlidesEditorImpl implements SlidesEditor {
     );
 
     const isTable = startEl.type === 'table';
+    // Peak client-px travel, the same "drag or click" measure the move
+    // gesture keeps. `onUp` commits `live.worldFrame` unconditionally, so
+    // without this a twitch on a handle would let the grid quantize an
+    // edge and permanently resize the element — see `activeSnapGrid`.
+    let peakClientDist = 0;
     const onMove = (ev: MouseEvent) => {
+      const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
+      if (dist > peakClientDist) peakClientDist = dist;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6386,7 +6425,8 @@ class SlidesEditorImpl implements SlidesEditor {
         { ...raw, x: matched.x, y: matched.y, w: matched.w, h: matched.h },
         handle,
         ev,
-        matched.guides.length > 0,
+        peakClientDist >= SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
+        matched.guides.map((g) => g.axis),
       );
       if (isTable) {
         // Deferred-resize: the committed table stays painted on the
@@ -6526,7 +6566,12 @@ class SlidesEditorImpl implements SlidesEditor {
       } as MultiResizeResult,
     };
 
+    // See the single-resize path: the grid must not engage until the
+    // gesture is a drag rather than a click.
+    let peakClientDist = 0;
     const onMove = (ev: MouseEvent): void => {
+      const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
+      if (dist > peakClientDist) peakClientDist = dist;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6556,7 +6601,13 @@ class SlidesEditorImpl implements SlidesEditor {
           x: matched.x, y: matched.y, w: matched.w, h: matched.h,
         };
       }
-      bbox = this.gridSizedFrame(bbox, handle, ev, guides.length > 0);
+      bbox = this.gridSizedFrame(
+        bbox,
+        handle,
+        ev,
+        peakClientDist >= SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
+        guides.map((g) => g.axis),
+      );
       if (
         bbox.w !== raw.newBbox.w ||
         bbox.h !== raw.newBbox.h ||

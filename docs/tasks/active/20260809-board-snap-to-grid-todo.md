@@ -94,12 +94,64 @@ Rejected alternatives:
 
 ## Known limitations
 
-- With snap on, nudging an off-grid element (a Miro import routinely is)
-  by one pixel relocates it by up to `step / 2`. That is what snapping
-  means, but it is the surprising edge of it.
 - A position taken while zoomed out can look off against the finer grid
   drawn when zoomed in. The 1-2-5 ladder makes the coarse steps multiples
   of the fine ones in most, not all, transitions (5 → 2 is not).
 - Rotated elements do not grid-snap on resize (see above). They still
   grid-snap on move, where the frame's x/y is the axis-aligned position
   the user drags.
+- The arrow-key nudge does not grid-snap. Miro steps by one cell there;
+  we keep nudge as the fixed 1 / 10-unit escape from whatever the
+  surrounding geometry is, so the first press does not jump.
+- `startResize`'s `onUp` commits unconditionally, so clicking a handle
+  and releasing pushes an undo entry that writes the frame back
+  unchanged. Pre-existing (`startMultiResize` has the guard,
+  `startResize` never did) and untouched here — the grid's movement gate
+  means the entry is a no-op in value, as it was before.
+
+## Review
+
+All tasks above done except the browser smoke; `pnpm verify:fast` green
+(exit 0).
+
+**Code review** (dispatched over the full branch diff)
+
+No Critical findings. The reviewer traced the `startMultiResize`
+refactor branch by branch and confirmed it preserves existing behavior,
+verified the lattice matches what `gridBackgroundStyle` paints (including
+the negative half-plane), and confirmed the trailing `snapDelta`
+parameter breaks no caller.
+
+Applied:
+
+- **The movement gate.** The blocker: `startDrag` / `startResize` arm on
+  pointerdown with no threshold, and the grid — alone among the snaps —
+  returns a non-zero correction for a zero-length delta, so a stray
+  `pointermove` inside a select-click committed a batch and moved an
+  off-grid element by up to half a step. `activeSnapGrid` now takes a
+  `moved` flag, fed from `peakRawClientDist` (drag) and a new
+  `peakClientDist` (both resize paths) against the existing
+  `SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX`, so the two click-classification
+  rules cannot disagree.
+- **Per-axis equal-size suppression.** `matchSize` emits per-axis
+  guides, but `gridSizedFrame` took a single boolean — a matched width
+  disabled grid snapping on the height too. It now takes the matched
+  axes and restores only those.
+- Tests for all three untested paths the reviewer named: multi-selection
+  resize (the branch this change restructured), the click/tremor gate on
+  both move and resize, and per-axis suppression.
+- Toolbar icon no longer dims on `None` when snap is on — that
+  combination is supported, and the icon was the one always-visible
+  affordance claiming the grid was inert.
+- Doc corrections: smart guides can pull an axis back off the lattice
+  (they run after `snapDelta`); Alt is sampled per frame, not per
+  gesture; the arrow-key nudge is an explicit exclusion; the gate itself
+  is documented.
+- Moved the `activeSnapGrid` docblock back onto `activeSnapGrid` — it
+  had ended up stacked above `gridSizedFrame`'s.
+
+Not applied:
+
+- **A no-op guard on `startResize`'s `onUp`.** Real (clicking a handle
+  pushes an empty undo entry) but pre-existing and unrelated to the
+  grid; recorded above instead of widening this change.
