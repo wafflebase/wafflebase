@@ -18,7 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| board grid (2026-08-08) | [20260808-board-grid-todo.md](./active/20260808-board-grid-todo.md) | - |
+| board grid (2026-08-08) | [20260808-board-grid-todo.md](./active/20260808-board-grid-todo.md) | [20260808-board-grid-lessons.md](./active/20260808-board-grid-lessons.md) |
 | board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./active/20260807-board-miro-parent-relative-position-todo.md) | - |
 | coderabbit parser widening (2026-08-07) | [20260807-coderabbit-parser-widening-todo.md](./active/20260807-coderabbit-parser-widening-todo.md) | - |
 | eval finding record (2026-08-07) | [20260807-eval-finding-record-todo.md](./active/20260807-eval-finding-record-todo.md) | - |

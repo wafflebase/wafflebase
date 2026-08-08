@@ -90,4 +90,41 @@ Why this over painting into the canvas:
 
 ## Review
 
-(filled in after implementation)
+All tasks above are done and `pnpm verify:fast` is green (exit 0).
+
+**Shipped**
+
+- `app/board/board-grid.ts` — `gridStep` ladder, `gridBackgroundStyle`,
+  `applyGridBackground`, `localStorage` load/save. 13 unit tests.
+- `board-view.tsx` — four `setViewport` call sites folded into
+  `commitViewport`; grid applied there, on mount, and on mode/theme change.
+- `board-toolbar.tsx` — `Grid ▾` radio dropdown beside Zoom.
+- `docs/design/board/board.md` — "Background grid" subsection.
+
+**Verified**
+
+- `pnpm verify:fast` — exit 0 (frontend 138 files / 1099 tests, all lanes).
+- Rendering: the shipped `gridBackgroundStyle` output driven into a real
+  browser across six cases — dot at zoom 1 / 0.25-panned / 4, line with
+  majors at zoom 1, line at zoom 0.5 with a ~100k-unit pan, and line in
+  dark. All render as intended; the far pan does not disturb the tiling.
+
+**Not verified**
+
+- In-app behavior (toolbar toggle, pan/zoom tracking, live theme switch,
+  minimap staying grid-free). The local stack has no dev auth bypass, so
+  the automation browser cannot open a board. Needs a manual pass:
+  1. Open a board → dot grid visible.
+  2. `Grid ▾` → Line → majors every 5 cells; → None → clears.
+  3. Ctrl/⌘+wheel zoom out → density steps up rather than collapsing.
+  4. Space+drag pan → grid tracks the content, no drift.
+  5. Toggle dark mode → grid ink inverts without a remount.
+  6. Minimap shows no grid.
+  7. Reload → the chosen mode persists.
+
+**One behavior worth a second opinion:** the step is floored at 20 world
+units, so zooming IN past 1× grows cells on screen (80 px at 4×) instead
+of subdividing. That is how a fixed world-space grid behaves in Miro and
+Figma, and it is what makes the grid a distance reference — but if it
+reads as too sparse when zoomed in, the fix is a second, finer ladder rung
+below the floor.
