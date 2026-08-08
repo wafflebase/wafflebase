@@ -62,6 +62,10 @@ should stay as-is.
 - Writing edited cells back to the source file (export is a separate roadmap
   item).
 - Schema mapping UI / transforms beyond header + type inference (later).
+- Recursively expanding nested JSON objects/arrays into additional columns.
+  Client import keeps the table one level deep and stores nested values as
+  compact JSON strings; an interactive Power Query-style expand step is later
+  work.
 
 ## Proposal Details
 

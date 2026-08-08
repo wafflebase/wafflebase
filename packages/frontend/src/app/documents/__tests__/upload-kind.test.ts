@@ -4,10 +4,14 @@ import { classifyUploadKind } from "@/app/documents/upload-kind";
 describe("classifyUploadKind", () => {
   it("maps supported extensions case-insensitively", () => {
     expect(classifyUploadKind("Budget.XLSX")).toBe("sheet");
+    expect(classifyUploadKind("records.JSON")).toBe("sheet");
+    expect(classifyUploadKind("events.jsonl")).toBe("sheet");
+    expect(classifyUploadKind("logs.NDJSON")).toBe("sheet");
     expect(classifyUploadKind("notes.docx")).toBe("doc");
     expect(classifyUploadKind("deck.pptx")).toBe("slides");
     expect(classifyUploadKind("report.pdf")).toBe("pdf");
   });
+
   it("maps image extensions to image", () => {
     expect(classifyUploadKind("photo.png")).toBe("image");
     expect(classifyUploadKind("pic.JPG")).toBe("image");

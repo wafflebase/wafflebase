@@ -1,5 +1,6 @@
-import { CellStyle, NumberFormat, TextAlign } from '../core/types';
-import { ErrValues } from '../../formula/formula';
+import { Cell, CellStyle, NumberFormat, TextAlign } from '../core/types';
+import { ErrValues, normalizeFormulaOnCommit } from '../../formula/formula';
+import { compactCell } from './style-mutation';
 
 const CurrencySymbolToCode = {
   '$': 'USD',
@@ -337,6 +338,40 @@ export function applyInferredFormat(
   }
 
   return existing ? { ...existing } : undefined;
+}
+
+/**
+ * Converts user-facing input text into the canonical persisted cell shape.
+ */
+export function cellFromInput(
+  input: string,
+  existingStyle?: CellStyle,
+  options?: InferInputOptions,
+): Cell {
+  const inferred = inferInput(input, options);
+  const style = applyInferredFormat(existingStyle, inferred);
+
+  if (inferred.type === 'formula') {
+    return compactCell(
+      { f: normalizeFormulaOnCommit(`=${inferred.value}`) },
+      style,
+    );
+  }
+
+  let value: string;
+  switch (inferred.type) {
+    case 'number':
+      value = inferred.value.toString();
+      break;
+    case 'boolean':
+      value = inferred.value ? 'TRUE' : 'FALSE';
+      break;
+    case 'date':
+    case 'text':
+      value = inferred.value;
+      break;
+  }
+  return compactCell({ v: value }, style);
 }
 
 /**
