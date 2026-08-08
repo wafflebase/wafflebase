@@ -157,6 +157,55 @@ current paint behavior; board enables it.
 zoom (⌘/ctrl+wheel, pinch) about the cursor, and a zoom clamp. Zoom-to-fit-all
 and minimap are deferred.
 
+### Background grid
+
+The board paints a Miro-style background grid so a user can tell where
+they are on an unbounded plane, completing the set of orientation
+affordances alongside the minimap (SP2) and the zoom readout (SP4).
+
+It is a **CSS background on the canvas host**, not canvas paint.
+Board-mode `drawSlide` only `clearRect`s — it deliberately paints no
+slide-rect background (see the viewport seam above) — so the canvas is
+already transparent and the host container's background shows through
+under every element. Consequences:
+
+- `@wafflebase/slides` is untouched: no renderer option, no editor option.
+- Near-zero per-frame cost: four inline-style writes, against a canvas
+  grid's full-viewport re-stroke every RAF tick. The compositor owns the
+  painting.
+- The grid cannot enter the minimap's rendered content, which snapshots
+  through the same `drawSlide`. (The minimap PANEL is translucent, so the
+  grid does composite faintly behind it — a chrome question, not a
+  rendering one.)
+
+`app/board/board-grid.ts` is the whole of it: a `gridStep(zoom)` ladder
+(1-2-5 × 10^k, floored at 20 world units) that holds on-screen spacing in
+`[20, 50)` px while zooming OUT — zooming in past 1× the floor takes over
+and cells grow on screen instead (160 px at 8×), because the grid is a
+fixed world-space distance reference — and `gridBackgroundStyle()`
+mapping a `Viewport` to the `backgroundImage` / `backgroundSize` /
+`backgroundPosition` triple — dot mode as one tile-centred
+`radial-gradient` shifted half a cell onto the intersections, line mode as
+four `linear-gradient` layers with majors every 5 cells painted over
+minors. Offsets are wrapped into `[0, size)`, since a CSS background
+repeats per tile and a Miro-imported board sits far from the world origin.
+
+Mode (`none` / `dot` / `line`, default `dot`) is a **per-user view
+preference in `localStorage`, not board state** — Miro models it the same
+way, and one collaborator toggling a grid must not change anyone else's
+view. The control is a `Grid ▾` dropdown next to Zoom in the board
+toolbar; a read-only share-link visitor gets the grid but no toggle,
+because `BoardView` hides the toolbar wholesale for viewers.
+
+This also made `commitViewport` in `board-view.tsx` the single chokepoint
+for pan/zoom: minimap-navigate, wheel, and space/middle-drag each used to
+repeat the same `setViewport` + `repaintViewport` pair inline.
+
+**Snap to grid is deliberately not part of this.** Miro keeps it a
+separate toggle too. It extends `snapDelta` (`slides/view/editor/snap.ts`)
+with grid candidates and carries a drag / resize / connector regression
+surface that display alone does not.
+
 ### Data model & Yorkie store
 
 Board reuses slides' `Element` union and `YorkieElement` verbatim. It drops the
