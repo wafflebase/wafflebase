@@ -20,10 +20,14 @@ const STORAGE_KEY = "wafflebase.board.grid";
 const MIN_STEP = 20;
 
 /**
- * Minimum on-screen spacing (CSS px) between adjacent lines/dots. The
- * 1-2-5 ladder in {@link gridStep} keeps the real spacing inside
- * `[20, 50)` px — dense enough to judge position, sparse enough not to
- * turn into a grey wash.
+ * Minimum on-screen spacing (CSS px) between adjacent lines/dots.
+ *
+ * While zooming OUT the 1-2-5 ladder in {@link gridStep} keeps real
+ * spacing inside `[20, 50)` px — dense enough to judge position, sparse
+ * enough not to turn into a grey wash. Zooming IN past 1× the
+ * {@link MIN_STEP} floor takes over instead and cells simply grow on
+ * screen (160 px at 8×): the grid is a fixed WORLD-space reference, so
+ * one cell must always mean the same distance.
  */
 const MIN_SCREEN_STEP = 20;
 
@@ -50,13 +54,14 @@ const COLORS = {
  *
  * Walks a 1-2-5 × 10^k ladder and returns the smallest step whose
  * on-screen spacing is at least {@link MIN_SCREEN_STEP}, floored at
- * {@link MIN_STEP}. Without this the grid would either vanish when zoomed
- * in or moiré into a solid block when zoomed out — a fixed step only looks
- * right at one scale, and a board spans the whole zoom range (0.1–8).
+ * {@link MIN_STEP}. Without this the grid would moiré into a solid block
+ * as the board is zoomed out — a fixed step only looks right at one
+ * scale, and a board spans the whole zoom range (0.1–8).
  *
- * Defensive against a non-finite or non-positive `zoom` (returns the floor)
- * so a corrupted viewport can never produce a `NaN` background-size that
- * silently blanks the grid.
+ * Returns the floor for a non-finite or non-positive `zoom` rather than
+ * propagating it. That alone does NOT keep the derived tile size finite
+ * (the caller multiplies by `zoom` again) — {@link gridBackgroundStyle}
+ * owns that guard.
  */
 export function gridStep(zoom: number): number {
   const target = MIN_SCREEN_STEP / zoom;
@@ -105,7 +110,11 @@ export function gridBackgroundStyle(
 
   const colors = COLORS[theme];
   const { panX, panY, zoom } = viewport;
-  const size = gridStep(zoom) * zoom;
+  // `gridStep` already absorbs a corrupted zoom, but the multiplication
+  // reintroduces it — `NaN` would emit `"NaNpx"` and `0` a tile the
+  // browser never paints, either of which blanks the grid silently.
+  const rawSize = gridStep(zoom) * zoom;
+  const size = Number.isFinite(rawSize) && rawSize > 0 ? rawSize : MIN_STEP;
 
   if (kind === "dot") {
     // `radial-gradient` centres its circle in each tile, so shift the
@@ -153,6 +162,14 @@ export function gridBackgroundStyle(
  * Write (or clear) the grid background on the canvas host. Separated from
  * {@link gridBackgroundStyle} so the mapping stays a pure function the
  * tests can drive without a DOM.
+ *
+ * Runs on every pan/zoom frame and writes all four properties every time,
+ * including the `backgroundImage` gradient list that a pan does not
+ * change. Skipping the unchanged ones would mean either diffing against
+ * `host.style` — which returns the CSSOM's RE-SERIALIZED value, not the
+ * string that was written, so the comparison silently never matches — or
+ * carrying per-element cache state. Four inline-style writes per frame is
+ * far below the RAF loop's own canvas repaint; it is not worth either.
  */
 export function applyGridBackground(
   host: HTMLElement,
@@ -164,6 +181,10 @@ export function applyGridBackground(
   host.style.backgroundImage = style?.backgroundImage ?? "";
   host.style.backgroundSize = style?.backgroundSize ?? "";
   host.style.backgroundPosition = style?.backgroundPosition ?? "";
+  // Explicit rather than inherited: the tiling is what makes one gradient
+  // a grid, so this module owns it instead of relying on nothing else
+  // ever setting `background-repeat` on the host.
+  host.style.backgroundRepeat = style ? "repeat" : "";
 }
 
 function isGridKind(value: unknown): value is BoardGridKind {

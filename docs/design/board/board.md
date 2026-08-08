@@ -170,14 +170,19 @@ already transparent and the host container's background shows through
 under every element. Consequences:
 
 - `@wafflebase/slides` is untouched: no renderer option, no editor option.
-- No per-frame cost. A canvas grid would re-stroke the full viewport every
-  RAF tick; the compositor owns a CSS background.
-- The grid cannot leak into the minimap, which snapshots through the same
-  `drawSlide`.
+- Near-zero per-frame cost: four inline-style writes, against a canvas
+  grid's full-viewport re-stroke every RAF tick. The compositor owns the
+  painting.
+- The grid cannot enter the minimap's rendered content, which snapshots
+  through the same `drawSlide`. (The minimap PANEL is translucent, so the
+  grid does composite faintly behind it — a chrome question, not a
+  rendering one.)
 
 `app/board/board-grid.ts` is the whole of it: a `gridStep(zoom)` ladder
-(1-2-5 × 10^k, floored at 20 world units) that keeps on-screen spacing in
-`[20, 50)` px across the 0.1–8 zoom range, and `gridBackgroundStyle()`
+(1-2-5 × 10^k, floored at 20 world units) that holds on-screen spacing in
+`[20, 50)` px while zooming OUT — zooming in past 1× the floor takes over
+and cells grow on screen instead (160 px at 8×), because the grid is a
+fixed world-space distance reference — and `gridBackgroundStyle()`
 mapping a `Viewport` to the `backgroundImage` / `backgroundSize` /
 `backgroundPosition` triple — dot mode as one tile-centred
 `radial-gradient` shifted half a cell onto the intersections, line mode as

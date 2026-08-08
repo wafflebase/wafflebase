@@ -109,22 +109,51 @@ All tasks above are done and `pnpm verify:fast` is green (exit 0).
   majors at zoom 1, line at zoom 0.5 with a ~100k-unit pan, and line in
   dark. All render as intended; the far pan does not disturb the tiling.
 
-**Not verified**
-
-- In-app behavior (toolbar toggle, pan/zoom tracking, live theme switch,
-  minimap staying grid-free). The local stack has no dev auth bypass, so
-  the automation browser cannot open a board. Needs a manual pass:
+- In-app behavior: manual smoke run by the author and passed. The local
+  stack has no dev auth bypass, so the automation browser could not open a
+  board — this step is not automatable as things stand. Steps covered:
   1. Open a board → dot grid visible.
   2. `Grid ▾` → Line → majors every 5 cells; → None → clears.
   3. Ctrl/⌘+wheel zoom out → density steps up rather than collapsing.
   4. Space+drag pan → grid tracks the content, no drift.
   5. Toggle dark mode → grid ink inverts without a remount.
-  6. Minimap shows no grid.
+  6. Minimap content free of grid.
   7. Reload → the chosen mode persists.
 
-**One behavior worth a second opinion:** the step is floored at 20 world
-units, so zooming IN past 1× grows cells on screen (80 px at 4×) instead
-of subdividing. That is how a fixed world-space grid behaves in Miro and
-Figma, and it is what makes the grid a distance reference — but if it
-reads as too sparse when zoomed in, the fix is a second, finer ladder rung
-below the floor.
+## Code review
+
+Reviewed over the full branch diff. No Critical findings; the reviewer
+independently confirmed the transparent-canvas premise, the dot half-cell
+offset, the line-layer index matching, the four rewritten `setViewport`
+sites, and that skipping a grid reset in the mount-effect cleanup is
+correct rather than a leak.
+
+Applied: corrected the `[20, 50)` px spacing claim (false above 1×, and
+the shipped test already said so) in both `board.md` and the source
+comment; moved the degenerate-size guard into `gridBackgroundStyle`, where
+the claim is actually made; set `background-repeat` explicitly instead of
+relying on the initial value; made the toolbar's grid props required so a
+controlled-but-inert dropdown is unrepresentable; spoke the current mode
+in the trigger's `aria-label` and dimmed the icon on `none`; commented the
+`commitViewport` forward reference; added tests for line-layer offset
+pairing, `applyGridBackground` including the `none` clear path, and
+throwing storage, plus a `beforeEach` clear so the persistence cases stop
+depending on each other.
+
+Not applied, with reasons:
+
+- **Skip unchanged style writes on a pan frame.** Attempted, reverted. The
+  only stateless way to diff is against `host.style`, which returns the
+  CSSOM's re-serialized value rather than the string written — the
+  comparison never matches, so it rewrote everything anyway (a test caught
+  this). The alternative is per-element cache state, which is not worth it
+  against the RAF loop's own canvas repaint. The overstated "no per-frame
+  cost" claim was corrected instead.
+- **Ref assigned during render** (`gridKindRef.current = gridKind`). Left
+  as is, on the reviewer's own reasoning: it mirrors the pre-existing
+  `resolvedThemeRef` two lines above, and consistency beats a lone
+  divergence here.
+- **The 20-unit floor** stays. Zooming in grows cells (160 px at 8×)
+  rather than subdividing, which is how Miro and Figma behave and is what
+  makes a cell mean a fixed distance. A finer rung below the floor would
+  turn it into a pixel grid — a different feature.

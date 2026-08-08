@@ -285,6 +285,10 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       store,
       dpr,
       getHostSize: () => ({ w: hostW, h: hostH }),
+      // Forward reference to `commitViewport`, declared below: the
+      // dependency is circular (it repaints this minimap), so one side has
+      // to be deferred. Safe past the TDZ because `createBoardMinimap`
+      // only stores the callback — it fires on a click, long after mount.
       onNavigate: (worldCenter) => {
         commitViewport(
           centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH }),

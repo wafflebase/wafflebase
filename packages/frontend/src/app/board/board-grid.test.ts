@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_VIEWPORT, type Viewport } from "@wafflebase/board";
 import {
+  applyGridBackground,
   DEFAULT_GRID_KIND,
   gridBackgroundStyle,
   gridStep,
@@ -118,6 +119,24 @@ describe("gridBackgroundStyle", () => {
     expect(images[1]).toContain("to bottom");
   });
 
+  it("pairs each line layer with ITS OWN offset, majors on major tiles", () => {
+    // The single highest-value assertion in the file: the four
+    // `background-position` entries are matched to the four
+    // `background-image` layers BY INDEX, so transposing the major and
+    // minor pairs would misalign every major line against its own minors
+    // on screen while leaving the layer count, sizes and directions —
+    // everything else asserted here — untouched.
+    // size 20, major 100: x = 30 mod 20 = 10, y = -7 mod 20 = 13,
+    // majorX = 30 mod 100 = 30, majorY = -7 mod 100 = 93.
+    const style = gridBackgroundStyle("line", { panX: 30, panY: -7, zoom: 1 }, "light")!;
+    expect(layers(style.backgroundPosition)).toEqual([
+      "30px 93px",
+      "30px 93px",
+      "10px 13px",
+      "10px 13px",
+    ]);
+  });
+
   it("uses light-on-dark ink in the dark theme", () => {
     const light = gridBackgroundStyle("dot", DEFAULT_VIEWPORT, "light")!;
     const dark = gridBackgroundStyle("dot", DEFAULT_VIEWPORT, "dark")!;
@@ -126,7 +145,43 @@ describe("gridBackgroundStyle", () => {
   });
 });
 
+describe("applyGridBackground", () => {
+  it("writes the mapped style onto the host", () => {
+    const host = document.createElement("div");
+    applyGridBackground(host, "dot", DEFAULT_VIEWPORT, "light");
+    expect(host.style.backgroundImage).toContain("radial-gradient");
+    expect(host.style.backgroundSize).toBe("20px 20px");
+    expect(host.style.backgroundRepeat).toBe("repeat");
+  });
+
+  it("clears every property it owns on 'none'", () => {
+    // The path behind the toolbar's "None" option: switching away from a
+    // painted grid has to leave no residue of it behind.
+    const host = document.createElement("div");
+    applyGridBackground(host, "line", DEFAULT_VIEWPORT, "light");
+    applyGridBackground(host, "none", DEFAULT_VIEWPORT, "light");
+    expect(host.style.backgroundImage).toBe("");
+    expect(host.style.backgroundSize).toBe("");
+    expect(host.style.backgroundPosition).toBe("");
+    expect(host.style.backgroundRepeat).toBe("");
+  });
+
+  it("tracks a pan without rebuilding the tile", () => {
+    const host = document.createElement("div");
+    applyGridBackground(host, "line", { panX: 0, panY: 0, zoom: 1 }, "light");
+    const size = host.style.backgroundSize;
+    applyGridBackground(host, "line", { panX: 7, panY: 3, zoom: 1 }, "light");
+    expect(host.style.backgroundPosition).toContain("7px");
+    expect(host.style.backgroundSize).toBe(size);
+  });
+});
+
 describe("grid kind persistence", () => {
+  beforeEach(() => {
+    // Otherwise these cases depend on each other's leftovers by luck.
+    localStorage.clear();
+  });
+
   it("round-trips through localStorage", () => {
     saveGridKind("line");
     expect(loadGridKind()).toBe("line");
@@ -135,9 +190,20 @@ describe("grid kind persistence", () => {
   });
 
   it("falls back to the default for a missing or corrupted value", () => {
-    localStorage.removeItem("wafflebase.board.grid");
     expect(loadGridKind()).toBe(DEFAULT_GRID_KIND);
     localStorage.setItem("wafflebase.board.grid", "hexagons");
     expect(loadGridKind()).toBe(DEFAULT_GRID_KIND);
+  });
+
+  it("survives storage that throws (private mode, blocked cookies)", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    expect(loadGridKind()).toBe(DEFAULT_GRID_KIND);
+    expect(() => saveGridKind("line")).not.toThrow();
+    vi.restoreAllMocks();
   });
 });

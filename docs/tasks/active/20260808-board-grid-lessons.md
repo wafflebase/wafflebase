@@ -39,6 +39,17 @@ packages cleared both. Before reporting or fixing a failure in a package
 you did not touch, confirm it reproduces from a current install and a
 fresh build — otherwise you debug your own environment.
 
+## An optimization you cannot verify is not an optimization
+
+Review suggested skipping unchanged style writes on a pan frame. The
+stateless implementation — compare against `host.style.backgroundImage`
+before assigning — looks obviously right and is silently useless: the
+CSSOM returns its own re-serialization, not the string you wrote, so the
+comparison never matches. The test written to prove the optimization was
+what disproved it. Write the assertion that the optimization actually
+fired, not just that the output is still correct; otherwise dead
+cleverness ships looking like a win.
+
 ## Know what the smoke actually covered
 
 The local stack has no dev auth bypass, so the automation browser could

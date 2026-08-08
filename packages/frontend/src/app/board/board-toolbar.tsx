@@ -37,7 +37,7 @@ import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS } from "./sticky";
-import { DEFAULT_GRID_KIND, type BoardGridKind } from "./board-grid";
+import { type BoardGridKind } from "./board-grid";
 
 const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
   { value: "none", label: "None" },
@@ -57,9 +57,13 @@ export interface BoardToolbarProps {
    * Background grid mode. A view-local, per-user preference (not board
    * state), so it is owned by `BoardView` and persisted to `localStorage`
    * rather than living in the Yorkie document — see `board-grid.ts`.
+   *
+   * Required, unlike the optional props above: the dropdown is fully
+   * controlled, so a consumer that omitted these would render a menu that
+   * shows a selected mode and silently ignores every click.
    */
-  gridKind?: BoardGridKind;
-  onGridKindChange?: (kind: BoardGridKind) => void;
+  gridKind: BoardGridKind;
+  onGridKindChange: (kind: BoardGridKind) => void;
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
@@ -95,7 +99,7 @@ export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
-  gridKind = DEFAULT_GRID_KIND,
+  gridKind,
   onGridKindChange,
   disabled,
   onInsertSticky,
@@ -151,6 +155,9 @@ export function BoardToolbar({
   // reach a constant.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
+  const gridLabel =
+    GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None";
+
   return (
     <Toolbar>
       <UndoRedoGroup store={store} />
@@ -170,14 +177,18 @@ export function BoardToolbar({
                 size="sm"
                 variant="ghost"
                 className="h-8 px-2"
-                aria-label="Grid"
+                // The icon is identical in all three modes (as it is in
+                // Miro), so the current one has to be spoken somewhere —
+                // otherwise a screen-reader user cannot tell whether the
+                // grid is on without opening the menu.
+                aria-label={`Grid: ${gridLabel}`}
               >
-                <IconGrid3x3 size={16} />
+                <IconGrid3x3 size={16} className={gridKind === "none" ? "opacity-50" : undefined} />
                 <span aria-hidden>▾</span>
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Grid</TooltipContent>
+          <TooltipContent>Grid: {gridLabel}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start">
           <DropdownMenuRadioGroup
