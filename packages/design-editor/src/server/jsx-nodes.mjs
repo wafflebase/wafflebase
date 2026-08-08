@@ -203,7 +203,14 @@ function pushChild(c, scope, out, owner) {
     return;
   }
   if (ts.isJsxFragment(c)) {
-    for (const g of c.children) pushChild(g, scope, out, owner);
+    // A fragment reached DIRECTLY is transparent for ownership as well as for
+    // numbering: splicing a sibling in beside `<A/>` inside `<><A/><B/></>` is
+    // legal JSX, and the offset has to come from `<A/>` itself — taking it from
+    // the fragment would land the insert after `<B/>`. Forwarding the fragment
+    // instead made every fragment child report `owner !== node`, so
+    // `requireStatic` refused it AND blamed a `{…}` expression that is not there.
+    // A fragment reached through `{…}` keeps that expression as the owner.
+    for (const g of c.children) pushChild(g, scope, out, owner === c ? g : owner);
     return;
   }
   if (ts.isJsxExpression(c) && c.expression) pushExpr(c.expression, scope, out, owner);
@@ -226,7 +233,11 @@ function pushExpr(expr, scope, out, owner) {
     return;
   }
   if (ts.isJsxFragment(expr)) {
-    for (const g of expr.children) pushChild(g, scope, out, owner ?? expr);
+    // Same rule as `pushChild`: `return <><A/><B/></>` reaches the fragment as
+    // the returned expression itself (owner === expr), so its children own
+    // themselves. `{cond && <>…</>}` reaches it through the `{…}` container,
+    // which stays the owner because splicing there is genuinely unsafe.
+    for (const g of expr.children) pushChild(g, scope, out, owner && owner !== expr ? owner : g);
     return;
   }
   if (ts.isParenthesizedExpression(expr)) return pushExpr(expr.expression, scope, out, owner);
@@ -273,11 +284,22 @@ function pushFnBody(fn, scope, out, owner) {
  * supported one: `renderRow`'s JSX is `static` in its own root, so structural
  * ops work there normally.
  *
- * @returns {{roots: Record<string, ts.Node>, defaultExport: string | null}}
+ * `ambiguous` carries the names that more than one JSX-returning function in the
+ * file claims. `visit` recurses over the whole file, so two components each
+ * holding a local `const Row = () => <li/>` both register under `Row` and the
+ * last one visited would otherwise silently replace the first — after which a
+ * matching path and fingerprint resolve an anchor against a DIFFERENT function's
+ * JSX. That is the same wrong-node-silently failure `resolveNode` already treats
+ * ambiguity as absence to avoid, so the name is reported rather than resolved.
+ *
+ * @returns {{roots: Record<string, JsxRootNode>, ambiguous: Set<string>,
+ *            defaultExport: string | null}}
  */
 export function findJsxRoots(sf) {
-  /** @type {Record<string, ts.Node>} */
+  /** @type {Record<string, JsxRootNode>} */
   const roots = {};
+  /** @type {Set<string>} */
+  const ambiguous = new Set();
   let defaultExport = null;
 
   /**
@@ -316,11 +338,16 @@ export function findJsxRoots(sf) {
   const isExportDefault = (node) =>
     !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
 
+  const addRoot = (name, root) => {
+    if (name in roots) ambiguous.add(name);
+    roots[name] = root;
+  };
+
   const visit = (node) => {
     if (ts.isFunctionDeclaration(node) && node.name) {
       const root = rootJsxOf(node);
       if (root) {
-        roots[node.name.getText()] = root;
+        addRoot(node.name.getText(), root);
         if (isExportDefault(node)) defaultExport = node.name.getText();
       }
     }
@@ -331,7 +358,7 @@ export function findJsxRoots(sf) {
         const fn = ts.isArrowFunction(init) || ts.isFunctionExpression(init) ? init : null;
         if (!fn) continue;
         const root = rootJsxOf(fn);
-        if (root) roots[d.name.getText()] = root;
+        if (root) addRoot(d.name.getText(), root);
       }
     }
     if (ts.isExportAssignment(node) && ts.isIdentifier(node.expression)) {
@@ -340,12 +367,23 @@ export function findJsxRoots(sf) {
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  return { roots, defaultExport };
+  return { roots, ambiguous, defaultExport };
 }
+
+/**
+ * A walkable root: either a real AST node, or the synthetic wrapper
+ * `returnsRoot` builds around the list of expressions a function returns.
+ *
+ * @typedef {ts.Node | {__wbReturns: true, jsx: ts.Node[]}} JsxRootNode
+ */
 
 /**
  * @typedef {object} JsxEntry
  * @property {ts.Node} node
+ * @property {ts.Node} owner        The direct member of the parent's child list
+ *                                  through which `node` was reached. `owner !==
+ *                                  node` marks the node structurally read-only —
+ *                                  see `childrenOf`. Read by `resolveNode`.
  * @property {number[]} path        Child-index path from the root. A HINT.
  * @property {string[]} ancestorTags
  * @property {string} tag
@@ -473,7 +511,16 @@ const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]
  *           {located: false, reason: string, candidates?: number[][], scope?: string}}
  */
 export function resolveNode(sf, anchor, opts = {}) {
-  const { roots } = findJsxRoots(sf);
+  const { roots, ambiguous } = findJsxRoots(sf);
+  // Ambiguity is absence HERE TOO. A name two functions claim cannot say which
+  // JSX an anchor belongs to, and guessing resolves against the wrong function's
+  // tree without erroring anywhere.
+  if (ambiguous.has(anchor.component)) {
+    return {
+      located: false,
+      reason: `more than one JSX-returning function is named ${anchor.component}`,
+    };
+  }
   const root = roots[anchor.component];
   if (!root) {
     return { located: false, reason: `no JSX-returning function named ${anchor.component}` };

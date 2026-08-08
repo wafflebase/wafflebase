@@ -188,6 +188,18 @@ describe('owner', () => {
     expect(e.owner).toBe(e.node);
   });
 
+  it('is the node itself for a child of a directly-reached fragment', () => {
+    // A fragment has no rendered presence, so it must not confer ownership on
+    // its children — the splice offset for <b/> is <b/>'s own.
+    const e = find(`function C() { return <div><><b/><i/></></div>; }`, 'b');
+    expect(e.owner).toBe(e.node);
+  });
+
+  it('is the {…} expression for a fragment child reached through one', () => {
+    const e = find(`function C() { return <div>{ok && <><b/><i/></>}</div>; }`, 'b');
+    expect(e.owner).not.toBe(e.node);
+  });
+
   it('is the whole {…} expression for a conditionally-rendered child', () => {
     // Splice offsets must come from the OWNER: inserting after the <b/> inside
     // `{ok && <b/>}` would land before the `}` and produce a syntax error.
@@ -206,23 +218,35 @@ describe('owner', () => {
     expect(r.located).toBe(true);
   });
 
-  it('KNOWN LIMITATION: fragment children are treated as unspliceable', () => {
-    // Observed, not intended. `pushChild` forwards the fragment as `owner` when
-    // it recurses, so <A/> in `<><A/><B/></>` reports owner !== node and
-    // requireStatic refuses it — even though splicing a sibling into a fragment
-    // is perfectly legal. The refusal is SAFE (it declines rather than corrupts),
-    // but the diagnostic names a cause that does not exist here: there is no
-    // conditional and no {…} expression.
-    //
-    // Pinned so the follow-up that fixes it has to come through this test.
+  it('allows structural edits on a child of a directly-reached fragment', () => {
+    // A fragment is transparent for OWNERSHIP as well as for numbering: splicing
+    // a sibling in beside <A/> inside `<><A/><B/></>` is legal JSX. Wrapping a
+    // subtree in a fragment must therefore not change what is editable — the
+    // assertion is an equality between the two sources, not just `located`.
     const withFragment = selfResolve(
       `function C() { return <div><><A/><B/></></div>; }`, 'A', { requireStatic: true });
     const without = selfResolve(
       `function C() { return <div><A/><B/></div>; }`, 'A', { requireStatic: true });
 
     expect(without.located).toBe(true);
-    expect(withFragment.located).toBe(false);
-    expect(withFragment.reason).toMatch(/conditionally-rendered/); // <- the wrong word
+    expect(withFragment.located).toBe(true);
+  });
+
+  it('allows structural edits on a child of a RETURNED fragment', () => {
+    // The other way a fragment is reached directly: as the returned expression
+    // itself, where `owner === expr` rather than `owner === c`.
+    const r = selfResolve(`function C() { return <><A/><B/></>; }`, 'A', { requireStatic: true });
+    expect(r.located).toBe(true);
+  });
+
+  it('still blocks structural edits on a fragment reached through {…}', () => {
+    // The fix must not widen past directly-reached fragments. Here removing
+    // <A/> would leave `{cond && <></>}` and removing the container would drop
+    // the condition, so the `{…}` stays the owner and the refusal stands.
+    const r = selfResolve(
+      `function C() { return <div>{cond && <><A/><B/></>}</div>; }`, 'A', { requireStatic: true });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/sits inside a \{…\} expression/);
   });
 
   it('refuses structural edits in an iteration scope with an actionable reason', () => {
@@ -388,6 +412,22 @@ describe('resolveNode', () => {
     expect(r.reason).toMatch(/no JSX-returning function named Nope/);
   });
 
+  it('refuses a component name two functions claim, even on a perfect path hit', () => {
+    // The dangerous shape: the anchor was recorded against the FIRST `Row`, and
+    // the second one happens to carry a node with the same tag at the same path.
+    // Resolving would edit the wrong function with nothing reporting it, so the
+    // name is refused the way an ambiguous fingerprint already is.
+    const dup = `
+      function One() { const Row = () => <li><b/></li>; return <ul>{items.map(Row)}</ul>; }
+      function Two() { const Row = () => <li><b/></li>; return <ul>{cells.map(Row)}</ul>; }`;
+    const sf = parse(dup);
+    const e = [...walkJsx(sf, findJsxRoots(sf).roots.Row)].find((x) => x.tag === 'b');
+
+    const r = resolveNode(sf, { component: 'Row', path: e.path, tag: 'b', fp: e.fp, fpx: e.fpx });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/more than one JSX-returning function is named Row/);
+  });
+
   it('resolves a node that survived an edit ABOVE it, without relocating', () => {
     // The everyday case: an earlier intent in the same batch inserted a sibling
     // above. Offsets moved, the path did not, so this must still be a path hit.
@@ -468,6 +508,26 @@ describe('findJsxRoots', () => {
 
   it('leaves defaultExport null when there is none', () => {
     expect(findJsxRoots(parse(`function C() { return <div/>; }`)).defaultExport).toBeNull();
+  });
+
+  it('reports a name two JSX-returning functions claim as ambiguous', () => {
+    // `visit` recurses over the whole file, so a local helper inside each of two
+    // components registers twice under one key. The surviving root is whichever
+    // was visited last, which is not a fact an anchor can know.
+    const { roots, ambiguous } = findJsxRoots(parse(`
+      function One() { const Row = () => <li/>; return <ul>{items.map(Row)}</ul>; }
+      function Two() { const Row = () => <td/>; return <tr>{cells.map(Row)}</tr>; }`));
+    expect([...ambiguous]).toEqual(['Row']);
+    // Still present — `roots` stays a complete index; refusal is `resolveNode`'s
+    // job, so a future caller that CAN disambiguate is not locked out.
+    expect(Object.keys(roots).sort()).toEqual(['One', 'Row', 'Two']);
+  });
+
+  it('leaves ambiguous empty when every name is unique', () => {
+    const { ambiguous } = findJsxRoots(parse(`
+      function A() { return <div/>; }
+      const B = () => <div/>;`));
+    expect(ambiguous.size).toBe(0);
   });
 
   it('does not treat a callback return as the enclosing function output', () => {
