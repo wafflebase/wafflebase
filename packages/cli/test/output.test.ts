@@ -3,7 +3,13 @@ import type { Command } from 'commander';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
-import { format, output, outputError } from '../src/output/formatter.js';
+import { formatYaml } from '../src/output/yaml.js';
+import {
+  format,
+  output,
+  outputError,
+  type OutputFormat,
+} from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
 import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
@@ -77,6 +83,19 @@ describe('formatCsv', () => {
   });
 });
 
+describe('formatYaml', () => {
+  it('formats array of objects as YAML', () => {
+    const data = [
+      { name: 'Alice', score: 95 },
+      { name: 'Bob', score: 87 },
+    ];
+    const result = formatYaml(data);
+    expect(result).toBe(
+      '- name: Alice\n  score: 95\n- name: Bob\n  score: 87\n',
+    );
+  });
+});
+
 describe('format dispatcher', () => {
   const data = [{ a: 1 }];
 
@@ -90,6 +109,16 @@ describe('format dispatcher', () => {
 
   it('dispatches to csv', () => {
     expect(format(data, 'csv')).toContain('a\n1');
+  });
+
+  it('dispatches to yaml', () => {
+    expect(format(data, 'yaml')).toBe('- a: 1\n');
+  });
+
+  it('rejects unsupported formats instead of returning undefined', () => {
+    expect(() => format(data, 'xml' as OutputFormat)).toThrow(
+      'Unsupported output format: xml',
+    );
   });
 });
 
