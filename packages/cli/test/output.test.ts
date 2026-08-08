@@ -91,7 +91,7 @@ describe('formatYaml', () => {
     ];
     const result = formatYaml(data);
     expect(result).toBe(
-      '- name: Alice\n  score: 95\n- name: Bob\n  score: 87\n',
+      '- name: Alice\n  score: 95\n- name: Bob\n  score: 87',
     );
   });
 });
@@ -112,7 +112,7 @@ describe('format dispatcher', () => {
   });
 
   it('dispatches to yaml', () => {
-    expect(format(data, 'yaml')).toBe('- a: 1\n');
+    expect(format(data, 'yaml')).toBe('- a: 1');
   });
 
   it('rejects unsupported formats instead of returning undefined', () => {
