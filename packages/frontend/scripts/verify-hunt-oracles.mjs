@@ -192,6 +192,154 @@ async function checkCellTargeting(page, baseUrl) {
 }
 
 /**
+ * Every reader in the registry must actually answer.
+ *
+ * WHY THIS IS THE HIGHEST-VALUE CHECK IN THE FILE. Only 5 of the 15 readers were
+ * exercised by anything before this — `doc.text`, `doc.canUndo`, `sheet.activeCell`,
+ * `sheet.canUndo`, `sheet.cellCenter`. The other ten had no coverage at all, and a
+ * reader that returns `undefined`, throws, or quietly goes stale fails in the QUIET
+ * direction: its predictions become `unevaluable`, `UNEVALUABLE IS NOT VIOLATED`, and
+ * the hunter simply never finds anything in that area. Every run looks clean. That is
+ * the same failure the drift test guards against from the other side — "a reader never
+ * called is indistinguishable from an area with no defects".
+ *
+ * ASSERTIONS ARE AGAINST THE KNOWN SEED, deliberately, not against "returns
+ * something". A reader that always answered `null` would satisfy a truthiness check
+ * and satisfy `null-or-a-range` too — that vacuity is exactly how a green test sits on
+ * top of a dead reader. So each expectation names content the seed actually contains.
+ *
+ * What is asserted is the SHAPE and the seeded CONTENT, never a limitation: this is a
+ * capability check, in the same spirit as `checkUndoCapability`, so a product
+ * improvement can never read as a regression here.
+ */
+const READER_EXPECTATIONS = [
+  // --- doc surface, against seedDocument(): three paragraphs, mixed sizes/styles ---
+  ["doc", "doc.text", [], (v) =>
+    typeof v === "string" && v.includes("Small") && v.includes("lazy dog") ? null : "expected the seeded prose"],
+  ["doc", "doc.blockCount", [], (v) => (Number.isInteger(v) && v >= 3 ? null : "expected an integer >= 3")],
+  ["doc", "doc.runs", [], (v) =>
+    Array.isArray(v) && v.length >= 3 && v.every((r) => typeof r?.text === "string")
+      ? null
+      : "expected >=3 runs each carrying text"],
+  ["doc", "doc.fontSizes", [], (v) =>
+    Array.isArray(v) && v.length >= 3 && v.some((n) => Number.isFinite(n))
+      ? null
+      : "expected one finite size per block"],
+  ["doc", "doc.blockTypes", [], (v) =>
+    Array.isArray(v) && v.includes("paragraph") ? null : "expected the seeded paragraph types"],
+  ["doc", "doc.styleSummary", [], (v) =>
+    v && typeof v === "object" && !Array.isArray(v) ? null : "expected a style-summary object"],
+  ["doc", "doc.linkCount", [], (v) => (Number.isInteger(v) && v >= 0 ? null : "expected a non-negative integer")],
+  ["doc", "doc.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+
+  // --- sheet surface, against seedGrid(): A1=10 A2=20 A3=30 B1=Label C1==A1+A2 ---
+  ["sheet", "sheet.cellValue", ["A1"], (v) => (String(v) === "10" ? null : "expected the seeded A1 value 10")],
+  ["sheet", "sheet.cellValue", ["B1"], (v) => (String(v) === "Label" ? null : "expected the seeded B1 value Label")],
+  // The two halves of the value/formula distinction the rubric warns about, pinned so
+  // a reader that collapsed them would be caught here rather than by a false finding.
+  ["sheet", "sheet.cellFormula", ["C1"], (v) =>
+    typeof v === "string" && v.replace(/\s/g, "").includes("=A1+A2") ? null : "expected C1's seeded formula"],
+  ["sheet", "sheet.cellFormula", ["A1"], (v) =>
+    v === null || v === undefined ? null : `a literal cell must have no formula, got ${JSON.stringify(v)}`],
+  ["sheet", "sheet.activeCell", [], (v) => (typeof v === "string" && /^[A-Z]+\d+$/.test(v) ? null : "expected a cell ref")],
+  ["sheet", "sheet.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+  ["sheet", "sheet.cellCenter", ["B2"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+];
+
+/** Read one reader out of page context. `read` is async, so the promise is returned
+ *  DIRECTLY from evaluate — Playwright awaits that, but not one nested in an object. */
+function readReader(page, name, args) {
+  return page
+    .evaluate(([n, a]) => window.__WB_HUNT__.read(n, a), [name, args])
+    .then((value) => ({ ok: true, value }), (error) => ({ ok: false, error: String(error?.message ?? error) }));
+}
+
+async function checkReaderRegistry(page, baseUrl) {
+  const problems = [];
+  const seen = new Set();
+
+  for (const surface of ["doc", "sheet"]) {
+    await page.goto(`${baseUrl}/harness/hunt?surface=${surface}`, { waitUntil: "networkidle" });
+    await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+    // `sheet.activeCell` needs a selection to report; the doc surface needs none.
+    if (surface === "sheet") {
+      const p = await readReader(page, "sheet.cellCenter", ["B2"]);
+      if (p.ok) await page.mouse.click(p.value.x, p.value.y);
+    }
+    for (const [readerSurface, name, args, check] of READER_EXPECTATIONS) {
+      if (readerSurface !== surface) continue;
+      seen.add(name);
+      const got = await readReader(page, name, args);
+      if (!got.ok) {
+        problems.push(`${name}(${args.join(",")}) threw: ${got.error.slice(0, 140)}`);
+        continue;
+      }
+      // An unusable marker is a silent `unevaluable` forever — catch it here.
+      if (got.value && typeof got.value === "object" && (got.value.__oversized || got.value.__unserializable)) {
+        problems.push(`${name} returned an unusable marker: ${JSON.stringify(got.value)}`);
+        continue;
+      }
+      const why = check(got.value);
+      if (why) problems.push(`${name}(${args.join(",")}): ${why}, got ${JSON.stringify(got.value)?.slice(0, 120)}`);
+    }
+  }
+
+  // A selection reader that always answered null would pass a null-or-range check, so
+  // it is asserted in a state where a range MUST exist.
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  // NO canvas click here, deliberately, and this cost a diagnostic detour worth
+  // recording. `checkUndoCapability` clicks the canvas because it needs a caret
+  // somewhere; doing the same here left `doc.selection` null forever, because
+  // `.click()` targets the canvas CENTRE and the seeded document is three short
+  // paragraphs at the top — the click lands in empty space below the text.
+  //
+  // The hunter never clicks the doc canvas: it has no reader that resolves to a
+  // point on that surface, so it relies on the editor auto-focusing and types
+  // straight away. Mirroring that is both the working setup and the faithful one.
+  await page.keyboard.type("xyz");
+  for (const _ of [0, 1, 2]) await page.keyboard.press("Shift+ArrowLeft");
+  // Poll, for the same reason `checkUndoCapability` does: the selection lands
+  // asynchronously relative to the keypress, and reading immediately measures the
+  // instant BEFORE it exists. Still non-vacuous — if it never becomes a range the
+  // deadline expires and the assertion below fails on the last value seen.
+  let sel = await readReader(page, "doc.selection", []);
+  const selDeadline = Date.now() + FIRE_DEADLINE_MS;
+  while (sel.ok && (sel.value === null || sel.value === undefined) && Date.now() < selDeadline) {
+    await page.waitForTimeout(25);
+    sel = await readReader(page, "doc.selection", []);
+  }
+  seen.add("doc.selection");
+  if (!sel.ok) problems.push(`doc.selection threw with a live selection: ${sel.error.slice(0, 140)}`);
+  else if (!sel.value?.anchor?.blockId || !Number.isFinite(sel.value?.focus?.offset)) {
+    problems.push(`doc.selection must report a range when one exists, got ${JSON.stringify(sel.value)?.slice(0, 120)}`);
+  }
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  const b2 = await readReader(page, "sheet.cellCenter", ["B2"]);
+  if (b2.ok) {
+    await page.mouse.click(b2.value.x, b2.value.y);
+    await page.keyboard.press("Shift+ArrowDown");
+  }
+  const range = await readReader(page, "sheet.selectionRange", []);
+  seen.add("sheet.selectionRange");
+  if (!range.ok) problems.push(`sheet.selectionRange threw with a live range: ${range.error.slice(0, 140)}`);
+  else if (range.value === null || range.value === undefined) {
+    problems.push("sheet.selectionRange must report a range after shift-extending a selection, got null");
+  }
+
+  // EVERY reader, or the next one added silently inherits zero coverage — which is the
+  // state this check exists to end.
+  const registered = await page.evaluate(() => window.__WB_HUNT__.readers().filter((n) => !n.startsWith("dom.")));
+  for (const name of registered) {
+    if (!seen.has(name)) problems.push(`${name} is registered but no expectation exercises it`);
+  }
+  return problems;
+}
+
+/**
  * A scrolled-away cell must REFUSE, not hand back a clickable-looking point.
  *
  * `checkCellTargeting` above proves clicks land correctly, but only on an unscrolled
@@ -658,6 +806,11 @@ try {
     for (const p of problems) failures.push(`cell targeting: ${p}`);
     if (problems.length === 0) {
       console.log(`[verify:hunt-oracles] cell clicks land correctly: ${TARGETING_CELLS.join(", ")}`);
+    }
+    const readerProblems = await checkReaderRegistry(page, baseUrl);
+    for (const p of readerProblems) failures.push(`reader registry: ${p}`);
+    if (readerProblems.length === 0) {
+      console.log("[verify:hunt-oracles] every registered reader answers, against the seeded content");
     }
     const offscreenProblems = await checkOffscreenRefusal(page, baseUrl);
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
