@@ -234,6 +234,12 @@ import type {
   JsonImportOptions,
 } from './import/json-importer';
 import type { ImportedSheet } from './import/imported-sheet';
+import {
+  createTableWriter,
+  importTable,
+  MAX_IMPORT_CELLS,
+} from './import/csv-importer';
+import type { ImportedTable, TableWriter } from './import/csv-importer';
 
 export {
   initialize,
@@ -362,6 +368,9 @@ export {
   importXlsxFile,
   importXlsxWorkbook,
   importJsonText,
+  createTableWriter,
+  importTable,
+  MAX_IMPORT_CELLS,
 };
 
 export type {
@@ -433,6 +442,8 @@ export type {
   XlsxFileLike,
   JsonImportMode,
   JsonImportOptions,
+  ImportedTable,
+  TableWriter,
 };
 
 export {
