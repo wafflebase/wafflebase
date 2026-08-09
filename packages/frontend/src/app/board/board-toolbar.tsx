@@ -20,6 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -64,6 +66,14 @@ export interface BoardToolbarProps {
    */
   gridKind: BoardGridKind;
   onGridKindChange: (kind: BoardGridKind) => void;
+  /**
+   * Whether move/resize quantize onto the grid. Independent of
+   * `gridKind` — `none` still snaps — so it is a checkbox below the mode
+   * radio group rather than a fourth mode. Required for the same reason
+   * as the two props above.
+   */
+  gridSnap: boolean;
+  onGridSnapChange: (snap: boolean) => void;
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
@@ -101,6 +111,8 @@ export function BoardToolbar({
   zoomController = null,
   gridKind,
   onGridKindChange,
+  gridSnap,
+  onGridSnapChange,
   disabled,
   onInsertSticky,
   onInsertImage,
@@ -155,8 +167,12 @@ export function BoardToolbar({
   // reach a constant.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
+  // Both settings are spoken here: the icon is identical in every mode
+  // and says nothing at all about snapping, so the trigger's label is
+  // the only place either state is available without opening the menu.
   const gridLabel =
-    GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None";
+    (GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None") +
+    (gridSnap ? ", snap on" : "");
 
   return (
     <Toolbar>
@@ -183,7 +199,16 @@ export function BoardToolbar({
                 // grid is on without opening the menu.
                 aria-label={`Grid: ${gridLabel}`}
               >
-                <IconGrid3x3 size={16} className={gridKind === "none" ? "opacity-50" : undefined} />
+                {/* Dimmed only when the grid does NOTHING. `None` + snap
+                    on is a supported combination, and a dimmed icon there
+                    would be the one always-visible affordance claiming a
+                    feature that is in fact active. */}
+                <IconGrid3x3
+                  size={16}
+                  className={
+                    gridKind === "none" && !gridSnap ? "opacity-50" : undefined
+                  }
+                />
                 <span aria-hidden>▾</span>
               </Button>
             </DropdownMenuTrigger>
@@ -201,6 +226,16 @@ export function BoardToolbar({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          {/* Below the separator because it is not a fourth mode: snapping
+              is independent of what is drawn, so `None` + snap on is a
+              valid (and useful) combination. */}
+          <DropdownMenuCheckboxItem
+            checked={gridSnap}
+            onCheckedChange={(checked) => onGridSnapChange(checked === true)}
+          >
+            Snap to grid
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

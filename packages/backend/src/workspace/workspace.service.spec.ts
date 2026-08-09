@@ -29,6 +29,7 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
   };
 }
@@ -390,15 +391,33 @@ describe('WorkspaceService', () => {
   });
 
   describe('revokeInvite', () => {
-    it('deletes invite if user is owner', async () => {
+    it('deletes invite if user is owner, scoped to the workspace', async () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'owner' });
-      prisma.workspaceInvite.delete.mockResolvedValue({ id: 'inv-1' });
+      prisma.workspaceInvite.deleteMany.mockResolvedValue({ count: 1 });
 
       await service.revokeInvite('11111111-1111-1111-1111-111111111111', 'inv-1', 7);
 
-      expect(prisma.workspaceInvite.delete).toHaveBeenCalledWith({
-        where: { id: 'inv-1' },
+      expect(prisma.workspaceInvite.deleteMany).toHaveBeenCalledWith({
+        where: {
+          id: 'inv-1',
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+        },
       });
+    });
+
+    it('throws NotFoundException for an invite of another workspace', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'owner' });
+      // The workspace-scoped delete matches nothing: the invite belongs to a
+      // workspace the caller does not own.
+      prisma.workspaceInvite.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.revokeInvite(
+          '11111111-1111-1111-1111-111111111111',
+          'inv-other-workspace',
+          7,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('throws ForbiddenException if user is not owner', async () => {
@@ -407,6 +426,7 @@ describe('WorkspaceService', () => {
       await expect(
         service.revokeInvite('11111111-1111-1111-1111-111111111111', 'inv-1', 7),
       ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.workspaceInvite.deleteMany).not.toHaveBeenCalled();
     });
   });
 

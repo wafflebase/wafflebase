@@ -9,7 +9,26 @@ export type BoardGridKind = "none" | "dot" | "line";
 /** Grid on by default, matching Miro's out-of-the-box board. */
 export const DEFAULT_GRID_KIND: BoardGridKind = "dot";
 
+/**
+ * Snap to grid is ON out of the box, matching the grid display's own
+ * default: a grid that is drawn but not honored is decoration, and the
+ * aligned result is what a user placing shapes on a lattice wants
+ * without having to find a setting first.
+ *
+ * The risk this default carries — a Miro-imported board's elements sit
+ * at arbitrary coordinates, so the first drag relocates them by up to
+ * half a step — is bounded by the movement gate in the slides editor
+ * (`activeSnapGrid`): the grid does not engage until a gesture is a
+ * drag rather than a click, so nothing moves unless the user meant to
+ * move it, and when they do, landing on the lattice is the point.
+ *
+ * The setting stays independent of the display mode regardless (Miro
+ * models them the same way) — see {@link loadGridSnap}.
+ */
+export const DEFAULT_GRID_SNAP = true;
+
 const STORAGE_KEY = "wafflebase.board.grid";
+const SNAP_STORAGE_KEY = "wafflebase.board.grid-snap";
 
 /**
  * Finest world-space step the ladder will pick. Below this the grid is
@@ -213,5 +232,35 @@ export function saveGridKind(kind: BoardGridKind): void {
     localStorage.setItem(STORAGE_KEY, kind);
   } catch {
     // Losing a view-local preference is harmless — never break the board.
+  }
+}
+
+/**
+ * Whether move/resize quantize onto the grid. Stored under its own key,
+ * separate from the display mode above, because the two are independent
+ * toggles: "align my work but don't draw the lines" is a real preference,
+ * and one collapsing into the other would make it unrepresentable.
+ *
+ * Per-user like the mode, and for the same reason — see
+ * {@link loadGridKind}.
+ */
+export function loadGridSnap(): boolean {
+  try {
+    const raw = localStorage.getItem(SNAP_STORAGE_KEY);
+    // Only the exact strings we write count. A missing key, and anything
+    // else that ended up there, fall back to the default.
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return DEFAULT_GRID_SNAP;
+  } catch {
+    return DEFAULT_GRID_SNAP;
+  }
+}
+
+export function saveGridSnap(snap: boolean): void {
+  try {
+    localStorage.setItem(SNAP_STORAGE_KEY, String(snap));
+  } catch {
+    // As above: a lost view preference must never break the board.
   }
 }
