@@ -777,7 +777,12 @@ describe("upload-queue worker", () => {
 
     const current = q.getSnapshot().find((i) => i.id === item.id);
     expect(current?.status).toBe("done");
-    expect(current?.warning).toBe("Only the first 20,000 rows were imported.");
+    // Formatted rather than spelled "20,000": the separator follows the
+    // runner's locale, so a hardcoded comma fails wherever that is not en-US
+    // (measured under LANG=de_DE, which produces "20.000").
+    expect(current?.warning).toBe(
+      `Only the first ${(20000).toLocaleString()} rows were imported.`,
+    );
   });
 
   it("leaves an untruncated sheet import without a warning", async () => {
