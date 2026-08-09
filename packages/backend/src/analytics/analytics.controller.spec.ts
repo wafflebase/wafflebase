@@ -313,7 +313,7 @@ describe('AnalyticsController analyticsEnabled', () => {
 });
 
 describe('AnalyticsController workspaceDashboard', () => {
-  function setup(opts: { isMember: boolean }) {
+  function setup(opts: { isMember: boolean; role?: string }) {
     const warehouse = {
       getWorkspaceAnalytics: (ids: string[]) =>
         Promise.resolve({
@@ -322,17 +322,31 @@ describe('AnalyticsController workspaceDashboard', () => {
           uniqueVisitors: 4,
           viewsByDay: [],
           byDocument: [
-            { documentId: 'd1', title: '', views: 7, uniqueVisitors: 3 },
+            {
+              documentId: 'd1',
+              title: '',
+              views: 7,
+              uniqueVisitors: 3,
+              canManage: false,
+            },
+            {
+              documentId: 'd2',
+              title: '',
+              views: 2,
+              uniqueVisitors: 1,
+              canManage: false,
+            },
           ],
           _ids: ids,
         }),
     } as unknown as AnalyticsWarehouseService;
     const prisma = {
       document: {
+        // d1 is authored by the caller (7), d2 by someone else.
         findMany: () =>
           Promise.resolve([
-            { id: 'd1', title: 'Budget' },
-            { id: 'd2', title: 'Deck' },
+            { id: 'd1', title: 'Budget', authorID: 7 },
+            { id: 'd2', title: 'Deck', authorID: 9 },
           ]),
       },
     } as unknown as PrismaService;
@@ -342,7 +356,7 @@ describe('AnalyticsController workspaceDashboard', () => {
         if (!opts.isMember) {
           throw new ForbiddenException('Not a member of this workspace');
         }
-        return Promise.resolve({ role: 'member' });
+        return Promise.resolve({ role: opts.role ?? 'member' });
       },
     } as unknown as WorkspaceService;
     const controller = new AnalyticsController(
@@ -369,5 +383,21 @@ describe('AnalyticsController workspaceDashboard', () => {
     await expect(
       c.workspaceDashboard('ws-1', req, undefined, undefined),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // The ranking is member-gated but the per-document dashboard it links into
+  // is manager-gated, so each row must carry that predicate (issue #732).
+  it('marks only manageable rows for a plain member', async () => {
+    const c = setup({ isMember: true });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.workspaceDashboard('ws-1', req, undefined, undefined);
+    expect(res.byDocument.map((r) => r.canManage)).toEqual([true, false]);
+  });
+
+  it('marks every row manageable for the workspace owner', async () => {
+    const c = setup({ isMember: true, role: 'owner' });
+    const req = { user: { id: 7 } } as never;
+    const res = await c.workspaceDashboard('ws-1', req, undefined, undefined);
+    expect(res.byDocument.map((r) => r.canManage)).toEqual([true, true]);
   });
 });

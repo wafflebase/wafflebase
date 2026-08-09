@@ -222,12 +222,13 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
   }
   private async documentRows(query: string): Promise<DocumentBreakdown[]> {
     const [rows] = await this.pool!.query(query);
-    // `title` is filled by the controller from Postgres.
+    // `title` and `canManage` are filled by the controller from Postgres.
     return (rows as Array<{ k: string; v: number; u: number }>).map((r) => ({
       documentId: r.k,
       title: '',
       views: Number(r.v),
       uniqueVisitors: Number(r.u),
+      canManage: false,
     }));
   }
 

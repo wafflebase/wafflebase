@@ -219,26 +219,36 @@ export class AnalyticsController {
     const userId = Number((req as unknown as { user: { id: number } }).user.id);
     // Gate on plain workspace membership (any member sees workspace analytics).
     const workspaceId = await this.workspace.resolveId(workspaceIdOrSlug);
-    await this.workspace.assertMember(workspaceId, userId);
+    const member = await this.workspace.assertMember(workspaceId, userId);
 
     // Postgres owns the doc set + titles; StarRocks only knows document_id.
     const docs = await this.prisma.document.findMany({
       where: { workspaceId },
-      select: { id: true, title: true },
+      select: { id: true, title: true, authorID: true },
     });
-    const titles = new Map(docs.map((d) => [d.id, d.title]));
+    const meta = new Map(docs.map((d) => [d.id, d]));
     const [lo, hi] = resolveWindow(from, to);
     const result = await this.warehouse.getWorkspaceAnalytics(
       docs.map((d) => d.id),
       lo,
       hi,
     );
+    // Annotate each row with the *detail* endpoint's manager predicate so the
+    // client only links into dashboards this caller is allowed to open.
     return {
       ...result,
-      byDocument: result.byDocument.map((r) => ({
-        ...r,
-        title: titles.get(r.documentId) ?? r.documentId,
-      })),
+      byDocument: result.byDocument.map((r) => {
+        const d = meta.get(r.documentId);
+        return {
+          ...r,
+          title: d?.title ?? r.documentId,
+          canManage: isDocumentManager(
+            member.role,
+            d?.authorID ?? null,
+            userId,
+          ),
+        };
+      }),
     };
   }
 }

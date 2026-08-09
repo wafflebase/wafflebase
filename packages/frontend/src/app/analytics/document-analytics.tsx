@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getDocumentAnalytics } from "@/api/analytics";
+import { HttpError } from "@/api/http-error";
 import { Loader } from "@/components/loader";
 import {
   Table,
@@ -51,7 +52,21 @@ export function DocumentAnalyticsPage() {
   });
 
   if (isLoading) return <Loader />;
-  if (error) return <div className="p-6">Failed to load analytics.</div>;
+  // This dashboard is manager-gated (workspace owner or document author). The
+  // workspace ranking already hides the link for other members, but a shared
+  // URL or a stale tab can still land here — say why rather than showing the
+  // generic failure text.
+  if (error) {
+    if (error instanceof HttpError && error.status === 403) {
+      return (
+        <div className="p-6 text-muted-foreground">
+          You don't have permission to view this document's analytics. Only the
+          workspace owner or the document's author can.
+        </div>
+      );
+    }
+    return <div className="p-6">Failed to load analytics.</div>;
+  }
   if (!data) return null;
   if (!data.enabled) {
     return (

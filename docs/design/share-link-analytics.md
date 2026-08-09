@@ -219,6 +219,15 @@ ranking, each row linking to that document's detailed dashboard. Postgres owns
 the document set + titles; StarRocks only knows `document_id`, so the controller
 fetches titles and enriches the ranking.
 
+Because the roll-up is member-gated while the detail dashboard it links into is
+**manager-gated**, each ranking row also carries `canManage` — the same
+`isDocumentManager` predicate the detail endpoint enforces, resolved from the
+caller's workspace role + the document's `authorID` (the annotation the
+documents list already does). The table renders the "Details" link only for
+rows where it is true; a member would otherwise be shown a link into a
+guaranteed 403. The per-document page treats a 403 as a distinct, explanatory
+state so a shared URL or a stale tab still explains itself.
+
 ### Local development
 
 The Kafka + StarRocks stack ships as an **opt-in** Docker Compose profile

@@ -62,13 +62,20 @@ export interface DocumentAnalytics {
   byTarget: TargetBreakdown[];
 }
 
-/** One document's roll-up within a workspace analytics view. `title` is filled
- * by the controller from Postgres; the warehouse only knows `documentId`. */
+/** One document's roll-up within a workspace analytics view. `title` and
+ * `canManage` are filled by the controller from Postgres; the warehouse only
+ * knows `documentId`.
+ *
+ * `canManage` is the per-document manager predicate the *detail* endpoint
+ * enforces (`GET /documents/:id/analytics`). The workspace roll-up is
+ * member-gated, so without it the client cannot tell which rows it may drill
+ * into and would link every row into a 403. */
 export interface DocumentBreakdown {
   documentId: string;
   title: string;
   views: number;
   uniqueVisitors: number;
+  canManage: boolean;
 }
 
 export interface WorkspaceAnalytics {
