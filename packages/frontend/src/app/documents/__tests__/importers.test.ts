@@ -17,11 +17,26 @@ const sheetsMocks = vi.hoisted(() => ({
     rowCount: 2,
     columnCount: 1,
   })),
+  // Distinctive values, so asserting them proves `importSheetFile` carries the
+  // budget result through rather than defaulting it. Real parsing is covered
+  // where the parser lives, in `csv-actions.test.ts`.
+  createTableWriter: vi.fn((options?: { sheetName?: string }) => ({
+    push: () => true,
+    finish: () => ({
+      name: options?.sheetName ?? "",
+      worksheet: {},
+      cellCount: 14,
+      rowCount: 7,
+      columnCount: 2,
+      truncated: true,
+    }),
+  })),
 }));
 
 vi.mock("@wafflebase/sheets", () => ({
   importXlsxWorkbook: sheetsMocks.importXlsxWorkbook,
   importJsonText: sheetsMocks.importJsonText,
+  createTableWriter: sheetsMocks.createTableWriter,
   // `xlsx-actions` reaches `getUniqueTabName` via the `tab-name` re-export,
   // which now resolves through this module, so the mock must provide it.
   getUniqueTabName: (
@@ -88,9 +103,28 @@ describe("importSheetFile", () => {
     );
   });
 
+  it("streams CSV and TSV through the table writer, carrying the budget result", async () => {
+    const { document, fileName, truncated, rowCount } = await importSheetFile(
+      new File(["name,qty\napple,3\n"], "produce.CSV"),
+    );
+
+    expect(fileName).toBe("produce.CSV");
+    expect(sheetsMocks.createTableWriter).toHaveBeenCalledWith({
+      sheetName: "produce",
+    });
+    expect(document.tabs["tab-1"].name).toBe("produce");
+    // The queue's truncation warning reads off these two; nothing else in the
+    // sheet path reports them, so they have to survive this hop.
+    expect(truncated).toBe(true);
+    expect(rowCount).toBe(7);
+
+    const tsv = await importSheetFile(new File(["a\tb\n1\t2\n"], "grid.tsv"));
+    expect(tsv.document.tabs["tab-1"].name).toBe("grid");
+  });
+
   it("rejects unsupported sheet formats", async () => {
     await expect(
-      importSheetFile(new File(["a,b"], "people.csv")),
+      importSheetFile(new File(["a,b"], "legacy.xls")),
     ).rejects.toThrow(/Unsupported sheet import format/);
   });
 });

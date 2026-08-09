@@ -22,6 +22,8 @@ const EXT_TO_KIND: Record<string, UploadKind> = {
   json: "sheet",
   jsonl: "sheet",
   ndjson: "sheet",
+  csv: "sheet",
+  tsv: "sheet",
   docx: "doc",
   pptx: "slides",
   pdf: "pdf",

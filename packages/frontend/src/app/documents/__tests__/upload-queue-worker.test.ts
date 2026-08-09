@@ -748,4 +748,64 @@ describe("upload-queue worker", () => {
     expect(current?.status).toBe("done");
     expect(current?.warning).toBe("2 fallbacks applied.");
   });
+
+  it("warns when a CSV import was stopped by the budget", async () => {
+    // A file past the budget yields a partial sheet rather than an error, so
+    // the row count has to reach the user rather than rows vanishing quietly.
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+        truncated: true,
+        rowCount: 20000,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("big.csv")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(current?.warning).toBe("Only the first 20,000 rows were imported.");
+  });
+
+  it("leaves an untruncated sheet import without a warning", async () => {
+    // The other sheet formats report neither field, so an absent `truncated`
+    // must read as "not truncated" rather than tripping the warning.
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("small.csv")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(current?.warning).toBeUndefined();
+  });
 });
