@@ -94,6 +94,16 @@ describe('toImportCell — value inference (equivalence partitions)', () => {
     );
   });
 
+  it('skips an object whose JSON serialization is undefined', () => {
+    // `JSON.stringify` returns `undefined` — not a string — when `toJSON()`
+    // does, which its type signature hides. Left unguarded it reached
+    // `text.trim()` and threw, taking down the whole import over one odd
+    // field; it should be skipped like any other empty one.
+    const { worksheet } = importTable([['a', { toJSON: () => undefined }, 'b']]);
+    expect(at(worksheet, 1, 2)).toBeUndefined();
+    expect(at(worksheet, 1, 3)?.v).toBe('b');
+  });
+
   it('writes no cell for empty or whitespace-only fields', () => {
     // Both would store an empty `v` after trimming — skipping saves a CRDT
     // subtree and renders identically.
@@ -265,14 +275,38 @@ describe('cell budget (boundary value analysis)', () => {
     // The budget bounds what lands in the document, and an empty field writes
     // nothing. A table that is 90% blank therefore imports ~10x the rows a
     // dense one does, rather than being cut at a row count its shape does not
-    // justify. (The pre-check is pessimistic — `cellCount + row.length` — so it
-    // never overshoots, it only stops early on the final row.)
+    // justify.
     const sparse = Array.from({ length: wholeRows + 1 }, () =>
       Array.from({ length: COLS }, (_, c) => (c === 0 ? 'x' : '')),
     );
     const result = importTable(sparse);
     expect(result.truncated).toBe(false);
     expect(result.rowCount).toBe(wholeRows + 1);
+  });
+
+  it('spends the whole budget on a sparse table rather than stopping short', () => {
+    // Charging blank fields ended the import at 39,991 of 40,000 cells here,
+    // because the check read the row's field count while the running total
+    // only ever grew by the cells actually written.
+    const sparse = Array.from({ length: MAX_IMPORT_CELLS + 1 }, () =>
+      Array.from({ length: COLS }, (_, c) => (c === 0 ? 'x' : '')),
+    );
+    const result = importTable(sparse);
+    expect(result.cellCount).toBe(MAX_IMPORT_CELLS);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('does not let a trailing blank row truncate an exact-budget import', () => {
+    // papaparse emits one empty row for the newline that ends essentially
+    // every real CSV ("a,b\n1,2\n" yields a third row of ['']). Charging that
+    // row's field count made a file of exactly MAX_IMPORT_CELLS report "Only
+    // the first N rows were imported" while holding every row it had.
+    const rows = table(COLS, wholeRows);
+    rows.push(['']);
+    const result = importTable(rows);
+    expect(result.cellCount).toBe(MAX_IMPORT_CELLS);
+    expect(result.rowCount).toBe(wholeRows);
+    expect(result.truncated).toBe(false);
   });
 });
 

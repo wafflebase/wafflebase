@@ -36,7 +36,11 @@ function toImportText(value: unknown): string {
       ? iso.slice(0, 10)
       : `${iso.slice(0, 10)} ${time}`;
   }
-  if (typeof value === 'object') return JSON.stringify(value);
+  // `?? ''` because `JSON.stringify` returns `undefined`, not a string, for a
+  // value whose `toJSON()` yields `undefined` — the return type says otherwise
+  // and TypeScript does not catch it. Unreachable from CSV, where every field
+  // arrives as a string, but `importTable` takes `unknown` on purpose.
+  if (typeof value === 'object') return JSON.stringify(value) ?? '';
   return String(value);
 }
 
@@ -257,18 +261,10 @@ export function createTableWriter(options?: {
 
   return {
     push(row: ReadonlyArray<unknown>): boolean {
-      // Checked before writing, so truncation always lands on a row boundary.
-      // Half a record is not something anyone can edit, and its column count
-      // would silently differ from every row above it.
-      if (cellCount + row.length > MAX_IMPORT_CELLS) {
-        truncated = true;
-        oversizedRowWidth = row.length;
-        return false;
-      }
-
-      // Converted before anything is committed, so the byte cost of the row is
-      // known while it can still be rejected whole. A row half-written would
-      // have a column count silently different from every row above it.
+      // Converted before anything is committed, so both budgets can be charged
+      // what the row actually costs while it can still be rejected whole. A row
+      // half-written would have a column count silently different from every
+      // row above it.
       const converted: Array<[number, Cell]> = [];
       let rowBytes = 0;
       for (let columnIndex = 0; columnIndex < row.length; columnIndex++) {
@@ -279,6 +275,22 @@ export function createTableWriter(options?: {
           CELL_OVERHEAD_BYTES +
           (cell.v?.length ?? 0) * BYTES_PER_CHARACTER +
           (cell.s ? STYLE_OVERHEAD_BYTES : 0);
+      }
+
+      // Charged on cells written, not on fields parsed. A blank field costs
+      // nothing to store, so counting it truncated a sparse table early — and,
+      // worse, made the empty row papaparse emits for a file's trailing newline
+      // flip `truncated` on an import that had dropped nothing: a file of
+      // exactly MAX_IMPORT_CELLS reported "Only the first N rows were
+      // imported" while holding every one of them.
+      //
+      // Checked before writing, so truncation always lands on a row boundary.
+      if (cellCount + converted.length > MAX_IMPORT_CELLS) {
+        truncated = true;
+        // The source's own width, not the populated count: this feeds a "too
+        // many columns" message, and that is the number in the user's file.
+        oversizedRowWidth = row.length;
+        return false;
       }
 
       // The byte budget is what actually protects the document, and it is the
