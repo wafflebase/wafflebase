@@ -14,7 +14,7 @@ import type { ResizeHandle } from './interactions/resize';
  * rounds. The nearest grid line is never further than half a step away,
  * so a threshold in the same 8-unit band the edge snapper uses would
  * leave the feature inert whenever the step grew past it (at zoom 0.25
- * the board's step is 80 world units, so it would engage a fifth of the
+ * the board's step is 100 world units, so it would engage 16% of the
  * time). "Snap to grid" that only sometimes snaps is worse than none.
  */
 

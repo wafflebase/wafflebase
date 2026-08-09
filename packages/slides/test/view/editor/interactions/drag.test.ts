@@ -6,7 +6,11 @@ import {
   SLOW_DOUBLE_CLICK_MAX_DURATION_MS,
   translateElement,
 } from '../../../../src/view/editor/interactions/drag';
-import { lockAxis } from '../../../../src/view/editor/interactions/constraints';
+import {
+  applyAxisLock,
+  dominantAxis,
+  lockAxis,
+} from '../../../../src/view/editor/interactions/constraints';
 import { snapDelta } from '../../../../src/view/editor/snap';
 
 const shape = (id: string, x: number, y: number): Element => ({
@@ -125,6 +129,35 @@ describe('move drag + Shift locks to dominant axis', () => {
     const final = lockAxis(snapped.dx, snapped.dy);
     expect(final.dy).toBe(0);
     expect(final.dx).toBe(snapped.dx);
+  });
+
+  // Regression: re-locking with `lockAxis` works only while every
+  // correction is bounded by SNAP_THRESHOLD, so the intended axis stays
+  // dominant. Grid snapping has no threshold — it can cancel the
+  // intended axis to zero AND hand the perpendicular one half a step —
+  // at which point `lockAxis` re-reads the corrected delta and picks the
+  // WRONG axis. The editor therefore resolves the axis once from the raw
+  // delta (`dominantAxis`) and re-applies it (`applyAxisLock`).
+  it('the axis must be resolved from the raw delta, not the snapped one', () => {
+    const dragged = { x: 100, y: 130, w: 200, h: 100 };
+    const slide = { w: 1920, h: 1080 };
+    const GRID = 20;
+
+    // Horizontal drag: +8 on X, nothing on Y.
+    const axis = dominantAxis(8, 0);
+    expect(axis).toBe('x');
+    const pre = applyAxisLock(axis, 8, 0);
+
+    // The grid cancels X back onto the lattice (left 108 → 100) and
+    // pulls Y onto it from nowhere (top 130 → 140).
+    const snapped = snapDelta(dragged, pre.dx, pre.dy, [], slide, [], GRID);
+    expect(snapped).toMatchObject({ dx: 0, dy: 10 });
+
+    // What the old code did — and it moves the shape DOWN.
+    expect(lockAxis(snapped.dx, snapped.dy)).toEqual({ dx: 0, dy: 10 });
+
+    // What it does now: the axis chosen up front still wins.
+    expect(applyAxisLock(axis, snapped.dx, snapped.dy)).toEqual({ dx: 0, dy: 0 });
   });
 });
 

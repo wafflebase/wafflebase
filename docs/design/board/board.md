@@ -214,11 +214,15 @@ it, and once they did, landing on the lattice is the point.
 
 The step is the **visible** grid — the same `gridStep(zoom)` the
 background is painted from — so the user always lands on a line they can
-see. Move and resize **drags** snap. Connector endpoints, rotation, and
-the arrow-key nudge do not: the first two have no lattice to speak of,
-and nudge exists precisely to place something a fixed 1 / 10 units off
-whatever the surrounding geometry is — quantizing it would make the
-first arrow press jump instead of nudge.
+see. **Move and resize drags snap; nothing else does yet.** Specifically
+not: drag-to-insert (`startInsert` and its connector / scribble / table /
+crop / adjustment siblings), connector endpoints, rotation, and the
+arrow-key nudge. Nudge is a deliberate exclusion — it exists to place
+something a fixed 1 / 10 units off whatever surrounds it, and quantizing
+would make the first press jump. Drag-to-insert is not: on a board,
+drawing is the primary way a shape comes into existence, so "snap on,
+then draw an off-lattice rectangle" is incoherent and it is the first
+follow-up worth doing.
 
 Two additive `SlidesEditorOptions` carry it, and a slides mount passes
 neither, so slides behavior is bit-identical:
@@ -252,7 +256,7 @@ peer does not stop the height from finding the grid.
 Unlike edge snapping, grid snapping has **no threshold** — it rounds. The
 nearest grid line is never more than half a step away, so reusing the
 8-unit band would leave the toggle inert whenever the step grew past it
-(at zoom 0.25 the step is 80 world units, so it would engage a fifth of
+(at zoom 0.25 the step is 100 world units, so it would engage 16% of
 the time). It emits no `SnapGuide` either: the painted grid is its own
 feedback, and a line drawn on every frame of every drag is noise.
 
@@ -266,17 +270,33 @@ on move but not on resize — `frame.x/y/w/h` describe the pre-rotation
 box, so its edges are not the ones on screen and rounding them would
 align the shape to nothing.
 
-One gating rule is load-bearing rather than ergonomic: the grid does
-not engage until the gesture has travelled `SLOW_DOUBLE_CLICK_MAX_
-DISTANCE_PX` (3 px). Both `startDrag` and `startResize` arm on
-*pointerdown* with no movement threshold, because the release of a
-plain select-click must stay a no-op. Every other snap returns a zero
-correction for a zero-length delta and so passes that through; the grid
-does not — it quantizes — so without the gate a single stray
+One gating rule is load-bearing rather than ergonomic: no correction
+engages until the gesture has travelled `DRAG_THRESHOLD_PX` (3 px, the
+same number the slow-double-click classifier uses). `startDrag`,
+`startResize` and `startMultiResize` all arm on *pointerdown* with no
+movement threshold, because the release of a plain select-click must
+stay a no-op. Most snaps return a zero correction for a zero-length
+delta and so pass that through; the grid does not — it quantizes — so
+without the gate a single stray
 `pointermove` inside a click would commit a batch, push an undo entry,
 and yank an off-grid element by up to half a step. On a Miro-imported
 board, where nothing is on the lattice to begin with, that would fire
 on essentially every click.
+
+The gate covers `matchSize` (equal-size smart guides) as well, which
+turned out to have the same property for a different reason: it snaps
+to any peer within 8 units of the element's *current* size, so for an
+element that already nearly matches one it corrects before the pointer
+has moved at all, and `startResize` commits unconditionally. That was a
+live defect before this change; the grid's gate is simply where it got
+found.
+
+The same reasoning is why the Shift axis lock now resolves its axis from
+the RAW delta and re-applies that choice, instead of re-reading the
+corrected one. Re-reading was safe while every correction was bounded by
+the 8-unit threshold; the grid's is not, so a horizontal Shift-drag
+whose X happened to be cancelled onto the lattice could hand Y half a
+step, flip the dominant axis, and send the element sideways.
 
 ### Data model & Yorkie store
 

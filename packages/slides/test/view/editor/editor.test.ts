@@ -3400,7 +3400,7 @@ describe('Editor snap to grid — gesture gating and multi-selection', () => {
   it('a sub-threshold tremor moves by the raw delta, not to the lattice', () => {
     // A 1-px twitch is still a 1-px move (pre-existing behaviour, shared
     // with the no-grid path). What must NOT happen is the grid turning
-    // it into a jump of up to half a step — 10 units here, 40 at zoom
+    // it into a jump of up to half a step — 10 units here, 50 at zoom
     // 0.25 on a board whose imported elements are off-grid by
     // construction.
     const { canvas, overlay, store } = makeFixture();
@@ -3527,5 +3527,171 @@ describe('Editor snap to grid — gesture gating and multi-selection', () => {
     const frame = store.read().slides[0].elements.find((el) => el.id === target)!.frame;
     expect(frame.w).toBe(247);
     expect(frame.y + frame.h).toBe(220);
+  });
+});
+
+describe('Editor snap to grid — interaction with the Shift axis lock', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  afterEach(() => {
+    editor?.detach();
+    editor = null;
+  });
+
+  it('a Shift-drag moves along the dragged axis, never perpendicular to it', () => {
+    // Regression: the lock used to be re-derived from the CORRECTED
+    // delta. That was safe while every correction was bounded by the
+    // 8-unit snap threshold, but the grid's is not — here X's +8 is
+    // cancelled onto the lattice (left 100 → 108 → 100) while Y is
+    // handed +10 (top 130 → 140), so `dominantAxis` flipped to 'y' and
+    // the element travelled DOWN a shape that was dragged RIGHT.
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        // Left already ON the lattice, top deliberately OFF it.
+        frame: { x: 100, y: 130, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 180, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 158, clientY: 180, bubbles: true, shiftKey: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 158, clientY: 180, bubbles: true, shiftKey: true,
+    }));
+    const frame = store.read().slides[0].elements[0].frame;
+    // The locked-out axis is pinned, grid or no grid.
+    expect(frame.y).toBe(130);
+    // X stays on the lattice it was already on — the drag was 8 units,
+    // less than half a step, so quantizing returns it to 100.
+    expect(frame.x).toBe(100);
+  });
+
+  it('a Shift-drag past half a step still advances along its axis', () => {
+    // The companion to the case above: the lock must not become a
+    // freeze. A drag long enough to reach the next line takes it.
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 130, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 180, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 197, clientY: 180, bubbles: true, shiftKey: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 197, clientY: 180, bubbles: true, shiftKey: true,
+    }));
+    const frame = store.read().slides[0].elements[0].frame;
+    expect(frame.x).toBe(140); // 100 + 47 → 147 → 140
+    expect(frame.y).toBe(130);
+  });
+
+  it('Shift suppresses the grid on resize, so aspect is preserved', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+      getSnapGrid: () => 20,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    const seHandle = overlay.querySelector<HTMLDivElement>('[data-handle="se"]')!;
+    const hx = parseFloat(seHandle.style.left) + 4;
+    const hy = parseFloat(seHandle.style.top) + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: hx + 47, clientY: hy, bubbles: true, shiftKey: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: hx + 47, clientY: hy, bubbles: true, shiftKey: true,
+    }));
+    const frame = store.read().slides[0].elements[0].frame;
+    // 2:1 held exactly. Quantizing either edge would have broken it.
+    expect(frame.w / frame.h).toBeCloseTo(2, 6);
+    expect(frame.w).toBeCloseTo(247, 6);
+  });
+
+  it('an equal-size match does not fire on a click that never moved', () => {
+    // `matchSize` snaps to a peer within 8 units of the CURRENT size, so
+    // for an element that already nearly matches one it corrects at zero
+    // delta — and `startResize` commits unconditionally. Pre-dates the
+    // grid; the gate now covers it too.
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 900, y: 600, w: 205, h: 40, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({
+      canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1,
+    });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 150, clientY: 150, bubbles: true,
+    }));
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const hx = parseFloat(eHandle.style.left) + 4;
+    const hy = parseFloat(eHandle.style.top) + 4;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: hx, clientY: hy, bubbles: true,
+    }));
+    expect(store.read().slides[0].elements[0].frame.w).toBe(200);
   });
 });

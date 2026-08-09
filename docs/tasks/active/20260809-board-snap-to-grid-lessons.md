@@ -20,6 +20,21 @@ downstream code depends on, and whether the new stage still has them.
 Here the property was "identity on zero input", and it was never written
 down anywhere — it lived in a guard three hundred lines away.
 
+**And do the sweep exhaustively.** Fixing that one guard was not enough.
+A second review found the *same* class of break one layer further down:
+Shift axis-lock re-derived its axis from the corrected delta, which is
+only sound while corrections are bounded — the grid's are not, so a
+horizontal drag could move an element vertically. Two consumers, one
+property, and the first pass only audited the one it had been shown.
+The correct audit is "list every consumer of this pipeline's output,
+then check each against the property", not "fix the consumer the bug
+report named".
+
+A third instance turned up in the same sweep from the other direction:
+`matchSize` never had the property either, and the lessons above claimed
+every existing snap did. When you write down an invariant, check it
+against every case rather than the ones you happened to read.
+
 The fix reused `SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX`, the threshold the
 editor already uses to classify click-vs-drag, rather than introducing a
 second one. Two thresholds answering the same question is a bug waiting

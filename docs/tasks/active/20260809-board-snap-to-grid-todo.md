@@ -28,7 +28,7 @@ units, which is what the user actually sees painted on the host.
 | --- | --- |
 | Step | The **visible** grid — `gridStep(zoom)`. Miro and Figma both snap to what is drawn; a fixed step would snap to invisible lines when zoomed out. |
 | Priority vs. existing snaps | Element edge / guide / slide-centre **win**; the grid is the fallback. |
-| Threshold | **None** — the grid quantizes. The nearest grid line is always within `step / 2`, so an 8-unit threshold would leave the toggle inert at low zoom (at zoom 0.25 the step is 80, so it would engage 20% of the time). |
+| Threshold | **None** — the grid quantizes. The nearest grid line is always within `step / 2`, so an 8-unit threshold would leave the toggle inert at low zoom (at zoom 0.25 the step is 100, so it would engage 16% of the time). |
 | Gestures | Move + resize. Connector endpoints and rotation are out of scope. |
 | `Grid: None` | Snap still applies. Two independent toggles, as in Miro — "I don't want the lines but I do want the alignment" has to be expressible. |
 | Escape hatch | Hold **Alt/Option** to suspend grid snap for that frame. Shift is already taken (axis lock / aspect). |
@@ -103,11 +103,18 @@ Rejected alternatives:
 - The arrow-key nudge does not grid-snap. Miro steps by one cell there;
   we keep nudge as the fixed 1 / 10-unit escape from whatever the
   surrounding geometry is, so the first press does not jump.
+- **Drag-to-insert does not snap** — `startInsert` and its connector /
+  scribble / table-edge / crop / adjustment siblings all place geometry
+  without consulting `getSnapGrid`. On a board, drawing is the primary
+  way a shape comes into existence, so "snap on, then draw an off-grid
+  rectangle" is incoherent. Left out because it is new behavior beyond
+  the reviewed scope and wants its own smoke round; it is the first
+  follow-up worth doing.
 - `startResize`'s `onUp` commits unconditionally, so clicking a handle
-  and releasing pushes an undo entry that writes the frame back
-  unchanged. Pre-existing (`startMultiResize` has the guard,
-  `startResize` never did) and untouched here — the grid's movement gate
-  means the entry is a no-op in value, as it was before.
+  and releasing pushes an undo entry. Pre-existing (`startMultiResize`
+  has the guard, `startResize` never did) and still there. The entry is
+  now value-neutral, which it was NOT before this change — see the
+  `matchSize` finding below.
 
 ## Review
 
@@ -163,3 +170,51 @@ Not applied:
 - **A no-op guard on `startResize`'s `onUp`.** Real (clicking a handle
   pushes an empty undo entry) but pre-existing and unrelated to the
   grid; recorded above instead of widening this change.
+
+**Second code review** (full branch diff, after the default flip)
+
+The reviewer independently re-derived the `matchedAxes` equivalence
+across all eight handles and re-traced the `startMultiResize`
+restructure, confirming both. It found one Critical:
+
+- **Shift axis lock inverted by the grid.** `startDrag` re-derived the
+  locked axis from the CORRECTED delta. That held while every correction
+  was bounded by the 8-unit threshold; the grid's is not. A horizontal
+  Shift-drag whose X was cancelled onto the lattice while Y picked up
+  half a step flipped `dominantAxis` to `y` — the element moved down a
+  shape that was dragged right, then flipped back once |dx| grew, so the
+  gesture visibly jittered between axes. Reproduced end-to-end by the
+  reviewer. Fixed by resolving the axis once from the raw delta
+  (`dominantAxis`) and re-applying it (`applyAxisLock`); the guide filter
+  now keys off the same value instead of inferring it from zeroes. Two
+  editor-level regression tests plus one pure test that pins the reason.
+
+And, from the same family:
+
+- **`matchSize` had the zero-delta defect too**, for a different reason:
+  it snaps to any peer within 8 units of the element's *current* size, so
+  an element that already nearly matches one gets corrected before the
+  pointer moves — and `startResize` commits unconditionally. A live
+  defect, not a grid one; the movement gate now covers it (both resize
+  paths), and the "no-op in value" claim above, which was wrong, is
+  corrected. This also makes the lessons file's "every snap is identity
+  at zero delta" invariant actually true.
+- Arithmetic: `gridStep(0.25)` is **100**, not 80 — the 1-2-5 ladder
+  cannot produce 80 (`n = 8 → multiplier 10`). Reachable steps are only
+  20 / 50 / 100 / 200. Corrected in five places; the argument the number
+  was supporting survives (16% engagement, not 20%).
+- `DRAG_THRESHOLD_PX` now names the shared 3-px threshold in `drag.ts`,
+  with a note that grid snapping depends on it — its docblock invited
+  dogfooding to retune the constant, which would silently have left the
+  grid inert for the first few pixels of every board drag.
+- A `SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX` split across a line break inside
+  one backtick pair (rendered with a space); `startMultiResize` added to
+  the list of gated paths.
+- Tests: Shift-suppression on resize, and the `matchSize` zero-delta case.
+
+Not applied:
+
+- **Snapping drag-to-insert.** The strongest remaining finding, and
+  correct — see Known limitations. New behavior beyond the reviewed
+  scope, wants its own smoke round, so it is a follow-up rather than a
+  late addition here.
