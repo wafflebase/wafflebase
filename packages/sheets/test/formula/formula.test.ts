@@ -3616,6 +3616,57 @@ describe('Formula', () => {
     expect(evaluate('=CHOOSECOLS(A1:C1,3)', grid)).toBe('3');
   });
 
+  it('returns a full CHOOSECOLS array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(CHOOSECOLS({1,2;3,4},2),1)')).toBe('2');
+    expect(evaluate('=INDEX(CHOOSECOLS({1,2;3,4},2),2)')).toBe('4');
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},3,1)'),
+    ).toEqual({
+      values: [
+        ['3', '1'],
+        ['6', '4'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('supports repeated and negative CHOOSECOLS indexes', () => {
+    expect(evaluate('=CHOOSECOLS({1,2,3;4,5,6},-1)')).toBe('3');
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},2,2)'),
+    ).toEqual({
+      values: [
+        ['2', '2'],
+        ['5', '5'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},-1,2,2)'),
+    ).toEqual({
+      values: [
+        ['3', '2', '2'],
+        ['6', '5', '5'],
+      ],
+      rows: 2,
+      cols: 3,
+    });
+    expect(evaluate('=CHOOSECOLS({1,2},0)')).toBe('#VALUE!');
+    expect(evaluate('=CHOOSECOLS({1,2},3)')).toBe('#VALUE!');
+  });
+
+  it('accepts computed arrays in CHOOSECOLS', () => {
+    expect(
+      evaluateWithSpill('=CHOOSECOLS(HSTACK({1;2},{3;4}),2)'),
+    ).toEqual({
+      values: [['3'], ['4']],
+      rows: 2,
+      cols: 1,
+    });
+  });
+
   it('should correctly evaluate TAKE function', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: '1' } as Cell);
@@ -3662,6 +3713,14 @@ describe('Formula', () => {
       ],
       rows: 2,
       cols: 2,
+    });
+  });
+
+  it('accepts more than two HSTACK inputs', () => {
+    expect(evaluateWithSpill('=HSTACK({1},{2},{3})')).toEqual({
+      values: [['1', '2', '3']],
+      rows: 1,
+      cols: 3,
     });
   });
 

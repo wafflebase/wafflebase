@@ -1258,7 +1258,7 @@ export function chooserowsFunc(
 }
 
 /**
- * CHOOSECOLS(array, col_num1, [col_num2], ...) — selects columns by index; returns first row's first chosen value (full spill not yet implemented).
+ * CHOOSECOLS(array, col_num1, [col_num2], ...) — selects columns by index.
  */
 export function choosecolsFunc(
   ctx: FunctionContext,
@@ -1267,21 +1267,31 @@ export function choosecolsFunc(
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
-  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
-  if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return ErrNode.VALUE;
+  const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if (matrix.t === 'err') return matrix;
 
-  const colNum = NumberArgs.map(visit(exprs[1]), grid);
-  if (colNum.t === 'err') return colNum;
-  let c = Math.trunc(colNum.v);
-  if (c < 0) c = m.v.colCount + c + 1;
-  if (c < 1 || c > m.v.colCount) return ErrNode.VALUE;
+  const values = materializeMatrix(matrix, grid);
+  const colCount =
+    matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount;
+  const indexes: number[] = [];
 
-  const refIdx = c - 1; // first row, chosen column
-  const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
-  return cellVal !== '' && !isNaN(Number(cellVal))
-    ? { t: 'num', v: Number(cellVal) }
-    : { t: 'str', v: cellVal };
+  for (const expr of exprs.slice(1)) {
+    const colNode = NumberArgs.map(visit(expr), grid);
+    if (colNode.t === 'err') return colNode;
+
+    let col = Math.trunc(colNode.v);
+    if (col < 0) col = colCount + col + 1;
+    if (col < 1 || col > colCount) return ErrNode.VALUE;
+    indexes.push(col - 1);
+  }
+
+  return arrayNode(
+    values.map((row) =>
+      indexes.map(
+        (col) => row[col] ?? ({ t: 'empty' } satisfies EmptyNode),
+      ),
+    ),
+  );
 }
 
 /**
