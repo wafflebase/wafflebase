@@ -266,6 +266,30 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         refuse(`sheet.cellCenter(${sref}) resolved to a non-finite point (${x}, ${y}) — is the grid laid out?`);
       }
+      // REFUSE A POINT THAT IS NOT ON THE GRID.
+      //
+      // A scrolled-away cell resolves to a perfectly finite coordinate outside the
+      // canvas — negative `y` for anything above the viewport. Clicking there lands
+      // on nothing, selects nothing, and reports no error, so the caller sees a click
+      // that "did not work" and has no way to tell that from a broken app.
+      //
+      // Measured: the first live sheet run scrolled, clicked C20/C25/C5 — all of them
+      // now above the viewport at y between -365 and -710 — and proposed "after the
+      // grid is scrolled, mouse clicks no longer select any cell", major severity,
+      // ground A, reproducing deterministically because the coordinates are stable.
+      // Clicks after a scroll are fine; the cells were simply not there any more.
+      // Only a verifier timeout stopped it being reported.
+      //
+      // So this refuses instead, and says what to do about it. A readable refusal
+      // costs one action; a false report costs a maintainer's trust.
+      if (x < origin.left || x > origin.right || y < origin.top || y > origin.bottom) {
+        refuse(
+          `sheet.cellCenter(${sref}) is off-screen at (${x}, ${y}) — the grid is scrolled ` +
+            `so that cell is outside the visible canvas (${Math.round(origin.left)},${Math.round(origin.top)})-` +
+            `(${Math.round(origin.right)},${Math.round(origin.bottom)}). Clicking there would land on nothing ` +
+            "and select nothing, which is NOT a defect. Scroll it back into view, or use a cell that is visible.",
+        );
+      }
       return { x, y };
     },
   };

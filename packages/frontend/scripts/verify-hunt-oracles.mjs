@@ -192,6 +192,78 @@ async function checkCellTargeting(page, baseUrl) {
 }
 
 /**
+ * A scrolled-away cell must REFUSE, not hand back a clickable-looking point.
+ *
+ * `checkCellTargeting` above proves clicks land correctly, but only on an unscrolled
+ * grid — and the gap between those two facts produced a false finding on the first
+ * live sheet run. The agent scrolled, asked for cells that had moved above the
+ * viewport, got perfectly finite negative coordinates, clicked them, selected nothing,
+ * and proposed "after the grid is scrolled, mouse clicks no longer select any cell" at
+ * major severity, ground A, reproducing deterministically. Clicks after a scroll are
+ * fine; the cells were not there. Only a verifier timeout stopped it being reported.
+ *
+ * Both halves are asserted, because a reader that refuses everything after a scroll
+ * would be just as broken as one that refuses nothing.
+ */
+async function checkOffscreenRefusal(page, baseUrl) {
+  const problems = [];
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  // The wheel does nothing until the grid has focus, so click first — otherwise this
+  // check silently tests an unscrolled grid and proves nothing.
+  const start = await page.evaluate((r) => window.__WB_HUNT__.read("sheet.cellCenter", [r]), "C5");
+  if (!start || !Number.isFinite(start.x)) {
+    problems.push(`could not measure C5 to focus the grid, got ${JSON.stringify(start)} — this check cannot run`);
+    return problems;
+  }
+  await page.mouse.click(start.x, start.y);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.wheel(0, 400);
+  await page.waitForTimeout(200);
+
+  const after = await page.evaluate(async () => {
+    try {
+      // `read` is ASYNC. Returning the promise inside an object serialises it as
+      // `{}` — Playwright only awaits a promise returned DIRECTLY from evaluate.
+      return { ok: true, value: await window.__WB_HUNT__.read("sheet.cellCenter", ["C5"]) };
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  }).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+  if (after.ok) {
+    problems.push(
+      `a cell scrolled above the viewport must be refused, got ${JSON.stringify(after.value)} — ` +
+        "a finite off-screen point is what manufactured the scroll false-finding",
+    );
+  } else if (!/off-screen/.test(after.error)) {
+    problems.push(`the refusal must say the cell is off-screen, got ${after.error.slice(0, 120)}`);
+  }
+
+  // ...and a cell that IS visible after the same scroll still resolves and still
+  // selects, or the guard has simply broken clicking.
+  const visible = await page.evaluate(async () => {
+    try {
+      // `read` is ASYNC. Returning the promise inside an object serialises it as
+      // `{}` — Playwright only awaits a promise returned DIRECTLY from evaluate.
+      return { ok: true, value: await window.__WB_HUNT__.read("sheet.cellCenter", ["C45"]) };
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  }).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+  if (!visible.ok) {
+    problems.push(`an on-screen cell after a scroll must still resolve, got refusal: ${visible.error.slice(0, 120)}`);
+  } else if (!visible.value || !Number.isFinite(visible.value.x) || !Number.isFinite(visible.value.y)) {
+    problems.push(`an on-screen cell resolved to an unusable point: ${JSON.stringify(visible.value)}`);
+  } else {
+    await page.mouse.click(visible.value.x, visible.value.y);
+    const active = await page.evaluate(() => window.__WB_HUNT__.read("sheet.activeCell"));
+    if (active !== "C45") problems.push(`clicking a visible cell after a scroll selected ${active}, expected C45`);
+  }
+  return problems;
+}
+
+/**
  * Undo capability, checked because a prediction that assumes it produces a
  * confident FALSE finding when it is absent.
  *
@@ -586,6 +658,11 @@ try {
     for (const p of problems) failures.push(`cell targeting: ${p}`);
     if (problems.length === 0) {
       console.log(`[verify:hunt-oracles] cell clicks land correctly: ${TARGETING_CELLS.join(", ")}`);
+    }
+    const offscreenProblems = await checkOffscreenRefusal(page, baseUrl);
+    for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
+    if (offscreenProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
     }
     const undoProblems = await checkUndoCapability(page, baseUrl);
     for (const p of undoProblems) failures.push(`undo capability: ${p}`);
