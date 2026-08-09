@@ -23,14 +23,14 @@ generic "Failed to load analytics."
 
 ## Checklist
 
-- [ ] `DocumentBreakdown` gains `canManage: boolean` (backend types +
+- [x] `DocumentBreakdown` gains `canManage: boolean` (backend types +
       warehouse placeholder + frontend `WorkspaceAnalytics` type).
-- [ ] `workspaceDashboard` selects `authorID` and fills `canManage` from
+- [x] `workspaceDashboard` selects `authorID` and fills `canManage` from
       the caller's membership role.
-- [ ] Workspace analytics table hides "Details" for non-manageable rows.
-- [ ] Document analytics page distinguishes 403 from other errors.
-- [ ] Backend unit test: manager vs non-manager rows in the ranking.
-- [ ] Design doc note in `docs/design/share-link-analytics.md`.
+- [x] Workspace analytics table hides "Details" for non-manageable rows.
+- [x] Document analytics page distinguishes 403 from other errors.
+- [x] Backend unit test: manager vs non-manager rows in the ranking.
+- [x] Design doc note in `docs/design/share-link-analytics.md`.
 
 ## Out of scope
 
