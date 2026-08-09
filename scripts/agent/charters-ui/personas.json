@@ -37,7 +37,7 @@
       "totalTimeoutMs": 900000
     },
     "explorerMaxTurns": 70,
-    "verifierMaxTurns": 35
+    "verifierMaxTurns": 50
   },
   {
     "id": "sheet-author",
@@ -76,6 +76,6 @@
       "totalTimeoutMs": 900000
     },
     "explorerMaxTurns": 70,
-    "verifierMaxTurns": 35
+    "verifierMaxTurns": 50
   }
 ]
