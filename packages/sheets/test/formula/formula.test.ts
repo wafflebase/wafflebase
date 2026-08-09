@@ -2693,6 +2693,64 @@ describe('Formula', () => {
     ]);
     // Single cell: returns first sorted value (ascending)
     expect(evaluate('=SORT(A1:A4)', grid)).toBe('1');
+    expect(evaluateWithSpill('=SORT(A1:A4)', grid)).toEqual({
+      values: [['1'], ['2'], ['5'], ['8']],
+      rows: 4,
+      cols: 1,
+    });
+  });
+
+  it('returns a full SORT array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(SORT({3;1;2}),1)')).toBe('1');
+    expect(evaluate('=INDEX(SORT({3;1;2}),3)')).toBe('3');
+    expect(evaluateWithSpill('=SORT({2,"b";1,"a"},1,-1)')).toEqual({
+      values: [
+        ['2', 'b'],
+        ['1', 'a'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('sorts complete rows by the selected column', () => {
+    expect(evaluateWithSpill('=SORT({"b",2;"a",1;"c",1},2,1)')).toEqual({
+      values: [
+        ['a', '1'],
+        ['c', '1'],
+        ['b', '2'],
+      ],
+      rows: 3,
+      cols: 2,
+    });
+    expect(evaluate('=SORT({1,2},3,1)')).toBe('#VALUE!');
+  });
+
+  it('accepts computed arrays in SORT', () => {
+    expect(
+      evaluateWithSpill('=SORT(HSTACK({2;1},{"b";"a"}),1,1)'),
+    ).toEqual({
+      values: [
+        ['1', 'a'],
+        ['2', 'b'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('propagates errors from SORT keys', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '#DIV/0!' } as Cell],
+      ['A3', { v: '1' } as Cell],
+    ]);
+    expect(evaluate('=SORT(A1:A3)', grid)).toBe('#DIV/0!');
+  });
+
+  it('rejects unsupported SORT orders', () => {
+    expect(evaluate('=SORT({2;1},1,0)')).toBe('#VALUE!');
+    expect(evaluate('=SORT({2;1},1,2)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate UNIQUE function', () => {
@@ -3616,6 +3674,57 @@ describe('Formula', () => {
     expect(evaluate('=CHOOSECOLS(A1:C1,3)', grid)).toBe('3');
   });
 
+  it('returns a full CHOOSECOLS array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(CHOOSECOLS({1,2;3,4},2),1)')).toBe('2');
+    expect(evaluate('=INDEX(CHOOSECOLS({1,2;3,4},2),2)')).toBe('4');
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},3,1)'),
+    ).toEqual({
+      values: [
+        ['3', '1'],
+        ['6', '4'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('supports repeated and negative CHOOSECOLS indexes', () => {
+    expect(evaluate('=CHOOSECOLS({1,2,3;4,5,6},-1)')).toBe('3');
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},2,2)'),
+    ).toEqual({
+      values: [
+        ['2', '2'],
+        ['5', '5'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+    expect(
+      evaluateWithSpill('=CHOOSECOLS({1,2,3;4,5,6},-1,2,2)'),
+    ).toEqual({
+      values: [
+        ['3', '2', '2'],
+        ['6', '5', '5'],
+      ],
+      rows: 2,
+      cols: 3,
+    });
+    expect(evaluate('=CHOOSECOLS({1,2},0)')).toBe('#VALUE!');
+    expect(evaluate('=CHOOSECOLS({1,2},3)')).toBe('#VALUE!');
+  });
+
+  it('accepts computed arrays in CHOOSECOLS', () => {
+    expect(
+      evaluateWithSpill('=CHOOSECOLS(HSTACK({1;2},{3;4}),2)'),
+    ).toEqual({
+      values: [['3'], ['4']],
+      rows: 2,
+      cols: 1,
+    });
+  });
+
   it('should correctly evaluate TAKE function', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: '1' } as Cell);
@@ -3641,10 +3750,76 @@ describe('Formula', () => {
     expect(evaluate('=HSTACK(A1:A2)', grid)).toBe('5');
   });
 
+  it('returns a full HSTACK array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(HSTACK({1;2},{3;4}),1,2)')).toBe('3');
+    expect(evaluate('=INDEX(HSTACK({1;2},{3;4}),2,2)')).toBe('4');
+    expect(evaluateWithSpill('=HSTACK({1;2},{3;4})')).toEqual({
+      values: [
+        ['1', '3'],
+        ['2', '4'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('pads shorter HSTACK inputs with #N/A', () => {
+    expect(evaluateWithSpill('=HSTACK({1;2},{3})')).toEqual({
+      values: [
+        ['1', '3'],
+        ['2', '#N/A'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('accepts more than two HSTACK inputs', () => {
+    expect(evaluateWithSpill('=HSTACK({1},{2},{3})')).toEqual({
+      values: [['1', '2', '3']],
+      rows: 1,
+      cols: 3,
+    });
+  });
+
+  it('accepts scalar HSTACK inputs', () => {
+    expect(evaluateWithSpill('=HSTACK(1,"text",TRUE)')).toEqual({
+      values: [['1', 'text', 'TRUE']],
+      rows: 1,
+      cols: 3,
+    });
+  });
+
+  it('preserves range value types and errors in HSTACK', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: 'TRUE' } as Cell],
+      ['A2', { v: 'hello' } as Cell],
+      ['A3', { v: '#DIV/0!' } as Cell],
+    ]);
+    expect(evaluateWithSpill('=HSTACK(A1:A4,{1;2;3;4})', grid)).toEqual({
+      values: [
+        ['TRUE', '1'],
+        ['hello', '2'],
+        ['#DIV/0!', '3'],
+        ['0', '4'],
+      ],
+      rows: 4,
+      cols: 2,
+    });
+  });
+
   it('should correctly evaluate VSTACK function', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: '7' } as Cell);
     expect(evaluate('=VSTACK(A1)', grid)).toBe('7');
+  });
+
+  it('keeps VSTACK scalar until its array implementation is in scope', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: '7' } as Cell],
+      ['A2', { v: '8' } as Cell],
+    ]);
+    expect(evaluateWithSpill('=VSTACK(A1:A2)', grid)).toBe('7');
   });
 
   it('should correctly evaluate SORTBY function', () => {
