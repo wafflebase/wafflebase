@@ -555,6 +555,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      papaparse:
+        specifier: ^5.4.1
+        version: 5.5.2
       pdfjs-dist:
         specifier: ^6.1.200
         version: 6.1.200
@@ -601,6 +604,9 @@ importers:
       '@types/node':
         specifier: ^22.14.1
         version: 22.14.1
+      '@types/papaparse':
+        specifier: ^5.3.14
+        version: 5.3.15
       '@types/react':
         specifier: ^19.0.10
         version: 19.1.1
@@ -750,9 +756,6 @@ importers:
         specifier: ^3.10.1
         version: 3.10.1
     devDependencies:
-      '@types/papaparse':
-        specifier: ^5.3.14
-        version: 5.3.15
       '@vitest/coverage-v8':
         specifier: ^4.1.8
         version: 4.1.8(vitest@4.1.8)
@@ -768,9 +771,6 @@ importers:
       lint-staged:
         specifier: ^15.2.7
         version: 15.5.1
-      papaparse:
-        specifier: ^5.4.1
-        version: 5.5.2
       prettier:
         specifier: ^3.3.2
         version: 3.5.3
