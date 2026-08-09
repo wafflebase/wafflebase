@@ -2739,6 +2739,15 @@ describe('Formula', () => {
     });
   });
 
+  it('propagates errors from SORT keys', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '#DIV/0!' } as Cell],
+      ['A3', { v: '1' } as Cell],
+    ]);
+    expect(evaluate('=SORT(A1:A3)', grid)).toBe('#DIV/0!');
+  });
+
   it('should correctly evaluate UNIQUE function', () => {
     const grid = new Map([
       ['A1', { v: '5' } as Cell],
@@ -3765,6 +3774,24 @@ describe('Formula', () => {
       values: [['1', '2', '3']],
       rows: 1,
       cols: 3,
+    });
+  });
+
+  it('preserves range value types and errors in HSTACK', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: 'TRUE' } as Cell],
+      ['A2', { v: 'hello' } as Cell],
+      ['A3', { v: '#DIV/0!' } as Cell],
+    ]);
+    expect(evaluateWithSpill('=HSTACK(A1:A4,{1;2;3;4})', grid)).toEqual({
+      values: [
+        ['TRUE', '1'],
+        ['hello', '2'],
+        ['#DIV/0!', '3'],
+        ['0', '4'],
+      ],
+      rows: 4,
+      cols: 2,
     });
   });
 

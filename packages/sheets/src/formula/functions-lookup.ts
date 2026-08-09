@@ -1,6 +1,13 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, ErrValues, ArrNode, EmptyNode, numNode } from './formula';
+import {
+  EvalNode,
+  ErrNode,
+  ErrValues,
+  ArrNode,
+  EmptyNode,
+  numNode,
+} from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
