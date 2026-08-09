@@ -136,7 +136,14 @@ export class WorkspaceService {
     userId: number,
   ) {
     await this.assertOwner(workspaceId, userId);
-    return this.prisma.workspaceInvite.delete({ where: { id: inviteId } });
+    // Scope the delete to the workspace the caller owns: deleting by id alone
+    // would let an owner of one workspace revoke another workspace's invite.
+    const resolvedId = await this.resolveId(workspaceId);
+    const { count } = await this.prisma.workspaceInvite.deleteMany({
+      where: { id: inviteId, workspaceId: resolvedId },
+    });
+    if (count === 0) throw new NotFoundException('Invite not found');
+    return { id: inviteId };
   }
 
   async acceptInvite(token: string, userId: number) {

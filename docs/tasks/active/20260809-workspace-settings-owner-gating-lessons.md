@@ -17,7 +17,15 @@
   invites"). Gating the section — rather than just its buttons — also
   drops a request that could only ever fail.
 
+- Auditing the UI gate is not the same as auditing the enforced gate.
+  `WorkspaceService.revokeInvite` ran `assertOwner` on the URL's
+  workspace but then deleted the invite by id alone — an owner of one
+  workspace could revoke another workspace's invite. The role check and
+  the object lookup have to agree on the *same* scope; the delete is now
+  a `deleteMany` scoped to `{ id, workspaceId }`.
+
 ## Follow-ups
 
-- None. The backend authorization was already correct; this was purely a
-  UI-affordance fix.
+- `GET /workspaces/:id/api-keys` is only `assertMember`-gated on the
+  backend while the UI hides the section behind `isOwner`, so that gate
+  is cosmetic. Left as-is here (out of scope for the UI fix).

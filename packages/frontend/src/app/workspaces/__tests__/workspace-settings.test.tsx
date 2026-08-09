@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import WorkspaceSettings from "@/app/workspaces/workspace-settings";
 import { fetchMe } from "@/api/auth";
-import { fetchWorkspace, fetchInvites } from "@/api/workspaces";
+import { fetchWorkspace, fetchInvites, removeMember } from "@/api/workspaces";
 import type { WorkspaceDetail, WorkspaceInvite } from "@/api/workspaces";
 
 vi.mock("@/api/auth", () => ({
@@ -91,6 +92,16 @@ function renderAs(userId: number) {
   );
 }
 
+/**
+ * The `<tr>` holding the given member, located by their (unique) email cell so
+ * the assertion is anchored to a specific row rather than a global count.
+ */
+function memberRow(email: string): HTMLElement {
+  const row = screen.getByText(email).closest("tr");
+  if (!row) throw new Error(`No member row for ${email}`);
+  return row;
+}
+
 describe("WorkspaceSettings owner-only controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,10 +110,22 @@ describe("WorkspaceSettings owner-only controls", () => {
   it("shows member/invite management to an owner", async () => {
     renderAs(OWNER.user.id);
 
-    // One trash icon per non-owner member.
+    // A trash icon in every non-owner row, none in the owner's own row.
     await waitFor(() =>
       expect(screen.getAllByLabelText("Remove member")).toHaveLength(2),
     );
+    expect(
+      within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
+    ).toBeTruthy();
+    expect(
+      within(memberRow(OTHER_MEMBER.user.email)).getByLabelText(
+        "Remove member",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
+    ).toBeNull();
+
     expect(screen.getByText("Create Invite")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText("Revoke invite")).toBeTruthy(),
@@ -112,13 +135,45 @@ describe("WorkspaceSettings owner-only controls", () => {
   it("hides them from a non-owner member", async () => {
     renderAs(MEMBER.user.id);
 
-    await waitFor(() => expect(screen.getByText("Members")).toBeTruthy());
+    // Wait on a control that depends on the auth query, so the negative
+    // assertions below cannot pass merely because `me` has not resolved yet.
+    await waitFor(() =>
+      expect(
+        within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
+      ).toBeTruthy(),
+    );
     // Only the viewer's own row keeps a trash icon: self-removal is
     // permitted by the backend, unlike removing someone else.
     expect(screen.getAllByLabelText("Remove member")).toHaveLength(1);
+    expect(
+      within(memberRow(OTHER_MEMBER.user.email)).queryByLabelText(
+        "Remove member",
+      ),
+    ).toBeNull();
+    expect(
+      within(memberRow(OWNER.user.email)).queryByLabelText("Remove member"),
+    ).toBeNull();
+
     expect(screen.queryByText("Create Invite")).toBeNull();
     expect(screen.queryByText("Invites")).toBeNull();
     expect(screen.queryByLabelText("Revoke invite")).toBeNull();
     expect(vi.mocked(fetchInvites)).not.toHaveBeenCalled();
+  });
+
+  it("lets a non-owner member remove themselves", async () => {
+    vi.mocked(removeMember).mockResolvedValue(undefined);
+    renderAs(MEMBER.user.id);
+
+    const selfButton = await waitFor(() =>
+      within(memberRow(MEMBER.user.email)).getByLabelText("Remove member"),
+    );
+    await userEvent.click(selfButton);
+
+    await waitFor(() =>
+      expect(vi.mocked(removeMember)).toHaveBeenCalledWith(
+        "acme",
+        MEMBER.user.id,
+      ),
+    );
   });
 });
