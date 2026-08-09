@@ -12,28 +12,56 @@ import Papa from "papaparse";
 const ENCODING_PROBE_BYTES = 65_536;
 
 /**
+ * How much of the file papaparse reads and parses per chunk.
+ *
+ * Stated rather than left to papaparse's 10 MB default, because a chunk is now
+ * the granularity at which the budget can stop the parse: rows arrive a chunk
+ * at a time, so the chunk holding the row that fills the budget is parsed in
+ * full before any of it is seen. At 10 MB that overshoots badly — measured on
+ * a 28.9 MB file with a 4,000-row budget, papaparse parsed 115,968 rows before
+ * stopping, against 4,001 for the row-at-a-time reader this replaced. 256 KB
+ * brings it to 6,692.
+ *
+ * Smaller is not free: each chunk is its own `FileReader` read, so shrinking
+ * it trades parse work for read calls. 256 KB is comfortably above any single
+ * row a spreadsheet can hold and small enough that the overshoot is bounded by
+ * something far below the import budget itself.
+ *
+ * Module-private with a test setter for the same reason `maxRowlessBytes` is:
+ * tests need to force chunk boundaries on small fixtures, and doing that by
+ * reassigning `Papa.LocalChunkSize` would mutate library-wide state that this
+ * module no longer reads.
+ */
+let chunkBytes = 262_144;
+
+/** Test-only override for {@link chunkBytes}. */
+export function __setChunkBytesForTest(bytes: number): void {
+  chunkBytes = bytes;
+}
+
+/**
  * How many bytes may be read without producing a single row before the file is
  * rejected as malformed.
  *
  * This is the one input that can otherwise consume unbounded memory. papaparse
  * only emits a row when it finds a row boundary, so a file with an unterminated
- * quote never emits one: `step` never fires, the cell budget never fills, the
- * abort never triggers, and papaparse's internal partial-line buffer grows for
- * the length of the file.
+ * quote never emits one: no chunk yields a row, the cell budget never fills,
+ * the abort never triggers, and papaparse's internal partial-line buffer grows
+ * for the length of the file.
  *
  * A *byte* threshold, not a raw chunk count — an earlier version compared
- * consecutive rowless `chunk` callbacks against a fixed count (3), so a smaller
- * `Papa.LocalChunkSize` tripped it on a field that never actually grew past a
- * normal size. Measured consequence: a legitimately closed 35 MB quoted field
- * spans exactly 3 default 10 MB chunks and was rejected — the exact
- * "legitimately huge closed field" case this exists to let through.
+ * consecutive rowless chunks against a fixed count (3), so a smaller chunk size
+ * tripped it on a field that never actually grew past a normal size. Measured
+ * consequence: a legitimately closed 35 MB quoted field spans exactly 3 default
+ * 10 MB chunks and was rejected — the exact "legitimately huge closed field"
+ * case this exists to let through.
  *
- * Bytes read is estimated as `rowless chunk count × Papa.LocalChunkSize`
- * (below), not read from papaparse's own `results.meta.cursor` — that only
- * tracks progress through *parsed rows* and stays at 0 for as long as no row
- * has been found, verified empirically rather than assumed. The chunk-size
- * estimate is an upper bound (the final chunk may read less), so it can only
- * trigger sooner than the true byte count, never later.
+ * Bytes read is counted as `rowless chunk count × chunkBytes`, not read from
+ * papaparse's own `results.meta.cursor` — that only tracks progress through
+ * *parsed rows* and stays at 0 for as long as no row has been found, verified
+ * empirically rather than assumed. Since the chunk size is now stated rather
+ * than inferred, this is exact except for a final short chunk, which can only
+ * make it trigger later than the true byte count, never sooner.
  *
  * 200 MB is generous on purpose: comfortably above any plausible single-cell
  * blob (a log dump or an HTML fragment in one cell), while still bounding a
@@ -236,15 +264,12 @@ export async function parseCsvFile(
   const writer = createTableWriter({ sheetName });
 
   return new Promise<ImportedTable>((resolve, reject) => {
-    // `results.meta.cursor` cannot be used for this: it tracks progress through
+    // `results.meta.cursor` cannot stand in for this: it tracks progress through
     // *parsed rows*, and while no row has ever been found it stays at 0 —
-    // verified empirically, not assumed. `Papa.LocalChunkSize` times the
-    // consecutive rowless chunk count is what's actually available, and is an
-    // upper bound on bytes read (the final chunk may be smaller), which only
-    // ever makes this trigger sooner, never later.
-    const chunkSize = Papa.LocalChunkSize || ENCODING_PROBE_BYTES;
+    // verified empirically, not assumed. Counting the chunks that yielded no
+    // row is what's actually available.
+    const chunkSize = chunkBytes;
     let rowlessBytes = 0;
-    let sawRowThisChunk = false;
     // `parser.abort()` invokes `complete` synchronously, so a failure path that
     // aborted and *then* rejected would have `complete` resolve first and the
     // rejection silently lost — the caller would receive a half-built document
@@ -263,7 +288,15 @@ export async function parseCsvFile(
       // `.csv` wants.
       delimiter,
       encoding,
-      step: (results, parser) => {
+      // One chunk read and parsed at a time, stated rather than defaulted —
+      // see `chunkBytes`.
+      chunkSize,
+      // `chunk` alone, not `step` + `chunk`: papaparse documents the two as
+      // mutually exclusive, and defining both leaves `complete` receiving no
+      // results. Only `chunk` can carry both jobs anyway — the watchdog below
+      // exists for input that never produces a row, and `step` does not fire
+      // at all in that case.
+      chunk: (results, parser) => {
         // An unterminated quote makes papaparse swallow the rest of the file
         // into one field, which would otherwise look like a successful import
         // of a single enormous value. Its siblings are noise and recover fine:
@@ -273,29 +306,31 @@ export async function parseCsvFile(
           fail(new Error("This file has an unterminated quoted field."), parser);
           return;
         }
-        sawRowThisChunk = true;
-        // The budget is full: stop reading rather than parsing the rest of a
-        // file whose remainder cannot be imported anyway.
-        if (!writer.push(results.data)) parser.abort();
-      },
-      // Fires once per chunk regardless of how many rows it produced, which is
-      // what makes it the right place to notice that none were produced at all.
-      chunk: (_results, parser) => {
-        if (sawRowThisChunk) {
-          rowlessBytes = 0;
-          sawRowThisChunk = false;
+
+        // A whole chunk without a single row is the shape a never-closing quote
+        // makes, and the only way this import can grow without bound.
+        if (results.data.length === 0) {
+          rowlessBytes += chunkSize;
+          if (rowlessBytes > maxRowlessBytes) {
+            fail(
+              new Error(
+                "This file does not look like a table — no row could be read. " +
+                  "Check for an unterminated quote.",
+              ),
+              parser,
+            );
+          }
           return;
         }
-        sawRowThisChunk = false;
-        rowlessBytes += chunkSize;
-        if (rowlessBytes > maxRowlessBytes) {
-          fail(
-            new Error(
-              "This file does not look like a table — no row could be read. " +
-                "Check for an unterminated quote.",
-            ),
-            parser,
-          );
+        rowlessBytes = 0;
+
+        for (const row of results.data) {
+          // The budget is full: stop reading rather than parsing the rest of a
+          // file whose remainder cannot be imported anyway.
+          if (!writer.push(row)) {
+            parser.abort();
+            return;
+          }
         }
       },
       // `parser.abort()` calls `complete` itself, so a budget stop and a normal

@@ -1,7 +1,10 @@
 import { getWorksheetCell, MAX_IMPORT_CELLS } from "@wafflebase/sheets";
-import Papa from "papaparse";
 import { afterEach, describe, expect, it } from "vitest";
-import { __setMaxRowlessBytesForTest, parseCsvFile } from "./csv-actions";
+import {
+  __setChunkBytesForTest,
+  __setMaxRowlessBytesForTest,
+  parseCsvFile,
+} from "./csv-actions";
 import { sheetImportBaseName } from "./sheet-import-actions";
 
 /**
@@ -30,12 +33,12 @@ function cellAt(table: ImportedCsv, r: number, c: number) {
   return getWorksheetCell(table.worksheet, { r, c });
 }
 
-// papaparse reads a local File in 10 MB chunks by default. Shrinking it lets
-// the boundary tests use small fixtures instead of 10 MB ones.
-const DEFAULT_LOCAL_CHUNK_SIZE = Papa.LocalChunkSize;
+// The import reads a File in 256 KB chunks. Shrinking that lets the boundary
+// tests use small fixtures instead of 256 KB ones.
+const DEFAULT_CHUNK_BYTES = 262_144;
 const DEFAULT_MAX_ROWLESS_BYTES = 200_000_000;
 afterEach(() => {
-  Papa.LocalChunkSize = DEFAULT_LOCAL_CHUNK_SIZE;
+  __setChunkBytesForTest(DEFAULT_CHUNK_BYTES);
   __setMaxRowlessBytesForTest(DEFAULT_MAX_ROWLESS_BYTES);
 });
 
@@ -237,7 +240,7 @@ describe("parseCsvFile — chunk boundaries", () => {
     //
     // Built so a character is guaranteed to straddle: the chunk size is a prime
     // that cannot align with the 3-byte characters filling the row.
-    Papa.LocalChunkSize = 997;
+    __setChunkBytesForTest(997);
     const rows = Array.from({ length: 40 }, (_, i) => `행${i},가나다라마바사`);
     const result = await importCsv(fileOf("k.csv", `${rows.join("\n")}\n`));
 
@@ -249,7 +252,7 @@ describe("parseCsvFile — chunk boundaries", () => {
   it("rejoins a row split across a chunk edge", async () => {
     // papaparse buffers a partial line across chunks; this pins that the row
     // still parses into the right number of cells.
-    Papa.LocalChunkSize = 64;
+    __setChunkBytesForTest(64);
     const rows = Array.from({ length: 20 }, (_, i) => `a${i},b${i},c${i}`);
     const result = await importCsv(fileOf("d.csv", `${rows.join("\n")}\n`));
     expect(cellAt(result, 20, 3)?.v).toBe("c19");
@@ -270,9 +273,9 @@ describe("parseCsvFile — budget", () => {
     // What keeps import cost proportional to the budget rather than the file:
     // with a small chunk size, a file far past the budget must not be read
     // chunk by chunk to its end.
-    Papa.LocalChunkSize = 4096;
+    const CHUNK = 4096;
+    __setChunkBytesForTest(CHUNK);
     let chunks = 0;
-    const original = Papa.LocalChunkSize;
     const rows = Array.from({ length: MAX_IMPORT_CELLS, }, (_, i) => `${i},x`);
     const text = `${rows.join("\n")}\n`;
     const file = fileOf("big.csv", text);
@@ -289,7 +292,7 @@ describe("parseCsvFile — budget", () => {
       },
     });
     await importCsv(spy as File);
-    const totalChunks = Math.ceil(text.length / original);
+    const totalChunks = Math.ceil(text.length / CHUNK);
     expect(chunks).toBeLessThan(totalChunks);
   });
 });
@@ -307,7 +310,7 @@ describe("parseCsvFile — malformed input", () => {
     // its partial-line buffer grows for the whole file. (Small enough here to
     // resolve via the `MissingQuotes`-at-EOF path rather than the watchdog —
     // both are covered separately below.)
-    Papa.LocalChunkSize = 512;
+    __setChunkBytesForTest(512);
     const file = fileOf("bad.csv", `"${"x".repeat(20_000)}`);
     await expect(importCsv(file)).rejects.toThrow(
       /does not look like a table|unterminated quote/i,
@@ -322,7 +325,7 @@ describe("parseCsvFile — malformed input", () => {
     // watchdog explicitly says must not be rejected. A tiny chunk size forces
     // many chunk boundaries inside a field that is, in byte terms, nowhere
     // near the real threshold.
-    Papa.LocalChunkSize = 50;
+    __setChunkBytesForTest(50);
     const field = "y".repeat(5_000); // 100 chunks at this size, still tiny in bytes
     const file = fileOf("ok.csv", `a,b\n1,"${field}"\n2,done\n`);
     const result = await importCsv(file);
@@ -336,7 +339,7 @@ describe("parseCsvFile — malformed input", () => {
     // unterminated field has grown past it — well before the file (which
     // keeps going) is exhausted.
     __setMaxRowlessBytesForTest(1_000);
-    Papa.LocalChunkSize = 200;
+    __setChunkBytesForTest(200);
     const text = `"${"z".repeat(50_000)}`; // never closes, far larger than the file needs to be read
     let sliceCalls = 0;
     const file = new Proxy(fileOf("huge-bad.csv", text), {
