@@ -205,11 +205,12 @@ repeat the same `setViewport` + `repaintViewport` pair inline.
 
 A second, independent toggle (Miro keeps them separate too): the mode
 controls what is *drawn*, snap controls where things *land*, and
-`Grid: None` + snap on is a real preference. Off by default, unlike the
-display — drawing lines changes nothing about a board, while snapping
-changes where every subsequent drag ends up, and a Miro-imported board's
-elements sit at arbitrary coordinates that an on-by-default snap would
-relocate the first time anyone nudged one.
+`Grid: None` + snap on is a real preference. On by default, like the
+display — a grid that is drawn but not honored is decoration. The one
+risk that carries (a Miro-imported board sits at arbitrary coordinates,
+so the first drag of an element pulls it up to half a step) is bounded
+by the movement gate below: nothing moves unless the user meant to move
+it, and once they did, landing on the lattice is the point.
 
 The step is the **visible** grid — the same `gridStep(zoom)` the
 background is painted from — so the user always lands on a line they can

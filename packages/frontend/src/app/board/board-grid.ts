@@ -10,16 +10,22 @@ export type BoardGridKind = "none" | "dot" | "line";
 export const DEFAULT_GRID_KIND: BoardGridKind = "dot";
 
 /**
- * Snap to grid is OFF out of the box, unlike the grid display itself.
+ * Snap to grid is ON out of the box, matching the grid display's own
+ * default: a grid that is drawn but not honored is decoration, and the
+ * aligned result is what a user placing shapes on a lattice wants
+ * without having to find a setting first.
  *
- * The two settings are independent (Miro models them the same way), and
- * they carry different risk: showing lines changes nothing about a
- * board, while snapping changes where every subsequent drag lands. A
- * Miro-imported board's elements sit at arbitrary coordinates, so an
- * on-by-default snap would relocate them the first time anyone nudged
- * one — a surprise the user never asked for.
+ * The risk this default carries — a Miro-imported board's elements sit
+ * at arbitrary coordinates, so the first drag relocates them by up to
+ * half a step — is bounded by the movement gate in the slides editor
+ * (`activeSnapGrid`): the grid does not engage until a gesture is a
+ * drag rather than a click, so nothing moves unless the user meant to
+ * move it, and when they do, landing on the lattice is the point.
+ *
+ * The setting stays independent of the display mode regardless (Miro
+ * models them the same way) — see {@link loadGridSnap}.
  */
-export const DEFAULT_GRID_SNAP = false;
+export const DEFAULT_GRID_SNAP = true;
 
 const STORAGE_KEY = "wafflebase.board.grid";
 const SNAP_STORAGE_KEY = "wafflebase.board.grid-snap";

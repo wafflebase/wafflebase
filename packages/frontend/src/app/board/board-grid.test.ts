@@ -223,10 +223,24 @@ describe("grid snap persistence", () => {
     expect(loadGridSnap()).toBe(false);
   });
 
+  it("defaults to on", () => {
+    // Asserted against the literal, not the constant, so flipping the
+    // default is a deliberate act that shows up in a diff rather than a
+    // silent change of behavior for every existing board.
+    expect(DEFAULT_GRID_SNAP).toBe(true);
+  });
+
   it("falls back to the default for a missing or corrupted value", () => {
     expect(loadGridSnap()).toBe(DEFAULT_GRID_SNAP);
     localStorage.setItem("wafflebase.board.grid-snap", "yes");
     expect(loadGridSnap()).toBe(DEFAULT_GRID_SNAP);
+  });
+
+  it("remembers an explicit opt-out against the on default", () => {
+    // The one case a truthy default makes easy to get wrong: `false`
+    // must survive the round trip rather than being read as "unset".
+    saveGridSnap(false);
+    expect(loadGridSnap()).toBe(false);
   });
 
   it("is stored independently of the grid mode", () => {

@@ -34,7 +34,7 @@ units, which is what the user actually sees painted on the host.
 | Escape hatch | Hold **Alt/Option** to suspend grid snap for that frame. Shift is already taken (axis lock / aspect). |
 | Feedback | No guide line. The grid is its own feedback, and a line drawn on every frame is noise. |
 | State | `localStorage`, per user, independent of the grid mode — same reasoning as the grid mode itself (one collaborator must not change another's view). |
-| Default | **Off**, unlike the grid display's `dot`. Drawing lines changes nothing about a board; snapping changes where every drag lands, and a Miro import's off-grid elements would jump the first time anyone nudged one. |
+| Default | **On**, like the grid display's `dot`. A grid that is drawn but not honored is decoration. (Shipped off first, on the reasoning that a Miro import's off-grid elements would jump; flipped once the movement gate made that only happen on a deliberate drag, where it is the intended result.) |
 
 ## Approach — the seam
 
@@ -90,7 +90,7 @@ Rejected alternatives:
 - [x] `docs/design/board/board.md` — replace the "not part of this"
       paragraph with what shipped
 - [x] `pnpm verify:fast`
-- [ ] Browser smoke
+- [x] Browser smoke
 
 ## Known limitations
 
@@ -111,8 +111,16 @@ Rejected alternatives:
 
 ## Review
 
-All tasks above done except the browser smoke; `pnpm verify:fast` green
-(exit 0).
+All tasks above done; `pnpm verify:fast` green (exit 0).
+
+**Browser smoke** — run by the author in `pnpm dev`. Snap engaging on
+drag, Alt suspending it (and resuming on release), a click/tremor
+leaving the element alone, resize moving only the dragged edge, the
+context-menu toggle reflecting state, and `None` + snap on all behaved.
+Snap was flipped to on by default afterwards, on the strength of the
+movement gate: the hazard that argued for off (an off-grid import
+jumping) now only fires on a deliberate drag, which is what the user
+asked for by turning snapping on.
 
 **Code review** (dispatched over the full branch diff)
 
