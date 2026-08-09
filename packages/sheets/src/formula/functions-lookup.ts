@@ -981,6 +981,7 @@ export function sortFunc(
     if (orderNode.t === 'err') return orderNode;
     order = orderNode.v;
   }
+  if (order !== 1 && order !== -1) return ErrNode.VALUE;
 
   const keyedRows: Array<{ row: EvalNode[]; key: LookupValue }> = [];
   for (const row of values) {
@@ -996,7 +997,7 @@ export function sortFunc(
 
   keyedRows.sort((left, right) => {
     const compared = compareLookupValues(left.key, right.key);
-    return order >= 0 ? compared : -compared;
+    return compared * order;
   });
   return arrayNode(keyedRows.map(({ row }) => row));
 }
@@ -1418,7 +1419,7 @@ export function hstackFunc(
 
   const matrices: Array<{ values: EvalNode[][]; rows: number; cols: number }> = [];
   for (const expr of exprs) {
-    const matrix = getReferenceMatrixFromExpression(expr, visit, grid);
+    const matrix = getReferenceMatrixFromExpression(expr, visit, grid, true);
     if (matrix.t === 'err') return matrix;
     matrices.push({
       values: materializeMatrix(matrix, grid),

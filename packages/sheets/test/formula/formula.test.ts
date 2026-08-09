@@ -2748,6 +2748,11 @@ describe('Formula', () => {
     expect(evaluate('=SORT(A1:A3)', grid)).toBe('#DIV/0!');
   });
 
+  it('rejects unsupported SORT orders', () => {
+    expect(evaluate('=SORT({2;1},1,0)')).toBe('#VALUE!');
+    expect(evaluate('=SORT({2;1},1,2)')).toBe('#VALUE!');
+  });
+
   it('should correctly evaluate UNIQUE function', () => {
     const grid = new Map([
       ['A1', { v: '5' } as Cell],
@@ -3772,6 +3777,14 @@ describe('Formula', () => {
   it('accepts more than two HSTACK inputs', () => {
     expect(evaluateWithSpill('=HSTACK({1},{2},{3})')).toEqual({
       values: [['1', '2', '3']],
+      rows: 1,
+      cols: 3,
+    });
+  });
+
+  it('accepts scalar HSTACK inputs', () => {
+    expect(evaluateWithSpill('=HSTACK(1,"text",TRUE)')).toEqual({
+      values: [['1', 'text', 'TRUE']],
       rows: 1,
       cols: 3,
     });
