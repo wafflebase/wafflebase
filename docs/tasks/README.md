@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| board snap to grid (2026-08-09) | [20260809-board-snap-to-grid-todo.md](./active/20260809-board-snap-to-grid-todo.md) | [20260809-board-snap-to-grid-lessons.md](./active/20260809-board-snap-to-grid-lessons.md) |
 | board grid (2026-08-08) | [20260808-board-grid-todo.md](./active/20260808-board-grid-todo.md) | [20260808-board-grid-lessons.md](./active/20260808-board-grid-lessons.md) |
 | board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./active/20260807-board-miro-parent-relative-position-todo.md) | - |
 | coderabbit parser widening (2026-08-07) | [20260807-coderabbit-parser-widening-todo.md](./active/20260807-coderabbit-parser-widening-todo.md) | - |
@@ -57,4 +58,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 443
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: board grid (2026-08-08)
+Latest active task: board snap to grid (2026-08-09)

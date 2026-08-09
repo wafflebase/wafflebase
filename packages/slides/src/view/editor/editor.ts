@@ -77,6 +77,7 @@ import { dragEndpoint } from './interactions/connector-endpoint-drag';
 import {
   commitTranslate,
   isSlowDoubleClick,
+  DRAG_THRESHOLD_PX,
   SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX,
   SLOW_DOUBLE_CLICK_SEQUENCE_WINDOW_MS,
 } from './interactions/drag';
@@ -90,7 +91,8 @@ import {
 import {
   constrainToSquare,
   snapEndpointAngle,
-  lockAxis,
+  applyAxisLock,
+  dominantAxis,
 } from './interactions/constraints';
 import { buildKeyRules } from './interactions/keyboard';
 import { normalizeRect, selectInRect } from './interactions/lasso';
@@ -128,6 +130,7 @@ import {
 import { Selection } from './selection';
 import { hitTestSlide } from './hit-test-elements';
 import { snapDelta, type SnapGuide } from './snap';
+import { quantizeResizeFrame } from './grid-snap';
 import { smartGuides, matchSize, type SmartGuide } from './smart-guides';
 import { collectSnapCandidates } from './snap-candidates';
 import {
@@ -320,6 +323,29 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
    * Omitted on a slides mount, where the entry is skipped entirely.
    */
   onFitToContent?: () => void;
+  /**
+   * World-space grid step to quantize move and resize onto, or `null`
+   * when the host's snap-to-grid setting is off. Consulted per gesture
+   * frame, not per mount: the board's step is derived from live zoom
+   * (`gridStep(zoom)`), so a value would be stale the moment the user
+   * scrolled.
+   *
+   * A slide has no grid, so a slides mount omits this and every grid
+   * path stays unreachable. See `./grid-snap` for what the step does
+   * and `snapDelta`'s `grid` parameter for where it sits relative to
+   * edge / guide snapping (last).
+   */
+  getSnapGrid?: () => number | null;
+  /**
+   * Extra items appended to the empty-canvas context menu, read when the
+   * menu opens so the host can reflect live state (a toggle's check
+   * mark). Prefix with a `'---'` separator item if the host wants one.
+   *
+   * This is the general form of the bespoke `onFitToContent` hook above
+   * — board-only menu entries have no reason to each earn their own
+   * editor option.
+   */
+  hostCanvasMenuItems?: () => ContextMenuItem[];
 }
 
 export interface SlidesEditor {
@@ -3382,6 +3408,12 @@ class SlidesEditorImpl implements SlidesEditor {
       const fit = this.options.onFitToContent;
       items.push({ label: 'Fit to content', run: () => fit() });
     }
+    // Host-owned entries (the board's "Snap to grid") go before the
+    // slide-scoped block below, so the separator that block opens with
+    // still reads as dividing document actions from slide actions.
+    if (this.options.hostCanvasMenuItems) {
+      items.push(...this.options.hostCanvasMenuItems());
+    }
     // "Change layout…" is slide-scoped (its onPick calls
     // `store.applyLayout()`), which a board-backed `SlidesStore` throws
     // on (`notSupported`). Board mounts pass `suppressSlideChrome:
@@ -5193,7 +5225,17 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
-      const locked = ev.shiftKey ? lockAxis(rawDx, rawDy) : { dx: rawDx, dy: rawDy };
+      // Resolve the locked axis ONCE, from the raw delta, and re-apply
+      // that same choice after the snap pipeline. Re-deriving it from
+      // corrected values (which is what this used to do) is unsafe now
+      // that a correction can be unbounded: grid snapping can cancel the
+      // intended axis to zero and hand the perpendicular one up to half
+      // a step, at which point `dominantAxis` answers differently and
+      // the element travels sideways instead of the way it was dragged.
+      const lockedAxis = ev.shiftKey ? dominantAxis(rawDx, rawDy) : null;
+      const locked = lockedAxis
+        ? applyAxisLock(lockedAxis, rawDx, rawDy)
+        : { dx: rawDx, dy: rawDy };
       const bbox = combinedBoundingBox(Array.from(originalWorldFrames.values()))!;
       // Single read clone serves both the slide height and the guides.
       const doc = this.options.store.read();
@@ -5204,25 +5246,28 @@ class SlidesEditorImpl implements SlidesEditor {
         otherFrames,
         { w: SLIDE_WIDTH, h: deckSlideHeight(doc.meta) },
         doc.guides,
+        // `peakRawClientDist` is already the gesture's "was this a drag
+        // or a click" measure (it gates slow-double-click entry below),
+        // so the grid reuses it rather than measuring travel twice.
+        this.activeSnapGrid(ev, peakRawClientDist >= DRAG_THRESHOLD_PX),
       );
       const smart = smartGuides(bbox, snapped.dx, snapped.dy, otherFrames);
-      // Re-lock after snap + smart-guides: both evaluations run independently
-      // on X and Y, so a sibling edge within the snap/align threshold of the
-      // locked-zero axis would otherwise un-zero it and let Shift-drag drift
-      // off axis. The lock has the final say.
-      const final = ev.shiftKey ? lockAxis(smart.dx, smart.dy) : smart;
+      // Re-apply the lock after snap + smart-guides: both evaluate X and Y
+      // independently, so a sibling edge (or the grid) within reach of the
+      // locked-zero axis would otherwise un-zero it and let Shift-drag
+      // drift off axis. The lock has the final say — and it is the axis
+      // chosen above, not a fresh reading of the corrected delta.
+      const final = lockedAxis
+        ? applyAxisLock(lockedAxis, smart.dx, smart.dy)
+        : smart;
       const dx = final.dx;
       const dy = final.dy;
       const guides: (SnapGuide | SmartGuide)[] = [
         ...snapped.guides,
         ...smart.guides,
-      ].filter((g) => {
-        if (!ev.shiftKey) return true;
-        // After lockAxis, one of dx/dy is zero. Drop guides on that axis.
-        if (dx !== 0 && dy === 0) return g.axis === 'x';
-        if (dy !== 0 && dx === 0) return g.axis === 'y';
-        return true;
-      });
+        // The perpendicular axis is pinned to zero, so a guide on it
+        // describes a correction that was just discarded.
+      ].filter((g) => !lockedAxis || g.axis === lockedAxis);
       liveDx = dx;
       liveDy = dy;
 
@@ -6240,6 +6285,77 @@ class SlidesEditorImpl implements SlidesEditor {
     }
   }
 
+  /**
+   * `frame` with the handle's moving edges rounded onto the host's grid,
+   * or unchanged where the grid does not apply.
+   *
+   * `matchedAxes` reports which axes an equal-size smart guide claimed:
+   * the user is matching a peer's exact dimensions there, and rounding
+   * would break the match the dashed outline is at that moment
+   * promising. It is consulted PER AXIS, like every other snap decision
+   * — a width that happens to match a peer must not also stop the height
+   * from finding the grid.
+   *
+   * Shift bows out wholesale instead: it means "preserve aspect", and
+   * rounding either edge changes the ratio. Alt, an absent host grid,
+   * and a gesture that has not moved yet are handled by
+   * {@link activeSnapGrid}.
+   */
+  private gridSizedFrame(
+    frame: Frame,
+    handle: ResizeHandle,
+    ev: { altKey: boolean; shiftKey: boolean },
+    moved: boolean,
+    matchedAxes: readonly ('x' | 'y')[],
+  ): Frame {
+    if (ev.shiftKey) return frame;
+    const step = this.activeSnapGrid(ev, moved);
+    if (step === null) return frame;
+    const quantized = quantizeResizeFrame(frame, handle, step);
+    // `quantizeResizeFrame` touches x/w on the horizontal axis and y/h on
+    // the vertical one, so restoring a claimed axis is exactly a restore
+    // of that pair.
+    return {
+      ...quantized,
+      ...(matchedAxes.includes('x') ? { x: frame.x, w: frame.w } : {}),
+      ...(matchedAxes.includes('y') ? { y: frame.y, h: frame.h } : {}),
+    };
+  }
+
+  /**
+   * The grid step in force for this gesture frame, or `null` for no grid
+   * snapping. Reads the host's live setting (`getSnapGrid`).
+   *
+   * Two ways it comes back `null` even with a grid configured:
+   *
+   * - **Alt is held** — the Miro/Figma convention for "let me place this
+   *   freely just this once". Sampled per frame, so releasing Alt
+   *   mid-drag brings the grid straight back. Shift is not available for
+   *   the job; the drag paths already spend it on axis lock and aspect
+   *   preservation.
+   * - **`moved` is false** — the gesture has not travelled far enough to
+   *   be a drag. Both `startDrag` and `startResize` arm on *pointerdown*
+   *   with no movement threshold, because the release of a plain
+   *   select-click must stay a no-op (Google Slides parity). Quantizing
+   *   would break that contract in the one way the existing guards
+   *   cannot catch: unlike every other snap, the grid returns a NON-ZERO
+   *   correction for a zero-length delta, so a single stray
+   *   `pointermove` inside a click would commit a batch, push an undo
+   *   entry, and yank an off-grid element by up to half a step (50 world
+   *   units at zoom 0.25). A board imported from Miro is off-grid by
+   *   construction, so that would fire on more or less every click.
+   *
+   * A non-finite or non-positive step is treated as "off" rather than
+   * propagated: the board derives it from zoom, and a corrupted viewport
+   * must not turn every drag into a `NaN` frame write.
+   */
+  private activeSnapGrid(ev: { altKey: boolean }, moved: boolean): number | null {
+    if (ev.altKey || !moved) return null;
+    const step = this.options.getSnapGrid?.() ?? null;
+    if (step === null || !Number.isFinite(step) || step <= 0) return null;
+    return step;
+  }
+
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
     const startSlide = this.currentSlide();
     if (!startSlide) return;
@@ -6298,20 +6414,36 @@ class SlidesEditorImpl implements SlidesEditor {
     );
 
     const isTable = startEl.type === 'table';
+    // Peak client-px travel, the same "drag or click" measure the move
+    // gesture keeps. `onUp` commits `live.worldFrame` unconditionally —
+    // there is no zero-delta guard here the way there is on move — so
+    // without this a twitch on a handle would let a correction through
+    // and permanently resize the element. Both corrections below need
+    // it: the grid quantizes a zero-length delta by construction, and
+    // `matchSize` snaps to any peer within 8 units of the CURRENT size,
+    // which for an element that already nearly matches one is also
+    // non-zero before the pointer has moved at all.
+    let peakClientDist = 0;
     const onMove = (ev: MouseEvent) => {
+      const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
+      if (dist > peakClientDist) peakClientDist = dist;
+      const isDrag = peakClientDist >= DRAG_THRESHOLD_PX;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
       const raw = resizeFrameWorld(startWorldFrame, handle, dx, dy, ev.shiftKey);
       // Skip equal-size snap while Shift is held — Shift means "preserve
       // aspect", which would fight with snapping to a peer's exact w/h.
-      const matched = ev.shiftKey
+      const matched = ev.shiftKey || !isDrag
         ? { x: raw.x, y: raw.y, w: raw.w, h: raw.h, guides: [] as SmartGuide[] }
         : matchSize({ x: raw.x, y: raw.y, w: raw.w, h: raw.h }, handle, otherFrames);
-      live.worldFrame = {
-        ...raw,
-        x: matched.x, y: matched.y, w: matched.w, h: matched.h,
-      };
+      live.worldFrame = this.gridSizedFrame(
+        { ...raw, x: matched.x, y: matched.y, w: matched.w, h: matched.h },
+        handle,
+        ev,
+        isDrag,
+        matched.guides.map((g) => g.axis),
+      );
       if (isTable) {
         // Deferred-resize: the committed table stays painted on the
         // canvas and a translucent ghost table — with cells scaled
@@ -6450,7 +6582,13 @@ class SlidesEditorImpl implements SlidesEditor {
       } as MultiResizeResult,
     };
 
+    // See the single-resize path: neither correction may engage until
+    // the gesture is a drag rather than a click.
+    let peakClientDist = 0;
     const onMove = (ev: MouseEvent): void => {
+      const dist = Math.hypot(ev.clientX - clientX, ev.clientY - clientY);
+      if (dist > peakClientDist) peakClientDist = dist;
+      const isDrag = peakClientDist >= DRAG_THRESHOLD_PX;
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
@@ -6463,40 +6601,50 @@ class SlidesEditorImpl implements SlidesEditor {
       );
       let result = raw;
       let guides: SmartGuide[] = [];
-      if (!ev.shiftKey) {
+      // The bbox the children will actually be redistributed over: `raw`
+      // corrected first by the equal-size smart guide, then by the grid.
+      // Both are bbox-level corrections, so they share one re-run below
+      // rather than each translating back to dx/dy on their own.
+      let bbox: Frame = raw.newBbox;
+      if (!ev.shiftKey && isDrag) {
         const matched = matchSize(
           { x: raw.newBbox.x, y: raw.newBbox.y, w: raw.newBbox.w, h: raw.newBbox.h },
           handle,
           otherFrames,
         );
         guides = matched.guides;
-        if (
-          matched.w !== raw.newBbox.w ||
-          matched.h !== raw.newBbox.h ||
-          matched.x !== raw.newBbox.x ||
-          matched.y !== raw.newBbox.y
-        ) {
-          // Translate the matched bbox back to the dx/dy that produced it.
-          // For 'e' / 's' handles: dx/dy is the size delta. For 'w' / 'n':
-          // dx/dy is the edge offset (resizeFrame does `left = start.x + dx`
-          // for 'w' and `top = start.y + dy` for 'n'), so the sign is the
-          // signed displacement of the moving edge, NOT the size delta.
-          const matchedDx =
-            handle.includes('e') ? matched.w - startBbox.w
-            : handle.includes('w') ? matched.x - startBbox.x
-            : 0;
-          const matchedDy =
-            handle.includes('s') ? matched.h - startBbox.h
-            : handle.includes('n') ? matched.y - startBbox.y
-            : 0;
-          result = resizeMultiFrames(
-            { scope, startBbox, snapshots },
-            handle,
-            matchedDx,
-            matchedDy,
-            false,
-          );
-        }
+        bbox = {
+          ...raw.newBbox,
+          x: matched.x, y: matched.y, w: matched.w, h: matched.h,
+        };
+      }
+      bbox = this.gridSizedFrame(bbox, handle, ev, isDrag, guides.map((g) => g.axis));
+      if (
+        bbox.w !== raw.newBbox.w ||
+        bbox.h !== raw.newBbox.h ||
+        bbox.x !== raw.newBbox.x ||
+        bbox.y !== raw.newBbox.y
+      ) {
+        // Translate the corrected bbox back to the dx/dy that produced it.
+        // For 'e' / 's' handles: dx/dy is the size delta. For 'w' / 'n':
+        // dx/dy is the edge offset (resizeFrame does `left = start.x + dx`
+        // for 'w' and `top = start.y + dy` for 'n'), so the sign is the
+        // signed displacement of the moving edge, NOT the size delta.
+        const correctedDx =
+          handle.includes('e') ? bbox.w - startBbox.w
+          : handle.includes('w') ? bbox.x - startBbox.x
+          : 0;
+        const correctedDy =
+          handle.includes('s') ? bbox.h - startBbox.h
+          : handle.includes('n') ? bbox.y - startBbox.y
+          : 0;
+        result = resizeMultiFrames(
+          { scope, startBbox, snapshots },
+          handle,
+          correctedDx,
+          correctedDy,
+          false,
+        );
       }
       live.result = result;
       this.paintMultiResizeLive(snapshots, result, startSlide, guides);
