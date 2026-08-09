@@ -3641,10 +3641,42 @@ describe('Formula', () => {
     expect(evaluate('=HSTACK(A1:A2)', grid)).toBe('5');
   });
 
+  it('returns a full HSTACK array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(HSTACK({1;2},{3;4}),1,2)')).toBe('3');
+    expect(evaluate('=INDEX(HSTACK({1;2},{3;4}),2,2)')).toBe('4');
+    expect(evaluateWithSpill('=HSTACK({1;2},{3;4})')).toEqual({
+      values: [
+        ['1', '3'],
+        ['2', '4'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('pads shorter HSTACK inputs with #N/A', () => {
+    expect(evaluateWithSpill('=HSTACK({1;2},{3})')).toEqual({
+      values: [
+        ['1', '3'],
+        ['2', '#N/A'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
   it('should correctly evaluate VSTACK function', () => {
     const grid = new Map<string, Cell>();
     grid.set('A1', { v: '7' } as Cell);
     expect(evaluate('=VSTACK(A1)', grid)).toBe('7');
+  });
+
+  it('keeps VSTACK scalar until its array implementation is in scope', () => {
+    const grid = new Map<string, Cell>([
+      ['A1', { v: '7' } as Cell],
+      ['A2', { v: '8' } as Cell],
+    ]);
+    expect(evaluateWithSpill('=VSTACK(A1:A2)', grid)).toBe('7');
   });
 
   it('should correctly evaluate SORTBY function', () => {

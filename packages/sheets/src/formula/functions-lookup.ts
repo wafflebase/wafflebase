@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode, ArrNode, EmptyNode, numNode } from './formula';
+import { EvalNode, ErrNode, ErrValues, ArrNode, EmptyNode, numNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -25,6 +25,45 @@ import {
   firstCellValue,
 } from './functions-helpers';
 import { collectNumericValues } from './functions-statistical';
+
+function cellValueToNode(value: string | undefined): EvalNode {
+  const raw = value ?? '';
+  if (raw === '') return { t: 'empty' } satisfies EmptyNode;
+
+  const error = ErrValues.find((candidate) => candidate === raw);
+  if (error) return { t: 'err', v: error };
+
+  const upper = raw.toUpperCase();
+  if (upper === 'TRUE') return { t: 'bool', v: true };
+  if (upper === 'FALSE') return { t: 'bool', v: false };
+
+  const numeric = Number(raw);
+  return isNaN(numeric) ? { t: 'str', v: raw } : numNode(numeric);
+}
+
+function materializeMatrix(matrix: MatrixResult, grid?: Grid): EvalNode[][] {
+  const rowCount = matrix.t === 'arrmat' ? matrix.rowCount : matrix.v.rowCount;
+  const colCount = matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount;
+
+  return Array.from({ length: rowCount }, (_, row) =>
+    Array.from({ length: colCount }, (_, col) => {
+      if (matrix.t === 'arrmat') {
+        return matrix.values[row]?.[col] ?? ({ t: 'empty' } satisfies EmptyNode);
+      }
+      const ref = matrix.v.refs[row * colCount + col];
+      return cellValueToNode(ref ? grid?.get(ref)?.v : undefined);
+    }),
+  );
+}
+
+function arrayNode(values: EvalNode[][]): ArrNode {
+  return {
+    t: 'arr',
+    v: values,
+    rows: values.length,
+    cols: values[0]?.length ?? 0,
+  };
+}
 
 /**
  * `matchFunc` is the implementation of the MATCH function.
@@ -1324,9 +1363,7 @@ export function dropFunc(
     : { t: 'str', v: cellVal };
 }
 
-/**
- * HSTACK(range1, range2, ...) — appends arrays horizontally; returns top-left value of first range (full spill not yet implemented).
- */
+/** HSTACK(range1, range2, ...) — appends arrays horizontally. */
 export function hstackFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
@@ -1334,14 +1371,26 @@ export function hstackFunc(
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
-  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
-  if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return ErrNode.VALUE;
+  const matrices: Array<{ values: EvalNode[][]; rows: number; cols: number }> = [];
+  for (const expr of exprs) {
+    const matrix = getReferenceMatrixFromExpression(expr, visit, grid);
+    if (matrix.t === 'err') return matrix;
+    matrices.push({
+      values: materializeMatrix(matrix, grid),
+      rows: matrix.t === 'arrmat' ? matrix.rowCount : matrix.v.rowCount,
+      cols: matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount,
+    });
+  }
 
-  const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
-  return cellVal !== '' && !isNaN(Number(cellVal))
-    ? { t: 'num', v: Number(cellVal) }
-    : { t: 'str', v: cellVal };
+  const rows = Math.max(...matrices.map((matrix) => matrix.rows));
+  const values = Array.from({ length: rows }, (_, row) =>
+    matrices.flatMap((matrix) =>
+      row < matrix.rows
+        ? matrix.values[row]
+        : Array.from({ length: matrix.cols }, () => ErrNode.NA),
+    ),
+  );
+  return arrayNode(values);
 }
 
 /**
@@ -1352,7 +1401,16 @@ export function vstackFunc(
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): EvalNode {
-  return hstackFunc(ctx, visit, grid);
+  const exprs = ctx.args()?.expr() ?? [];
+
+  const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if (matrix.t === 'err') return matrix;
+  if (matrix.t !== 'matrix') return ErrNode.VALUE;
+
+  const cellVal = grid?.get(matrix.v.refs[0])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
 }
 
 /**
