@@ -2693,6 +2693,50 @@ describe('Formula', () => {
     ]);
     // Single cell: returns first sorted value (ascending)
     expect(evaluate('=SORT(A1:A4)', grid)).toBe('1');
+    expect(evaluateWithSpill('=SORT(A1:A4)', grid)).toEqual({
+      values: [['1'], ['2'], ['5'], ['8']],
+      rows: 4,
+      cols: 1,
+    });
+  });
+
+  it('returns a full SORT array for INDEX and spill evaluation', () => {
+    expect(evaluate('=INDEX(SORT({3;1;2}),1)')).toBe('1');
+    expect(evaluate('=INDEX(SORT({3;1;2}),3)')).toBe('3');
+    expect(evaluateWithSpill('=SORT({2,"b";1,"a"},1,-1)')).toEqual({
+      values: [
+        ['2', 'b'],
+        ['1', 'a'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it('sorts complete rows by the selected column', () => {
+    expect(evaluateWithSpill('=SORT({"b",2;"a",1;"c",1},2,1)')).toEqual({
+      values: [
+        ['a', '1'],
+        ['c', '1'],
+        ['b', '2'],
+      ],
+      rows: 3,
+      cols: 2,
+    });
+    expect(evaluate('=SORT({1,2},3,1)')).toBe('#VALUE!');
+  });
+
+  it('accepts computed arrays in SORT', () => {
+    expect(
+      evaluateWithSpill('=SORT(HSTACK({2;1},{"b";"a"}),1,1)'),
+    ).toEqual({
+      values: [
+        ['1', 'a'],
+        ['2', 'b'],
+      ],
+      rows: 2,
+      cols: 2,
+    });
   });
 
   it('should correctly evaluate UNIQUE function', () => {

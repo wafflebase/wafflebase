@@ -23,8 +23,9 @@ import {
   equalLookupValues,
   compareLookupValues,
   firstCellValue,
+  toLookupValue,
+  type LookupValue,
 } from './functions-helpers';
-import { collectNumericValues } from './functions-statistical';
 
 function cellValueToNode(value: string | undefined): EvalNode {
   const raw = value ?? '';
@@ -942,7 +943,7 @@ export function areasFunc(
 }
 
 /**
- * SORT(range, [sort_index], [sort_order]) — sorts a range; returns first sorted value (full spill not yet implemented).
+ * SORT(range, [sort_index], [sort_order]) — sorts complete rows by a column.
  */
 export function sortFunc(
   ctx: FunctionContext,
@@ -951,9 +952,21 @@ export function sortFunc(
 ): EvalNode {
   const exprs = ctx.args()?.expr() ?? [];
 
-  const vals = collectNumericValues(exprs[0], visit, grid);
-  if (!Array.isArray(vals)) return vals;
-  if (vals.length === 0) return ErrNode.VALUE;
+  const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if (matrix.t === 'err') return matrix;
+
+  const values = materializeMatrix(matrix, grid);
+  const colCount =
+    matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount;
+  if (values.length === 0 || colCount === 0) return ErrNode.VALUE;
+
+  let sortIndex = 1;
+  if (exprs.length >= 2) {
+    const indexNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (indexNode.t === 'err') return indexNode;
+    sortIndex = Math.trunc(indexNode.v);
+  }
+  if (sortIndex < 1 || sortIndex > colCount) return ErrNode.VALUE;
 
   let order = 1;
   if (exprs.length >= 3) {
@@ -962,8 +975,23 @@ export function sortFunc(
     order = orderNode.v;
   }
 
-  vals.sort((a, b) => order >= 0 ? a - b : b - a);
-  return numNode(vals[0]);
+  const keyedRows: Array<{ row: EvalNode[]; key: LookupValue }> = [];
+  for (const row of values) {
+    const node =
+      row[sortIndex - 1] ?? ({ t: 'empty' } satisfies EmptyNode);
+    const key =
+      node.t === 'empty'
+        ? toLookupValue('')
+        : lookupValueFromNode(node, grid);
+    if (isFormulaError(key)) return key;
+    keyedRows.push({ row, key });
+  }
+
+  keyedRows.sort((left, right) => {
+    const compared = compareLookupValues(left.key, right.key);
+    return order >= 0 ? compared : -compared;
+  });
+  return arrayNode(keyedRows.map(({ row }) => row));
 }
 
 /**
