@@ -389,6 +389,46 @@ a lens that never fails adds nothing to a count of failing-lens commits), and
 the cap defaults to a constant pinned by test to the panel workflow's
 `MAX_REVIEW_ROUNDS` literal.
 
+**Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
+dashboard above summarizes conclusions; this posts the findings themselves.
+Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
+check runs — one set per commit — while the triage renderer that makes them
+readable (`scripts/agent/review-comment.mjs`) was wired solely into
+`.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
+complementary and neither was complete: `@claude review` gave a comment and no
+gate, the autonomous panel a gate and no comment. Measured across 19 `agent/*`
+PRs, panel comments were **0** on every autonomous one, so a maintainer could
+read the fix agent's account of what it changed and never the findings it was
+answering.
+
+`scripts/agent/panel-round-comment.mjs` composes the existing pieces —
+`collectLenses` + `renderReviewComment` for the body, `buildRounds` for the round
+number, so the number here and the number in the dashboard's table come from one
+function and cannot disagree. It is keyed by **SHA, not upserted globally**: one
+comment per round, updated when CI re-runs on the same commit, so the rounds read
+in order against the fix reports that answer them. A single sticky comment was
+considered and rejected for that reason.
+
+Three bodies, because silence is ambiguous: `renderReviewComment` returns `""`
+for a round with no findings, so a clean round says so explicitly rather than
+rendering empty (which reads as "the panel never ran"); a round that blocked
+without producing readable findings gets its own wording, since "no findings"
+there would be wrong in the dangerous direction; and a missing panel.json is
+detected directly rather than inferred, because with it absent every lens reads
+`failure` with no findings — byte-identical to a real all-red round — and
+rendering six fail-closed reds as findings would report a review that never ran.
+
+**Neutralization here is load-bearing, not hygiene.** The comment is authored by
+`github-actions[bot]`, one of the two identities `isPagedLatchComment` trusts to
+LATCH the pipeline, and its body is lens prose: model output over an
+attacker-authorable diff that quotes this repo's markers routinely. #681 is the
+recorded near-miss — an on-demand review comment that merely *named*
+`<!-- agent-metrics-summary -->` was deleted seconds later by the metrics sweep.
+The same text carrying `<!-- agent-review-paged -->` under this identity would
+freeze the panel and the fixer. Everything interpolated goes through
+`neutralizeHiddenMarkers`, and a test plants a live latch inside a finding
+summary and asserts exactly one live HTML-comment opener survives: our own.
+
 Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a
 `verdict` step output plus a `$GITHUB_STEP_SUMMARY` block

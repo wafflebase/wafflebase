@@ -114,21 +114,42 @@ because the `fix` job was cancelled too.
 
 ## The change, phase 4b — the panel's verdict reaches the conversation
 
-- [ ] **One comment per round** (`scripts/agent/panel-round-comment.mjs`, marker
+- [x] **One comment per round** (`scripts/agent/panel-round-comment.mjs`, marker
       `<!-- agent-panel-round:<sha> -->`, upserted per SHA so a CI re-run updates
       rather than duplicates). Composition, not new rendering: `collectLenses` +
       `renderReviewComment` from `review-comment.mjs`, `buildRounds` from
-      `loop-status.mjs`.
-- [ ] **Marker neutralization is load-bearing, not hygiene.** The panel job posts
+      `loop-status.mjs` — so the round number this comment prints and the one the
+      dashboard's table prints come from the same function and cannot disagree.
+- [x] **Marker neutralization is load-bearing, not hygiene.** The panel job posts
       as `github-actions[bot]`, a trusted paged-latch author, over lens summaries
       that quote this repo's own markers as a matter of course — #681 is the
       recorded incident. Everything interpolated goes through
       `loop-status.mjs::neutralizeHiddenMarkers`, covered by a test that plants a
-      live latch inside a finding summary.
-- [ ] Wired into the `review-panel` job beside `Update loop status`; no
+      live latch inside a finding summary and asserts exactly one live
+      HTML-comment opener survives: ours.
+- [x] Wired into the `review-panel` job beside `Update loop status`; no
       permission change (that job already holds `issues: write` and already posts
-      a comment). Clean rounds post too; a missing `panel.json` posts the
-      fail-closed note rather than nothing.
+      a comment through the same token and the same `.trusted` copy).
+- [x] **Three bodies, because silence is ambiguous.** `renderReviewComment`
+      returns `""` for a round with no findings, so a clean round would otherwise
+      render empty and read as "the panel never ran" — it gets its own sentence.
+      A round that blocked without producing readable findings gets a third,
+      because "no findings" there would be a lie in the dangerous direction. And
+      `panel.json` missing is detected directly rather than inferred: with it
+      absent every lens reads `failure` with no findings, byte-identical to a real
+      all-red round, and reporting six fail-closed reds as findings would present
+      a review that never happened.
+
+### Verification (4b)
+
+- 15 unit tests; `scripts/agent` lane green; `pnpm lint:scripts` clean.
+- **Eight mutation tests, all caught** — dropping neutralization, the clean-round
+  branch, the fail-closed branch, the SHA from the marker, the marker-leading
+  ownership check, the paged-latch refusal, the workflow invocation, and `--sha`.
+  The wiring test needed strengthening to catch the seventh: its first version
+  matched the `[ -f … ]` existence guard, so deleting the `node …` line left it
+  green with the script never running.
+- Rendered against a fixture (`--dry-run`) and read as a human would.
 
 ## The change, phase 4c — the round table becomes a map
 
