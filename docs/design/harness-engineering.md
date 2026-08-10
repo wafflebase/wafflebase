@@ -389,6 +389,24 @@ a lens that never fails adds nothing to a count of failing-lens commits), and
 the cap defaults to a constant pinned by test to the panel workflow's
 `MAX_REVIEW_ROUNDS` literal.
 
+The table is also a **map**, not just a summary. Each round's head cell links to
+that commit's checks — GitHub's Checks tab only ever shows the *head* commit's
+runs, so the table used to name a round it gave no way to open — and a `Fixer`
+column reports what the fix agent did about each round: `3 fixed · 0 skipped ·
+0 disputed`, or `—` for a round it was never dispatched for, or `🔧 dispatched`
+for one it was sent into and never reported on. Those last two are deliberately
+distinct; collapsing them would hide a fixer that ran and said nothing. Every
+input comes from records already parsed out of the PR's comments (the dispatch
+ledger, fix reports, rebuttals), so the column costs no extra API calls. The
+`0 disputed` half is the point rather than a detail: no rebuttal has ever been
+filed on an agent PR, and until this cell existed that was indistinguishable
+from a dispute channel that silently failed. Reports and dispatches bind to a
+round by SHA; a rebuttal names a finding rather than a commit, so it is
+attributed to the newest dispatch at or before it was written. `commitBase` is
+derived from the Actions env inside `main()` rather than passed as a flag, for
+the caller-independence reason above — six call sites across four workflows, and
+a link that appeared for some of them would flap.
+
 **Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
 dashboard above summarizes conclusions; this posts the findings themselves.
 Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
