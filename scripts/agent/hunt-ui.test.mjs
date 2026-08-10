@@ -100,6 +100,22 @@ test("each persona's codeScope covers the ENGINE its surface actually runs on", 
   assert.ok(byId["sheet-author"].codeScope.some((g) => g.startsWith("packages/sheets/src")));
 });
 
+test("the doc brief and rubric both demand a toggle ROUND TRIP", () => {
+  // The measured coverage gap, pinned so it cannot quietly regress. A live run made
+  // 17 predictions across two full sessions and every one held — because it applied
+  // each toggle exactly once and never re-applied it to the same selection. The one
+  // real defect this hunter has found (#715) lives precisely there, and broader
+  // exploration never reached it.
+  const doc = loadPersonas(CHARTERS_UI).find((p) => p.id === "doc-writer");
+  const brief = doc.briefs.find((b) => b.id === "body-and-styles");
+  assert.match(brief.task, /AGAIN without changing the\s+selection|toggle the same control more than once/i);
+  assert.match(brief.task, /SUB-RANGE INSIDE/i, "the brief must ask for a sub-range, not a whole block");
+  assert.match(brief.task, /right-to-left/i, "selection direction is one of the three ingredients");
+  // And the rubric has to explain WHY, or the brief reads as an arbitrary chore.
+  assert.match(doc.rubric, /ROUND TRIP/);
+  assert.match(doc.rubric, /equals "@read:/, "the rubric must show the ground-A form of the prediction");
+});
+
 test("no rubric offers a visual ground", () => {
   // The agent has no screenshot action. A rubric that invites "looks wrong" invites
   // a claim that is ineligible under every ground and wastes the session producing
