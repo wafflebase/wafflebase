@@ -8,6 +8,24 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  # Merge queue. When a maintainer clicks "Merge when ready", GitHub builds a
+  # throwaway `gh-readonly-queue/main/pr-<n>-<sha>` branch holding that PR merged
+  # onto main's current tip — plus any PRs ahead of it in the queue — and asks for
+  # main's required checks against that speculative merge. The three required
+  # contexts (`verify-self (22.x)`, `verify-browser (22.x)`,
+  # `verify-integration (22.x)`) are the matrix job names below and do not change
+  # with the event, so the queue is satisfied by exactly the checks a PR is.
+  #
+  # This trigger has to land BEFORE "Require merge queue" is switched on: with the
+  # setting on and the trigger absent, a queued PR waits on checks that never start
+  # and is dequeued when the status-check timeout expires. Until the setting is on
+  # it is inert — no queue means no `merge_group` event and no extra runs. See
+  # docs/design/harness-engineering.md#merge-queue and MAINTAINING.md#merge-queue.
+  #
+  # `checks_requested` is the only activity type GitHub defines today; naming it
+  # keeps the trigger narrow if more are added later.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -67,6 +85,16 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage to Codecov
+        # Not in the merge queue. The SHA under test there is a throwaway
+        # `gh-readonly-queue` commit that need never reach `main` — a failing entry
+        # is dequeued, and a batched group is rebuilt without the offender — so
+        # coverage filed against it lands on a commit Codecov cannot reach from any
+        # branch. The `push` run on `main` right after the queue merges reports the
+        # same tree, so no coverage is actually lost. Skipping also keeps
+        # CODECOV_TOKEN out of runs whose tree contains not-yet-merged fork code
+        # (`merge_group` runs in the base repo with full access to secrets, unlike
+        # a fork's `pull_request` run).
+        if: github.event_name != 'merge_group'
         uses: codecov/codecov-action@v4
         with:
           files: >-

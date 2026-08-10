@@ -178,3 +178,49 @@ draft from merged PRs — review and edit before publishing if needed.
 
 - Deployed to GitHub Pages (`wafflebase.io`) on every push to `main`
 - CNAME configured in the `publish-ghpage.yml` workflow
+
+### Merge queue
+
+Not enabled yet. `ci.yml` already carries the `merge_group` trigger the queue
+needs, so turning it on is a settings change with no code change. Rationale,
+CI-side contract, and residual risks:
+[`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
+
+**What it buys.** `main`'s required checks currently prove a PR is green against
+its own branch, not against the `main` it will land on, so a busy day costs a
+rebase → ~18 min CI → `main` moved → rebase again loop. The queue tests each PR
+merged onto `main`'s real tip and merges it automatically when green; with
+grouping it batches several queued PRs into one CI run and dequeues only the
+entry that actually failed.
+
+**Enable it** (`main` uses classic branch protection — Settings → Branches → rule
+for `main` → **Require merge queue**). Recommended parameters:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Merge method | Squash | Matches how `main`'s history is written today (`… (#739)` subjects) |
+| Build concurrency | 5 | Ceiling on `merge_group` dispatches in flight, i.e. on simultaneous queue CI runs |
+| Merge limits — maximum | 5 | **This is the grouping knob.** Up to 5 queued PRs tested in one CI run instead of one run each; the reason added cost is sublinear in PR count |
+| Merge limits — minimum | 1 | A lone PR must not wait for company |
+| Merge limits — timeout | 5 min | How long to wait for a group to form before merging with fewer |
+| Status check timeout | 60 min | Must exceed CI wall clock or entries are dequeued while still green. CI is ~18 min at its slowest, so this is ~3x headroom |
+| Only merge non-failing pull requests | on | Isolate and dequeue the offender instead of failing the whole group |
+
+Then verify before relying on it: queue one low-risk PR, confirm a run appears
+for `verify-self (22.x)` / `verify-browser (22.x)` / `verify-integration (22.x)`
+on the `gh-readonly-queue/main/...` ref, and confirm the PR merges without a
+manual rebase.
+
+**Rolling back** is unchecking **Require merge queue** — PRs immediately return to
+the manual "rebase, wait for CI, merge" path. Leaving the `merge_group` trigger
+in `ci.yml` costs nothing while the queue is off, since the event never fires.
+
+Two things to know before flipping it:
+
+- Required check names must keep matching. Renaming a `ci.yml` job (or its Node
+  matrix value) without updating the required-check list strands every queued PR
+  until the status-check timeout expires.
+- A `merge_group` run executes PR code in this repository with access to secrets,
+  where a fork's `pull_request` run is sandboxed. Queueing requires write access,
+  so it is the trust boundary that already governs merging — but review lands
+  before *queueing* now, not before merging.
