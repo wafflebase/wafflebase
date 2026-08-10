@@ -1,9 +1,8 @@
-import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
-  IsDate,
+  IsISO8601,
   IsIn,
   IsInt,
   IsOptional,
@@ -74,11 +73,17 @@ export class CommentNotificationDto {
  * timestamp-only cursor would jump past every row that shares the boundary.
  */
 export class ListNotificationsQueryDto {
-  /** Return notifications older than this instant. */
+  /**
+   * Return notifications older than this instant, as ISO 8601.
+   *
+   * Kept a string and checked with `@IsISO8601` rather than converted by
+   * `@Type(() => Date)`: the conversion runs *before* validation, so `@IsDate`
+   * would only see whether a `Date` came out — and `new Date("August 10,
+   * 2026")` parses fine. The controller builds the `Date`.
+   */
   @IsOptional()
-  @Type(() => Date)
-  @IsDate({ message: 'before must be an ISO 8601 date' })
-  before?: Date;
+  @IsISO8601({ strict: true }, { message: 'before must be an ISO 8601 date' })
+  before?: string;
 
   /**
    * Tiebreak within `before`: rows at exactly that instant are returned only

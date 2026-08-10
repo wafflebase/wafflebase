@@ -366,6 +366,18 @@ describeDb('Notification HTTP integration', () => {
       .expect(400);
   });
 
+  it('rejects a parseable but non-ISO ?before cursor', async () => {
+    const { peer } = await scenario();
+
+    // `new Date("August 10, 2026")` parses, so a Date-only check would let
+    // engine-specific formats through a contract that says ISO 8601.
+    await request(app.getHttpServer())
+      .get('/notifications')
+      .query({ before: 'August 10, 2026' })
+      .set('Cookie', authCookie(peer))
+      .expect(400);
+  });
+
   it('rejects a malformed ?before cursor instead of ignoring it', async () => {
     const { peer } = await scenario();
 

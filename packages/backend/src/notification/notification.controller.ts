@@ -78,9 +78,12 @@ export class NotificationController {
     if (query.beforeId && !query.before) {
       throw new BadRequestException('beforeId requires before');
     }
+    // `before` arrives validated as ISO 8601, so this parse cannot fail.
     return this.service.list(
       Number(req.user.id),
-      query.before ? { before: query.before, id: query.beforeId } : undefined,
+      query.before
+        ? { before: new Date(query.before), id: query.beforeId }
+        : undefined,
     );
   }
 

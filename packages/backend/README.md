@@ -287,7 +287,7 @@ never read or mark another user's notifications.
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/notifications/comment` | Client report of a comment event (mention / reply / resolve) |
-| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO date>&beforeId=<id>` composite cursor; `beforeId` without `before` is a 400) |
+| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO 8601>&beforeId=<id>` composite cursor, strictly ISO-validated; `beforeId` without `before` is a 400) |
 | `GET` | `/notifications/unread-count` | `{ count }` |
 | `POST` | `/notifications/read` | `{ ids? }` — omitted marks everything read |
 | `GET` | `/notifications/stream` | SSE badge stream |

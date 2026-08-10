@@ -26,7 +26,14 @@ vi.mock("@/api/notifications", () => ({
  */
 function harness() {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      // `staleTime: Infinity` so no incidental refetch (a re-render while the
+      // mutation settles) can supply the authoritative value. Invalidation
+      // still refetches, which leaves it as the only thing that can — without
+      // this the tests pass whether or not the fix is present.
+      queries: { retry: false, staleTime: Infinity },
+      mutations: { retry: false },
+    },
   });
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client: queryClient }, children);
@@ -57,6 +64,33 @@ describe("useMarkRead", () => {
 
     result.current.markRead.mutate(undefined);
 
+    await waitFor(() => expect(badge(queryClient)).toBe(1));
+  });
+
+  it("does not lose a summary that arrives while the read is in flight", async () => {
+    // The exact ordering the race needs: the read is still pending when the
+    // stream delivers a newer count, and only then does the mutation resolve
+    // and run its optimistic write.
+    let completeRead: () => void = () => {};
+    markSpy.mockReturnValue(
+      new Promise<void>((resolve) => (completeRead = () => resolve())),
+    );
+    countSpy.mockResolvedValueOnce(3).mockResolvedValue(1);
+    const { queryClient, result } = harness();
+    await waitFor(() => expect(badge(queryClient)).toBe(3));
+
+    result.current.markRead.mutate(undefined);
+    // The stream lands first, carrying the notification that arrived after
+    // the server processed the read.
+    queryClient.setQueryData(UNREAD_COUNT_KEY, 1);
+    completeRead();
+
+    // Wait for the mutation to settle *first*: its optimistic write is what
+    // clobbers the stream's value, so asserting before it runs would pass on
+    // the value the stream just wrote and prove nothing.
+    await waitFor(() =>
+      expect(result.current.markRead.isSuccess).toBe(true),
+    );
     await waitFor(() => expect(badge(queryClient)).toBe(1));
   });
 
