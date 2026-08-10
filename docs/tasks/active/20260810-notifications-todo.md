@@ -45,29 +45,30 @@ server-authorized; the join event is created server-side.
 
 ## PR 2 — Bell UI
 
-- [ ] `components/notifications/types.ts`
-- [ ] `use-notifications.ts` — React Query list / unread-count / read mutations
-- [ ] `use-notification-stream.ts` — `EventSource` → `queryClient.setQueryData`
-- [ ] `notification-item.tsx` — icon, sentence per type, `date-fns` relative
+- [x] Types — landed in `api/notifications.ts` alongside the fetchers rather
+      than a separate `types.ts`; there was nothing to share between them
+- [x] `use-notifications.ts` — React Query list / unread-count / read mutations
+- [x] `use-notification-stream.ts` — `EventSource` → `queryClient.setQueryData`
+- [x] `notification-item.tsx` — icon, sentence per type, `date-fns` relative
       time, click → document URL by `document.type`
       (`/s/ /d/ /p/ /f/ /n/ /b/`)
-- [ ] `notification-list.tsx` — items, empty state, "mark all read"
-- [ ] `notification-bell.tsx` — bell + badge + Popover
-- [ ] Mount in `components/site-header.tsx`, authenticated sessions only
+- [x] `notification-list.tsx` — items, empty state, "mark all read"
+- [x] `notification-bell.tsx` — bell + badge + Popover
+- [x] Mount in `components/site-header.tsx`, authenticated sessions only
       (no bell for anonymous share-link viewers)
 
 ## PR 3 — Comment wiring
 
-- [ ] Shared reporter in `components/comments/` so the three consumers cannot
+- [x] Shared reporter in `components/comments/` so the three consumers cannot
       diverge; preview from `mentionBodyToPlainText(body).slice(0, 200)`
   - `comment_mention` → `extractMentionedUserIds(body)`
   - `comment_reply` → earlier comment authors **minus** this comment's mention
     recipients (otherwise one reply notifies the same person twice)
   - `thread_resolved` → all comment authors in the thread
-- [ ] `app/docs/comments/docs-comments-controller.ts` — report after CRDT write
-- [ ] `app/files/comments/pdf-comments-controller.ts` — same
-- [ ] Sheets comment path — same
-- [ ] Fire-and-forget: a failed report must not surface an error to the author
+- [x] `app/docs/comments/docs-comments-controller.ts` — report after CRDT write
+- [x] `app/files/comments/pdf-comments-controller.ts` — same
+- [x] Sheets comment path — same
+- [x] Fire-and-forget: a failed report must not surface an error to the author
 
 ## Tests
 
@@ -81,15 +82,24 @@ server-authorized; the join event is created server-side.
       change detection
 - [x] `test/notification.e2e-spec.ts` — JWT guard + real DB
       (`RUN_DB_INTEGRATION_TESTS`)
-- [ ] Frontend: route-URL construction + read-state transitions (non-JSX)
+- [x] Frontend: route-URL construction + read-state transitions (non-JSX)
 - [ ] Manual smoke in `pnpm dev`: mention a second user, confirm badge updates
       live, dropdown opens the right document, "mark all read" clears
-- [ ] `pnpm verify:fast` green on every commit
+- [x] `pnpm verify:fast` green on every commit
+
+## Known limitations
+
+- The anonymous share-link view (`app/shared/shared-document.tsx`) does not
+  pass `documentId`, so comments made there report nothing. The reporter
+  already refuses to plan anything for a non-numeric actor id, so this only
+  affects a *signed-in* member who reaches a document through a share link
+  rather than the workspace.
+- Reopening a resolved thread notifies nobody; only resolving does.
 
 ## Docs
 
 - [x] `docs/design/README.md` — Common table entry (done with the design doc)
-- [ ] `packages/backend/README.md` — endpoint table + module tree entry
+- [x] `packages/backend/README.md` — endpoint table + module tree entry
 - [ ] Fill in `20260810-notifications-lessons.md`
 - [ ] `pnpm tasks:archive && pnpm tasks:index` before merge
 
