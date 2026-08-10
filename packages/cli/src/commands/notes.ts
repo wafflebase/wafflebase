@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
+  InvalidFormatError,
   output,
   outputError,
   parseOutputFormat,
@@ -192,7 +193,7 @@ export function registerNotesCommand(program: Command) {
         const fmt: string | undefined =
           formatSource === 'cli' ? opts.format : undefined;
         if (fmt && fmt !== 'md' && fmt !== 'markdown') {
-          throw new Error(`Invalid --format "${fmt}". Only "md" is supported.`);
+          throw new InvalidFormatError(fmt, ['md']);
         }
         // `-` is stdout (advertised in the schema); no extension to infer.
         const ext = extname(file).toLowerCase();

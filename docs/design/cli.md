@@ -165,12 +165,14 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
+  │     and generates a per-attempt nonce (32 random bytes, hex)
+  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
-  │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
+  │     redirects to http://127.0.0.1:<port>/callback
+  │       ?code=<short-lived-code>&state=<nonce>
   ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
   │     with { code } → receives { accessToken, refreshToken }
   ├─ 8. CLI local server serves success HTML, shuts down
@@ -184,6 +186,19 @@ The local server binds to `127.0.0.1` only, accepts only `GET
 /callback`, and shuts down after a single request with a 30-second
 timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
+
+The callback is bound to the login attempt by the nonce: the CLI
+accepts a `code` only when the request carries that nonce back as
+`state` (compared in constant time), and rejects anything that is not a
+plain `GET` or that carries an `Origin` header. Without the binding, any
+page the user happens to visit during the 30-second window can hit
+`http://127.0.0.1:<port>/callback?code=…` — the port space is small
+enough to scan — and make the CLI exchange a code minted for the
+attacker's account, silently writing a session for the wrong user
+(login CSRF / session fixation). A forged hit is answered `403` and
+does *not* end the wait, so the real redirect can still land. The nonce
+round trip is a backend contract: the loopback redirect echoes it, so a
+CLI at this version or later needs a backend at this version or later.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -704,8 +719,10 @@ success and failure uniformly:
 ```
 
 Exit codes: `0` success, `1` user error (bad input, not found),
-`2` system error (network, auth). Agents can branch on the exit code
-without parsing the error body.
+`2` system error (network, or an auth *request* the server rejected).
+Agents can branch on the exit code without parsing the error body. A
+missing local session is user error, not a system error, so
+`NOT_LOGGED_IN` exits `1`.
 
 Every command that renders a *result* routes it through `output()`,
 including the session commands `status` and `ctx list`, which used to
@@ -725,7 +742,18 @@ An unsupported `--format` value is rejected with
 `"code": "INVALID_FORMAT"` rather than ignored. Validation is
 per-command because `docs`/`slides`/`notes` `content` and `export`
 deliberately reuse the same global `--format` flag for their own
-vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`).
+vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`) — those commands
+check against their own list but raise the same `InvalidFormatError`, so
+`INVALID_FORMAT` means "bad `--format`" everywhere and the message names
+the values that command accepts. A format that cannot be *inferred*
+(`docs export out.txt` with no `--format`) is a different failure and
+stays a plain `ERROR`.
+
+`--format csv` neutralizes spreadsheet formula prefixes: a value
+starting with `=`, `+`, `-`, `@`, tab, or CR is emitted with a leading
+`'` so it lands as text, since every value in the output is
+server-supplied and another workspace member can set it. Plain signed
+numbers (`-3`, `+1.5e6`) are left alone.
 
 #### 8.2 Dry-Run
 
@@ -959,6 +987,9 @@ is the agent interface. This approach has key advantages:
 
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
+| Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
+| `ctx list` (and other session-required commands) without a session | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."                     |
+| Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
 | Malformed `--pages`                                 | 1    | INVALID_RANGE       | "Invalid page range: <input>"                                      |

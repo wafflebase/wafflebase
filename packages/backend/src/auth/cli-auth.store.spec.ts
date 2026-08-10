@@ -35,6 +35,12 @@ describe('CliAuthStore', () => {
       expect(result).toEqual({ csrf, mode: 'browser', port: 9876 });
     });
 
+    it('round-trips the CLI nonce so the callback can echo it', () => {
+      const nonce = 'f'.repeat(32);
+      const { stateToken } = store.createState('cli', 9876, nonce);
+      expect(store.consumeState(stateToken)?.nonce).toBe(nonce);
+    });
+
     it('is single-use: second call returns undefined', () => {
       const { stateToken } = store.createState('browser', 9876);
       store.consumeState(stateToken);

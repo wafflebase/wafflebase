@@ -102,3 +102,21 @@ command succeeding):
       self-review: `schema --format table` printed `[object Object]`)
 - [x] `packages/documentation/developers/cli.md` (published page)
       updated — it still advertised the deleted `*` active marker
+
+## Review round 2 (panel changes-requested)
+
+- [x] `api-keys` regression tests pin "validate `--format` before the
+      side effect" by asserting `fetch` is never called
+      (`test/api-keys.test.ts`)
+- [x] `INVALID_FORMAT` / `NOT_LOGGED_IN` added to the §10 error matrix;
+      exit-code prose clarified (a missing local session is user error)
+- [x] every `--format` rejection now raises `InvalidFormatError`, so
+      `docs`/`slides`/`notes` `content`/`export` report `INVALID_FORMAT`
+      too — the §8.1 promise is now true
+- [x] CSV output neutralizes spreadsheet formula prefixes (`=`/`+`/`-`/
+      `@`/tab/CR → leading `'`), plain signed numbers untouched
+- [x] CLI OAuth loopback callback bound to a per-attempt nonce echoed
+      back as `state` (backend `cli-auth.store` + callback redirect);
+      rejects non-GET and `Origin`-bearing requests
+- [x] `cells batch` parses `--data`/stdin inside the try, so malformed
+      JSON is a structured error body, not an unhandled rejection

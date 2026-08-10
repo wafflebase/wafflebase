@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -29,11 +30,14 @@ export function registerLoginCommand(program: Command): void {
         }
       }
 
-      // 2. Start local HTTP server
-      const { port, waitForCallback, close } = await startCallbackServer();
+      // 2. Start local HTTP server, bound to a per-attempt nonce
+      const nonce = createLoginNonce();
+      const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
-      // 3. Build OAuth URL and open browser
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+      // 3. Build OAuth URL and open browser. The backend echoes `nonce`
+      // back as the loopback callback's `state`, which is what lets the
+      // callback server tell our own redirect from a forged one.
+      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${nonce}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
 
@@ -150,7 +154,40 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-function startCallbackServer(): Promise<{
+/** Per-attempt secret bound into the OAuth round trip. */
+export function createLoginNonce(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * Constant-time comparison of a callback's `state` against the nonce
+ * this login attempt generated.
+ */
+export function nonceMatches(
+  expected: string,
+  received: string | null,
+): boolean {
+  if (!received) return false;
+  const a = Buffer.from(expected, 'utf-8');
+  const b = Buffer.from(received, 'utf-8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Serve the loopback OAuth callback.
+ *
+ * The `code` is only accepted when the request carries back the
+ * per-attempt `nonce` as `state`. Without that binding any web page the
+ * victim visits during the wait window can hit
+ * `http://127.0.0.1:<port>/callback?code=<attacker code>` — the port is
+ * a small scannable space — and the CLI would exchange the attacker's
+ * code, saving a session for the attacker's account (login CSRF /
+ * session fixation). Requests carrying an `Origin` header or using a
+ * method other than GET are rejected outright: our redirect is a
+ * top-level GET navigation and never looks like that.
+ */
+export function startCallbackServer(nonce: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -174,10 +211,24 @@ function startCallbackServer(): Promise<{
         return;
       }
 
+      if (req.method !== 'GET' || req.headers.origin !== undefined) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+
       const code = url.searchParams.get('code');
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
+        return;
+      }
+
+      if (!nonceMatches(nonce, url.searchParams.get('state'))) {
+        // Never settle the promise here: a forged hit must not end the
+        // wait, so the real redirect can still arrive.
+        res.writeHead(403);
+        res.end('State mismatch');
         return;
       }
 

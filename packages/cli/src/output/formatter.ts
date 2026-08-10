@@ -10,14 +10,17 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = ['json', 'table', 'csv'];
  * Thrown for an unsupported `--format` value. Carries a structured
  * `code` so `outputError` reports `INVALID_FORMAT` rather than a bare
  * `ERROR`, letting agents tell a bad flag from a failed request.
+ *
+ * `allowed` defaults to the `output()` vocabulary but is a parameter
+ * because `docs`/`slides`/`notes` `content` and `export` reuse the same
+ * global `--format` flag for their own vocabularies — they raise this
+ * same error so `INVALID_FORMAT` means "bad --format" everywhere.
  */
 export class InvalidFormatError extends Error {
   readonly code = 'INVALID_FORMAT';
 
-  constructor(value: string) {
-    super(
-      `Invalid --format "${value}". Use one of: ${OUTPUT_FORMATS.join(', ')}.`,
-    );
+  constructor(value: string, allowed: readonly string[] = OUTPUT_FORMATS) {
+    super(`Invalid --format "${value}". Use one of: ${allowed.join(', ')}.`);
   }
 }
 

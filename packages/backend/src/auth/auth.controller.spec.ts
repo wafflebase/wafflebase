@@ -211,6 +211,42 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
+    it('echoes the CLI nonce back as `state` on the loopback redirect', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const nonce = 'a'.repeat(64);
+      const { stateToken } = cliAuthStore.createState('cli', 9876, nonce);
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      // The CLI's loopback server refuses a code without this — it is
+      // what stops a web page from feeding the CLI someone else's code.
+      expect(res.redirect).toHaveBeenCalledWith(
+        expect.stringContaining(`&state=${nonce}`),
+      );
+    });
+
+    it('omits `state` when the CLI sent no nonce', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      const [url] = (res.redirect as jest.Mock).mock.calls[0] as [string];
+      expect(url).not.toContain('state=');
+    });
+
     it('falls back to web flow when state token is not CLI', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({

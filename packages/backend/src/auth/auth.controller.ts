@@ -124,8 +124,15 @@ export class AuthController {
           throw new BadRequestException('Invalid CLI port');
         }
         const code = this.cliAuthStore.createCode(user.id);
+        // Echo the CLI's per-attempt nonce back as `state`: the CLI's
+        // loopback callback server only accepts a `code` that carries it,
+        // which is what stops a web page from feeding the CLI a code for
+        // someone else's account (login CSRF).
+        const stateParam = state.nonce
+          ? `&state=${encodeURIComponent(state.nonce)}`
+          : '';
         return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}`,
+          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateParam}`,
         );
       }
 

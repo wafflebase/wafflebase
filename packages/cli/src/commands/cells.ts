@@ -114,16 +114,35 @@ export function registerCellsCommand(parent: Command) {
         data?: string;
       }>();
 
+      // Parse inside a try: a malformed `--data`/stdin payload is user
+      // input, so it has to reach `outputError` as a structured error
+      // body. Left uncaught it rejects the action's promise, and
+      // `bin.ts` installs no rejection handler — the agent would get a
+      // raw stack trace instead of `{"error":{...}}`.
       let cells: Record<string, unknown>;
-      if (dataStr) {
-        cells = JSON.parse(dataStr);
-      } else {
-        // Read from stdin
-        const chunks: Buffer[] = [];
-        for await (const chunk of process.stdin) {
-          chunks.push(chunk as Buffer);
+      try {
+        let raw: string;
+        if (dataStr) {
+          raw = dataStr;
+        } else {
+          // Read from stdin
+          const chunks: Buffer[] = [];
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer);
+          }
+          raw = Buffer.concat(chunks).toString('utf-8');
         }
-        cells = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+        cells = JSON.parse(raw) as Record<string, unknown>;
+      } catch (e) {
+        outputError(
+          new Error(
+            `Invalid JSON cell data${dataStr ? ' in --data' : ' on stdin'}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          ),
+          opts.quiet,
+        );
+        return;
       }
 
       if (opts.dryRun) {

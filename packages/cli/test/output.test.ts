@@ -110,6 +110,37 @@ describe('formatCsv', () => {
     // JSON is CSV-escaped: {"x":1} → "{""x"":1}"
     expect(lines[1]).toBe('a,"{""x"":1}"');
   });
+
+  // Every value here is server-supplied and settable by another
+  // workspace member, so a formula prefix must land as text rather than
+  // execute when the export is opened in a spreadsheet app.
+  it('neutralizes spreadsheet formula prefixes', () => {
+    const data = [
+      { v: '=HYPERLINK("http://evil","click")' },
+      { v: '+1+1' },
+      { v: '-1+1' },
+      { v: '@SUM(A1)' },
+      { v: '\t=cmd' },
+      { v: '\r=cmd' },
+    ];
+    const lines = formatCsv(data).split('\n');
+    expect(lines[1]).toBe('"\'=HYPERLINK(""http://evil"",""click"")"');
+    expect(lines[2]).toBe("'+1+1");
+    expect(lines[3]).toBe("'-1+1");
+    expect(lines[4]).toBe("'@SUM(A1)");
+    expect(lines[5]).toBe("'\t=cmd");
+    expect(lines[6]).toBe("'\r=cmd");
+  });
+
+  it('neutralizes a formula in a header key too', () => {
+    expect(formatCsv([{ '=evil()': 1 }]).split('\n')[0]).toBe("'=evil()");
+  });
+
+  it('leaves plain signed numbers untouched', () => {
+    const data = [{ v: -3 }, { v: '+1.5' }, { v: '-2e10' }, { v: '.5' }];
+    const lines = formatCsv(data).split('\n');
+    expect(lines.slice(1)).toEqual(['-3', '+1.5', '-2e10', '.5']);
+  });
 });
 
 describe('format dispatcher', () => {

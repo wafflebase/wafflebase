@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
+  InvalidFormatError,
   output,
   outputError,
   parseOutputFormat,
@@ -199,7 +200,7 @@ export function registerSlidesCommand(program: Command) {
         // export-only `pptx` value, so a direct comparison is a tsc error.
         const fmt: string | undefined =
           formatSource === 'cli' ? opts.format : undefined;
-        if (fmt && fmt !== 'pptx') throw new Error(`Invalid --format "${fmt}". Only "pptx" is supported.`);
+        if (fmt && fmt !== 'pptx') throw new InvalidFormatError(fmt, ['pptx']);
         if (!fmt && extname(file).toLowerCase() !== '.pptx') {
           throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
         }

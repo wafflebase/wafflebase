@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
+  InvalidFormatError,
   output,
   outputError,
   parseOutputFormat,
@@ -39,9 +40,7 @@ type ExportFormat = (typeof VALID_EXPORT_FORMATS)[number];
 function detectExportFormat(file: string, formatFlag?: string): ExportFormat {
   if (formatFlag) {
     if (!VALID_EXPORT_FORMATS.includes(formatFlag as ExportFormat)) {
-      throw new Error(
-        `Invalid --format "${formatFlag}". Use one of: ${VALID_EXPORT_FORMATS.join(', ')}.`,
-      );
+      throw new InvalidFormatError(formatFlag, VALID_EXPORT_FORMATS);
     }
     return formatFlag as ExportFormat;
   }
