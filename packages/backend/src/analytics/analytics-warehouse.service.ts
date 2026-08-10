@@ -29,9 +29,18 @@ function parseDSN(dsn: string): mysql.PoolOptions {
   };
 }
 
-/** StarRocks has no prepared statements — quote/escape values ourselves. */
+/**
+ * StarRocks has no prepared statements — quote/escape values ourselves.
+ *
+ * StarRocks speaks the MySQL dialect, so delegate to `mysql2`'s own escaper
+ * rather than re-deriving the rules: it already handles the cases a naive
+ * quote-doubler misses (notably the backslash, which is itself an escape
+ * character inside a MySQL string literal). Wrapped instead of passed to
+ * `map()` directly — `escape`'s second parameter is `stringifyObjects`, which
+ * an array index would silently fill.
+ */
 function sql(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  return mysql.escape(value);
 }
 function day(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -222,12 +231,13 @@ export class AnalyticsWarehouseService implements OnModuleDestroy {
   }
   private async documentRows(query: string): Promise<DocumentBreakdown[]> {
     const [rows] = await this.pool!.query(query);
-    // `title` is filled by the controller from Postgres.
+    // `title` and `canManage` are filled by the controller from Postgres.
     return (rows as Array<{ k: string; v: number; u: number }>).map((r) => ({
       documentId: r.k,
       title: '',
       views: Number(r.v),
       uniqueVisitors: Number(r.u),
+      canManage: false,
     }));
   }
 

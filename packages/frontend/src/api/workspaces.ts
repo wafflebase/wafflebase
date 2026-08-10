@@ -239,6 +239,9 @@ export interface WorkspaceAnalytics {
     title: string;
     views: number;
     uniqueVisitors: number;
+    /** Whether the caller may open this document's (manager-gated) detail
+     * dashboard. False rows must not be linked — they would 403. */
+    canManage: boolean;
   }[];
 }
 

@@ -86,12 +86,17 @@ export function WorkspaceAnalyticsPage() {
                     {r.uniqueVisitors}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link
-                      className="text-primary hover:underline"
-                      to={`/w/${workspaceId}/analytics/${r.documentId}`}
-                    >
-                      Details
-                    </Link>
+                    {/* The detail dashboard is manager-gated (workspace owner
+                        or document author), while this list is member-gated —
+                        linking a row the caller cannot manage would 403. */}
+                    {r.canManage && (
+                      <Link
+                        className="text-primary hover:underline"
+                        to={`/w/${workspaceId}/analytics/${r.documentId}`}
+                      >
+                        Details
+                      </Link>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
