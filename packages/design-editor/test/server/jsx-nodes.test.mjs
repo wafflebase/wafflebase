@@ -361,9 +361,21 @@ describe('resolveNode', () => {
   });
 
   it('relocates via a unique fpx when the path hint is stale', () => {
-    const sf = parse(src);
-    const e = [...walkJsx(sf, findJsxRoots(sf).roots.C)].find((x) => x.tag === 'i');
-    const r = resolveNode(sf, { component: 'C', path: [9, 9], tag: 'i', fp: e.fp, fpx: e.fpx });
+    // ISOLATES THE FPX STEP. The two `<p>` share an fp — same tag, same
+    // attribute NAMES, and fp excludes className CONTENT — so the fp search
+    // finds two and refuses. Only fpx, which restores the class content, can
+    // resolve this. A fixture whose node is unique under fp too would pass
+    // identically with the whole fpx branch deleted.
+    const twin = `function C(){ return <div><p className="one"/><p className="two"/></div>; }`;
+    const sf = parse(twin);
+    const entries = [...walkJsx(sf, findJsxRoots(sf).roots.C)];
+    const e = entries.find((x) => x.tag === 'p' && x.path.at(-1) === 1);
+    // The premise, asserted rather than assumed: if fp ever stopped colliding
+    // here the test would silently stop testing fpx.
+    expect(entries.filter((x) => x.fp === e.fp)).toHaveLength(2);
+    expect(entries.filter((x) => x.fpx === e.fpx)).toHaveLength(1);
+
+    const r = resolveNode(sf, { component: 'C', path: [9, 9], tag: 'p', fp: e.fp, fpx: e.fpx });
     expect(r.located).toBe(true);
     expect(r.entry.path).toEqual(e.path);
     expect(r.relocated).toBe(true);
@@ -377,10 +389,19 @@ describe('resolveNode', () => {
     expect(r.relocated).toBe(true);
   });
 
-  it('refuses a path whose node has the wrong TAG even if the path exists', () => {
+  it('does NOT trust a path hint whose tag disagrees, even when the fp matches', () => {
+    // ISOLATES THE TAG GUARD, which is otherwise unreachable: `fpOf` hashes the
+    // tag, so a self-consistent anchor can never have a matching fp AND a wrong
+    // tag. Only a client whose record has drifted can, which is exactly what the
+    // guard is for. The observable is `relocated`, not `located` — with the
+    // guard the hint is rejected and the node is re-found by search; without it
+    // the hint is taken as-is and `relocated` comes back false.
     const sf = parse(src);
-    const r = resolveNode(sf, { component: 'C', path: [0, 0], tag: 'span', fp: 'deadbeef' });
-    expect(r.located).toBe(false);
+    const e = [...walkJsx(sf, findJsxRoots(sf).roots.C)].find((x) => x.tag === 'b');
+    const r = resolveNode(sf, { component: 'C', path: e.path, tag: 'span', fp: e.fp });
+    expect(r.located).toBe(true);
+    expect(r.relocated).toBe(true);
+    expect(r.entry.tag).toBe('b');
   });
 
   it('treats AMBIGUITY AS ABSENCE and never picks the first match', () => {
