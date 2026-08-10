@@ -60,7 +60,7 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
   doc: Object.freeze([
     ["doc.text", "", "the document's full plain text"],
     ["doc.blockCount", "", "how many blocks the document has"],
-    ["doc.runs", "", "every styled run: {text, bold, italic, fontSize, …}"],
+    ["doc.runs", "", "every styled run: {text, bold, italic, fontSize, color, backgroundColor, …}"],
     ["doc.fontSizes", "", "the font size of each block's first run, in order"],
     ["doc.blockTypes", "", 'each block\'s type, e.g. ["heading1","paragraph"]'],
     ["doc.styleSummary", "", "which inline styles are present anywhere in the document"],
