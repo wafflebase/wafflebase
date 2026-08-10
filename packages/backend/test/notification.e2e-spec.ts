@@ -224,6 +224,48 @@ describeDb('Notification HTTP integration', () => {
       .expect(400);
   });
 
+  it('pages backwards from the ?before cursor', async () => {
+    const { author, peer, document } = await scenario();
+    for (const n of [1, 2, 3]) {
+      await request(app.getHttpServer())
+        .post('/notifications/comment')
+        .set('Cookie', authCookie(author))
+        .send({
+          ...mentionBody(document.id, [peer.id]),
+          commentId: `comment-${n}`,
+        })
+        .expect(201);
+    }
+
+    const all = await request(app.getHttpServer())
+      .get('/notifications')
+      .set('Cookie', authCookie(peer))
+      .expect(200);
+    expect(all.body).toHaveLength(3);
+
+    const page = await request(app.getHttpServer())
+      .get('/notifications')
+      .query({ before: all.body[0].createdAt })
+      .set('Cookie', authCookie(peer))
+      .expect(200);
+
+    expect(page.body.map((n: { commentId: string }) => n.commentId)).toEqual(
+      all.body
+        .slice(1)
+        .map((n: { commentId: string }) => n.commentId),
+    );
+  });
+
+  it('rejects a malformed ?before cursor instead of ignoring it', async () => {
+    const { peer } = await scenario();
+
+    await request(app.getHttpServer())
+      .get('/notifications')
+      .query({ before: 'not-a-date' })
+      .set('Cookie', authCookie(peer))
+      .expect(400);
+  });
+
   it('marks everything read and clears the unread count', async () => {
     const { author, peer, document } = await scenario();
     await request(app.getHttpServer())
