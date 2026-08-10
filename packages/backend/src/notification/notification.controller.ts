@@ -30,6 +30,7 @@ import {
 import { NotificationHub } from './notification-hub';
 import { StreamEvent, notificationStream } from './notification-stream';
 import { NotificationService } from './notification.service';
+import { UserThrottlerGuard } from './user-throttler.guard';
 
 /**
  * How often an open stream re-reads the database. This is what makes SSE
@@ -53,8 +54,13 @@ export class NotificationController {
    * Client report of a comment event. Throttled well below the default
    * bucket: a human posts comments at human speed, and this is the one
    * endpoint a client can call on its own initiative.
+   *
+   * `UserThrottlerGuard` keys the bucket on the caller rather than their
+   * address, so the limit actually bounds a user. The global per-IP
+   * `ThrottlerGuard` still applies on top; whichever is stricter wins.
    */
   @Post('comment')
+  @UseGuards(UserThrottlerGuard)
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   async createFromComment(
     @Req() req: AuthenticatedRequest,

@@ -189,10 +189,17 @@ thread's first comment, so the item reads as "resolved your comment: …".
    **silently dropped**, not rejected, so one stale id cannot fail the batch.
 4. The actor is removed from the recipient set. You are never notified about
    your own comment.
-5. `preview` is truncated to 200 characters and stripped of control
-   characters; at most 20 recipients per request.
-6. `@Throttle` caps a user at 30 reports per minute (`@nestjs/throttler` is
-   already a dependency).
+5. `preview` is truncated to 200 characters, with control characters
+   collapsed to spaces and invisible formatting characters (zero-width, bidi
+   overrides) removed outright; at most 20 recipients per request.
+6. `@Throttle` caps a user at 30 reports per minute. `@nestjs/throttler`'s
+   default tracker keys on the request IP, which would both make colleagues
+   behind one NAT share a bucket and leave a multi-address attacker uncapped,
+   so this route uses a `UserThrottlerGuard` that keys on the authenticated
+   caller instead. The global per-IP bucket still applies on top.
+
+`preview` is optional in the DTO even though every planned event supplies one:
+`thread_resolved` on an empty first comment legitimately produces none.
 
 Callers are the three comment controllers —
 `app/docs/comments/docs-comments-controller.ts`,
@@ -324,8 +331,22 @@ version bump.
   Authorization depth). *Mitigation:* content verification can be added behind
   the same endpoint later without a schema or client change.
 - **Unbounded growth.** Nothing is deleted. *Mitigation:* the list is capped
-  at 20 per fetch and the index is `(recipientId, createdAt)`, so query cost
-  stays flat as rows accumulate; a retention job is a later, isolated change.
+  at 20 per fetch and covered by `(recipientId, createdAt)`, and the badge
+  query is covered by `(recipientId, readAt)` — without that second index the
+  unread count would scan every row a user has ever received. A retention job
+  is a later, isolated change.
+- **Inbox flooding by a workspace peer.** The per-user throttle permits a
+  sustained 30 × 20 rows per minute, `dedupeKey` is attacker-supplied so the
+  unique index is no brake, and nothing is deleted. *Mitigation:* none in v1
+  beyond the throttle — the abuse is attributable (every row carries
+  `actorId`) and confined to workspace peers. A per-recipient-per-day ceiling
+  or the retention job would bound it; both are deferred.
+- **Cursor ties.** The `?before=` cursor is `createdAt` alone, so rows sharing
+  a timestamp — one report inserts its batch at a single timestamp — could be
+  skipped at a page boundary. *Mitigation:* `orderBy` breaks ties on `id` so
+  ordering is at least deterministic; a composite `(createdAt, id)` cursor
+  closes it properly and is worth doing if the deferred `/notifications` page
+  lands.
 - **Client-computed recipients drift.** A client bug could omit a legitimate
   recipient, and no server-side check would catch it. *Mitigation:* recipient
   computation lives in the shared comments module, not per-consumer, so the

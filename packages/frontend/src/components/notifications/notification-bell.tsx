@@ -33,7 +33,7 @@ export function NotificationBell() {
 
   const signedIn = Boolean(me);
   useNotificationStream(signedIn);
-  const { data: unreadCount = 0 } = useUnreadCount();
+  const { data: unreadCount = 0 } = useUnreadCount(signedIn);
 
   if (!signedIn) return null;
 

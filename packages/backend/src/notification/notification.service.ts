@@ -41,8 +41,15 @@ const LIST_SELECT = {
 export function sanitizePreview(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const flattened = raw
+    // Invisible formatting characters are removed outright: a zero-width
+    // space turned into a real space would split a word, and a bidi override
+    // left in place lets a peer make the line read in an order its text does
+    // not have.
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    // C0/C1 controls become spaces — the newlines of a multi-line comment
+    // are word separators, not nothing.
     // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return flattened ? flattened.slice(0, MAX_PREVIEW_LENGTH) : null;
@@ -156,7 +163,10 @@ export class NotificationService {
       where: before
         ? { recipientId, createdAt: { lt: before } }
         : { recipientId },
-      orderBy: { createdAt: 'desc' },
+      // `id` breaks ties so rows sharing a `createdAt` — a single report
+      // inserts its whole batch at one timestamp — come back in a stable
+      // order instead of whatever the planner picks.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: LIST_PAGE_SIZE,
       select: LIST_SELECT,
     });
@@ -207,6 +217,10 @@ export class NotificationService {
       skipDuplicates: true,
     });
 
+    // Nothing was written (every row was an absorbed duplicate), so no badge
+    // anywhere changed.
+    if (count === 0) return { created: 0 };
+
     await Promise.all(
       unique(rows.map((r) => r.recipientId as number)).map((id) =>
         this.publishSummary(id),
@@ -215,7 +229,17 @@ export class NotificationService {
     return { created: count };
   }
 
+  /**
+   * Push a fresh summary to this user's connections on this replica.
+   *
+   * A summary costs two queries and `publish` only reaches *local*
+   * subscribers, so computing one for a user with no connection here is pure
+   * waste — a 20-recipient mention would otherwise fire 40 queries, most of
+   * them discarded. Users connected to another replica pick the change up
+   * from that replica's poll tick.
+   */
   private async publishSummary(recipientId: number): Promise<void> {
+    if (this.hub.subscriberCount(recipientId) === 0) return;
     this.hub.publish(recipientId, await this.summaryFor(recipientId));
   }
 

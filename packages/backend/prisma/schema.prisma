@@ -196,6 +196,10 @@ model Notification {
 
   @@unique([recipientId, type, dedupeKey])
   @@index([recipientId, createdAt])
+  /// The badge query (`recipientId` + `readAt IS NULL`) runs on every stream
+  /// connect, poll tick, publish, and mark-read. Without this it scans every
+  /// row the user has ever received, read ones included.
+  @@index([recipientId, readAt])
 }
 
 datasource db {

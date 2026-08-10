@@ -5,8 +5,13 @@ import {
   markNotificationsRead,
   type Notification,
 } from "@/api/notifications";
+import { applyRead, nextUnreadCount } from "./read-state";
 
-export const NOTIFICATIONS_KEY = ["notifications"] as const;
+// Siblings, not nested. React Query invalidates by key *prefix*, so a
+// `["notifications"]` list key would also invalidate the always-mounted
+// unread-count query and refetch it — turning every stream event into the
+// HTTP round trip the summary payload exists to avoid.
+export const NOTIFICATIONS_KEY = ["notifications", "list"] as const;
 export const UNREAD_COUNT_KEY = ["notifications", "unread-count"] as const;
 
 /**
@@ -28,10 +33,11 @@ export function useNotifications(enabled: boolean) {
  * stream, so the interval here is only a backstop for a stream that never
  * connected at all.
  */
-export function useUnreadCount() {
+export function useUnreadCount(enabled: boolean) {
   return useQuery<number>({
     queryKey: UNREAD_COUNT_KEY,
     queryFn: fetchUnreadCount,
+    enabled,
     refetchInterval: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   });
@@ -45,22 +51,15 @@ export function useMarkRead() {
     mutationFn: (ids?: string[]) => markNotificationsRead(ids),
     onSuccess: (_data, ids) => {
       const readAt = new Date().toISOString();
+      const before =
+        queryClient.getQueryData<Notification[]>(NOTIFICATIONS_KEY) ?? [];
+
       queryClient.setQueryData<Notification[]>(NOTIFICATIONS_KEY, (prev) =>
-        prev?.map((n) =>
-          n.readAt || (ids && !ids.includes(n.id)) ? n : { ...n, readAt },
-        ),
+        prev ? applyRead(prev, ids, readAt) : prev,
       );
-      // Recount from the patched list rather than decrementing: it stays
-      // correct whether one id or the whole inbox was marked.
-      const list = queryClient.getQueryData<Notification[]>(NOTIFICATIONS_KEY);
-      if (!ids) {
-        queryClient.setQueryData(UNREAD_COUNT_KEY, 0);
-      } else if (list) {
-        queryClient.setQueryData(
-          UNREAD_COUNT_KEY,
-          list.filter((n) => !n.readAt).length,
-        );
-      }
+      queryClient.setQueryData<number>(UNREAD_COUNT_KEY, (prev) =>
+        nextUnreadCount(prev, before, ids),
+      );
     },
   });
 }

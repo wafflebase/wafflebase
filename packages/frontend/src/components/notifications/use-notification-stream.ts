@@ -33,9 +33,24 @@ export function useNotificationStream(enabled: boolean) {
       void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
     };
 
+    // Per the EventSource spec a non-200 response fails the connection
+    // permanently — an expired session kills the stream rather than starting a
+    // reconnect storm. That is the behaviour we want, but it is silent, so log
+    // it: the badge is then only as fresh as `useUnreadCount`'s backstop
+    // interval, and that is worth being able to see.
+    const onError = () => {
+      if (source.readyState === EventSource.CLOSED) {
+        console.warn(
+          "[notifications] stream closed; badge falls back to polling",
+        );
+      }
+    };
+
     source.addEventListener("summary", onSummary as EventListener);
+    source.addEventListener("error", onError);
     return () => {
       source.removeEventListener("summary", onSummary as EventListener);
+      source.removeEventListener("error", onError);
       source.close();
     };
   }, [enabled, queryClient]);

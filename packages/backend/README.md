@@ -296,10 +296,18 @@ Comments live inside Yorkie CRDT documents and never pass through this
 backend, so the **client reports** comment events and the server authorizes
 them: the actor must belong to the document's workspace, and so must every
 recipient (non-members are dropped, not rejected). The actor never notifies
-themselves, previews are truncated to 200 characters with control characters
-stripped, one report fans out to at most 20 recipients, and the endpoint is
-throttled to 30 reports per minute per user. A repeated report is absorbed by
-a unique index rather than creating a second row.
+themselves, previews are truncated to 200 characters with control and
+invisible formatting characters stripped, one report fans out to at most 20
+recipients, and the endpoint is throttled to 30 reports per minute **per
+authenticated user** (`UserThrottlerGuard`, which keys the bucket on the
+caller rather than their IP; the global per-IP bucket still applies on top). A
+repeated report is absorbed by a unique index rather than creating a second
+row.
+
+That still permits a sustained 30 × 20 rows per minute into peers' inboxes,
+and nothing is deleted — a workspace peer can make another member's inbox
+noisy. Bounding that needs a per-recipient ceiling or the retention job, both
+deferred; see `docs/design/notifications.md`.
 
 `workspace_member_joined` is the exception: it is created server-side in
 `WorkspaceService.acceptInvite()`, where the backend already has authority,

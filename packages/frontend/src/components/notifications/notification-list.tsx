@@ -44,6 +44,9 @@ export function NotificationList({ onNavigate }: Props) {
         </Button>
       </div>
 
+      {/* One page, no "load more". `fetchNotifications` takes a cursor and the
+          API pages, but the dropdown is the whole surface for now — the seam
+          is deliberate, for the deferred /notifications page. */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">

@@ -31,15 +31,20 @@ export class NotificationHub {
    * grow with every session.
    */
   subscribe(userId: number): Observable<NotificationSummary> {
-    const subject = new Subject<NotificationSummary>();
-    const existing = this.subscribers.get(userId);
-    if (existing) {
-      existing.add(subject);
-    } else {
-      this.subscribers.set(userId, new Set([subject]));
-    }
-
+    // Registration happens on *subscribe*, not on this call. An Observable
+    // that is created and never subscribed (Nest skips the handler when the
+    // response has already ended) must not leave an entry behind, and each
+    // subscription gets its own subject so one teardown cannot deregister
+    // another still-live one.
     return new Observable<NotificationSummary>((observer) => {
+      const subject = new Subject<NotificationSummary>();
+      const existing = this.subscribers.get(userId);
+      if (existing) {
+        existing.add(subject);
+      } else {
+        this.subscribers.set(userId, new Set([subject]));
+      }
+
       const sub = subject.subscribe(observer);
       return () => {
         sub.unsubscribe();
