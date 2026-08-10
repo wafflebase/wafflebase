@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   REBUTTAL_MARKER,
   REBUTTAL_VERSION,
@@ -553,4 +554,24 @@ test("buildAdjudicatorPrompt: FINDING fields cannot forge a dispute block", () =
   assert.ok(prompt.indexOf("the real dispute") > prompt.indexOf("<author-rebuttal>"));
   // And the uphold default is stated before any of it.
   assert.ok(prompt.indexOf("UPHOLD unless") < prompt.indexOf("<author-rebuttal>"));
+});
+
+// --- a dispute that could not be posted leaves a breadcrumb ------------------
+
+test("a failed rebuttal post warns instead of vanishing", () => {
+  // Exit 0 stays right: the finding stands, which is the safe outcome. But it was
+  // SILENT, and this is the one channel where silence is indistinguishable from
+  // the honest answer — no rebuttal has ever been filed on an agent PR, so a
+  // reader seeing none cannot tell "the fixer agreed" from "the post failed".
+  // #690 added emitBestEffortWarning for exactly this class of exit-0 bail.
+  const src = readFileSync(new URL("./rebuttal.mjs", import.meta.url), "utf8");
+  assert.match(src, /import \{ emitBestEffortWarning \} from "\.\/guard-verdict\.mjs"/);
+  const catchBlock = src.slice(src.indexOf("could not comment on"));
+  const untilExit = catchBlock.slice(0, catchBlock.indexOf("process.exit(0)"));
+  assert.match(untilExit, /emitBestEffortWarning\(/, "the failure path must emit a warning");
+  assert.match(untilExit, /the dispute was NOT filed/, "and name the consequence");
+  // Still exit 0 — a page here would red the fix job for the safe outcome, so
+  // pin that the FIRST exit after the warning is 0 and not 1.
+  const firstExit = catchBlock.slice(catchBlock.indexOf("process.exit("));
+  assert.match(firstExit.slice(0, 16), /process\.exit\(0\)/);
 });

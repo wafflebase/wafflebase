@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   FIX_REPORT_MARKER,
   ITEM_SEP,
@@ -356,4 +357,51 @@ test("collectFixReports: only the fix agent may file one", () => {
   assert.equal(accepted({ login: "coderabbitai[bot]", type: "Bot" }), 0);
   assert.equal(accepted({ login: "yorkie-agent[bot]", type: "User" }), 0);
   for (const u of [undefined, null, {}]) assert.equal(accepted(u), 0);
+});
+
+// --- the dispute count, rendered even at zero --------------------------------
+
+test("Disputed is rendered at ZERO, which is the whole reason it exists", () => {
+  // Disputes live in their own comments, so this report never mentioned them —
+  // leaving "the fixer disagreed with nothing" and "the dispute channel silently
+  // failed" looking identical. No rebuttal has ever been filed on an agent PR.
+  const body = renderFixReportBody({ head: "abc1234", fixed: [], skipped: [] });
+  assert.match(body, /\*\*Disputed \(0\)\*\*/);
+  // Same treatment as an empty Skipped section, which is the precedent.
+  const after = body.slice(body.indexOf("**Disputed (0)**"));
+  assert.match(after, /_Nothing\._/);
+});
+
+test("a non-zero dispute count points at the comments that carry them", () => {
+  const one = renderFixReportBody({ head: "abc1234", fixed: [], skipped: [] }, { disputed: 1 });
+  assert.match(one, /\*\*Disputed \(1\)\*\*/);
+  assert.match(one, /the ⚖️ dispute comment on this PR — it is a claim/, "singular");
+  const many = renderFixReportBody({ head: "abc1234", fixed: [], skipped: [] }, { disputed: 3 });
+  assert.match(many, /\*\*Disputed \(3\)\*\*/);
+  assert.match(many, /the 3 ⚖️ dispute comments on this PR — each is a claim/, "plural");
+  // And it must not read as a resolution — that is the rebuttal module's rule.
+  assert.match(many, /not a resolution/);
+});
+
+test("the dispute count is RENDERED, never serialized into the record", () => {
+  // The hidden payload is the fixer's claim about its own work; the count is
+  // derived from other comments at post time. Persisting it would create a
+  // second, staler copy of something the panel reads first-hand.
+  const rec = { head: "abc1234", fixed: [], skipped: [] };
+  const withCount = renderFixReportBody(rec, { disputed: 4 });
+  const without = renderFixReportBody(rec);
+  const payload = (b) => b.slice(b.indexOf(FIX_REPORT_MARKER));
+  assert.equal(payload(withCount), payload(without), "the hidden record must be identical");
+  assert.ok(!payload(withCount).includes("disputed"));
+  // Junk counts degrade to zero rather than rendering "NaN" or "undefined".
+  for (const bad of [null, undefined, -1, "3", 1.5, NaN]) {
+    assert.match(renderFixReportBody(rec, { disputed: bad }), /\*\*Disputed \(0\)\*\*/, String(bad));
+  }
+});
+
+test("cmdPost counts the disputes actually on the PR", () => {
+  // The renderer is pure and proves nothing about being fed a real count.
+  const src = readFileSync(new URL("./fix-report.mjs", import.meta.url), "utf8");
+  assert.match(src, /renderFixReportBody\(rec, \{ disputed: readRebuttals\(pr\)\.length \}\)/);
+  assert.match(src, /import \{ fromRebuttalAuthor, readRebuttals \} from "\.\/rebuttal\.mjs"/);
 });
