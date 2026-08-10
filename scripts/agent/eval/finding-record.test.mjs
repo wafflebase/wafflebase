@@ -255,10 +255,19 @@ test("the vocabularies are closed, and every basis resolves to a real gating val
   // The severities the record accepts are the panel's own, not a second list.
   assert.deepEqual(KNOWN, ["critical", "major", "minor", "nit"]);
   assert.equal(SCHEMA_VERSION, 1);
-  // The list PR 8 inherits: everything CodeRabbit cannot fill lives in the arm
-  // namespace, so the top level stays meaningful for a reviewer with no lenses.
-  for (const field of ARM_ONLY_FIELDS.panel) {
-    assert.equal(Object.hasOwn(record({ severity: "nit", file: "a.mjs", summary: "x" }), field), false, `${field} must not be a top-level record field`);
+  // Neither arm's own fields appear at the top level, so the top level stays
+  // meaningful for a reviewer with no lenses — and, the other way round, for one
+  // with no gate, no replicates and no severity scale of ours.
+  const cr = (over = {}) => buildFindingRecord({ arm: "coderabbit", itemId: "pr-471", population: "reported", finding: { severity: "nit", file: "a.mjs", summary: "x" }, ...over });
+  for (const [arm, fields] of Object.entries(ARM_ONLY_FIELDS)) {
+    const r = arm === "panel" ? record({ severity: "nit", file: "a.mjs", summary: "x" }) : cr();
+    for (const field of fields) {
+      assert.equal(Object.hasOwn(r, field), false, `${arm}.${field} must not be a top-level record field`);
+    }
+    // Both lists are non-empty. `coderabbit`'s was deliberately `[]` until its
+    // adapter existed, and an empty list is indistinguishable from "this arm has
+    // no fields of its own" — which was never true of it.
+    assert.ok(fields.length > 0, `ARM_ONLY_FIELDS.${arm} is empty`);
   }
 });
 
