@@ -62,6 +62,18 @@ rejected — correctly, since nothing in that window could have changed it.
 - **Click a cell through `sheet.cellCenter`**, naming it as a click target's
   `reader`. There is no coordinate targeting and no CSS selector; a canvas click
   resolves through that named reader or not at all.
+- **SCROLLING MOVES CELLS OUT OF REACH, and that is not a defect.** After you scroll,
+  a cell that has left the viewport is genuinely not clickable — there is nothing at
+  those coordinates. `sheet.cellCenter` now refuses such a cell and tells you so;
+  believe the refusal and scroll it back or pick a visible cell. Measured: the first
+  live run on this surface scrolled, clicked three cells that had moved above the
+  viewport, and proposed "after the grid is scrolled, mouse clicks no longer select
+  any cell" at major severity. It was false — clicks after a scroll work fine — and
+  it reproduced perfectly, because off-screen coordinates are stable.
+- **A scroll does nothing until the grid has focus.** Wheel events before your first
+  click go nowhere, so "I scrolled and nothing moved" usually means you have not
+  clicked into the grid yet, not that scrolling is broken. Read `sheet.cellCenter`
+  for a known cell before and after to confirm the view actually moved.
 - There is no backend. Nothing you do can touch real data.
 
 ## What a good finding looks like
