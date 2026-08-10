@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 464
+Total archived tasks: 469
 
-## 2026/08 (37 tasks)
+## 2026/08 (41 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -23,13 +23,16 @@ Total archived tasks: 464
 | board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./2026/08/20260807-board-miro-parent-relative-position-todo.md) | - |
 | coderabbit adapter (2026-08-07) | [20260807-coderabbit-adapter-todo.md](./2026/08/20260807-coderabbit-adapter-todo.md) | - |
 | coderabbit parser widening (2026-08-07) | [20260807-coderabbit-parser-widening-todo.md](./2026/08/20260807-coderabbit-parser-widening-todo.md) | - |
+| eval finding record (2026-08-07) | [20260807-eval-finding-record-todo.md](./2026/08/20260807-eval-finding-record-todo.md) | - |
 | eval replay fidelity guards (2026-08-07) | [20260807-eval-replay-fidelity-guards-todo.md](./2026/08/20260807-eval-replay-fidelity-guards-todo.md) | - |
 | file upload followups (2026-08-07) | [20260807-file-upload-followups-todo.md](./2026/08/20260807-file-upload-followups-todo.md) | [20260807-file-upload-followups-lessons.md](./2026/08/20260807-file-upload-followups-lessons.md) |
 | gh pages asset pruning (2026-08-07) | [20260807-gh-pages-asset-pruning-todo.md](./2026/08/20260807-gh-pages-asset-pruning-todo.md) | [20260807-gh-pages-asset-pruning-lessons.md](./2026/08/20260807-gh-pages-asset-pruning-lessons.md) |
+| release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./2026/08/20260807-release-v0.6.3-todo.md) | - |
 | rest cli tab create rename (2026-08-07) | [20260807-rest-cli-tab-create-rename-todo.md](./2026/08/20260807-rest-cli-tab-create-rename-todo.md) | - |
 | storage key prefix (2026-08-07) | [20260807-storage-key-prefix-todo.md](./2026/08/20260807-storage-key-prefix-todo.md) | - |
 | agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./2026/08/20260806-agent-loop-observability-todo.md) | - |
 | board sp4 editing parity (2026-08-06) | [20260806-board-sp4-editing-parity-todo.md](./2026/08/20260806-board-sp4-editing-parity-todo.md) | [20260806-board-sp4-editing-parity-lessons.md](./2026/08/20260806-board-sp4-editing-parity-lessons.md) |
+| ci timeouts (2026-08-06) | [20260806-ci-timeouts-todo.md](./2026/08/20260806-ci-timeouts-todo.md) | - |
 | cli file upload (2026-08-06) | [20260806-cli-file-upload-todo.md](./2026/08/20260806-cli-file-upload-todo.md) | [20260806-cli-file-upload-lessons.md](./2026/08/20260806-cli-file-upload-lessons.md) |
 | cli quiet preserves body (2026-08-06) | [20260806-cli-quiet-preserves-body-todo.md](./2026/08/20260806-cli-quiet-preserves-body-todo.md) | [20260806-cli-quiet-preserves-body-lessons.md](./2026/08/20260806-cli-quiet-preserves-body-lessons.md) |
 | dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./2026/08/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./2026/08/20260806-dependabot-alerts-lessons.md) |
@@ -45,12 +48,13 @@ Total archived tasks: 464
 | cli dry run confirm gate (2026-08-03) | [20260803-cli-dry-run-confirm-gate-todo.md](./2026/08/20260803-cli-dry-run-confirm-gate-todo.md) | [20260803-cli-dry-run-confirm-gate-lessons.md](./2026/08/20260803-cli-dry-run-confirm-gate-lessons.md) |
 | finding level matching (2026-08-03) | [20260803-finding-level-matching-todo.md](./2026/08/20260803-finding-level-matching-todo.md) | - |
 | notes mermaid preview (2026-08-03) | [20260803-notes-mermaid-preview-todo.md](./2026/08/20260803-notes-mermaid-preview-todo.md) | [20260803-notes-mermaid-preview-lessons.md](./2026/08/20260803-notes-mermaid-preview-lessons.md) |
+| panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./2026/08/20260803-panel-stage-detail-capture-todo.md) | - |
 | structured rebuttal (2026-08-03) | [20260803-structured-rebuttal-todo.md](./2026/08/20260803-structured-rebuttal-todo.md) | [20260803-structured-rebuttal-lessons.md](./2026/08/20260803-structured-rebuttal-lessons.md) |
 | design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
 | datasource test without save (2026-08-01) | [20260801-datasource-test-without-save-todo.md](./2026/08/20260801-datasource-test-without-save-todo.md) | - |
 
-## 2026/07 (97 tasks)
+## 2026/07 (98 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -59,6 +63,7 @@ Total archived tasks: 464
 | font size relative step (2026-07-31) | [20260731-font-size-relative-step-todo.md](./2026/07/20260731-font-size-relative-step-todo.md) | - |
 | panel feedback corpus (2026-07-31) | [20260731-panel-feedback-corpus-todo.md](./2026/07/20260731-panel-feedback-corpus-todo.md) | [20260731-panel-feedback-corpus-lessons.md](./2026/07/20260731-panel-feedback-corpus-lessons.md) |
 | reduce lens samples (2026-07-31) | [20260731-reduce-lens-samples-todo.md](./2026/07/20260731-reduce-lens-samples-todo.md) | [20260731-reduce-lens-samples-lessons.md](./2026/07/20260731-reduce-lens-samples-lessons.md) |
+| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./2026/07/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./2026/07/20260731-release-v0.6.2-lessons.md) |
 | docs nested table paste input routing (2026-07-30) | [20260730-docs-nested-table-paste-input-routing-todo.md](./2026/07/20260730-docs-nested-table-paste-input-routing-todo.md) | - |
 | notes native undo (2026-07-30) | [20260730-notes-native-undo-todo.md](./2026/07/20260730-notes-native-undo-todo.md) | [20260730-notes-native-undo-lessons.md](./2026/07/20260730-notes-native-undo-lessons.md) |
 | restatement clustering (2026-07-30) | [20260730-restatement-clustering-todo.md](./2026/07/20260730-restatement-clustering-todo.md) | - |

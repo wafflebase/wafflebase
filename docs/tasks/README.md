@@ -20,14 +20,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | corpus pinned review commit (2026-08-10) | [20260810-corpus-pinned-review-commit-todo.md](./active/20260810-corpus-pinned-review-commit-todo.md) | - |
 | eval replay lane (2026-08-10) | [20260810-eval-replay-lane-todo.md](./active/20260810-eval-replay-lane-todo.md) | - |
-| eval finding record (2026-08-07) | [20260807-eval-finding-record-todo.md](./active/20260807-eval-finding-record-todo.md) | - |
-| release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./active/20260807-release-v0.6.3-todo.md) | - |
-| ci timeouts (2026-08-06) | [20260806-ci-timeouts-todo.md](./active/20260806-ci-timeouts-todo.md) | - |
 | corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./active/20260806-corpus-localization-scope-todo.md) | - |
 | notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |
-| panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./active/20260803-panel-stage-detail-capture-todo.md) | - |
 | docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
-| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./active/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./active/20260731-release-v0.6.2-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | design editor layout sandbox (2026-07-29) | [20260729-design-editor-layout-sandbox-todo.md](./active/20260729-design-editor-layout-sandbox-todo.md) | [20260729-design-editor-layout-sandbox-lessons.md](./active/20260729-design-editor-layout-sandbox-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
@@ -44,7 +39,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 464
+- Archived task count: 469
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: corpus pinned review commit (2026-08-10)

@@ -228,7 +228,16 @@ arrays, and the fix is a wider edit than this field.
 - [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not
       the working copy.
 - [ ] **Not verified: a real re-extraction reporting `DRIFT
-      meta.localization_scope`.** Nothing is frozen yet — the eval repo holds only
-      `captures/` and `labels/` — so the pre-existing-item case exists only as a
-      unit test that deletes the field from a stored `meta`. It becomes checkable
-      the first time a frozen item is re-extracted.
+      meta.localization_scope`.** The pre-existing-item case exists only as a
+      unit test that deletes the field from a stored `meta`.
+
+      **Precondition now met (checked 10 Aug 2026).** The blocker this item
+      recorded — "nothing is frozen yet, the eval repo holds only `captures/`
+      and `labels/`" — is gone: the store now carries `corpus/items` with seven
+      frozen items (pr-415, 429, 465, 471, 524, 549, 605) under manifest
+      `2026-08-10-pilot-reviewed.json`, and **every one of their `meta.json`
+      files carries `localization_scope`** (`cross_module` ×6, `multi_file`
+      ×1). What is still missing is a second extraction: only one manifest
+      version exists, so no frozen item has been re-extracted and the DRIFT
+      branch has still never run against a stored `meta`. It is now checkable
+      on the next corpus refresh.
