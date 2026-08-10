@@ -8,10 +8,19 @@ import {
   type TabMeta,
 } from "@wafflebase/sheets";
 import { getUniqueTabName } from "@/app/documents/tab-name";
+import { parseCsvFile } from "./csv-actions";
 
 export type ImportedSpreadsheetFile = {
   document: SpreadsheetDocument;
   fileName: string;
+  /**
+   * Set when an import budget stopped the file short, with the row count that
+   * did arrive. Only the CSV path can report these — the XLSX and JSON
+   * importers read their input whole and have no budget to stop on — so a
+   * caller must treat them as absent rather than false.
+   */
+  truncated?: boolean;
+  rowCount?: number;
 };
 
 function fileExtension(fileName: string): string {
@@ -87,6 +96,24 @@ async function importJson(
   };
 }
 
+/**
+ * Streams a `.csv` / `.tsv` into a sheet.
+ *
+ * Unlike the other two formats this one is bounded: a CSV can be arbitrarily
+ * large, so the writer stops at a budget and reports what arrived instead of
+ * building a document nobody can persist. That is what `truncated`/`rowCount`
+ * carry back to the upload queue.
+ */
+async function importCsv(file: File): Promise<ImportedSpreadsheetFile> {
+  const table = await parseCsvFile(file, sheetImportBaseName(file.name));
+  return {
+    document: createSpreadsheetDocumentFromImportedSheets([table]),
+    fileName: file.name,
+    truncated: table.truncated,
+    rowCount: table.rowCount,
+  };
+}
+
 export async function importSheetFile(
   file: File,
 ): Promise<ImportedSpreadsheetFile> {
@@ -98,6 +125,9 @@ export async function importSheetFile(
     case "jsonl":
     case "ndjson":
       return importJson(file, "ndjson");
+    case "csv":
+    case "tsv":
+      return importCsv(file);
     default:
       throw new Error(`Unsupported sheet import format: ${file.name}`);
   }

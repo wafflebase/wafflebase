@@ -348,7 +348,8 @@ async function runItem(item: UploadItem): Promise<void> {
       try {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
-          const { document } = await d.importSheetFile(file);
+          const { document, truncated, rowCount } =
+            await d.importSheetFile(file);
           const title = sheetImportBaseName(item.fileName);
           const created = await getOrCreateDoc(item, { title, type: "sheet" });
           // Persist the parsed content into the Yorkie doc now (see
@@ -356,7 +357,17 @@ async function runItem(item: UploadItem): Promise<void> {
           // not merely stashed in memory awaiting an editor mount.
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "sheet", document });
-          finish(item.id, created);
+          // A file past the import budget yields a partial sheet rather than a
+          // failure, so say which part arrived — silently dropping rows is the
+          // worse outcome. Only the CSV path has a budget; the other sheet
+          // formats report neither field.
+          //
+          // The count is the imported sheet's row extent, so it is one the user
+          // can check: it is the last row of the sheet they are about to open.
+          const truncation = truncated
+            ? `Only the first ${(rowCount ?? 0).toLocaleString()} rows were imported.`
+            : undefined;
+          finish(item.id, created, truncation);
         } else if (item.kind === "doc") {
           patchItem(item.id, { status: "parsing" });
           const { doc } = await d.importDocx(file, ({ done, total }) =>
