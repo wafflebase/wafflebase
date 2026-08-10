@@ -412,6 +412,20 @@ describe('resolveNode', () => {
     expect(r.reason).toMatch(/no JSX-returning function named Nope/);
   });
 
+  it('reports an Object.prototype key as a missing component, not a stale anchor', () => {
+    // `anchor.component` arrives from the client, so it is not constrained to
+    // names present in the file. On a plain `{}`, `roots['toString']` returned
+    // the inherited METHOD — truthy, so the `!root` guard passed and the walk
+    // ran against a function. It happened not to throw, and instead blamed the
+    // user's anchor for going stale when the real answer was "no such
+    // component". Diagnosing the wrong thing is how an hour disappears.
+    for (const name of ['toString', 'constructor', 'valueOf', 'hasOwnProperty']) {
+      const r = resolveNode(parse(src), { component: name, path: [0], tag: 'b', fp: 'deadbeef' });
+      expect(r.located).toBe(false);
+      expect(r.reason).toBe(`no JSX-returning function named ${name}`);
+    }
+  });
+
   it('refuses a component name two functions claim, even on a perfect path hit', () => {
     // The dangerous shape: the anchor was recorded against the FIRST `Row`, and
     // the second one happens to carry a node with the same tag at the same path.
@@ -528,6 +542,34 @@ describe('findJsxRoots', () => {
       function A() { return <div/>; }
       const B = () => <div/>;`));
     expect(ambiguous.size).toBe(0);
+  });
+
+  it('registers components whose names collide with Object.prototype', () => {
+    // `roots` is keyed by arbitrary source identifiers. On a plain `{}` these
+    // three names each broke it differently: `'toString' in roots` is true on
+    // FIRST sight, so the component was reported ambiguous and became
+    // permanently unresolvable; and `roots.__proto__ = root` hit the inherited
+    // accessor instead of defining a key, so that root vanished from
+    // `Object.keys` AND repointed the map's prototype.
+    for (const name of ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__']) {
+      const { roots, ambiguous } = findJsxRoots(parse(`function ${name}() { return <div/>; }`));
+      expect(Object.keys(roots)).toEqual([name]);
+      expect([...ambiguous]).toEqual([]);
+    }
+  });
+
+  it('keeps the roots map free of any inherited prototype', () => {
+    expect(Object.getPrototypeOf(findJsxRoots(parse(`const __proto__ = () => <div/>;`)).roots))
+      .toBeNull();
+  });
+
+  it('still detects genuine duplicates after the prototype fix', () => {
+    // Guards the guard: `Object.create(null)` must not have been achieved by
+    // weakening the `name in roots` check that ambiguity detection rests on.
+    const { ambiguous } = findJsxRoots(parse(`
+      function Row() { return <li/>; }
+      function A() { const Row = () => <b/>; return <div/>; }`));
+    expect([...ambiguous]).toEqual(['Row']);
   });
 
   it('does not treat a callback return as the enclosing function output', () => {

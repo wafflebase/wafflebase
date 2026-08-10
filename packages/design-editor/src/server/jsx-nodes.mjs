@@ -384,8 +384,17 @@ function pushFnBody(fn, scope, out, owner) {
  *            defaultExport: string | null}}
  */
 export function findJsxRoots(sf) {
+  // Null-prototype: component names are arbitrary source identifiers, and on a
+  // plain `{}` the ones that collide with `Object.prototype` break all three
+  // uses of this map. `name in roots` is true on FIRST sight of a `toString` or
+  // `valueOf` component, so it is reported ambiguous and becomes permanently
+  // unresolvable. `roots.__proto__ = root` hits the inherited accessor instead
+  // of defining a key, so that root vanishes from `Object.keys` AND repoints
+  // this object's prototype. And `roots[anchor.component]` returns an inherited
+  // METHOD, which is truthy, so `resolveNode` walks a function instead of
+  // answering "no JSX-returning function named …".
   /** @type {Record<string, JsxRootNode>} */
-  const roots = {};
+  const roots = Object.create(null);
   /** @type {Set<string>} */
   const ambiguous = new Set();
   /** @type {string | null} */
