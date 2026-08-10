@@ -547,6 +547,29 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
       sessionLog,
       allowedTools: HUNT_TOOLS,
       label: "hunt-ui-verify",
+      // UI VERIFICATION IS STRUCTURALLY MORE EXPENSIVE THAN THE CLI HUNTER'S, and
+      // the ceiling has to reflect that. Measured across four live runs rather than
+      // guessed — turn usage, at a ceiling of 35:
+      //
+      //   seeded fault, cause in one file      9, 11, 14, 16
+      //   undo/selection across editor+store  21, 28
+      //   canvas scroll/click coordinates     29, 36 ← truncated
+      //
+      // Cost tracks HOW HARD THE CAUSE IS TO LOCATE, not prompt size: turns are tool
+      // round-trips, and this verifier is the sole source of the citation, so it must
+      // find the cause from scratch in packages it has never read. The CLI hunter's
+      // verifier can lean on the explorer's citations and settles at 14-16.
+      //
+      // Raising the ceiling is close to free, which is the non-obvious part. Seven of
+      // eight sessions finished naturally well under 35 — models spend what the task
+      // needs, not what they are offered — so a higher ceiling does not inflate the
+      // common case, it only rescues the tail. A truncation, by contrast, is pure
+      // waste twice: the session is paid for and yields nothing, and the candidate is
+      // deliberately not ledgered so the next run pays to assess it again.
+      //
+      // `stats.unjudgedVerifier` is the signal to watch. If it stays above zero at 50,
+      // raise again — but check first whether one persona is asking for causes that
+      // are genuinely unlocatable from its `codeScope`.
       maxTurns: Number.isFinite(persona.verifierMaxTurns) ? persona.verifierMaxTurns : 20,
     }),
   );
@@ -972,7 +995,8 @@ async function cmdRun(args) {
     `hunt-ui: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
       `${stats.reproduced} reproduced → ${stats.reported} reported\n` +
       `         ${stats.refutedAfterReplay} reproduced but refuted by the panel, ` +
-      `${stats.cappedUnverified} reproduced but never verified (cap)\n` +
+      `${stats.cappedUnverified} reproduced but never verified (cap), ` +
+      `${stats.unjudgedVerifier} left unjudged (a verifier could not finish)\n` +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -1020,6 +1044,16 @@ export async function runHunt({
     novel: 0,
     reproduced: 0,
     refutedAfterReplay: 0,
+    // A candidate no verifier could finish judging. Distinct from every other drop
+    // because it is pure WASTE, twice over: the truncated session is paid for and
+    // produces nothing, and the candidate is deliberately not ledgered so the next
+    // run pays to assess it again.
+    //
+    // It had no stat until this was reconstructed from raw execution logs, which is
+    // the whole reason it needs one — a budget you can only measure by log
+    // archaeology is a budget nobody measures. Rising means the turn ceiling is too
+    // low for the causes this surface asks verifiers to locate.
+    unjudgedVerifier: 0,
     cappedUnverified: 0,
     reported: 0,
   };
@@ -1258,6 +1292,7 @@ export async function runHunt({
         // excluded: a verifier that errored produced no opinion, and counting
         // infrastructure failure as a refutation would make the signal read worse
         // the flakier the API got.
+        if (unjudged) stats.unjudgedVerifier++;
         if (!unjudged) {
           stats.refutedAfterReplay++;
           ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "dropped", dropReason: why, runId, sha: headSha });

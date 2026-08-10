@@ -927,6 +927,37 @@ test("runHunt: a refuted candidate counts as refutedAfterReplay, the precision s
   assert.equal(out.ledgerAdds[0].verdict, "dropped");
 });
 
+test("runHunt counts a verifier that could not finish, separately from a refutation", async () => {
+  // Truncation and refutation are opposite outcomes that both show as "0 reported".
+  // One means the panel judged and said no; the other means it never judged at all
+  // and the money bought nothing. Conflating them hides a budget problem — this had
+  // no stat until it was reconstructed from raw execution logs, and a budget you can
+  // only see by log archaeology is one nobody watches.
+  const { deps } = funnelDeps({ verifyImpl: async () => { throw new Error("error_max_turns"); } });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.unjudgedVerifier, 1, "a truncated verifier must be counted");
+  assert.equal(out.stats.refutedAfterReplay, 0, "and must NOT read as a refutation");
+  assert.equal(out.ledgerAdds.length, 0, "nor be recorded, since nothing judged it");
+
+  // A real refutation moves the other counter and leaves this one alone.
+  const refuted = await runHunt(funnelDeps({ verifyImpl: async () => ({ ...CONFIRMED, verdict: "refuted" }) }).deps);
+  assert.equal(refuted.stats.unjudgedVerifier, 0);
+  assert.equal(refuted.stats.refutedAfterReplay, 1);
+});
+
+test("the shipped personas give verifiers more room than the CLI hunter", async () => {
+  // UI verification is structurally dearer: the verifier is the sole source of the
+  // citation, so it locates the cause from scratch. Measured 9-36 turns across four
+  // live runs, against the CLI hunter's 14-16. A ceiling at or below the CLI's would
+  // truncate the hard cases, and a truncation wastes the session twice over.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    assert.ok(
+      p.verifierMaxTurns >= 40,
+      `${p.id}: verifierMaxTurns is ${p.verifierMaxTurns}; live runs needed up to 36 and one truncated there`,
+    );
+  }
+});
+
 test("runHunt: an ERRORED verifier drops but is NOT recorded, so it is retried", async () => {
   // The distinction that cost the CLI hunter two real findings: a crashed verifier
   // produced no opinion, and writing that to the ledger would blind the next run.
