@@ -20,6 +20,13 @@
   the summary too, with `'mixed'` rendering unpressed — consistent with
   `'mixed'` meaning "click applies".
 
+- **Fix every entry point to the same mutation, not just the loudest one.**
+  The toolbar was the reported surface, but `Cmd/Ctrl+B` (`TextEditor.toggle
+  Style`) and the slides mobile bar invert the same value from the same caret
+  read. Fixing only the toolbar would have left the *same document* behaving
+  two different ways depending on whether the user clicked or pressed a key —
+  worse than the original bug, which was at least consistent.
+
 - **Shared components are shared bugs.** `TextFormatGroup` is mounted by both
   the docs toolbar and the slides text-box toolbar, so one fix covered both
   surfaces; the docs header/footer toolbar hand-rolls its own B/I/U trio and

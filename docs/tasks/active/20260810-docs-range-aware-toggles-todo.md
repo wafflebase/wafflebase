@@ -46,16 +46,27 @@ style to the whole range (Google Docs behaviour).
 - [x] Regression tests: backward-selection case (caret style disagrees with
       range summary) and `'mixed'` → apply, for all four toggles.
 - [x] Update the `toolbar-focus` test's editor mock with the summary method.
+- [x] `TextEditor.toggleStyle`: make the `Cmd/Ctrl+B` / `I` / `U` /
+      `Shift+X` keyboard path decide from the range too, via a
+      `isStyleOnInSelection()` walk inside the `TextEditor` class (mirrors
+      `Doc.applyInlineStyle`'s range walk so the read covers exactly the runs
+      the write touches). Without it the keyboard and the fixed toolbar
+      disagreed on the same selection.
+- [x] Slides mobile toolbar (`slides/toolbar/mobile-toolbar.tsx`): same swap
+      for its own B/I/U trio, which sits in the same bar as a
+      `TextFormatGroup` and would otherwise contradict it.
+- [x] Engine-level regression tests for the premise itself
+      (`packages/docs/test/view/backward-selection-toggle.test.ts`): the real
+      editor's `getSelectionStyle()` vs `getRangeStyleSummary()` disagreement
+      on a backward selection, plus the Cmd+B path end-to-end.
+- [x] Header/footer slim toolbar regression tests
+      (`packages/frontend/tests/app/docs/docs-formatting-toolbar-header-footer.test.tsx`).
 
 ## Out of scope
 
-- The `Cmd/Ctrl+B` keyboard path (`TextEditor.toggleStyle` in
-  `packages/docs/src/view/text-editor.ts`) shares the mechanism — it reads
-  `getStyleAtCursor()`. Making it range-aware needs a range walk inside the
-  `TextEditor` class (the summary lives in the `editor.ts` API factory), which
-  is a larger change than this issue asks for. Recorded as a known limitation.
 - The `getSelectionStyle()` `<=` boundary for a collapsed caret — the issue
   explicitly defers this ("worth checking separately"); at a run boundary
   returning the preceding run's style matches what typing there inherits.
-- The slides mobile toolbar (`slides/toolbar/mobile-toolbar.tsx`) uses the same
-  pattern; not a docs surface, left alone.
+- The header/footer slim toggles' `pressed` state: those `Toggle`s were
+  already uncontrolled before this change (no `pressed` prop at all), so
+  wiring them is a separate fix.

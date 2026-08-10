@@ -2888,7 +2888,13 @@ export class TextEditor {
     const resolved: Partial<InlineStyle> = {};
     for (const key of Object.keys(style) as (keyof InlineStyle)[]) {
       if (typeof style[key] === 'boolean') {
-        (resolved as Record<string, unknown>)[key] = !visual[key];
+        // Decide add-vs-remove from the *range* whenever there is one —
+        // the caret style is only a fallback (collapsed caret, or a range
+        // holding no text runs). See `isStyleOnInSelection` for why.
+        const inRange = this.isStyleOnInSelection(key);
+        (resolved as Record<string, unknown>)[key] = !(
+          inRange ?? !!visual[key]
+        );
       } else {
         (resolved as Record<string, unknown>)[key] = style[key];
       }
@@ -2978,6 +2984,141 @@ export class TextEditor {
     }
     const last = block.inlines[block.inlines.length - 1];
     return last ? { ...last.style } : {};
+  }
+
+  /**
+   * Is a boolean inline style set on every text run of the selection?
+   *
+   * The keyboard shortcuts (Cmd/Ctrl+B / I / U, Cmd/Ctrl+Shift+X) must
+   * decide add-vs-remove from the *range*, not from the caret: with a
+   * backward (right-to-left) selection the caret sits at the range's start,
+   * where `getStyleAtCursor()` resolves the run *preceding* the selection.
+   * The shortcut therefore inverted the wrong value and re-applying a style
+   * could stay a permanent no-op (issue #715). Mirrors the toolbar's
+   * `getRangeStyleSummary()` decision so keyboard and toolbar agree: a mixed
+   * range (some runs on, some off) counts as *not* applied, so the next
+   * press styles the whole range.
+   *
+   * Returns `undefined` when there is no selection, or when the range holds
+   * no text runs — the caller then falls back to the caret style.
+   */
+  private isStyleOnInSelection(key: keyof InlineStyle): boolean | undefined {
+    const range = this.selection.range;
+    if (!this.selection.hasSelection() || !range) return undefined;
+
+    let sawRun = false;
+    let allOn = true;
+    const visit = (blockId: string, from: number, to: number): void => {
+      const block = this.doc.findBlock(blockId);
+      if (!block) return;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        // Overlap test [from, to) with [pos, inlineEnd). Zero-width
+        // placeholder runs carry no style information.
+        if (inline.text.length > 0 && inlineEnd > from && pos < to) {
+          sawRun = true;
+          if (!(inline.style as Record<string, unknown>)[key]) allOn = false;
+        }
+        pos = inlineEnd;
+        if (pos >= to) break;
+      }
+    };
+    const visitWhole = (block: Block): void =>
+      visit(block.id, 0, getBlockTextLength(block));
+    const visitTable = (block: Block): void => {
+      if (!block.tableData) return;
+      for (const row of block.tableData.rows) {
+        for (const cell of row.cells) {
+          if (cell.colSpan === 0) continue;
+          for (const cellBlock of cell.blocks) visitWhole(cellBlock);
+        }
+      }
+    };
+
+    if (range.tableCellRange) {
+      // Rectangle of selected cells — every block inside counts.
+      const cr = range.tableCellRange;
+      const tableBlock = this.doc.findBlock(cr.blockId);
+      if (tableBlock?.tableData) {
+        const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+        const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+        const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
+        const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
+        for (let r = minRow; r <= maxRow; r++) {
+          for (let c = minCol; c <= maxCol; c++) {
+            const cell = tableBlock.tableData.rows[r]?.cells[c];
+            if (!cell || cell.colSpan === 0) continue;
+            for (const cellBlock of cell.blocks) visitWhole(cellBlock);
+          }
+        }
+      }
+    } else if (range.anchor.blockId === range.focus.blockId) {
+      const a = range.anchor.offset;
+      const b = range.focus.offset;
+      visit(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
+    } else {
+      // Mirrors `Doc.applyInlineStyle`'s range walk so the read matches
+      // exactly the runs the write would touch.
+      const anchorCI = this.getCellInfo(range.anchor.blockId);
+      const focusCI = this.getCellInfo(range.focus.blockId);
+      if (
+        anchorCI && focusCI &&
+        anchorCI.tableBlockId === focusCI.tableBlockId &&
+        anchorCI.rowIndex === focusCI.rowIndex &&
+        anchorCI.colIndex === focusCI.colIndex
+      ) {
+        // Cross-block inside one cell.
+        const tableBlock = this.doc.findBlock(anchorCI.tableBlockId);
+        const cell =
+          tableBlock?.tableData?.rows[anchorCI.rowIndex]?.cells[anchorCI.colIndex];
+        if (cell) {
+          const anchorIdx = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
+          const focusIdx = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
+          if (anchorIdx >= 0 && focusIdx >= 0) {
+            const [fromIdx, toIdx, from, to] = anchorIdx <= focusIdx
+              ? [anchorIdx, focusIdx, range.anchor, range.focus]
+              : [focusIdx, anchorIdx, range.focus, range.anchor];
+            for (let i = fromIdx; i <= toIdx; i++) {
+              const block = cell.blocks[i];
+              const blockLen = getBlockTextLength(block);
+              const start = i === fromIdx ? from.offset : 0;
+              const end = i === toIdx ? to.offset : blockLen;
+              if (start < end) visit(block.id, start, end);
+            }
+          }
+        }
+      } else {
+        // Top-level cross-block: normalize cell endpoints to their parent
+        // table block, then walk the context blocks in document order.
+        const anchorTopId = anchorCI ? anchorCI.tableBlockId : range.anchor.blockId;
+        const focusTopId = focusCI ? focusCI.tableBlockId : range.focus.blockId;
+        const anchorIdx = this.doc.getBlockIndex(anchorTopId);
+        const focusIdx = this.doc.getBlockIndex(focusTopId);
+        if (anchorIdx >= 0 && focusIdx >= 0) {
+          const [fromIdx, toIdx, from, to] =
+            anchorIdx < focusIdx ||
+            (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+              ? [anchorIdx, focusIdx, range.anchor, range.focus]
+              : [focusIdx, anchorIdx, range.focus, range.anchor];
+          const contextBlocks = this.doc.getContextBlocks();
+          for (let i = fromIdx; i <= toIdx; i++) {
+            const block = contextBlocks[i];
+            if (!block) continue;
+            if (block.type === 'table' && block.tableData) {
+              visitTable(block);
+              continue;
+            }
+            const blockLen = getBlockTextLength(block);
+            const start = i === fromIdx ? from.offset : 0;
+            const end = i === toIdx ? to.offset : blockLen;
+            if (start < end) visit(block.id, start, end);
+          }
+        }
+      }
+    }
+
+    return sawRun ? allOn : undefined;
   }
 
   // --- Cell helpers ---
