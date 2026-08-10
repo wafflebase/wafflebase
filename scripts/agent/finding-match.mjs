@@ -727,13 +727,39 @@ export function groupFindings(findings, opts = {}) {
   // --- build the classes ----------------------------------------------------
   const groupIdAt = new Map(); // root → id
   const groups = [];
+  // Two classes CAN digest alike, and the id has to stay unique anyway.
+  //
+  // It needs byte-identical findings that the matcher nonetheless refuses to
+  // merge, which sounds impossible and is not: cross-source, an empty `file`
+  // scores `locationScore` 0 (absent, not equal), so two copies of one finding
+  // reach `maybe` on anchor agreement alone and stay two classes. G0 does the
+  // same for two identical contentless ones. Both then hash to one id.
+  //
+  // That is not cosmetic. `candidatesOf` below is keyed BY id, so colliding
+  // classes pool their links and each ends up listing ITSELF as a candidate.
+  //
+  // The fix is an occurrence suffix, NOT the input index: putting `index` in the
+  // preimage would make the id depend on input order and renumber every class
+  // when a finding is inserted upstream, which is the one thing a content-derived
+  // id exists to prevent. Colliding classes are by definition indistinguishable —
+  // equal digests mean equal `(item, arm, run, lens, file, summary, evidence)` —
+  // so which of them takes the suffix is arbitrary and unobservable, while the set
+  // of ids and the content under each stays identical under any permutation.
+  const idSeen = new Map();
+  let idCollisions = 0;
   for (const [root, positions] of membersOf) {
     const members = positions.map((pos) => nodes[pos]).sort((a, b) => a.digest.localeCompare(b.digest));
     const item = members[0].item;
-    const id = defectClassId(
+    const base = defectClassId(
       item,
       members.map((m) => m.digest),
     );
+    const seen = idSeen.get(base) ?? 0;
+    idSeen.set(base, seen + 1);
+    // A base id is always `D-` plus exactly 16 hex, so a suffixed one cannot
+    // collide with some other class's base id.
+    const id = seen === 0 ? base : `${base}-${seen + 1}`;
+    if (seen > 0) idCollisions++;
     groupIdAt.set(root, id);
     // The weakest evidence holding the class together, so a reader can judge the
     // merge without re-running the matcher. Under complete linkage its verdict is
@@ -882,6 +908,10 @@ export function groupFindings(findings, opts = {}) {
       // Counted separately because they are inside `pairs.no` and would otherwise
       // be indistinguishable from a real disagreement.
       no_evidence_pairs: noEvidencePairs,
+      // Classes that digested alike and took an occurrence suffix. Non-zero means
+      // the input held byte-identical findings the matcher declined to merge —
+      // worth a look at the input, but the ids are still unique.
+      id_collisions: idCollisions,
       gate: gateCensus,
       links: {
         maybe: links.filter((l) => l.verdict === "maybe").length,

@@ -417,6 +417,42 @@ test("groupFindings: two classes with the same findingKey but disjoint evidence 
   assert.notEqual(r.groups[0].id, r.groups[1].id);
 });
 
+test("groupFindings: two classes that DIGEST alike still get distinct ids", () => {
+  // Byte-identical findings the matcher refuses to merge are not a hypothetical.
+  // Cross-source with an empty `file`, `locationScore` is 0 — absent, not equal —
+  // so two copies of one finding reach `maybe` on anchor agreement alone and stay
+  // two classes, then hash to one id. `candidatesOf` is keyed BY id, so the
+  // collision made each class list ITSELF as a candidate link.
+  //
+  // The suffix is an occurrence counter and NOT the input index: an index in the
+  // preimage would make the id depend on input order, which is what the two tests
+  // above exist to prevent.
+  const f = {
+    item_id: "pr-548",
+    arm: "coderabbit",
+    run_id: null,
+    lens: "",
+    file: "",
+    summary: "`resolveRange` throws a raw TypeError on a reference without a colon",
+    evidence: "",
+  };
+  assert.equal(matchFindings(f, { ...f }, { crossSource: true }).verdict, "maybe");
+  const r = groupFindings([f, { ...f }]);
+  assert.equal(r.groups.length, 2);
+  assert.notEqual(r.groups[0].id, r.groups[1].id, "two classes must never share an id");
+  assert.equal(r.stats.id_collisions, 1);
+  assert.ok(/^D-[0-9a-f]{16}-2$/.test(r.groups[1].id), `unexpected suffix: ${r.groups[1].id}`);
+  // no class may list itself as a candidate for merging with itself
+  for (const g of r.groups) assert.ok(!g.candidates.includes(g.id), "a class linked to itself");
+  // two identical CONTENTLESS findings reach the same place through G0
+  const blank = { item_id: "pr-548", arm: "coderabbit", run_id: null };
+  const b = groupFindings([blank, { ...blank }]);
+  assert.equal(b.groups.length, 2);
+  assert.notEqual(b.groups[0].id, b.groups[1].id);
+  // …and a run with no collisions says so
+  assert.equal(groupFindings([CHAIN.a, CHAIN.b, CHAIN.c]).stats.id_collisions, 0);
+});
+
 test("groupFindings MAYBE: never merges, always becomes a link the curator can see", () => {
   const summary = "the relaxation accepts markers and changes paragraph interrupt behaviour for notes";
   const r = groupFindings([

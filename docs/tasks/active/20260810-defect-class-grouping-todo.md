@@ -143,6 +143,24 @@ the gate; `findingKey` is carried on each member unchanged, for anything that mu
 with `dedupeFindings`. Test: *"two classes with the same findingKey but disjoint evidence
 get DIFFERENT ids"*.
 
+**And the richer digest was still not enough — two classes could digest alike.** Caught by
+review after the first push, and my reasoning for calling it impossible was wrong: I argued
+that two findings identical in all seven digested fields would always *merge*, so no two
+distinct classes could share a preimage. They do not always merge. Cross-source with an
+empty `file`, `locationScore` returns 0 — **absent, not equal**, which is a rule this module
+already had a test for — so two byte-identical findings reach `maybe` on anchor agreement
+alone and stay two classes. Two identical *contentless* findings get there through G0. Both
+then hash to one id, and it is not cosmetic: `candidatesOf` is keyed **by id**, so the
+colliding classes pool their links and each ends up listing **itself** as a candidate.
+
+Fixed with an occurrence suffix (`…-2`), and explicitly **not** with the input index the
+review proposed — an index in the preimage makes the id order-dependent and renumbers every
+class when a finding is inserted upstream, which is exactly what a content-derived id exists
+to prevent. Verified rather than argued: applying the proposed form turns *"order
+independence"* and *"ids are content-derived"* red. Colliding classes are by definition
+indistinguishable, so which one takes the suffix is arbitrary and unobservable — confirmed
+by re-running the permutation check on a colliding input. `stats.id_collisions` reports it.
+
 **A pair with no evidence at all was scoring 1.00 and merging.** `findingSimilarity` falls
 back to exact case-insensitive text equality when either token set degenerates to empty,
 *"so a placeholder still matches itself across rounds rather than scoring 0"*. That is
@@ -258,13 +276,14 @@ plan for:
 
 ## Verification
 
-- [x] **Tests: 1552, 0 fail, 0 skip.** Baseline **1525, 0 fail, 0 skip** on
+- [x] **Tests: 1553, 0 fail, 0 skip.** Baseline **1525, 0 fail, 0 skip** on
       `upstream/main` at `740bac37dc15`, measured in the same environment (root and
       `scripts/agent` `node_modules` present in both — without them the same command
       reports 5 and 6 skips respectively, and comparing across that difference is what
-      makes a skip count look like a regression). **+27 tests, all in
-      `finding-match.test.mjs` (28 → 55)**, two of them on `bestMatch`.
-- [x] **Mutations: 27 written, 26 caught.** Every row of the edge-case table, every
+      makes a skip count look like a regression). **+28 tests, all in
+      `finding-match.test.mjs` (28 → 56)**, two of them on `bestMatch` and one on the
+      id collision found in review.
+- [x] **Mutations: 29 written, 28 caught.** Every row of the edge-case table, every
       decision above, and two guards on the refactor itself. Two of the first-draft
       mutations were ineffective rather than uncaught and were rewritten: a `maybe` in the
       merge candidate list is stopped by the completeness check, not by the filter, and a
