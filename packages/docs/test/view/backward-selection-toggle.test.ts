@@ -396,3 +396,242 @@ describe('header table cell range summary (issue #715)', () => {
     }
   });
 });
+
+/**
+ * The shared walk (`visitStyledRunsInRange`) normalizes an endpoint that
+ * lives inside a table cell to its parent *table* block before indexing the
+ * context blocks — the same normalization `Doc.applyInlineStyle` does. Before
+ * that, a selection whose endpoints sat in two different cells (or one in a
+ * cell and one in the body) failed `getBlockIndex` and produced an empty
+ * summary, so the toggles could only ever add a style. A table caught inside
+ * such a selection is read whole, matching the write.
+ */
+describe('cell endpoints normalize to the parent table (issue #715)', () => {
+  const editors: EditorAPI[] = [];
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+  afterEach(() => {
+    for (const editor of editors.splice(0)) editor.dispose();
+    document.body.innerHTML = '';
+  });
+
+  const para = (text: string, style: Record<string, boolean>): Block => ({
+    id: generateBlockId(),
+    type: 'paragraph',
+    inlines: [{ text, style }],
+    style: EMPTY_BLOCK_STYLE,
+  });
+
+  /**
+   * Body paragraph "body" (bold per `bodyBold`), then a 1×2 table whose two
+   * cells hold one bold paragraph each, then a trailing body paragraph.
+   */
+  function setup(bodyBold: boolean, leftBold = true): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    container: HTMLElement;
+    table: Block;
+    body: Block;
+  } {
+    const left = para('left', leftBold ? { bold: true } : {});
+    const right = para('right', { bold: true });
+    const rows: TableRow[] = [
+      {
+        cells: [
+          { blocks: [left], style: {} } as TableCell,
+          { blocks: [right], style: {} } as TableCell,
+        ],
+      },
+    ];
+    const table: Block = {
+      id: generateBlockId(),
+      type: 'table',
+      inlines: [],
+      style: EMPTY_BLOCK_STYLE,
+      tableData: { rows, columnWidths: [0.5, 0.5] },
+    };
+    const body = para('body', bodyBold ? { bold: true } : {});
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [body, table, para('tail', { bold: true })] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+    return { editor, store, container, table, body };
+  }
+
+  /** The stored paragraph of cell `col` in the document's table block. */
+  function storedCellBlock(store: MemDocStore, col: number): Block {
+    const table = store.getDocument().blocks[1];
+    return table.tableData!.rows[0].cells[col].blocks[0];
+  }
+
+  test('a selection spanning two different cells reports the shared style', () => {
+    const { editor, table } = setup(true);
+    const left = table.tableData!.rows[0].cells[0].blocks[0];
+    const right = table.tableData!.rows[0].cells[1].blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: left.id, offset: 0 },
+      focus: { blockId: right.id, offset: 5 },
+    });
+
+    // Both endpoints normalize to the table block, which is then read whole.
+    expect(editor.getRangeStyleSummary().bold).toBe(true);
+  });
+
+  test('Cmd+B on a cross-cell selection removes bold from both cells', () => {
+    const { editor, store, container, table } = setup(true);
+    const left = table.tableData!.rows[0].cells[0].blocks[0];
+    const right = table.tableData!.rows[0].cells[1].blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: left.id, offset: 0 },
+      focus: { blockId: right.id, offset: 5 },
+    });
+
+    dispatchKey(container, 'b');
+
+    for (const col of [0, 1]) {
+      for (const inline of storedCellBlock(store, col).inlines) {
+        expect(inline.style.bold).toBe(false);
+      }
+    }
+  });
+
+  test('a body-to-cell selection is mixed when the body run is unstyled', () => {
+    const { editor, table, body } = setup(false);
+    const right = table.tableData!.rows[0].cells[1].blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: body.id, offset: 0 },
+      focus: { blockId: right.id, offset: 5 },
+    });
+
+    // The body run is not bold, the cell runs are — 'mixed', which the
+    // toggles treat as "not applied" so the next press styles everything.
+    expect(editor.getRangeStyleSummary().bold).toBe('mixed');
+  });
+
+  test('Cmd+B on a mixed body-to-cell selection bolds the whole range', () => {
+    const { editor, store, container, table, body } = setup(false);
+    const right = table.tableData!.rows[0].cells[1].blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: body.id, offset: 0 },
+      focus: { blockId: right.id, offset: 5 },
+    });
+
+    dispatchKey(container, 'b');
+
+    for (const inline of store.getDocument().blocks[0].inlines) {
+      expect(inline.style.bold).toBe(true);
+    }
+    for (const col of [0, 1]) {
+      for (const inline of storedCellBlock(store, col).inlines) {
+        expect(inline.style.bold).toBe(true);
+      }
+    }
+  });
+
+  test('a cell rectangle selection decides the keyboard toggle from its cells', () => {
+    const { editor, store, container, table } = setup(true);
+    editor._setSelectionForTest({
+      anchor: { blockId: table.tableData!.rows[0].cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: table.tableData!.rows[0].cells[1].blocks[0].id, offset: 5 },
+      tableCellRange: {
+        blockId: table.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 0, colIndex: 1 },
+      },
+    });
+
+    // Every block of every selected cell is bold, so the press removes it.
+    expect(editor.getRangeStyleSummary().bold).toBe(true);
+    dispatchKey(container, 'b');
+
+    for (const col of [0, 1]) {
+      for (const inline of storedCellBlock(store, col).inlines) {
+        expect(inline.style.bold).toBe(false);
+      }
+    }
+  });
+
+  test('a cell rectangle whose cells are not all bold gets bolded', () => {
+    // The left cell is unstyled, so the rectangle reads as mixed.
+    const { editor, store, container, table } = setup(true, false);
+    editor._setSelectionForTest({
+      anchor: { blockId: table.tableData!.rows[0].cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: table.tableData!.rows[0].cells[1].blocks[0].id, offset: 5 },
+      tableCellRange: {
+        blockId: table.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 0, colIndex: 1 },
+      },
+    });
+
+    dispatchKey(container, 'b');
+
+    for (const col of [0, 1]) {
+      for (const inline of storedCellBlock(store, col).inlines) {
+        expect(inline.style.bold).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * A nested table inside a cell is *not* styleable by `applyInlineStyle`
+   * (it walks the cell's direct blocks and skips zero-length ones), so the
+   * read walk must not descend into it either — otherwise its runs join the
+   * read set, can flip the verdict to "already bold", and the toggle becomes
+   * an unremovable no-op (the #715 shape).
+   */
+  test('a nested table is neither read nor written by a cross-block toggle', () => {
+    const inner = para('inner', {});
+    const innerTable: Block = {
+      id: generateBlockId(),
+      type: 'table',
+      inlines: [],
+      style: EMPTY_BLOCK_STYLE,
+      tableData: {
+        rows: [{ cells: [{ blocks: [inner], style: {} } as TableCell] }],
+        columnWidths: [1],
+      },
+    };
+    const outerPara = para('outer', { bold: true });
+    const outer: Block = {
+      id: generateBlockId(),
+      type: 'table',
+      inlines: [],
+      style: EMPTY_BLOCK_STYLE,
+      tableData: {
+        rows: [{ cells: [{ blocks: [outerPara, innerTable], style: {} } as TableCell] }],
+        columnWidths: [1],
+      },
+    };
+    const before = para('before', { bold: true });
+    const after = para('after', { bold: true });
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [before, outer, after] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: before.id, offset: 0 },
+      focus: { blockId: after.id, offset: 5 },
+    });
+
+    // The unstyled nested-table run is invisible to the read, so the range
+    // reads uniformly bold — exactly the set the write can reach.
+    expect(editor.getRangeStyleSummary().bold).toBe(true);
+
+    dispatchKey(container, 'b');
+
+    const storedOuter = store.getDocument().blocks[1];
+    const cellBlocks = storedOuter.tableData!.rows[0].cells[0].blocks;
+    expect(cellBlocks[0].inlines[0].style.bold).toBe(false);
+    // Untouched: the write never descends into the nested table.
+    const storedInner = cellBlocks[1].tableData!.rows[0].cells[0].blocks[0];
+    expect(storedInner.inlines[0].style.bold).toBeUndefined();
+  });
+});

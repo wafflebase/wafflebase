@@ -34,6 +34,7 @@ import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
+import { visitStyledRunsInRange } from './range-runs.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -1064,51 +1065,24 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         return `prim:${String(value)}`;
       };
 
-      const visitInlinesInBlock = (
-        blockId: string, from: number, to: number,
-      ): void => {
-        const block = doc.findBlock(blockId);
-        if (!block) return;
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (inlineEnd > from && pos < to && inline.text.length > 0) {
-            for (const key of KEYS) {
-              const raw = (inline.style as Record<string, unknown>)[key];
-              const token = tokenize(raw);
-              if (!seen[key].has(token)) {
-                seen[key].add(token);
-                rawByToken[key].set(token, raw);
-              }
-            }
+      // The one shared walk (`visitStyledRunsInRange`) the docs editor's
+      // summary and the keyboard toggles (`TextEditor.isStyleOnInSelection`)
+      // use, so a text box — docs text boxes and the Slides shape / text-box
+      // / table-cell editors built on this factory — reads the same runs,
+      // with the same named-style inline defaults layered under each run,
+      // that a toggle would restyle. Reading raw `inline.style` here let the
+      // toolbar answer "not italic" for a run whose named style paints it
+      // italic while the keyboard answered "italic" (issue #715).
+      visitStyledRunsInRange(doc, range, (effective) => {
+        for (const key of KEYS) {
+          const raw = (effective as Record<string, unknown>)[key];
+          const token = tokenize(raw);
+          if (!seen[key].has(token)) {
+            seen[key].add(token);
+            rawByToken[key].set(token, raw);
           }
-          pos = inlineEnd;
-          if (pos >= to) break;
         }
-      };
-
-      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-      const focusIdx = doc.getBlockIndex(range.focus.blockId);
-      if (anchorIdx >= 0 && focusIdx >= 0) {
-        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-
-        for (let i = startIdx; i <= endIdx; i++) {
-          const block = doc.document.blocks[i];
-          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-          const from = i === startIdx ? startOff : 0;
-          const to = i === endIdx ? endOff : blockLen;
-          if (from < to) visitInlinesInBlock(block.id, from, to);
-        }
-      } else if (range.anchor.blockId === range.focus.blockId) {
-        // Single-block fallback (defensive: getBlockIndex can fall
-        // through if the text-box's document is mid-mutation).
-        const a = range.anchor.offset;
-        const b = range.focus.offset;
-        visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
-      }
+      });
 
       const result: Record<string, unknown> = {};
       for (const key of KEYS) {

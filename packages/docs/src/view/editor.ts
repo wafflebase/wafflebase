@@ -352,9 +352,11 @@ export interface EditorAPI {
    * Test-only: set the selection range directly. Production code drives
    * selection through pointer / keyboard events on the TextEditor; tests
    * use this to skip the input layer and exercise selection-derived APIs
-   * (e.g. getRangeStyleSummary) without simulating drag.
+   * (e.g. getRangeStyleSummary) without simulating drag. Accepts a full
+   * `DocRange`, so `tableCellRange` (the cell-rectangle selection a drag
+   * across cells produces) is reachable from tests too.
    */
-  _setSelectionForTest(range: { anchor: DocPosition; focus: DocPosition } | null): void;
+  _setSelectionForTest(range: DocRange | null): void;
   /** Test-only: force the edit context (body/header/footer). */
   _setEditContextForTest(ctx: 'body' | 'header' | 'footer'): void;
   /** Test-only: read the current caret position. */
@@ -1077,8 +1079,10 @@ export function initialize(
    * docs-font-controls.md (issue #343).
    *
    * Two passes: first a read-only walk collects `{blockId, from, to,
-   * size}` for every run — the same block/offset dispatch
-   * `getRangeStyleSummary` uses (cell-range rectangle, cross-block,
+   * size}` for every run — literally `visitStyledRunsInRange`, the same
+   * shared walk `getRangeStyleSummary` and the keyboard toggles use, so
+   * the runs stepped are the runs the summary reports (cell-range
+   * rectangle, cross-block with table + header/footer-cell resolution,
    * same-cell multi-block, same-block). Then each collected run is
    * styled individually. Styling never inserts/deletes text, so a
    * block's character offsets stay valid across the whole apply pass —
@@ -1103,94 +1107,10 @@ export function initialize(
     const range = selection.range;
     const runs: Array<{ blockId: string; from: number; to: number; size: number }> = [];
 
-    const collectRunsInBlock = (blockId: string, from: number, to: number): void => {
-      const block = doc.findBlock(blockId);
-      if (!block) return;
-      const defaults = styleDefaultsForBlock(block);
-      let pos = 0;
-      for (const inline of block.inlines) {
-        const inlineEnd = pos + inline.text.length;
-        if (inlineEnd > from && pos < to && inline.text.length > 0) {
-          const effective = { ...defaults, ...inline.style };
-          const size = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
-          runs.push({
-            blockId,
-            from: Math.max(pos, from),
-            to: Math.min(inlineEnd, to),
-            size,
-          });
-        }
-        pos = inlineEnd;
-        if (pos >= to) break;
-      }
-    };
-
-    if (range.tableCellRange) {
-      const cr = range.tableCellRange;
-      const tableBlock = doc.findBlock(cr.blockId);
-      if (tableBlock?.tableData) {
-        const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-        const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-        const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
-        const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
-        for (let r = minRow; r <= maxRow; r++) {
-          for (let c = minCol; c <= maxCol; c++) {
-            const cell = tableBlock.tableData.rows[r]?.cells[c];
-            if (!cell || cell.colSpan === 0) continue;
-            for (const cb of cell.blocks) {
-              const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
-              if (len > 0) collectRunsInBlock(cb.id, 0, len);
-            }
-          }
-        }
-      }
-    } else {
-      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-      const focusIdx = doc.getBlockIndex(range.focus.blockId);
-      if (anchorIdx >= 0 && focusIdx >= 0) {
-        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-        for (let i = startIdx; i <= endIdx; i++) {
-          const block = doc.getContextBlocks()[i];
-          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-          const from = i === startIdx ? startOff : 0;
-          const to = i === endIdx ? endOff : blockLen;
-          if (from < to) collectRunsInBlock(block.id, from, to);
-        }
-      } else {
-        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-        const focusCI = layout.blockParentMap.get(range.focus.blockId);
-        if (
-          anchorCI && focusCI &&
-          anchorCI.tableBlockId === focusCI.tableBlockId &&
-          anchorCI.rowIndex === focusCI.rowIndex &&
-          anchorCI.colIndex === focusCI.colIndex
-        ) {
-          const tableBlock = doc.getBlock(anchorCI.tableBlockId);
-          const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
-          const anchorBI = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
-          const focusBI = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
-          if (anchorBI >= 0 && focusBI >= 0) {
-            const [fromIdx, toIdx, fromOff, toOff] = anchorBI <= focusBI
-              ? [anchorBI, focusBI, range.anchor.offset, range.focus.offset]
-              : [focusBI, anchorBI, range.focus.offset, range.anchor.offset];
-            for (let i = fromIdx; i <= toIdx; i++) {
-              const cb = cell.blocks[i];
-              const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
-              const from = i === fromIdx ? fromOff : 0;
-              const to = i === toIdx ? toOff : len;
-              if (from < to) collectRunsInBlock(cb.id, from, to);
-            }
-          }
-        } else if (range.anchor.blockId === range.focus.blockId) {
-          const a = range.anchor.offset;
-          const b = range.focus.offset;
-          collectRunsInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
-        }
-      }
-    }
+    visitStyledRunsInRange(doc, range, (effective, _inline, block, from, to) => {
+      const size = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+      runs.push({ blockId: block.id, from, to, size });
+    });
 
     const changed = runs
       .map((run) => ({ run, next: clamp(run.size + delta) }))

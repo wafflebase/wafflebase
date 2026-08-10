@@ -29,11 +29,15 @@ import type { Doc } from '../model/document.js';
  * @param style    Effective style — named-style defaults under `inline.style`.
  * @param inline   The run itself (raw `inline.style` available on it).
  * @param block    The block the run belongs to.
+ * @param from     Run start offset within the block, clipped to the range.
+ * @param to       Run end offset within the block, clipped to the range.
  */
 export type StyledRunVisitor = (
   style: Partial<InlineStyle>,
   inline: Inline,
   block: Block,
+  from: number,
+  to: number,
 ) => void;
 
 /**
@@ -55,7 +59,13 @@ export function visitStyledRunsInRange(
       const inlineEnd = pos + inline.text.length;
       // Overlap test [from, to) with [pos, inlineEnd).
       if (inline.text.length > 0 && inlineEnd > from && pos < to) {
-        visit({ ...defaults, ...inline.style }, inline, block);
+        visit(
+          { ...defaults, ...inline.style },
+          inline,
+          block,
+          Math.max(pos, from),
+          Math.min(inlineEnd, to),
+        );
       }
       pos = inlineEnd;
       if (pos >= to) break;
@@ -71,13 +81,14 @@ export function visitStyledRunsInRange(
       for (const cell of row.cells) {
         // colSpan 0 = a merged-away cell; its content lives in the top-left.
         if (cell.colSpan === 0) continue;
-        for (const cellBlock of cell.blocks) {
-          if (cellBlock.type === 'table' && cellBlock.tableData) {
-            visitTable(cellBlock);
-          } else {
-            visitWholeBlock(cellBlock);
-          }
-        }
+        // Deliberately *not* recursive. `applyInlineStyle`'s table branch
+        // styles each cell block over `[0, getBlockTextLength(block))`,
+        // which is 0 for a nested table block — so a nested table is never
+        // written, and reading it would put runs in the read set that no
+        // toggle can restyle (the #715 "can only add, never remove" trap).
+        // `visitWholeBlock` on a table block is a no-op for the same
+        // zero-length reason, so read and write stay identical here.
+        for (const cellBlock of cell.blocks) visitWholeBlock(cellBlock);
       }
     }
   };

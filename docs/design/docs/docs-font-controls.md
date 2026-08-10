@@ -209,8 +209,9 @@ and never trips `onStepMixed` — it keeps stepping that resolved default
 through the existing single-value path. Callers wire the mixed case to
 the new `editor.stepSelectionFontSize(delta, clamp)` (see below), which
 does the per-run work: it walks the inline runs intersecting the selection
-(single-block, cross-block, and table cell-range, mirroring
-`getRangeStyleSummary`'s traversal and its style-defaults resolution) and
+through the shared `visitStyledRunsInRange` walk (see *The shared range
+walk* below) — literally the same traversal and style-defaults resolution
+`getRangeStyleSummary` and the keyboard toggles use — and
 applies `clamp(effectiveSize + delta)` to each run's own sub-range via
 `store.applyStyle`. `clamp` stays a caller-supplied function (`FONT_SIZE_MIN`
 / `FONT_SIZE_MAX` live in the frontend's `font-catalog.ts`, not in the docs
@@ -285,10 +286,49 @@ stepSelectionFontSize(delta: number, clamp: (n: number) => number): void;
 ```
 
 `getRangeStyleSummary` is implemented by walking the inline runs that
-intersect the selection range — exiting early as 'mixed' once a key
-sees a second distinct value. When there is no selection, it returns
+intersect the selection range — a key with two or more distinct values
+reads as 'mixed'. When there is no selection, it returns
 the style of the inline at the cursor (same as the existing
 `getSelectionStyle`).
+
+### The shared range walk (`view/range-runs.ts`)
+
+Reading a range's formatting and writing it must agree on *which runs the
+range covers* — a toggle that decides "already bold" from a different set
+of runs than the one it then styles is how issue #715 left a style
+impossible to re-apply. `visitStyledRunsInRange(doc, range, visit)` is that
+single walk, and it is the only traversal in the docs engine:
+`getRangeStyleSummary`, `stepSelectionFontSize`, the text-box editor's
+`getRangeStyleSummary`, and the keyboard toggles
+(`TextEditor.isStyleOnInSelection`) all call it.
+
+It mirrors `Doc.applyInlineStyle`'s dispatch — same block → same cell,
+cross-block inside one cell, cross-block at top level with cell endpoints
+normalized to their parent table block — plus the cell-rectangle
+(`tableCellRange`) case the editors handle above `applyInlineStyle`. Three
+consequences are load-bearing:
+
+- **Header/footer cells resolve.** Parentage comes from `doc.blockParentMap`
+  (the merged body + header + footer map `applyInlineStyle` reads), not the
+  body-only `layout.blockParentMap` the pre-#715 summary used, which
+  returned an empty summary for a header-cell selection.
+- **A table caught in a cross-block selection is read whole**, because
+  `applyInlineStyle` styles it whole. A *nested* table is deliberately not
+  descended into: `applyInlineStyle` styles each cell block over
+  `[0, getBlockTextLength(block))`, which is 0 for a table block, so nested
+  content is never written — and reading what cannot be written re-creates
+  the #715 trap.
+- **Every run is reported with its effective style** — the block's named
+  style inline defaults (`resolveStyleInline`) layered under the run's
+  explicit style — so a read sees what the renderer paints. A built-in
+  Heading 6 reads as italic even though no run carries the flag. Reads
+  layer defaults; *writes* (pending style, style application) keep storing
+  raw runs, so redefining a named style still cascades. The collapsed-caret
+  keyboard fallback layers the same defaults for its add-vs-remove decision
+  only.
+
+Zero-width runs are skipped: they carry no style and would otherwise make
+every empty block read as 'mixed'.
 
 ### Toolbar layout — body context
 

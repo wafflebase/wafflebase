@@ -19,6 +19,7 @@ import { detectTableBorder, createDragState, type BorderDragState } from './tabl
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from './range-runs.js';
+import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
 
 /**
  * Composition (IME) state tracker.
@@ -2886,6 +2887,15 @@ export class TextEditor {
     const visual = this.pending?.has()
       ? { ...base, ...this.pending.get()! }
       : base;
+    // What the caret *renders*: the block's named-style inline defaults
+    // under the visual style. Used only to decide add-vs-remove — `visual`
+    // itself stays raw, because it is what gets stored as the pending style
+    // and baking a style default into a run breaks the lazy cascade when the
+    // named style is later redefined (see `getSelectionStyleImpl`). Without
+    // this layer, Cmd+I inside a Heading 6 (whose built-in style supplies
+    // italic) computed `!false` and re-applied italic — a permanent visual
+    // no-op, and the opposite verdict from the toolbar's summary.
+    const effectiveVisual = { ...this.styleDefaultsAtCursor(), ...visual };
     const resolved: Partial<InlineStyle> = {};
     for (const key of Object.keys(style) as (keyof InlineStyle)[]) {
       if (typeof style[key] === 'boolean') {
@@ -2894,7 +2904,7 @@ export class TextEditor {
         // holding no text runs). See `isStyleOnInSelection` for why.
         const inRange = this.isStyleOnInSelection(key);
         (resolved as Record<string, unknown>)[key] = !(
-          inRange ?? !!visual[key]
+          inRange ?? !!effectiveVisual[key]
         );
       } else {
         (resolved as Record<string, unknown>)[key] = style[key];
@@ -2985,6 +2995,18 @@ export class TextEditor {
     }
     const last = block.inlines[block.inlines.length - 1];
     return last ? { ...last.style } : {};
+  }
+
+  /**
+   * Named-style inline defaults of the caret's block — the layer the
+   * renderer paints under each run's explicit style. Kept separate from
+   * `getStyleAtCursor` so callers that *store* the caret style (pending
+   * style, style application) keep writing raw runs.
+   */
+  private styleDefaultsAtCursor(): Partial<InlineStyle> {
+    const block = this.doc.findBlock(this.cursor.position.blockId);
+    if (!block) return {};
+    return resolveStyleInline(blockStyleId(block), this.doc.document.styles);
   }
 
   /**
