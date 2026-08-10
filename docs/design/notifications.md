@@ -202,15 +202,15 @@ thread's first comment, so the item reads as "resolved your comment: …".
 `thread_resolved` on an empty first comment legitimately produces none.
 
 Callers are the three comment controllers —
-`app/docs/comments/docs-comments-controller.ts`,
-`app/files/comments/pdf-comments-controller.ts`, and the sheets comment path.
+`packages/frontend/src/app/docs/comments/docs-comments-controller.ts`,
+`packages/frontend/src/app/files/comments/pdf-comments-controller.ts`, and the sheets comment path.
 Each fires the report **after** the CRDT write succeeds, and ignores failures:
 the comment is already saved, so a failed notification must not surface an
 error to the author.
 
 ### Creating join notifications
 
-`WorkspaceService.acceptInvite()` (`workspace.service.ts`) already runs
+`WorkspaceService.acceptInvite()` (`packages/backend/src/workspace/workspace.service.ts`) already runs
 server-side with full authority. After the membership row is created, it emits
 `workspace_member_joined` to the union of the workspace owners and the
 invite's creator, excluding the joiner. `documentId` is null.
@@ -277,7 +277,7 @@ use-notification-stream.ts   # EventSource -> queryClient.setQueryData
 types.ts
 ```
 
-`SiteHeader` (`components/site-header.tsx`) is used by `app/Layout.tsx` and by
+`SiteHeader` (`packages/frontend/src/components/site-header.tsx`) is used by `packages/frontend/src/app/Layout.tsx` and by
 every editor shell, so mounting the bell there covers the whole app from a
 single place. It renders **only for an authenticated session** — anonymous
 share-link viewers have no inbox and get no bell.
@@ -289,10 +289,10 @@ use `date-fns`, already a dependency.
 
 ### Testing
 
-- `notification.service.spec.ts` — non-member recipients dropped, actor
+- `packages/backend/src/notification/notification.service.spec.ts` — non-member recipients dropped, actor
   excluded from its own event, repeated `commentId` yields one row, preview
   truncation and control-character stripping, 404/403 paths.
-- `notification-hub.spec.ts` — publish reaches subscribers, unsubscribe stops
+- `packages/backend/src/notification/notification-hub.spec.ts` — publish reaches subscribers, unsubscribe stops
   delivery, no cross-user leakage.
 - `packages/backend/test/notification.e2e-spec.ts` — routes through the JWT
   guard against a real database (`RUN_DB_INTEGRATION_TESTS`).
