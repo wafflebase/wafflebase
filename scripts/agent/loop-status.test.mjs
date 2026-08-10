@@ -139,7 +139,7 @@ test("body starts with the marker and shows rounds newest-first", () => {
     now: "2026-08-06T12:00Z",
   });
   assert.ok(body.startsWith(LOOP_STATUS_MARKER));
-  assert.match(body, /\*\*Fix rounds used:\*\* 1 of 3/);
+  assert.match(body, /\*\*Fix rounds dispatched:\*\* 1 of 3/);
   const rowB = body.indexOf("`bbbbbbbbb`");
   const rowA = body.indexOf("`aaaaaaaaa`");
   assert.ok(rowB !== -1 && rowA !== -1 && rowB < rowA, "newest round renders first");
@@ -152,14 +152,14 @@ test("an unknown round cap renders the count alone — never 'of 0', never dropp
   // DEFAULT_MAX_REVIEW_ROUNDS, so callers all render the same "N of M").
   // Number(null) === 0 once made this render "2 of 0".
   const body = renderLoopStatus({ rounds: [], failedRounds: 2, maxRounds: null, now: "t" });
-  const line = body.split("\n").find((l) => l.includes("Fix rounds used"));
-  assert.equal(line, "**Fix rounds used:** 2");
+  const line = body.split("\n").find((l) => l.includes("Fix rounds dispatched"));
+  assert.equal(line, "**Fix rounds dispatched:** 2");
   assert.ok(!body.includes("of 0"));
 });
 
 test("an unmeasured round count drops the budget line entirely", () => {
   const body = renderLoopStatus({ rounds: [], failedRounds: null, maxRounds: 3, now: "t" });
-  assert.ok(!body.includes("Fix rounds used"));
+  assert.ok(!body.includes("Fix rounds dispatched"));
 });
 
 test("a trusted paged latch beats the event headline", () => {
@@ -335,4 +335,76 @@ test("DEFAULT_MAX_REVIEW_ROUNDS matches the panel workflow's env literal", () =>
     workflowText("agent-review-panel.yml").includes(`MAX_REVIEW_ROUNDS: "${DEFAULT_MAX_REVIEW_ROUNDS}"`),
     "loop-status's default cap must equal the panel workflow's MAX_REVIEW_ROUNDS",
   );
+});
+
+test("the dashboard counts rounds with the SAME reader the guard gates on", () => {
+  // These two numbers are shown side by side — the table says "N of M" and the
+  // guard pages at M — so a drift between them is not a cosmetic bug, it is the
+  // dashboard reporting a decision that was never made. Both must call
+  // fixRoundsUsed; neither may fall back to the commit-shape inference directly,
+  // which is what made the budget line disagree with reality on #695.
+  const status = readFileSync(new URL("./loop-status.mjs", import.meta.url), "utf8");
+  const guard = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  for (const [name, src] of [["loop-status.mjs", status], ["review-round-guard.mjs", guard]]) {
+    assert.match(src, /fixRoundsUsed\(comments,\s*commits,/, `${name} must count via fixRoundsUsed`);
+    assert.doesNotMatch(
+      src,
+      /=\s*countFailedReviewRounds\(/,
+      `${name} must not read the commit-shape count directly`,
+    );
+  }
+});
+
+test("the guard STAGES the dispatch record rather than posting it", () => {
+  // The guard must not spend the round itself. It runs fourteen steps before the
+  // fixer, behind a token mint, a checkout and a `pnpm install`, and this workflow
+  // is cancel-in-progress — so posting here charges a round to a fixer that a push
+  // during setup would stop from ever starting.
+  const guard = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  const write = guard.indexOf("writeFileSync(dispatchFile, dispatchBody);");
+  const proceed = guard.indexOf('setOutput("proceed", "true")');
+  assert.ok(guard.includes("renderFixDispatchComment({"), "the guard must build a dispatch record");
+  assert.ok(write > 0, "the guard must stage it to a file");
+  assert.ok(proceed > write, "staged before proceed is set");
+  assert.doesNotMatch(
+    guard,
+    /gh\(\["pr", "comment", String\(pr\), "--body", dispatchBody/,
+    "the guard must NOT post the record itself — that is the cancellation window",
+  );
+  // And it must be a TOP-LEVEL statement. Every fail-safe write in this file is
+  // wrapped or suffixed to swallow errors; wrapping this one would let a dispatch
+  // happen whose record never landed, which the next guard reads as budget still
+  // unspent. Column 0 is the cheap, robust proxy — any try/catch or `if` block
+  // indents it.
+  const line = guard.slice(guard.lastIndexOf("\n", write) + 1, guard.indexOf("\n", write));
+  assert.match(line, /^writeFileSync\(/, "the staging write must be top-level, not best-effort");
+});
+
+test("REGRESSION: a fixer cancelled during setup must not consume a round", () => {
+  // The round is spent by the step IMMEDIATELY BEFORE the fixer, so everything
+  // slow — token mint, checkout, install — happens while the round is still
+  // unspent and a cancellation there costs nothing. If any step is ever inserted
+  // between the two, the window this test exists to keep closed reopens.
+  const wf = readFileSync(
+    new URL("../../.github/workflows/agent-review-panel.yml", import.meta.url),
+    "utf8",
+  );
+  const names = [...wf.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1]);
+  const post = names.indexOf("Record the fix-round dispatch");
+  const fixer = names.indexOf("Address panel findings");
+  assert.ok(post > 0 && fixer > 0, "both steps must exist by name");
+  assert.equal(fixer - post, 1, "nothing may run between recording the round and the fixer");
+
+  // The staged path must be the one the guard writes. Two steps declare it and
+  // they must AGREE — asserting the literal once passes happily while the other
+  // occurrence drifts, which is how the post ends up with nothing to send.
+  // Verified by mutation: changing only the guard's copy must fail this.
+  const paths = [...wf.matchAll(/DISPATCH_FILE: (.+)$/gm)].map((m) => m[1].trim());
+  assert.equal(paths.length, 2, "exactly two steps declare the staged path (guard + post)");
+  assert.equal(paths[0], paths[1], `the guard stages ${paths[0]} but the post reads ${paths[1]}`);
+  assert.match(paths[0], /^\$\{\{ runner\.temp \}\}\//, "must live under RUNNER_TEMP, which survives the checkout");
+  const step = wf.slice(wf.indexOf("- name: Record the fix-round dispatch"), wf.indexOf("- name: Address panel findings"));
+  assert.match(step, /test -s "\$DISPATCH_FILE"/, "an empty staged file must fail, not post nothing");
+  assert.match(step, /gh pr comment "\$PR" --body-file "\$DISPATCH_FILE"/);
+  assert.doesNotMatch(step, /continue-on-error/, "an unrecorded dispatch must red the job");
 });
