@@ -153,18 +153,38 @@ because the `fix` job was cancelled too.
 
 ## The change, phase 4c — the round table becomes a map
 
-- [ ] Link each round's head cell to that commit's checks, with `commitBase`
-      derived inside `main()` from `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY` rather
-      than a new CLI flag — `renderLoopStatus` has six call sites across four
-      workflows and the module requires caller-independent values, so a flag some
-      arms pass would make the link flap.
-- [ ] A `Fixer` column per round — `N fixed · N skipped · N disputed`, or `—`
-      when the fixer was never dispatched — from `collectFixReports`,
-      `collectRebuttals` and 4a's dispatch records.
-- [ ] Render 4a's new `cancelled` lens conclusion as **superseded** rather than
-      letting it fall through `lensCell`'s trailing branch, which currently shows
-      a superseded round as `➖ 0 ✅ / 6 neutral`. Correct but unreadable, and it
-      is the one display consequence 4a leaves behind.
+- [x] Each round's head cell now LINKS to that commit's checks. GitHub's Checks
+      tab only ever shows the head commit's runs, so the table named a round it
+      gave no way to open. `commitBase` is derived inside `main()` from
+      `GITHUB_SERVER_URL`/`GITHUB_REPOSITORY` rather than taken as a CLI flag —
+      `renderLoopStatus` has six call sites across four workflows and the module
+      requires caller-independent values, so a flag some arms passed would make
+      the links flap between updates. No env → today's plain code span.
+- [x] A **`Fixer` column** per round — `3 fixed · 0 skipped · 0 disputed` — from
+      `collectFixReports`, `collectRebuttals` and 4a's dispatch records, all
+      parsed from comments `loop-status.mjs` already fetches, so no new API calls.
+      Three states, and the first two are deliberately distinct: a round the fixer
+      was never sent in for reads `—`, one it was sent in for and never reported
+      on reads `🔧 dispatched`. Collapsing them would hide a fixer that ran and
+      said nothing.
+- [x] **`0 disputed` is the point.** Zero rebuttals have been filed across every
+      agent PR to date, and until this cell existed that was indistinguishable
+      from a channel that silently failed. Reports and dispatches bind to a round
+      by SHA; rebuttals carry no SHA (they name a finding, not a commit) and are
+      attributed to the newest dispatch at or before they were written.
+- [x] 4a's `cancelled` lens conclusion renders as **⚪ superseded** instead of
+      falling through `lensCell`'s trailing branch as `➖ 0 ✅ / 6 neutral`. A real
+      failure still wins the cell, so a superseded round can never mask a red one.
+
+### Verification (4c)
+
+- 37 tests in `loop-status.test.mjs`; lane green; `pnpm lint:scripts` clean.
+- **Seven mutation tests, all caught**: never linking the head, dropping the
+  Fixer column, making a non-dispatched round read as reported, collapsing
+  dispatched-but-silent into `—`, counting rebuttals outside the round window,
+  dropping the superseded branch, and turning `commitBase` into a per-arm flag.
+- Column-count assertion across header, separator and every data row — a
+  mismatch renders the whole table as plain text on GitHub.
 
 ## The change, phase 4d — disputes legible even when there are none
 

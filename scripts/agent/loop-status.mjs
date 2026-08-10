@@ -55,7 +55,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fixRoundsUsed, rerunPointFrom, PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
+import {
+  collectFixDispatches,
+  fixRoundsUsed,
+  rerunPointFrom,
+  PAGED_LATCH,
+  PAGE_AUTHOR_LOGINS,
+} from "./rounds.mjs";
+import { collectFixReports } from "./fix-report.mjs";
+import { collectRebuttals } from "./rebuttal.mjs";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import {
   gh,
@@ -224,7 +232,61 @@ export function lensCell(lenses) {
   }
   if (pending.length > 0) return `⏳ running (${pending.length} of ${list.length})`;
   if (passed.length === list.length) return `✅ all ${list.length}`;
+  // SUPERSEDED, not "neutral". A round whose panel was cancelled by the
+  // concurrency guard has its lenses closed `cancelled` (see close-stuck-checks),
+  // and those fall through every branch above into the trailing one — which
+  // rendered the honest-but-unreadable "➖ 0 ✅ / 6 neutral". The distinction is
+  // already load-bearing for the round count; it should read that way too.
+  const superseded = list.filter((l) => l.status === "completed" && l.conclusion === "cancelled");
+  if (superseded.length > 0 && superseded.length + passed.length === list.length) {
+    return passed.length > 0 ? `⚪ superseded (${passed.length} ✅)` : "⚪ superseded";
+  }
   return `➖ ${passed.length} ✅ / ${list.length - passed.length} neutral`;
+}
+
+/**
+ * What did the fix agent do about round `sha`? One table cell. Pure.
+ *
+ * The dashboard could already say what the PANEL decided and never what the
+ * FIXER did about it, so "0 disputed" — the answer to "is the rebuttal channel
+ * even alive" — had no surface at all. Zero rebuttals have been filed across
+ * every agent PR to date, and until this cell existed that was indistinguishable
+ * from a broken channel.
+ *
+ * Three states, and the difference between the first two matters: a round the
+ * fixer was never sent in for (the guard paged, or the panel approved) reads `—`,
+ * while a round it WAS sent in for and never reported on reads as dispatched.
+ * Collapsing them would hide a fixer that ran and said nothing.
+ *
+ * `dispatches` are `rounds.mjs::collectFixDispatches` records (`from`, `at`),
+ * `reports` are `fix-report.mjs::collectFixReports` (`head`, `fixed`, `skipped`),
+ * `rebuttals` are `rebuttal.mjs::collectRebuttals` (`createdAt`). Reports and
+ * dispatches bind to a round by SHA. Rebuttals carry no sha — they name a
+ * finding, not a commit — so they are attributed to the newest dispatch at or
+ * before the rebuttal was written, which is the round the fixer was working when
+ * it filed one.
+ */
+export function fixerCell(sha, { dispatches = [], reports = [], rebuttals = [] } = {}) {
+  const ds = (Array.isArray(dispatches) ? dispatches : []).filter((d) => d && d.from);
+  const mine = ds.find((d) => d.from === sha);
+  if (!mine) return "—";
+
+  const at = Number.isFinite(mine.at) ? mine.at : null;
+  const nextAt = ds
+    .map((d) => d.at)
+    .filter((t) => Number.isFinite(t) && at !== null && t > at)
+    .sort((a, b) => a - b)[0];
+  const disputes = (Array.isArray(rebuttals) ? rebuttals : []).filter((r) => {
+    const t = Date.parse(String(r?.createdAt ?? ""));
+    if (!Number.isFinite(t) || at === null) return false;
+    return t >= at && (nextAt === undefined || t < nextAt);
+  }).length;
+
+  const report = (Array.isArray(reports) ? reports : []).filter((r) => r && r.head === sha).pop();
+  if (!report) return disputes > 0 ? `🔧 dispatched · ${disputes} disputed` : "🔧 dispatched";
+  const fixed = Array.isArray(report.fixed) ? report.fixed.length : 0;
+  const skipped = Array.isArray(report.skipped) ? report.skipped.length : 0;
+  return `${fixed} fixed · ${skipped} skipped · ${disputes} disputed`;
 }
 
 /**
@@ -281,6 +343,14 @@ export function renderLoopStatus({
   event = "",
   note = "",
   runUrl = "",
+  // `<server>/<owner>/<repo>/pull/<n>/commits`, derived in main() from the
+  // Actions env rather than taken as a CLI flag: renderLoopStatus has six call
+  // sites across four workflows, and this module requires every derived value to
+  // be caller-independent (see the header). A flag some arms passed and others
+  // did not would make the links appear and disappear between updates.
+  commitBase = "",
+  // sha → the Fixer cell for that round, from `fixerCell`.
+  fixer = {},
   now = "",
 } = {}) {
   const headline = paged
@@ -308,7 +378,10 @@ export function renderLoopStatus({
   } else {
     const shown = rounds.slice(-MAX_ROUND_ROWS);
     const omitted = rounds.length - shown.length;
-    lines.push("| Round | Head | Other checks | Review panel | Then |", "|---|---|---|---|---|");
+    lines.push(
+      "| Round | Head | Other checks | Review panel | Fixer | Then |",
+      "|---|---|---|---|---|---|",
+    );
     // Newest first: the row a reader wants is the current one. `shown` is a
     // contiguous suffix of `rounds`, so every non-newest row has a successor.
     for (let i = shown.length - 1; i >= 0; i--) {
@@ -327,8 +400,14 @@ export function renderLoopStatus({
                 ? "🤝 promoted"
                 : "…"
         : `→ \`${shown[i + 1].sha.slice(0, 9)}\``;
+      // The head cell is a LINK to that round's checks. The verdicts of record
+      // live there, one set per commit, and GitHub's Checks tab only ever shows
+      // the head commit's — so before this the table named a round it gave no way
+      // to open. Degrades to today's code span when the repo is unknown.
+      const short = r.sha.slice(0, 9);
+      const head = commitBase ? `[\`${short}\`](${commitBase}/${r.sha})` : `\`${short}\``;
       lines.push(
-        `| ${roundNo} | \`${r.sha.slice(0, 9)}\` | ${CHECKS_CELL[r.checks] ?? "—"} | ${lensCell(r.lenses)} | ${then} |`,
+        `| ${roundNo} | ${head} | ${CHECKS_CELL[r.checks] ?? "—"} | ${lensCell(r.lenses)} | ${fixer[r.sha] ?? "—"} | ${then} |`,
       );
     }
     if (omitted > 0) lines.push("", `_(${omitted} earlier round(s) omitted — see the check runs on older commits.)_`);
@@ -456,6 +535,22 @@ function main() {
       }),
     );
 
+    // What the FIXER did per round, from records already on the PR — no extra
+    // API calls, `comments` is in hand.
+    const dispatches = collectFixDispatches(comments);
+    const reports = collectFixReports(comments);
+    const rebuttals = collectRebuttals(comments);
+    const fixer = Object.fromEntries(
+      rounds.map((r) => [r.sha, fixerCell(r.sha, { dispatches, reports, rebuttals })]),
+    );
+
+    // Derived here, not passed in: see the `commitBase` note on renderLoopStatus.
+    // Empty outside Actions, which degrades the head cell to a code span.
+    const repo = process.env.GITHUB_REPOSITORY;
+    const commitBase = repo
+      ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repo}/pull/${pr}/commits`
+      : "";
+
     body = renderLoopStatus({
       rounds,
       failedRounds,
@@ -463,6 +558,8 @@ function main() {
       paged,
       ready,
       rerunAt,
+      commitBase,
+      fixer,
       effort: summarizeEffort(records),
       event: flags.event ?? "",
       note: flags.note ?? "",
