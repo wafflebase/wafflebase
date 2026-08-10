@@ -63,6 +63,16 @@ because the `fix` job was cancelled too.
       round spent off the books that the next guard hands out again, so an
       unwritable record reds the step (and the `stalled` net pages) rather than
       being swallowed like the fail-safe writes around it.
+- [x] **The round is spent immediately before the fixer, not at the guard.** The
+      guard STAGES the record to `$RUNNER_TEMP`; the workflow posts it in the step
+      right before `Address panel findings`. The first version posted from the
+      guard — fourteen steps and a `pnpm install` earlier — and since this
+      workflow is `cancel-in-progress`, a push during that one-to-three-minute
+      window would have consumed a round for a fixer that never started: the same
+      phantom-round shape this change exists to remove, reintroduced smaller.
+      (#695 itself had pushes 57 seconds apart.) The window cannot be closed
+      entirely, but from the new position a cancellation costs a round for a fixer
+      that had genuinely begun. Raised by CodeRabbit on #742.
 - [x] **Visible line above the hidden record**, the shape `fix-report.mjs` and
       `rebuttal.mjs` already use. #690's lesson was written about exactly this:
       a marker-only body is "an empty-looking bot comment". A dispatch was also
@@ -82,14 +92,18 @@ because the `fix` job was cancelled too.
 
 ### Verification (4a)
 
-- `scripts/agent` lane run as CI runs it (recursive glob, `node_modules` absent):
-  1456 tests, 0 failures.
-- **Ten mutation tests, all caught.** Dropping the login check, dropping the
+- `scripts/agent` lane run as CI runs it (recursive glob, `scripts/agent/node_modules`
+  absent): 0 failures.
+- **Sixteen mutation tests, all caught.** Dropping the login check, dropping the
   bot-type check, dropping the fallback, dropping the baseline, letting the
-  baseline survive a rerun cut, reverting the workflow to `always()`, reverting
-  the superseded conclusion to `failure`, drifting either surface back to
-  `countFailedReviewRounds`, and wrapping the dispatch write in a `try/catch`
-  each turn exactly one test red.
+  baseline survive a rerun cut, forgiving an undatable record, reverting the
+  workflow to `always()`, reverting the superseded conclusion to `failure`,
+  drifting either surface back to `countFailedReviewRounds`, and wrapping the
+  staging write in a `try/catch` each turn exactly one test red. So do the five
+  guarding the cancellation window: posting from the guard again, slipping a step
+  between the record and the fixer, making the post `continue-on-error`, dropping
+  the empty-staged-file check, and letting the guard's staged path drift from the
+  one the post reads.
 - `rounds.test.mjs` carries #695's real commit/verdict timestamps: the old rule
   returns 3, the ledger returns 1.
 - **Branch protection checked** before changing a check conclusion: only

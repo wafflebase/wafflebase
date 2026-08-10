@@ -1383,9 +1383,15 @@ jobs:
           ALL_VALID: ${{ needs.review-panel.outputs.all_valid }}
           REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
           INFRA: ${{ needs.review-panel.outputs.infra }}
-        # Unforgeable round bound: count commits where one of OUR panel's lens
-        # checks failed, EXCLUDING merge commits (see rounds.mjs for the why —
-        # PR #521 demonstrated human branch-sync merges inflating this count).
+          # Where the guard STAGES the round record. Posted later, by the step
+          # immediately before the fixer — see that step for why. RUNNER_TEMP
+          # survives the branch checkout that replaces the workspace.
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        # Unforgeable round bound: count the fix-agent dispatches this guard has
+        # recorded (see rounds.mjs::fixRoundsUsed), falling back on a PR older
+        # than the ledger to commits where one of OUR panel's lens checks failed,
+        # EXCLUDING merge commits (PR #521 demonstrated human branch-sync merges
+        # inflating that count).
         # INFRA (API/quota outage) pages honestly and skips the fixer + round count.
         run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS" "$INFRA"
 
@@ -1555,6 +1561,36 @@ jobs:
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      # SPEND THE ROUND HERE — the LAST step before the fixer, not back at the
+      # guard where the record is written.
+      #
+      # The guard runs fourteen steps earlier, and everything between is setup: an
+      # App-token mint, a branch checkout, a `pnpm install`. This workflow is
+      # `cancel-in-progress: true`, so a push during those one-to-three minutes
+      # kills the run — and if the round had already been posted, it is a round
+      # consumed by a fixer that never started. That is the same shape as the
+      # phantom round this change exists to remove, just smaller and
+      # self-inflicted; #695 had pushes 57 seconds apart, so the window is real.
+      #
+      # It cannot be closed completely — some instant separates "recorded" from
+      # "running" — but from here a cancellation costs a round for a fixer that
+      # had genuinely begun, which is a round honestly spent.
+      #
+      # NOT `continue-on-error`. A dispatch whose record never landed is a round
+      # the next guard hands out again, so a failure here must red the job before
+      # the fixer is reached; the `stalled` net then pages. `test -s` catches the
+      # staged file being absent or empty, which would otherwise post nothing and
+      # succeed.
+      - name: Record the fix-round dispatch
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        run: |
+          test -s "$DISPATCH_FILE"
+          gh pr comment "$PR" --body-file "$DISPATCH_FILE"
 
       - name: Address panel findings
         if: steps.guard.outputs.proceed == 'true'

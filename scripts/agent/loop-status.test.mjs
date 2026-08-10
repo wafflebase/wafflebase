@@ -355,21 +355,56 @@ test("the dashboard counts rounds with the SAME reader the guard gates on", () =
   }
 });
 
-test("the guard records the dispatch before it sets proceed", () => {
-  // A round spent with no record is a round the next guard hands out again, so
-  // the write must precede the output — and must NOT be swallowed the way the
-  // fail-safe writes around it are.
+test("the guard STAGES the dispatch record rather than posting it", () => {
+  // The guard must not spend the round itself. It runs fourteen steps before the
+  // fixer, behind a token mint, a checkout and a `pnpm install`, and this workflow
+  // is cancel-in-progress — so posting here charges a round to a fixer that a push
+  // during setup would stop from ever starting.
   const guard = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
-  const write = guard.indexOf('gh(["pr", "comment", String(pr), "--body", dispatchBody]);');
+  const write = guard.indexOf("writeFileSync(dispatchFile, dispatchBody);");
   const proceed = guard.indexOf('setOutput("proceed", "true")');
   assert.ok(guard.includes("renderFixDispatchComment({"), "the guard must build a dispatch record");
-  assert.ok(write > 0, "the guard must post it");
-  assert.ok(proceed > write, "the record must be written before proceed is set");
+  assert.ok(write > 0, "the guard must stage it to a file");
+  assert.ok(proceed > write, "staged before proceed is set");
+  assert.doesNotMatch(
+    guard,
+    /gh\(\["pr", "comment", String\(pr\), "--body", dispatchBody/,
+    "the guard must NOT post the record itself — that is the cancellation window",
+  );
   // And it must be a TOP-LEVEL statement. Every fail-safe write in this file is
   // wrapped or suffixed to swallow errors; wrapping this one would let a dispatch
   // happen whose record never landed, which the next guard reads as budget still
   // unspent. Column 0 is the cheap, robust proxy — any try/catch or `if` block
   // indents it.
   const line = guard.slice(guard.lastIndexOf("\n", write) + 1, guard.indexOf("\n", write));
-  assert.match(line, /^gh\(\[/, "the dispatch write must be top-level, not best-effort");
+  assert.match(line, /^writeFileSync\(/, "the staging write must be top-level, not best-effort");
+});
+
+test("REGRESSION: a fixer cancelled during setup must not consume a round", () => {
+  // The round is spent by the step IMMEDIATELY BEFORE the fixer, so everything
+  // slow — token mint, checkout, install — happens while the round is still
+  // unspent and a cancellation there costs nothing. If any step is ever inserted
+  // between the two, the window this test exists to keep closed reopens.
+  const wf = readFileSync(
+    new URL("../../.github/workflows/agent-review-panel.yml", import.meta.url),
+    "utf8",
+  );
+  const names = [...wf.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1]);
+  const post = names.indexOf("Record the fix-round dispatch");
+  const fixer = names.indexOf("Address panel findings");
+  assert.ok(post > 0 && fixer > 0, "both steps must exist by name");
+  assert.equal(fixer - post, 1, "nothing may run between recording the round and the fixer");
+
+  // The staged path must be the one the guard writes. Two steps declare it and
+  // they must AGREE — asserting the literal once passes happily while the other
+  // occurrence drifts, which is how the post ends up with nothing to send.
+  // Verified by mutation: changing only the guard's copy must fail this.
+  const paths = [...wf.matchAll(/DISPATCH_FILE: (.+)$/gm)].map((m) => m[1].trim());
+  assert.equal(paths.length, 2, "exactly two steps declare the staged path (guard + post)");
+  assert.equal(paths[0], paths[1], `the guard stages ${paths[0]} but the post reads ${paths[1]}`);
+  assert.match(paths[0], /^\$\{\{ runner\.temp \}\}\//, "must live under RUNNER_TEMP, which survives the checkout");
+  const step = wf.slice(wf.indexOf("- name: Record the fix-round dispatch"), wf.indexOf("- name: Address panel findings"));
+  assert.match(step, /test -s "\$DISPATCH_FILE"/, "an empty staged file must fail, not post nothing");
+  assert.match(step, /gh pr comment "\$PR" --body-file "\$DISPATCH_FILE"/);
+  assert.doesNotMatch(step, /continue-on-error/, "an unrecorded dispatch must red the job");
 });

@@ -14,7 +14,9 @@
 // Writes `paged` and `proceed` ("true"/"false") to $GITHUB_OUTPUT.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   collectFixDispatches,
   fixAttemptCommits,
@@ -52,6 +54,13 @@ const infra = (infraArg ?? "").trim();
 // .github/workflows/**).
 const stallRepeats = Number(process.env.STALL_REPEATS) || 2;
 const stallSimilarity = Number(process.env.STALL_SIMILARITY) || DEFAULT_SIMILARITY;
+
+// Where the round record is STAGED for the workflow's posting step. Under Actions
+// `RUNNER_TEMP` survives the branch checkout that replaces the workspace, which is
+// exactly why the file lives there and not in the tree. The workflow passes the
+// same path explicitly; the default only keeps a hand-run of this script working.
+const dispatchFile =
+  process.env.DISPATCH_FILE || join(process.env.RUNNER_TEMP || tmpdir(), "fix-dispatch.md");
 
 if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   console.error(
@@ -308,15 +317,30 @@ if (failedRounds >= max) {
   process.exit(0);
 }
 
-// SPEND THE ROUND BEFORE IT IS TAKEN. Written here, after every page path has
-// declined to fire and before `proceed` is set, so the record exists for exactly
-// the dispatches that happen.
+// STAGE the round record here; the workflow POSTS it immediately before the
+// fixer. The split is the whole point, and the first version got it wrong.
 //
-// Deliberately NOT best-effort. Every other write in this file's neighbourhood
-// swallows failure, but a dispatch whose record never landed is a round spent off
-// the books, and the next guard would grant it again — the one direction this
-// bound must not fail in. An uncaught throw reds this step, which reds the `fix`
-// job, which the `stalled` job's safety net already hands to a human.
+// Posting from this step spends the round at the top of the `fix` job — and the
+// fixer is fourteen steps later, behind an App-token mint, a branch checkout and
+// a `pnpm install`. The panel workflow is `cancel-in-progress: true`, so any push
+// during those one-to-three minutes kills the run with the record already
+// written: a round consumed by a fixer that never started. That is the same shape
+// as the phantom round this whole change exists to remove (#695's cancelled panel
+// left six reds on a commit nobody reviewed), just smaller and self-inflicted, and
+// #695 itself had pushes 57 seconds apart. Deferring the post to the step before
+// `Address panel findings` shrinks the window from minutes to seconds.
+//
+// The window cannot be closed entirely — some instant separates "recorded" from
+// "running". What it CAN be is on the right side of the remaining risk: after the
+// post, a cancellation costs a round for a fixer that had genuinely begun, which
+// is a round honestly spent.
+//
+// Still NOT best-effort, on both halves. A dispatch whose record never landed is
+// a round spent off the books that the next guard hands out again — the one
+// direction this bound must not fail in. `writeFileSync` throwing reds this step;
+// the posting step is a plain `run:` with no `continue-on-error`, so a failure
+// there reds the job before the fixer is reached. Either way the `stalled` net
+// hands it to a human.
 //
 // `prior` seeds the ledger from the inference it replaces, and only ever on the
 // FIRST record: a PR mid-flight when this shipped has already spent rounds that
@@ -331,8 +355,8 @@ const dispatchBody = renderFixDispatchComment({
   round: failedRounds + 1,
   max: Number.isFinite(max) ? max : null,
 });
-gh(["pr", "comment", String(pr), "--body", dispatchBody]);
-console.error(`dispatch: recorded round ${failedRounds + 1} of ${max} (from ${headSha.slice(0, 9)})`);
+writeFileSync(dispatchFile, dispatchBody);
+console.error(`dispatch: staged round ${failedRounds + 1} of ${max} (from ${headSha.slice(0, 9)}) at ${dispatchFile}`);
 
 // OBSERVABILITY: the PROCEED branch was the one silent decision in this loop —
 // only pages ever reached a human surface, so a continuing loop and a dead one
