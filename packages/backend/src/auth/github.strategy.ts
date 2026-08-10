@@ -51,14 +51,14 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
    */
   authenticate(req: Request, options?: Record<string, unknown>) {
     const opts = { ...options };
-    const cliState = (req as any).__cliStateToken as string | undefined;
+    const cliState = (req as { __cliStateToken?: string }).__cliStateToken;
     if (cliState) {
       opts.state = cliState;
     }
     super.authenticate(req, opts);
   }
 
-  async validate(accessToken: string, _refreshToken: string, profile: Profile) {
+  validate(accessToken: string, _refreshToken: string, profile: Profile) {
     const { id, username, emails, photos } = profile;
 
     return {
