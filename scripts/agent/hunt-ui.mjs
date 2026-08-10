@@ -271,6 +271,30 @@ export function replayDidRun(observations) {
   return list.length > 0 && list.some((o) => o?.ok === true);
 }
 
+/**
+ * The claim as the VERIFIERS bounded it, not as the explorer wrote it.
+ *
+ * The explorer's `title` reaches a maintainer verbatim and has been wrong about its
+ * own scope on every real defect found so far. `groundedIn` already established the
+ * precedent: the thing the explorer cannot be trusted to get right is supplied by the
+ * party that read the source. This does the same for the claim.
+ *
+ * Falls back to the explorer's title rather than dropping the finding — a missing
+ * `scopedTitle` is a degraded report, not an invalid one, and the fail-quiet gate
+ * already refuses anything a verifier did not confirm.
+ */
+export function uiScopedTitle(claimed, verdicts) {
+  const scoped = (Array.isArray(verdicts) ? verdicts : [])
+    .map((v) => (typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : ""))
+    .filter((t) => t.length > 0);
+  return scoped[0] ?? claimed?.title ?? "(untitled)";
+}
+
+/** Did any verifier judge the explorer's own title broader than its evidence? */
+export function uiOverclaimed(verdicts) {
+  return (Array.isArray(verdicts) ? verdicts : []).some((v) => v?.overclaimed === true);
+}
+
 /** The gate options that turn the shared gate into the UI hunter's gate. */
 export const UI_GATE_OPTIONS = Object.freeze({ grounds: UI_GROUNDS, citationsOf: uiCitationsOf });
 
@@ -481,6 +505,36 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "  1. It is genuinely wrong — not intended behavior, not a deliberate deferral.",
     "  2. It is not already covered by an existing issue (set `duplicateOf` if it is).",
     "  3. It is worth a maintainer's attention at the claimed severity.",
+    "",
+    "## And then bound the CLAIM to the evidence — `scopedTitle`",
+    "",
+    "The hunter's title is the one thing it writes that reaches a maintainer verbatim,",
+    "and every real defect found so far has been described more broadly than its own",
+    "evidence supports. Each of these was a TRUE observation wrapped in a FALSE",
+    "universal, and each would have sent someone chasing a bug that does not exist:",
+    "",
+    '  "Bold only removes bold — it can never apply it"        Bold applies fine to',
+    "                                                          ordinary text.",
+    '  "after a scroll, clicks no longer select any cell"      Clicks work; the cells',
+    "                                                          had scrolled offscreen.",
+    '  "never removes italic from a right-to-left selection"   It removes correctly',
+    "                                                          when the preceding run",
+    "                                                          shares the style.",
+    "",
+    "So write `scopedTitle`: one line, stating the defect no more broadly than what",
+    "was actually demonstrated plus what you established in the source. Name the",
+    "PRECONDITION that makes it fire if there is one. Prefer the mechanism over the",
+    "symptom when you have found it — a title naming the wrong cause is as costly as",
+    "one naming the wrong scope.",
+    "",
+    "Set `overclaimed: true` when the hunter's title asserts more than its evidence.",
+    "That does NOT refute the finding — a real defect described loosely is still real,",
+    "and your `scopedTitle` is what gets reported. It is recorded so a drift toward",
+    "overclaiming is visible.",
+    "",
+    "Words like *never*, *always*, *any*, *all* and *cannot* are where this goes wrong.",
+    "If the transcript shows three instances, the claim covers those three and whatever",
+    "the code proves generalises — not the whole control.",
     "",
     "Establish the facts yourself with Read/Grep/Glob.",
     "",
@@ -714,9 +768,19 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
     lines.push(`## Reported (${reported.length})`, "");
     for (const c of reported) {
       const k = c.claimed;
+      // The VERIFIERS' scoped claim is the heading, not the explorer's. The explorer
+      // has been wrong about its own scope on every real defect found so far, and
+      // this is the one line a maintainer reads first.
+      const heading = c.scopedTitle ?? k.title;
       lines.push(
-        `### [${k.severity}] ${k.title}`,
+        `### [${k.severity}] ${heading}`,
         "",
+        // Shown only when they differ, so the report carries what the hunter actually
+        // said without implying the two are interchangeable. A reader chasing a
+        // filed issue back to its run needs to see the original.
+        ...(c.scopedTitle && c.scopedTitle !== k.title
+          ? [`> The hunter proposed this as **"${k.title}"** — narrowed by the verifiers to the heading above.`, ""]
+          : []),
         `- **persona:** ${c.personaId} / ${c.briefId} (surface \`${c.surface}\`)`,
         `- **oracle:** ${k.oracle}`,
         `- **expected:** ${k.expected}`,
@@ -997,6 +1061,9 @@ async function cmdRun(args) {
       `         ${stats.refutedAfterReplay} reproduced but refuted by the panel, ` +
       `${stats.cappedUnverified} reproduced but never verified (cap), ` +
       `${stats.unjudgedVerifier} left unjudged (a verifier could not finish)\n` +
+      (stats.overclaimed > 0
+        ? `         ${stats.overclaimed} reported finding(s) the verifiers had to narrow\n`
+        : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -1054,6 +1121,11 @@ export async function runHunt({
     // archaeology is a budget nobody measures. Rising means the turn ceiling is too
     // low for the causes this surface asks verifiers to locate.
     unjudgedVerifier: 0,
+    // Reported findings whose own title asserted more than the evidence. Not a gate
+    // input -- a real defect described loosely is still real -- but tracked, because
+    // every real defect found so far has been overclaimed and that is the thing
+    // standing between this pipeline and a filable issue.
+    overclaimed: 0,
     cappedUnverified: 0,
     reported: 0,
   };
@@ -1282,6 +1354,9 @@ export async function runHunt({
         writeArtifact(planPath, JSON.stringify({ actions: plan.actions }, null, 2) + "\n");
         record.planPath = path.relative(repo, planPath);
         record.groundedIn = uiCitationsOf(record.claimed, verdicts);
+        record.scopedTitle = uiScopedTitle(record.claimed, verdicts);
+        record.overclaimed = uiOverclaimed(verdicts);
+        if (record.overclaimed) stats.overclaimed++;
         reported.push(record);
         stats.reported++;
         ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "reported", runId, sha: headSha });
