@@ -24,6 +24,7 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `finding-record.mjs` | **the normalised finding record** — one shape both arms map into, its builder and a strict validator. Owns the `gating` vocabulary: whether a finding gated is a four-valued answer, never a boolean | no |
 | `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
 | `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
+| `replay-plan.mjs` | the CI lane's **preflight** — validates one dispatch, computes what it can spend, and resolves the pull refs a runner has to fetch before any item will materialise | no |
 
 The cross-arm matcher and every scorer are not built yet. When they arrive they
 read items through `EvalStore` and nothing else.
@@ -304,6 +305,118 @@ concurrently, so that sum overcounts by the concurrency factor — #669 measured
 `sdk_duration_ms_sum`, which is not a duration. A run's totals sum `duration_ms`
 only over items that have one and carry that `n` as `duration_items`.
 
+## Running it in CI — the replay lane
+
+`.github/workflows/eval-replay.yml` is the same replay, in a clean box, from the
+Actions tab. It is **`workflow_dispatch` only** — never a schedule, never a pull
+request, never `workflow_run` — because it is the one workflow in this repository
+that spends model budget, and a paid job that can start without a human press is the
+failure the whole design is arranged against.
+
+Run it from **Actions → Eval Replay → Run workflow**. Six inputs, and four of them
+are required because a forgotten one is either a wrong measurement or a bill:
+
+| Input | Required | What it does |
+|---|---|---|
+| `corpus_version` | **yes** | which frozen corpus, e.g. `2026-08-07-pilot` |
+| `run_id` | **yes** | the id STEM. Each replicate becomes `<stem>__k1`, `__k2`, … |
+| `max_cost_usd` | **yes** | the ceiling **per replicate**. No default, ever — see below |
+| `panel` | **yes** | `stub` = free dry run · `real` = spends money. Defaults to `stub` |
+| `replicates` | yes (K=3) | how many independent replays of the whole corpus |
+| `items` | no | a subset, e.g. `pr-524`. Empty means the whole corpus |
+
+### What it costs, and what bounds it
+
+**`max_cost_usd` is per replicate, not per dispatch.** `--max-cost-usd` bounds one
+`--run-id`, and K replicates are K run ids, so a dispatch's exposure is `K × cap`.
+Nothing inside `run.mjs` can say that — it does not know it has siblings — so the
+preflight prints the multiplication before any leg starts:
+
+```text
+  EXPOSURE     : $8.00 cap PER REPLICATE x 3 = $24.00 maximum for this dispatch
+```
+
+Three ceilings, and none is redundant with the others: the cap bounds spend, the
+per-item `--panel-timeout` bounds one runaway panel, and the job's `timeout-minutes`
+bounds everything else. The preflight **recomputes** that the last is larger than
+what the first two permit, and refuses the dispatch when it stops being true — so an
+eighth corpus item cannot silently start getting jobs killed mid-replay.
+
+A run that stops at its cap is `status: "capped"` and exits non-zero, so **the job
+goes red even though nothing is wrong**. That is deliberate: it did not do what it
+was asked. The data it did buy is still committed. Raise the cap and re-dispatch the
+same `run_id` to continue.
+
+### Resuming, and why the run id is required
+
+Re-dispatch with the **same `run_id`** and stored items are not re-run and not paid
+for twice. That is the whole reason `run_id` has no default: `run.mjs` will invent one
+from the clock, and an invented id cannot be named by a later dispatch, so "a crash
+costs one item" quietly becomes "a crash costs the run".
+
+One caveat worth knowing before a retry: an item stored as an **error** counts as
+stored, so a leg that met a rate limit and recorded `infra` items will *skip* them on
+resume. Those need a new run id, or the error items removed from the store by hand.
+
+### The dry run, and how to tell it apart
+
+`panel: stub` swaps in `adapters/stub-panel.mjs` and calls no model. It exercises the
+entire lane — preflight, checkout, pull-ref fetch, worktree, replay, cost cap, store
+write, artifact, staging, commit — and stops one step short of the push, because
+committing canned output into the store's permanent history is the one part of a dry
+run that could not be undone.
+
+It is deliberately impossible to mistake for a real run:
+
+- its run ids are prefixed **`dryrun-`**, which is a correctness guard rather than a
+  label — a dry run that shared the paid run id would make the paid dispatch skip
+  every item as already-done and report a complete run built from canned output;
+- every envelope records `panel_sha` as forty zeroes with
+  `panel_sha_source: "flag"`, and #716 refuses a non-sibling `--panel-script` without
+  an explicit sha, so the stub cannot inherit the real panel's identity;
+- nothing is pushed.
+
+### Why the lane fetches pull refs
+
+`wafflebase` squash-merges, so a corpus item's `review_commit` is **never reachable
+from `main`** — measured on all seven pilot items against a fresh clone carrying 19
+branches and 27 tags: every one absent. No checkout depth fixes that. The lane
+fetches `refs/pull/<n>/head` for each planned item and then asserts each commit
+arrived, because without them every item refuses with `no-repo-context` — free, and
+indistinguishable in a hurry from a run that simply found nothing.
+
+The bases are the other half, and they are **not** carried by the pull refs — a
+`review_base` is not reliably an ancestor of its own pull head (pr-524's and pr-605's
+are; **pr-415's is not**). They come from `main`'s history, so the lane fetches the
+source repository's `main` as well.
+
+**The refs come from the repository the corpus names, not from `origin`.** Every
+manifest carries `source_repo`, because a corpus item *is* a pull request of a named
+repository. Fetching from `origin` instead would tie a measurement to whichever
+checkout is running it — and a **fork does not carry its parent's `refs/pull/*`**, so
+the lane would work upstream and refuse every item anywhere else. A manifest without a
+usable `source_repo` is refused rather than guessed at.
+
+**A pull ref is a moving pointer, so there is a second attempt.** `refs/pull/<n>/head`
+tracks the pull request's *current* head, and a frozen `review_commit` that was later
+force-pushed away is no longer contained in it — true of pr-415, whose corpus commit
+and pull-ref tip have diverged. Anything the pull refs did not carry is then requested
+by full sha from the same repository. The pull ref stays the primary path because it
+is a documented GitHub feature and one batched fetch serves every item; the bare-sha
+fetch works but rests on server configuration, which is why it is the fallback. It is
+deliberately **not** shallow: a shallow tree cannot be blamed, and that would silently
+disable the novelty gate.
+
+### Where the write access is
+
+The workflow's own `permissions:` are **read only**. The ability to write lives in
+`secrets.EVAL_STORE_TOKEN`, scoped to the eval store and nothing else — the
+collector's design, unchanged. The lane adds one property to it: that token is held
+by the **final job only**, which runs no model and executes no checked-out code. The
+replay jobs build a worktree of an arbitrary past pull request and point a model at
+it, so they read the store over unauthenticated HTTPS (it is public) and hold no
+credential that can write anywhere.
+
 ## Code lives here; data does not
 
 | | |
@@ -457,7 +570,7 @@ true.
 | Limit | What it means in practice |
 |---|---|
 | **The branch panel is what gets measured** | A replay runs `review-panel.mjs` *from the branch it is checked out on*, so a branch behind `upstream/main` measures a reviewer that is **not what ships**. `panel_sha` in every envelope makes that visible after the fact, and a dirty tree outside `eval/` is refused before the fact — but neither tells you the branch is *stale*. Check that yourself: `git diff --name-only HEAD upstream/main -- scripts/agent/ \| grep -v eval/` |
-| **The replay tree needs the review commit to still exist locally** | `run.mjs` materialises `review_commit` as a real **linked git worktree** and passes `review_base` as `--base-sha`, so the novelty gate runs and `lane: "backlog"` is reachable. The cost is a precondition: `--repo-source` must actually hold that commit. It often does not — `wafflebase` squash-merges, so a PR head is never reachable from `main`; `extract-corpus.mjs` fetches it to `refs/eval/pr/<n>`; and deleting those refs leaves an unreachable object that `git gc` eventually prunes. **The runner does not fetch it back** — it refuses the item, for free, naming the `git fetch` that fixes it. Keep the `refs/eval/*` refs, or re-fetch before a run |
+| **The replay tree needs the review commit to still exist locally** | `run.mjs` materialises `review_commit` as a real **linked git worktree** and passes `review_base` as `--base-sha`, so the novelty gate runs and `lane: "backlog"` is reachable. The cost is a precondition: `--repo-source` must actually hold that commit. It often does not — `wafflebase` squash-merges, so a PR head is never reachable from `main`; `extract-corpus.mjs` fetches it to `refs/eval/pr/<n>`; and deleting those refs leaves an unreachable object that `git gc` eventually prunes. **The runner does not fetch it back** — it refuses the item, for free, naming the `git fetch` that fixes it. Keep the `refs/eval/*` refs, or re-fetch before a run — which is what the CI lane does for itself, per item, before it will spend anything |
 | **A shallow clone cannot run the gate** | The worktree shares the source repository's object store, so on a shallow checkout `review_commit` can be present while `review_base` is not. That is CI's default. The runner asks `baseResolves` **before** spawning and refuses the item as `base-unresolved` rather than paying for a panel that would report the gate OFF — but a shallow lane still replays nothing until it is deepened |
 | **A diff-only replay over-flags** | The verifier greps the repo **tree**, so replaying with `--no-repo-context` explodes verifier fan-out — that is what billed **$44** on the #521 pilot. `--require-repo-context` refuses to spend on a 0-file checkout and is **on by default**; `--no-require-repo-context` degrades per item instead, and a run that used it records `repo_context: "tree-optional"` because its items may then differ in fidelity from each other |
 | **A cost cap cannot stop the item it is spending on** | The panel writes `review-execution.json` as it exits, so what an item cost is unknown until it has finished. `--max-cost-usd` therefore stops the run **before the next item** and never mid-item; the only per-item bound is `--panel-timeout`, and it bounds **time, not dollars**. A run started with `--no-cost-cap` is bounded only by that timeout and by its item count, which the run says out loud at start |
