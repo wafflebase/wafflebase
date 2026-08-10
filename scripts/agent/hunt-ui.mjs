@@ -288,13 +288,43 @@ export const UI_GATE_OPTIONS = Object.freeze({ grounds: UI_GROUNDS, citationsOf:
  * `codeLocations` produces for the CLI, which the caller records as a drop rather
  * than letting `dedupeCandidates` swallow it silently.
  */
+/**
+ * What an action operated on, as a stable string — the named control, the named
+ * reader, or "" when the action names nothing (typing, a key press).
+ *
+ * Trusted code reading the journal, never model prose: `target.name` is the
+ * accessible name the click resolved through, and `target.reader` is a registry
+ * entry. Both are as fixed as the reader names already in the key.
+ */
+function target(action) {
+  const t = action?.target;
+  if (t && typeof t === "object") {
+    if (typeof t.name === "string" && t.name !== "") return t.name;
+    if (typeof t.reader === "string" && t.reader !== "") return t.reader;
+  }
+  return "";
+}
+
 export function uiDefectKey(candidate, journal, { personaId } = {}) {
   const entry = Array.isArray(journal) ? journal[candidate?.failingRef] : undefined;
   const action = entry?.action;
   if (!action || typeof action !== "object") return "";
   const expect = action.expect;
+  // WHAT THE ACTION OPERATED ON. Without this every round-trip finding collides:
+  // they are all a `click` asserting `doc.runs equals @read:N` on ground A, so the
+  // reader/op/ground triple cannot tell "Italic leaves residue" from "Bold mishandles
+  // a mixed selection". A live run proposed exactly those two and lost the second.
+  //
+  // The round-trip brief now drives the explorer toward that shape deliberately, so
+  // the collision went from occasional to near-certain the moment that brief landed.
+  //
+  // Erring toward OVER-splitting is deliberate. One root cause surfacing through two
+  // controls reports twice — annoying, and the verifier's `duplicateOf` plus the
+  // ledger both catch it on the second pass. Two defects collapsing into one loses a
+  // real finding with no record, which is the failure this pipeline exists to avoid.
+  const on = target(action);
   if (expect && typeof expect === "object" && expect.read && expect.op && expect.ground) {
-    return `${personaId}|${action.type}|${expect.read}|${expect.op}|${expect.ground}`;
+    return `${personaId}|${action.type}|${on}|${expect.read}|${expect.op}|${expect.ground}`;
   }
   // No prediction: this is an oracle finding, so key on WHICH invariant broke.
   // Sorted and de-duplicated for the same reason `uiObservedKey` does it — which
@@ -303,7 +333,7 @@ export function uiDefectKey(candidate, journal, { personaId } = {}) {
     .sort()
     .join(",");
   if (!rules) return "";
-  return `${personaId}|${action.type}|oracles:${rules}`;
+  return `${personaId}|${action.type}|${on}|oracles:${rules}`;
 }
 
 // --- exploration -------------------------------------------------------------
@@ -997,6 +1027,9 @@ async function cmdRun(args) {
       `         ${stats.refutedAfterReplay} reproduced but refuted by the panel, ` +
       `${stats.cappedUnverified} reproduced but never verified (cap), ` +
       `${stats.unjudgedVerifier} left unjudged (a verifier could not finish)\n` +
+      (stats.collapsedDuplicate > 0
+        ? `         ${stats.collapsedDuplicate} candidate(s) collapsed as duplicates — check the drop table\n`
+        : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -1054,6 +1087,10 @@ export async function runHunt({
     // archaeology is a budget nobody measures. Rising means the turn ceiling is too
     // low for the causes this surface asks verifiers to locate.
     unjudgedVerifier: 0,
+    // Candidates thrown away because another shared their defect key. Was silent
+    // until a live run lost a real second finding to it; anything this pipeline
+    // discards has to be countable.
+    collapsedDuplicate: 0,
     cappedUnverified: 0,
     reported: 0,
   };
@@ -1151,6 +1188,32 @@ export async function runHunt({
     for (const c of proposals) {
       if (keyOf(c) === "") {
         dropped.push({ title: c.title, why: "no identifiable defect — neither a prediction nor an oracle at the failing action" });
+      }
+    }
+    // RECORD WHAT DEDUPE COLLAPSES, before it collapses it.
+    //
+    // `dedupeCandidates` keeps the first candidate per key and silently skips the
+    // rest — no stat, no drop-table row, nothing. That is the one silent truncation
+    // left in this pipeline, and everything else here is careful about exactly this:
+    // the verification cap logs what it drops, unlocatable candidates are recorded,
+    // the "did NOT run" section exists so a zero cannot read as a clean bill.
+    //
+    // It is not hypothetical. A live run proposed two genuinely different findings —
+    // a style toggle leaving `italic:false` residue, and a Bold toggle mishandling a
+    // mixed selection — and they shared a key, so the second was discarded with no
+    // record at all. It was only found by re-deriving the keys by hand afterwards.
+    const firstByKey = new Map();
+    for (const c of proposals) {
+      const k = keyOf(c);
+      if (k === "") continue; // already recorded above
+      if (firstByKey.has(k)) {
+        dropped.push({
+          title: c.title,
+          why: `collapsed into "${firstByKey.get(k)}" — same defect key \`${k}\`. If these are different defects, the key is too coarse to tell them apart`,
+        });
+        stats.collapsedDuplicate++;
+      } else {
+        firstByKey.set(k, c.title);
       }
     }
     const unique = dedupeCandidates(proposals, keyOf);
