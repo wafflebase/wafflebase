@@ -32,14 +32,15 @@ function parseDSN(dsn: string): mysql.PoolOptions {
 /**
  * StarRocks has no prepared statements — quote/escape values ourselves.
  *
- * StarRocks speaks the MySQL dialect, where a backslash is itself an escape
- * character inside a string literal: doubling only `'` leaves `a\'` closing
- * the literal via the escaped quote and letting the rest of the value be read
- * as SQL. Escape backslashes first (so the ones we add below are not
- * re-escaped), then double the quotes.
+ * StarRocks speaks the MySQL dialect, so delegate to `mysql2`'s own escaper
+ * rather than re-deriving the rules: it already handles the cases a naive
+ * quote-doubler misses (notably the backslash, which is itself an escape
+ * character inside a MySQL string literal). Wrapped instead of passed to
+ * `map()` directly — `escape`'s second parameter is `stringifyObjects`, which
+ * an array index would silently fill.
  */
 function sql(value: string): string {
-  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
+  return mysql.escape(value);
 }
 function day(d: Date): string {
   return d.toISOString().slice(0, 10);

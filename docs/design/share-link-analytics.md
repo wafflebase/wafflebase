@@ -148,7 +148,8 @@ New module mirroring `ApiKeyModule` / `ShareLinkModule` (controller + service +
   interpolation, not prepared statements** (StarRocks lacks prepared-stmt
   support — see the `//nolint:gosec` notes in the reference). All interpolated
   inputs are server-derived ids / validated date ranges, never raw client
-  strings. Returns metric series + counts. No-op → "disabled" when
+  strings, and each still goes through `mysql2`'s own `escape()` rather than a
+  hand-rolled quoter. Returns metric series + counts. No-op → "disabled" when
   `WAFFLEBASE_STARROCKS_DSN` is unset.
 - **Controller endpoints**:
   - `POST /internal/analytics/view-events` — accepts a batch of client events,
