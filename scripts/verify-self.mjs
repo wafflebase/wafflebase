@@ -25,7 +25,7 @@ const LANES = [
   // `eval/test-lane.test.mjs` reads this line back and asserts every suite under
   // `eval/` is matched by it, at every depth.
   //
-  // WHY TWO FLAGS. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
+  // WHY A TIMEOUT FLAG. On 2026-08-06 run 31073290840 printed `ok 1` .. `ok 305`,
   // went silent 2.3s in, and sat there for 31.5 minutes until a human with write
   // access cancelled it by hand; teardown then reported six orphan processes
   // (node, sh, node, sh, node, node). It never printed a `# tests` summary, and
@@ -34,9 +34,10 @@ const LANES = [
   // reverted, and the log does not say which of two mechanisms stalled it:
   // a test that hung while running, or a test FILE whose tests all finished
   // while a child process it spawned kept its process alive. Reproducing both
-  // shapes together shows neither flag alone is enough — `--test-timeout` names
+  // shapes together showed neither flag alone ends both — `--test-timeout` names
   // the hung test and then hangs on the leaked child; `--test-force-exit` never
-  // fires, because a hung test never "finishes". Together they end the run.
+  // fires, because a hung test never "finishes". Both flags shipped together for
+  // that reason; only the timeout survives, for the reason below.
   //
   //   --test-timeout=60000  cancels a test that hangs WHILE RUNNING and NAMES it
   //     with its file and line, so the next one diagnoses itself. 60s is ~8x the
@@ -44,25 +45,42 @@ const LANES = [
   //     ~17x the lane's whole CI duration (3.5s). Deliberately loose: a flaky
   //     timeout on a loaded runner would be worse than the hang it guards.
   //
-  //   --test-force-exit  exits once every known test has finished, even with a
-  //     live handle or child holding the loop open. Note what this does NOT buy.
-  //     The run ends, it does not go red. And it only fires when the runner
-  //     learns the tests finished, which a child spawned `stdio: "inherit"`
-  //     prevents — it holds the test file's stdout open, so the runner never
-  //     exits at all and the lane hangs exactly as it does today (measured:
-  //     `ignore` returns in 0.8s, `inherit` still blocked at 25s). Only
-  //     `ci.yml`'s `timeout-minutes` bounds that one. The orphan the `ignore`
-  //     case leaves behind is what `reapLaneGroup` below cleans up.
+  //   --test-force-exit  WAS here and has been REMOVED, because it truncated the
+  //     very reports this lane exists to produce. It exits the runner once every
+  //     known test has finished — but that exit does not wait for the per-file
+  //     child results to finish arriving, so whole files' results were dropped.
+  //     Silently: a result that never arrives cannot fail, so the lane printed
+  //     `# fail 0` and went green having run less than it claimed. Six
+  //     consecutive Node 22 runs of the full glob reported 1468, 1410, 1427,
+  //     1460, 1411 and 1434 tests — up to 58 missing, and on one run every test
+  //     in `harvest.test.mjs`, a file unrelated to anything being changed. When
+  //     the same truncation landed mid-message instead of between files it
+  //     surfaced as `eval/run.test.mjs` dying with "Unable to deserialize cloned
+  //     data": that is the CI failure seen on #736 and twice on #742, each time
+  //     cleared by a re-run, each time costing a maintainer the question "is this
+  //     my change?".
   //
-  // BOTH FLAGS GO BEFORE `--test`. `eval/test-lane.test.mjs` captures everything
-  // after `--test ` and treats each whitespace-separated token as a glob pattern;
-  // put them after and it reads `--test-timeout=60000` back as a pattern. It
+  //     Removing it costs nothing measurable. Without the flag the same glob
+  //     completes in 8-13s and reports the full 1468 every time (6/6 runs, exit
+  //     0, no orphans). The hang it was added for is still bounded, by the two
+  //     mechanisms that actually bound it: `--test-timeout` above names a test
+  //     that hangs WHILE RUNNING, and `ci.yml`'s `timeout-minutes` bounds the
+  //     rest. That was already true when the flag shipped — the note here said so
+  //     ("it only fires when the runner learns the tests finished, which a child
+  //     spawned `stdio: \"inherit\"` prevents … Only `ci.yml`'s `timeout-minutes`
+  //     bounds that one"), which is the case it was reached for and the one case
+  //     it never covered. `reapLaneGroup` below still cleans up orphans.
+  //
+  // THE REMAINING FLAG GOES BEFORE `--test`. `eval/test-lane.test.mjs` captures
+  // everything after `--test ` and treats each whitespace-separated token as a
+  // glob pattern; put it after and it reads `--test-timeout=60000` back as a
+  // pattern. It
   // does not currently FAIL on that — its assertions are one-directional (every
   // eval suite must match some pattern) — so this is a latent corruption a green
   // test would not catch. Node does not care about the order; that extractor does.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test-force-exit --test '**/*.test.mjs'",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
   },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
@@ -84,10 +102,12 @@ const IS_POSIX = process.platform !== "win32";
  * SIGKILL everything still in `pid`'s process group.
  *
  * Called once a lane has already exited, so the only members left are things it
- * leaked. `agent:tests` leaks by construction: `--test-force-exit` ends the test
- * runner while a child a test spawned is still alive, and without this that child
- * outlives the lane and runs alongside every later lane and the coverage steps
- * after them. The 2026-08-06 incident's job teardown reported six such orphans.
+ * leaked. `agent:tests` can leak: a test that spawns a child which outlives it
+ * would otherwise run alongside every later lane and the coverage steps after
+ * them. The 2026-08-06 incident's job teardown reported six such orphans. This
+ * mattered more when `--test-force-exit` could end the runner mid-flight; it is
+ * kept because the leak it cleans up is a property of the tests, not of that
+ * flag, and a lane that ends on a timeout can still strand a child.
  *
  * Negative pid means "the group", which is why `runCommand` spawns detached: a
  * detached child is its own group LEADER, so its pid doubles as the group id.

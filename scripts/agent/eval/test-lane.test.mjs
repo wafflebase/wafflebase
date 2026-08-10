@@ -79,3 +79,27 @@ test("and the lane still runs the flat suites it always ran", () => {
     );
   }
 });
+
+test("the agent:tests lane does NOT force-exit the runner", () => {
+  // `--test-force-exit` exits once the tests are known to have finished, without
+  // waiting for the per-file child results to finish arriving — so whole files'
+  // results were dropped and the lane still printed `# fail 0`, because a result
+  // that never arrives cannot fail. Six consecutive Node 22 runs reported 1468 /
+  // 1410 / 1427 / 1460 / 1411 / 1434 tests; the 58 missing from the shortest were
+  // all of `harvest.test.mjs`. The same truncation landing mid-message is the
+  // "Unable to deserialize cloned data" failure seen on #736 and twice on #742.
+  //
+  // The hang the flag was added for is bounded by `--test-timeout` (a test that
+  // hangs while running) and ci.yml's `timeout-minutes` (everything else), which
+  // is what bounded the one case the flag never covered anyway.
+  const src = readFileSync(VERIFY_SELF, "utf8");
+  const lane = /name:\s*"agent:tests",\s*cmd:\s*"([^"]+)"/.exec(src);
+  assert.ok(lane, "no agent:tests lane in verify-self.mjs");
+  assert.doesNotMatch(
+    lane[1],
+    /--test-force-exit/,
+    "--test-force-exit silently truncates this lane's report; see the comment above it",
+  );
+  // The timeout must stay — it is now the only in-runner bound on a hung test.
+  assert.match(lane[1], /--test-timeout=\d+/, "the lane still needs a per-test timeout");
+});
