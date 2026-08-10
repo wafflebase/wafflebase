@@ -83,8 +83,14 @@ server-authorized; the join event is created server-side.
 - [x] `test/notification.e2e-spec.ts` — JWT guard + real DB
       (`RUN_DB_INTEGRATION_TESTS`)
 - [x] Frontend: route-URL construction + read-state transitions (non-JSX)
-- [ ] Manual smoke in `pnpm dev`: mention a second user, confirm badge updates
+- [x] Manual smoke in `pnpm dev`: mention a second user, confirm badge updates
       live, dropdown opens the right document, "mark all read" clears
+  - SSE confirmed live: `200 text/event-stream`, `X-Accel-Buffering: no`,
+    summary on connect, instant push on the mention, push again on mark-read
+  - Preview newline collapsing confirmed end to end
+  - Bell renders with badge `2`; dropdown shows all three type sentences;
+    "Mark all read" clears the badge and disables itself; clicking the
+    mention navigates to `/s/<documentId>`
 - [x] `pnpm verify:fast` green on every commit
 
 ## Known limitations

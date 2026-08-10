@@ -15,10 +15,20 @@ export const MAX_PREVIEW_LENGTH = 200;
 export const LIST_PAGE_SIZE = 20;
 
 /**
- * Actor/document shape the dropdown needs. Everything else on the row is
- * either internal (`dedupeKey`) or already scalar.
+ * Exactly what the dropdown renders. An explicit select rather than an
+ * include, so internal bookkeeping never reaches the client: `dedupeKey`
+ * would hand out the shape of the unique index, and `recipientId` /
+ * `workspaceId` are things the caller already knows or has no use for.
  */
-const LIST_INCLUDE = {
+const LIST_SELECT = {
+  id: true,
+  type: true,
+  documentId: true,
+  threadId: true,
+  commentId: true,
+  preview: true,
+  readAt: true,
+  createdAt: true,
   actor: { select: { id: true, username: true, photo: true } },
   document: { select: { id: true, title: true, type: true } },
 } as const;
@@ -148,7 +158,7 @@ export class NotificationService {
         : { recipientId },
       orderBy: { createdAt: 'desc' },
       take: LIST_PAGE_SIZE,
-      include: LIST_INCLUDE,
+      select: LIST_SELECT,
     });
   }
 

@@ -150,6 +150,26 @@ describeDb('Notification HTTP integration', () => {
     });
   });
 
+  it('does not leak internal bookkeeping fields to the client', async () => {
+    const { author, peer, document } = await scenario();
+    await request(app.getHttpServer())
+      .post('/notifications/comment')
+      .set('Cookie', authCookie(author))
+      .send(mentionBody(document.id, [peer.id]))
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get('/notifications')
+      .set('Cookie', authCookie(peer))
+      .expect(200);
+
+    // `dedupeKey` is how the unique index is keyed; publishing it tells a
+    // client how to collide with someone else's row for no benefit.
+    expect(res.body[0]).not.toHaveProperty('dedupeKey');
+    expect(res.body[0]).not.toHaveProperty('recipientId');
+    expect(res.body[0]).not.toHaveProperty('workspaceId');
+  });
+
   it('does not deliver the mention back to its author', async () => {
     const { author, peer, document } = await scenario();
 
