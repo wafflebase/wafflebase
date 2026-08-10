@@ -20,6 +20,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 |---|---|---|
 | corpus pinned review commit (2026-08-10) | [20260810-corpus-pinned-review-commit-todo.md](./active/20260810-corpus-pinned-review-commit-todo.md) | - |
 | eval replay lane (2026-08-10) | [20260810-eval-replay-lane-todo.md](./active/20260810-eval-replay-lane-todo.md) | - |
+| release v0.6.4 (2026-08-10) | [20260810-release-v0.6.4-todo.md](./active/20260810-release-v0.6.4-todo.md) | - |
 | corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./active/20260806-corpus-localization-scope-todo.md) | - |
 | notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |
 | docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
