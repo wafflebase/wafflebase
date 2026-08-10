@@ -136,15 +136,54 @@ export const GATING_BASIS = Object.freeze({
 });
 
 /**
- * The fields only our arm can fill, named once so PR 8 inherits the list rather
- * than rediscovering it against a half-built CodeRabbit adapter. Everything here
- * lives inside the record's arm namespace (`record.panel`), never at the top
- * level, which is what keeps the top level meaningful for a reviewer that has no
- * lenses, no samples and no verifier.
+ * The fields only one arm can fill, named once so neither adapter has to
+ * rediscover the other's list. Everything here lives inside the record's arm
+ * namespace (`record.panel` / `record.coderabbit`), never at the top level, which
+ * is what keeps the top level meaningful for a reviewer that has no lenses, no
+ * samples and no verifier — and, on the other side, for one that has no gate, no
+ * replicates and no severity scale of ours.
+ *
+ * The two lists are the answer to "what could the other arm not fill?", which is
+ * the question this whole schema is shaped around. `coderabbit`'s divides into
+ * three kinds, and the middle one is the reason it is not shorter:
+ *
+ *   what CodeRabbit wrote   `tier`, `vintage`, `vocabulary`, `category`, `effort`,
+ *                           `stated_severity` — its own vocabulary, kept because a
+ *                           parser that normalised four header eras into one shape
+ *                           would make "did the format change?" unanswerable.
+ *   what WE decided at the  `severity_basis`, `window`, `window_basis` — the
+ *   arm boundary            translations `adapters/coderabbit.mjs` performs,
+ *                           carried so a scorer can undo them. `window` is the
+ *                           sharpest: our arm replays a pull request as it was
+ *                           OPENED and CodeRabbit reviewed whichever commit it got
+ *                           to, so which snapshot a finding is about is a fact
+ *                           about the comparison rather than about the finding.
+ *   provenance              `source`, `comment_id`, `review_id`, `posted_at`,
+ *                           `url`, `at_commit`, `current_commit`, `review_commit`
+ *                           — where `run_id` would have gone if this arm had runs.
  */
 export const ARM_ONLY_FIELDS = Object.freeze({
   panel: Object.freeze(["lens", "lane", "novelty", "unsettled", "verification", "samples", "gate_state", "config_hash", "panel_sha", "item_status", "item_reason"]),
-  coderabbit: Object.freeze([]),
+  coderabbit: Object.freeze([
+    "source",
+    "tier",
+    "vintage",
+    "vocabulary",
+    "category",
+    "effort",
+    "lens",
+    "stated_severity",
+    "severity_basis",
+    "comment_id",
+    "review_id",
+    "posted_at",
+    "url",
+    "window",
+    "window_basis",
+    "at_commit",
+    "current_commit",
+    "review_commit",
+  ]),
 });
 
 const refuse = (msg) => {
@@ -232,9 +271,19 @@ export function buildFindingRecord({ arm = "panel", itemId, runId = null, popula
     evidence: typeof finding.evidence === "string" ? finding.evidence : null,
     severity: normalizeSeverity(finding.severity),
     // What the reviewer ACTUALLY said, before `normalizeSeverity`'s unknown →
-    // `major` fail-safe. Without it the coercion is unrecoverable, and
-    // CodeRabbit's `trivial` — 268 findings of it — would be indistinguishable
-    // from a real `major` once the adapter has translated it.
+    // `major` fail-safe. Without it the coercion is unrecoverable.
+    //
+    // ⚠ IT DOES NOT DO THAT FOR CODERABBIT, and the docblock here used to claim it
+    // would ("CodeRabbit's `trivial` would be indistinguishable from a real
+    // `major` once the adapter has translated it"). Both fields are derived from
+    // the ONE input `finding.severity`, and `validateFindingRecord` refuses a
+    // severity outside `KNOWN` — so the arm boundary has to translate `trivial` to
+    // `nit` BEFORE calling this, and `severity_raw` then reads `nit` too. On a
+    // CodeRabbit record these two fields are therefore always equal, and the word
+    // CodeRabbit wrote lives at `coderabbit.stated_severity` instead (and verbatim
+    // in `coderabbit.raw.severityRaw`). Found while building that adapter; fixing
+    // it properly means a second input here, which is a schema change rather than
+    // an adapter's business.
     severity_raw: typeof finding.severity === "string" ? finding.severity : null,
     gating,
     gating_basis,
