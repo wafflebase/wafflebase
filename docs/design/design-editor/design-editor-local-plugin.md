@@ -293,25 +293,45 @@ every dependency they have.
 
 ### 8. Rollout
 
-The existing 24k-line `feat/design-system` branch lands as sequential PRs.
-Sequential, not stacked: `agent-review-panel.yml` computes
-`git diff origin/main...HEAD` with the base hardcoded, so a PR based on another
-feature branch receives the cumulative diff rather than its own.
+The existing 24k-line `feat/design-system` branch lands as a series of PRs, each
+held under ~1,500–2,000 lines. That cap is what sets the granularity: the
+engine's four server modules plus their tests do not fit in one PR, so each gets
+its own.
 
 | PR | Contents | State under the pivot |
 | --- | --- | --- |
 | 1 | These docs | — |
-| 2 | Shared-code changes + package scaffolding | stable |
-| 3 | `jsx-nodes.mjs` + `extract.mjs` + `stamp.mjs` | stable — published API |
-| 4 | `inject.mjs` | stable — published API, writes to consumer disks |
+| 2 | Shared-code changes + package scaffolding | **merged** (#717) |
+| 3 | `jsx-nodes.mjs` + tests | open (#718) — published API |
+| 4 | `stamp.mjs` + tests | open (#738) — published API |
+| 5 | `extract.mjs` + tests | next |
+| 6–7 | `inject.mjs` + tests (~2,800 lines, splits in two) | published API, writes to consumer disks |
 | — | *generalization refactor (§6)* | rewrites the below |
-| 5+ | plugin host, client state, shell UI, scenes, canvas | **held** until after §6 |
+| 8+ | plugin host, client state, shell UI, scenes, canvas | **held** until after §6 |
 
-PRs 2–4 are the files the generalization work depends on and will not edit, so
+PRs 2–7 are the files the generalization work depends on and will not edit, so
 review and MVP work proceed in parallel. `vite.config.ts` and `edits.ts` are
 deliberately *not* reviewed in their current form: every repo-absolute constant
 in them is scheduled for rewrite, and reviewing 2,538 lines of soon-to-be-deleted
 path handling spends reviewer budget on nothing.
+
+**Stacking.** PRs 3 and 4 are stacked, because `stamp.mjs` imports
+`jsx-nodes.mjs`. An earlier revision of this section required them to be
+sequential, on the grounds that `agent-review-panel.yml` hardcodes
+`origin/main...HEAD` as its diff base and would hand a stacked PR the cumulative
+diff. That rationale no longer applies: the panel does not run on this series at
+all, refused independently by its fork check (`head_repository.full_name ==
+github.repository`) and by its `agent/`-prefix-or-label gate. The *symptom*
+survives in GitHub's own UI — #738 reads as 1,851 additions when its own delta
+is 408 — which is a cosmetic cost, noted in the PR body.
+
+The stacking is not a general pattern. `extract.mjs` and `inject.mjs` both
+import `jsx-nodes.mjs` and neither imports the other, so once #718 merges, PRs 5
+and 6–7 branch from `main` as siblings and review in parallel.
+
+Because the repo squash-merges, **order matters**: merging a later PR in a stack
+first folds the earlier one into it under the wrong title and leaves it open with
+an empty diff.
 
 ---
 
