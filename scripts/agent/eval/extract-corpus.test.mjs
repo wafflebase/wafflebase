@@ -7,6 +7,10 @@ import { EvalStore, contentSha256 } from "./store.mjs";
 import {
   DIFF_METHODS,
   REVIEW_POINTS,
+  REVIEW_POINT_PINNED,
+  REVIEW_POINT_VALUES,
+  assertPinnedCommitsResolve,
+  assertPinsAreRequested,
   buildItemMeta,
   buildManifest,
   changedFilesFromDiff,
@@ -21,6 +25,7 @@ import {
   issueNumberOf,
   main,
   manifestItem,
+  parseReviewCommitPins,
   resolveReviewPoint,
   summarize,
 } from "./extract-corpus.mjs";
@@ -29,6 +34,9 @@ import {
 const BASE = "35206e5859788062cfddfd0fc12b0a5754655a8d";
 const HEAD = "61101a1bdbdffb9acb88772cae4c9347c69f413b";
 const FORK = "5f9b7f86e0000000000000000000000000000000";
+// Real, and the reason the pin exists: the commit CodeRabbit reviewed on #415,
+// which a force-push removed from that PR's commit list.
+const PINNED = "51c01826aa9f05e4cef9ee498668e3f2321b3602";
 
 const DIFF = [
   "diff --git a/scripts/agent/x.mjs b/scripts/agent/x.mjs",
@@ -79,6 +87,14 @@ function fakeIo(over = {}) {
     fetchPrRefs(n) {
       calls.push(`fetchPrRefs:${n}`);
       return { head: true, base: true };
+    },
+    fetchPinnedCommit(n, sha) {
+      calls.push(`fetchPinnedCommit:${n}:${sha}`);
+      return true;
+    },
+    hasCommit() {
+      calls.push("hasCommit");
+      return true;
     },
     mergeBase() {
       calls.push("mergeBase");
@@ -161,6 +177,86 @@ test("resolveReviewPoint covers all four modes", () => {
     ["first", "C1"],
   );
   assert.deepEqual(REVIEW_POINTS, ["pr-open", "first", "head", "auto"]);
+});
+
+// --- pinning the review commit ----------------------------------------------
+
+test("a pinned commit overrides every mode, and the field says a rule did NOT choose it", () => {
+  const view = {
+    headRefOid: "H",
+    baseRefOid: "B",
+    createdAt: "2026-07-22T01:34:18Z",
+    author: { login: "someone" },
+    headRefName: "feature/x",
+    commits: [
+      { oid: "C1", committedDate: "2026-07-22T01:33:40Z" },
+      { oid: "C2", committedDate: "2026-07-22T05:48:04Z" },
+    ],
+  };
+  // Every mode, including the one that would otherwise pick a DIFFERENT commit:
+  // the pin must not be a tie-break that only wins when the rule agrees.
+  for (const mode of REVIEW_POINTS) {
+    assert.deepEqual(
+      resolveReviewPoint(view, mode, PINNED),
+      { review_commit: PINNED, review_base: "B", review_point: REVIEW_POINT_PINNED },
+      `--review-commit must beat --review-point ${mode}`,
+    );
+  }
+  // No pin → the rule still runs. A pin argument that leaked a default would
+  // silently freeze every unpinned item at one commit.
+  assert.equal(resolveReviewPoint(view, "head", "").review_commit, "H");
+  assert.equal(resolveReviewPoint(view, "head").review_point, "head");
+  // `pinned` is a value the FIELD holds and never a mode the flag accepts, so the
+  // two vocabularies are separate and only the union contains it.
+  assert.equal(REVIEW_POINTS.includes(REVIEW_POINT_PINNED), false);
+  assert.deepEqual(REVIEW_POINT_VALUES, ["pr-open", "first", "head", "auto", "pinned"]);
+});
+
+test("parseReviewCommitPins reads a per-item map, and refuses everything it cannot read exactly", () => {
+  // Both spellings: `--prs` speaks in numbers, item ids are `pr-<n>`.
+  assert.deepEqual([...parseReviewCommitPins(`pr-415=${PINNED},429=${FORK}`)], [["415", PINNED], ["429", FORK]]);
+  // Whitespace around an entry survives a shell-quoted list; a trailing comma is
+  // what a generated command line leaves behind.
+  assert.deepEqual([...parseReviewCommitPins(` pr-415=${PINNED} , `)], [["415", PINNED]]);
+  assert.equal(parseReviewCommitPins("").size, 0, "no flag is no pins, not an error");
+  assert.equal(parseReviewCommitPins(undefined).size, 0);
+  // Case is normalised — git's object names are lowercase, and `sha !== sha` on
+  // case alone would read as drift on the next extraction.
+  assert.deepEqual([...parseReviewCommitPins(`pr-415=${PINNED.toUpperCase()}`)], [["415", PINNED]]);
+
+  assert.throws(() => parseReviewCommitPins("51c01826aa9f05e4cef9ee498668e3f2321b3602"), /is not <pr>=<sha>/);
+  assert.throws(() => parseReviewCommitPins("pr-415="), /is not <pr>=<sha>/);
+  // An abbreviation resolves today and can resolve elsewhere after the next fetch.
+  assert.throws(() => parseReviewCommitPins("pr-415=51c01826"), /not a full 40-character sha/);
+  assert.throws(() => parseReviewCommitPins(`pr-415=${PINNED.slice(0, 39)}z`), /not a full 40-character sha/);
+  // Two answers to one question, otherwise settled by iteration order.
+  assert.throws(() => parseReviewCommitPins(`pr-415=${PINNED},415=${FORK}`), /pins PR 415 twice/);
+});
+
+test("a pin that names a PR nobody asked for is refused — the silent-ignore case", () => {
+  // The worst shape available: the pin is never consulted, every requested item
+  // freezes at the default rule, and the run exits 0 looking perfectly healthy.
+  assert.throws(
+    () => assertPinsAreRequested(parseReviewCommitPins(`pr-416=${PINNED}`), ["415", "429"]),
+    /pins PR\(s\) pr-416 which are not being frozen/,
+  );
+  assert.doesNotThrow(() => assertPinsAreRequested(parseReviewCommitPins(`pr-415=${PINNED}`), ["415", "429"]));
+  // `--prs 415, 429` — the CLI splits on comma and the numbers arrive padded.
+  assert.doesNotThrow(() => assertPinsAreRequested(parseReviewCommitPins(`pr-415=${PINNED}`), [" 415 "]));
+});
+
+test("an unresolvable pinned commit refuses the WHOLE run, naming every bad item", () => {
+  // Not a per-PR skip, which is how everything else here fails. A pin that does
+  // not resolve is the operator's list being wrong, not a flaky PR, and the other
+  // items would be frozen at a review point nobody asked for.
+  const io = fakeIo({ fetchPinnedCommit: (_n, sha) => sha !== FORK });
+  assert.throws(
+    () => assertPinnedCommitsResolve(io, parseReviewCommitPins(`pr-415=${PINNED},429=${FORK}`)),
+    (e) => /do not resolve in --repo-source/.test(e.message) && /pr-429=/.test(e.message) && /never fall back to pr-open/.test(e.message),
+  );
+  const logs = [];
+  assertPinnedCommitsResolve(fakeIo(), parseReviewCommitPins(`pr-415=${PINNED}`), { log: (m) => logs.push(m) });
+  assert.match(logs.join("\n"), /pinned pr-415 @ 51c01826 \(refs\/eval\/pin\/415\)/);
 });
 
 // --- reading the frozen diff -------------------------------------------------
@@ -636,6 +732,129 @@ test("an extraction that DIFFERS from the stored item is reported and refused", 
   }
 });
 
+test("a pinned item reaches meta.json pinned — it cannot silently degrade to pr-open", () => {
+  // THE test this flag exists for. A `pr-open` freeze and a pinned freeze produce
+  // output of identical shape, so nothing about the wrong one looks wrong: the
+  // item, the manifest and the exit code are all healthy. Asserted through the
+  // store and back off disk, because a corpus item is write-once.
+  const { store, cleanup } = tempStore();
+  try {
+    const result = extractCorpus({
+      io: fakeIo(),
+      store,
+      numbers: ["664"],
+      corpusVersion: "v1",
+      reviewCommitPins: new Map([["664", PINNED]]),
+    });
+    assert.equal(result.written, 1);
+    const stored = store.getCorpusItemInput("pr-664").meta;
+    assert.equal(stored.review_commit, PINNED, "the pin must win over pr-open, which would give the head");
+    assert.notEqual(stored.review_commit, HEAD, "pr-open resolves to the head on this fixture — that is the degradation");
+    assert.equal(stored.review_point, REVIEW_POINT_PINNED);
+    // And in the index, so a manifest reader can tell which rule produced it
+    // without opening seven meta.json files.
+    assert.deepEqual(store.getCorpus("v1").map((i) => [i.review_commit, i.review_point]), [[PINNED, REVIEW_POINT_PINNED]]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a padded PR number still finds its pin — the lookup and the guard must agree", () => {
+  // `assertPinsAreRequested` trims and the lookup must trim identically, or a
+  // caller passing ` 664 ` passes the guard and then MISSES the pin: the item
+  // freezes at pr-open, the run exits 0, and nothing anywhere says so. A guard
+  // and the code it guards normalising differently is the whole bug class.
+  const { store, cleanup } = tempStore();
+  try {
+    const result = extractCorpus({
+      io: fakeIo(),
+      store,
+      numbers: [" 664 "],
+      corpusVersion: "v1",
+      reviewCommitPins: new Map([["664", PINNED]]),
+    });
+    assert.equal(result.written, 1);
+    assert.equal(store.getCorpusItemInput("pr-664").meta.review_commit, PINNED);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the pinned commit is what the diff is taken at, and it is fetched and pinned first", () => {
+  const io = fakeIo();
+  const { store, cleanup } = tempStore();
+  try {
+    extractCorpus({ io, store, numbers: ["664"], corpusVersion: "v1", reviewCommitPins: new Map([["664", PINNED]]) });
+    // Order is the assertion: the commit is fetched BEFORE the extraction that
+    // needs it, and the merge-base range ends at the pinned sha rather than HEAD.
+    assert.deepEqual(io.calls, [
+      `fetchPinnedCommit:664:${PINNED}`,
+      "prView:664",
+      "fetchPrRefs:664",
+      "mergeBase",
+      `diffRange:${FORK}..${PINNED}`,
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("re-pinning to a different commit is DRIFT, not a quiet rewrite", () => {
+  // `corpusItemDrift` compares `review_commit` and `review_point`, so moving the
+  // snapshot of an already-frozen item is caught by the determinism check rather
+  // than overwriting a corpus every downstream number was computed against.
+  const { store, cleanup } = tempStore();
+  try {
+    extractCorpus({ io: fakeIo(), store, numbers: ["664"], corpusVersion: "v1", reviewCommitPins: new Map([["664", PINNED]]) });
+    const logs = [];
+    const moved = extractCorpus({
+      io: fakeIo(),
+      store,
+      numbers: ["664"],
+      corpusVersion: "v1",
+      reviewCommitPins: new Map([["664", FORK]]),
+      log: (m) => logs.push(m),
+    });
+    assert.equal(moved.written, 0);
+    assert.deepEqual(moved.drifted.map((d) => d.id), ["pr-664"]);
+    assert.ok(moved.drifted[0].fields.includes("meta.review_commit"));
+    assert.equal(summarize(moved).exitCode, 1);
+    assert.equal(store.getCorpusItemInput("pr-664").meta.review_commit, PINNED, "the stored item must be untouched");
+    // Dropping the pin entirely is drift too — it moves `review_point` back to a
+    // rule, which is the degradation this flag was added to make impossible.
+    const unpinned = extractCorpus({ io: fakeIo(), store, numbers: ["664"], corpusVersion: "v1" });
+    assert.ok(unpinned.drifted[0].fields.includes("meta.review_point"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("extractCorpus refuses a bad pin before it writes anything at all", () => {
+  const { root, store, cleanup } = tempStore();
+  try {
+    // Guards stand in THIS door and not only in the CLI's — a validator only
+    // guards the door it stands in.
+    assert.throws(
+      () => extractCorpus({ io: fakeIo(), store, numbers: ["664"], corpusVersion: "v1", reviewCommitPins: new Map([["665", PINNED]]) }),
+      /pins PR\(s\) pr-665 which are not being frozen/,
+    );
+    assert.throws(
+      () =>
+        extractCorpus({
+          io: fakeIo({ fetchPinnedCommit: () => false }),
+          store,
+          numbers: ["664"],
+          corpusVersion: "v1",
+          reviewCommitPins: new Map([["664", PINNED]]),
+        }),
+      /do not resolve in --repo-source/,
+    );
+    assert.equal(existsSync(path.join(root, "corpus")), false, "a refused run must write nothing");
+  } finally {
+    cleanup();
+  }
+});
+
 test("--dry-run computes everything and writes nothing", () => {
   const { root, store, cleanup } = tempStore();
   try {
@@ -785,6 +1004,26 @@ test("the CLI refuses a missing --root before it touches the network", () => {
     errs.length = 0;
     assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--review-point", "merged"]), 2);
     assert.match(errs.join("\n"), /--review-point must be one of/);
+    errs.length = 0;
+    // `pinned` is not selectable: there is no commit it could resolve to on its
+    // own, so accepting it would give a run that meant to pin a mode with no pin.
+    assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--review-point", "pinned"]), 2);
+    assert.match(errs.join("\n"), /--review-point must be one of pr-open, first, head, auto/);
+    errs.length = 0;
+    // A malformed pin costs a usage error rather than a run — and it is checked
+    // before `--prs` is even read, so nothing reaches the network.
+    assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--review-commit", "51c01826"]), 2);
+    assert.match(errs.join("\n"), /is not <pr>=<sha>/);
+    errs.length = 0;
+    assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--review-commit", "pr-415=51c01826"]), 2);
+    assert.match(errs.join("\n"), /not a full 40-character sha/);
+    errs.length = 0;
+    // The silent-ignore case, at the CLI: pin one PR, freeze another.
+    assert.equal(
+      main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--prs", "429", "--review-commit", `pr-415=${PINNED}`]),
+      2,
+    );
+    assert.match(errs.join("\n"), /pins PR\(s\) pr-415 which are not being frozen/);
     errs.length = 0;
     assert.equal(main(["node", "extract-corpus.mjs", "--root", "/tmp/x", "--corpus-version", "v1", "--limit", "0"]), 2);
     assert.match(errs.join("\n"), /--limit takes a positive integer/);
