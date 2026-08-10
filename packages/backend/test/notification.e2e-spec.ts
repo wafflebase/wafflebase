@@ -234,6 +234,47 @@ describeDb('Notification HTTP integration', () => {
     ).toBe(1);
   });
 
+  it('requires a comment id on a mention, which keys its dedupe', async () => {
+    const { author, peer, document } = await scenario();
+    const { commentId: _omitted, ...withoutComment } = mentionBody(document.id, [
+      peer.id,
+    ]);
+
+    // Without it the key would fall back to something shared by every comment
+    // in the thread, so the recipient would be notified once and never again.
+    await request(app.getHttpServer())
+      .post('/notifications/comment')
+      .set('Cookie', authCookie(author))
+      .send(withoutComment)
+      .expect(400);
+  });
+
+  it('still accepts a resolve with no comment id', async () => {
+    const { author, peer, document } = await scenario();
+    const { commentId: _omitted, ...body } = mentionBody(document.id, [peer.id]);
+
+    await request(app.getHttpServer())
+      .post('/notifications/comment')
+      .set('Cookie', authCookie(author))
+      .send({ ...body, type: 'thread_resolved' })
+      .expect(201);
+  });
+
+  it('notifies separately for two mentions in one thread', async () => {
+    const { author, peer, document } = await scenario();
+    for (const c of ['comment-1', 'comment-2']) {
+      await request(app.getHttpServer())
+        .post('/notifications/comment')
+        .set('Cookie', authCookie(author))
+        .send({ ...mentionBody(document.id, [peer.id]), commentId: c })
+        .expect(201);
+    }
+
+    expect(
+      await prisma.notification.count({ where: { recipientId: peer.id } }),
+    ).toBe(2);
+  });
+
   it('rejects an unknown notification type', async () => {
     const { author, peer, document } = await scenario();
 
@@ -274,6 +315,55 @@ describeDb('Notification HTTP integration', () => {
         .slice(1)
         .map((n: { commentId: string }) => n.commentId),
     );
+  });
+
+  it('does not skip rows that share the boundary timestamp', async () => {
+    // One report inserts its whole batch at a single `createdAt`, so a
+    // timestamp-only cursor would jump past the rest of that batch.
+    const { author, peer, workspace, document } = await scenario();
+    const at = new Date('2026-08-10T00:00:00.000Z');
+    await prisma.notification.createMany({
+      data: ['a', 'b', 'c'].map((k) => ({
+        type: 'comment_mention',
+        recipientId: peer.id,
+        actorId: author.id,
+        workspaceId: workspace.id,
+        documentId: document.id,
+        threadId: 't1',
+        commentId: k,
+        dedupeKey: k,
+        createdAt: at,
+      })),
+    });
+
+    const page = await request(app.getHttpServer())
+      .get('/notifications')
+      .set('Cookie', authCookie(peer))
+      .expect(200);
+    expect(page.body).toHaveLength(3);
+
+    // Page on from the first row. Every row shares its `createdAt`, so a
+    // timestamp-only cursor returns nothing and the remaining two are lost.
+    const cursor = page.body[0] as { id: string; createdAt: string };
+    const next = await request(app.getHttpServer())
+      .get('/notifications')
+      .query({ before: cursor.createdAt, beforeId: cursor.id })
+      .set('Cookie', authCookie(peer))
+      .expect(200);
+
+    expect(next.body.map((n: { commentId: string }) => n.commentId)).toEqual(
+      page.body.slice(1).map((n: { commentId: string }) => n.commentId),
+    );
+  });
+
+  it('rejects a beforeId given without a before timestamp', async () => {
+    const { peer } = await scenario();
+
+    await request(app.getHttpServer())
+      .get('/notifications')
+      .query({ beforeId: 'some-id' })
+      .set('Cookie', authCookie(peer))
+      .expect(400);
   });
 
   it('rejects a malformed ?before cursor instead of ignoring it', async () => {

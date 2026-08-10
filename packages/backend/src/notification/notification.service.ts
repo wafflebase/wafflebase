@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -57,12 +58,18 @@ export function sanitizePreview(raw: string | undefined | null): string | null {
 
 /**
  * `thread_resolved` has no comment of its own, so it keys on the thread —
- * resolving and unresolving repeatedly still notifies once.
+ * resolving and unresolving repeatedly still notifies once. The other two key
+ * on the comment, which the DTO makes mandatory for them: a thread-wide key
+ * would be shared by every later comment and suppress all of them.
  */
 function dedupeKeyFor(dto: CommentNotificationDto): string {
-  return dto.type === 'thread_resolved'
-    ? `${dto.threadId}:resolved`
-    : (dto.commentId ?? `${dto.threadId}:${dto.type}`);
+  if (dto.type === 'thread_resolved') return `${dto.threadId}:resolved`;
+  if (!dto.commentId) {
+    // Unreachable through the controller; a direct caller that skipped
+    // validation gets an error rather than a silently poisoned dedupe key.
+    throw new BadRequestException(`${dto.type} requires a commentId`);
+  }
+  return dto.commentId;
 }
 
 @Injectable()
@@ -158,14 +165,25 @@ export class NotificationService {
     );
   }
 
-  async list(recipientId: number, before?: Date) {
+  /**
+   * One page, newest first. The cursor is the `(createdAt, id)` pair of the
+   * last row of the previous page: a timestamp alone would skip every row
+   * sharing the boundary instant, and one report inserts its whole batch at a
+   * single instant. `id` also breaks ordering ties so paging is stable.
+   */
+  async list(recipientId: number, cursor?: { before: Date; id?: string }) {
     return this.prisma.notification.findMany({
-      where: before
-        ? { recipientId, createdAt: { lt: before } }
+      where: cursor
+        ? {
+            recipientId,
+            OR: [
+              { createdAt: { lt: cursor.before } },
+              ...(cursor.id
+                ? [{ createdAt: cursor.before, id: { lt: cursor.id } }]
+                : []),
+            ],
+          }
         : { recipientId },
-      // `id` breaks ties so rows sharing a `createdAt` — a single report
-      // inserts its whole batch at one timestamp — come back in a stable
-      // order instead of whatever the planner picks.
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: LIST_PAGE_SIZE,
       select: LIST_SELECT,
@@ -197,7 +215,11 @@ export class NotificationService {
       this.unreadCount(recipientId),
       this.prisma.notification.findMany({
         where: { recipientId },
-        orderBy: { createdAt: 'desc' },
+        // Same tiebreak as `list`. Without it two rows sharing the newest
+        // `createdAt` — one report inserts its batch at a single timestamp —
+        // let the planner return either, so `latestId` flips between polls and
+        // the stream reads that as a change.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 1,
         select: { id: true },
       }),

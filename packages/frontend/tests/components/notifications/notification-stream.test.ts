@@ -36,4 +36,8 @@ describe("parseSummaryEvent", () => {
   it("rejects a negative count, which would render a nonsense badge", () => {
     expect(parseSummaryEvent('{"unreadCount":-1,"latestId":null}')).toBeNull();
   });
+
+  it("rejects a fractional count — a badge cannot show 1.5", () => {
+    expect(parseSummaryEvent('{"unreadCount":1.5,"latestId":null}')).toBeNull();
+  });
 });

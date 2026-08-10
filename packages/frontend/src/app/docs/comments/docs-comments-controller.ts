@@ -331,11 +331,18 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
       // Only resolving is worth a notification; reopening is not an event
       // anyone is waiting on.
       if (resolving) {
+        // Re-read rather than reusing the `thread` prop: that is a React
+        // snapshot, and a reply Yorkie applied since the last render would be
+        // missing from it — dropping that participant from the recipients.
+        // The sheets and pdf paths already do this.
+        const current = (await store.listThreads()).find(
+          (t) => t.id === thread.id,
+        );
         notifyCommentEvent({
           event: 'resolve',
           documentId,
           actorUserId: currentUser.userId,
-          thread,
+          thread: current ?? thread,
         });
       }
     },

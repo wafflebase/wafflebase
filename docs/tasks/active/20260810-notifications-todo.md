@@ -26,6 +26,9 @@ server-authorized; the join event is created server-side.
         truncate preview to 200 + strip control chars, cap 20 recipients
   - `createMemberJoined(workspaceId, joinerId)` — owners ∪ invite creator,
         joiner excluded
+        — *superseded:* shipped as `createMemberJoined({ workspaceId,
+        joinerId, inviteCreatorId })`; `docs/design/notifications.md` is the
+        authoritative contract
   - `list(userId, before?)` / `unreadCount(userId)` / `markRead(userId, ids?)`
   - membership check via Prisma directly — do **not** inject `WorkspaceService`
         (`acceptInvite` calls into this service; injecting would be circular)
@@ -106,7 +109,7 @@ server-authorized; the join event is created server-side.
 
 - [x] `docs/design/README.md` — Common table entry (done with the design doc)
 - [x] `packages/backend/README.md` — endpoint table + module tree entry
-- [ ] Fill in `20260810-notifications-lessons.md`
+- [x] Fill in `20260810-notifications-lessons.md`
 - [ ] `pnpm tasks:archive && pnpm tasks:index` before merge
 
 ## Review

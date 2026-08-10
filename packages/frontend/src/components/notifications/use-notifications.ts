@@ -57,9 +57,18 @@ export function useMarkRead() {
       queryClient.setQueryData<Notification[]>(NOTIFICATIONS_KEY, (prev) =>
         prev ? applyRead(prev, ids, readAt) : prev,
       );
+      // Optimistic, so the badge responds to the click immediately...
       queryClient.setQueryData<number>(UNREAD_COUNT_KEY, (prev) =>
         nextUnreadCount(prev, before, ids),
       );
+      // ...then let an authoritative read settle it. A notification that
+      // arrived between the server processing this request and its response
+      // resolving has already been written to the cache by the stream, and
+      // the line above would erase it until the next poll.
+      void queryClient.invalidateQueries({
+        queryKey: UNREAD_COUNT_KEY,
+        exact: true,
+      });
     },
   });
 }

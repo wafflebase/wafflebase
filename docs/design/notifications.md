@@ -54,7 +54,8 @@ mention source.
   comment thread. Scrolling to a thread requires touching all three comment
   controllers (docs, sheets, pdf) and is deferred.
 - **Content verification of comment events.** See Authorization depth below.
-- **Retention/cleanup.** Nothing is deleted in v1.
+- **Retention/cleanup.** No age-based cleanup job in v1. Rows *are* deleted,
+  but only by cascade — with their document, workspace, or recipient.
 - **"Document shared with you".** No such event exists — see below.
 
 ### Why there is no "shared with you" notification
@@ -101,8 +102,11 @@ model Notification {
   readAt      DateTime?
   createdAt   DateTime  @default(now())
 
-  @@index([recipientId, createdAt])
   @@unique([recipientId, type, dedupeKey])
+  @@index([recipientId, createdAt])
+  // The badge query filters `readAt IS NULL`; without this it scans every
+  // row the recipient has ever received.
+  @@index([recipientId, readAt])
 }
 ```
 
@@ -131,14 +135,14 @@ notification.service.ts      # create / list / markRead / unreadCount
 notification.controller.ts   # REST + SSE
 notification.dto.ts
 notification-hub.ts          # in-process userId -> Subject fan-out
-notification.service.spec.ts
-notification-hub.spec.ts
+notification-stream.ts       # merges hub + poll + heartbeat into one stream
+user-throttler.guard.ts      # throttle bucket keyed on the caller, not the IP
 ```
 
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/notifications/comment` | Client report of a comment event (all three comment types) |
-| `GET` | `/notifications` | 20 most recent for the caller, `?before=<createdAt>` cursor |
+| `GET` | `/notifications` | 20 most recent for the caller, `?before=<createdAt>&beforeId=<id>` cursor |
 | `GET` | `/notifications/unread-count` | `{ count }` |
 | `POST` | `/notifications/read` | `{ ids? }` — omitted marks everything read |
 | `GET` | `/notifications/stream` | SSE summary stream |
@@ -148,7 +152,9 @@ All routes sit behind `JwtAuthGuard`. `/stream` is `@SkipThrottle()`.
 **`NotificationService` reads membership through Prisma directly rather than
 injecting `WorkspaceService`.** `WorkspaceService.acceptInvite()` calls *into*
 `NotificationService`, so the reverse dependency would be circular. The check
-is a single `workspaceMember.findUnique` — not worth a module cycle.
+is one `workspaceMember.findMany` — `memberIdsAmong()` resolves the actor and
+every recipient in a single round trip, and the join path reads the
+workspace's members the same way. Not worth a module cycle.
 
 ### Creating comment notifications
 
@@ -294,12 +300,18 @@ use `date-fns`, already a dependency.
   truncation and control-character stripping, 404/403 paths.
 - `packages/backend/src/notification/notification-hub.spec.ts` — publish reaches subscribers, unsubscribe stops
   delivery, no cross-user leakage.
+- `packages/backend/src/notification/notification-stream.spec.ts` — the SSE
+  composition: the summary sent on connect, hub and poll results forwarded, an
+  unchanged poll tick suppressed, pings not disturbing change detection.
+- `packages/backend/src/notification/user-throttler.guard.spec.ts` — the
+  bucket keys on the caller, not their address.
 - `packages/backend/test/notification.e2e-spec.ts` — routes through the JWT
   guard against a real database (`RUN_DB_INTEGRATION_TESTS`).
 - Frontend unit tests for route-URL construction and read-state transitions,
   written without JSX rendering (JSX render tests are flaky in this repo).
-- The SSE stream itself is verified by manual smoke in `pnpm dev`; a unit test
-  of an EventSource adds no confidence over testing the hub directly.
+- The browser end of the stream is verified by manual smoke in `pnpm dev`.
+  Server-side composition has unit coverage (above); what a unit test of an
+  `EventSource` would add over that is nothing.
 - `pnpm verify:fast` green on every commit.
 
 ### Rollout
@@ -341,12 +353,12 @@ version bump.
   beyond the throttle — the abuse is attributable (every row carries
   `actorId`) and confined to workspace peers. A per-recipient-per-day ceiling
   or the retention job would bound it; both are deferred.
-- **Cursor ties.** The `?before=` cursor is `createdAt` alone, so rows sharing
-  a timestamp — one report inserts its batch at a single timestamp — could be
-  skipped at a page boundary. *Mitigation:* `orderBy` breaks ties on `id` so
-  ordering is at least deterministic; a composite `(createdAt, id)` cursor
-  closes it properly and is worth doing if the deferred `/notifications` page
-  lands.
+- **Cursor ties.** One report inserts its whole batch at a single `createdAt`,
+  so a timestamp-only cursor would skip every row sharing a page boundary.
+  *Mitigation:* the cursor is the composite `(createdAt, id)` pair
+  (`?before=&beforeId=`) and `orderBy` breaks ties on `id`, so paging is both
+  complete and stable. `beforeId` without `before` is rejected rather than
+  silently ignored.
 - **Client-computed recipients drift.** A client bug could omit a legitimate
   recipient, and no server-side check would catch it. *Mitigation:* recipient
   computation lives in the shared comments module, not per-consumer, so the

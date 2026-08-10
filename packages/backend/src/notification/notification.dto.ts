@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** Comment event types a client may report. */
@@ -42,8 +43,14 @@ export class CommentNotificationDto {
   @MaxLength(200)
   threadId!: string;
 
-  /** Absent for `thread_resolved`, which has no comment of its own. */
-  @IsOptional()
+  /**
+   * Required for `comment_mention` and `comment_reply`: it is what keys their
+   * dedupe. Without it the key would fall back to something every comment in
+   * the thread shares, so the recipient would be notified once and then never
+   * again for that thread. Absent for `thread_resolved`, which has no comment
+   * of its own and keys on the thread deliberately.
+   */
+  @ValidateIf((dto: CommentNotificationDto) => dto.type !== 'thread_resolved')
   @IsString()
   @MaxLength(200)
   commentId?: string;
@@ -61,12 +68,27 @@ export class CommentNotificationDto {
   preview?: string;
 }
 
+/**
+ * Cursor for the next page. It is a `(createdAt, id)` pair, not a timestamp
+ * alone: one report inserts its whole batch at a single `createdAt`, so a
+ * timestamp-only cursor would jump past every row that shares the boundary.
+ */
 export class ListNotificationsQueryDto {
-  /** Cursor: return notifications older than this instant. */
+  /** Return notifications older than this instant. */
   @IsOptional()
   @Type(() => Date)
   @IsDate({ message: 'before must be an ISO 8601 date' })
   before?: Date;
+
+  /**
+   * Tiebreak within `before`: rows at exactly that instant are returned only
+   * if they sort after this id. Meaningless without `before`, which the
+   * controller rejects rather than silently ignoring.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  beforeId?: string;
 }
 
 export class MarkReadDto {

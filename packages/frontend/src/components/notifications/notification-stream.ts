@@ -20,10 +20,11 @@ export function parseSummaryEvent(raw: string): NotificationSummary | null {
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const { unreadCount, latestId } = parsed as Record<string, unknown>;
-  if (typeof unreadCount !== "number" || !Number.isFinite(unreadCount)) {
+  // A count, so a fraction or a negative is as meaningless as a string —
+  // either would render a nonsense badge.
+  if (!Number.isSafeInteger(unreadCount) || (unreadCount as number) < 0) {
     return null;
   }
-  if (unreadCount < 0) return null;
   if (latestId !== null && typeof latestId !== "string") return null;
 
   return { unreadCount, latestId };

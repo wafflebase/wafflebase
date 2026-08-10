@@ -287,7 +287,7 @@ never read or mark another user's notifications.
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/notifications/comment` | Client report of a comment event (mention / reply / resolve) |
-| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO date>` cursor) |
+| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO date>&beforeId=<id>` composite cursor; `beforeId` without `before` is a 400) |
 | `GET` | `/notifications/unread-count` | `{ count }` |
 | `POST` | `/notifications/read` | `{ ids? }` — omitted marks everything read |
 | `GET` | `/notifications/stream` | SSE badge stream |
@@ -459,10 +459,10 @@ blob with none (see
 | `workspaceId` | String | FK to Workspace (`Cascade`) |
 | `documentId` | String? | FK to Document (`Cascade`) — a deleted document leaves no dead link |
 | `threadId` / `commentId` | String? | Opaque CRDT identifiers; no FK, never resolved server-side |
-| `dedupeKey` | String? | Comment id, or `<threadId>:resolved`. Unique per `(recipientId, type)`, so a retried report creates no second row. Null for joins, which Postgres treats as distinct |
-| `preview` | String? | Plain-text excerpt, ≤200 chars, control characters stripped |
+| `dedupeKey` | String? | Comment id (required for mention/reply), or `<threadId>:resolved`. `@@unique([recipientId, type, dedupeKey])`, so a retried report creates no second row. Null for joins, which Postgres treats as distinct |
+| `preview` | String? | Plain-text excerpt, ≤200 chars; control characters collapsed to spaces, zero-width and bidi characters removed |
 | `readAt` | DateTime? | Null while unread |
-| `createdAt` | DateTime | Auto-set; indexed with `recipientId` for the list query |
+| `createdAt` | DateTime | Auto-set. `@@index([recipientId, createdAt])` covers the list; `@@index([recipientId, readAt])` covers the unread badge, which would otherwise scan every row the recipient has ever received |
 
 ## Module Structure
 

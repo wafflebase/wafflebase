@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -74,7 +75,13 @@ export class NotificationController {
     @Req() req: AuthenticatedRequest,
     @Query() query: ListNotificationsQueryDto,
   ) {
-    return this.service.list(Number(req.user.id), query.before);
+    if (query.beforeId && !query.before) {
+      throw new BadRequestException('beforeId requires before');
+    }
+    return this.service.list(
+      Number(req.user.id),
+      query.before ? { before: query.before, id: query.beforeId } : undefined,
+    );
   }
 
   @Get('unread-count')

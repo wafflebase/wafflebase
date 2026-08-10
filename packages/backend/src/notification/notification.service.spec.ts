@@ -351,15 +351,34 @@ describe('NotificationService', () => {
       );
     });
 
-    it('pages backwards from a cursor', async () => {
+    it('pages backwards from a timestamp-only cursor', async () => {
       prisma.notification.findMany.mockResolvedValue([]);
       const before = new Date('2026-08-10T00:00:00.000Z');
 
-      await service.list(7, before);
+      await service.list(7, { before });
 
       expect(prisma.notification.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { recipientId: 7, createdAt: { lt: before } },
+          where: { recipientId: 7, OR: [{ createdAt: { lt: before } }] },
+        }),
+      );
+    });
+
+    it('also returns rows at the boundary instant that sort after the cursor id', async () => {
+      prisma.notification.findMany.mockResolvedValue([]);
+      const before = new Date('2026-08-10T00:00:00.000Z');
+
+      await service.list(7, { before, id: 'n-5' });
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            recipientId: 7,
+            OR: [
+              { createdAt: { lt: before } },
+              { createdAt: before, id: { lt: 'n-5' } },
+            ],
+          },
         }),
       );
     });
