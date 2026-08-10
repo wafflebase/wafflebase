@@ -314,10 +314,16 @@ anyway, but "the test will catch it" is not true and should not be relied on.
 - [x] **`actionlint` 1.7.7 clean** on `ci.yml`, before and after.
 - [x] **Verified from the committed tree** (`git archive <branch> | tar -x`), not a
       working copy.
-- [ ] **Not verified: the values are correct for a runner slower than any observed.**
-      They are 2.2–2.3× the worst of 188 successful runs over six days. A GitHub
-      capacity event outside that envelope would trip them. That is the accepted
-      risk of having a ceiling at all, and the reason none of the three is sized
-      near the median.
-- [ ] **Not verified in CI.** Everything above is local plus the API. The first real
-      evidence is this PR's own `ci.yml` run.
+- **Not verifiable: the values are correct for a runner slower than any observed.**
+  They are 2.2–2.3× the worst of 188 successful runs over six days. A GitHub
+  capacity event outside that envelope would trip them. That is the accepted
+  risk of having a ceiling at all, and the reason none of the three is sized
+  near the median. Recorded as an accepted risk rather than a pending item —
+  no run can close it, only a slower runner arriving and not tripping it.
+- [x] **Verified in CI** — 10 Aug 2026, over the ~100 `ci.yml` runs since #692
+      merged on 07 Aug. **No run in the repository's last 200 has a `timed_out`
+      conclusion**, and all nine `ci.yml` failures in the window are
+      `verify-self` test failures at the job level, not cancellations. Worst
+      observed job durations against their caps: `verify-self` 10.2 / 20 min,
+      `verify-browser` 10.4 / 20 min, `verify-integration` 3.1 / 10 min — the
+      2–3× headroom the values were sized for, holding in production.

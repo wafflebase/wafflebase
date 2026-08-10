@@ -83,10 +83,14 @@ line arrives as a `#` diagnostic), any other `stdio: "inherit"` spawn under
 
 ## Still open — not this PR
 
-- [ ] **The deserialize failure is unexplained.** Surviving lead: the failing
-      iterations report 1528–1541 tests where a green one reports 1543, so
-      results are lost alongside the corruption. Next probe would bisect the
-      glob to find which *concurrent* file's presence is required.
-- [ ] Counts quoted from `agent:tests` between #692 (07 Aug 07:14Z) and #750
-      (10 Aug 05:18Z) ran under `--test-force-exit` and could be short by up to
-      58 tests. #752's 1468 → 1477 baseline is worth re-measuring.
+Deliberately out of this task's scope, so they are recorded here rather than
+tracked as pending items. This task closed with #760; neither lead has a
+tracker of its own yet.
+
+- **The deserialize failure is unexplained.** Surviving lead: the failing
+  iterations report 1528–1541 tests where a green one reports 1543, so
+  results are lost alongside the corruption. Next probe would bisect the
+  glob to find which *concurrent* file's presence is required.
+- Counts quoted from `agent:tests` between #692 (07 Aug 07:14Z) and #750
+  (10 Aug 05:18Z) ran under `--test-force-exit` and could be short by up to
+  58 tests. #752's 1468 → 1477 baseline is worth re-measuring.
