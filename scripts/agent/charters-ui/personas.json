@@ -4,15 +4,19 @@
     "title": "Docs writer",
     "surface": "doc",
     "model": "claude-opus-5",
-    "oracles": ["prediction", "crash", "dom-invariant"],
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
     "briefs": [
       {
         "id": "body-and-styles",
-        "task": "Write a short multi-paragraph note, the way someone drafting a status update would. Type real sentences. Then format parts of it: bold a phrase, italicise another, change the size of a selection that already contains MORE THAN ONE size, and use the toolbar rather than shortcuts where you can. Undo and redo some of it. Predict before each action, and read a value BEFORE you change it so you have something to compare against."
+        "task": "Write a short multi-paragraph note, the way someone drafting a status update would. Type real sentences. Then format parts of it: bold a phrase, italicise another, change the size of a selection that already contains MORE THAN ONE size, and use the toolbar rather than shortcuts where you can. Undo and redo some of it. Predict before each action, and read a value BEFORE you change it so you have something to compare against. IMPORTANT \u2014 TOGGLE THE SAME CONTROL MORE THAN ONCE ON THE SAME SELECTION. Read doc.runs, then click Bold, then click Bold AGAIN without changing the selection, and predict that doc.runs equals that first reading: a toggle applied twice must return the document to where it started. Do the same for Italic and Underline, and do it at least once on a SUB-RANGE INSIDE an already-styled run rather than on a whole block or a whole paragraph. Try it with the selection made right-to-left as well as left-to-right. This round trip is a property you can predict exactly, and a control that only works in one direction will not show up any other way."
       },
       {
         "id": "structure-and-links",
-        "task": "Build a document with structure: headings, several paragraphs, and at least two links. Then edit what you built — change a heading's level, retype part of a paragraph, edit a link you already inserted rather than adding a new one, and select across a boundary between two differently-styled runs before formatting. The interesting predictions here are about what a change should and should NOT touch."
+        "task": "Build a document with structure: headings, several paragraphs, and at least two links. Then edit what you built \u2014 change a heading's level, retype part of a paragraph, edit a link you already inserted rather than adding a new one, and select across a boundary between two differently-styled runs before formatting. The interesting predictions here are about what a change should and should NOT touch."
       }
     ],
     "codeScope": [
@@ -30,7 +34,10 @@
     "verifiers": 2,
     "maxVerified": 4,
     "maxCandidates": 8,
-    "reportableSeverities": ["critical", "major"],
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
     "actionBudget": {
       "maxActions": 50,
       "perActionTimeoutMs": 30000,
@@ -44,7 +51,11 @@
     "title": "Sheet author",
     "surface": "sheet",
     "model": "claude-opus-5",
-    "oracles": ["prediction", "crash", "dom-invariant"],
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
     "briefs": [
       {
         "id": "values-and-formulas",
@@ -52,7 +63,7 @@
       },
       {
         "id": "navigation-and-selection",
-        "task": "Work with selection and navigation: click cells directly (use the cellCenter reader as a click target), move with arrow keys, Tab and Enter, select ranges, and scroll down to a far row and back. Type into a cell after each kind of movement. The predictions worth making here are about WHERE the edit landed — a keystroke that moves the selection somewhere other than where it says it is, is exactly the class of defect this brief exists to find."
+        "task": "Work with selection and navigation: click cells directly (use the cellCenter reader as a click target), move with arrow keys, Tab and Enter, select ranges, and scroll down to a far row and back. Type into a cell after each kind of movement. The predictions worth making here are about WHERE the edit landed \u2014 a keystroke that moves the selection somewhere other than where it says it is, is exactly the class of defect this brief exists to find."
       }
     ],
     "codeScope": [
@@ -69,7 +80,10 @@
     "verifiers": 2,
     "maxVerified": 4,
     "maxCandidates": 8,
-    "reportableSeverities": ["critical", "major"],
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
     "actionBudget": {
       "maxActions": 50,
       "perActionTimeoutMs": 30000,

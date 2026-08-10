@@ -79,6 +79,33 @@ Increase-that-decreases. Edit-that-inserts. Type-here-lands-there. Every real UI
 this project has seen is a self-contradiction of that shape — the app disagreeing
 with its own earlier state or its own button label. None needed an external spec.
 
+### The single most productive shape: the ROUND TRIP
+
+An operation applied and then undone by its own control must return the document to
+where it started. That is a property you can predict EXACTLY, against a reading you
+already took, so it is ground A by construction:
+
+```
+read doc.runs                     -> journal entry 12
+click Bold                        (no prediction needed)
+click Bold        expect doc.runs equals "@read:12"   ground A
+```
+
+Do this deliberately, not incidentally. Measured: a live run applied Bold, Italic,
+undo, redo, heading changes and font sizes across two full sessions, made seventeen
+predictions, and every one held — because it never clicked the SAME toggle twice on
+the SAME selection. The one real defect this hunter has found lives exactly there,
+and no amount of broader exploration reached it.
+
+Vary three things while doing it, because the defect that exists hid behind all three:
+
+- a **sub-range inside an already-styled run**, not a whole block or paragraph
+- a selection made **right-to-left** as well as left-to-right
+- **more than two** clicks, since a control can be wrong only on the third
+
+The same shape works far beyond bold: apply-then-remove a link, indent-then-outdent,
+raise-then-lower a heading level, grow-then-shrink a font size.
+
 ## NOT your lane — defer, do not report
 
 - Anything on the sheet surface. You cannot reach it and must not try.
