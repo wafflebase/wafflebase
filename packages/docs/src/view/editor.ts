@@ -23,6 +23,7 @@ import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
+import { visitStyledRunsInRange } from './range-runs.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -2835,115 +2836,26 @@ export function initialize(
         return `prim:${String(value)}`;
       };
 
-      const visitInlinesInBlock = (
-        blockId: string, from: number, to: number,
-      ): void => {
-        const block = doc.findBlock(blockId);
-        if (!block) return;
-        // Effective style per run = the block's named-style inline defaults
-        // under the run's explicit style, so the summary reflects the
-        // computed (rendered) formatting — and a selection spanning blocks of
-        // different styles correctly reads as 'mixed'.
-        const defaults = styleDefaultsForBlock(block);
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          // Overlap test [from, to) with [pos, inlineEnd). Treat
-          // zero-width inlines (empty placeholder runs) as out of
-          // range — they don't contribute style information.
-          if (inlineEnd > from && pos < to && inline.text.length > 0) {
-            const effective = { ...defaults, ...inline.style };
-            for (const key of KEYS) {
-              const raw = (effective as Record<string, unknown>)[key];
-              const token = tokenize(raw);
-              if (!seen[key].has(token)) {
-                seen[key].add(token);
-                rawByToken[key].set(token, raw);
-              }
-            }
-          }
-          pos = inlineEnd;
-          if (pos >= to) break;
-        }
-      };
-
-      // Rectangle of selected table cells — walk every block inside.
-      if (range.tableCellRange) {
-        const cr = range.tableCellRange;
-        const tableBlock = doc.findBlock(cr.blockId);
-        if (tableBlock?.tableData) {
-          const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-          const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-          const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
-          const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
-          for (let r = minRow; r <= maxRow; r++) {
-            for (let c = minCol; c <= maxCol; c++) {
-              const cell = tableBlock.tableData.rows[r]?.cells[c];
-              if (!cell || cell.colSpan === 0) continue;
-              for (const cb of cell.blocks) {
-                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
-                if (len > 0) visitInlinesInBlock(cb.id, 0, len);
-              }
-            }
+      // One shared walk with the keyboard path (`TextEditor`'s
+      // `isStyleOnInSelection`) and with `Doc.applyInlineStyle`'s write, so
+      // the summary describes exactly the runs a toggle would restyle —
+      // including blocks inside a *header/footer* table cell, which the old
+      // body-only `layout.blockParentMap` lookup here could not resolve
+      // (their parentage lives in headerLayout/footerLayout and is merged
+      // into `doc.blockParentMap`). Each run is reported with its
+      // named-style inline defaults layered underneath, so the summary
+      // reflects the computed (rendered) formatting and a selection spanning
+      // blocks of different styles correctly reads as 'mixed'.
+      visitStyledRunsInRange(doc, range, (effective) => {
+        for (const key of KEYS) {
+          const raw = (effective as Record<string, unknown>)[key];
+          const token = tokenize(raw);
+          if (!seen[key].has(token)) {
+            seen[key].add(token);
+            rawByToken[key].set(token, raw);
           }
         }
-      } else {
-        const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-        const focusIdx = doc.getBlockIndex(range.focus.blockId);
-        if (anchorIdx >= 0 && focusIdx >= 0) {
-          // Linear selection across the current top-level context
-          // (body or header/footer — whichever getContextBlocks
-          // resolves to).
-          const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-            (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-            ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-            : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-
-          for (let i = startIdx; i <= endIdx; i++) {
-            const block = doc.getContextBlocks()[i];
-            const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-            const from = i === startIdx ? startOff : 0;
-            const to = i === endIdx ? endOff : blockLen;
-            if (from < to) visitInlinesInBlock(block.id, from, to);
-          }
-        } else {
-          // Selection lives inside a table cell but isn't a cell-range
-          // (user selected text within one cell rather than a
-          // rectangle of cells). Walk the cell's blocks between anchor
-          // and focus, handling multi-block same-cell ranges.
-          const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-          const focusCI = layout.blockParentMap.get(range.focus.blockId);
-          if (
-            anchorCI && focusCI &&
-            anchorCI.tableBlockId === focusCI.tableBlockId &&
-            anchorCI.rowIndex === focusCI.rowIndex &&
-            anchorCI.colIndex === focusCI.colIndex
-          ) {
-            const tableBlock = doc.getBlock(anchorCI.tableBlockId);
-            const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
-            const anchorBI = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
-            const focusBI = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
-            if (anchorBI >= 0 && focusBI >= 0) {
-              const [fromIdx, toIdx, fromOff, toOff] = anchorBI <= focusBI
-                ? [anchorBI, focusBI, range.anchor.offset, range.focus.offset]
-                : [focusBI, anchorBI, range.focus.offset, range.anchor.offset];
-              for (let i = fromIdx; i <= toIdx; i++) {
-                const cb = cell.blocks[i];
-                const len = cb.inlines.reduce((s, n) => s + n.text.length, 0);
-                const from = i === fromIdx ? fromOff : 0;
-                const to = i === toIdx ? toOff : len;
-                if (from < to) visitInlinesInBlock(cb.id, from, to);
-              }
-            }
-          } else if (range.anchor.blockId === range.focus.blockId) {
-            // Same block fallback (e.g. a header/footer block that
-            // didn't resolve through getBlockIndex for some reason).
-            const a = range.anchor.offset;
-            const b = range.focus.offset;
-            visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
-          }
-        }
-      }
+      });
 
       const result: Record<string, unknown> = {};
       for (const key of KEYS) {
