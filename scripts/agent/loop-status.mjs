@@ -47,15 +47,15 @@
 // Every derived value must be CALLER-INDEPENDENT — the body is recomputed in
 // full on each update, and if two arms recompute different numbers the single
 // surface this exists to make legible flaps instead of converging. Hence:
-// the round count uses the full lens manifest (provably equal to the guard's
-// required_checks count — see the countFailedReviewRounds call), and the cap
+// the round count calls the SAME reader the guard gates on (`fixRoundsUsed`,
+// passed the full lens manifest for its fallback path), and the cap
 // defaults to DEFAULT_MAX_REVIEW_ROUNDS (pinned to the panel workflow's env)
 // so an arm that does not own the env renders the same "N of M".
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { countFailedReviewRounds, rerunPointFrom, PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
+import { fixRoundsUsed, rerunPointFrom, PAGED_LATCH, PAGE_AUTHOR_LOGINS } from "./rounds.mjs";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
 import {
   gh,
@@ -296,7 +296,7 @@ export function renderLoopStatus({
   const max = n(maxRounds);
   if (failed !== null) {
     lines.push(
-      `**Fix rounds used:** ${failed}${max !== null ? ` of ${max}` : ""}` +
+      `**Fix rounds dispatched:** ${failed}${max !== null ? ` of ${max}` : ""}` +
         (rerunAt ? ` (counted since the last \`@claude rerun\`)` : ""),
     );
   }
@@ -428,15 +428,18 @@ function main() {
     const paged = comments.some(isAnyPagedLatchComment);
     const rerunAt = rerunPointFrom(comments);
     const rounds = buildRounds(commits, lensCheckNames);
-    // Counted over the FULL manifest, deliberately caller-independent, and
-    // provably equal to the guard's required_checks count: required_checks is
-    // derived from the CUMULATIVE changed-file list (the panel keeps it
-    // unfiltered precisely so a lens that failed can never stop being
-    // required), so manifest ⊇ required only by lenses that never fail — and
-    // a lens that never fails contributes nothing to a count of commits
-    // carrying FAILING lens runs. A per-caller set would make this number
-    // flap between arms on the one surface built to converge.
-    const failedRounds = countFailedReviewRounds(commits, lensCheckNames, { since: rerunAt });
+    // The SAME reader the guard gates on, so the dashboard cannot disagree with
+    // the decision it reports. On a PR with a dispatch ledger the lens set is not
+    // consulted at all — the records answer it — which makes this trivially
+    // caller-independent. On the fallback path the old argument still holds and
+    // is why the FULL manifest is passed rather than a per-caller set:
+    // required_checks is derived from the CUMULATIVE changed-file list (the panel
+    // keeps it unfiltered precisely so a lens that failed can never stop being
+    // required), so manifest ⊇ required only by lenses that never fail — and a
+    // lens that never fails contributes nothing to a count of commits carrying
+    // FAILING lens runs. A per-caller set would make this number flap between
+    // arms on the one surface built to converge.
+    const failedRounds = fixRoundsUsed(comments, commits, lensCheckNames, { since: rerunAt });
 
     // `ready` means "passed the ready gate", not "is not a draft": the promote
     // job is the only thing that un-drafts an agent/ branch, but an
