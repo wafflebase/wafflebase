@@ -581,6 +581,29 @@ test("the fetch step proves the corpus commits arrived, rather than assuming it"
   // Asserted per item, and the failure names the item.
   assert.match(fetch, /git cat-file -e "\$\{commit\}\^\{commit\}"/);
   assert.match(fetch, /^\s*exit 1$/m, "a missing commit must FAIL this step, not warn");
+
+  // THE FALLBACK, and its ORDER. `refs/pull/<n>/head` tracks a pull request's CURRENT
+  // head, so a frozen `review_commit` that was later force-pushed away is not in it —
+  // measured on pr-415, whose corpus commit and pull-ref tip have diverged. Anything
+  // the pull refs did not carry is then asked for by full sha.
+  // Deliberately NOT pinned to the exact flag string. A tight match here would fail
+  // first on any flag change and mask the two assertions below, which are the ones
+  // that carry the real constraints — mutation testing showed the shallow-fetch
+  // mutation being caught by this line rather than by the guard that means it.
+  assert.match(fetch, /git fetch[^\n]*"\$\{commit\}:refs\/eval\/item\/\$\{item\}"/, "missing commits must be retried by sha");
+  const primaryAt = fetch.indexOf("xargs git fetch");
+  const retryAt = fetch.indexOf('"${commit}:refs/eval/item/${item}"');
+  const assertAt = fetch.indexOf("missing=0");
+  assert.ok(primaryAt >= 0 && retryAt > primaryAt, "the pull ref must remain the FIRST attempt");
+  assert.ok(assertAt > retryAt, "the retry must come BEFORE the assertion, or it cannot help");
+
+  // NO `--depth` on the retry. A shallow fetch marks the repository shallow, and a
+  // shallow tree cannot be blamed — which silently disables the novelty gate that is
+  // the whole reason the lane materialises a worktree rather than an archive.
+  assert.equal(/--depth/.test(fetch), false, "a shallow fetch would leave a tree the novelty gate cannot blame");
+  // The retry goes to the corpus's own source repo, never to a remote of this checkout.
+  assert.equal(/git fetch[^\n]*\borigin\b/.test(fetch), false, "the retry must not reach for origin either");
+
   const yaml = yamlOnly();
   // `fetch-depth: 0` is the other half — the review BASES are ancestors of main and
   // come from the checkout's depth, not from the pull refs.

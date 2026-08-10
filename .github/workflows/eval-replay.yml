@@ -258,10 +258,27 @@ jobs:
 
       # THE STEP THE WHOLE LANE TURNS ON, and the one whose absence is invisible.
       # A squash-merged pull request's head is not reachable from `main`, so these
-      # objects are in no clone of this repository however deep. Fetched by pull ref
-      # rather than by bare sha: GitHub does not enable
-      # `uploadpack.allowReachableSHA1InWant`, so `fetch <sha>` is refused, while the
-      # pull ref always reaches the frozen commit.
+      # objects are in no clone of this repository however deep.
+      #
+      # THE PULL REF IS THE PRIMARY PATH AND A BARE SHA IS THE FALLBACK, in that order
+      # and for different reasons. `refs/pull/<n>/head` is a documented, stable GitHub
+      # feature, and one batched fetch serves every item — so it is what the lane asks
+      # for first. But it is a MOVING pointer: it tracks the pull request's current
+      # head, and a frozen `review_commit` that was later force-pushed away is no
+      # longer contained in it. Measured on the pilot's pr-415, whose corpus commit and
+      # whose pull-ref tip have diverged outright.
+      #
+      # So anything the pull ref did not carry is asked for by its full sha, from the
+      # same source repository. That works here — verified: this server does serve
+      # commits unreachable from every ref — but it rests on server configuration
+      # rather than on a documented contract, which is exactly why it is the second
+      # attempt and not the first.
+      #
+      # NO `--depth` on that fallback, and this is load-bearing rather than tidy: a
+      # shallow fetch marks the repository shallow, and a shallow tree cannot be
+      # blamed — which would silently disable the novelty gate this lane exists to
+      # exercise. Verified that the undepthed form leaves the clone unshallow and that
+      # `git blame` still works in a worktree built at the fetched commit.
       #
       # FETCHED FROM THE REPOSITORY THE CORPUS NAMES, NOT FROM `origin`. A corpus item
       # is a pull request OF a named repository — that is what `source_pr` means — and
@@ -289,6 +306,17 @@ jobs:
           source_url="$(cat "$RUNNER_TEMP/plan/source-repo-url.txt")"
           echo "eval-replay: fetching the corpus's refs from ${source_url}"
           xargs git fetch --no-tags "$source_url" < "$RUNNER_TEMP/plan/refspecs.txt"
+          # The second attempt, for a frozen commit its pull request has moved past.
+          # `|| true`: a failed retry falls through to the assertion below, so there is
+          # exactly ONE place that decides the step failed and exactly one message
+          # describing it.
+          while read -r commit item; do
+            if git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+              continue
+            fi
+            echo "  retry   ${item} ${commit} — not carried by its pull ref, asking for the commit directly"
+            git fetch --no-tags "$source_url" "${commit}:refs/eval/item/${item}" || true
+          done < "$RUNNER_TEMP/plan/commits.txt"
           missing=0
           while read -r commit item; do
             if git cat-file -e "${commit}^{commit}" 2>/dev/null; then
@@ -299,8 +327,8 @@ jobs:
             fi
           done < "$RUNNER_TEMP/plan/commits.txt"
           if [ "$missing" -ne 0 ]; then
-            echo "eval-replay: ${missing} corpus commit(s) are not in this checkout after fetching the pull refs." >&2
-            echo "The pull request may have been force-pushed since the corpus was frozen, or its refs deleted." >&2
+            echo "eval-replay: ${missing} corpus commit(s) are not in this checkout after BOTH the pull-ref fetch and a direct fetch by sha." >&2
+            echo "The commit may have been garbage-collected upstream, or ${source_url} may not be the repository the corpus was frozen from." >&2
             exit 1
           fi
 

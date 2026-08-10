@@ -220,6 +220,22 @@ pair of eyes on the *number*.
   failed everywhere else with `couldn't find remote ref`, after which every item would
   have refused for free and the run would have looked like a panel that found nothing.
   Now derived from the manifest, and a missing `source_repo` is a refusal.
+- **I wrote that GitHub refuses a bare-sha fetch. It does not.** The comment claimed
+  `uploadpack.allowReachableSHA1InWant` is off, so `git fetch <url> <sha>` would be
+  refused. Verified false on this server: a virgin `git init` repo fetches
+  `51c01826` — a commit unreachable from *every* upstream ref — and exits 0. The
+  correction matters because it changes the design: a bare-sha fetch is available as a
+  fallback, and the lane now needs one. **A pull ref is a moving pointer**, so a frozen
+  `review_commit` that was later force-pushed away is not in it; pr-415's corpus commit
+  and pull-ref tip have diverged outright. Without the fallback, re-freezing the corpus
+  at the commit CodeRabbit reviewed would make the fetch step refuse pr-415 and fail
+  every dispatch. The pull ref stays primary — documented, and one batched fetch for
+  all items — with the bare sha as a strictly-second attempt ahead of an unchanged
+  assertion.
+- **The fallback must not be shallow.** `--depth=1` leaves the repository shallow, and
+  a shallow tree cannot be blamed — which would silently disable the novelty gate the
+  worktree exists to enable. Verified that the undepthed form leaves the clone
+  unshallow and that `git blame` works in a worktree built at the fetched commit.
 - **And the bases are not carried by the pull refs.** I assumed a `review_base` would
   be an ancestor of its own pull head; it is for pr-524 and pr-605 and **is not for
   pr-415**. So the lane fetches the source repository's `main` too, which also stops
@@ -276,13 +292,17 @@ invocation needed no change.
 - [x] **A test asserting the `permissions:` block has no write scope of any kind**,
       mirroring the collector's, plus no `: write` anywhere in the file.
 - [x] **A test asserting `workflow_dispatch` is the only trigger.**
-- [x] **24 of 24 mutations caught.** Every new assertion was broken deliberately and
+- [x] **27 of 27 mutations caught.** Every new assertion was broken deliberately and
       watched go red, including the two that first went unnoticed.
 - [x] **A full free end-to-end**, every step of the lane run in order against a
       pristine CI-style clone: preflight → public store clone → pull-ref fetch and
       per-item assertion → **real worktrees, 2470–3042 files per item** →
       replay → cap → store write → resume → artifact round trip → staging → commit
       → **stopped before the push**.
+- [x] **The force-push fallback demonstrated.** With pr-415 re-pinned to the stranded
+      commit, the step without the fallback reports `MISSING pr-415` and fails the
+      dispatch; with it, the retry fetches the commit, all seven resolve, and the
+      clone stays unshallow.
 - [x] **Verified on a fork-origin checkout**, which is the case that motivated the
       explicit remote: fetching from `origin` fails with `couldn't find remote ref
       refs/pull/415/head`; fetching from the corpus's `source_repo` brings all seven

@@ -332,6 +332,16 @@ checkout is running it — and a **fork does not carry its parent's `refs/pull/*
 the lane would work upstream and refuse every item anywhere else. A manifest without a
 usable `source_repo` is refused rather than guessed at.
 
+**A pull ref is a moving pointer, so there is a second attempt.** `refs/pull/<n>/head`
+tracks the pull request's *current* head, and a frozen `review_commit` that was later
+force-pushed away is no longer contained in it — true of pr-415, whose corpus commit
+and pull-ref tip have diverged. Anything the pull refs did not carry is then requested
+by full sha from the same repository. The pull ref stays the primary path because it
+is a documented GitHub feature and one batched fetch serves every item; the bare-sha
+fetch works but rests on server configuration, which is why it is the fallback. It is
+deliberately **not** shallow: a shallow tree cannot be blamed, and that would silently
+disable the novelty gate.
+
 ### Where the write access is
 
 The workflow's own `permissions:` are **read only**. The ability to write lives in
