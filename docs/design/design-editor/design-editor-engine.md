@@ -751,7 +751,7 @@ picking the first of two identical spans would write to the wrong node silently,
 which is the worst failure this tool can have. The reason carries the candidate
 paths, so the UI can offer "re-point this edit" rather than only "discard".
 
-**Two structural-op guards, both server-side** (`requireStatic`), because the
+**Three structural-op guards, all server-side** (`requireStatic`), because the
 client's `SceneMeta` can be stale — the same reason `/validate` shares
 `composeIntents` with `/commit`:
 
@@ -764,6 +764,22 @@ client's `SceneMeta` can be stale — the same reason `/validate` shares
   element would leave a bare `{}` and removing the container would silently drop
   the condition. Splice offsets are likewise taken from the OWNER (the `{…}`),
   or an insert after that child would land before the `}`.
+- **the node must not BE a returned expression.** The children of the synthetic
+  returns root look like siblings to the path model, but in source they are
+  separate `return` statements, so there is no sibling list to splice into —
+  and even with one return, adding a sibling yields `return <div/><span/>;`,
+  which does not parse. The test is identity against the root's returned
+  expressions, *not* `path.length === 1`: a returned FRAGMENT is transparent for
+  numbering, so `return <><A/><B/></>` puts A and B at depth 1 where they are
+  genuine siblings in a real container, and splicing between them stays legal.
+
+  This guard is deliberately **wider than the rule it enforces**. Refusing the
+  node also refuses inserting a *child* into it, which is valid — and that is
+  the mainline "insert into the page's root `<div>`" case. Narrowing it needs
+  the OP, which `resolveNode` is not given; `inject.mjs` is what defines the
+  ops, so widening `opts` to carry one belongs with that module rather than
+  ahead of it. Until then the refusal is visible and costs a capability, where
+  the alternative writes an unparseable file.
 
 `walkJsx` numbering: only JSX elements count; `JsxText`/comments do not.
 Fragments are **transparent** (their children number into the parent's list, so
@@ -778,6 +794,25 @@ renumber every path in the file.
 component PLUS local helpers. That is what turns `items.map(renderRow)` from the
 most fragile case into a supported one: `renderRow`'s JSX is `static` in its own
 root.
+
+A component is recognised as a function declaration, a variable initialised to a
+function, that same variable wrapped in `forwardRef`/`memo` (nested and
+`React.`-namespaced included), or a default export with no identifier of its own
+— which keys on the synthetic name `default`, a reserved word no source
+identifier can collide with. Missing a shape costs the WHOLE component rather
+than degrading it: with no root, none of its nodes are walked, so nothing is
+stamped, nothing reaches the outline, and a click inside it lands on whichever
+ancestor was stamped. The wrappers are an allowlist, not "any call holding an
+arrow", because `useMemo(() => <div/>, [])` holds one too and it is not the
+declared name's render output.
+
+`roots` is keyed by name, so a name that **two** JSX-returning functions claim
+(two components each with a local `const Row = …`) cannot say which tree an
+anchor belongs to. Those names are collected in an `ambiguous` set and treated
+as absence — `resolveNode` refuses them, and the stamper emits no id for them
+rather than one attributed to whichever was registered second. Same rule as
+identical-sibling ambiguity above, same reason: silently resolving against the
+wrong function's JSX is the failure this model exists to prevent.
 
 `applyLayoutRemove` echoes the **exact spliced-out span, including its leading
 newline and indent** (same rule as `removeNodeLine`). That captured text is what
