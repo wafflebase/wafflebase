@@ -16,10 +16,12 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import {
-  countFailedReviewRounds,
+  collectFixDispatches,
   fixAttemptCommits,
+  fixRoundsUsed,
   groupReviewRounds,
   detectStalledRounds,
+  renderFixDispatchComment,
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
   isPagedLatchComment,
@@ -248,7 +250,11 @@ const stallRounds = groupReviewRounds(
 // rebuttals re-paged on the very first post-rerun round. That is the exact "one
 // panel round and an immediate re-page" this change exists to end, arriving through
 // a different door.
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
+// Reads the DISPATCH LEDGER (this script's own records) when the PR has one, and
+// falls back to the commit-shape inference when it does not — see
+// `rounds.mjs::fixRoundsUsed`. The number now means "times the fixer was actually
+// sent in", which is what `MAX_REVIEW_ROUNDS` was always meant to bound.
+const failedRounds = fixRoundsUsed(comments, commits, requiredCheckNames, { since: rerunAt });
 pagedRoundContext.failedRounds = failedRounds;
 // A hand-back buys the loop at least one attempt before the softer bounds may fire
 // again. The round cap needs no such rule — its count already starts at the rerun.
@@ -295,12 +301,38 @@ if (stall.stalled && !heldByRerun) {
 
 if (failedRounds >= max) {
   page(
-    `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
+    `The fix agent has been dispatched ${failedRounds} time(s) (limit ${max}) without converging` +
       `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
     "round-cap",
   );
   process.exit(0);
 }
+
+// SPEND THE ROUND BEFORE IT IS TAKEN. Written here, after every page path has
+// declined to fire and before `proceed` is set, so the record exists for exactly
+// the dispatches that happen.
+//
+// Deliberately NOT best-effort. Every other write in this file's neighbourhood
+// swallows failure, but a dispatch whose record never landed is a round spent off
+// the books, and the next guard would grant it again — the one direction this
+// bound must not fail in. An uncaught throw reds this step, which reds the `fix`
+// job, which the `stalled` job's safety net already hands to a human.
+//
+// `prior` seeds the ledger from the inference it replaces, and only ever on the
+// FIRST record: a PR mid-flight when this shipped has already spent rounds that
+// left no record, and starting its ledger at zero would quietly hand it those
+// rounds back. `failedRounds` is the fallback count at this moment precisely
+// because no record exists yet.
+const headSha = commits.length ? String(commits[commits.length - 1].sha ?? "") : "";
+const prior = collectFixDispatches(comments).length === 0 ? failedRounds : 0;
+const dispatchBody = renderFixDispatchComment({
+  from: headSha,
+  prior,
+  round: failedRounds + 1,
+  max: Number.isFinite(max) ? max : null,
+});
+gh(["pr", "comment", String(pr), "--body", dispatchBody]);
+console.error(`dispatch: recorded round ${failedRounds + 1} of ${max} (from ${headSha.slice(0, 9)})`);
 
 // OBSERVABILITY: the PROCEED branch was the one silent decision in this loop —
 // only pages ever reached a human surface, so a continuing loop and a dead one

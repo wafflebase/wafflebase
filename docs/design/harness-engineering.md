@@ -1118,6 +1118,40 @@ Components:
   counts, and with no verdict timestamps anywhere the floor is abandoned entirely.
   Over-counting pages a round early, which a retry undoes; under-counting means
   the cap never trips and the loop is unbounded.
+- **The count is now a LEDGER, because the inference above is a race.** "Committed
+  after the panel first spoke" is the right discriminator only when the implement
+  job's self-review push and the first lens verdict happen in the expected order,
+  and they do not reliably: on #737 the self-review push beat the first verdict by
+  **20 seconds** and was correctly excluded; on #695 it lost by 2m50s, so two
+  implement pushes were charged as fix attempts. A third round there came from a
+  panel the concurrency guard CANCELLED, whose `always()` verdict step still wrote
+  six fail-closed reds onto a commit nobody reviewed. Three counted rounds, one
+  actual fixer invocation, and a page that said "the fixer has tried 3 time(s)".
+
+  So the guard stopped inferring and started recording: it writes a hidden
+  `<!-- agent-fix-dispatch -->` comment immediately before dispatching, and
+  `rounds.mjs::fixRoundsUsed` counts those. `countFailedReviewRounds` remains the
+  fallback for PRs that predate the ledger, and the first record carries a `prior`
+  baseline so such a PR hands over exactly rather than earning its spent rounds
+  back; a `@claude rerun` that cuts the ledger drops the baseline with it.
+
+  **Who may write a record is deliberately narrower than who may write the paged
+  latch**, and the asymmetry is the same one `rerunPointFrom` turns on. Records
+  become authoritative the moment one exists, so a single planted record would
+  switch a PR off the fallback and could hand back budget — the opposite fail
+  direction from the latch, where over-accepting merely stops the loop. Records
+  are therefore believed only from `github-actions[bot]`, the guard's
+  `GITHUB_TOKEN` identity, with **no association path and not `yorkie-agent[bot]`**
+  — that is the App identity the fix agent itself posts under, and the party
+  bounded by `MAX_REVIEW_ROUNDS` must not get to choose the rule it is counted by.
+  The write is not best-effort either: a dispatch whose record never landed is a
+  round the next guard hands out again.
+
+  `close-stuck-checks` closes a cancelled panel's lenses as `cancelled` rather
+  than `failure`, and the verdict step is `!cancelled()`, so a superseded round
+  stops reading as a spent one. The promote gate is unaffected —
+  `checks.mjs::checkPassed` accepts only `success` and treats an absent check as a
+  failure — and no `agent-review-*` check is required by branch protection.
 - **`@claude rerun` now restores the fix budget too.** #650 added the command: it
   deletes the paged comments, drops `agent:blocked` and re-runs CI. What it could
   not do is give the loop its attempts back — its own summary said the PR was
