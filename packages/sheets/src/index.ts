@@ -151,6 +151,7 @@ import {
 } from './model/worksheet/format';
 import {
   inferInput,
+  cellFromInput,
   defaultAlign,
   type InferInputOptions,
   type InferredInput,
@@ -227,6 +228,18 @@ import {
   importXlsxWorkbook,
 } from './import/xlsx-importer';
 import type { ImportedXlsxSheet, XlsxFileLike } from './import/xlsx-importer';
+import { importJsonText } from './import/json-importer';
+import type {
+  JsonImportMode,
+  JsonImportOptions,
+} from './import/json-importer';
+import type { ImportedSheet } from './import/imported-sheet';
+import {
+  createTableWriter,
+  importTable,
+  MAX_IMPORT_CELLS,
+} from './import/csv-importer';
+import type { ImportedTable, TableWriter } from './import/csv-importer';
 
 export {
   initialize,
@@ -318,6 +331,7 @@ export {
   buildLocaleFormatPreview,
   formatValue,
   inferInput,
+  cellFromInput,
   defaultAlign,
   getWorksheetCell,
   getWorksheetEntries,
@@ -353,6 +367,10 @@ export {
   isAnchorAlive,
   importXlsxFile,
   importXlsxWorkbook,
+  importJsonText,
+  createTableWriter,
+  importTable,
+  MAX_IMPORT_CELLS,
 };
 
 export type {
@@ -419,8 +437,13 @@ export type {
   CommentAnchor,
   CommentAuthor,
   Thread,
+  ImportedSheet,
   ImportedXlsxSheet,
   XlsxFileLike,
+  JsonImportMode,
+  JsonImportOptions,
+  ImportedTable,
+  TableWriter,
 };
 
 export {

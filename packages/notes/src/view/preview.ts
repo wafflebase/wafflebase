@@ -10,6 +10,12 @@ import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
 import { detailsPlugin } from './details-plugin.js';
 import { listEmptyBulletPlugin } from './list-empty-bullet-plugin.js';
+import {
+  mermaidFenceHtml,
+  renderMermaidBlocks,
+  type MermaidLoader,
+  type MermaidTheme,
+} from './mermaid.js';
 
 const md: MarkdownIt = new MarkdownIt({
   html: false,
@@ -58,11 +64,18 @@ md.use(listEmptyBulletPlugin);
  * the button to it would make the button drift out of view when a long line
  * scrolls the block sideways. The wrapper is the positioning context; the
  * `<pre>` only owns overflow.
+ *
+ * A `mermaid` fence is not a code block at all: it emits a diagram
+ * placeholder that `NotePreview.render()` fills in asynchronously (see
+ * `mermaid.ts`).
  */
 md.renderer.rules.fence = (tokens, idx, options) => {
   const token = tokens[idx];
   const info = token.info ? md.utils.unescapeAll(token.info).trim() : '';
   const lang = info.split(/\s+/)[0] || '';
+  if (lang.toLowerCase() === 'mermaid') {
+    return mermaidFenceHtml(token.content, md.utils.escapeHtml);
+  }
   const highlighted = options.highlight
     ? options.highlight(token.content, lang, '') ||
       md.utils.escapeHtml(token.content)
@@ -128,7 +141,18 @@ const COPY_RESET_DELAY_MS = 1500;
 export class NotePreview {
   readonly el: HTMLDivElement;
 
-  constructor() {
+  /** Mermaid palette, kept in step with the editor's light/dark theme. */
+  private mermaidTheme: MermaidTheme;
+
+  /** Injectable in tests; production uses `mermaid.ts`'s lazy import. */
+  private readonly mermaidLoader: MermaidLoader | undefined;
+
+  constructor(
+    options: { theme?: 'light' | 'dark'; mermaidLoader?: MermaidLoader } = {},
+  ) {
+    this.mermaidTheme = options.theme === 'dark' ? 'dark' : 'default';
+    this.mermaidLoader = options.mermaidLoader;
+
     this.el = document.createElement('div');
     this.el.dataset.role = 'note-preview';
     this.el.className = 'note-preview markdown-body';
@@ -161,7 +185,29 @@ export class NotePreview {
     });
   }
 
+  /**
+   * Switches the mermaid palette. Diagrams already on screen keep their old
+   * palette until the next `render()`, which the caller (the editor's
+   * `setTheme`) triggers.
+   */
+  setTheme(mode: 'light' | 'dark'): void {
+    this.mermaidTheme = mode === 'dark' ? 'dark' : 'default';
+  }
+
   render(markdown: string): void {
     this.el.innerHTML = md.render(markdown);
+    // Mermaid diagrams render asynchronously (the engine is lazily imported);
+    // cached ones land inside this call, the rest arrive shortly after.
+    //
+    // This is called once per keystroke in split mode and needs no debounce
+    // here: `renderMermaidBlocks` bumps a per-root pass counter and runs every
+    // pass through one chain, so passes never overlap (at most one
+    // `mermaid.render()` in flight) and a pass this call supersedes abandons
+    // its remaining diagrams. Errors are reported on the block itself and the
+    // returned promise never rejects, so there is nothing to handle here.
+    void renderMermaidBlocks(this.el, {
+      theme: this.mermaidTheme,
+      load: this.mermaidLoader,
+    });
   }
 }

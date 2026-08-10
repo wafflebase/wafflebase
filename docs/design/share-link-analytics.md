@@ -148,7 +148,8 @@ New module mirroring `ApiKeyModule` / `ShareLinkModule` (controller + service +
   interpolation, not prepared statements** (StarRocks lacks prepared-stmt
   support — see the `//nolint:gosec` notes in the reference). All interpolated
   inputs are server-derived ids / validated date ranges, never raw client
-  strings. Returns metric series + counts. No-op → "disabled" when
+  strings, and each still goes through `mysql2`'s own `escape()` rather than a
+  hand-rolled quoter. Returns metric series + counts. No-op → "disabled" when
   `WAFFLEBASE_STARROCKS_DSN` is unset.
 - **Controller endpoints**:
   - `POST /internal/analytics/view-events` — accepts a batch of client events,
@@ -218,6 +219,15 @@ documents (`document_id IN (...)`) into workspace totals + a per-document
 ranking, each row linking to that document's detailed dashboard. Postgres owns
 the document set + titles; StarRocks only knows `document_id`, so the controller
 fetches titles and enriches the ranking.
+
+Because the roll-up is member-gated while the detail dashboard it links into is
+**manager-gated**, each ranking row also carries `canManage` — the same
+`isDocumentManager` predicate the detail endpoint enforces, resolved from the
+caller's workspace role + the document's `authorID` (the annotation the
+documents list already does). The table renders the "Details" link only for
+rows where it is true; a member would otherwise be shown a link into a
+guaranteed 403. The per-document page treats a 403 as a distinct, explanatory
+state so a shared URL or a stale tab still explains itself.
 
 ### Local development
 

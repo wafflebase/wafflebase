@@ -7,11 +7,21 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { IconPointer, IconLetterT, IconNote, IconPhoto } from "@tabler/icons-react";
+import {
+  IconPointer,
+  IconLetterT,
+  IconNote,
+  IconPhoto,
+  IconGrid3x3,
+} from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -29,6 +39,13 @@ import { TextEditSection } from "../slides/toolbar/text-edit-section";
 import { ArrangeMenu } from "../slides/toolbar/arrange-menu";
 import { canUngroupSelection } from "../slides/toolbar/can-ungroup";
 import { STICKY_COLORS } from "./sticky";
+import { type BoardGridKind } from "./board-grid";
+
+const GRID_OPTIONS: readonly { value: BoardGridKind; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "dot", label: "Dot grid" },
+  { value: "line", label: "Line grid" },
+];
 
 export interface BoardToolbarProps {
   editor: SlidesEditor | null;
@@ -38,6 +55,25 @@ export interface BoardToolbarProps {
    */
   store?: SlidesStore | null;
   zoomController?: ZoomController | null;
+  /**
+   * Background grid mode. A view-local, per-user preference (not board
+   * state), so it is owned by `BoardView` and persisted to `localStorage`
+   * rather than living in the Yorkie document — see `board-grid.ts`.
+   *
+   * Required, unlike the optional props above: the dropdown is fully
+   * controlled, so a consumer that omitted these would render a menu that
+   * shows a selected mode and silently ignores every click.
+   */
+  gridKind: BoardGridKind;
+  onGridKindChange: (kind: BoardGridKind) => void;
+  /**
+   * Whether move/resize quantize onto the grid. Independent of
+   * `gridKind` — `none` still snaps — so it is a checkbox below the mode
+   * radio group rather than a fourth mode. Required for the same reason
+   * as the two props above.
+   */
+  gridSnap: boolean;
+  onGridSnapChange: (snap: boolean) => void;
   disabled?: boolean;
   /** Drop a sticky of the given fill color at the viewport center. */
   onInsertSticky?: (colorValue: string) => void;
@@ -49,7 +85,7 @@ export interface BoardToolbarProps {
  * Morphing toolbar for the board infinite canvas.
  *
  * ```text
- * [↶][↷] │ [Zoom ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
+ * [↶][↷] │ [Zoom ▾][Grid ▾] │ [Select][Text][Sticky▾][Image][Shape▾][Line▾] │ ‹contextual›
  * ```
  *
  * The insert block mirrors `slides/toolbar/insert-group.tsx`'s wiring
@@ -73,6 +109,10 @@ export function BoardToolbar({
   editor,
   store = null,
   zoomController = null,
+  gridKind,
+  onGridKindChange,
+  gridSnap,
+  onGridSnapChange,
   disabled,
   onInsertSticky,
   onInsertImage,
@@ -127,11 +167,78 @@ export function BoardToolbar({
   // reach a constant.
   const theme = useMemo(() => store?.read().themes[0] ?? null, [store]);
 
+  // Both settings are spoken here: the icon is identical in every mode
+  // and says nothing at all about snapping, so the trigger's label is
+  // the only place either state is available without opening the menu.
+  const gridLabel =
+    (GRID_OPTIONS.find((option) => option.value === gridKind)?.label ?? "None") +
+    (gridSnap ? ", snap on" : "");
+
   return (
     <Toolbar>
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <ZoomControl controller={zoomController} />
+
+      {/* Grid ▾ — the background grid mode, next to Zoom because both are
+          view controls that change nothing in the document. Deliberately
+          NOT gated on `disabled`/`editor`: it is a per-user view
+          preference, so it stays usable while the workspace is still
+          resolving and on a board the user cannot edit. */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2"
+                // The icon is identical in all three modes (as it is in
+                // Miro), so the current one has to be spoken somewhere —
+                // otherwise a screen-reader user cannot tell whether the
+                // grid is on without opening the menu.
+                aria-label={`Grid: ${gridLabel}`}
+              >
+                {/* Dimmed only when the grid does NOTHING. `None` + snap
+                    on is a supported combination, and a dimmed icon there
+                    would be the one always-visible affordance claiming a
+                    feature that is in fact active. */}
+                <IconGrid3x3
+                  size={16}
+                  className={
+                    gridKind === "none" && !gridSnap ? "opacity-50" : undefined
+                  }
+                />
+                <span aria-hidden>▾</span>
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Grid: {gridLabel}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start">
+          <DropdownMenuRadioGroup
+            value={gridKind}
+            onValueChange={(value) => onGridKindChange?.(value as BoardGridKind)}
+          >
+            {GRID_OPTIONS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          {/* Below the separator because it is not a fourth mode: snapping
+              is independent of what is drawn, so `None` + snap on is a
+              valid (and useful) combination. */}
+          <DropdownMenuCheckboxItem
+            checked={gridSnap}
+            onCheckedChange={(checked) => onGridSnapChange(checked === true)}
+          >
+            Snap to grid
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <ToolbarSeparator className="mx-1" />
       {/* Select — pressed when insertMode === null (Esc/default state).
           onClick rather than onPressedChange so a second click while

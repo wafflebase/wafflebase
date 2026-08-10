@@ -1,0 +1,28 @@
+[
+  {
+    "name": "Alice",
+    "score": 95,
+    "active": true,
+    "joined": "2026-07-29",
+    "rate": "25%",
+    "balance": "$1,200",
+    "code": "00123",
+    "formula": "=SUM(B2,5)",
+    "profile": {
+      "role": "admin",
+      "city": "Seoul"
+    },
+    "tags": ["owner", "beta"]
+  },
+  {
+    "name": "Bob",
+    "score": null,
+    "active": false,
+    "joined": "2026-08-01",
+    "profile": {
+      "role": "viewer"
+    },
+    "tags": [],
+    "extra": "second-record-only"
+  }
+]

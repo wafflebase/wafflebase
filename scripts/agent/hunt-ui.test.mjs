@@ -100,6 +100,22 @@ test("each persona's codeScope covers the ENGINE its surface actually runs on", 
   assert.ok(byId["sheet-author"].codeScope.some((g) => g.startsWith("packages/sheets/src")));
 });
 
+test("the doc brief and rubric both demand a toggle ROUND TRIP", () => {
+  // The measured coverage gap, pinned so it cannot quietly regress. A live run made
+  // 17 predictions across two full sessions and every one held — because it applied
+  // each toggle exactly once and never re-applied it to the same selection. The one
+  // real defect this hunter has found (#715) lives precisely there, and broader
+  // exploration never reached it.
+  const doc = loadPersonas(CHARTERS_UI).find((p) => p.id === "doc-writer");
+  const brief = doc.briefs.find((b) => b.id === "body-and-styles");
+  assert.match(brief.task, /AGAIN without changing the\s+selection|toggle the same control more than once/i);
+  assert.match(brief.task, /SUB-RANGE INSIDE/i, "the brief must ask for a sub-range, not a whole block");
+  assert.match(brief.task, /right-to-left/i, "selection direction is one of the three ingredients");
+  // And the rubric has to explain WHY, or the brief reads as an arbitrary chore.
+  assert.match(doc.rubric, /ROUND TRIP/);
+  assert.match(doc.rubric, /equals "@read:/, "the rubric must show the ground-A form of the prediction");
+});
+
 test("no rubric offers a visual ground", () => {
   // The agent has no screenshot action. A rubric that invites "looks wrong" invites
   // a claim that is ineligible under every ground and wastes the session producing
@@ -925,6 +941,37 @@ test("runHunt: a refuted candidate counts as refutedAfterReplay, the precision s
   assert.equal(out.stats.refutedAfterReplay, 1);
   assert.match(out.dropped[0].why, /refuted/);
   assert.equal(out.ledgerAdds[0].verdict, "dropped");
+});
+
+test("runHunt counts a verifier that could not finish, separately from a refutation", async () => {
+  // Truncation and refutation are opposite outcomes that both show as "0 reported".
+  // One means the panel judged and said no; the other means it never judged at all
+  // and the money bought nothing. Conflating them hides a budget problem — this had
+  // no stat until it was reconstructed from raw execution logs, and a budget you can
+  // only see by log archaeology is one nobody watches.
+  const { deps } = funnelDeps({ verifyImpl: async () => { throw new Error("error_max_turns"); } });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.unjudgedVerifier, 1, "a truncated verifier must be counted");
+  assert.equal(out.stats.refutedAfterReplay, 0, "and must NOT read as a refutation");
+  assert.equal(out.ledgerAdds.length, 0, "nor be recorded, since nothing judged it");
+
+  // A real refutation moves the other counter and leaves this one alone.
+  const refuted = await runHunt(funnelDeps({ verifyImpl: async () => ({ ...CONFIRMED, verdict: "refuted" }) }).deps);
+  assert.equal(refuted.stats.unjudgedVerifier, 0);
+  assert.equal(refuted.stats.refutedAfterReplay, 1);
+});
+
+test("the shipped personas give verifiers more room than the CLI hunter", async () => {
+  // UI verification is structurally dearer: the verifier is the sole source of the
+  // citation, so it locates the cause from scratch. Measured 9-36 turns across four
+  // live runs, against the CLI hunter's 14-16. A ceiling at or below the CLI's would
+  // truncate the hard cases, and a truncation wastes the session twice over.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    assert.ok(
+      p.verifierMaxTurns >= 40,
+      `${p.id}: verifierMaxTurns is ${p.verifierMaxTurns}; live runs needed up to 36 and one truncated there`,
+    );
+  }
 });
 
 test("runHunt: an ERRORED verifier drops but is NOT recorded, so it is retried", async () => {

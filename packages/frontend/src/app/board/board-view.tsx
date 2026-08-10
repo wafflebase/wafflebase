@@ -34,6 +34,15 @@ import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
 import type { ZoomController } from "../slides/zoom-controller";
 import { createBoardZoomBinding, createBoardZoomController } from "./board-zoom";
+import {
+  applyGridBackground,
+  gridStep,
+  loadGridKind,
+  loadGridSnap,
+  saveGridKind,
+  saveGridSnap,
+  type BoardGridKind,
+} from "./board-grid";
 
 interface BoardViewProps {
   /**
@@ -180,6 +189,29 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const resolvedThemeRef = useRef(resolvedTheme);
   resolvedThemeRef.current = resolvedTheme;
 
+  // Background grid mode. React state so the toolbar's dropdown reflects
+  // it, mirrored into a ref for the same reason as the theme above — the
+  // mount effect's viewport closures must read the CURRENT mode without
+  // the whole board remounting whenever it changes.
+  const [gridKind, setGridKind] = useState<BoardGridKind>(loadGridKind);
+  const gridKindRef = useRef(gridKind);
+  gridKindRef.current = gridKind;
+
+  // Snap to grid. A SEPARATE toggle from the mode above (`none` still
+  // snaps), mirrored into a ref because the editor reads it through a
+  // `getSnapGrid` callback built once inside the mount effect.
+  const [gridSnap, setGridSnap] = useState<boolean>(loadGridSnap);
+  const gridSnapRef = useRef(gridSnap);
+  gridSnapRef.current = gridSnap;
+  // The context-menu item lives in the slides editor (built at mount) but
+  // has to drive React state the toolbar renders from. A ref-held setter
+  // keeps that closure current without re-running the mount effect.
+  const setGridSnapRef = useRef<(next: boolean) => void>(() => {});
+  setGridSnapRef.current = (next: boolean) => {
+    setGridSnap(next);
+    saveGridSnap(next);
+  };
+
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
     setDidMount(true);
@@ -263,6 +295,23 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // minimap) — the call only ever happens after mount, so the
       // declaration order stays readable without hoisting.
       onFitToContent: () => zoom.fit(),
+      // Snap move/resize onto the grid the user can see: the same
+      // `gridStep(zoom)` ladder that paints it. Read per gesture frame,
+      // so a zoom mid-drag changes the step under the cursor exactly as
+      // it changes the painted lines.
+      getSnapGrid: () =>
+        gridSnapRef.current ? gridStep(vp.current.zoom) : null,
+      // Right-click the empty canvas → the same toggle the toolbar has.
+      // This is where Miro puts it, and it is the only place a user
+      // deep in a drag-heavy flow will look.
+      hostCanvasMenuItems: () => [
+        { label: "---", run: () => undefined },
+        {
+          label: "Snap to grid",
+          selected: gridSnapRef.current,
+          run: () => setGridSnapRef.current(!gridSnapRef.current),
+        },
+      ],
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -271,10 +320,14 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       store,
       dpr,
       getHostSize: () => ({ w: hostW, h: hostH }),
+      // Forward reference to `commitViewport`, declared below: the
+      // dependency is circular (it repaints this minimap), so one side has
+      // to be deferred. Safe past the TDZ because `createBoardMinimap`
+      // only stores the callback — it fires on a click, long after mount.
       onNavigate: (worldCenter) => {
-        vp.current = centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH });
-        editor.setViewport(vp.current);
-        minimap.repaintViewport(vp.current);
+        commitViewport(
+          centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH }),
+        );
       },
     });
     container.appendChild(minimap.element);
@@ -288,11 +341,37 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       return slide ? slide.elements.map((e) => e.frame) : [];
     };
 
+    // THE viewport chokepoint. Every pan/zoom path — minimap navigate,
+    // fit-to-content, the zoom dropdown, wheel, space/middle-drag — goes
+    // through here, so a consumer of the viewport (the renderer, the
+    // minimap's viewport rect, the background grid) only has to be wired
+    // once. These used to be three statements copy-pasted at each call
+    // site, which is exactly how the grid would have been forgotten on one
+    // of them.
     const commitViewport = (next: Viewport) => {
       vp.current = next;
       editor.setViewport(vp.current);
       minimap.repaintViewport(vp.current);
+      applyGridBackground(
+        container,
+        gridKindRef.current,
+        vp.current,
+        resolvedThemeRef.current,
+      );
     };
+
+    // Initial grid paint. NOT redundant with the mode/theme effect below:
+    // that effect's first run can land before this container exists (the
+    // component renders a loader until the document resolves), and it does
+    // not re-run when the document arrives. Nor can the initial paint be
+    // left to `commitViewport` — an empty board never commits one, because
+    // `fitToContentOnce` has no content to frame.
+    applyGridBackground(
+      container,
+      gridKindRef.current,
+      vp.current,
+      resolvedThemeRef.current,
+    );
 
     // Open ON the board's content instead of at the world origin. Boards sit
     // far from (0, 0) — a Miro import especially — so `DEFAULT_VIEWPORT` shows
@@ -510,16 +589,16 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // Same predicate `applyWheelToViewport` branches on: only a
       // ctrl/cmd tick zooms, a plain tick pans.
       const zoomed = e.ctrlKey || e.metaKey;
-      vp.current = applyWheelToViewport(vp.current, {
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-        deltaX: e.deltaX,
-        deltaY: e.deltaY,
-        offsetX: e.clientX - canvasRect.left,
-        offsetY: e.clientY - canvasRect.top,
-      });
-      editor.setViewport(vp.current);
-      minimap.repaintViewport(vp.current);
+      commitViewport(
+        applyWheelToViewport(vp.current, {
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          offsetX: e.clientX - canvasRect.left,
+          offsetY: e.clientY - canvasRect.top,
+        }),
+      );
       // Reflect wheel/pinch zoom in the toolbar readout. LABEL-ONLY:
       // `reportViewportZoom` writes the value channel and nothing else,
       // so this scale — already applied above, anchored at the CURSOR —
@@ -601,9 +680,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       const dy = e.clientY - panLastY;
       panLastX = e.clientX;
       panLastY = e.clientY;
-      vp.current = { ...vp.current, panX: vp.current.panX + dx, panY: vp.current.panY + dy };
-      editor.setViewport(vp.current);
-      minimap.repaintViewport(vp.current);
+      commitViewport({
+        ...vp.current,
+        panX: vp.current.panX + dx,
+        panY: vp.current.panY + dy,
+      });
     };
     const onPointerUp = (e: PointerEvent) => {
       if (!panning || e.pointerId !== panPointerId) return;
@@ -672,6 +753,17 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // is here only to satisfy exhaustive-deps.
   }, [didMount, doc, readOnly, workspaceId, zoomValue]);
 
+  // Repaint the grid when the MODE or the theme changes — the two inputs
+  // that move without the viewport moving. Pan/zoom is covered by
+  // `commitViewport`, and the initial paint by the mount effect.
+  // Deliberately a separate effect: listing `gridKind` on the mount effect
+  // would tear down and rebuild the whole editor on every toggle.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    applyGridBackground(container, gridKind, vp.current, resolvedTheme);
+  }, [gridKind, resolvedTheme]);
+
   if (loading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -701,6 +793,13 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
           editor={editor}
           store={store}
           zoomController={zoomController}
+          gridKind={gridKind}
+          onGridKindChange={(kind) => {
+            setGridKind(kind);
+            saveGridKind(kind);
+          }}
+          gridSnap={gridSnap}
+          onGridSnapChange={(next) => setGridSnapRef.current(next)}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}

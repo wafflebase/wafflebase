@@ -50,7 +50,7 @@ export function createProgram(): Command {
     .option('--api-key <key>', 'API key')
     .option('--workspace <id>', 'Workspace ID')
     .option('--profile <name>', 'Config profile', 'default')
-    .option('--format <fmt>', 'Output format (json, table, csv)', 'json')
+    .option('--format <fmt>', 'Output format (json, table, csv, yaml)', 'json')
     .option(
       '--quiet',
       'Suppress progress notices (result body and errors still print)',

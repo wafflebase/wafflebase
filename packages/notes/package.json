@@ -5,7 +5,9 @@
   "license": "Apache-2.0",
   "description": "CodeMirror-based collaborative markdown note editor for Wafflebase",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "dist/wafflebase-notes.cjs",
   "module": "dist/wafflebase-notes.es.js",
   "types": "dist/wafflebase-notes.es.d.ts",
@@ -58,12 +60,14 @@
     "@uiw/codemirror-theme-xcode": "^4.25.4",
     "@vscode/markdown-it-katex": "^1.1.1",
     "codemirror": "^6.0.2",
+    "dompurify": "^3.4.12",
     "highlight.js": "^11.10.0",
     "katex": "^0.16.11",
     "markdown-it": "^14.1.0",
-    "markdown-it-task-lists": "^2.1.1"
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.16.0"
   },
   "peerDependencies": {
-    "@yorkie-js/sdk": "0.7.13"
+    "@yorkie-js/sdk": "0.7.14"
   }
 }

@@ -8,6 +8,20 @@ import type { SlidesStore } from '../../../store/store';
  * See docs/design/slides/slides-hover-and-text-edit-entry.md § P1.5.
  */
 export const SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX = 3;
+/**
+ * Client-px travel above which a pointer gesture counts as a drag rather
+ * than a click. Deliberately the same number as the slow-double-click
+ * window above — two thresholds answering "did this move?" would only
+ * have to disagree once to produce a gesture that is a click to one rule
+ * and a drag to the other.
+ *
+ * Named separately because the dependency runs the other way too: grid
+ * snapping (`editor.ts`, `activeSnapGrid`) will not engage below it, so
+ * raising the slow-double-click distance for dogfooding would leave the
+ * grid inert for the first few pixels of every board drag. Change it
+ * knowing both.
+ */
+export const DRAG_THRESHOLD_PX = SLOW_DOUBLE_CLICK_MAX_DISTANCE_PX;
 export const SLOW_DOUBLE_CLICK_MAX_DURATION_MS = 350;
 /**
  * Maximum gap (ms) between two consecutive pointer-downs on the same

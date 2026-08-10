@@ -174,7 +174,7 @@ export function initialize(
   editorEl.style.overflow = 'hidden';
   editorEl.style.minWidth = '0';
 
-  const preview = new NotePreview();
+  const preview = new NotePreview({ theme });
   preview.el.style.flex = '1 1 50%';
   preview.el.style.overflow = 'auto';
   // Vertical padding matters: `prose` zeroes the first child's margin-top
@@ -437,6 +437,10 @@ export function initialize(
       view.dispatch({
         effects: themeCompartment.reconfigure(themeExt(mode)),
       });
+      // Mermaid bakes its palette into the SVG it produces, so the preview
+      // needs a repaint to follow the new theme.
+      preview.setTheme(mode);
+      if (currentViewMode !== 'edit') renderPreview();
     },
     setViewMode: (mode: NoteViewMode) => {
       if (mode === currentViewMode) return;

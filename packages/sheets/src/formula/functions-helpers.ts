@@ -98,6 +98,7 @@ export function getReferenceMatrixFromExpression(
   expr: ParseTree,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
+  allowScalar = false,
 ): MatrixResult | FormulaError {
   const node = visit(expr);
   if (node.t === 'err') {
@@ -107,6 +108,9 @@ export function getReferenceMatrixFromExpression(
     return { t: 'arrmat', values: node.v, rowCount: node.rows, colCount: node.cols };
   }
   if (node.t !== 'ref' || !grid) {
+    if (allowScalar && node.t !== 'lambda' && node.t !== 'ref') {
+      return { t: 'arrmat', values: [[node]], rowCount: 1, colCount: 1 };
+    }
     return ErrNode.VALUE;
   }
 

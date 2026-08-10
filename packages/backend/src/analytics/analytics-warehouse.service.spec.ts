@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import * as mysql from 'mysql2/promise';
 import { AnalyticsWarehouseService } from './analytics-warehouse.service';
 
 function make(env: Record<string, string | undefined>) {
@@ -65,16 +66,27 @@ describe('AnalyticsWarehouseService', () => {
     expect(q.dwell).toContain('HAVING COUNT(*) > 1');
   });
 
-  it('escapes single quotes in the document id to prevent injection', () => {
+  it('escapes injection-hostile document ids in both builders', () => {
     const svc = make({
       WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
     });
+    // Escaping itself is mysql2's (`mysql.escape`); this only pins that the
+    // builders route ids through it, quote and trailing backslash alike — a
+    // raw `'a\'` would escape the closing quote and spill into SQL.
+    const hostile = "d'1\\";
+    const escaped = mysql.escape(hostile);
     const q = svc.buildQueries(
-      "d'1",
+      hostile,
       new Date('2026-07-01T00:00:00Z'),
       new Date('2026-07-17T00:00:00Z'),
     );
-    expect(q.totalViews).toContain("document_id = 'd''1'");
+    expect(q.totalViews).toContain(`document_id = ${escaped}`);
+    const ws = svc.buildWorkspaceQueries(
+      [hostile],
+      new Date('2026-07-01T00:00:00Z'),
+      new Date('2026-07-17T00:00:00Z'),
+    );
+    expect(ws.totalViews).toContain(`document_id IN (${escaped})`);
   });
 
   it('builds a workspace roll-up with an escaped document_id IN list', () => {
@@ -86,7 +98,9 @@ describe('AnalyticsWarehouseService', () => {
       new Date('2026-07-01T00:00:00Z'),
       new Date('2026-07-17T00:00:00Z'),
     );
-    expect(q.totalViews).toContain("document_id IN ('d1', 'd''2')");
+    expect(q.totalViews).toContain(
+      `document_id IN ('d1', ${mysql.escape("d'2")})`,
+    );
     expect(q.totalViews).toContain("timestamp < '2026-07-18'");
     // Unique visitors pair with views, so both are scoped to open events.
     expect(q.uniqueVisitors).toContain("event_type = 'open'");

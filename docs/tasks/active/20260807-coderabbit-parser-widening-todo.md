@@ -262,3 +262,110 @@ match on `(pr, title)`; the tier is on the finding so it can.
 
 **Not verified:** whether the 1626 review-body findings are useful *as corpus
 candidates* — none is filed, and that judgement belongs with the record schema.
+
+---
+
+# Follow-up: the alert-quoted review body, and the field the denominator did not cover
+
+Appended 2026-08-07, after #714 merged. Caught on **#716's review body**, which
+CodeRabbit posted at `09:05:21Z` — twelve minutes after #714 merged at `08:53:44Z`.
+
+## The problem
+
+CodeRabbit wraps a tier section in a GitHub alert block (`> [!CAUTION]`) whenever its
+findings fall outside the diff, and that prefixes **every line** of the section with a
+`>` and a space. Not new and not rare: **96 of this repo's 558 CodeRabbit review
+bodies**, back to 2026-04.
+
+Every count #714 reported was right on those bodies. `CR_LOCATOR` already tolerated a
+leading `>`, so locators, headers, tiers, files and the 100.0% recovery were all correct.
+
+**`detail` was not.** `CR_PROSE_END` had no `>` in its leading class, so on a quoted body
+the prose boundary was never found and `detail` ran to the end of the finding —
+swallowing the `🤖 Prompt for AI Agents` block. That block's boilerplate is the exact
+thing `codeRabbitDetail`'s own docblock spends a paragraph explaining must never reach the
+comparison: it contributes `code`, `fix`, `issues`, `changes`, `validate` to every
+comparison and inflates containment on the vocabulary every finding already shares —
+eating real misses where the panel had the most findings.
+
+**146 of 1626 review-body findings — 9.0%**, median `detail` length 1590 chars.
+
+The lesson is the one this module keeps re-learning, one level in: **#714 verified the
+count and never the field the count produced.** The recovery rate was 100.0% and honest;
+the record behind it was wrong. A denominator checks whether you found everything, not
+whether what you found is right.
+
+## The change
+
+`CR_BLOCKQUOTE_PREFIX` — `/^[ \t]*(?:>(?:[ \t]|$))+/gm` — stripped **once** at the two
+entry points: `codeRabbitReviewSections` (so every line-anchored pattern downstream sees
+plain text) and `codeRabbitDetail` (so the exported function does not depend on its
+caller having normalised first). `CR_PROSE_END` and `CR_WRAPPER` go back to being
+anchored on plain text.
+
+**A marker must be followed by a space, a tab or the end of the line.** That is what
+separates markup from content, and all three parts of it are load-bearing on this repo's
+own data:
+
+| | measured |
+|---|---|
+| lines where a greedy `[ \t]*` eats a real `>` | **6** — `> >= 0 and findPageLine(…)`, `>=18.12.0 is used for canvas@^3.`, `>) and assert…`, `   >,`, `      >).value,` |
+| lines where it eats the **indentation** of quoted code | **572** |
+| empty quoted lines written as bare `>`, no trailing space | **50**, across 22 review bodies — why end-of-line is an accepted terminator |
+| nested `> > ` | **0** — the `+` stays anyway, tested, and costs one character |
+
+## Corrected while building
+
+**The first fix was wrong, and it is the tempting one:** add `>` tolerance to each of the
+four line-anchored patterns. It fails, because an **empty** quoted line is `>` alone —
+not blank, and matching no wrapper — so the header-below-the-locator search stops on it
+and reads no header at all. The new test for that case failed against that fix, which is
+the only reason it was caught before pushing.
+
+One normalisation beats four permissive character classes, which are four chances to miss
+one.
+
+## Fail directions
+
+- Stripping is line-anchored AND requires a space, tab or line end after the marker, so
+  a `>` **operator** is untouched wherever it appears — mid-line (`marL + marR > cell
+  width`) or at the start of a wrapped line (`>=18.12.0 is used for canvas@^3.`). The
+  first version of this fix only handled the mid-line case and silently ate the other
+  six; CodeRabbit caught that on #719 and it is corrected here.
+- The strip only ever removes markup, so it cannot reduce the finding count. Recovery
+  stayed at 1626 of 1626.
+
+## Explicit non-goals
+
+- **Not fixed here: `eval/run.test.mjs:659` scans `tmpdir()` globally** for
+  `eval-item-*`, which is shared across runs and processes. With enough stale
+  directories present it fails under the concurrent runner — it failed once during this
+  work, caused by 1355 dirs left behind by repeated local lane runs, and passed again
+  once they were removed. That is #713's test and a real latent flake, but it is not this
+  change's to fix and no code of ours is involved.
+
+## Verification
+
+- [x] **`agent:tests` lane**, `node --test '**/*.test.mjs'` from `scripts/agent`, no
+      `node_modules`, from the committed tree: **1386 tests / 1380 pass / 0 fail / 6
+      skip**. Baseline measured on `upstream/main` (`1f9ee8864`, which now contains
+      #714): **1382 / 1376 / 0 fail / 6 skip**. **+4 tests, no new skips.**
+- [x] `npx eslint scripts` exits **0** at the pinned `9.24.0`.
+- [x] **No `detail` carries CodeRabbit's boilerplate**: **0 of 1626** review-body
+      findings and **0 of 1485** inline findings contain *"Verify each finding against
+      current code"*, *"Prompt for AI Agents"* or a `cr-comment:v1` marker. Was 146.
+- [x] **No `>` operator is eaten**: the 6 lines the greedy strip corrupted all round-trip
+      intact through `codeRabbitDetail`, and quoted code keeps its indentation.
+- [x] **Counts unchanged**: still 1626 of 1626 declared (100.0%), 0 unrecognised
+      sections, 1485 inline, 3111 total.
+- [x] **#716's real body**, the one that exposed this: parses 1 of 1 declared, tier
+      `outside-diff-range`, file `scripts/agent/eval/run.mjs` from the enclosing
+      `<summary>`, locator `421-426`, lens `security`, and a `detail` of 804 chars that
+      is title + prose and nothing else.
+- [x] **6 mutations, each red on the test that names it**, restored green at 94: remove
+      the section de-quote · remove `codeRabbitDetail`'s own strip · strip one quote
+      level instead of a run · revert to the greedy `[ \t]*` strip · drop the
+      end-of-line terminator · strip one level instead of a run under the new pattern.
+- [x] **One constructed fixture, labelled as such in the test** — a quoted section whose
+      header sits on the next line. Both halves are attested independently (96 quoted
+      bodies; header-below-locator in #11 and #477); no body currently does both at once.
