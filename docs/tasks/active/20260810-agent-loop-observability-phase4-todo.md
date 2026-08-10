@@ -188,15 +188,37 @@ because the `fix` job was cancelled too.
 
 ## The change, phase 4d — disputes legible even when there are none
 
-- [ ] `**Disputed (N)**` in the fix report, `_Nothing._` at zero, matching the
-      existing `Skipped (0)` treatment.
-- [ ] `rebuttal.mjs::cmdPost`'s failure path routed through
-      `emitBestEffortWarning` (#690 added it for exactly this class of silent
-      bail).
-- [ ] Export `severity.mjs::adjudicationNote` and render it in
-      `review-comment.mjs`, so an adjudicated dispute shows its outcome in both
-      the on-demand comment and 4b's per-round comment. Verify first that #689
-      really persisted adjudicated copies into `verdict.json`.
+- [x] **`**Disputed (N)**` in the fix report, rendered even at zero**, matching
+      the existing `Skipped (0)` treatment. Disputes live in their own comments,
+      so the report never mentioned them — leaving "the fixer disagreed with
+      nothing" and "the dispute channel silently failed" looking identical. It is
+      a COUNT, not a list: the rebuttals render themselves, and restating their
+      content here would duplicate the claim the adjudicator reads, somewhere
+      nothing parses. It is also **rendered, never serialized** — the hidden
+      record is the fixer's claim about its own work, and the count is derived
+      from other comments at post time.
+- [x] **`rebuttal.mjs::cmdPost`'s failure path now leaves a breadcrumb.** Exit 0
+      stays right (the finding stands, which is the safe outcome), but it was
+      silent — and this is the one channel where silence is indistinguishable
+      from the honest answer. Routed through `emitBestEffortWarning`, which #690
+      added for exactly this class of exit-0 bail.
+- [x] **`severity.mjs::adjudicationNote` exported and rendered in
+      `review-comment.mjs`.** Precondition verified first:
+      `review-panel.mjs:3182` states that `verdict.json` carries `adjudication`
+      on findings that survived a dispute, and `collectLenses` reads that file —
+      so the outcome now shows in both the on-demand comment and 4b's per-round
+      comment. Same renderer as the check body, so the two cannot drift.
+
+### Verification (4d)
+
+- 116 tests across `fix-report` / `rebuttal` / `review-comment` / `severity`;
+  lane green; `pnpm lint:scripts` and `pnpm verify:entropy` clean.
+- **Six mutation tests, all caught**: dropping the Disputed section, rendering
+  nothing instead of `_Nothing._` at zero, leaking the count into the hidden
+  record, making `cmdPost` stop counting real disputes, silencing the rebuttal
+  failure path, and dropping the adjudication note from blocking rows.
+- A carried-forward `{ upheld: N }` with no verdict renders nothing, matching
+  `severity.mjs` — that shape is history, not a decision this round.
 
 ## Deliberately not done
 

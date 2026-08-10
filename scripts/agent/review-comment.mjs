@@ -22,7 +22,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BLOCKING, normalizeSeverity } from "./severity.mjs";
+import { BLOCKING, adjudicationNote, normalizeSeverity } from "./severity.mjs";
 
 // Leave ~5k of the 65 536-char comment cap for the parts the workflow adds
 // around this region (marker, verifier tally, AI-prompt fold, advisory note).
@@ -86,7 +86,13 @@ function blockingHead(f, blobBase) {
   const where = loc(f, blobBase);
   return `- ${where ? `**${where}** — ` : ""}${oneLine(f.summary) || "(no summary)"}` +
     ` <sup>${f._lens}</sup>` +
-    (f.unsettled ? " _(verifier could not settle this)_" : "");
+    (f.unsettled ? " _(verifier could not settle this)_" : "") +
+    // The adjudicator's decision on a finding that survived a dispute. It was
+    // computed, rendered into the lens check body by severity.mjs, and then
+    // dropped on the floor by every COMMENT surface — so the one place a
+    // maintainer actually reads findings never said a dispute had happened, let
+    // alone how it went. Same renderer as the check body, so the two cannot drift.
+    adjudicationNote(f);
 }
 
 // The collapsible extra for a blocking finding — its longer `evidence` and any
@@ -106,7 +112,8 @@ function minorRow(f, blobBase, showSev) {
   const where = loc(f, blobBase);
   const tag = showSev ? `_(${normalizeSeverity(f.severity)})_ ` : "";
   return `- ${tag}${where ? `**${where}** — ` : ""}${oneLine(f.summary) || "(no summary)"}` +
-    (f.unsettled ? " _(verifier could not settle this)_" : "");
+    (f.unsettled ? " _(verifier could not settle this)_" : "") +
+    adjudicationNote(f);
 }
 
 // One relocated/pre-existing finding, keeping the proof line that justifies the

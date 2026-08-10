@@ -220,3 +220,42 @@ test("CLI writes the rendered region to --out and echoes it", () => {
   assert.doesNotMatch(written, /Docs/); // zero-finding lens omitted
   assert.equal(stdout.trim(), written.trim());
 });
+
+// --- adjudication outcomes reach the comment surfaces ------------------------
+
+test("a finding that survived a dispute shows how the dispute went", () => {
+  // The adjudicator's decision was computed, rendered into the lens CHECK body by
+  // severity.mjs, and then dropped by every COMMENT surface — so the place a
+  // maintainer actually reads findings never said a dispute had happened.
+  const disputed = F("major", "src/x.ts", "the retry loop can spin forever", {
+    adjudication: { upheld: 1, verdict: "upheld", reason: "the ceiling is still absent at x.ts:41" },
+  });
+  const out = renderReviewComment([lens("correctness", "Correctness", [disputed])]);
+  assert.match(out, /dispute adjudicated: \*\*upheld\*\*/);
+  assert.match(out, /the ceiling is still absent at x\.ts:41/);
+});
+
+test("the same note reaches a collapsed minor row", () => {
+  const disputed = F("minor", "src/y.ts", "naming is inconsistent", {
+    adjudication: { upheld: 1, verdict: "overturned", reason: "no located evidence" },
+  });
+  const out = renderReviewComment([lens("docs", "Docs", [disputed])]);
+  // An ungrounded overturn still UPHOLDS — the wording must not read as a win.
+  assert.match(out, /dispute adjudicated: \*\*upheld\*\* \(the overturn lacked grounded evidence\)/);
+});
+
+test("a finding with no adjudication renders exactly as before", () => {
+  const plain = F("major", "src/x.ts", "the retry loop can spin forever");
+  const out = renderReviewComment([lens("correctness", "Correctness", [plain])]);
+  assert.doesNotMatch(out, /dispute adjudicated/);
+  // And a carried-forward `{ upheld: N }` with no verdict is history, not a
+  // decision this round — severity.mjs renders nothing for it, and so must this.
+  const carried = F("major", "src/x.ts", "the retry loop can spin forever", { adjudication: { upheld: 2 } });
+  assert.doesNotMatch(renderReviewComment([lens("correctness", "Correctness", [carried])]), /dispute adjudicated/);
+});
+
+test("the comment and the check body use the SAME renderer, so they cannot drift", () => {
+  const src = readFileSync(new URL("./review-comment.mjs", import.meta.url), "utf8");
+  assert.match(src, /import \{ BLOCKING, adjudicationNote, normalizeSeverity \} from "\.\/severity\.mjs"/);
+  assert.doesNotMatch(src, /function adjudicationNote/, "must not re-implement it locally");
+});
