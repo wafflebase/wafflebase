@@ -270,6 +270,52 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
+## Engine Package Builds
+
+The five engine packages (`docs`, `sheets`, `slides`, `notes`, `board`) plus
+`core` build in two steps, and the order is load-bearing:
+
+```sh
+vite --config vite.build.ts build   # JS bundle; emptyOutDir wipes dist/ first
+tsc -p tsconfig.build.json          # declarations only, into the same dist/
+```
+
+Vite owns the JS, `tsc` owns the declarations. Declarations emitted *before*
+the vite step would be wiped by its `emptyOutDir`.
+
+`include`/`exclude` live in the build tsconfig (e.g.
+`packages/docs/tsconfig.build.json`), never in the package's main
+`packages/docs/tsconfig.json` — `pnpm <pkg> typecheck` reads the main one, so
+excluding `test` there would silently drop test typecheck coverage from
+`verify:fast`.
+
+These packages previously used `vite-plugin-dts` with `rollupTypes: true`,
+which runs `@microsoft/api-extractor` to bundle each entry into a single
+declaration file. That is a *publishing* affordance, and no engine package is
+published — every one is `private: true`, and the sole npm artifact
+(`@wafflebase/cli`) ships no declarations at all (`tsup` is configured
+`dts: false`) because it bundles the engines' **JS** inline. The rollup cost
+three things: it was the slowest step of each engine build; it hard-crashed
+(`InternalError: The referenced path was not found`) whenever a second build
+of the same package deleted its intermediate declaration files mid-analysis;
+and a crashed rollup left the entry declaration as a stub re-exporting an
+already-deleted directory.
+
+### The `verify:dts` lane
+
+Every consumer tsconfig sets `skipLibCheck: true`, so a `dist/` with holes in
+its declaration graph typechecks green and silently degrades to `any`.
+`scripts/verify-dts-entries.mjs` walks each package's declared `types` and
+`exports.*.types` entries, follows every relative specifier transitively, and
+fails on the first that does not resolve.
+
+It runs in two places: as a `verify:self` lane after the engine build lanes,
+and in `.github/workflows/npm-publish.yml`, which runs no typecheck of its own
+and would otherwise publish against a broken `dist/` unnoticed. Named packages
+are
+required (missing `dist/` fails); with no arguments, unbuilt packages are
+skipped, since each caller builds only the subset it needs.
+
 ## Completed Phases (1-20, 22, 23)
 
 | Phase | Scope | Status |
