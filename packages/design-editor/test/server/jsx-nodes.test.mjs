@@ -255,6 +255,35 @@ describe('owner', () => {
     expect(r.scope).toBe('iteration');
     expect(r.reason).toMatch(/Extract the row into a component or a render helper/);
   });
+
+  it('refuses structural edits on a top-level returned element', () => {
+    // It is `static` and owns itself, so both existing guards pass it — but
+    // there is no sibling list here. A splice would emit
+    // `return <div/><span/>;`, which does not parse.
+    const r = selfResolve(`function C() { return <div/>; }`, 'div', { requireStatic: true });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/is a whole return value, not a child in a sibling list/);
+  });
+
+  it('refuses EVERY return of a multi-return component, not just the first', () => {
+    // The guard-clause shape. `[0]` and `[1]` look like siblings to the path
+    // model but are separate `return` statements, so "insert after [0]" has no
+    // meaning at all.
+    const src = `function C({x}) { if (x) return <a/>; return <b/>; }`;
+    for (const tag of ['a', 'b']) {
+      const r = selfResolve(src, tag, { requireStatic: true });
+      expect(r.located).toBe(false);
+      expect(r.reason).toMatch(/whole return value/);
+    }
+  });
+
+  it('still allows ATTRIBUTE edits on a top-level returned element', () => {
+    // The refusal is scoped to structural ops. Without requireStatic the same
+    // node resolves normally — a class or prop edit never splices a sibling.
+    const r = selfResolve(`function C() { return <div/>; }`, 'div');
+    expect(r.located).toBe(true);
+    expect(r.entry.tag).toBe('div');
+  });
 });
 
 // --- fp: the stable identity ----------------------------------------------

@@ -744,6 +744,33 @@ export function resolveNode(sf, anchor, opts = {}) {
           `(<${hit.tag}> at ${hit.path.join('.')} sits inside a {…} expression); only layout-props is`,
       };
     }
+    // A RETURNED EXPRESSION has no sibling list to splice into. The children of
+    // the synthetic returns root look like siblings to the path model, but in
+    // source they are separate `return` statements: `[0]` and `[1]` of
+    // `if (x) return <a/>; return <b/>;` are not adjacent to each other or to
+    // anything else. Even with one return, adding a sibling yields
+    // `return <div/><span/>;` — adjacent top-level JSX, which does not parse.
+    //
+    // The test is identity against `root.jsx`, NOT `path.length === 1`. A
+    // returned FRAGMENT is transparent for numbering, so `return <><A/><B/></>`
+    // puts A and B at depth 1 — and those two are real siblings inside a real
+    // container, so splicing between them is legal and must stay allowed.
+    //
+    // FOLLOW-UP, for the PR that lands `inject.mjs`: this refuses the node, so it
+    // also refuses inserting a CHILD into it, which is perfectly valid. The
+    // correct guard needs the OP, not just the node — and `inject.mjs` is what
+    // defines the ops. Widening `opts` to carry it is a published-signature
+    // change, so it belongs there rather than here. Refusing is the safe half:
+    // a visible refusal costs a capability, a bad splice corrupts the file.
+    if (isReturnsRoot(root) && root.jsx.includes(/** @type {ts.Node} */ (hit.node))) {
+      return {
+        located: false,
+        reason:
+          `structural edits are not supported for a top-level returned element ` +
+          `(<${hit.tag}> at ${hit.path.join('.')} is a whole return value, not a child ` +
+          `in a sibling list); only layout-props is. Wrap it to restructure around it.`,
+      };
+    }
   }
   return { located: true, entry: hit, relocated };
 }
