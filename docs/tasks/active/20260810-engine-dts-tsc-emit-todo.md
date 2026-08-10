@@ -9,7 +9,7 @@ build shape `@wafflebase/core` already uses. Vite keeps building the JS.
 
 `pnpm build` failed on `main` with:
 
-```
+```text
 [vite:dts] Internal Error: The referenced path was not found:
   packages/docs/dist/src/model/types.d.ts
     at SourceMapper._getMappedSourceLocation (@microsoft/api-extractor/lib/collector/SourceMapper.js:70)

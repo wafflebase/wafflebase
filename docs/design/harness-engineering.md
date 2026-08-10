@@ -275,7 +275,7 @@ database → auth/user/document → controllers/modules
 The five engine packages (`docs`, `sheets`, `slides`, `notes`, `board`) plus
 `core` build in two steps, and the order is load-bearing:
 
-```
+```sh
 vite --config vite.build.ts build   # JS bundle; emptyOutDir wipes dist/ first
 tsc -p tsconfig.build.json          # declarations only, into the same dist/
 ```

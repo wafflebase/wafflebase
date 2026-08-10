@@ -37,8 +37,15 @@ if (unknown.length > 0) {
   process.exit(1);
 }
 
-// `import ... from 'x'`, `export ... from 'x'`, `import('x')`, `export * from 'x'`.
-const SPECIFIER_RE = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
+// `import ... from 'x'`, `export ... from 'x'`, `import('x')`, `export * from
+// 'x'`, and `import X = require('x')`.
+const SPECIFIER_RE = /(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
+
+// `/// <reference path="x" />`. tsc does not emit these for the current
+// sources (0 across 517 emitted declarations), but a missed edge here is
+// silent under-reporting, which is the exact failure this script exists to
+// prevent — so cover the form rather than the current output.
+const REFERENCE_PATH_RE = /\/\/\/\s*<reference\s+path\s*=\s*['"]([^'"]+)['"]/g;
 
 /** Every `types` path a consumer can land on, keyed by where it came from. */
 function declaredTypeEntries(pkgDir) {
@@ -107,7 +114,11 @@ for (const pkg of PACKAGES) {
     while (queue.length > 0) {
       const file = queue.pop();
       const source = readFileSync(file, 'utf8');
-      for (const match of source.matchAll(SPECIFIER_RE)) {
+      const edges = [
+        ...source.matchAll(SPECIFIER_RE),
+        ...source.matchAll(REFERENCE_PATH_RE),
+      ];
+      for (const match of edges) {
         const specifier = match[1];
         if (!specifier.startsWith('.')) continue; // bare import: consumer's problem
         const resolved = resolveDeclaration(file, specifier);
