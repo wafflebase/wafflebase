@@ -425,12 +425,65 @@ function pushFnBody(fn, scope, out, owner) {
 }
 
 /**
+ * Wrapper calls whose ARGUMENT is the component function.
+ *
+ * An allowlist, for the same reason `CLASS_JOINERS` is one. `useMemo(() =>
+ * <div/>, [])` and `withRetry(() => <Spinner/>)` also hold an arrow returning
+ * JSX, but that arrow is not the declared name's render output, and registering
+ * it as one would key a root on a name that does not describe it. `forwardRef`
+ * and `memo` are the two React wrappers where the argument genuinely IS the
+ * component — and they are everywhere in shadcn/Radix code, which
+ * `design-editor-audit.md` puts at the centre of the support matrix.
+ */
+const RENDER_WRAPPERS = new Set(['forwardRef', 'memo']);
+
+/**
+ * The component function `expr` denotes, seeing through the parentheses and
+ * render wrappers that hold one. `memo(forwardRef((props, ref) => …))` nests in
+ * practice, so the unwrap recurses.
+ *
+ * @param {ts.Expression} expr
+ * @returns {ts.ArrowFunction | ts.FunctionExpression | null}
+ */
+function componentFnOf(expr) {
+  if (ts.isParenthesizedExpression(expr)) return componentFnOf(expr.expression);
+  if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return expr;
+  if (!ts.isCallExpression(expr)) return null;
+  const callee = expr.expression;
+  const isWrapper =
+    (ts.isIdentifier(callee) && RENDER_WRAPPERS.has(callee.text)) ||
+    (ts.isPropertyAccessExpression(callee) && RENDER_WRAPPERS.has(callee.name.text));
+  if (!isWrapper) return null;
+  for (const a of expr.arguments) {
+    const fn = componentFnOf(a);
+    if (fn) return fn;
+  }
+  return null;
+}
+
+/**
+ * Root name for a default export that has no identifier of its own.
+ *
+ * `default` is a reserved word, so no source identifier can collide with it —
+ * the synthetic name cannot shadow a real component, by construction.
+ */
+const DEFAULT_ROOT = 'default';
+
+/**
  * One walkable root per JSX-returning function in the file — the component
  * itself PLUS local helpers like `renderRow`.
  *
  * This is what turns `items.map(renderRow)` from the most fragile case into a
  * supported one: `renderRow`'s JSX is `static` in its own root, so structural
  * ops work there normally.
+ *
+ * A component reaches this map under three shapes, and MISSING one costs the
+ * whole component: with no root, none of its nodes are walked, so nothing is
+ * stamped, nothing appears in the outline, and a click inside it falls through
+ * to whichever ancestor was stamped. The shapes are a function declaration, a
+ * variable initialised to a function — through `RENDER_WRAPPERS` if it is
+ * wrapped — and a default export with no name of its own, which keys on
+ * `DEFAULT_ROOT`.
  *
  * `ambiguous` carries the names that more than one JSX-returning function in the
  * file claims. `visit` recurses over the whole file, so two components each
@@ -515,25 +568,41 @@ export function findJsxRoots(sf) {
 
   /** @param {ts.Node} node */
   const visit = (node) => {
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      const root = rootJsxOf(node);
-      if (root) {
-        addRoot(node.name.getText(), root);
-        if (isExportDefault(node)) defaultExport = node.name.getText();
+    if (ts.isFunctionDeclaration(node)) {
+      // `export default function () {}` is the one anonymous declaration the
+      // grammar allows, and the only place the synthetic name is needed here.
+      const name = node.name?.getText() ?? (isExportDefault(node) ? DEFAULT_ROOT : null);
+      const root = name ? rootJsxOf(node) : null;
+      if (name && root) {
+        addRoot(name, root);
+        if (isExportDefault(node)) defaultExport = name;
       }
     }
     if (ts.isVariableStatement(node)) {
       for (const d of node.declarationList.declarations) {
-        const init = d.initializer;
-        if (!init) continue;
-        const fn = ts.isArrowFunction(init) || ts.isFunctionExpression(init) ? init : null;
+        if (!d.initializer) continue;
+        const fn = componentFnOf(d.initializer);
         if (!fn) continue;
         const root = rootJsxOf(fn);
         if (root) addRoot(d.name.getText(), root);
       }
     }
-    if (ts.isExportAssignment(node) && ts.isIdentifier(node.expression)) {
-      defaultExport = node.expression.getText();
+    if (ts.isExportAssignment(node)) {
+      if (ts.isIdentifier(node.expression)) {
+        // `export default Foo` — the root is already registered under `Foo` by
+        // whichever branch declared it.
+        defaultExport = node.expression.getText();
+      } else {
+        // `export default () => …`, or wrapped. The component has no name
+        // anywhere in the file, so without the synthetic one it is a root that
+        // cannot be addressed.
+        const fn = componentFnOf(node.expression);
+        const root = fn ? rootJsxOf(fn) : null;
+        if (root) {
+          addRoot(DEFAULT_ROOT, root);
+          defaultExport = DEFAULT_ROOT;
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };

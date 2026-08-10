@@ -558,6 +558,40 @@ describe('findJsxRoots', () => {
     expect(Object.keys(roots).sort()).toEqual(['A', 'B', 'C']);
   });
 
+  it('sees through forwardRef and memo to the component inside', () => {
+    // Without the unwrap none of these register at ALL, and a root that does
+    // not exist is a component whose every node is unstamped and unaddressable
+    // — a click inside it lands on an ancestor. shadcn/Radix code, which the
+    // support matrix is built around, declares components this way constantly.
+    const { roots } = findJsxRoots(parse(`
+      const A = forwardRef((props, ref) => <button ref={ref}/>);
+      const B = React.memo(function Inner() { return <li/>; });
+      const C = memo(forwardRef((props, ref) => <td/>));`));
+    expect(Object.keys(roots).sort()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('does not treat any other call holding an arrow as a component', () => {
+    // The premise: an arrow returning JSX inside a call is not by itself a
+    // component — `useMemo`'s is a memo body. Keying a root on `X` for JSX that
+    // is not `X`'s render output would put a wrong name in the outline.
+    const { roots } = findJsxRoots(parse(`
+      const X = useMemo(() => <div/>, []);
+      const Y = withRetry(() => <Spinner/>);`));
+    expect(Object.keys(roots)).toEqual([]);
+  });
+
+  it('registers an anonymous default export under `default`', () => {
+    for (const src of [
+      `export default function () { return <div/>; }`,
+      `export default () => <div/>;`,
+      `export default memo(() => <div/>);`,
+    ]) {
+      const { roots, defaultExport } = findJsxRoots(parse(src));
+      expect(Object.keys(roots)).toEqual(['default']);
+      expect(defaultExport).toBe('default');
+    }
+  });
+
   it('records `export default function` by name', () => {
     const { defaultExport } = findJsxRoots(parse(`export default function Page() { return <div/>; }`));
     expect(defaultExport).toBe('Page');
