@@ -174,33 +174,60 @@ export function attrsOf(node) {
  * The string-literal node holding `className`'s classes, or null.
  *
  * `className="a b"` and `className={"a b"}` resolve directly. For
- * `className={cn("a b", other)}` we take the FIRST string literal inside the
- * expression — that is the authored class blob in every shadcn/`cn()` call in
- * this codebase, and editing anything else would be a guess.
+ * `className={cn("a b", other)}` we take the first string literal that is a
+ * DIRECT ARGUMENT of the call.
+ *
+ * Directness is the whole guard. Descending into the expression instead finds
+ * the first literal ANYWHERE, which for the idioms this repo is built on is not
+ * the authored class blob at all:
+ *
+ *   cn({"is-open": open}, "base")     → "is-open", an object KEY
+ *   clsx(a ? "yes" : "no", "base")    → "yes", one branch of a ternary
+ *   cn(button({size:"sm"}), "base")   → "sm", a CVA VARIANT VALUE
+ *
+ * The last is the shadcn/CVA idiom this codebase is built on, so "the first
+ * literal is the authored blob in every cn() call in this codebase" was false
+ * for the codebase it named — before reaching the arbitrary consumer trees the
+ * local-plugin pivot points this at.
+ *
+ * Anything not attributable to a direct position returns null. That costs the
+ * class signal in `fpx`, weakening a search key, rather than handing
+ * `inject.mjs` a confident pointer at a literal it would then REWRITE.
  *
  * @param {JsxRootNode} node
  * @returns {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null}
  */
 export function classLiteralOf(node) {
+  /**
+   * @param {ts.Node} n
+   * @returns {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null}
+   */
+  const asLiteral = (n) =>
+    ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) ? n : null;
+  /**
+   * @param {ts.Expression} e
+   * @returns {ts.Expression}
+   */
+  const unwrap = (e) => (ts.isParenthesizedExpression(e) ? unwrap(e.expression) : e);
+
   for (const p of attrPropsOf(node)) {
     if (!ts.isJsxAttribute(p) || p.name.getText() !== 'className') continue;
     const init = p.initializer;
     if (!init) return null;
-    if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) return init;
+    const bare = asLiteral(init);
+    if (bare) return bare;
     if (!ts.isJsxExpression(init) || !init.expression) return null;
-    /** @type {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null} */
-    let found = null;
-    /** @param {ts.Node} n */
-    const visit = (n) => {
-      if (found) return;
-      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
-        found = n;
-        return;
+
+    const expr = unwrap(init.expression);
+    const direct = asLiteral(expr);
+    if (direct) return direct;
+    if (ts.isCallExpression(expr)) {
+      for (const arg of expr.arguments) {
+        const lit = asLiteral(unwrap(arg));
+        if (lit) return lit;
       }
-      ts.forEachChild(n, visit);
-    };
-    visit(init.expression);
-    return found;
+    }
+    return null;
   }
   return null;
 }

@@ -646,15 +646,35 @@ describe('classLiteralOf', () => {
     expect(classOf('function C(){ return <div className={`a b`}/>; }')).toBe('a b');
   });
 
-  it('takes the FIRST string literal inside a cn() call', () => {
-    // The authored class blob in every shadcn/cn() call in this codebase.
-    // Editing anything else would be a guess.
+  it('takes the first DIRECT string argument of a cn() call', () => {
     expect(classOf(`function C(){ return <div className={cn("a b", other && "c")}/>; }`)).toBe('a b');
+    expect(classOf(`function C(){ return <div className={cn(("a b"))}/>; }`)).toBe('a b');
+  });
+
+  it('skips non-literal arguments to reach the authored blob', () => {
+    // Each of these has an earlier string literal NESTED inside an argument.
+    // Descending would return that one — an object key, a ternary branch, or a
+    // CVA variant value — and inject.mjs would rewrite it as if it were classes.
+    expect(classOf(`function C(){ return <div className={cn({"is-open": open}, "base")}/>; }`))
+      .toBe('base');
+    expect(classOf(`function C(){ return <div className={clsx(a ? "yes" : "no", "base")}/>; }`))
+      .toBe('base');
+    expect(classOf(`function C(){ return <div className={cn(button({size:"sm"}), "base")}/>; }`))
+      .toBe('base');
+    expect(classOf(`function C(){ return <div className={cn(styles.x, "base")}/>; }`)).toBe('base');
   });
 
   it('returns null when there is no literal to edit', () => {
     expect(classOf(`function C(){ return <div className={other}/>; }`)).toBeNull();
     expect(classOf(`function C(){ return <div id="x"/>; }`)).toBeNull();
+  });
+
+  it('returns null rather than guessing when NO argument is a direct literal', () => {
+    // Refusing costs the class signal in fpx. Guessing would point a rewrite at
+    // a variant value or an object key.
+    expect(classOf(`function C(){ return <div className={cn(button({size:"sm"}))}/>; }`)).toBeNull();
+    expect(classOf(`function C(){ return <div className={a ? "yes" : "no"}/>; }`)).toBeNull();
+    expect(classOf('function C(){ return <div className={`p-2 ${x}`}/>; }')).toBeNull();
   });
 });
 
