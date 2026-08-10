@@ -10,10 +10,10 @@
 //
 // Nothing here calls a model, and nothing here needs an API key.
 
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fixtureGitEnv } from "../git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -164,6 +164,82 @@ function tempGitRepo() {
  * panel's commit is exactly the mislabelling `panel_sha` exists to prevent, so the
  * runner insists on being told.
  */
+// --- reaping what the stub spawned ------------------------------------------
+//
+// `hang` mode's stub never exits and, with `spawnGrandchild`, starts a child that
+// IGNORES SIGTERM. `reviewer.mjs` kills that group on its way out of `runAgent`,
+// but only along paths that reach its own settle — and this file spawns those
+// processes and, until now, asserted on the promise and walked away. Reaping what
+// you spawn is this file's obligation whether or not anything downstream also
+// does it: the assertion is about the timeout's REASON, not about who cleans up.
+//
+// `stub-panel.mjs` writes `stub-pids.json` with `{ panel, grandchild }` for
+// exactly this, and nothing had ever read it.
+const stubPids = new Set();
+
+// Only POSIX has process groups; on win32 a negative pid is not "the group", it
+// is an invalid pid. Same reasoning, and same guard, as `reviewer.mjs`.
+const IS_POSIX = process.platform !== "win32";
+
+// `process.kill(-0, …)` signals THE CALLER'S OWN PROCESS GROUP. Under the lane
+// that group is the test runner and every sibling test file, so a zero reaching
+// the kill below would take down the whole suite — a far worse failure than the
+// orphan it was reaping. Hence a whitelist of what may be signalled, not a
+// blacklist of what may not: `> 1` also refuses pid 1.
+const isReapablePid = (pid) => Number.isInteger(pid) && pid > 1;
+
+// `kill` is injected so the guard can be tested without signalling anything.
+function reapPid(pid, kill = process.kill) {
+  if (!isReapablePid(pid)) return false;
+  // Group first, because the grandchild ignores SIGTERM and is only reachable
+  // through the group its parent leads; then the bare pid, in its OWN try, so a
+  // group kill that throws does not skip the process itself. SIGKILL rather than
+  // SIGTERM for the same reason the fixture exists: SIGTERM is what it ignores.
+  // `ESRCH` — already gone — is the normal case, not a failure.
+  try { if (IS_POSIX) kill(-pid, "SIGKILL"); } catch { /* group already gone */ }
+  try { kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  return true;
+}
+
+// WHERE THE FILE IS, AND WHY IT IS NOT UNDER `root`. The stub writes
+// `stub-pids.json` into the ITEM's scratch directory, which `run.mjs` makes under
+// `tmpdir()` and deletes itself — except for a FAILED item, whose directory it
+// keeps because that holds the only copy of what the panel wrote, printing the
+// path as it goes. A hang is a failed item, so that line is how this file learns
+// where to look, and `runCli` already captures it.
+//
+// Parsed from the log rather than found by scanning `tmpdir()` for
+// `eval-item-*`: sibling test FILES run concurrently and have scratch
+// directories of their own, so a scan would reap a stub another file is still
+// timing out against — turning a leak into a cross-file flake.
+const KEPT_OUTPUT = /raw panel output kept at (.+)$/;
+
+function collectStubPids(logs, into = stubPids) {
+  let found = 0;
+  for (const line of logs) {
+    const kept = KEPT_OUTPUT.exec(line);
+    if (kept === null) continue;
+    try {
+      const pids = JSON.parse(readFileSync(path.join(kept[1].trim(), "stub-pids.json"), "utf8"));
+      // A missing or half-written value is not an error: a failed item that never
+      // hung has no `stub-pids.json` at all, and the only thing an unreadable one
+      // costs is a reap of a process that is already gone.
+      for (const pid of [pids.panel, pids.grandchild]) {
+        if (isReapablePid(pid)) { into.add(pid); found += 1; }
+      }
+    } catch { /* no pids file, or unreadable: nothing to reap */ }
+  }
+  return found;
+}
+
+// File-scoped, not per-test: `afterEach` would kill a stub that a later test is
+// still legitimately timing out against, which would change what the timeout
+// tests measure rather than clean up after them.
+after(() => {
+  for (const pid of stubPids) reapPid(pid);
+  stubPids.clear();
+});
+
 async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}) {
   // The cost cap is REQUIRED, so every invocation has to answer it. A stub panel
   // reports a fixed cost and spends nothing, so the honest answer for a test that
@@ -195,6 +271,9 @@ async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}
     console.log = realLog;
     console.error = realErr;
     if (prev === undefined) delete process.env.STUB_PANEL_SPEC; else process.env.STUB_PANEL_SPEC = prev;
+    // Unconditionally, including when `main` threw: that is exactly the run most
+    // likely to have left something alive.
+    collectStubPids(logs);
   }
 }
 
@@ -1414,5 +1493,108 @@ test("resuming a run id after editing lenses.json is refused, not silently mixed
   } finally {
     c.cleanup();
     rmSync(edited, { recursive: true, force: true });
+  }
+});
+
+// --- reaping what the stub spawned -------------------------------------------
+
+test("reapPid REFUSES every pid that is not a real process, and signals nothing", () => {
+  // The one that matters is 0. `process.kill(-0, …)` signals the caller's own
+  // process group, which under the lane is the test runner and every sibling test
+  // file — so a zero reaching the kill turns a cleanup into a suite-wide SIGKILL.
+  // The rest are the shapes a half-written `stub-pids.json` actually produces:
+  // `null` is the value the stub writes when it spawned no grandchild.
+  const calls = [];
+  const spy = (pid, sig) => { calls.push([pid, sig]); };
+  for (const bad of [0, -0, 1, -1, null, undefined, NaN, Infinity, 1.5, "4242", "", false, {}, []]) {
+    assert.equal(reapPid(bad, spy), false, `reapPid accepted ${JSON.stringify(bad)}`);
+  }
+  assert.deepEqual(calls, [], "a rejected pid must not reach process.kill at all");
+});
+
+test("reapPid kills the GROUP and then the pid, and a throwing group kill does not skip the pid", () => {
+  // Two tries, not one: the grandchild ignores SIGTERM and is reachable only
+  // through its parent's group, while the group kill is the one most likely to
+  // throw ESRCH first. Sharing a `try` would let that throw skip the process the
+  // reap is actually for.
+  const calls = [];
+  assert.equal(reapPid(4242, (pid, sig) => { calls.push([pid, sig]); }), true);
+  assert.deepEqual(calls, IS_POSIX ? [[-4242, "SIGKILL"], [4242, "SIGKILL"]] : [[4242, "SIGKILL"]]);
+
+  const afterThrow = [];
+  reapPid(4242, (pid, sig) => {
+    if (pid < 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+    afterThrow.push([pid, sig]);
+  });
+  assert.deepEqual(afterThrow, [[4242, "SIGKILL"]], "the bare pid must still be signalled");
+});
+
+test("collectStubPids reads the path run.mjs PRINTS, and ignores what it cannot use", () => {
+  // The contract is two-part: the log line `run.mjs` emits for a kept scratch
+  // directory, and the `stub-pids.json` `stub-panel.mjs` wrote inside it. Not a
+  // scan of `tmpdir()` and not a scan of the process table — either would also
+  // match a concurrent sibling test file's live stub.
+  const dir = mkdtempSync(path.join(tmpdir(), "eval-reap-"));
+  const noPids = mkdtempSync(path.join(tmpdir(), "eval-reap-none-"));
+  const broken = mkdtempSync(path.join(tmpdir(), "eval-reap-broken-"));
+  try {
+    writeFileSync(path.join(dir, "stub-pids.json"), JSON.stringify({ panel: 4242, grandchild: 4243 }));
+    // What the stub writes with no `spawnGrandchild`, what a failed-but-not-hung
+    // item leaves (no file at all), and what a killed stub leaves half-written.
+    // None may throw, and none may contribute a pid.
+    writeFileSync(path.join(broken, "stub-pids.json"), '{"panel": 42');
+    const into = new Set();
+    const logs = [
+      `  ! pr-1: raw panel output kept at ${dir}`,
+      `  ! pr-2: raw panel output kept at ${noPids}`,
+      `  ! pr-3: raw panel output kept at ${broken}`,
+      "  → pr-4: reviewing (6 lenses, 6 samples)…",
+    ];
+    assert.equal(collectStubPids(logs, into), 2);
+    assert.deepEqual([...into].sort((a, b) => a - b), [4242, 4243]);
+
+    // A run that kept nothing records nothing — the reaper must not invent pids
+    // from lines that are not about a kept directory.
+    const empty = new Set();
+    assert.equal(collectStubPids(["  → pr-9: reviewing (1 lenses, 1 samples)…"], empty), 0);
+    assert.equal(empty.size, 0);
+  } finally {
+    for (const d of [dir, noPids, broken]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("reapPid actually kills a process that IGNORES SIGTERM, which is the fixture's shape", () => {
+  // The end-to-end claim, on a process this test owns: the grandchild's defining
+  // property is that SIGTERM does nothing to it, so a reaper that sent SIGTERM
+  // would pass every assertion above and still leak on the runner.
+  const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], {
+    stdio: "ignore",
+    detached: IS_POSIX,
+  });
+  assert.ok(isReapablePid(child.pid), "spawn gave no usable pid");
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  assert.equal(alive(child.pid), true);
+  assert.equal(reapPid(child.pid), true);
+  return new Promise((resolve) => {
+    child.on("exit", () => { assert.equal(alive(child.pid), false); resolve(); });
+  });
+});
+
+test("the reaper is WIRED UP: a hang run leaves its pids recorded for `after` to kill", async () => {
+  // The mutation this exists for: delete `collectStubPids(root)` from `runCli` and
+  // every assertion above still passes, because they all test the reaper in
+  // isolation. What is asserted here is the connection — that a real hang run
+  // hands its pids to the set `after()` drains. Reaping is not asserted here: the
+  // pids are still alive on purpose at this point, because `after` has not run.
+  const c = tempCorpus();
+  const before = stubPids.size;
+  try {
+    await runCli(c.root, { hang: true, spawnGrandchild: true }, ["--panel-timeout", "1"]);
+    assert.ok(
+      stubPids.size >= before + 2,
+      `expected the stub's panel AND grandchild to be recorded, set grew by ${stubPids.size - before}`,
+    );
+  } finally {
+    c.cleanup();
   }
 });
