@@ -33,7 +33,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
-import { fromRebuttalAuthor } from "./rebuttal.mjs";
+import { fromRebuttalAuthor, readRebuttals } from "./rebuttal.mjs";
 
 /** Hidden-comment marker, mirroring metrics.mjs's `METRIC_PREFIX`. */
 export const FIX_REPORT_MARKER = "<!-- agent-fix-report ";
@@ -386,10 +386,15 @@ export function renderClaimForVerifier(claim) {
  * part the feature was asked for. A report that only a script can read would leave
  * the reviewer in exactly the position this module exists to fix.
  */
-export function renderFixReportBody(rec) {
+export function renderFixReportBody(rec, { disputed = 0 } = {}) {
   const r = rec && typeof rec === "object" ? rec : {};
   const fixed = (Array.isArray(r.fixed) ? r.fixed : []).map(normalizeItem);
   const skipped = (Array.isArray(r.skipped) ? r.skipped : []).map(normalizeItem);
+  // Rendered, never SERIALIZED. The hidden record is the fixer's own claim about
+  // its own work; the dispute count is derived from other comments at post time,
+  // so persisting it would create a second, staler copy of something the panel
+  // already reads first-hand from the rebuttal records.
+  const n = Number.isInteger(disputed) && disputed > 0 ? disputed : 0;
   // The VISIBLE prose sits above the payload, and `parseFixReportComment` takes
   // the FIRST marker match in the body. A finding whose wording quotes this
   // module's own marker would therefore be matched instead of the real record,
@@ -409,6 +414,25 @@ export function renderFixReportBody(rec) {
   lines.push(fixed.length ? fixed.map(item).join("\n") : "_Nothing._", "");
   lines.push(`**Skipped (${skipped.length})**`, "");
   lines.push(skipped.length ? skipped.map(item).join("\n") : "_Nothing._", "");
+  // DISPUTED IS RENDERED EVEN AT ZERO, and that is the whole reason it is here.
+  // A dispute is filed by `rebuttal.mjs`, in its own comment, so this report has
+  // never mentioned them — which left "the fixer disagreed with nothing" and "the
+  // dispute channel silently failed" looking exactly alike. They are not alike:
+  // no rebuttal has ever been filed on an agent PR, and a reader had no way to
+  // learn whether that is the fixer agreeing or the channel being dead. Say the
+  // number. `disputed` is a COUNT, not a list — the rebuttals render themselves,
+  // and restating their content here would duplicate the claim the adjudicator
+  // reads, in a place nothing parses.
+  lines.push(`**Disputed (${n})**`, "");
+  lines.push(
+    n > 0
+      ? (n === 1
+          ? "See the ⚖️ dispute comment on this PR — it is a claim an independent adjudicator "
+          : `See the ${n} ⚖️ dispute comments on this PR — each is a claim an independent adjudicator `) +
+        "decides next round, not a resolution."
+      : "_Nothing._",
+    "",
+  );
   if (skipped.length) {
     // Said plainly, because the opposite reading is the dangerous one: a skipped
     // finding is still open, and "skipped" is not a verdict about its merits.
@@ -519,7 +543,11 @@ function cmdPost(pr, args) {
     );
   }
   const rec = { head: str(args.head), fixed, skipped };
-  const body = renderFixReportBody(rec);
+  // Counted at post time from the rebuttals already on the PR. Best-effort by
+  // construction: `readRebuttals` degrades to `[]` on any failure, so an
+  // unreadable PR renders "Disputed (0)" — the same thing it rendered before this
+  // existed, and never a reason to lose the report itself.
+  const body = renderFixReportBody(rec, { disputed: readRebuttals(pr).length });
   // Round-trip before posting. A record this module cannot read back is one the
   // panel will ignore, and the agent would never learn its report went nowhere —
   // the same silent failure the CLI exists to prevent.

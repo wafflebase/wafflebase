@@ -17,6 +17,7 @@
     "verify:browser:docker": "pnpm frontend test:browser:docker",
     "verify:browser:docker:update": "pnpm frontend test:visual:browser:docker:update",
     "verify:entropy": "node ./scripts/verify-entropy.mjs",
+    "verify:dts": "node ./scripts/verify-dts-entries.mjs",
     "verify:self": "node ./scripts/verify-self.mjs",
     "verify:ci": "node ./scripts/verify-ci.mjs",
     "verify:integration": "node ./scripts/verify-integration.mjs",

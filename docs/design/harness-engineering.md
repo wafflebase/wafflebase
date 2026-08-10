@@ -270,6 +270,52 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
+## Engine Package Builds
+
+The five engine packages (`docs`, `sheets`, `slides`, `notes`, `board`) plus
+`core` build in two steps, and the order is load-bearing:
+
+```sh
+vite --config vite.build.ts build   # JS bundle; emptyOutDir wipes dist/ first
+tsc -p tsconfig.build.json          # declarations only, into the same dist/
+```
+
+Vite owns the JS, `tsc` owns the declarations. Declarations emitted *before*
+the vite step would be wiped by its `emptyOutDir`.
+
+`include`/`exclude` live in the build tsconfig (e.g.
+`packages/docs/tsconfig.build.json`), never in the package's main
+`packages/docs/tsconfig.json` — `pnpm <pkg> typecheck` reads the main one, so
+excluding `test` there would silently drop test typecheck coverage from
+`verify:fast`.
+
+These packages previously used `vite-plugin-dts` with `rollupTypes: true`,
+which runs `@microsoft/api-extractor` to bundle each entry into a single
+declaration file. That is a *publishing* affordance, and no engine package is
+published — every one is `private: true`, and the sole npm artifact
+(`@wafflebase/cli`) ships no declarations at all (`tsup` is configured
+`dts: false`) because it bundles the engines' **JS** inline. The rollup cost
+three things: it was the slowest step of each engine build; it hard-crashed
+(`InternalError: The referenced path was not found`) whenever a second build
+of the same package deleted its intermediate declaration files mid-analysis;
+and a crashed rollup left the entry declaration as a stub re-exporting an
+already-deleted directory.
+
+### The `verify:dts` lane
+
+Every consumer tsconfig sets `skipLibCheck: true`, so a `dist/` with holes in
+its declaration graph typechecks green and silently degrades to `any`.
+`scripts/verify-dts-entries.mjs` walks each package's declared `types` and
+`exports.*.types` entries, follows every relative specifier transitively, and
+fails on the first that does not resolve.
+
+It runs in two places: as a `verify:self` lane after the engine build lanes,
+and in `.github/workflows/npm-publish.yml`, which runs no typecheck of its own
+and would otherwise publish against a broken `dist/` unnoticed. Named packages
+are
+required (missing `dist/` fails); with no arguments, unbuilt packages are
+skipped, since each caller builds only the subset it needs.
+
 ## Completed Phases (1-20, 22, 23)
 
 | Phase | Scope | Status |
@@ -1737,10 +1783,29 @@ Inert by default: `--rebuttals` absent means an empty list, which short-circuits
 before any session opens, so a panel invoked without it is the panel that existed
 before this.
 
-Not yet built: an adjudication record in the metrics comment (the outcome is
-visible only in the check body today), and any measurement of how often a
-rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
-should not have happened is a false negative like any other.
+The adjudication outcome is no longer check-body-only:
+`scripts/agent/severity.mjs`'s
+`adjudicationNote` is exported and rendered by `scripts/agent/review-comment.mjs`
+too, so a dispute's decision — and the adjudicator's reason — appears in the
+on-demand comment and in the per-round panel comment, the two places a
+maintainer actually reads findings. A carried-forward `{ upheld: N }` with no
+verdict still renders nothing: that shape is history, not this round's decision.
+
+**Silence about disputes is now itself reported.** No rebuttal has ever been
+filed on an agent PR, and until this was addressed that fact was
+indistinguishable from a channel that had quietly broken. Three surfaces close
+it: the fix report always renders `Disputed (N)` — `_Nothing._` at zero, the
+same treatment `Skipped (0)` already had; the loop-status table's `Fixer` column
+carries a per-round `N disputed`; and `scripts/agent/rebuttal.mjs`'s post-failure path, which
+exits 0 by design because a dispute that cannot be posted leaves the finding
+standing, now emits a best-effort warning naming that consequence instead of
+vanishing. The count in the report is rendered and never serialized — the hidden
+record is the fixer's claim about its own work, while the count is derived from
+other comments at post time, and a second stale copy is worth nothing.
+
+Not yet built: an adjudication record in the metrics comment, and any measurement
+of how often a rebuttal is *right* — which is a `misses.jsonl` question, since an
+overturn that should not have happened is a false negative like any other.
 
 #### The loop shipped inert, and stayed inert until the lens was stamped
 
