@@ -12,6 +12,8 @@ model User {
   apiKeys           ApiKey[]
   userDocStyles     UserDocStyles?
   folders Folder[]
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsActed    Notification[] @relation("NotificationActor")
 }
 
 model UserDocStyles {
@@ -64,6 +66,8 @@ model Document {
   folderId String?
   folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
+  notifications Notification[]
+
   @@index([workspaceId, folderId])
 }
 
@@ -107,6 +111,7 @@ model Workspace {
   datasources DataSource[]
   apiKeys     ApiKey[]
   folders     Folder[]
+  notifications Notification[]
 }
 
 model WorkspaceMember {
@@ -149,6 +154,48 @@ model ApiKey {
   expiresAt   DateTime?
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())
+}
+
+/// An in-app notification addressed at one user. See
+/// `docs/design/notifications.md`.
+///
+/// Comment events are reported by the client (comments live inside Yorkie
+/// CRDT documents and never reach this backend) and authorized here;
+/// `workspace_member_joined` is created server-side in `acceptInvite`.
+model Notification {
+  id          String    @id @default(uuid())
+  /// comment_mention | comment_reply | thread_resolved | workspace_member_joined
+  type        String
+
+  recipientId Int
+  recipient   User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  /// Null once the acting user is deleted — the notification survives them.
+  actorId     Int?
+  actor       User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Cascades so a deleted document never leaves a dead link in the dropdown.
+  documentId  String?
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  /// Opaque CRDT identifiers. No foreign key — the backend stores them for
+  /// the client and never resolves them.
+  threadId    String?
+  commentId   String?
+  /// The comment id, or `<threadId>:resolved`. Separate from `commentId`
+  /// because `thread_resolved` has no comment of its own, and null for
+  /// `workspace_member_joined` (Postgres treats NULLs as distinct, so
+  /// re-joining a workspace correctly notifies again).
+  dedupeKey   String?
+  /// Plain-text excerpt, <= 200 chars, control characters stripped.
+  preview     String?
+
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([recipientId, type, dedupeKey])
+  @@index([recipientId, createdAt])
 }
 
 datasource db {

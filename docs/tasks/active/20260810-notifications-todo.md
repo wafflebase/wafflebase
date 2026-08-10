@@ -10,17 +10,17 @@ server-authorized; the join event is created server-side.
 
 ## PR 1 — Backend core
 
-- [ ] `prisma/schema.prisma`: `Notification` model
+- [x] `prisma/schema.prisma`: `Notification` model
   - `document` `onDelete: Cascade`, `actor` `onDelete: SetNull`
   - `@@index([recipientId, createdAt])`
   - `dedupeKey String?` (comment id, or `<threadId>:resolved`) with
     `@@unique([recipientId, type, dedupeKey])` — separate from `commentId`
     because `thread_resolved` has no comment of its own
   - back-relations on `User` (recipient + actor), `Workspace`, `Document`
-- [ ] `pnpm backend migrate` — commit the generated migration
-- [ ] `notification/notification-hub.ts` — `Map<userId, Set<Subject>>`,
+- [x] `pnpm backend migrate` — commit the generated migration
+- [x] `notification/notification-hub.ts` — `Map<userId, Set<Subject>>`,
       `subscribe(userId)` / `publish(userId, summary)`, unsubscribe cleanup
-- [ ] `notification/notification.service.ts`
+- [x] `notification/notification.service.ts`
   - `createFromComment(actorId, dto)` — 404 unknown document, 403 non-member
         actor, silently drop non-member recipients, exclude the actor,
         truncate preview to 200 + strip control chars, cap 20 recipients
@@ -29,7 +29,7 @@ server-authorized; the join event is created server-side.
   - `list(userId, before?)` / `unreadCount(userId)` / `markRead(userId, ids?)`
   - membership check via Prisma directly — do **not** inject `WorkspaceService`
         (`acceptInvite` calls into this service; injecting would be circular)
-- [ ] `notification/notification.controller.ts`
+- [x] `notification/notification.controller.ts`
   - `POST /notifications/comment` (`@Throttle` 30/min)
   - `GET /notifications` (`?before=`), `GET /notifications/unread-count`
   - `POST /notifications/read` (`{ ids? }`)
@@ -37,11 +37,11 @@ server-authorized; the join event is created server-side.
         payload is `{ unreadCount, latestId }` only
   - SSE response headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`
   - all routes `JwtAuthGuard`; `/stream` `@SkipThrottle()`
-- [ ] `notification/notification.dto.ts` — class-validator on every field
-- [ ] `notification/notification.module.ts`; register in `app.module.ts`
-- [ ] `workspace.service.ts` `acceptInvite()` — emit `workspace_member_joined`
+- [x] `notification/notification.dto.ts` — class-validator on every field
+- [x] `notification/notification.module.ts`; register in `app.module.ts`
+- [x] `workspace.service.ts` `acceptInvite()` — emit `workspace_member_joined`
       after the membership row is created
-- [ ] `WorkspaceModule` imports `NotificationModule`
+- [x] `WorkspaceModule` imports `NotificationModule`
 
 ## PR 2 — Bell UI
 
@@ -71,12 +71,15 @@ server-authorized; the join event is created server-side.
 
 ## Tests
 
-- [ ] `notification.service.spec.ts` — non-member recipients dropped, actor
+- [x] `notification.service.spec.ts` — non-member recipients dropped, actor
       excluded, duplicate `commentId` → one row, preview truncation/sanitizing,
       404/403
-- [ ] `notification-hub.spec.ts` — publish/subscribe/unsubscribe, no
+- [x] `notification-hub.spec.ts` — publish/subscribe/unsubscribe, no
       cross-user leakage
-- [ ] `test/notification.e2e-spec.ts` — JWT guard + real DB
+- [x] `notification-stream.spec.ts` — initial summary on connect, hub and poll
+      forwarded, an unchanged poll tick suppressed, pings do not disturb
+      change detection
+- [x] `test/notification.e2e-spec.ts` — JWT guard + real DB
       (`RUN_DB_INTEGRATION_TESTS`)
 - [ ] Frontend: route-URL construction + read-state transitions (non-JSX)
 - [ ] Manual smoke in `pnpm dev`: mention a second user, confirm badge updates
@@ -85,7 +88,7 @@ server-authorized; the join event is created server-side.
 
 ## Docs
 
-- [ ] `docs/design/README.md` — Common table entry (done with the design doc)
+- [x] `docs/design/README.md` — Common table entry (done with the design doc)
 - [ ] `packages/backend/README.md` — endpoint table + module tree entry
 - [ ] Fill in `20260810-notifications-lessons.md`
 - [ ] `pnpm tasks:archive && pnpm tasks:index` before merge
