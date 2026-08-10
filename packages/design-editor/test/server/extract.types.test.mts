@@ -48,20 +48,30 @@ describe('extract.mjs types hold at a TypeScript call site', () => {
   });
 
   it('analyzeScene requires id/kind/label and accepts the optional manifest keys', () => {
-    const cfg = {
+    // Annotated with the parameter type, NOT inferred. A bare object literal
+    // that is never passed to `analyzeScene` type-checks against nothing — it
+    // asserts a literal equals itself and would keep passing if the signature
+    // dropped a key entirely.
+    const cfg: Parameters<typeof analyzeScene>[1] = {
       id: 's',
-      kind: 'dom' as const,
+      kind: 'dom',
       label: 'S',
       export: 'Page',
       route: '/p',
       routePattern: '/p/:id',
-      shell: 'app' as const,
+      shell: 'app',
       mocks: ['documents'],
       fixtures: { documents: './fixtures/documents.ts' },
       viewports: ['desktop'],
       readOnly: true,
     };
-    expect(cfg.kind).toBe('dom');
+    expect(cfg.id).toBe('s');
+  });
+
+  it('requires the non-optional manifest keys', () => {
+    // @ts-expect-error - `label` is required
+    const missing: Parameters<typeof analyzeScene>[1] = { id: 's', kind: 'dom' };
+    expect(missing.id).toBe('s');
   });
 
   it('rejects a scene kind outside the union', () => {

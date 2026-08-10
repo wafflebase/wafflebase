@@ -445,22 +445,55 @@ export function analyzeFile(filePath) {
 // ---------------------------------------------------------------------------
 
 /**
- * Every `import` in the file, so an insert knows what is already available.
+ * @typedef {{module: string, named: string[], default?: string,
+ *            namespace?: string, typeOnly?: boolean,
+ *            typeOnlyNamed?: string[]}} ImportEntry
+ */
+
+/**
+ * Every `import` in the file, so a caller knows what is already available.
+ *
+ * This feeds `SceneMeta.imports` — what the UI lists as in scope. It is NOT
+ * what `insertImport`/`removeImport` read: those re-parse the file and work off
+ * the AST directly, which is why a shape missing here cannot produce a duplicate
+ * import. It can only make the UI describe the file wrongly.
+ *
+ * `import * as ReactDOM` binds a name too, and recording only `named` dropped it
+ * entirely — the survey then said `ReactDOM` was not imported while it was.
+ *
+ * Type-only bindings are marked rather than filtered. They ARE in scope, just
+ * not as values, so a caller deciding whether a JSX tag is available needs to
+ * tell `import type { Props }` from `import { Button }`; flattening the two
+ * would offer `Props` as something to render.
  *
  * @param {ts.SourceFile} sf
- * @returns {{module: string, named: string[], default?: string}[]}
+ * @returns {ImportEntry[]}
  */
 export function readImports(sf) {
-  /** @type {{module: string, named: string[], default?: string}[]} */
+  /** @type {ImportEntry[]} */
   const out = [];
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
-    /** @type {{module: string, named: string[], default?: string}} */
+    /** @type {ImportEntry} */
     const entry = { module: st.moduleSpecifier.text, named: [] };
     const clause = st.importClause;
+    // `import './side-effect.css'` has no clause at all.
+    if (clause?.isTypeOnly) entry.typeOnly = true;
     if (clause?.name) entry.default = clause.name.getText();
-    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const el of clause.namedBindings.elements) entry.named.push(el.name.getText());
+    const nb = clause?.namedBindings;
+    if (nb && ts.isNamedImports(nb)) {
+      /** @type {string[]} */
+      const typeOnlyNamed = [];
+      for (const el of nb.elements) {
+        const name = el.name.getText();
+        entry.named.push(name);
+        // Per-specifier `import { type A, B }`, distinct from the whole-clause
+        // `import type { A, B }` recorded above.
+        if (el.isTypeOnly) typeOnlyNamed.push(name);
+      }
+      if (typeOnlyNamed.length) entry.typeOnlyNamed = typeOnlyNamed;
+    } else if (nb && ts.isNamespaceImport(nb)) {
+      entry.namespace = nb.name.getText();
     }
     out.push(entry);
   }
@@ -550,8 +583,14 @@ function buildNode(node, path, ancestorTags, scope, owner, returnedJsx) {
 export function analyzeNodes(filePath) {
   const sf = parse(readFileSync(filePath, 'utf8'), filePath);
   const { roots, defaultExport, ambiguous } = findJsxRoots(sf);
+  // Null-prototype, for the same reason `findJsxRoots` uses one: the keys are
+  // arbitrary source identifiers. `findJsxRoots` already protects its own map,
+  // and copying into a plain `{}` here threw that away one layer down —
+  // `built.__proto__ = tree` hit the inherited setter, so a component named
+  // `__proto__` DISAPPEARED from the outline entirely, and `built.valueOf`
+  // answered with an inherited method for a component that does not exist.
   /** @type {Record<string, any>} */
-  const built = {};
+  const built = Object.create(null);
   for (const [name, root] of Object.entries(roots)) {
     // An AMBIGUOUS name is unaddressable by construction: `resolveNode` refuses
     // it outright, because a name two JSX-returning functions claim cannot say

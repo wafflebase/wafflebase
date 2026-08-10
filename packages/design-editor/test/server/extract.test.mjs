@@ -205,6 +205,25 @@ describe('analyzeFile', () => {
     expect(analyzeFile(f).orphanCva).toEqual(['strayVariants']);
   });
 
+  it('over-attaches a cva to a component that never calls it', () => {
+    // Pins a KNOWN limitation, not a fix. Attachment is a file-wide text search
+    // (`src.includes("v({")`) rather than a resolved reference, so any component
+    // in a file containing one call claims the cva — here `Other` renders a
+    // plain <div> and still reports `v`, inheriting its tokens.
+    //
+    // The cost is a wrong attribution in the panel, never a wrong write: no
+    // mutation path resolves its target through this field. Recorded so the
+    // behaviour is a decision rather than a surprise.
+    const f = fixture(`
+      const v = cva("bg-primary", {});
+      export function Uses() { return <button className={v({})}/>; }
+      export function Other() { return <div/>; }`);
+    const { components, orphanCva } = analyzeFile(f);
+    expect(components.find((c) => c.name === 'Other').cva.name).toBe('v');
+    expect(components.find((c) => c.name === 'Other').tokensUsed).toEqual(['primary']);
+    expect(orphanCva).toEqual([]);
+  });
+
   it('names the module after the file', () => {
     expect(analyzeFile(fixture(`export function C() { return <div/>; }`, 'button.tsx')).module)
       .toBe('button');
@@ -267,6 +286,31 @@ describe('analyzeNodes', () => {
     expect(analyzeNodes(fixture(`export default function Page() { return <div/>; }`)).defaultExport)
       .toBe('Page');
   });
+
+  it('registers components whose names collide with Object.prototype', () => {
+    // `findJsxRoots` returns a null-prototype map for exactly this reason, and
+    // copying its entries into a plain `{}` here undid that one layer down:
+    // `built.__proto__ = tree` hit the inherited SETTER, so the component
+    // vanished from the outline with nothing reported.
+    for (const name of ['toString', 'valueOf', '__proto__']) {
+      const { roots } = analyzeNodes(fixture(
+        `function ${name}() { return <div/>; }`,
+        `proto-${name.replace(/\W/g, '')}.tsx`,
+      ));
+      expect(Object.keys(roots)).toEqual([name]);
+      expect(roots[name].tag).toBe('#returns');
+    }
+  });
+
+  it('keeps the built tree free of any inherited prototype', () => {
+    // A name with no component must read as absent. On a plain `{}`,
+    // `roots.valueOf` answers with an inherited METHOD — truthy, so a caller
+    // testing `if (roots[name])` walks a function instead of reporting "no
+    // such component".
+    const { roots } = analyzeNodes(fixture(`function C() { return <div/>; }`));
+    expect(Object.getPrototypeOf(roots)).toBeNull();
+    expect(roots.valueOf).toBeUndefined();
+  });
 });
 
 // --- THE DRIFT GUARD --------------------------------------------------------
@@ -293,6 +337,14 @@ describe('structuralEditable agrees with resolveNode', () => {
       const { roots } = analyzeNodes(path);
       const sf = parse(src, path);
       const live = findJsxRoots(sf).roots;
+
+      // The converse direction too: a root the resolver knows but the outline
+      // omitted is invisible in the UI, and the ONLY licensed reason to omit
+      // one is ambiguity. Without this, silently dropping roots would satisfy
+      // the per-node agreement below by having no nodes to disagree about.
+      const { ambiguous } = findJsxRoots(sf);
+      const omitted = Object.keys(live).filter((k) => !(k in roots));
+      expect(omitted.filter((n) => !ambiguous.has(n))).toEqual([]);
 
       let checked = 0;
       for (const [rootName, tree] of Object.entries(roots)) {
@@ -338,16 +390,27 @@ describe('structuralEditable agrees with resolveNode', () => {
 // --- imports, scenes, metadata ---------------------------------------------
 
 describe('readImports', () => {
-  it('records default and named bindings per module', () => {
+  it('records default, named, namespace and type-only bindings per module', () => {
     const imports = readImports(parse(`
       import React from 'react';
       import { useState, useMemo } from 'react';
-      import { Button } from '@/components/ui/button';
+      import * as ReactDOM from 'react-dom';
+      import type { Props } from './types';
+      import { type Variant, Button } from '@/components/ui/button';
       import './side-effect.css';`, 'x.tsx'));
     expect(imports).toEqual([
       { module: 'react', named: [], default: 'React' },
       { module: 'react', named: ['useState', 'useMemo'] },
-      { module: '@/components/ui/button', named: ['Button'] },
+      // A namespace import binds a name too. Recording only `named` dropped
+      // `ReactDOM` entirely, so the survey claimed it was not imported.
+      { module: 'react-dom', named: [], namespace: 'ReactDOM' },
+      { module: './types', named: ['Props'], typeOnly: true },
+      // Per-specifier `type`, distinct from the whole-clause form above.
+      {
+        module: '@/components/ui/button',
+        named: ['Variant', 'Button'],
+        typeOnlyNamed: ['Variant'],
+      },
       { module: './side-effect.css', named: [] },
     ]);
   });
