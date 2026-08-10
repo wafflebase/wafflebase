@@ -63,6 +63,7 @@ import {
   InsertLinkButton,
   ensureFontLink,
   clampFontSize,
+  isStyleOn,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { fetchMyDocStyles, saveMyDocStyles } from "@/api/doc-styles";
@@ -384,20 +385,24 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   // Does not use the shared formatting groups because the header/footer
   // surface is intentionally narrower (no lists, no link, no styles dropdown).
   if (isHeaderFooter) {
+    // Toggle off the range summary, not the caret style: with a backward
+    // selection the caret sits at the range's start and `getSelectionStyle()`
+    // reports the run *before* it, inverting the wrong value (issue #715).
     const toggleBold = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ bold: !current.bold });
+      editor.applyStyle({ bold: !isStyleOn(editor.getRangeStyleSummary().bold) });
     };
     const toggleItalic = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ italic: !current.italic });
+      editor.applyStyle({
+        italic: !isStyleOn(editor.getRangeStyleSummary().italic),
+      });
     };
     const toggleUnderline = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ underline: !current.underline });
+      editor.applyStyle({
+        underline: !isStyleOn(editor.getRangeStyleSummary().underline),
+      });
     };
     const handleTextColor = (color: string) => {
       editor?.applyStyle({ color });
