@@ -49,7 +49,7 @@ function buildLine(v) {
   const max = n(v.max);
   const parts = [];
   if (used !== null && max !== null) {
-    // `used` rounds have FAILED so far; the round now dispatching is used+1.
+    // `used` dispatches are already on the ledger; this one is used+1.
     parts.push(`dispatching fix round ${used + 1} of ${max}`);
   } else {
     parts.push("dispatching the fix agent");
@@ -81,7 +81,7 @@ export function renderGuardSummary(v = {}) {
       `- Why: ${why}`,
     ];
     if (n(v.failedRounds) !== null && n(v.max) !== null) {
-      lines.push(`- Failed fix rounds so far: ${n(v.failedRounds)} of ${n(v.max)}`);
+      lines.push(`- Fix rounds dispatched so far: ${n(v.failedRounds)} of ${n(v.max)}`);
     }
     // FENCED, not blockquoted: for the stall/standstill pages `detail` embeds
     // lens finding summaries — LLM output derived from the attacker-authorable
@@ -98,7 +98,7 @@ export function renderGuardSummary(v = {}) {
   const lines = ["### Review-round guard — PROCEED", ""];
   if (n(v.failedRounds) !== null && n(v.max) !== null) {
     lines.push(
-      `- Failed fix rounds: ${n(v.failedRounds)} of ${n(v.max)} (counted from single-parent commits carrying failing lens checks${v.rerunAt ? `, floored at the last \`@claude rerun\`` : ""})`,
+      `- Fix rounds dispatched: ${n(v.failedRounds)} of ${n(v.max)} (counted from this guard's own \`agent-fix-dispatch\` records, or from single-parent commits carrying failing lens checks on a PR that predates the ledger${v.rerunAt ? `, floored at the last \`@claude rerun\`` : ""})`,
     );
   }
   if (v.stall && v.stall.reason) {
