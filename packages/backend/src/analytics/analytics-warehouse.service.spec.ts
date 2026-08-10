@@ -77,6 +77,26 @@ describe('AnalyticsWarehouseService', () => {
     expect(q.totalViews).toContain("document_id = 'd''1'");
   });
 
+  it('escapes backslashes so a trailing one cannot escape the closing quote', () => {
+    const svc = make({
+      WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
+    });
+    // In the MySQL dialect StarRocks speaks, `'a\'` would escape the closing
+    // quote and spill the rest of the value out into SQL.
+    const q = svc.buildQueries(
+      'a\\',
+      new Date('2026-07-01T00:00:00Z'),
+      new Date('2026-07-17T00:00:00Z'),
+    );
+    expect(q.totalViews).toContain("document_id = 'a\\\\'");
+    const ws = svc.buildWorkspaceQueries(
+      ['a\\'],
+      new Date('2026-07-01T00:00:00Z'),
+      new Date('2026-07-17T00:00:00Z'),
+    );
+    expect(ws.totalViews).toContain("document_id IN ('a\\\\')");
+  });
+
   it('builds a workspace roll-up with an escaped document_id IN list', () => {
     const svc = make({
       WAFFLEBASE_STARROCKS_DSN: 'root:@tcp(localhost:9030)/wafflebase',
