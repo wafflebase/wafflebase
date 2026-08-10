@@ -341,8 +341,17 @@ const CR_CATEGORY_TO_LENS = new Map([
   ["security & privacy", "security"],
 ]);
 
-/** The bot's login, in the two shapes GitHub returns it. */
-const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
+/**
+ * The bot's login, in the two shapes GitHub returns it.
+ *
+ * EXPORTED so a second reader of CodeRabbit's output shares this set rather than
+ * re-typing it. That is not tidiness: the set is a security gate (see the header
+ * above `PANEL_AUTHORS`, and `harvestPr`'s call site — `startsWith("coderabbitai")`
+ * would also accept `coderabbitai-x`, which anyone can register and comment on a
+ * public pull request with), and a re-typed copy of a rule this repository enforces
+ * in one place is the pattern that has already cost this project a paid harvest.
+ */
+export const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
 
 /** Strip emoji/punctuation from a CodeRabbit header field, leaving the words.
  *  GitHub emoji shortcodes go first: `:hammer_and_wrench:` would otherwise
