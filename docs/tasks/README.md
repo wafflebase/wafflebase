@@ -18,7 +18,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| engine dts tsc emit (2026-08-10) | [20260810-engine-dts-tsc-emit-todo.md](./active/20260810-engine-dts-tsc-emit-todo.md) | [20260810-engine-dts-tsc-emit-lessons.md](./active/20260810-engine-dts-tsc-emit-lessons.md) |
 | board snap to grid (2026-08-09) | [20260809-board-snap-to-grid-todo.md](./active/20260809-board-snap-to-grid-todo.md) | [20260809-board-snap-to-grid-lessons.md](./active/20260809-board-snap-to-grid-lessons.md) |
+| csv client import (2026-08-09) | [20260809-csv-client-import-todo.md](./active/20260809-csv-client-import-todo.md) | [20260809-csv-client-import-lessons.md](./active/20260809-csv-client-import-lessons.md) |
+| workspace settings owner gating (2026-08-09) | [20260809-workspace-settings-owner-gating-todo.md](./active/20260809-workspace-settings-owner-gating-todo.md) | [20260809-workspace-settings-owner-gating-lessons.md](./active/20260809-workspace-settings-owner-gating-lessons.md) |
 | board grid (2026-08-08) | [20260808-board-grid-todo.md](./active/20260808-board-grid-todo.md) | [20260808-board-grid-lessons.md](./active/20260808-board-grid-lessons.md) |
 | board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./active/20260807-board-miro-parent-relative-position-todo.md) | - |
 | coderabbit parser widening (2026-08-07) | [20260807-coderabbit-parser-widening-todo.md](./active/20260807-coderabbit-parser-widening-todo.md) | - |
@@ -41,6 +44,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | notes native undo (2026-07-30) | [20260730-notes-native-undo-todo.md](./active/20260730-notes-native-undo-todo.md) | [20260730-notes-native-undo-lessons.md](./active/20260730-notes-native-undo-lessons.md) |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | design editor layout sandbox (2026-07-29) | [20260729-design-editor-layout-sandbox-todo.md](./active/20260729-design-editor-layout-sandbox-todo.md) | [20260729-design-editor-layout-sandbox-lessons.md](./active/20260729-design-editor-layout-sandbox-lessons.md) |
+| json client import (2026-07-29) | [20260729-json-client-import-todo.md](./active/20260729-json-client-import-todo.md) | [20260729-json-client-import-lessons.md](./active/20260729-json-client-import-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
@@ -58,4 +62,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 443
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: board snap to grid (2026-08-09)
+Latest active task: engine dts tsc emit (2026-08-10)

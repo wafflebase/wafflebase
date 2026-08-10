@@ -7,7 +7,7 @@
   "type": "module",
   "main": "dist/wafflebase-slides.cjs",
   "module": "dist/wafflebase-slides.es.js",
-  "types": "dist/wafflebase-slides.es.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "node": {
@@ -16,7 +16,7 @@
         "require": "./dist/node.cjs",
         "default": "./dist/node.js"
       },
-      "types": "./dist/wafflebase-slides.es.d.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/wafflebase-slides.es.js",
       "require": "./dist/wafflebase-slides.cjs",
       "default": "./dist/wafflebase-slides.es.js"
@@ -32,7 +32,7 @@
     "dev": "vite",
     "test": "vitest --run --passWithNoTests",
     "test:watch": "vitest --watch --passWithNoTests",
-    "build": "vite --config vite.build.ts build",
+    "build": "vite --config vite.build.ts build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "gen:textrects": "node scripts/gen-shape-text-rects.mjs",
     "format": "prettier --write ."
@@ -50,7 +50,6 @@
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vite-plugin-dts": "^4.5.3",
     "vitest": "^4.1.8"
   }
 }

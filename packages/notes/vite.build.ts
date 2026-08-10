@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
-import dts from 'vite-plugin-dts';
 
+// Declarations are NOT emitted here. `tsc -p tsconfig.build.json` runs after
+// this build (see the package `build` script) — vite owns the JS, tsc owns
+// the .d.ts. The order is load-bearing: vite's `emptyOutDir` would wipe
+// declarations emitted first.
 export default defineConfig({
   build: {
     lib: {
@@ -21,5 +24,4 @@ export default defineConfig({
       external: ['@yorkie-js/sdk'],
     },
   },
-  plugins: [dts({ rollupTypes: true })],
 });
