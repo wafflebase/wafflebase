@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { findJsxRoots, isReturnsRoot, parse, walkJsx } from '../../src/server/jsx-nodes.mjs';
+import {
+  findJsxRoots, isReturnsRoot, parse, resolveNode, ts, walkJsx,
+} from '../../src/server/jsx-nodes.mjs';
 import { stampSource } from '../../src/server/stamp.mjs';
 
 /**
@@ -16,6 +18,33 @@ import { stampSource } from '../../src/server/stamp.mjs';
 /** All `data-wb-node` values in a stamped string, in source order. */
 function idsIn(text) {
   return [...text.matchAll(/data-wb-node="([^"]+)"/g)].map((m) => m[1]);
+}
+
+/**
+ * The value an attribute will actually HAVE at runtime: the stamped source is
+ * compiled to `createElement` calls and the emitted string literal is read back.
+ *
+ * Entity decoding happens at EMIT, not in the AST — `ts.StringLiteral.text` on a
+ * JSX attribute still holds the raw `&amp;`. Asserting against the AST would
+ * therefore pass on a value the browser never sees, so this goes through the
+ * compiler the same way Vite does.
+ */
+function emittedAttr(stampedText, name) {
+  const js = ts.transpileModule(stampedText, {
+    compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ESNext },
+  }).outputText;
+  let found;
+  const visit = (n) => {
+    if (found !== undefined) return;
+    if (ts.isPropertyAssignment(n) && ts.isStringLiteral(n.initializer)
+        && n.name.getText().replace(/['"]/g, '') === name) {
+      found = n.initializer.text;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(ts.createSourceFile('out.js', js, ts.ScriptTarget.Latest, true));
+  return found;
 }
 
 /** `{ 'C:0.1': 'a1b2c3d4', … }` from a stamped string. */
@@ -212,20 +241,37 @@ describe('frame stability', () => {
 });
 
 describe('data-wb-file', () => {
-  it('is omitted when no file is given', () => {
-    const { text } = stampSource(`function C(){ return <div/>; }`);
-    expect(text).toContain('data-wb-node="C:0"');
-    expect(text).not.toContain('data-wb-file');
+  it('is ESCAPED, never dropped, when the path holds JSX-hostile characters', () => {
+    // Dropping it keeps the output parseable and re-enables the exact failure
+    // the attribute exists to prevent: §7.9 says a host left to guess the file
+    // "anchors the edit in the wrong file with no visible symptom". A stamped
+    // but un-attributed node is precisely that guess. `&` is legal in a
+    // directory name, so this is a real path under the local-plugin pivot.
+    const cases = [
+      ['a&b.tsx', 'a&amp;b.tsx'],
+      ['a"b.tsx', 'a&quot;b.tsx'],
+      ['a<b.tsx', 'a&lt;b.tsx'],
+      ['a>b.tsx', 'a&gt;b.tsx'],
+      ['a&b"c<d>e.tsx', 'a&amp;b&quot;c&lt;d&gt;e.tsx'],
+    ];
+    for (const [raw, encoded] of cases) {
+      const { text } = stampSource(`function C(){ return <div/>; }`, raw);
+      expect(text).toContain(`data-wb-file="${encoded}"`);
+      expect(text).toContain('data-wb-node="C:0"');
+      expect(parse(text).parseDiagnostics ?? []).toEqual([]);
+    }
   });
 
-  it('is omitted rather than emitted broken when the path holds JSX-hostile characters', () => {
-    // Refusing keeps the output parseable; emitting `data-wb-file="a"b.tsx"`
-    // would close the attribute early and corrupt the element.
-    for (const bad of ['a"b.tsx', 'a<b.tsx', 'a>b.tsx', 'a&b.tsx']) {
-      const { text } = stampSource(`function C(){ return <div/>; }`, bad);
-      expect(text).not.toContain('data-wb-file');
-      expect(text).toContain('data-wb-node="C:0"'); // still stamped
-      expect(parse(text).parseDiagnostics ?? []).toEqual([]);
+  it('round-trips the escaped path back to the original through the compiler', () => {
+    // The escaping is only correct if the HOST reads the original path out of
+    // the DOM. JSX decodes entities at emit, so compiling the stamped source has
+    // to recover the input byte-for-byte. Escaping `&` last instead of first
+    // would double-encode to `&amp;amp;` and still satisfy the test above.
+    // `a&amp;b.tsx` is in the list because a path that already looks encoded
+    // must survive too.
+    for (const raw of ['pkg/a&b/p.tsx', 'a"b.tsx', 'x/a<b>c.tsx', 'a&amp;b.tsx']) {
+      const { text } = stampSource(`function C(){ return <div/>; }`, raw);
+      expect(emittedAttr(text, 'data-wb-file')).toBe(raw);
     }
   });
 
@@ -233,6 +279,40 @@ describe('data-wb-file', () => {
     const { text } = stampSource(
       `function C(){ return <div/>; }`, 'packages/frontend/src/app/page.tsx');
     expect(text).toContain('data-wb-file="packages/frontend/src/app/page.tsx"');
+  });
+});
+
+describe('ambiguous root names', () => {
+  const dup = `function Row(){ return <ul><li id="first"/></ul>; }
+function Outer(){ const Row = () => <ol><b id="second"/></ol>; return <div/>; }`;
+
+  it('emits NO id for a name two functions claim', () => {
+    // `roots` is keyed by name, so only the second Row survives it. Stamping
+    // that one wrote `Row:0` / `Row:0.0` — ids resolveNode refuses by
+    // construction, attributed to whichever function registered last.
+    const { stamped } = stampSource(dup, 'f.tsx');
+    expect(stamped).toEqual(['Outer:0']);
+    expect(stamped.some((id) => id.startsWith('Row:'))).toBe(false);
+  });
+
+  it('leaves every id it DOES emit resolvable', () => {
+    // The property the skip exists to protect: an emitted id is a promise that
+    // a click on it can be anchored. Before, two of the three were unkeepable.
+    const { stamped } = stampSource(dup, 'f.tsx');
+    const sf = parse(dup);
+    for (const id of stamped) {
+      const [component, path] = id.split(':');
+      const entry = [...walkJsx(sf, findJsxRoots(sf).roots[component])]
+        .find((e) => e.path.join('.') === path);
+      const r = resolveNode(sf, { component, path: entry.path, tag: entry.tag, fp: entry.fp });
+      expect(r.located).toBe(true);
+    }
+  });
+
+  it('still stamps unambiguous roots in the same file', () => {
+    // The skip must be per-root, not a bail-out for the whole module.
+    const { stamped } = stampSource(dup, 'f.tsx');
+    expect(stamped).toContain('Outer:0');
   });
 });
 

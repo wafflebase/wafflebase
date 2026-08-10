@@ -32,8 +32,19 @@ describe('stamp.mjs types hold at a TypeScript call site', () => {
     expect(result.stamped).toEqual(['C:0']);
   });
 
-  it('declares `file` as optional', () => {
-    const result = stampSource(`function C(){ return <div/>; }`);
-    expect(result.stamped).toEqual(['C:0']);
+  it('declares `file` as REQUIRED, and fails loudly if a caller omits it anyway', () => {
+    // §7.9 makes the file the thing that says which metadata tree a click
+    // resolves against, and a host left to guess it "anchors the edit in the
+    // wrong file with no visible symptom". So omitting it must not compile —
+    // that is what `@ts-expect-error` pins, and the test fails if the parameter
+    // ever goes back to optional.
+    //
+    // The throw matters separately: the plugin host is `.mjs`, which is not
+    // type-checked, so a JS caller can still reach this. Throwing beats
+    // stamping a whole module of un-attributed nodes.
+    const omitted = () =>
+      // @ts-expect-error - file is required; omitting it is the bug this pins
+      stampSource(`function C(){ return <div/>; }`);
+    expect(omitted).toThrow();
   });
 });

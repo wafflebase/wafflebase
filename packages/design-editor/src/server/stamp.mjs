@@ -59,19 +59,36 @@ import { findJsxRoots, isReturnsRoot, ts, walkJsx, parse } from './jsx-nodes.mjs
  * Insert `data-wb-node` / `data-wb-fp` / `data-wb-file` on every JSX element.
  *
  * @param {string} text  Source of a `.tsx` file — the PATCHED text, not disk.
- * @param {string} [file]  Repo-relative path, emitted as `data-wb-file`. Omitted
- *   only by tests that assert the numbering; a frame always passes it, because
- *   without it a click cannot be attributed to a source file.
+ * @param {string} file  Repo-relative path, emitted as `data-wb-file`. REQUIRED:
+ *   without it a click cannot be attributed to a source file, and §7.9 is
+ *   explicit that a host left to guess the file anchors the edit in the wrong
+ *   one with no visible symptom.
  * @returns {{text: string, stamped: string[]}} the rewritten source and the
  *   `<root>:<path>` ids it wrote, so a caller can assert them against metadata.
  */
 export function stampSource(text, file) {
-  // Repo-relative POSIX paths contain nothing that needs escaping inside a
-  // double-quoted JSX attribute; refuse rather than emit broken JSX if that ever
-  // stops being true.
-  const fileAttr = file && !/["<>&]/.test(file) ? ` data-wb-file="${file}"` : '';
+  // ESCAPE, never drop. §7.9: `data-wb-file` is what tells the host WHICH
+  // metadata tree to resolve a click against, and "without the file the host
+  // must guess, and a wrong guess anchors the edit in the wrong file with no
+  // visible symptom". Stamping a node un-attributed therefore re-enables exactly
+  // the failure the attribute exists to prevent — a silent wrong-file write in
+  // exchange for a cosmetically valid parse.
+  //
+  // And this is a path we take, not a defensive branch: `&` is legal in a
+  // directory name, and under the local-plugin pivot this runs against arbitrary
+  // consumer trees rather than only this repo.
+  //
+  // JSX decodes HTML entities in attribute values, so the host reads the
+  // original path back out of the DOM. Verified against esbuild, which is what
+  // Vite runs. `&` must be replaced first or the other escapes get double-encoded.
+  const escaped = file
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const fileAttr = ` data-wb-file="${escaped}"`;
   const sf = parse(text, 'scene.tsx');
-  const { roots } = findJsxRoots(sf);
+  const { roots, ambiguous } = findJsxRoots(sf);
 
   /** @type {{offset: number, attrs: string}[]} */
   const edits = [];
@@ -83,6 +100,19 @@ export function stampSource(text, file) {
   const seen = new Set();
 
   for (const [rootName, root] of Object.entries(roots)) {
+    // An AMBIGUOUS name cannot produce a usable id. `roots` is keyed by name, so
+    // when two functions share one only the last survives here — the other's JSX
+    // is invisible to this loop entirely. Stamping the survivor would write ids
+    // that `resolveNode` refuses by construction (it treats an ambiguous name as
+    // absence), and worse, attribute them to whichever of the two happened to be
+    // registered second. Skipping emits no id rather than a wrong one.
+    //
+    // KNOWN LIMITATION, for the PR that lands `inject.mjs`/`extract.mjs`: both
+    // functions' nodes are now unstamped, so a click on either falls through to
+    // the nearest stamped ancestor. Fixing that needs `findJsxRoots` to expose
+    // the shadowed roots — an additive change to a signature #718 has already
+    // published, which belongs with the consumer that needs it.
+    if (ambiguous.has(rootName)) continue;
     for (const entry of walkJsx(sf, root)) {
       if (isReturnsRoot(entry.node)) continue; // no source element to stamp
       const node = /** @type {ts.Node} */ (entry.node);
