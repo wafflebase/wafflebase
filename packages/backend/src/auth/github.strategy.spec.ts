@@ -14,11 +14,13 @@ function endpoints(strategy: GitHubStrategy) {
   const s = strategy as unknown as {
     _oauth2: { _authorizeUrl: string; _accessTokenUrl: string };
     _userProfileURL: string;
+    _userEmailURL: string;
   };
   return {
     authorize: s._oauth2._authorizeUrl,
     token: s._oauth2._accessTokenUrl,
     profile: s._userProfileURL,
+    email: s._userEmailURL,
   };
 }
 
@@ -30,32 +32,36 @@ const BASE = {
 
 describe('GitHubStrategy endpoints', () => {
   it('defaults to public github.com when no enterprise vars are set', () => {
-    const { authorize, token, profile } = endpoints(makeStrategy(BASE));
+    const { authorize, token, profile, email } = endpoints(makeStrategy(BASE));
     expect(authorize).toBe('https://github.com/login/oauth/authorize');
     expect(token).toBe('https://github.com/login/oauth/access_token');
     expect(profile).toBe('https://api.github.com/user');
+    expect(email).toBe('https://api.github.com/user/emails');
   });
 
   it('uses the configured GitHub Enterprise endpoints when set', () => {
-    const { authorize, token, profile } = endpoints(
+    const { authorize, token, profile, email } = endpoints(
       makeStrategy({
         ...BASE,
         GITHUB_AUTHORIZATION_URL:
           'https://ghe.example.com/login/oauth/authorize',
         GITHUB_TOKEN_URL: 'https://ghe.example.com/login/oauth/access_token',
         GITHUB_USER_PROFILE_URL: 'https://ghe.example.com/api/v3/user',
+        GITHUB_USER_EMAIL_URL: 'https://ghe.example.com/api/v3/user/emails',
       }),
     );
     expect(authorize).toBe('https://ghe.example.com/login/oauth/authorize');
     expect(token).toBe('https://ghe.example.com/login/oauth/access_token');
     expect(profile).toBe('https://ghe.example.com/api/v3/user');
+    expect(email).toBe('https://ghe.example.com/api/v3/user/emails');
   });
 
-  // Each var is independent: overriding one must not disturb the other two.
+  // Each var is independent: overriding one must not disturb the others.
   const DEFAULTS = {
     authorize: 'https://github.com/login/oauth/authorize',
     token: 'https://github.com/login/oauth/access_token',
     profile: 'https://api.github.com/user',
+    email: 'https://api.github.com/user/emails',
   };
 
   it('overrides only the authorization URL, others stay default', () => {
@@ -69,6 +75,7 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.authorize).toBe('https://ghe.example.com/login/oauth/authorize');
     expect(e.token).toBe(DEFAULTS.token);
     expect(e.profile).toBe(DEFAULTS.profile);
+    expect(e.email).toBe(DEFAULTS.email);
   });
 
   it('overrides only the token URL, others stay default', () => {
@@ -81,6 +88,7 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.token).toBe('https://ghe.example.com/login/oauth/access_token');
     expect(e.authorize).toBe(DEFAULTS.authorize);
     expect(e.profile).toBe(DEFAULTS.profile);
+    expect(e.email).toBe(DEFAULTS.email);
   });
 
   it('overrides only the user-profile URL, others stay default', () => {
@@ -93,5 +101,19 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.profile).toBe('https://ghe.example.com/api/v3/user');
     expect(e.authorize).toBe(DEFAULTS.authorize);
     expect(e.token).toBe(DEFAULTS.token);
+    expect(e.email).toBe(DEFAULTS.email);
+  });
+
+  it('overrides only the user-email URL, others stay default', () => {
+    const e = endpoints(
+      makeStrategy({
+        ...BASE,
+        GITHUB_USER_EMAIL_URL: 'https://ghe.example.com/api/v3/user/emails',
+      }),
+    );
+    expect(e.email).toBe('https://ghe.example.com/api/v3/user/emails');
+    expect(e.authorize).toBe(DEFAULTS.authorize);
+    expect(e.token).toBe(DEFAULTS.token);
+    expect(e.profile).toBe(DEFAULTS.profile);
   });
 });

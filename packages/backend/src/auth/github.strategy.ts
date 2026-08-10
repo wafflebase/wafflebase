@@ -17,11 +17,15 @@ function optional(key: string, value: unknown): Record<string, unknown> {
 export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
   constructor(configService: ConfigService) {
     // Optional GitHub Enterprise endpoints. Unset → passport-github2's
-    // github.com defaults. Point all three at a GHE instance to log in
+    // github.com defaults. Point all four at a GHE instance to log in
     // against it instead, e.g. for host `ghe.example.com`:
     //   GITHUB_AUTHORIZATION_URL=https://ghe.example.com/login/oauth/authorize
     //   GITHUB_TOKEN_URL=https://ghe.example.com/login/oauth/access_token
     //   GITHUB_USER_PROFILE_URL=https://ghe.example.com/api/v3/user
+    //   GITHUB_USER_EMAIL_URL=https://ghe.example.com/api/v3/user/emails
+    // The email URL is separate: with the `user:email` scope, passport-github2
+    // fetches emails from its own default (api.github.com) unless overridden,
+    // so a GHE token would hit github.com and fail with "Bad credentials".
     // Spread so an unset var falls through to the library default rather than
     // overriding it with `undefined`.
     const enterpriseEndpoints = {
@@ -34,6 +38,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
         'userProfileURL',
         configService.get('GITHUB_USER_PROFILE_URL'),
       ),
+      ...optional('userEmailURL', configService.get('GITHUB_USER_EMAIL_URL')),
     };
     super({
       clientID: configService.get('GITHUB_CLIENT_ID')!,
