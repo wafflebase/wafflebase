@@ -23,9 +23,10 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `adapters/stub-panel.mjs` | a stand-in panel that writes canned output and exits with a chosen code. Every test of the runner uses it, which is why the whole subsystem is testable for free | no |
 | `finding-record.mjs` | **the normalised finding record** — one shape both arms map into, its builder and a strict validator. Owns the `gating` vocabulary: whether a finding gated is a four-valued answer, never a boolean | no |
 | `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
+| `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
 
-The CodeRabbit adapter, the cross-arm matcher and every scorer are not built
-yet. When they arrive they read items through `EvalStore` and nothing else.
+The cross-arm matcher and every scorer are not built yet. When they arrive they
+read items through `EvalStore` and nothing else.
 
 ## One record, two arms
 
@@ -38,11 +39,75 @@ posts markdown comments. `finding-record.mjs` is the shape both map into, and
 EVAL=../wafflebase-agent-eval
 node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id>
 node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id> --population sampled --json
+
+node scripts/agent/eval/adapters/coderabbit.mjs --root "$EVAL" --corpus-version 2026-08-07-pilot
+node scripts/agent/eval/adapters/coderabbit.mjs --pr 471 --json      # any PR, no window
 ```
 
 Records are **derived, never stored**: recomputable from an immutable envelope,
 deterministically and for free. Persisting them would spend the store's
 write-once rule on a shape that is cheap to recompute and expensive to correct.
+
+### Which snapshot is a CodeRabbit finding about?
+
+The two arms do not read the same bytes, and this is the part of the comparison
+most likely to be quoted back. Our arm replays a pull request **as it was
+opened** — every pilot item is frozen at `review_point: pr-open`. CodeRabbit
+reviewed whichever commit it got to, which is usually not that one. So every
+CodeRabbit record carries `coderabbit.window`:
+
+| `window` | `window_basis` | What it means |
+|---|---|---|
+| `in-window` | `commit-at-or-before-review` | the finding's commit is at or before the frozen `review_commit` — our panel saw that snapshot |
+| `after-window` | `commit-after-review` | it is after it. Our panel never saw that code |
+| `unplaceable` | `commit-not-on-pr` · `commit-absent` · `review-commit-not-on-pr` · `commits-unavailable` | the commit is not on the pull request (a force-push), names nothing, or the frozen commit itself cannot be located |
+| `no-window` | `no-review-commit` | no frozen commit was supplied — an off-corpus pull request, so the question does not apply |
+
+**The rule tags; it never filters.** Measured 2026-08-07 across all seven pilot
+items, **n=30 findings: 3 in-window (10.0%) · 24 after-window (80.0%) · 3
+unplaceable (10.0%)**. A strict in-window rule would leave the CodeRabbit arm
+with three findings in the whole pilot and zero on five of the seven items — and
+it would do that for a reason that is not CodeRabbit's advantage: it reviewed a
+later snapshot, not a second time. **Any headline comparison must state which
+`window` values it pooled**, and `at_commit` / `current_commit` / `review_commit`
+are all on the record so a scorer can re-place a finding without re-querying
+GitHub. The two keys disagree on real data: over the pilot's 16 inline findings,
+`original_commit_id` first gives 3/11/2 and `commit_id` first gives 1/14/1.
+
+CodeRabbit reviewed each pilot item **once**. Its later comments on #465 and #471
+are threaded acknowledgements, not new findings — so "it got extra rounds after
+fixing its own comments" is not what the split above measures.
+
+### CodeRabbit's severity is sometimes a floor, and the record says which
+
+`stated_severity` keeps CodeRabbit's own word and `severity_basis` says where the
+record's `severity` came from:
+
+| `severity_basis` | n (repo-wide, 2026-08-07) | Where the value came from |
+|---|---|---|
+| `header-field` | 1977 of 3001 | CodeRabbit wrote a severity in the finding's header. `trivial` → `nit` is `harvest.mjs`'s translation |
+| `tier-heading` | 635 | it wrote none there, but filed the finding under a section whose title names one — "🧹 Nitpick comments", "🟡 Minor comments" |
+| `unstated` | 389 | it stated none anywhere. The record carries `nit`, the **floor** |
+
+`tier-heading` is reading CodeRabbit's label rather than inventing one, and the
+data says so: wherever a nitpick-tier finding *also* carries a header severity it
+is `trivial` — on all 274 of them — and `minor`-tier findings state `minor` on all
+95. The heading and the field never disagree.
+
+`unstated` is unavoidable rather than chosen: both retired inline vintages state
+no severity by construction (75 findings) and neither does the Additional-comments
+tier (296), while `validateFindingRecord` requires one of `KNOWN`. `nit` is the
+floor because it claims the least and cannot inflate the other arm's blocking
+count — but it flatters us, so ⚠ **no severity-segmented number may pool an
+`unstated` record with a stated one.** Same shape as `panel.gate_state`: a default
+indistinguishable from a measurement.
+
+The record's top-level `severity_raw` is **not** the place to read CodeRabbit's
+word from. `buildFindingRecord` derives `severity` and `severity_raw` from one
+input and the validator refuses a severity outside `KNOWN`, so the arm boundary
+must translate before calling it — which makes the two fields equal on every
+CodeRabbit record. `coderabbit.stated_severity` is the field that carries the
+original.
 
 ### "Did this finding gate?" is not a boolean
 
@@ -400,6 +465,9 @@ true.
 | **`review_point: head` skews approve** | The merged state of a PR is the state after review comments were addressed, so the bugs a reviewer would have found are already fixed. It is offered for comparison, not as a default |
 | **Single review pass** | An item replays one pass: no multi-round fix loop and no prior-findings recheck, so round-to-round behaviour is out of scope |
 | **`gh pr view` returns a bounded commit list** | `review_point: pr-open` and `first` pick from the commits `gh` reports. A PR with an unusually long commit history may resolve its review point from a truncated list |
+| **`window` is decided by commit ORDER, not by content** | A later commit whose contributed diff is identical still reads `after-window`. Real case: pr-549's `158c6faaf` is a merge of `main` into the branch, so the branch's own diff is unchanged from the frozen `d7fea222a` — yet its 5 findings are about code the panel did read. Ordering is the conservative rule and it errs toward `after-window`, which understates the overlap rather than overstating it |
+| **`finding_key` is not unique inside the CodeRabbit arm** | 64 of its 3001 findings (2.1%) share a key with another CodeRabbit finding, mostly era-1 comments whose whole title is `LGTM!` — `src/spreadsheet/worksheet.ts::lgtm!` is held by six. A consumer keying a map by `finding_key` loses five of them; use it as a join key, never as an identity |
+| **The two arms' `evidence` are not the same amount of text** | An inline CodeRabbit record carries the whole comment body, so the anchor layer sees its backticked identifiers and its `around lines N - M` range. A review-body record carries only the finding's prose — `parseCodeRabbitReview` does not return the per-finding span it sliced — so 1509 of 3001 findings give a matcher less to work with. Not a bug in either module; a field the parser does not return |
 | **Exact-string finding keys read low** | `finding_key` on every record is `file::lowercased-summary` — `finding-key.mjs`, the panel's own key — so **one defect reworded counts as two**. That is deliberate rather than unfixed: anything that must agree with `dedupeFindings`, `compareSampleAgreement` or `review-lens-stats.json` has to key findings the way they do, and a looser key here would make our numbers quietly stop matching the panel's. The cross-arm matcher applies `finding-match.mjs` (#646) as a **second, different mechanism** for "the same defect, said differently" — identity and similarity are two jobs. The limit travels with whichever scorer uses the string key |
 
 Two rows of the fork's table are **not** reproduced here because the modules they

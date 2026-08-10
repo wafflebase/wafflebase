@@ -1002,6 +1002,38 @@ jobs:
             --scope-reason "$SCOPE_REASON" \
             --scope-rounds "$SCOPE_ROUNDS"
 
+      # OBSERVABILITY (Phase 4b): post THIS ROUND's findings into the PR
+      # conversation. Until now the autonomous panel recorded verdicts only as
+      # `agent-review-*` check runs, one set per commit, while the triage renderer
+      # that makes them readable was wired solely into agent-review-on-demand.yml
+      # — so a maintainer could read the fix agent's answer in the thread and not
+      # the question it answered. Keyed by SHA (one comment per round, updated
+      # rather than duplicated when CI re-runs on the same commit).
+      #
+      # No permission change: this job already holds `issues: write` for the
+      # advisory label and already POSTs a comment through the loop-status step
+      # below, with the same GITHUB_TOKEN and the same trusted `.trusted` copy.
+      #
+      # `always()` on purpose — a round whose panel crashed is exactly the round
+      # worth saying something about, and the script renders the fail-closed case
+      # explicitly rather than reporting six red lenses as findings.
+      - name: Post this round's findings
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BLOB_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.workflow_run.head_sha }}
+        run: |
+          [ -f .trusted/scripts/agent/panel-round-comment.mjs ] || { echo "panel-round-comment.mjs not on main yet; skipping"; exit 0; }
+          node .trusted/scripts/agent/panel-round-comment.mjs post "$PR" \
+            --sha "$HEAD_SHA" \
+            --review-dir .agent-review \
+            --lenses .trusted/scripts/agent/lenses/lenses.json \
+            --blob-base "$BLOB_BASE" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       # OBSERVABILITY (Phase 1): upsert the sticky `<!-- agent-loop-status -->`
       # dashboard comment — round table, fix-round budget, latest decision. A
       # PROJECTION derived from the unforgeable signals (commits, check runs,

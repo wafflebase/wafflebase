@@ -389,6 +389,64 @@ a lens that never fails adds nothing to a count of failing-lens commits), and
 the cap defaults to a constant pinned by test to the panel workflow's
 `MAX_REVIEW_ROUNDS` literal.
 
+The table is also a **map**, not just a summary. Each round's head cell links to
+that commit's checks — GitHub's Checks tab only ever shows the *head* commit's
+runs, so the table used to name a round it gave no way to open — and a `Fixer`
+column reports what the fix agent did about each round: `3 fixed · 0 skipped ·
+0 disputed`, or `—` for a round it was never dispatched for, or `🔧 dispatched`
+for one it was sent into and never reported on. Those last two are deliberately
+distinct; collapsing them would hide a fixer that ran and said nothing. Every
+input comes from records already parsed out of the PR's comments (the dispatch
+ledger, fix reports, rebuttals), so the column costs no extra API calls. The
+`0 disputed` half is the point rather than a detail: no rebuttal has ever been
+filed on an agent PR, and until this cell existed that was indistinguishable
+from a dispute channel that silently failed. Reports and dispatches bind to a
+round by SHA; a rebuttal names a finding rather than a commit, so it is
+attributed to the newest dispatch at or before it was written. `commitBase` is
+derived from the Actions env inside `main()` rather than passed as a flag, for
+the caller-independence reason above — six call sites across four workflows, and
+a link that appeared for some of them would flap.
+
+**Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
+dashboard above summarizes conclusions; this posts the findings themselves.
+Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
+check runs — one set per commit — while the triage renderer that makes them
+readable (`scripts/agent/review-comment.mjs`) was wired solely into
+`.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
+complementary and neither was complete: `@claude review` gave a comment and no
+gate, the autonomous panel a gate and no comment. Measured across 19 `agent/*`
+PRs, panel comments were **0** on every autonomous one, so a maintainer could
+read the fix agent's account of what it changed and never the findings it was
+answering.
+
+`scripts/agent/panel-round-comment.mjs` composes the existing pieces —
+`collectLenses` + `renderReviewComment` for the body, `buildRounds` for the round
+number, so the number here and the number in the dashboard's table come from one
+function and cannot disagree. It is keyed by **SHA, not upserted globally**: one
+comment per round, updated when CI re-runs on the same commit, so the rounds read
+in order against the fix reports that answer them. A single sticky comment was
+considered and rejected for that reason.
+
+Three bodies, because silence is ambiguous: `renderReviewComment` returns `""`
+for a round with no findings, so a clean round says so explicitly rather than
+rendering empty (which reads as "the panel never ran"); a round that blocked
+without producing readable findings gets its own wording, since "no findings"
+there would be wrong in the dangerous direction; and a missing panel.json is
+detected directly rather than inferred, because with it absent every lens reads
+`failure` with no findings — byte-identical to a real all-red round — and
+rendering six fail-closed reds as findings would report a review that never ran.
+
+**Neutralization here is load-bearing, not hygiene.** The comment is authored by
+`github-actions[bot]`, one of the two identities `isPagedLatchComment` trusts to
+LATCH the pipeline, and its body is lens prose: model output over an
+attacker-authorable diff that quotes this repo's markers routinely. #681 is the
+recorded near-miss — an on-demand review comment that merely *named*
+`<!-- agent-metrics-summary -->` was deleted seconds later by the metrics sweep.
+The same text carrying `<!-- agent-review-paged -->` under this identity would
+freeze the panel and the fixer. Everything interpolated goes through
+`neutralizeHiddenMarkers`, and a test plants a live latch inside a finding
+summary and asserts exactly one live HTML-comment opener survives: our own.
+
 Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a
 `verdict` step output plus a `$GITHUB_STEP_SUMMARY` block
