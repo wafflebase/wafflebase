@@ -1737,10 +1737,29 @@ Inert by default: `--rebuttals` absent means an empty list, which short-circuits
 before any session opens, so a panel invoked without it is the panel that existed
 before this.
 
-Not yet built: an adjudication record in the metrics comment (the outcome is
-visible only in the check body today), and any measurement of how often a
-rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
-should not have happened is a false negative like any other.
+The adjudication outcome is no longer check-body-only:
+`scripts/agent/severity.mjs`'s
+`adjudicationNote` is exported and rendered by `scripts/agent/review-comment.mjs`
+too, so a dispute's decision — and the adjudicator's reason — appears in the
+on-demand comment and in the per-round panel comment, the two places a
+maintainer actually reads findings. A carried-forward `{ upheld: N }` with no
+verdict still renders nothing: that shape is history, not this round's decision.
+
+**Silence about disputes is now itself reported.** No rebuttal has ever been
+filed on an agent PR, and until this was addressed that fact was
+indistinguishable from a channel that had quietly broken. Three surfaces close
+it: the fix report always renders `Disputed (N)` — `_Nothing._` at zero, the
+same treatment `Skipped (0)` already had; the loop-status table's `Fixer` column
+carries a per-round `N disputed`; and `scripts/agent/rebuttal.mjs`'s post-failure path, which
+exits 0 by design because a dispute that cannot be posted leaves the finding
+standing, now emits a best-effort warning naming that consequence instead of
+vanishing. The count in the report is rendered and never serialized — the hidden
+record is the fixer's claim about its own work, while the count is derived from
+other comments at post time, and a second stale copy is worth nothing.
+
+Not yet built: an adjudication record in the metrics comment, and any measurement
+of how often a rebuttal is *right* — which is a `misses.jsonl` question, since an
+overturn that should not have happened is a false negative like any other.
 
 #### The loop shipped inert, and stayed inert until the lens was stamped
 

@@ -110,7 +110,7 @@ function verifierMarker(f) {
  * surface — this is where it finally lands. `skipped-by-author` is excluded:
  * those get their own section below, where the note reads as what it is.
  */
-function adjudicationNote(f) {
+export function adjudicationNote(f) {
   const a = f.adjudication;
   if (!a || typeof a !== "object" || a.verdict === "skipped-by-author") return "";
   const reason = neutralizeMarkers(String(a.reason ?? "").trim());
