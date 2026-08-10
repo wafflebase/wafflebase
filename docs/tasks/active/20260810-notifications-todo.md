@@ -1,0 +1,95 @@
+# Notifications — TODO
+
+Design: `docs/design/notifications.md`. Branch: `notifications`.
+
+Goal: in-app notifications — a bell in `SiteHeader` with an unread badge and a
+dropdown, backed by a Postgres `Notification` table and an SSE stream. Four
+types: `comment_mention`, `comment_reply`, `thread_resolved`,
+`workspace_member_joined`. Comment events are client-reported and
+server-authorized; the join event is created server-side.
+
+## PR 1 — Backend core
+
+- [ ] `prisma/schema.prisma`: `Notification` model
+  - `document` `onDelete: Cascade`, `actor` `onDelete: SetNull`
+  - `@@index([recipientId, createdAt])`
+  - `dedupeKey String?` (comment id, or `<threadId>:resolved`) with
+    `@@unique([recipientId, type, dedupeKey])` — separate from `commentId`
+    because `thread_resolved` has no comment of its own
+  - back-relations on `User` (recipient + actor), `Workspace`, `Document`
+- [ ] `pnpm backend migrate` — commit the generated migration
+- [ ] `notification/notification-hub.ts` — `Map<userId, Set<Subject>>`,
+      `subscribe(userId)` / `publish(userId, summary)`, unsubscribe cleanup
+- [ ] `notification/notification.service.ts`
+  - `createFromComment(actorId, dto)` — 404 unknown document, 403 non-member
+        actor, silently drop non-member recipients, exclude the actor,
+        truncate preview to 200 + strip control chars, cap 20 recipients
+  - `createMemberJoined(workspaceId, joinerId)` — owners ∪ invite creator,
+        joiner excluded
+  - `list(userId, before?)` / `unreadCount(userId)` / `markRead(userId, ids?)`
+  - membership check via Prisma directly — do **not** inject `WorkspaceService`
+        (`acceptInvite` calls into this service; injecting would be circular)
+- [ ] `notification/notification.controller.ts`
+  - `POST /notifications/comment` (`@Throttle` 30/min)
+  - `GET /notifications` (`?before=`), `GET /notifications/unread-count`
+  - `POST /notifications/read` (`{ ids? }`)
+  - `@Sse('stream')` = merge(hub, 60s pollFallback, 25s heartbeat);
+        payload is `{ unreadCount, latestId }` only
+  - SSE response headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`
+  - all routes `JwtAuthGuard`; `/stream` `@SkipThrottle()`
+- [ ] `notification/notification.dto.ts` — class-validator on every field
+- [ ] `notification/notification.module.ts`; register in `app.module.ts`
+- [ ] `workspace.service.ts` `acceptInvite()` — emit `workspace_member_joined`
+      after the membership row is created
+- [ ] `WorkspaceModule` imports `NotificationModule`
+
+## PR 2 — Bell UI
+
+- [ ] `components/notifications/types.ts`
+- [ ] `use-notifications.ts` — React Query list / unread-count / read mutations
+- [ ] `use-notification-stream.ts` — `EventSource` → `queryClient.setQueryData`
+- [ ] `notification-item.tsx` — icon, sentence per type, `date-fns` relative
+      time, click → document URL by `document.type`
+      (`/s/ /d/ /p/ /f/ /n/ /b/`)
+- [ ] `notification-list.tsx` — items, empty state, "mark all read"
+- [ ] `notification-bell.tsx` — bell + badge + Popover
+- [ ] Mount in `components/site-header.tsx`, authenticated sessions only
+      (no bell for anonymous share-link viewers)
+
+## PR 3 — Comment wiring
+
+- [ ] Shared reporter in `components/comments/` so the three consumers cannot
+      diverge; preview from `mentionBodyToPlainText(body).slice(0, 200)`
+  - `comment_mention` → `extractMentionedUserIds(body)`
+  - `comment_reply` → earlier comment authors **minus** this comment's mention
+    recipients (otherwise one reply notifies the same person twice)
+  - `thread_resolved` → all comment authors in the thread
+- [ ] `app/docs/comments/docs-comments-controller.ts` — report after CRDT write
+- [ ] `app/files/comments/pdf-comments-controller.ts` — same
+- [ ] Sheets comment path — same
+- [ ] Fire-and-forget: a failed report must not surface an error to the author
+
+## Tests
+
+- [ ] `notification.service.spec.ts` — non-member recipients dropped, actor
+      excluded, duplicate `commentId` → one row, preview truncation/sanitizing,
+      404/403
+- [ ] `notification-hub.spec.ts` — publish/subscribe/unsubscribe, no
+      cross-user leakage
+- [ ] `test/notification.e2e-spec.ts` — JWT guard + real DB
+      (`RUN_DB_INTEGRATION_TESTS`)
+- [ ] Frontend: route-URL construction + read-state transitions (non-JSX)
+- [ ] Manual smoke in `pnpm dev`: mention a second user, confirm badge updates
+      live, dropdown opens the right document, "mark all read" clears
+- [ ] `pnpm verify:fast` green on every commit
+
+## Docs
+
+- [ ] `docs/design/README.md` — Common table entry (done with the design doc)
+- [ ] `packages/backend/README.md` — endpoint table + module tree entry
+- [ ] Fill in `20260810-notifications-lessons.md`
+- [ ] `pnpm tasks:archive && pnpm tasks:index` before merge
+
+## Review
+
+<!-- filled in after implementation -->
