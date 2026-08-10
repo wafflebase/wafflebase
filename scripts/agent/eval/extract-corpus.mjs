@@ -21,6 +21,12 @@
 //   first             the PR's literal first commit
 //   head              the merged state (skews approve; useful for comparison)
 //   auto              autonomous → first, everything else → head (the legacy rule)
+// and `--review-commit pr-<n>=<sha>` overrides all four FOR ONE ITEM, recording
+// `review_point: pinned`. The four modes above are rules for guessing which commit
+// a reviewer read; a pin is the answer when that is already known per PR — which
+// is the normal case when the diff has to line up with a review that has already
+// happened and cannot be re-run. Nothing here learns where the sha came from; see
+// the note on `parseReviewCommitPins`.
 //
 // DETERMINISM IS THE PROPERTY EVERYTHING ELSE RESTS ON, and it fails by looking
 // fine. Two extractions of one PR must produce byte-identical files, because a
@@ -51,8 +57,28 @@ import { localizationFromDiff } from "../classify.mjs"; // and the pipeline's ow
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export const DEFAULT_REPO = "wafflebase/wafflebase";
+
+/**
+ * The `--review-point` modes: the RULES for choosing a commit, and the closed list
+ * the CLI validates the flag against.
+ */
 export const REVIEW_POINTS = Object.freeze(["pr-open", "first", "head", "auto"]);
 export const DEFAULT_REVIEW_POINT = "pr-open";
+
+/**
+ * What `meta.review_point` says when the commit was pinned per item rather than
+ * derived by a rule — so a manifest records WHICH RULE produced its snapshot, and
+ * "we picked this deliberately" is distinguishable from all four guesses.
+ *
+ * Deliberately NOT a member of `REVIEW_POINTS`: it is not selectable. There is no
+ * commit `--review-point pinned` could resolve to on its own, so accepting it at
+ * the flag would take a run that meant to pin and silently give it a mode with no
+ * pin attached — the exact fall-back-to-a-rule failure the pin exists to prevent.
+ * The two sets are different vocabularies and `REVIEW_POINT_VALUES` is the union:
+ * the modes are what a caller may ASK for, the values are what the field may HOLD.
+ */
+export const REVIEW_POINT_PINNED = "pinned";
+export const REVIEW_POINT_VALUES = Object.freeze([...REVIEW_POINTS, REVIEW_POINT_PINNED]);
 
 /** The `--state` values `gh pr list` accepts. Validated before the list call. */
 export const PR_STATES = Object.freeze(["open", "closed", "merged", "all"]);
@@ -126,12 +152,30 @@ export function headAtOpen(view) {
   return latest.oid ?? view?.headRefOid ?? "";
 }
 
-/** `{review_commit, review_base, review_point}` for one of the four modes. */
-export function resolveReviewPoint(view, mode = DEFAULT_REVIEW_POINT) {
+/**
+ * `{review_commit, review_base, review_point}` for one of the four modes — or for
+ * `pinnedCommit`, which overrides every mode.
+ *
+ * `review_base` is `baseRefOid` in ALL cases, pin included, and that is not an
+ * oversight. It is a property of the pull request rather than of our snapshot, and
+ * `fetchDiff` never uses it while a base branch is available — it takes
+ * `merge-base(base branch, review_commit)`, which follows the pin on its own. The
+ * three-dot forms make the two agree anyway (`A...B` is merge-base(A,B)..B), so
+ * moving `review_base` would change no diff and would make every already-frozen
+ * item drift. If the pin is a merge of the base branch INTO the branch, the fork
+ * point moves and `review_base` does not; the fork point is the one the diff is
+ * taken from, and it is recorded implicitly by `sha256_diff`.
+ */
+export function resolveReviewPoint(view, mode = DEFAULT_REVIEW_POINT, pinnedCommit = "") {
   const commits = Array.isArray(view?.commits) ? view.commits : [];
   const head = view?.headRefOid ?? "";
   const base = view?.baseRefOid ?? "";
   const first = commits[0]?.oid ?? head;
+  // The pin wins over the mode, and says so in the field. Checked FIRST so no
+  // rule can run and quietly produce a different commit alongside it.
+  if (pinnedCommit) {
+    return { review_commit: String(pinnedCommit), review_base: base, review_point: REVIEW_POINT_PINNED };
+  }
   let point = mode;
   if (mode === "auto") point = classifyProvenance(view) === "autonomous" ? "first" : "head";
   let review_commit;
@@ -139,6 +183,76 @@ export function resolveReviewPoint(view, mode = DEFAULT_REVIEW_POINT) {
   else if (point === "pr-open") review_commit = headAtOpen(view);
   else review_commit = head;
   return { review_commit, review_base: base, review_point: point };
+}
+
+/** A full git object name. Abbreviations are refused — see `parseReviewCommitPins`. */
+const FULL_SHA = /^[0-9a-f]{40}$/;
+
+/**
+ * `--review-commit pr-415=<sha>,429=<sha>` → `Map<"415", sha>`.
+ *
+ * PER ITEM, because the commit a review was written against is a fact about one
+ * pull request and there is no batch rule that produces it. Both `pr-415=` and
+ * `415=` are accepted: `--prs` speaks in numbers and item ids are `pr-<n>`, so
+ * insisting on one spelling only buys a footgun.
+ *
+ * WHAT THIS DOES NOT DO, and must not learn to. It does not ask GitHub which
+ * commit anyone reviewed. This module's headline property is that it is
+ * deterministic and invokes nothing — `gh` and `git`, no model, no review API —
+ * and a mode that went and looked would make the freezer's output depend on a
+ * third party's records at the moment it ran. The caller supplies the sha.
+ *
+ * THROWS RATHER THAN SKIPS, on anything it cannot read exactly:
+ *   - an entry that is not `<pr>=<sha>`
+ *   - an abbreviated sha. `git` would resolve `51c0182` today and could resolve it
+ *     to something else after the next fetch; a corpus item is forever
+ *   - the same PR pinned twice, which has no answer and would otherwise be decided
+ *     by iteration order
+ * All three are typos, all three are silent if tolerated — the item freezes at the
+ * default rule, and a `pr-open` freeze and a pinned freeze look identical.
+ */
+export function parseReviewCommitPins(spec) {
+  const pins = new Map();
+  const entries = String(spec ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  for (const entry of entries) {
+    const m = /^(?:pr-)?(\d+)=(.+)$/i.exec(entry);
+    if (!m) {
+      throw new Error(
+        `--review-commit entry ${JSON.stringify(entry)} is not <pr>=<sha> (e.g. pr-415=51c01826aa9f05e4cef9ee498668e3f2321b3602)`,
+      );
+    }
+    const [, number, sha] = m;
+    const lower = sha.toLowerCase();
+    if (!FULL_SHA.test(lower)) {
+      throw new Error(
+        `--review-commit pr-${number}: ${JSON.stringify(sha)} is not a full 40-character sha — an abbreviation can resolve to a different commit later`,
+      );
+    }
+    if (pins.has(number)) {
+      throw new Error(`--review-commit pins PR ${number} twice (${pins.get(number)} and ${lower}) — one item has one review commit`);
+    }
+    pins.set(number, lower);
+  }
+  return pins;
+}
+
+/**
+ * Every pinned PR must be one of the PRs being frozen.
+ *
+ * A pin naming a PR that is not in `--prs` is a typo, and it is the WORST kind
+ * here: the pin is simply never consulted, every requested item freezes at the
+ * default rule, and the run exits 0 with a corpus that looks perfectly healthy.
+ * Nothing downstream can tell that snapshot from the intended one.
+ */
+export function assertPinsAreRequested(pins, numbers) {
+  const requested = new Set((Array.isArray(numbers) ? numbers : []).map((n) => String(n).trim()));
+  const stray = [...pins.keys()].filter((n) => !requested.has(n));
+  if (stray.length > 0) {
+    throw new Error(
+      `--review-commit pins PR(s) ${stray.map((n) => `pr-${n}`).join(", ")} which are not being frozen ` +
+        `(requested: ${[...requested].map((n) => `pr-${n}`).join(", ") || "none"}) — a pin that matches nothing is silently ignored`,
+    );
+  }
 }
 
 /**
@@ -495,6 +609,51 @@ export function ghGitIo({ repo = DEFAULT_REPO, repoSource } = {}) {
       }
     },
 
+    /**
+     * Fetch ONE commit by full sha and pin it under `refs/eval/pin/<n>`.
+     *
+     * `refs/pull/<n>/head` is not enough for a pinned commit, and #415 is why: a
+     * force-push removed the reviewed commit from that PR's commit list, so it is
+     * absent from `refs/pull/415/head`'s history while still being present on the
+     * server and fetchable by full sha. An unreachable object is one `git gc` away
+     * from gone, so the fetch is followed by a ref — the same reason the base and
+     * head fetches above leave refs behind.
+     *
+     * Best-effort: fetching a bare sha needs `uploadpack.allowReachableSHA1InWant`
+     * (or the object to be reachable), and the caller's assertion is what decides.
+     * Returns whether the object is present AFTERWARDS, which is the only question
+     * that matters — a commit already in the checkout needs no network at all.
+     */
+    fetchPinnedCommit(n, sha) {
+      const url = `https://github.com/${repo}.git`;
+      if (this.hasCommit(sha)) {
+        // Still pin it: present-but-unreachable is exactly #415's state, and it is
+        // the state that expires.
+        try {
+          git(["update-ref", `refs/eval/pin/${n}`, sha]);
+        } catch {
+          // A ref we could not write is a durability loss, not a correctness one.
+        }
+        return true;
+      }
+      try {
+        git(["fetch", "-q", "--no-tags", url, sha]);
+        git(["update-ref", `refs/eval/pin/${n}`, sha]);
+      } catch {
+        // Falls through to the assertion, which names the item.
+      }
+      return this.hasCommit(sha);
+    },
+
+    /** Does this sha name a commit object in `repoSource`? */
+    hasCommit(sha) {
+      try {
+        return git(["cat-file", "-t", String(sha)]).trim() === "commit";
+      } catch {
+        return false;
+      }
+    },
+
     mergeBase(a, b) {
       return git(["merge-base", a, b]).trim();
     },
@@ -557,10 +716,45 @@ export function fetchIssueSpec(io, view, { log = () => {} } = {}) {
   }
 }
 
+/**
+ * Fetch and pin every `--review-commit` sha, and REFUSE THE WHOLE RUN if any of
+ * them does not resolve — before one item is extracted or one byte is written.
+ *
+ * A pre-flight rather than a per-PR skip, which is the opposite of how every other
+ * failure in this module is handled, for one reason: the skip path's whole point
+ * is that one flaky PR cannot cost the other nineteen, and a pin that does not
+ * resolve is not a flaky PR. It is the operator's list being wrong, and the
+ * remaining items would be frozen at a review point the operator did not ask for
+ * while the run reported a partial success. Failing before anything is written
+ * means the fix is "re-run with the right sha", not "work out which items in this
+ * version are the ones you meant".
+ *
+ * The message names every unresolvable item at once — a list of seven shas checked
+ * one run at a time is six more round trips than anyone needs.
+ */
+export function assertPinnedCommitsResolve(io, pins, { log = () => {} } = {}) {
+  const missing = [];
+  for (const [n, sha] of pins) {
+    if (io.fetchPinnedCommit(n, sha)) {
+      log(`  pinned pr-${n} @ ${sha.slice(0, 8)} (refs/eval/pin/${n})`);
+      continue;
+    }
+    missing.push(`pr-${n}=${sha}`);
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `extract-corpus: --review-commit named ${missing.length} commit(s) that do not resolve in --repo-source: ` +
+        `${missing.join(", ")}. Nothing was frozen. Check the sha, or fetch it first ` +
+        `(git fetch --no-tags <remote> <sha>) — a review point that cannot be resolved must never fall back to ` +
+        `${DEFAULT_REVIEW_POINT}, because that freeze would look identical to the one you asked for.`,
+    );
+  }
+}
+
 /** One PR → the four files' content, or a throw the caller turns into a skip. */
-export function extractItem(io, n, { reviewPointMode = DEFAULT_REVIEW_POINT, log = () => {} } = {}) {
+export function extractItem(io, n, { reviewPointMode = DEFAULT_REVIEW_POINT, pinnedCommit = "", log = () => {} } = {}) {
   const view = io.prView(n);
-  const reviewPoint = resolveReviewPoint(view, reviewPointMode);
+  const reviewPoint = resolveReviewPoint(view, reviewPointMode, pinnedCommit);
   const refs = reviewPoint.review_point === "head" ? { base: false } : io.fetchPrRefs(n, view.baseRefName);
   if (refs.error) log(`  PR #${n}: could not fetch refs/pull/${n}/head (${refs.error})`);
   const { diff, method } = fetchDiff(io, n, reviewPoint, { hasBase: refs.base, log });
@@ -584,6 +778,7 @@ export function extractCorpus({
   numbers,
   corpusVersion,
   reviewPointMode = DEFAULT_REVIEW_POINT,
+  reviewCommitPins = new Map(),
   dryRun = false,
   allowDegradedDiff = false,
   log = () => {},
@@ -595,10 +790,16 @@ export function extractCorpus({
   let written = 0;
   let unchanged = 0;
 
+  // Both guards stand HERE and not only in `main`, because this is the door every
+  // caller walks through — the CLI, a test, and whatever runs the next freeze.
+  // A validator only guards the door it stands in (the `assertEffort` lesson).
+  assertPinsAreRequested(reviewCommitPins, numbers);
+  assertPinnedCommitsResolve(io, reviewCommitPins, { log });
+
   for (const n of numbers) {
     let extracted;
     try {
-      extracted = extractItem(io, n, { reviewPointMode, log });
+      extracted = extractItem(io, n, { reviewPointMode, pinnedCommit: reviewCommitPins.get(String(n).trim()) ?? "", log });
     } catch (e) {
       skipped.push({ pr: String(n), reason: "extract-failed", detail: e.message.split("\n")[0] });
       log(`  skip PR #${n}: ${e.message.split("\n")[0]}`);
@@ -732,6 +933,7 @@ const USAGE = `Usage:
                      [--prs 664,673 | --limit <n> --state merged]
                      [--repo owner/name] [--repo-source <path>]
                      [--review-point ${REVIEW_POINTS.join("|")}]
+                     [--review-commit pr-<n>=<sha>,...]
                      [--dry-run] [--allow-degraded-diff]
 
   Freezes each PR into <root>/corpus/items/pr-<n>/{meta.json, diff.patch,
@@ -743,6 +945,13 @@ const USAGE = `Usage:
   --repo-source  a local clone to fetch PR commits into and diff from
                  (default: this repository). Leaves refs under refs/eval/.
   --review-point which commit to freeze the diff at (default ${DEFAULT_REVIEW_POINT}).
+  --review-commit
+                 pin the review commit for individual PRs, overriding
+                 --review-point for those items and recording
+                 review_point=${REVIEW_POINT_PINNED}. Full 40-character shas only.
+                 A sha that does not resolve, or that names a PR not being
+                 frozen, refuses the whole run before anything is written —
+                 it never falls back to ${DEFAULT_REVIEW_POINT}.
   --dry-run      compute and report everything, write nothing.
 
 Re-running over an existing root does not overwrite: each already-frozen item is
@@ -772,8 +981,17 @@ export function main(argv) {
     return 2;
   }
   const reviewPointMode = args["review-point"] ?? DEFAULT_REVIEW_POINT;
+  // `pinned` is rejected here along with everything else outside the four modes:
+  // it is a value the FIELD holds, never a mode the flag may ask for.
   if (!REVIEW_POINTS.includes(reviewPointMode)) {
     console.error(`extract-corpus: --review-point must be one of ${REVIEW_POINTS.join(", ")}, got ${JSON.stringify(reviewPointMode)}`);
+    return 2;
+  }
+  let reviewCommitPins;
+  try {
+    reviewCommitPins = parseReviewCommitPins(args["review-commit"]);
+  } catch (e) {
+    console.error(`extract-corpus: ${e.message}`);
     return 2;
   }
   if (args.limit !== undefined) {
@@ -812,21 +1030,40 @@ export function main(argv) {
     console.error(`extract-corpus: no PRs to freeze — --prs was empty and the list returned nothing`);
     return 1;
   }
+  // A pin that names nothing is a typo, and it costs a usage error rather than a
+  // run, because the run it would produce exits 0 and looks right.
+  try {
+    assertPinsAreRequested(reviewCommitPins, numbers);
+  } catch (e) {
+    console.error(`extract-corpus: ${e.message}`);
+    return 2;
+  }
 
   console.log(
     `extract-corpus: ${numbers.length} PR(s) from ${repo} → corpus "${corpusVersion}" in ${args.root} ` +
-      `(review-point=${reviewPointMode}${args["dry-run"] ? ", dry-run" : ""})`,
+      `(review-point=${reviewPointMode}${reviewCommitPins.size ? `, ${reviewCommitPins.size} pinned` : ""}` +
+      `${args["dry-run"] ? ", dry-run" : ""})`,
   );
-  const result = extractCorpus({
-    io,
-    store,
-    numbers,
-    corpusVersion,
-    reviewPointMode,
-    dryRun: !!args["dry-run"],
-    allowDegradedDiff: !!args["allow-degraded-diff"],
-    log: (m) => console.error(m),
-  });
+  let result;
+  try {
+    result = extractCorpus({
+      io,
+      store,
+      numbers,
+      corpusVersion,
+      reviewPointMode,
+      reviewCommitPins,
+      dryRun: !!args["dry-run"],
+      allowDegradedDiff: !!args["allow-degraded-diff"],
+      log: (m) => console.error(m),
+    });
+  } catch (e) {
+    // The pre-flight pin check is the only thing that throws out of here, and it
+    // throws precisely so that nothing was written. Operational (1), not usage (2):
+    // the flag was well-formed, the repository could not supply the commit.
+    console.error(e.message);
+    return 1;
+  }
   const summary = summarize(result);
   console.log(summary.line);
   if (args["dry-run"]) console.log(`extract-corpus: DRY RUN — nothing was written to ${args.root}.`);
