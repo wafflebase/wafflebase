@@ -102,8 +102,9 @@ editor port and the future migration simple.
 #### Engine package: `packages/notes` (`@wafflebase/notes`)
 
 Follows the `packages/docs` engine-package convention (private ESM/CJS lib,
-Vite + `vite-plugin-dts`, browser + `./node` export conditions, `src/index.ts`
-barrel). CodePair's `packages/codemirror` is ported here and reorganized to
+Vite for the JS bundle + `tsc` against the package build tsconfig for the
+declarations,
+browser + `./node` export conditions, `src/index.ts` barrel). CodePair's `packages/codemirror` is ported here and reorganized to
 match Wafflebase's engine shape:
 
 - `src/store/` — `NoteStore` interface (mirrors `DocStore` / `Store`) plus a
