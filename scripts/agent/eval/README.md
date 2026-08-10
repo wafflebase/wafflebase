@@ -460,7 +460,7 @@ The fields of `meta.json` that are load-bearing rather than descriptive:
 |---|---|
 | `review_commit` | the commit a replay checks the tree out at |
 | `review_base` | what a replay passes as `--base-sha`. **This is what switches the shipped novelty gate on.** Without it a replay measures the gate with novelty OFF and `lane: "backlog"` can never occur — a replayed gate that is not the shipped gate, with nothing in the output saying so |
-| `review_point` | which commit the diff was taken at: `pr-open` (default), `first`, `head`, `auto` |
+| `review_point` | which commit the diff was taken at, and **which rule chose it**: `pr-open` (default), `first`, `head`, `auto` — or `pinned`, meaning `--review-commit` named the sha for this item and no rule ran. `pinned` is a value this field holds, never a `--review-point` the flag accepts: there is no commit it could resolve to on its own |
 | `diff_method` | *how* the diff was produced. `fork-point` / `base-tip` / `gh-pr-diff` are faithful three-dot diffs; `single-commit` is a degradation and is refused unless you ask for it |
 | `sha256_diff` | the diff's own hash. Re-verified against the bytes on every write, and what PR 16's label-staleness check compares against |
 | `additions` / `deletions` / `scope` | measured from **the frozen diff** — this is the field to segment by |
@@ -480,6 +480,32 @@ node scripts/agent/eval/extract-corpus.mjs \
 
 node scripts/agent/eval/extract-corpus.mjs --help    # every flag
 ```
+
+### Pinning the review commit for one item
+
+`--review-point` is four rules for **guessing** which commit a reviewer read. When
+that is already known for a given pull request, name it:
+
+```bash
+node scripts/agent/eval/extract-corpus.mjs \
+  --root "$EVAL" --corpus-version 2026-08-05a --prs 415,429,471 \
+  --review-commit pr-415=51c01826aa9f05e4cef9ee498668e3f2321b3602,pr-429=c35d715b177647e0443266d21c326f43a5d34705
+```
+
+Those items freeze at the named commit and record `review_point: pinned`; #471,
+unpinned, still follows `--review-point`. Full 40-character shas only — `git`
+would resolve an abbreviation today and could resolve it elsewhere after the next
+fetch, and a corpus item is forever.
+
+**A pin that cannot be honoured refuses the whole run before anything is written**,
+rather than skipping the item or falling back to `pr-open`. Three ways to get that:
+a malformed entry or an abbreviated sha (usage error, exit 2), a pin naming a PR
+that is not being frozen (exit 2), and a sha that does not resolve in
+`--repo-source` (exit 1). The reason is the failure mode: a `pr-open` freeze and a
+pinned freeze produce output of **identical shape**, so a pin that quietly did not
+apply is invisible in the item, in the manifest and in the exit code. Each pinned
+commit is fetched by sha and pinned at `refs/eval/pin/<n>`, which is how a commit a
+force-push removed from `refs/pull/<n>/head` stays reachable.
 
 Committing what lands in `$EVAL` is a human's separate, deliberate act — this tool
 writes files and never touches git in the eval repo.
