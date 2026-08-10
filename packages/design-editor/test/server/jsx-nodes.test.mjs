@@ -693,6 +693,22 @@ describe('classLiteralOf', () => {
     expect(classOf(`function C(){ return <div className={cn(styles.x, "base")}/>; }`)).toBe('base');
   });
 
+  it('reads a joiner reached through a namespace import', () => {
+    expect(classOf(`function C(){ return <div className={utils.cn("a b")}/>; }`)).toBe('a b');
+  });
+
+  it('ignores a call that is NOT a known class joiner', () => {
+    // The premise: these have a direct string argument, so only the callee name
+    // separates them from the `cn("a b")` case above.
+    //
+    // It matters because inject.mjs REWRITES this literal in place. Returning
+    // it here turns `className={t("nav.home")}` into `className={t("flex")}`
+    // and destroys the translation key — a silent wrong write, whereas null
+    // costs a search key and produces a visible refusal.
+    expect(classOf(`function C(){ return <div className={t("nav.home")}/>; }`)).toBeNull();
+    expect(classOf(`function C(){ return <div className={variantFor("primary")}/>; }`)).toBeNull();
+  });
+
   it('returns null when there is no literal to edit', () => {
     expect(classOf(`function C(){ return <div className={other}/>; }`)).toBeNull();
     expect(classOf(`function C(){ return <div id="x"/>; }`)).toBeNull();

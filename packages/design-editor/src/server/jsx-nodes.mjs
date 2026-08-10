@@ -171,11 +171,45 @@ export function attrsOf(node) {
 }
 
 /**
+ * Call names whose string arguments are class blobs.
+ *
+ * An ALLOWLIST, not "any call", because what this function returns is a REWRITE
+ * TARGET: `inject.mjs` splices the class ops directly over the literal's span.
+ * So naming the wrong literal is not a weak search key, it is Tailwind classes
+ * written over something that was never classes — `className={t("nav.home")}`
+ * becoming `className={t("flex gap-2")}`, with the translation key gone. The
+ * AST cannot tell a class joiner from any other single-string call, so the
+ * callee's NAME is the only signal available here.
+ *
+ * A consumer whose joiner is not on this list loses the class component of
+ * `fpx` and gets "className is not a string literal" from a class rewrite — a
+ * weaker key and a visible refusal, which is the safe half of the trade.
+ */
+const CLASS_JOINERS = new Set([
+  'cn',
+  'clsx',
+  'classNames',
+  'classnames',
+  'cx',
+  'twMerge',
+  'twJoin',
+]);
+
+/**
+ * `cn(…)` and `utils.cn(…)` both count — the import style is the consumer's.
+ *
+ * @param {ts.Expression} callee
+ */
+const isClassJoiner = (callee) =>
+  (ts.isIdentifier(callee) && CLASS_JOINERS.has(callee.text)) ||
+  (ts.isPropertyAccessExpression(callee) && CLASS_JOINERS.has(callee.name.text));
+
+/**
  * The string-literal node holding `className`'s classes, or null.
  *
  * `className="a b"` and `className={"a b"}` resolve directly. For
  * `className={cn("a b", other)}` we take the first string literal that is a
- * DIRECT ARGUMENT of the call.
+ * DIRECT ARGUMENT of a call to a KNOWN class joiner (`CLASS_JOINERS`).
  *
  * Directness is the whole guard. Descending into the expression instead finds
  * the first literal ANYWHERE, which for the idioms this repo is built on is not
@@ -190,9 +224,9 @@ export function attrsOf(node) {
  * for the codebase it named — before reaching the arbitrary consumer trees the
  * local-plugin pivot points this at.
  *
- * Anything not attributable to a direct position returns null. That costs the
- * class signal in `fpx`, weakening a search key, rather than handing
- * `inject.mjs` a confident pointer at a literal it would then REWRITE.
+ * Anything not attributable to a direct position in a recognised joiner returns
+ * null. That costs the class signal in `fpx`, weakening a search key, rather
+ * than handing `inject.mjs` a confident pointer at a literal it would REWRITE.
  *
  * @param {JsxRootNode} node
  * @returns {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null}
@@ -221,7 +255,7 @@ export function classLiteralOf(node) {
     const expr = unwrap(init.expression);
     const direct = asLiteral(expr);
     if (direct) return direct;
-    if (ts.isCallExpression(expr)) {
+    if (ts.isCallExpression(expr) && isClassJoiner(expr.expression)) {
       for (const arg of expr.arguments) {
         const lit = asLiteral(unwrap(arg));
         if (lit) return lit;
