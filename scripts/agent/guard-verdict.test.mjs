@@ -47,7 +47,7 @@ test("page summary tolerates the early paths (no rounds counted yet)", () => {
   assert.match(md, /PAGED \(infra\)/);
   assert.ok(!md.includes("null"));
   // An uncounted round budget must not render as a confident "0 of 3".
-  assert.ok(!/Failed fix rounds/.test(md));
+  assert.ok(!/Fix rounds dispatched/.test(md));
   assert.match(md, /```text\nquota exceeded\n```/);
 });
 
@@ -66,7 +66,7 @@ test("page detail is fenced inert — embedded fences and markdown cannot break 
 
 test("page summary includes the round count when it WAS measured", () => {
   const md = renderGuardSummary({ decision: "page", reason: "round-cap", failedRounds: 3, max: 3 });
-  assert.match(md, /Failed fix rounds so far: 3 of 3/);
+  assert.match(md, /Fix rounds dispatched so far: 3 of 3/);
 });
 
 test("proceed summary carries every decision input", () => {
