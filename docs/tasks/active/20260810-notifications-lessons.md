@@ -82,6 +82,32 @@ Design: `docs/design/notifications.md`. Todo: `20260810-notifications-todo.md`.
   the response was read during the live smoke, not in any unit test. Prefer an
   explicit `select` for anything a client sees.
 
+## From code review
+
+- **An optional field that keys a unique index is a suppression bug.**
+  `commentId` was optional for every notification type, and mention/reply fell
+  back to a thread-wide dedupe key. Since the key is shared by every later
+  comment in that thread, the unique index would swallow all of them — one
+  notification per thread, forever. When a column feeds `@@unique`, ask what
+  happens when it is absent; "the client always sends it" is not an answer.
+
+- **A cursor needs a tiebreak, not just an order.** `orderBy` on
+  `(createdAt, id)` makes paging *stable*; it does not make it *complete*. A
+  `createdAt`-only cursor still skips every row sharing the boundary instant,
+  and one report inserts its whole batch at one instant. Both halves are
+  needed.
+
+- **Test the tree you ship, not the hook you changed.** React Query's
+  `invalidateQueries` only refetches *active* queries. A `renderHook` test of
+  the mutation alone passes whether or not the invalidation exists. Mounting
+  `useUnreadCount` alongside it — the way the bell does — is what makes the
+  test able to fail. Always confirm by removing the fix and watching red.
+
+- **Optimistic writes need an authoritative follow-up.** Deriving the badge
+  from the mutation's own inputs races the stream: a notification that arrives
+  between the server's write and the response resolving gets erased. Write
+  optimistically for feel, then invalidate for truth.
+
 - **A hung Puppeteer click usually means the element is not there.** The
   backend restarted mid-session (tsc watch), `/auth/me` 401'd, the app
   redirected to `/login`, and the click waited on a selector that no longer

@@ -114,4 +114,25 @@ server-authorized; the join event is created server-side.
 
 ## Review
 
-<!-- filled in after implementation -->
+Two rounds, both applied in full.
+
+**Local branch review** (before pushing) — 5 Important, 8 Minor, no Critical.
+The ones that changed production behavior: a React Query key-prefix collision
+that made every stream event trigger the HTTP fetch the summary payload exists
+to avoid; `publishSummary` costing two queries per recipient even with no
+local subscriber; a missing `(recipientId, readAt)` index behind the badge
+query; and an IP-keyed throttle that the docs described as per-user. Two
+committed files also carried raw NUL bytes, which made git treat them as
+binary and hid half a test file from the diff.
+
+**CodeRabbit on the PR** — 15 inline, 1 Major, no Critical. The one with
+user-visible impact: `commentId` was optional for every type, so mention and
+reply fell back to a thread-wide dedupe key that the unique index would use to
+suppress every later comment in that thread. Also a `createdAt`-only cursor
+that skipped rows sharing a boundary instant (fixed properly with a composite
+`(createdAt, id)` cursor rather than left as a documented limitation), a
+mark-read write that could erase a newer count the stream had delivered, an
+unstable `latestId`, a pre-mutation thread snapshot in the docs resolve path,
+and a parser that accepted fractional counts. The remaining findings were doc
+accuracy, all corrected. One finding — a claimed Prettier violation — did not
+reproduce and was answered in the thread rather than applied.
