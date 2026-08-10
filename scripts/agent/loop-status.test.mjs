@@ -15,6 +15,7 @@ import {
   neutralizeHiddenMarkers,
   buildRounds,
   lensCell,
+  fixerCell,
   summarizeEffort,
   renderLoopStatus,
 } from "./loop-status.mjs";
@@ -407,4 +408,123 @@ test("REGRESSION: a fixer cancelled during setup must not consume a round", () =
   assert.match(step, /test -s "\$DISPATCH_FILE"/, "an empty staged file must fail, not post nothing");
   assert.match(step, /gh pr comment "\$PR" --body-file "\$DISPATCH_FILE"/);
   assert.doesNotMatch(step, /continue-on-error/, "an unrecorded dispatch must red the job");
+});
+
+// --- the round table becomes a map -------------------------------------------
+
+const roundOf = (sha, lenses) => ({ sha, lenses, checks: "success" });
+const okLens = (lens = "correctness") => ({ lens, status: "completed", conclusion: "success" });
+const rowFor = (body, sha) => body.split("\n").find((l) => l.includes(sha.slice(0, 9))) ?? "";
+
+test("the head cell LINKS to that round's checks, and degrades without the env", () => {
+  // GitHub's Checks tab only ever shows the HEAD commit's runs, so before this
+  // the table named a round it gave no way to open.
+  const base = "https://github.com/wafflebase/wafflebase/pull/742/commits";
+  const linked = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])], commitBase: base });
+  assert.match(linked, /\[`4d46871ac`\]\(https:\/\/github\.com\/wafflebase\/wafflebase\/pull\/742\/commits\/4d46871ac0\)/);
+  // No env (local, --dry-run) → today's plain code span, never a broken link.
+  const plain = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])] });
+  assert.match(plain, /\| `4d46871ac` \|/);
+  assert.doesNotMatch(plain, /\]\(\//);
+});
+
+test("the table carries a Fixer column, and every row fills it", () => {
+  const body = renderLoopStatus({
+    rounds: [roundOf("aaaaaaaaa1", [okLens()]), roundOf("bbbbbbbbb2", [okLens()])],
+    fixer: { aaaaaaaaa1: "3 fixed · 0 skipped · 0 disputed" },
+  });
+  const header = body.split("\n").find((l) => l.startsWith("| Round |")) ?? "";
+  assert.match(header, /\| Fixer \|/);
+  // Header, separator and every data row must agree on the column count, or
+  // GitHub renders the table as plain text.
+  const cols = (l) => l.split("|").length;
+  const sep = body.split("\n").find((l) => l.startsWith("|---")) ?? "";
+  assert.equal(cols(sep), cols(header));
+  assert.equal(cols(rowFor(body, "aaaaaaaaa1")), cols(header));
+  assert.match(rowFor(body, "aaaaaaaaa1"), /3 fixed · 0 skipped · 0 disputed/);
+  // A round with no entry still fills the cell rather than shifting the row.
+  assert.match(rowFor(body, "bbbbbbbbb2"), /\| — \|/);
+});
+
+test("fixerCell: a round the fixer was never sent in for reads as a dash", () => {
+  // Distinct from "dispatched and said nothing" — collapsing them would hide a
+  // fixer that ran and reported nothing.
+  assert.equal(fixerCell("aaa", { dispatches: [], reports: [], rebuttals: [] }), "—");
+  assert.equal(fixerCell("aaa", { dispatches: [{ from: "bbb", at: 1 }] }), "—");
+  assert.equal(fixerCell("aaa"), "—");
+});
+
+test("fixerCell: dispatched but silent is its own state", () => {
+  assert.equal(fixerCell("aaa", { dispatches: [{ from: "aaa", at: 1000 }] }), "🔧 dispatched");
+});
+
+test("fixerCell: a report renders fixed / skipped / disputed", () => {
+  const cell = fixerCell("aaa", {
+    dispatches: [{ from: "aaa", at: 1000 }],
+    reports: [{ head: "aaa", fixed: [1, 2, 3], skipped: [4] }],
+  });
+  assert.equal(cell, "3 fixed · 1 skipped · 0 disputed");
+});
+
+test("fixerCell: 0 disputed is a STATEMENT, which is the whole point", () => {
+  // Zero rebuttals have ever been filed on an agent PR, and until this cell
+  // existed that was indistinguishable from a channel that silently failed.
+  const cell = fixerCell("aaa", {
+    dispatches: [{ from: "aaa", at: 1000 }],
+    reports: [{ head: "aaa", fixed: [], skipped: [] }],
+  });
+  assert.match(cell, /0 disputed/);
+});
+
+test("fixerCell: a rebuttal lands in the round the fixer was working", () => {
+  // Rebuttal records name a FINDING, not a commit, so they are attributed by
+  // time: to the newest dispatch at or before they were written.
+  const dispatches = [
+    { from: "aaa", at: Date.parse("2026-08-10T10:00:00Z") },
+    { from: "bbb", at: Date.parse("2026-08-10T11:00:00Z") },
+  ];
+  const rebuttals = [
+    { createdAt: "2026-08-10T10:30:00Z" },
+    { createdAt: "2026-08-10T11:30:00Z" },
+    { createdAt: "2026-08-10T11:40:00Z" },
+  ];
+  const reports = [
+    { head: "aaa", fixed: [1], skipped: [] },
+    { head: "bbb", fixed: [], skipped: [2] },
+  ];
+  assert.equal(fixerCell("aaa", { dispatches, reports, rebuttals }), "1 fixed · 0 skipped · 1 disputed");
+  assert.equal(fixerCell("bbb", { dispatches, reports, rebuttals }), "0 fixed · 1 skipped · 2 disputed");
+  // One written BEFORE any dispatch belongs to no round rather than the first.
+  const early = [{ createdAt: "2026-08-10T09:00:00Z" }];
+  assert.match(fixerCell("aaa", { dispatches, reports, rebuttals: early }), /0 disputed/);
+});
+
+test("fixerCell: junk never throws and never invents a count", () => {
+  for (const bad of [null, undefined, "x", 7]) {
+    assert.equal(fixerCell("aaa", { dispatches: bad, reports: bad, rebuttals: bad }), "—");
+  }
+  const cell = fixerCell("aaa", { dispatches: [{ from: "aaa", at: 1 }], reports: [{ head: "aaa" }] });
+  assert.equal(cell, "0 fixed · 0 skipped · 0 disputed");
+});
+
+test("lensCell: a superseded round says so instead of '0 ✅ / 6 neutral'", () => {
+  // close-stuck-checks closes a cancelled panel's lenses `cancelled`; those fell
+  // through every branch into the trailing one and rendered unreadably.
+  const cancelled = (lens) => ({ lens, status: "completed", conclusion: "cancelled" });
+  assert.equal(lensCell([cancelled("a"), cancelled("b")]), "⚪ superseded");
+  assert.equal(lensCell([cancelled("a"), okLens("b")]), "⚪ superseded (1 ✅)");
+  // A real failure still wins — a superseded round must never mask a red one.
+  assert.match(lensCell([cancelled("a"), { lens: "b", status: "completed", conclusion: "failure" }]), /^❌ b/);
+  // And a still-running lens is pending, not superseded.
+  assert.match(lensCell([cancelled("a"), { lens: "b", status: "in_progress" }]), /⏳/);
+});
+
+test("main() derives commitBase from the Actions env, not a CLI flag", () => {
+  // renderLoopStatus has six call sites across four workflows and the module
+  // requires caller-independent values; a flag some arms passed would make the
+  // links flap between updates. Verified by mutation.
+  const src = readFileSync(new URL("./loop-status.mjs", import.meta.url), "utf8");
+  assert.match(src, /GITHUB_REPOSITORY/);
+  assert.match(src, /commitBase = repo/);
+  assert.doesNotMatch(src, /flags\["commit-base"\]/, "must not be a per-arm flag");
 });
