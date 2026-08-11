@@ -116,11 +116,22 @@ jobs:
       - uses: actions/checkout@v4
         continue-on-error: true
         with:
-          ref: main
-          path: .trusted-agent
-          sparse-checkout: scripts/agent
+          repository: wafflebase/agent-pipeline
+          ref: v0.1.1
+          path: .pipeline-src
+          sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      # ADAPTER (transitional). The pipeline now lives in its own repo at
+      # packages/pipeline; put it where every step below already looks for it so
+      # this change touches checkout blocks only. Phase D removes this together
+      # with the scripts/agent path itself.
+      - name: Place the trusted pipeline where the steps expect it
+        run: |
+          set -euo pipefail
+          mkdir -p .trusted-agent/scripts
+          mv .pipeline-src/packages/pipeline .trusted-agent/scripts/agent
+          rm -rf .pipeline-src
       - name: Stage the trusted agent scripts (pre-fixer)
         continue-on-error: true
         run: |

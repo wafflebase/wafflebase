@@ -254,7 +254,11 @@ test("agent-fix decides eligibility on TRUSTED main, before the branch checkout"
   // must be computed by main's code — a branch that could supply either would be
   // choosing whether it gets fixed and what the fixer is told to do.
   const wf = WF("agent-fix.yml");
-  const trustedCheckout = wf.indexOf("ref: main");
+  // Anchored on the step NAME, not on a ref literal: the trusted source is now
+  // the pinned agent-pipeline repo, and the pin moves at every version bump.
+  // The step's name is what stays stable, and it is unique to this job — the
+  // router's checkout in the `route` job would otherwise match first.
+  const trustedCheckout = wf.indexOf("- name: Check out the trusted pipeline");
   const gate = wf.indexOf("fix-eligible.mjs");
   const brief = wf.indexOf("fix-brief.mjs");
   const branchCheckout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");
