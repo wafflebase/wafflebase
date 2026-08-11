@@ -405,3 +405,41 @@ test("cmdPost counts the disputes actually on the PR", () => {
   assert.match(src, /renderFixReportBody\(rec, \{ disputed: readRebuttals\(pr\)\.length \}\)/);
   assert.match(src, /import \{ fromRebuttalAuthor, readRebuttals \} from "\.\/rebuttal\.mjs"/);
 });
+
+// --- the report must be posted BEFORE the push -------------------------------
+
+test("the fixer prompt orders the report BEFORE the push", () => {
+  // The fixer's push re-triggers CI, CI re-triggers the panel, and the panel
+  // workflow is `cancel-in-progress` — so the push cancels the job the fixer is
+  // still running in, roughly 30s later. On #757 the fixer pushed on all three
+  // rounds and reported on one: cancelled 34s / 34s / 31s after each push, with
+  // the surviving report posted 27s after its commit. Seven seconds of margin.
+  //
+  // Ordering is the whole fix: nothing can cancel work done before the push that
+  // causes the cancellation. A prompt edit that moves the report back after the
+  // push silently reintroduces the race, which is why this is a test and not a
+  // comment.
+  const wf = readFileSync(
+    new URL("../../.github/workflows/agent-review-panel.yml", import.meta.url),
+    "utf8",
+  );
+  const prompt = wf.slice(wf.indexOf("The review panel requested changes on your PR."));
+  const report = prompt.indexOf("fix-report.mjs post");
+  const push = prompt.indexOf("Push with `git push --no-verify`");
+  assert.ok(report > 0, "the prompt must tell the fixer to post a report");
+  assert.ok(push > 0, "the prompt must tell the fixer how to push");
+  assert.ok(report < push, "the report instruction must come BEFORE the push instruction");
+  // And it must SAY so, not merely be ordered that way — the agent reads prose,
+  // and "THEN REPORT" after a push section reads as "report last".
+  assert.match(prompt, /BEFORE PUSHING/, "the ordering must be stated explicitly");
+  assert.match(prompt, /PUSH LAST/, "and restated where the push is described");
+  assert.doesNotMatch(
+    prompt.slice(0, report),
+    /Push with `git push/,
+    "no push instruction may precede the report instruction",
+  );
+  // A rebuttal is posted by the same turn and loses the same race, so it is held
+  // to the same ordering.
+  const rebuttal = prompt.indexOf("rebuttal.mjs post");
+  assert.ok(rebuttal > 0 && rebuttal < push, "the rebuttal instruction must also precede the push");
+});
