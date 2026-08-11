@@ -1662,11 +1662,22 @@ jobs:
             - Run `pnpm verify:fast` ONCE at the end to confirm green — not after
               every edit.
 
-            THEN REPORT WHAT YOU DID. Required, and not paperwork: the next round
-            reads this report and hands each claim to an independent adjudicator,
-            so a finding you fixed in a way the re-check cannot see is re-raised
-            unless you say what you changed. Pass one `--fixed` or `--skipped` per
-            checklist item, so the report accounts for the whole work list.
+            REPORT WHAT YOU DID — AFTER COMMITTING, BEFORE PUSHING. Required, and
+            not paperwork: the next round reads this report and hands each claim to
+            an independent adjudicator, so a finding you fixed in a way the
+            re-check cannot see is re-raised unless you say what you changed. Pass
+            one `--fixed` or `--skipped` per checklist item, so the report accounts
+            for the whole work list.
+
+            THE ORDER IS LOAD-BEARING, and reporting after the push loses the
+            report. Your push re-triggers CI, CI re-triggers the review panel, and
+            this workflow is `cancel-in-progress` — so the new panel run CANCELS
+            the run you are still inside, killing this job about half a minute
+            after your push lands. On #757 the fixer pushed on all three rounds and
+            reported on one: the job was cancelled 34s, 34s and 31s after each
+            push, and the single surviving report was posted 27s after its commit —
+            seven seconds inside the window. Commit, report, and only then push.
+            Nothing can cancel work you did before the push that causes it.
 
             ```
             node ${{ runner.temp }}/agent-tools/fix-report.mjs post ${{ needs.review-panel.outputs.pr }} \
@@ -1713,7 +1724,14 @@ jobs:
 
             Append a follow-up commit (do NOT force-push); the commit message must
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not
-            merge. Pushing re-runs CI and a fresh review panel.
+            merge.
+
+            PUSH LAST. Pushing re-runs CI and a fresh review panel, and that fresh
+            panel run cancels this one — so the push is the end of your turn, not
+            the middle of it. The fix report above and any rebuttal must ALREADY be
+            posted before you push; anything you try to do afterwards is racing a
+            cancellation you triggered yourself, and on #757 that race lost two
+            times out of three.
 
             Run every command — ESPECIALLY the `git push` — in the FOREGROUND and
             WAIT for it to finish. This is a one-shot headless run with NO resume:

@@ -36,7 +36,7 @@ root, intermixed with the other app's objects.
       across an unbounded prefix history.
 - [x] Assert `get`/`delete` (not just `put`) in the empty-prefix tests — the
       same gap existed in `file.service.spec.ts`, so both were filled.
-- [ ] ~ESLint not covering the image files~ — **invalid**, tooling artifact.
+- ~ESLint not covering the image files~ — **invalid**, tooling artifact.
       CodeRabbit ran `npx eslint` from the repo root, whose flat config
       doesn't include `packages/backend`; the backend has its own
       `eslint.config.mjs` + `lint:check`, under which all four touched files

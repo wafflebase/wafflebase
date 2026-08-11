@@ -82,9 +82,7 @@ packages/design-editor/
     │   ├── inject.mjs             # THE AST MUTATOR (plain JS, runs in Node)
     │   ├── extract.mjs            # THE ANALYZER (components + scene node trees)
     │   ├── stamp.mjs              # THE DEV-ONLY data-wb-* TRANSFORM (§7.9)
-    │   ├── inject.d.mts           # Types for the dynamic import
-    │   ├── extract.d.mts
-    │   └── stamp.d.mts
+    │   │                          #   (typed by JSDoc — see below, NOT by .d.mts)
     ├── scenes/                    # THE SCENE RENDERER (host half + frame half)
     │   ├── frame-protocol.ts      #   the ONE typed postMessage contract
     │   ├── SceneHost.tsx          #   host: iframe, viewport, picking, channels
@@ -117,6 +115,33 @@ The **engine** is four files: `vite.config.ts` (the HTTP host + safety
 boundary), `src/server/inject.mjs` (the AST mutator), `src/server/extract.mjs`
 (the analyzer), and `src/server/jsx-nodes.mjs` (the JSX node model).
 `src/sandbox/mutate.ts` is the browser-side client for the protocol.
+
+### How the `.mjs` server modules are typed
+
+They are plain JS carrying `// @ts-check` and JSDoc annotations, checked by
+`allowJs` in the package tsconfig, with a `.mts` test per module as the consumer
+side of the contract.
+
+**Not by an adjacent `.d.mts`, which is what an earlier revision of this section
+specified.** A declaration file sitting next to its implementation *shadows* it:
+`tsc --listFiles` loads `stamp.d.mts` and drops `stamp.mjs` from the program
+entirely, so the `// @ts-check` on its first line never runs and the declaration
+is free to drift from the code it describes — the drift being invisible in
+exactly the way this engine is built to prevent. Measured by planting one type
+error in `stamp.mjs`: **0 errors with the declaration present, 3 without it**.
+
+So `stamp.d.mts` was deleted rather than corrected, and `inject.d.mts` /
+`extract.d.mts` must not be reintroduced when those modules land. Nothing is
+lost: with `allowJs` on, a TypeScript importer gets the same signature from the
+JSDoc, which is how `jsx-nodes.mjs` has always been consumed.
+
+The `.mts` test earns its extension separately from the behavioural `.mjs`
+suite. The pragma checks the annotations against the *implementation*; the
+`.mts` file checks them against a *consumer*, importing exactly as the Vite
+config's dynamic import does, so a signature that no longer matches how the
+module is actually called fails `pnpm typecheck`. The behavioural suite cannot
+stand in for it — being `.mjs` with no pragma, its call sites are never
+type-checked.
 
 > **`jsx-nodes.mjs` has three consumers and must never be reimplemented.**
 > `walkJsx()` defines which child is index 2. The extractor emits paths with it,

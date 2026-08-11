@@ -308,10 +308,18 @@ a `\s+ → " "` copy also collapses. The suite now pins internal spacing.
 
 ### Not verified
 
-- [ ] **No replay against the real panel.** Every test here drives
-      `adapters/stub-panel.mjs`, which is why this PR is free. The mapping is
-      asserted against the shape the runner really writes; it has never been
-      asserted against a finding a model produced.
-- [ ] **The lane-aware path is inert on today's data**, and cannot be otherwise
-      until the fidelity PR passes a `--base-sha`. No test here shows this
-      changing a number, because it changes none.
+- [x] **Replayed against the real panel** — 10 Aug 2026. The eval store holds
+      `runs/pilot-01__k1`: adapter `reviewer` (not the stub), `panel_sha
+      46da673dd`, corpus `2026-08-10-pilot-reviewed`, 7/7 items `ok`, $32.91,
+      1495 turns. Building a record from every finding those seven real
+      payloads carry — `buildFindingRecord` + `validateFindingRecord`, arm
+      `panel`, population `reported` — gives **142 records built and validated,
+      0 failures**. The mapping has now been asserted against findings a model
+      produced, which is what this item asked for.
+- [x] **The lane-aware path is live on real data.** The fidelity PR does pass a
+      `--base-sha`: every envelope in that run reads `base_sha_passed: true`
+      with `gate.state: "on"`. It changes numbers — `gatingCensus` over the 142
+      records resolves as `gates: 35, does-not-gate: 107, unknown: 0`, with
+      basis `lane-blocking: 35`, `lane-backlog: 1`, `non-blocking-severity:
+      106`. The `lane-backlog` record is a `major` that the lane, not the
+      severity, kept out of the gating set — the exact case that was inert.

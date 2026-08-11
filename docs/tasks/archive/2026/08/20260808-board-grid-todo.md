@@ -51,28 +51,28 @@ Why this over painting into the canvas:
 
 ## Tasks
 
-- [ ] `packages/frontend/src/app/board/board-grid.ts` — pure module
-  - [ ] `BoardGridKind = "none" | "dot" | "line"`, `DEFAULT_GRID_KIND = "dot"`
-  - [ ] `gridStep(zoom)` — 1-2-5 × 10^k ladder, floor 20 world units, picks
+- [x] `packages/frontend/src/app/board/board-grid.ts` — pure module
+  - [x] `BoardGridKind = "none" | "dot" | "line"`, `DEFAULT_GRID_KIND = "dot"`
+  - [x] `gridStep(zoom)` — 1-2-5 × 10^k ladder, floor 20 world units, picks
         the smallest step whose on-screen spacing is >= 20 px
-  - [ ] `gridBackgroundStyle(kind, viewport, theme)` — returns the
+  - [x] `gridBackgroundStyle(kind, viewport, theme)` — returns the
         `backgroundImage` / `backgroundSize` / `backgroundPosition` triple
         (or `null` for `"none"`); positions normalized into `[0, size)` so a
         board far from the world origin (Miro imports) keeps small offsets
-  - [ ] `loadGridKind()` / `saveGridKind()` — `localStorage`, validated,
+  - [x] `loadGridKind()` / `saveGridKind()` — `localStorage`, validated,
         try/catch (private-mode / quota)
-- [ ] `board-grid.test.ts` — ladder boundaries, position normalization for
+- [x] `board-grid.test.ts` — ladder boundaries, position normalization for
       large and negative pan, `"none"`, light vs dark colors
-- [ ] `board-view.tsx`
-  - [ ] Fold the four direct `editor.setViewport` calls (minimap navigate,
+- [x] `board-view.tsx`
+  - [x] Fold the four direct `editor.setViewport` calls (minimap navigate,
         `commitViewport`, wheel, pan-drag) into `commitViewport` — one
         chokepoint for viewport changes
-  - [ ] Apply the grid style there, plus a `useEffect` for grid-kind and
+  - [x] Apply the grid style there, plus a `useEffect` for grid-kind and
         theme changes
-- [ ] `board-toolbar.tsx` — `Grid ▾` dropdown next to `ZoomControl`
-- [ ] `docs/design/board/board.md` — short subsection (no new design doc)
-- [ ] `pnpm verify:fast`
-- [ ] Browser smoke: wheel zoom in/out (density switches), space-drag pan
+- [x] `board-toolbar.tsx` — `Grid ▾` dropdown next to `ZoomControl`
+- [x] `docs/design/board/board.md` — short subsection (no new design doc)
+- [x] `pnpm verify:fast`
+- [x] Browser smoke: wheel zoom in/out (density switches), space-drag pan
       (grid tracks content), dark mode, minimap free of grid, viewer-role
       share link still shows the grid
 

@@ -16,17 +16,17 @@ No backend change: the server-side authorization is already correct.
 
 ## Plan
 
-- [ ] Gate the whole Invites section behind `isOwner` (the invite *list*
+- [x] Gate the whole Invites section behind `isOwner` (the invite *list*
       endpoint `GET /workspaces/:id/invites` is `assertOwner` too, so a
       non-owner's query 403s and the section can only ever read "No active
       invites"). Also set `enabled: !!isOwner` on the invites query, matching
       the existing api-keys query.
-- [ ] Gate the remove-member trash icon: render it when the viewer is an
+- [x] Gate the remove-member trash icon: render it when the viewer is an
       owner, or when the row is the viewer's own membership. `removeMember`
       permits self-removal (`requesterId === targetUserId` skips
       `assertOwner`), so a member removing themselves is a working action and
       must not be hidden.
-- [ ] Verify no other owner-only control on the page is ungated.
+- [x] Verify no other owner-only control on the page is ungated.
 
 ## Acceptance criteria (from the issue)
 
