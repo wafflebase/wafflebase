@@ -15,6 +15,7 @@ import {
   removeSemanticToken,
   removeThemeMapping,
 } from '../../src/server/inject.mjs';
+import { parse } from '../../src/server/jsx-nodes.mjs';
 
 /**
  * The TOKEN half of `inject.mjs`. Addressed by names that exist in the source
@@ -180,6 +181,20 @@ describe('applyClassRewrite', () => {
     expect(r.reason).toMatch(/not a plain string literal/);
   });
 
+  it('refuses a TEMPLATE EXPRESSION, which also ends in a backtick', () => {
+    // "Plain string literal" was decided by the LAST CHARACTER, and a
+    // TemplateExpression ends in a backtick too. So class ops ran over
+    // `` `base ${cn('p-2')} end` `` and removing `p-2` rewrote the inside of the
+    // substitution to `cn('')` — editing the author's expression, which is the
+    // harm the joiner allowlist exists to prevent, reached by another door.
+    const src = "const v = cva(`base ${cn('p-2')} end`, {});";
+    const r = applyClassRewrite(src, { cvaName: 'v', value: '__base__', removals: ['p-2'] });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/not a plain string literal/);
+    expect(r.text).toBe(src);
+    expect(r.text).toContain("cn('p-2')");
+  });
+
   it('writes nothing when no op matches', () => {
     const r = applyClassRewrite(CVA, {
       cvaName: 'buttonVariants',
@@ -270,6 +285,7 @@ describe('introspection readers', () => {
     const { bindings } = readSemanticBindings(SEMANTIC);
     expect(Object.getPrototypeOf(bindings)).toBeNull();
     expect(Object.getPrototypeOf(bindings.light)).toBeNull();
+    expect(Object.getPrototypeOf(bindings.dark)).toBeNull();
   });
 
   it('flattens const leaves with their dotted path', () => {
@@ -337,6 +353,16 @@ describe('every create has an exact inverse', () => {
     expect(ins.located).toBe(true);
     expect(removeThemeMapping(ins.text, { cssVar: '--color-brand' }).text).toBe(CSS);
   });
+
+  it('removes a declaration that ends against the closing brace', () => {
+    // The matcher required a trailing newline, so the LAST declaration in a
+    // block written without one reported "is not mapped" — a mapping plainly
+    // present that the editor could not remove.
+    const css = `@theme inline {\n  --color-a: var(--a);\n  --color-b: var(--b);}\n`;
+    const r = removeThemeMapping(css, { cssVar: '--color-b' });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toBe(`@theme inline {\n  --color-a: var(--a);\n}\n`);
+  });
 });
 
 describe('token creation guards', () => {
@@ -398,5 +424,100 @@ describe('insertThemeMapping grouping', () => {
     const r = insertThemeMapping(CSS, { cssVar: '--font-body', mapTo: '--body' });
     expect(r.located).toBe(true);
     expect(r.text).toContain('  --font-body: var(--body);\n}');
+  });
+});
+
+// --- shapes the token file is allowed to have --------------------------------
+
+/**
+ * The insert/remove pair took the SHAPE of this repo's `semantic.ts` as the
+ * shape of every semantic file. Two assumptions were baked in and both were
+ * wrong for a file written differently:
+ *
+ *   1. `dark` is declared last, so writing dark → light → type is bottom-up.
+ *      With `dark` declared first, the later splices used stale offsets and the
+ *      file came out mangled and unparseable.
+ *   2. Each declaration's closing brace is on its own line. For a one-line
+ *      `type SemanticColorMap = { bg: string; };` the "start of the closing
+ *      line" is the start of the whole declaration, so the type member was
+ *      written ABOVE it as a stray top-level statement — which parses as a
+ *      label, so nothing complained and the token silently never joined the
+ *      type.
+ *
+ * The order is derived from each target's position now, and the insert adapts to
+ * whichever formatting it finds. This matrix is the guard: it is not about any
+ * one layout, it is about not assuming one.
+ */
+describe('token creation survives any declaration order and formatting', () => {
+  const SHAPES = {
+    'dark declared before light': `type SemanticColorMap = {\n  bg: string;\n};\nexport const dark: SemanticColorMap = {\n  bg: '#000',\n};\nexport const light: SemanticColorMap = {\n  bg: '#fff',\n};\n`,
+    'type declared last': `export const light = {\n  bg: '#fff',\n};\nexport const dark = {\n  bg: '#000',\n};\ntype SemanticColorMap = {\n  bg: string;\n};\n`,
+    'type between the maps': `export const dark = {\n  bg: '#000',\n};\ntype SemanticColorMap = {\n  bg: string;\n};\nexport const light = {\n  bg: '#fff',\n};\n`,
+    'one-line type literal': `type SemanticColorMap = { bg: string; };\nexport const light: SemanticColorMap = {\n  bg: '#fff',\n};\nexport const dark: SemanticColorMap = {\n  bg: '#000',\n};\n`,
+    'everything on one line': `type SemanticColorMap = { bg: string; };\nexport const light: SemanticColorMap = { bg: '#fff' };\nexport const dark: SemanticColorMap = { bg: '#000' };\n`,
+  };
+
+  for (const [name, src] of Object.entries(SHAPES)) {
+    it(`inserts into all three places and restores exactly: ${name}`, () => {
+      const ins = insertSemanticToken(src, { camelKey: 'accent', value: '#f00' });
+      expect(ins.located, ins.reason).toBe(true);
+      expect(parse(ins.text, 'semantic.ts').parseDiagnostics ?? []).toHaveLength(0);
+
+      // All THREE places, which is what the stray-label bug silently skipped.
+      expect(ins.text).toMatch(/accent:\s*string/);
+      expect(ins.text.match(/accent:\s*'#f00'/g) ?? []).toHaveLength(2);
+
+      const back = removeSemanticToken(ins.text, { camelKey: 'accent' });
+      expect(back.located, back.reason).toBe(true);
+      expect(back.text).toBe(src);
+    });
+  }
+
+  it('adds the separator a last member lacks, rather than writing a syntax error', () => {
+    // Not byte-exact on the way back — the comma is a real change to the file —
+    // so this asserts what IS true: valid output, token present, token removable.
+    const src = `type SemanticColorMap = {\n  bg: string;\n};\nexport const light = {\n  bg: '#fff'\n};\nexport const dark = {\n  bg: '#000'\n};\n`;
+    const ins = insertSemanticToken(src, { camelKey: 'accent', value: '#f00' });
+    expect(parse(ins.text, 'semantic.ts').parseDiagnostics ?? []).toHaveLength(0);
+    expect(ins.text).toContain("bg: '#fff',");
+    const back = removeSemanticToken(ins.text, { camelKey: 'accent' });
+    expect(parse(back.text, 'semantic.ts').parseDiagnostics ?? []).toHaveLength(0);
+    expect(back.text).not.toContain('accent');
+  });
+});
+
+describe('quoteLiteral escapes what would break the literal', () => {
+  const TOKENS = `export const light = {\n  background: '#fff',\n};\n`;
+
+  it('escapes a newline instead of writing an unterminated string', () => {
+    // A single-quoted TS literal cannot span lines. The value arrives from a
+    // browser, so this was five parse errors in the consumer's token file from
+    // one paste.
+    const r = applyTokenValue(TOKENS, {
+      constName: 'light',
+      path: ['background'],
+      value: 'a\nb',
+    });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain("background: 'a\\nb'");
+    expect(parse(r.text, 'tokens.ts').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('escapes the rest of the control range by code point', () => {
+    for (const [value, expected] of [
+      ['a\rb', "'a\\rb'"],
+      ['a\tb', "'a\\x09b'"],
+      ['a\0b', "'a\\x00b'"],
+      ["a'b", "'a\\'b'"],
+      ['a\\b', "'a\\\\b'"],
+    ]) {
+      const r = applyTokenValue(TOKENS, {
+        constName: 'light',
+        path: ['background'],
+        value,
+      });
+      expect(r.text, value).toContain(`background: ${expected}`);
+      expect(parse(r.text, 'tokens.ts').parseDiagnostics ?? [], value).toHaveLength(0);
+    }
   });
 });

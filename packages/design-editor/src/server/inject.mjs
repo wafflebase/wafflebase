@@ -310,13 +310,36 @@ function indentOf(sf, node) {
  */
 function removeNodeLine(fileText, sf, node) {
   const full = sf.getFullText();
-  let start = node.getStart(sf);
-  while (start > 0 && full[start - 1] !== '\n' && /[ \t]/.test(full[start - 1])) start--;
-  let end = node.getEnd();
-  while (end < full.length && /[,;]/.test(full[end])) end++;
-  while (end < full.length && /[ \t\r]/.test(full[end])) end++;
-  if (full[end] === '\n') end++;
-  return spliceSpan(fileText, start, end, '');
+  const nodeStart = node.getStart(sf);
+  const nodeEnd = node.getEnd();
+
+  // A trailing separator belongs to this member.
+  let afterSep = nodeEnd;
+  while (afterSep < full.length && /[,;]/.test(full[afterSep])) afterSep++;
+
+  // Look past horizontal space for a line break.
+  let probe = afterSep;
+  while (probe < full.length && /[ \t\r]/.test(full[probe])) probe++;
+
+  if (full[probe] === '\n') {
+    // Own line: take the leading indent and the break with it.
+    let start = nodeStart;
+    while (start > 0 && full[start - 1] !== '\n' && /[ \t]/.test(full[start - 1])) start--;
+    return spliceSpan(fileText, start, probe + 1, '');
+  }
+
+  // Shares its line — `{ bg: string; accent: string }`. Reaching back to the
+  // start of the line would delete whatever preceded it, and eating the trailing
+  // space would close up the gap before the bracket. Take the member plus the
+  // separator it OWNS: a trailing one if it has one, otherwise a preceding comma
+  // (which joins two members) but never a semicolon (which terminates the
+  // previous one).
+  let start = nodeStart;
+  if (afterSep === nodeEnd) {
+    while (start > 0 && /[ \t]/.test(full[start - 1])) start--;
+    if (full[start - 1] === ',') start--;
+  }
+  return spliceSpan(fileText, start, afterSep, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -447,14 +470,20 @@ export function applyClassRewrite(fileText, intent) {
     };
   }
 
-  const original = node.getText(sf); // includes surrounding quotes
-  if (!/["'`]$/.test(original)) {
+  // The NODE KIND, not the last character. A `TemplateExpression` also ends in a
+  // backtick, so the character test called `` `base ${cn('p-2')} end` `` a plain
+  // literal and let class ops run over it — removing `p-2` rewrote the inside of
+  // the substitution to `cn('')`, editing the author's expression. That is the
+  // harm `classLiteralOf`'s joiner allowlist exists to prevent, reached through
+  // the CVA door instead of the className one.
+  if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) {
     return {
       located: false,
       text: fileText,
       reason: `${cvaName}.${value} is not a plain string literal`,
     };
   }
+  const original = node.getText(sf); // includes surrounding quotes
 
   const { applied, text: updated, missing, rejected } = rewriteClassLiteral(original, intent);
   // The guard lives in `rewriteClassLiteral`, so this path is already SAFE — an
@@ -499,9 +528,30 @@ function findConstObject(sf, name) {
   return found;
 }
 
-/** Quote a value as a single-quoted TS string literal. @param {string} value */
+/**
+ * Quote a value as a single-quoted TS string literal.
+ *
+ * Control characters are escaped, not just the backslash and the quote. A
+ * single-quoted TS literal cannot span lines, so a value carrying a newline
+ * produced an unterminated string — five parse errors in the consumer's token
+ * file, from a value that arrived over the wire from a browser.
+ *
+ * @param {string} value
+ */
 const quoteLiteral = (value) =>
-  `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  `'${String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    // U+2028/U+2029 end a line in JS source even inside a string literal.
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+    // Everything else non-printable, by code point rather than by enumeration.
+    .replace(
+      /[\0-\x1f\x7f]/g,
+      (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
+    )}'`;
 
 /**
  * Replace a nested object-property initializer.
@@ -741,13 +791,48 @@ function findTypeLiteral(sf, name) {
  * @param {ts.Node} sampleForIndent
  */
 function insertBeforeClose(fileText, sf, node, member, sampleForIndent) {
-  const indent = indentOf(sf, sampleForIndent);
   const full = sf.getFullText();
   const nl = full.includes('\r\n') ? '\r\n' : '\n';
   const closeAt = node.getEnd() - 1; // the `}` or `]`
+  const hasMembers = sampleForIndent !== node;
+  // The member carries its own trailing separator; this is the character that
+  // has to JOIN it to whatever comes before.
+  const sepChar = member.trimEnd().endsWith(';') ? ';' : ',';
+
   let ls = closeAt;
   while (ls > 0 && full[ls - 1] !== '\n') ls--; // start of the closing-bracket line
-  return spliceSpan(fileText, ls, ls, `${indent}${member}${nl}`);
+
+  // Multi-line: the closing bracket sits alone on its line, so the new member
+  // takes its own line above it at the existing members' indent.
+  if (/^[ \t]*$/.test(full.slice(ls, closeAt))) {
+    let out = spliceSpan(fileText, ls, ls, `${indentOf(sf, sampleForIndent)}${member}${nl}`);
+    // A last member with no trailing separator has to gain one, or the new line
+    // below it is a syntax error. Spliced second because it is the lower offset.
+    if (hasMembers) {
+      const prevEnd = sampleForIndent.getEnd();
+      // Two places the separator can already be: INSIDE the previous member (a
+      // `PropertySignature`'s span includes its `;`) or in the gap after it (an
+      // object literal's comma is a list separator, outside the property). Only
+      // checking the gap re-added a semicolon the type member already had.
+      const already =
+        /[,;]/.test(full[prevEnd - 1] ?? '') || /[,;]/.test(full.slice(prevEnd, ls));
+      if (!already) out = spliceSpan(out, prevEnd, prevEnd, sepChar);
+    }
+    return out;
+  }
+
+  // Single-line — `type SemanticColorMap = { bg: string; };`. The scan above
+  // lands at the start of the whole DECLARATION, so the member was spliced above
+  // it as a stray top-level statement. That parses (as a label) and typechecks
+  // nowhere, so nothing reported it: the token simply never joined the type.
+  // Insert inline instead, just inside the bracket.
+  let at = closeAt;
+  while (at > 0 && /[ \t]/.test(full[at - 1])) at--;
+  const prev = full[at - 1];
+  const lead = prev === '{' || prev === ',' || prev === ';' ? ' ' : `${sepChar} `;
+  // No trailing space: the whitespace between `at` and the bracket is still
+  // there, and adding another produced `accent: string  }`.
+  return spliceSpan(fileText, at, at, `${lead}${member.replace(/[,;]\s*$/, '')}`);
 }
 
 /**
@@ -783,8 +868,11 @@ function findFirstArrayInFn(sf, fnName) {
  * `light` and `dark` maps (same starting value in both, so the token is valid
  * across themes from the moment it exists).
  *
- * Splices run BOTTOM-UP — dark, then light, then the type — because they share
- * one `sf`, so an earlier write would invalidate every later offset.
+ * Splices run BOTTOM-UP because they share one `sf`, so an earlier write
+ * invalidates every later offset. The order is DERIVED from each target's
+ * position, not hardcoded: writing dark → light → type happens to be bottom-up
+ * only for the declaration order this repo's `semantic.ts` uses, and a file that
+ * declares `dark` before `light` came out mangled and unparseable.
  *
  * @param {string} fileText
  * @param {{camelKey: string, value: string}} intent
@@ -816,10 +904,14 @@ export function insertSemanticToken(fileText, intent) {
   const darkSample = dark.properties[dark.properties.length - 1] ?? dark;
   const typeSample = typeLit.members[typeLit.members.length - 1] ?? typeLit;
 
+  const edits = [
+    { container: dark, line: `${camelKey}: ${val},`, sample: darkSample },
+    { container: light, line: `${camelKey}: ${val},`, sample: lightSample },
+    { container: typeLit, line: `${camelKey}: string;`, sample: typeSample },
+  ].sort((a, b) => b.container.getEnd() - a.container.getEnd());
+
   let text = fileText;
-  text = insertBeforeClose(text, sf, dark, `${camelKey}: ${val},`, darkSample);
-  text = insertBeforeClose(text, sf, light, `${camelKey}: ${val},`, lightSample);
-  text = insertBeforeClose(text, sf, typeLit, `${camelKey}: string;`, typeSample);
+  for (const e of edits) text = insertBeforeClose(text, sf, e.container, e.line, e.sample);
   return { located: true, text };
 }
 
@@ -859,10 +951,15 @@ export function removeSemanticToken(fileText, intent) {
   if (!lightProp && !darkProp && !typeMember) {
     return { located: false, text: fileText, reason: `token "${camelKey}" not found` };
   }
+  // Sorted, not hardcoded — same reason as `insertSemanticToken`: the three
+  // declarations can appear in any order, and a fixed sequence is bottom-up for
+  // only one of them.
+  const targets = [darkProp, lightProp, typeMember]
+    .filter((n) => n != null)
+    .sort((a, b) => b.getEnd() - a.getEnd());
+
   let text = fileText;
-  if (darkProp) text = removeNodeLine(text, sf, darkProp);
-  if (lightProp) text = removeNodeLine(text, sf, lightProp);
-  if (typeMember) text = removeNodeLine(text, sf, typeMember);
+  for (const node of targets) text = removeNodeLine(text, sf, node);
   return { located: true, text };
 }
 
@@ -1054,7 +1151,12 @@ export function removeThemeMapping(cssText, intent) {
   const block = findThemeBlock(cssText);
   if (!block) return { located: false, text: cssText, reason: '@theme inline block not found' };
   const body = cssText.slice(block.open + 1, block.close);
-  const m = new RegExp(`^[ \\t]*${escapeRe(cssVar)}\\s*:[^\\n]*\\n`, 'm').exec(body);
+  // `\n|$` rather than `\n`: the LAST declaration in a block may sit directly
+  // against the closing brace with no trailing newline, and requiring one made
+  // `removeThemeMapping` report "not mapped" for a mapping that is plainly
+  // there. `$` is end-of-body here (the body stops at the brace), so this still
+  // cannot reach past the block.
+  const m = new RegExp(`^[ \\t]*${escapeRe(cssVar)}\\s*:[^\\n]*(?:\\n|$)`, 'm').exec(body);
   if (!m) return { located: false, text: cssText, reason: `${cssVar} is not mapped` };
   const start = block.open + 1 + m.index;
   return { located: true, text: spliceSpan(cssText, start, start + m[0].length, '') };
