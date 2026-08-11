@@ -270,6 +270,52 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
+## Engine Package Builds
+
+The five engine packages (`docs`, `sheets`, `slides`, `notes`, `board`) plus
+`core` build in two steps, and the order is load-bearing:
+
+```sh
+vite --config vite.build.ts build   # JS bundle; emptyOutDir wipes dist/ first
+tsc -p tsconfig.build.json          # declarations only, into the same dist/
+```
+
+Vite owns the JS, `tsc` owns the declarations. Declarations emitted *before*
+the vite step would be wiped by its `emptyOutDir`.
+
+`include`/`exclude` live in the build tsconfig (e.g.
+`packages/docs/tsconfig.build.json`), never in the package's main
+`packages/docs/tsconfig.json` — `pnpm <pkg> typecheck` reads the main one, so
+excluding `test` there would silently drop test typecheck coverage from
+`verify:fast`.
+
+These packages previously used `vite-plugin-dts` with `rollupTypes: true`,
+which runs `@microsoft/api-extractor` to bundle each entry into a single
+declaration file. That is a *publishing* affordance, and no engine package is
+published — every one is `private: true`, and the sole npm artifact
+(`@wafflebase/cli`) ships no declarations at all (`tsup` is configured
+`dts: false`) because it bundles the engines' **JS** inline. The rollup cost
+three things: it was the slowest step of each engine build; it hard-crashed
+(`InternalError: The referenced path was not found`) whenever a second build
+of the same package deleted its intermediate declaration files mid-analysis;
+and a crashed rollup left the entry declaration as a stub re-exporting an
+already-deleted directory.
+
+### The `verify:dts` lane
+
+Every consumer tsconfig sets `skipLibCheck: true`, so a `dist/` with holes in
+its declaration graph typechecks green and silently degrades to `any`.
+`scripts/verify-dts-entries.mjs` walks each package's declared `types` and
+`exports.*.types` entries, follows every relative specifier transitively, and
+fails on the first that does not resolve.
+
+It runs in two places: as a `verify:self` lane after the engine build lanes,
+and in `.github/workflows/npm-publish.yml`, which runs no typecheck of its own
+and would otherwise publish against a broken `dist/` unnoticed. Named packages
+are
+required (missing `dist/` fails); with no arguments, unbuilt packages are
+skipped, since each caller builds only the subset it needs.
+
 ## Completed Phases (1-20, 22, 23)
 
 | Phase | Scope | Status |
@@ -388,6 +434,64 @@ set derives from the cumulative changed-file list and never shrinks mid-PR, and
 a lens that never fails adds nothing to a count of failing-lens commits), and
 the cap defaults to a constant pinned by test to the panel workflow's
 `MAX_REVIEW_ROUNDS` literal.
+
+The table is also a **map**, not just a summary. Each round's head cell links to
+that commit's checks — GitHub's Checks tab only ever shows the *head* commit's
+runs, so the table used to name a round it gave no way to open — and a `Fixer`
+column reports what the fix agent did about each round: `3 fixed · 0 skipped ·
+0 disputed`, or `—` for a round it was never dispatched for, or `🔧 dispatched`
+for one it was sent into and never reported on. Those last two are deliberately
+distinct; collapsing them would hide a fixer that ran and said nothing. Every
+input comes from records already parsed out of the PR's comments (the dispatch
+ledger, fix reports, rebuttals), so the column costs no extra API calls. The
+`0 disputed` half is the point rather than a detail: no rebuttal has ever been
+filed on an agent PR, and until this cell existed that was indistinguishable
+from a dispute channel that silently failed. Reports and dispatches bind to a
+round by SHA; a rebuttal names a finding rather than a commit, so it is
+attributed to the newest dispatch at or before it was written. `commitBase` is
+derived from the Actions env inside `main()` rather than passed as a flag, for
+the caller-independence reason above — six call sites across four workflows, and
+a link that appeared for some of them would flap.
+
+**Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
+dashboard above summarizes conclusions; this posts the findings themselves.
+Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
+check runs — one set per commit — while the triage renderer that makes them
+readable (`scripts/agent/review-comment.mjs`) was wired solely into
+`.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
+complementary and neither was complete: `@claude review` gave a comment and no
+gate, the autonomous panel a gate and no comment. Measured across 19 `agent/*`
+PRs, panel comments were **0** on every autonomous one, so a maintainer could
+read the fix agent's account of what it changed and never the findings it was
+answering.
+
+`scripts/agent/panel-round-comment.mjs` composes the existing pieces —
+`collectLenses` + `renderReviewComment` for the body, `buildRounds` for the round
+number, so the number here and the number in the dashboard's table come from one
+function and cannot disagree. It is keyed by **SHA, not upserted globally**: one
+comment per round, updated when CI re-runs on the same commit, so the rounds read
+in order against the fix reports that answer them. A single sticky comment was
+considered and rejected for that reason.
+
+Three bodies, because silence is ambiguous: `renderReviewComment` returns `""`
+for a round with no findings, so a clean round says so explicitly rather than
+rendering empty (which reads as "the panel never ran"); a round that blocked
+without producing readable findings gets its own wording, since "no findings"
+there would be wrong in the dangerous direction; and a missing panel.json is
+detected directly rather than inferred, because with it absent every lens reads
+`failure` with no findings — byte-identical to a real all-red round — and
+rendering six fail-closed reds as findings would report a review that never ran.
+
+**Neutralization here is load-bearing, not hygiene.** The comment is authored by
+`github-actions[bot]`, one of the two identities `isPagedLatchComment` trusts to
+LATCH the pipeline, and its body is lens prose: model output over an
+attacker-authorable diff that quotes this repo's markers routinely. #681 is the
+recorded near-miss — an on-demand review comment that merely *named*
+`<!-- agent-metrics-summary -->` was deleted seconds later by the metrics sweep.
+The same text carrying `<!-- agent-review-paged -->` under this identity would
+freeze the panel and the fixer. Everything interpolated goes through
+`neutralizeHiddenMarkers`, and a test plants a live latch inside a finding
+summary and asserts exactly one live HTML-comment opener survives: our own.
 
 Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a
@@ -1118,6 +1222,40 @@ Components:
   counts, and with no verdict timestamps anywhere the floor is abandoned entirely.
   Over-counting pages a round early, which a retry undoes; under-counting means
   the cap never trips and the loop is unbounded.
+- **The count is now a LEDGER, because the inference above is a race.** "Committed
+  after the panel first spoke" is the right discriminator only when the implement
+  job's self-review push and the first lens verdict happen in the expected order,
+  and they do not reliably: on #737 the self-review push beat the first verdict by
+  **20 seconds** and was correctly excluded; on #695 it lost by 2m50s, so two
+  implement pushes were charged as fix attempts. A third round there came from a
+  panel the concurrency guard CANCELLED, whose `always()` verdict step still wrote
+  six fail-closed reds onto a commit nobody reviewed. Three counted rounds, one
+  actual fixer invocation, and a page that said "the fixer has tried 3 time(s)".
+
+  So the guard stopped inferring and started recording: it writes a hidden
+  `<!-- agent-fix-dispatch -->` comment immediately before dispatching, and
+  `rounds.mjs::fixRoundsUsed` counts those. `countFailedReviewRounds` remains the
+  fallback for PRs that predate the ledger, and the first record carries a `prior`
+  baseline so such a PR hands over exactly rather than earning its spent rounds
+  back; a `@claude rerun` that cuts the ledger drops the baseline with it.
+
+  **Who may write a record is deliberately narrower than who may write the paged
+  latch**, and the asymmetry is the same one `rerunPointFrom` turns on. Records
+  become authoritative the moment one exists, so a single planted record would
+  switch a PR off the fallback and could hand back budget — the opposite fail
+  direction from the latch, where over-accepting merely stops the loop. Records
+  are therefore believed only from `github-actions[bot]`, the guard's
+  `GITHUB_TOKEN` identity, with **no association path and not `yorkie-agent[bot]`**
+  — that is the App identity the fix agent itself posts under, and the party
+  bounded by `MAX_REVIEW_ROUNDS` must not get to choose the rule it is counted by.
+  The write is not best-effort either: a dispatch whose record never landed is a
+  round the next guard hands out again.
+
+  `close-stuck-checks` closes a cancelled panel's lenses as `cancelled` rather
+  than `failure`, and the verdict step is `!cancelled()`, so a superseded round
+  stops reading as a spent one. The promote gate is unaffected —
+  `checks.mjs::checkPassed` accepts only `success` and treats an absent check as a
+  failure — and no `agent-review-*` check is required by branch protection.
 - **`@claude rerun` now restores the fix budget too.** #650 added the command: it
   deletes the paged comments, drops `agent:blocked` and re-runs CI. What it could
   not do is give the loop its attempts back — its own summary said the PR was
@@ -1645,10 +1783,29 @@ Inert by default: `--rebuttals` absent means an empty list, which short-circuits
 before any session opens, so a panel invoked without it is the panel that existed
 before this.
 
-Not yet built: an adjudication record in the metrics comment (the outcome is
-visible only in the check body today), and any measurement of how often a
-rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
-should not have happened is a false negative like any other.
+The adjudication outcome is no longer check-body-only:
+`scripts/agent/severity.mjs`'s
+`adjudicationNote` is exported and rendered by `scripts/agent/review-comment.mjs`
+too, so a dispute's decision — and the adjudicator's reason — appears in the
+on-demand comment and in the per-round panel comment, the two places a
+maintainer actually reads findings. A carried-forward `{ upheld: N }` with no
+verdict still renders nothing: that shape is history, not this round's decision.
+
+**Silence about disputes is now itself reported.** No rebuttal has ever been
+filed on an agent PR, and until this was addressed that fact was
+indistinguishable from a channel that had quietly broken. Three surfaces close
+it: the fix report always renders `Disputed (N)` — `_Nothing._` at zero, the
+same treatment `Skipped (0)` already had; the loop-status table's `Fixer` column
+carries a per-round `N disputed`; and `scripts/agent/rebuttal.mjs`'s post-failure path, which
+exits 0 by design because a dispute that cannot be posted leaves the finding
+standing, now emits a best-effort warning naming that consequence instead of
+vanishing. The count in the report is rendered and never serialized — the hidden
+record is the fixer's claim about its own work, while the count is derived from
+other comments at post time, and a second stale copy is worth nothing.
+
+Not yet built: an adjudication record in the metrics comment, and any measurement
+of how often a rebuttal is *right* — which is a `misses.jsonl` question, since an
+overturn that should not have happened is a false negative like any other.
 
 #### The loop shipped inert, and stayed inert until the lens was stamped
 

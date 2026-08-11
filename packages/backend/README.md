@@ -30,11 +30,17 @@ GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
 GITHUB_AUTHORIZATION_URL=                # Optional. Unset → public github.com.
-GITHUB_TOKEN_URL=                        # Set all three to a GitHub Enterprise
+GITHUB_TOKEN_URL=                        # Set all four to a GitHub Enterprise
 GITHUB_USER_PROFILE_URL=                 # instance to log in against it, e.g.
-                                        #   https://<host>/login/oauth/authorize
+GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authorize
                                         #   https://<host>/login/oauth/access_token
                                         #   https://<host>/api/v3/user
+                                        #   https://<host>/api/v3/user/emails
+                                        # The email URL is separate: with the
+                                        # user:email scope passport-github2
+                                        # otherwise fetches emails from
+                                        # api.github.com and a GHE token fails
+                                        # there with "Bad credentials".
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy

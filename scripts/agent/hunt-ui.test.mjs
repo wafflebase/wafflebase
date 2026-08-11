@@ -422,7 +422,7 @@ const JOURNAL = [
 
 test("uiDefectKey identifies a prediction defect by reader/op/ground, not by prose", () => {
   const key = uiDefectKey({ failingRef: 2 }, JOURNAL, { personaId: "doc-writer" });
-  assert.equal(key, "doc-writer|click|doc.fontSizes|each-greater-than|A");
+  assert.equal(key, "doc-writer|click|Increase font size|doc.fontSizes|each-greater-than|A");
 
   // Two DIFFERENT titles for the same broken thing collapse — which is the point,
   // since two briefs describing one defect will not word it the same way.
@@ -433,7 +433,7 @@ test("uiDefectKey identifies a prediction defect by reader/op/ground, not by pro
 test("uiDefectKey falls back to WHICH oracle fired when there is no prediction", () => {
   assert.equal(
     uiDefectKey({ failingRef: 3 }, JOURNAL, { personaId: "doc-writer" }),
-    "doc-writer|type|oracles:dom-invariant:duplicate-id",
+    "doc-writer|type||oracles:dom-invariant:duplicate-id",
   );
 });
 
@@ -449,6 +449,66 @@ test("uiDefectKey returns '' — unlocatable — rather than a key that means no
   // A half-formed expect is not a prediction identity either.
   const partial = [{ action: { type: "click", expect: { read: "doc.text" } }, oracles: [] }];
   assert.equal(uiDefectKey({ failingRef: 0 }, partial, { personaId: "p" }), "");
+});
+
+test("uiDefectKey separates round-trip findings on DIFFERENT controls", () => {
+  // The exact collision from a live run. Both findings were `click` asserting
+  // `doc.runs equals @read:N` on ground A, so before the target was in the key they
+  // hashed identically and the second was discarded with no record.
+  const roundTrip = (button) => [
+    { action: { type: "goto", surface: "doc" }, oracles: [] },
+    { action: { type: "read", reader: "doc.runs" }, ok: true, value: "[]", oracles: [] },
+    {
+      action: {
+        type: "click",
+        target: { role: "button", name: button },
+        expect: { read: "doc.runs", op: "equals", value: "@read:1", ground: "A", because: "a toggle applied twice is a no-op" },
+      },
+      oracles: [],
+    },
+  ];
+  const italic = uiDefectKey({ failingRef: 2 }, roundTrip("Italic"), { personaId: "doc-writer" });
+  const bold = uiDefectKey({ failingRef: 2 }, roundTrip("Bold"), { personaId: "doc-writer" });
+  assert.notEqual(italic, bold, "two controls, two defects — they must not collapse");
+  assert.match(italic, /Italic/);
+  // The same control still collapses, which is the point of deduping at all.
+  assert.equal(uiDefectKey({ failingRef: 2 }, roundTrip("Bold"), { personaId: "doc-writer" }), bold);
+});
+
+test("uiDefectKey uses a canvas click's READER when there is no accessible name", () => {
+  const j = [{
+    action: {
+      type: "click",
+      target: { reader: "sheet.cellCenter", args: ["B2"] },
+      expect: { read: "sheet.activeCell", op: "equals", value: "@read:0", ground: "A", because: "x" },
+    },
+    oracles: [],
+  }];
+  assert.match(uiDefectKey({ failingRef: 0 }, j, { personaId: "sheet-author" }), /sheet\.cellCenter/);
+});
+
+test("runHunt RECORDS what dedupe collapses instead of dropping it silently", async () => {
+  // The silent truncation this pipeline is careful about everywhere else: the cap
+  // logs what it drops, unlocatable candidates are recorded, the "did NOT run"
+  // section exists so a zero cannot read as clean. Dedupe alone said nothing.
+  const twin = { ...FUNNEL_CANDIDATE, title: "the second finding, same key" };
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      out: { candidates: [FUNNEL_CANDIDATE, twin], summary: "s" },
+      journal: FUNNEL_JOURNAL,
+      actionCount: 4,
+      refusals: [],
+    }),
+  });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.proposed, 2);
+  assert.equal(out.stats.unique, 1, "they do share a key, so one is collapsed");
+  assert.equal(out.stats.collapsedDuplicate, 1, "and the collapse must be COUNTED");
+  const row = out.dropped.find((d) => /collapsed into/.test(d.why ?? ""));
+  assert.ok(row, "a collapsed candidate must appear in the drop table");
+  assert.equal(row.title, twin.title);
+  assert.match(row.why, /same defect key/);
+  assert.match(row.why, /too coarse/, "the row must say what to suspect if they were different defects");
 });
 
 test("uiDefectKey separates personas, so one cannot suppress another's finding", () => {

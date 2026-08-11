@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/docs",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "license": "Apache-2.0",
   "description": "Canvas-based document editor for Wafflebase",
@@ -10,7 +10,7 @@
   ],
   "main": "dist/wafflebase-document.cjs",
   "module": "dist/wafflebase-document.es.js",
-  "types": "dist/wafflebase-document.es.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "node": {
@@ -19,7 +19,7 @@
         "require": "./dist/node.cjs",
         "default": "./dist/node.js"
       },
-      "types": "./dist/wafflebase-document.es.d.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/wafflebase-document.es.js",
       "require": "./dist/wafflebase-document.cjs",
       "default": "./dist/wafflebase-document.es.js"
@@ -35,7 +35,7 @@
     "dev": "vite",
     "test": "vitest --run",
     "test:watch": "vitest --watch",
-    "build": "vite --config vite.build.ts build",
+    "build": "vite --config vite.build.ts build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test:ime": "node scripts/verify-ime-browser.mjs",
     "format": "prettier --write ."
@@ -49,7 +49,6 @@
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vite-plugin-dts": "^4.5.3",
     "vitest": "^4.1.8"
   },
   "dependencies": {

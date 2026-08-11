@@ -41,10 +41,10 @@ The two offenders live in `packages/cli/src/output/formatter.ts`:
 
 ## Acceptance criteria (from the issue)
 
-- [ ] `wafflebase schema --quiet` prints the same body as without `--quiet`.
-- [ ] A failing command under `--quiet` still prints the JSON error
+- [x] `wafflebase schema --quiet` prints the same body as without `--quiet`.
+- [x] A failing command under `--quiet` still prints the JSON error
       envelope on stderr and exits non-zero.
-- [ ] `--quiet` still suppresses progress notices (the `md` lossy
+- [x] `--quiet` still suppresses progress notices (the `md` lossy
       notice, page-range warnings, "Wrote N bytes to X", etc.).
 
 ## Non-goals

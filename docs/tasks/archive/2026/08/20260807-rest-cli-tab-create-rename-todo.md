@@ -59,13 +59,13 @@ backend access). Frontend `document-detail.tsx` drops its local `generateTabId`.
 
 ## Tasks
 
-- [ ] Move tab-name helpers into `@wafflebase/sheets`; add `generateTabId`; export; rewire frontend
-- [ ] Backend: `POST` create + `PATCH` rename in `tabs.controller.ts` (TDD: e2e spec)
-- [ ] CLI: `create` / `rename` commands + http-client + schema registry
-- [ ] CLI skill/README doc update
-- [ ] `pnpm verify:fast` green
-- [ ] Self code-review over branch diff; address blocking findings
-- [ ] Rebase on origin/main; open PR (Summary + Test plan)
+- [x] Move tab-name helpers into `@wafflebase/sheets`; add `generateTabId`; export; rewire frontend
+- [x] Backend: `POST` create + `PATCH` rename in `tabs.controller.ts` (TDD: e2e spec)
+- [x] CLI: `create` / `rename` commands + http-client + schema registry
+- [x] CLI skill/README doc update
+- [x] `pnpm verify:fast` green
+- [x] Self code-review over branch diff; address blocking findings
+- [x] Rebase on origin/main; open PR (Summary + Test plan)
 
 ## Test plan
 

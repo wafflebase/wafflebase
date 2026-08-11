@@ -49,6 +49,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findingSimilarity, DEFAULT_SIMILARITY } from "./rounds.mjs";
 import { CITATION } from "./citation.mjs";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 
 /** Hidden-comment marker, mirroring metrics.mjs's `METRIC_PREFIX`. */
 export const REBUTTAL_MARKER = "<!-- agent-rebuttal ";
@@ -546,7 +547,19 @@ function cmdPost(pr, args) {
   } catch (err) {
     // Author-side and best-effort: a rebuttal that cannot be posted leaves the
     // finding standing, which is the same outcome as not writing one.
+    // Exit 0 stays right — a dispute that could not be posted leaves the finding
+    // standing, which is the safe outcome and not worth reddening the fix job.
+    // But it was also SILENT, and this is the one channel where silence is
+    // indistinguishable from the honest answer: no rebuttal has ever been filed on
+    // an agent PR, so a reader seeing none cannot tell "the fixer agreed" from
+    // "the fixer argued and the post failed". `emitBestEffortWarning` is exactly
+    // what #690 added for this class of exit-0 bail — a `::warning::` annotation
+    // plus a job-summary line naming the consequence.
     console.error(`rebuttal post: could not comment on #${pr} (${err.message}); the finding stands.`);
+    emitBestEffortWarning(
+      `rebuttal post failed for ${rec.findingKey} on #${pr} (${err.message}) — the dispute was NOT filed ` +
+        "and the finding stands unchallenged; the fixer's disagreement is not recorded anywhere",
+    );
     process.exit(0);
   }
   console.error(`rebuttal: posted a dispute of ${rec.findingKey} on #${pr}`);

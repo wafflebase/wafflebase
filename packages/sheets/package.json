@@ -1,16 +1,16 @@
 {
   "name": "@wafflebase/sheets",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "license": "Apache-2.0",
   "description": "Frontend for Wafflebase",
   "type": "module",
   "main": "dist/wafflebase-sheet.cjs",
   "module": "dist/wafflebase-sheet.es.js",
-  "types": "dist/wafflebase-sheet.es.d.ts",
+  "types": "dist/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/wafflebase-sheet.es.d.ts",
+      "types": "./dist/src/index.d.ts",
       "import": "./dist/wafflebase-sheet.es.js",
       "require": "./dist/wafflebase-sheet.cjs",
       "default": "./dist/wafflebase-sheet.es.js"
@@ -20,7 +20,7 @@
     "dev": "vite",
     "test": "vitest --run",
     "test:watch": "vitest --watch",
-    "build": "vite --config vite.build.ts build",
+    "build": "vite --config vite.build.ts build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "build:formula": "antlr4ts -visitor antlr/Formula.g4 && scripts/fix-antlr-ts.sh",
     "preview": "vite preview",
@@ -39,7 +39,6 @@
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vite-plugin-dts": "^4.5.3",
     "vitest": "^4.1.8"
   }
 }

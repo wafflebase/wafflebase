@@ -23,9 +23,11 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `adapters/stub-panel.mjs` | a stand-in panel that writes canned output and exits with a chosen code. Every test of the runner uses it, which is why the whole subsystem is testable for free | no |
 | `finding-record.mjs` | **the normalised finding record** — one shape both arms map into, its builder and a strict validator. Owns the `gating` vocabulary: whether a finding gated is a four-valued answer, never a boolean | no |
 | `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
+| `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
+| `replay-plan.mjs` | the CI lane's **preflight** — validates one dispatch, computes what it can spend, and resolves the pull refs a runner has to fetch before any item will materialise | no |
 
-The CodeRabbit adapter, the cross-arm matcher and every scorer are not built
-yet. When they arrive they read items through `EvalStore` and nothing else.
+The cross-arm matcher and every scorer are not built yet. When they arrive they
+read items through `EvalStore` and nothing else.
 
 ## One record, two arms
 
@@ -38,11 +40,75 @@ posts markdown comments. `finding-record.mjs` is the shape both map into, and
 EVAL=../wafflebase-agent-eval
 node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id>
 node scripts/agent/eval/adapters/panel.mjs --root "$EVAL" --run <run-id> --population sampled --json
+
+node scripts/agent/eval/adapters/coderabbit.mjs --root "$EVAL" --corpus-version 2026-08-07-pilot
+node scripts/agent/eval/adapters/coderabbit.mjs --pr 471 --json      # any PR, no window
 ```
 
 Records are **derived, never stored**: recomputable from an immutable envelope,
 deterministically and for free. Persisting them would spend the store's
 write-once rule on a shape that is cheap to recompute and expensive to correct.
+
+### Which snapshot is a CodeRabbit finding about?
+
+The two arms do not read the same bytes, and this is the part of the comparison
+most likely to be quoted back. Our arm replays a pull request **as it was
+opened** — every pilot item is frozen at `review_point: pr-open`. CodeRabbit
+reviewed whichever commit it got to, which is usually not that one. So every
+CodeRabbit record carries `coderabbit.window`:
+
+| `window` | `window_basis` | What it means |
+|---|---|---|
+| `in-window` | `commit-at-or-before-review` | the finding's commit is at or before the frozen `review_commit` — our panel saw that snapshot |
+| `after-window` | `commit-after-review` | it is after it. Our panel never saw that code |
+| `unplaceable` | `commit-not-on-pr` · `commit-absent` · `review-commit-not-on-pr` · `commits-unavailable` | the commit is not on the pull request (a force-push), names nothing, or the frozen commit itself cannot be located |
+| `no-window` | `no-review-commit` | no frozen commit was supplied — an off-corpus pull request, so the question does not apply |
+
+**The rule tags; it never filters.** Measured 2026-08-07 across all seven pilot
+items, **n=30 findings: 3 in-window (10.0%) · 24 after-window (80.0%) · 3
+unplaceable (10.0%)**. A strict in-window rule would leave the CodeRabbit arm
+with three findings in the whole pilot and zero on five of the seven items — and
+it would do that for a reason that is not CodeRabbit's advantage: it reviewed a
+later snapshot, not a second time. **Any headline comparison must state which
+`window` values it pooled**, and `at_commit` / `current_commit` / `review_commit`
+are all on the record so a scorer can re-place a finding without re-querying
+GitHub. The two keys disagree on real data: over the pilot's 16 inline findings,
+`original_commit_id` first gives 3/11/2 and `commit_id` first gives 1/14/1.
+
+CodeRabbit reviewed each pilot item **once**. Its later comments on #465 and #471
+are threaded acknowledgements, not new findings — so "it got extra rounds after
+fixing its own comments" is not what the split above measures.
+
+### CodeRabbit's severity is sometimes a floor, and the record says which
+
+`stated_severity` keeps CodeRabbit's own word and `severity_basis` says where the
+record's `severity` came from:
+
+| `severity_basis` | n (repo-wide, 2026-08-07) | Where the value came from |
+|---|---|---|
+| `header-field` | 1977 of 3001 | CodeRabbit wrote a severity in the finding's header. `trivial` → `nit` is `harvest.mjs`'s translation |
+| `tier-heading` | 635 | it wrote none there, but filed the finding under a section whose title names one — "🧹 Nitpick comments", "🟡 Minor comments" |
+| `unstated` | 389 | it stated none anywhere. The record carries `nit`, the **floor** |
+
+`tier-heading` is reading CodeRabbit's label rather than inventing one, and the
+data says so: wherever a nitpick-tier finding *also* carries a header severity it
+is `trivial` — on all 274 of them — and `minor`-tier findings state `minor` on all
+95. The heading and the field never disagree.
+
+`unstated` is unavoidable rather than chosen: both retired inline vintages state
+no severity by construction (75 findings) and neither does the Additional-comments
+tier (296), while `validateFindingRecord` requires one of `KNOWN`. `nit` is the
+floor because it claims the least and cannot inflate the other arm's blocking
+count — but it flatters us, so ⚠ **no severity-segmented number may pool an
+`unstated` record with a stated one.** Same shape as `panel.gate_state`: a default
+indistinguishable from a measurement.
+
+The record's top-level `severity_raw` is **not** the place to read CodeRabbit's
+word from. `buildFindingRecord` derives `severity` and `severity_raw` from one
+input and the validator refuses a severity outside `KNOWN`, so the arm boundary
+must translate before calling it — which makes the two fields equal on every
+CodeRabbit record. `coderabbit.stated_severity` is the field that carries the
+original.
 
 ### "Did this finding gate?" is not a boolean
 
@@ -239,6 +305,118 @@ concurrently, so that sum overcounts by the concurrency factor — #669 measured
 `sdk_duration_ms_sum`, which is not a duration. A run's totals sum `duration_ms`
 only over items that have one and carry that `n` as `duration_items`.
 
+## Running it in CI — the replay lane
+
+`.github/workflows/eval-replay.yml` is the same replay, in a clean box, from the
+Actions tab. It is **`workflow_dispatch` only** — never a schedule, never a pull
+request, never `workflow_run` — because it is the one workflow in this repository
+that spends model budget, and a paid job that can start without a human press is the
+failure the whole design is arranged against.
+
+Run it from **Actions → Eval Replay → Run workflow**. Six inputs, and four of them
+are required because a forgotten one is either a wrong measurement or a bill:
+
+| Input | Required | What it does |
+|---|---|---|
+| `corpus_version` | **yes** | which frozen corpus, e.g. `2026-08-07-pilot` |
+| `run_id` | **yes** | the id STEM. Each replicate becomes `<stem>__k1`, `__k2`, … |
+| `max_cost_usd` | **yes** | the ceiling **per replicate**. No default, ever — see below |
+| `panel` | **yes** | `stub` = free dry run · `real` = spends money. Defaults to `stub` |
+| `replicates` | yes (K=3) | how many independent replays of the whole corpus |
+| `items` | no | a subset, e.g. `pr-524`. Empty means the whole corpus |
+
+### What it costs, and what bounds it
+
+**`max_cost_usd` is per replicate, not per dispatch.** `--max-cost-usd` bounds one
+`--run-id`, and K replicates are K run ids, so a dispatch's exposure is `K × cap`.
+Nothing inside `run.mjs` can say that — it does not know it has siblings — so the
+preflight prints the multiplication before any leg starts:
+
+```text
+  EXPOSURE     : $8.00 cap PER REPLICATE x 3 = $24.00 maximum for this dispatch
+```
+
+Three ceilings, and none is redundant with the others: the cap bounds spend, the
+per-item `--panel-timeout` bounds one runaway panel, and the job's `timeout-minutes`
+bounds everything else. The preflight **recomputes** that the last is larger than
+what the first two permit, and refuses the dispatch when it stops being true — so an
+eighth corpus item cannot silently start getting jobs killed mid-replay.
+
+A run that stops at its cap is `status: "capped"` and exits non-zero, so **the job
+goes red even though nothing is wrong**. That is deliberate: it did not do what it
+was asked. The data it did buy is still committed. Raise the cap and re-dispatch the
+same `run_id` to continue.
+
+### Resuming, and why the run id is required
+
+Re-dispatch with the **same `run_id`** and stored items are not re-run and not paid
+for twice. That is the whole reason `run_id` has no default: `run.mjs` will invent one
+from the clock, and an invented id cannot be named by a later dispatch, so "a crash
+costs one item" quietly becomes "a crash costs the run".
+
+One caveat worth knowing before a retry: an item stored as an **error** counts as
+stored, so a leg that met a rate limit and recorded `infra` items will *skip* them on
+resume. Those need a new run id, or the error items removed from the store by hand.
+
+### The dry run, and how to tell it apart
+
+`panel: stub` swaps in `adapters/stub-panel.mjs` and calls no model. It exercises the
+entire lane — preflight, checkout, pull-ref fetch, worktree, replay, cost cap, store
+write, artifact, staging, commit — and stops one step short of the push, because
+committing canned output into the store's permanent history is the one part of a dry
+run that could not be undone.
+
+It is deliberately impossible to mistake for a real run:
+
+- its run ids are prefixed **`dryrun-`**, which is a correctness guard rather than a
+  label — a dry run that shared the paid run id would make the paid dispatch skip
+  every item as already-done and report a complete run built from canned output;
+- every envelope records `panel_sha` as forty zeroes with
+  `panel_sha_source: "flag"`, and #716 refuses a non-sibling `--panel-script` without
+  an explicit sha, so the stub cannot inherit the real panel's identity;
+- nothing is pushed.
+
+### Why the lane fetches pull refs
+
+`wafflebase` squash-merges, so a corpus item's `review_commit` is **never reachable
+from `main`** — measured on all seven pilot items against a fresh clone carrying 19
+branches and 27 tags: every one absent. No checkout depth fixes that. The lane
+fetches `refs/pull/<n>/head` for each planned item and then asserts each commit
+arrived, because without them every item refuses with `no-repo-context` — free, and
+indistinguishable in a hurry from a run that simply found nothing.
+
+The bases are the other half, and they are **not** carried by the pull refs — a
+`review_base` is not reliably an ancestor of its own pull head (pr-524's and pr-605's
+are; **pr-415's is not**). They come from `main`'s history, so the lane fetches the
+source repository's `main` as well.
+
+**The refs come from the repository the corpus names, not from `origin`.** Every
+manifest carries `source_repo`, because a corpus item *is* a pull request of a named
+repository. Fetching from `origin` instead would tie a measurement to whichever
+checkout is running it — and a **fork does not carry its parent's `refs/pull/*`**, so
+the lane would work upstream and refuse every item anywhere else. A manifest without a
+usable `source_repo` is refused rather than guessed at.
+
+**A pull ref is a moving pointer, so there is a second attempt.** `refs/pull/<n>/head`
+tracks the pull request's *current* head, and a frozen `review_commit` that was later
+force-pushed away is no longer contained in it — true of pr-415, whose corpus commit
+and pull-ref tip have diverged. Anything the pull refs did not carry is then requested
+by full sha from the same repository. The pull ref stays the primary path because it
+is a documented GitHub feature and one batched fetch serves every item; the bare-sha
+fetch works but rests on server configuration, which is why it is the fallback. It is
+deliberately **not** shallow: a shallow tree cannot be blamed, and that would silently
+disable the novelty gate.
+
+### Where the write access is
+
+The workflow's own `permissions:` are **read only**. The ability to write lives in
+`secrets.EVAL_STORE_TOKEN`, scoped to the eval store and nothing else — the
+collector's design, unchanged. The lane adds one property to it: that token is held
+by the **final job only**, which runs no model and executes no checked-out code. The
+replay jobs build a worktree of an arbitrary past pull request and point a model at
+it, so they read the store over unauthenticated HTTPS (it is public) and hold no
+credential that can write anywhere.
+
 ## Code lives here; data does not
 
 | | |
@@ -282,7 +460,7 @@ The fields of `meta.json` that are load-bearing rather than descriptive:
 |---|---|
 | `review_commit` | the commit a replay checks the tree out at |
 | `review_base` | what a replay passes as `--base-sha`. **This is what switches the shipped novelty gate on.** Without it a replay measures the gate with novelty OFF and `lane: "backlog"` can never occur — a replayed gate that is not the shipped gate, with nothing in the output saying so |
-| `review_point` | which commit the diff was taken at: `pr-open` (default), `first`, `head`, `auto` |
+| `review_point` | which commit the diff was taken at, and **which rule chose it**: `pr-open` (default), `first`, `head`, `auto` — or `pinned`, meaning `--review-commit` named the sha for this item and no rule ran. `pinned` is a value this field holds, never a `--review-point` the flag accepts: there is no commit it could resolve to on its own |
 | `diff_method` | *how* the diff was produced. `fork-point` / `base-tip` / `gh-pr-diff` are faithful three-dot diffs; `single-commit` is a degradation and is refused unless you ask for it |
 | `sha256_diff` | the diff's own hash. Re-verified against the bytes on every write, and what PR 16's label-staleness check compares against |
 | `additions` / `deletions` / `scope` | measured from **the frozen diff** — this is the field to segment by |
@@ -302,6 +480,32 @@ node scripts/agent/eval/extract-corpus.mjs \
 
 node scripts/agent/eval/extract-corpus.mjs --help    # every flag
 ```
+
+### Pinning the review commit for one item
+
+`--review-point` is four rules for **guessing** which commit a reviewer read. When
+that is already known for a given pull request, name it:
+
+```bash
+node scripts/agent/eval/extract-corpus.mjs \
+  --root "$EVAL" --corpus-version 2026-08-05a --prs 415,429,471 \
+  --review-commit pr-415=51c01826aa9f05e4cef9ee498668e3f2321b3602,pr-429=c35d715b177647e0443266d21c326f43a5d34705
+```
+
+Those items freeze at the named commit and record `review_point: pinned`; #471,
+unpinned, still follows `--review-point`. Full 40-character shas only — `git`
+would resolve an abbreviation today and could resolve it elsewhere after the next
+fetch, and a corpus item is forever.
+
+**A pin that cannot be honoured refuses the whole run before anything is written**,
+rather than skipping the item or falling back to `pr-open`. Three ways to get that:
+a malformed entry or an abbreviated sha (usage error, exit 2), a pin naming a PR
+that is not being frozen (exit 2), and a sha that does not resolve in
+`--repo-source` (exit 1). The reason is the failure mode: a `pr-open` freeze and a
+pinned freeze produce output of **identical shape**, so a pin that quietly did not
+apply is invisible in the item, in the manifest and in the exit code. Each pinned
+commit is fetched by sha and pinned at `refs/eval/pin/<n>`, which is how a commit a
+force-push removed from `refs/pull/<n>/head` stays reachable.
 
 Committing what lands in `$EVAL` is a human's separate, deliberate act — this tool
 writes files and never touches git in the eval repo.
@@ -366,7 +570,7 @@ true.
 | Limit | What it means in practice |
 |---|---|
 | **The branch panel is what gets measured** | A replay runs `review-panel.mjs` *from the branch it is checked out on*, so a branch behind `upstream/main` measures a reviewer that is **not what ships**. `panel_sha` in every envelope makes that visible after the fact, and a dirty tree outside `eval/` is refused before the fact — but neither tells you the branch is *stale*. Check that yourself: `git diff --name-only HEAD upstream/main -- scripts/agent/ \| grep -v eval/` |
-| **The replay tree needs the review commit to still exist locally** | `run.mjs` materialises `review_commit` as a real **linked git worktree** and passes `review_base` as `--base-sha`, so the novelty gate runs and `lane: "backlog"` is reachable. The cost is a precondition: `--repo-source` must actually hold that commit. It often does not — `wafflebase` squash-merges, so a PR head is never reachable from `main`; `extract-corpus.mjs` fetches it to `refs/eval/pr/<n>`; and deleting those refs leaves an unreachable object that `git gc` eventually prunes. **The runner does not fetch it back** — it refuses the item, for free, naming the `git fetch` that fixes it. Keep the `refs/eval/*` refs, or re-fetch before a run |
+| **The replay tree needs the review commit to still exist locally** | `run.mjs` materialises `review_commit` as a real **linked git worktree** and passes `review_base` as `--base-sha`, so the novelty gate runs and `lane: "backlog"` is reachable. The cost is a precondition: `--repo-source` must actually hold that commit. It often does not — `wafflebase` squash-merges, so a PR head is never reachable from `main`; `extract-corpus.mjs` fetches it to `refs/eval/pr/<n>`; and deleting those refs leaves an unreachable object that `git gc` eventually prunes. **The runner does not fetch it back** — it refuses the item, for free, naming the `git fetch` that fixes it. Keep the `refs/eval/*` refs, or re-fetch before a run — which is what the CI lane does for itself, per item, before it will spend anything |
 | **A shallow clone cannot run the gate** | The worktree shares the source repository's object store, so on a shallow checkout `review_commit` can be present while `review_base` is not. That is CI's default. The runner asks `baseResolves` **before** spawning and refuses the item as `base-unresolved` rather than paying for a panel that would report the gate OFF — but a shallow lane still replays nothing until it is deepened |
 | **A diff-only replay over-flags** | The verifier greps the repo **tree**, so replaying with `--no-repo-context` explodes verifier fan-out — that is what billed **$44** on the #521 pilot. `--require-repo-context` refuses to spend on a 0-file checkout and is **on by default**; `--no-require-repo-context` degrades per item instead, and a run that used it records `repo_context: "tree-optional"` because its items may then differ in fidelity from each other |
 | **A cost cap cannot stop the item it is spending on** | The panel writes `review-execution.json` as it exits, so what an item cost is unknown until it has finished. `--max-cost-usd` therefore stops the run **before the next item** and never mid-item; the only per-item bound is `--panel-timeout`, and it bounds **time, not dollars**. A run started with `--no-cost-cap` is bounded only by that timeout and by its item count, which the run says out loud at start |
@@ -374,6 +578,9 @@ true.
 | **`review_point: head` skews approve** | The merged state of a PR is the state after review comments were addressed, so the bugs a reviewer would have found are already fixed. It is offered for comparison, not as a default |
 | **Single review pass** | An item replays one pass: no multi-round fix loop and no prior-findings recheck, so round-to-round behaviour is out of scope |
 | **`gh pr view` returns a bounded commit list** | `review_point: pr-open` and `first` pick from the commits `gh` reports. A PR with an unusually long commit history may resolve its review point from a truncated list |
+| **`window` is decided by commit ORDER, not by content** | A later commit whose contributed diff is identical still reads `after-window`. Real case: pr-549's `158c6faaf` is a merge of `main` into the branch, so the branch's own diff is unchanged from the frozen `d7fea222a` — yet its 5 findings are about code the panel did read. Ordering is the conservative rule and it errs toward `after-window`, which understates the overlap rather than overstating it |
+| **`finding_key` is not unique inside the CodeRabbit arm** | 64 of its 3001 findings (2.1%) share a key with another CodeRabbit finding, mostly era-1 comments whose whole title is `LGTM!` — `src/spreadsheet/worksheet.ts::lgtm!` is held by six. A consumer keying a map by `finding_key` loses five of them; use it as a join key, never as an identity |
+| **The two arms' `evidence` are not the same amount of text** | An inline CodeRabbit record carries the whole comment body, so the anchor layer sees its backticked identifiers and its `around lines N - M` range. A review-body record carries only the finding's prose — `parseCodeRabbitReview` does not return the per-finding span it sliced — so 1509 of 3001 findings give a matcher less to work with. Not a bug in either module; a field the parser does not return |
 | **Exact-string finding keys read low** | `finding_key` on every record is `file::lowercased-summary` — `finding-key.mjs`, the panel's own key — so **one defect reworded counts as two**. That is deliberate rather than unfixed: anything that must agree with `dedupeFindings`, `compareSampleAgreement` or `review-lens-stats.json` has to key findings the way they do, and a looser key here would make our numbers quietly stop matching the panel's. The cross-arm matcher applies `finding-match.mjs` (#646) as a **second, different mechanism** for "the same defect, said differently" — identity and similarity are two jobs. The limit travels with whichever scorer uses the string key |
 
 Two rows of the fork's table are **not** reproduced here because the modules they

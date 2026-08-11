@@ -256,6 +256,171 @@ export function countFailedReviewRounds(commits, requiredCheckNames, opts = {}) 
   return fixAttemptCommits(commits, requiredCheckNames, opts).length;
 }
 
+// --- the dispatch ledger -----------------------------------------------------
+//
+// `fixAttemptCommits` infers "the fixer ran" from the SHAPE of a commit, and the
+// inference is a race it loses. Its discriminator is "committed after the panel
+// first spoke", but the implement workflow pushes, self-reviews, and pushes
+// AGAIN — so whether those self-review pushes count depends on whether the first
+// panel verdict happened to land before or after them. On #737 the self-review
+// push beat the first verdict by 20 seconds and was correctly excluded. On #695
+// it lost by 2m50s: two implement pushes were counted as fix attempts, a third
+// round came from a panel that was CANCELLED and never reviewed anything, and
+// the loop paged with "the fixer has tried 3 time(s)" after the fixer had run
+// exactly ONCE. One fix report, three counted rounds, and the report was never
+// the thing that was missing.
+//
+// Nothing in commit data distinguishes those pushes, so stop inferring. The
+// guard is the only thing that dispatches the fixer; have it SAY SO, and count
+// the record. Exact instead of approximate, and no longer sensitive to timing.
+//
+// WHO MAY WRITE ONE is the whole security property, and it is deliberately
+// NARROWER than the paged latch's rule. The latch may be written by either bot
+// (and by a maintainer by hand) because over-accepting there only STOPS the
+// loop. Here the direction reverses: because records become authoritative the
+// moment one exists, a single forged record would switch this PR off the
+// commit-count fallback and could hand the bounded party a budget it has not
+// earned. So:
+//
+//   - `github-actions[bot]` ONLY — the guard's `secrets.GITHUB_TOKEN` identity.
+//     GitHub reserves the `[bot]` suffix for Apps, so no account can register it.
+//   - NOT `yorkie-agent[bot]`, even though it is a trusted latch author: that is
+//     the FIXER's own identity (the App token it holds to push and comment), and
+//     the party bounded by `MAX_REVIEW_ROUNDS` must not be able to choose the
+//     rule it is counted by. This is the same class of hole `rerunPointFrom`
+//     closed when it stopped trusting a marker the App could write.
+//   - NO association fallback. A maintainer halting the loop by hand is a real
+//     need the latch serves; a maintainer hand-writing a dispatch record is not.
+
+/** Hidden-comment marker for one dispatch of the fix agent. */
+export const FIX_DISPATCH_MARKER = "<!-- agent-fix-dispatch ";
+
+/** Bumped only if the record shape changes; an unknown version parses as absent. */
+export const FIX_DISPATCH_VERSION = 1;
+
+/**
+ * The ONLY identity whose dispatch records are believed. See the block above for
+ * why this is one login and not `PAGE_AUTHOR_LOGINS`.
+ */
+export const FIX_DISPATCH_AUTHOR_LOGIN = "github-actions[bot]";
+
+/** Serialize one dispatch record. `prior` is the migration baseline — see `fixRoundsUsed`. */
+export function serializeFixDispatch({ from = "", prior = 0 } = {}) {
+  const payload = {
+    v: FIX_DISPATCH_VERSION,
+    from: String(from ?? "").slice(0, 64),
+    prior: Number.isInteger(prior) && prior > 0 ? prior : 0,
+  };
+  // ESCAPE THE TERMINATOR, as `rebuttal.mjs` and `fix-report.mjs` do. Today every
+  // field is a number or a hex SHA, so this can never fire — but `parseFix
+  // DispatchComment`'s match is non-greedy, so a `-->` reaching a field would
+  // truncate the JSON, drop the record, and LOWER the count. That is the one
+  // direction this bound must not fail in, and it is a one-line insurance against
+  // whatever string field gets added next. `\u002d` is the JSON escape for `-`,
+  // so the raw comment never contains `-->` while `JSON.parse` restores the
+  // exact characters.
+  return `${FIX_DISPATCH_MARKER}${JSON.stringify(payload).replace(/-->/g, "-\\u002d>")} -->`;
+}
+
+/**
+ * Visible line + hidden record, the pattern `fix-report.mjs` and `rebuttal.mjs`
+ * settled on. #690's lesson was written about exactly this shape: a marker-only
+ * body shows a maintainer scrolling the PR "an empty-looking bot comment" while
+ * something that matters plays out invisibly. A dispatch is the one event in the
+ * loop that had no surface at all — the panel's verdict is on the commit's
+ * checks and the fixer's account is its own comment, but nothing said "round 2
+ * starts here", which is the connective tissue between them.
+ *
+ * One line, deliberately. The loop-status dashboard already carries the budget;
+ * this exists to sit in the TIMELINE at the point the round began.
+ */
+export function renderFixDispatchComment({ from = "", prior = 0, round = null, max = null } = {}) {
+  const record = serializeFixDispatch({ from, prior });
+  const at = from ? ` on \`${String(from).slice(0, 9)}\`` : "";
+  const of = Number.isInteger(round) && Number.isInteger(max) ? ` ${round} of ${max}` : "";
+  return (
+    `🔧 **Fix round${of}** — dispatching the fix agent${at}. ` +
+    "The panel findings it is acting on are the `agent-review-*` check runs on that commit.\n\n" +
+    record
+  );
+}
+
+/**
+ * Read one comment as a dispatch record, or `null`.
+ *
+ * `null` for ANY doubt — wrong author, no marker, non-JSON, wrong version. The
+ * author gate is checked FIRST and is structural: `user.type === "Bot"` plus the
+ * single reserved login. Unlike the latch predicates this takes no association
+ * path, so there is no shape an ordinary account can present that passes.
+ */
+export function parseFixDispatchComment(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  if (user.type !== "Bot" || user.login !== FIX_DISPATCH_AUTHOR_LOGIN) return null;
+  const body = String(c.body ?? "");
+  const m = new RegExp(`${FIX_DISPATCH_MARKER}([\\s\\S]*?) -->`).exec(body);
+  if (!m) return null;
+  let d;
+  try {
+    d = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+  if (!d || typeof d !== "object" || d.v !== FIX_DISPATCH_VERSION) return null;
+  const at = Date.parse(String(c.created_at ?? ""));
+  return {
+    from: typeof d.from === "string" ? d.from : "",
+    prior: Number.isInteger(d.prior) && d.prior > 0 ? d.prior : 0,
+    at: Number.isFinite(at) ? at : null,
+  };
+}
+
+/** Every believable dispatch record on the PR, oldest first. */
+export function collectFixDispatches(comments) {
+  return (Array.isArray(comments) ? comments : [])
+    .map(parseFixDispatchComment)
+    .filter(Boolean)
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+}
+
+/**
+ * How much of the fix budget has this PR spent?
+ *
+ * Dispatch records are authoritative WHEN ANY EXIST; otherwise this is exactly
+ * `countFailedReviewRounds`, so a PR opened before the ledger shipped keeps the
+ * behaviour it started with rather than silently resetting to zero.
+ *
+ * THE BASELINE (`prior`) is what makes the hand-over exact instead of merely
+ * generous. A PR mid-flight when this ships has already spent rounds that left
+ * no record, so the first record carries the fallback count as it stood at that
+ * moment and every later dispatch adds one. Without it such a PR would jump from
+ * "3 spent" to "1 spent" and quietly earn two extra rounds.
+ *
+ * A `@claude rerun` that cuts the first record away drops the baseline WITH it —
+ * a hand-back grants a fresh budget, and carrying a pre-rerun estimate past the
+ * floor would spend it before the maintainer's first round.
+ *
+ * FAILS TOWARD PAGING, like every other reader here: a record that cannot be
+ * parsed is dropped, which can only lower the count if it was ours — and an
+ * unwritable record fails the guard step rather than being swallowed, so a
+ * dispatch never happens unbudgeted.
+ */
+export function fixRoundsUsed(comments, commits, requiredCheckNames, { since = null } = {}) {
+  const all = collectFixDispatches(comments);
+  if (all.length === 0) return countFailedReviewRounds(commits, requiredCheckNames, { since });
+  const s = Date.parse(String(since ?? ""));
+  const sinceMs = Number.isFinite(s) ? s : null;
+  // FAILS TOWARD INCLUDING, exactly as `fixAttemptCommits` does with an
+  // undatable commit: a record whose timestamp cannot be read has not been shown
+  // to predate the floor, and dropping it would GRANT a round rather than cost
+  // one. `created_at` is always present on a real API comment, so this is a
+  // fail-safe rather than a live path.
+  const kept = sinceMs === null ? all : all.filter((d) => d.at === null || d.at > sinceMs);
+  // The baseline belongs to the FIRST record; a rerun that cut it away took the
+  // pre-rerun history with it.
+  const baseline = kept.length === all.length ? all[0].prior : 0;
+  return kept.length + baseline;
+}
 
 // --- convergence detection ---------------------------------------------------
 //

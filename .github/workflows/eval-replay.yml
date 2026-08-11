@@ -1,0 +1,485 @@
+# Replay the frozen eval corpus through the real review panel, in a clean CI box.
+#
+# THIS IS THE ONLY WORKFLOW IN THIS REPOSITORY THAT SPENDS MODEL BUDGET ON DEMAND.
+# Every other job here is free or fails free. This one exists to call
+# `review-panel.mjs` over a frozen pull request, K times, and each of those calls is
+# a real bill. So the question asked of every line below is not "does this work" but
+# "what does this cost when it goes wrong with nobody watching" — and the answers are
+# four separate mechanisms, none of them redundant with the others:
+#
+#   workflow_dispatch ONLY   nothing but a human press can start it
+#   a REQUIRED cost cap      per replicate, no default, refused if absent
+#   --panel-timeout          one item cannot run forever
+#   timeout-minutes          the job cannot outlive what those two permit
+#
+# WHY CI AND NOT A LAPTOP. The replay is a measurement, and the panel is a
+# non-deterministic judge: "the environment differed" is otherwise an unfalsifiable
+# explanation for any result anyone dislikes. A runner is the same box every time,
+# and the run records which panel commit and which lens configuration produced it, so
+# a number can be re-derived by someone who was not there.
+#
+# WHERE THE OUTPUT GOES. Into `dlgpdmsly2/wafflebase-agent-eval`, the same store the
+# capture collector writes to, through the same kind of scoped token — and NOT into
+# this repository. Git history is permanent; a replay envelope committed here could
+# not be taken back out. The argument is written out at length in
+# `capture-collect.yml`'s header and it has not changed.
+#
+# THE PERMISSION STORY IS THE COLLECTOR'S, WITH ONE ADDITION. The `permissions:`
+# block below is READ ONLY, and the ability to write lives only in
+# `secrets.EVAL_STORE_TOKEN` — a fine-grained PAT scoped to that one other
+# repository. `replay-plan.test.mjs` asserts that block carries no write scope of any
+# kind. The addition: that token is held by ONE job here, the last one, which runs no
+# model and executes no checked-out code. The replay jobs — the ones that build a
+# worktree of an arbitrary past pull request and point a model at it — never see it.
+# They read the store over unauthenticated HTTPS, because it is public, so a
+# prompt-injected read of a lens's environment finds no credential that can write
+# anywhere.
+#
+# WHY THE CORPUS COMMITS MUST BE FETCHED, AND WHY fetch-depth: 0 IS NOT ENOUGH.
+# `wafflebase` squash-merges, so a pull request's head is never reachable from `main`.
+# Measured against a fresh clone carrying all 19 branches and 27 tags: all seven pilot
+# items' `review_commit`s ABSENT. Their `review_base`es were all present, which is the
+# half `fetch-depth: 0` buys. So the lane fetches `refs/pull/<n>/head` per item and
+# then ASSERTS the commits arrived — because without them #716 refuses every item for
+# free and the run reports a tidy nothing.
+#
+# IT IS NOT IN THE workflow_run CHAIN, and must not be added to one. `ci.yml` →
+# `agent-review-panel.yml` → `capture-collect.yml` is already at GitHub's three-level
+# limit, and GitHub logs nothing when a chain is too deep. Being `workflow_dispatch`
+# consumes none of that budget. Do not add this workflow to the collector's
+# `workflows:` list either: the replay writes its own envelopes directly, and the
+# collector is for artifacts from the two review producers.
+
+name: Eval Replay (manual — spends model budget)
+
+on:
+  # DISPATCH ONLY. Not a schedule, not a pull request, not `workflow_run`. A paid job
+  # that can fire without a human pressing a button is the single failure this whole
+  # design is arranged against, and `replay-plan.test.mjs` asserts that this is the
+  # only key under `on:`.
+  workflow_dispatch:
+    inputs:
+      # Every input is a STRING even when it holds a number — `workflow_dispatch` has
+      # no numeric type — so validation is `replay-plan.mjs`'s job and it runs before
+      # anything spends. `""` and `"eight"` reach the preflight identically, which is
+      # exactly why the preflight exists.
+      corpus_version:
+        description: "Which frozen corpus to replay, e.g. 2026-08-07-pilot. No default: the wrong version replays the wrong pull requests."
+        required: true
+      run_id:
+        description: "Run id STEM. Each replicate becomes <stem>__k1, __k2, … Re-dispatch the SAME stem to resume: stored items are not re-run and not re-paid for."
+        required: true
+      max_cost_usd:
+        description: "Cost ceiling in USD PER REPLICATE. No default. The dispatch's total exposure is this times the replicate count, and the preflight prints it."
+        required: true
+      panel:
+        description: "stub = free dry run, nothing pushed. real = SPENDS MONEY."
+        required: true
+        type: choice
+        default: stub
+        options:
+          - stub
+          - real
+      replicates:
+        description: "K — how many independent replays of the whole corpus. 3 is the project's fixed K; reliability is defined over these."
+        required: true
+        type: choice
+        default: "3"
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+      items:
+        description: "Optional comma-separated item subset, e.g. pr-524. Empty replays the whole corpus. A typo is refused, not skipped."
+        required: false
+        default: ""
+
+# READ ONLY, exactly as the collector is. The write capability is a secret aimed at a
+# different repository, not a permission held here. No `contents: write`, no
+# `checks: write`, no `pull-requests: write`, no `id-token: write`.
+permissions:
+  actions: read # download this run's own leg artifacts
+  contents: read # check out the harness
+
+# Serialise DISPATCHES. Two concurrent dispatches would race on the store push and,
+# far worse, double-spend if someone presses the button twice on a slow page.
+# `cancel-in-progress: false`, and here that is not the collector's "a cancelled
+# collection is data not collected" — it is stronger: a cancelled replay is money
+# already spent and thrown away.
+concurrency:
+  group: eval-replay
+  cancel-in-progress: false
+
+# The per-item ceiling and the job ceiling, in one place so they cannot drift apart.
+# #669 measured a real panel at ~12 minutes, so 1800s is 2.5x the measurement rather
+# than a guess; 240 minutes then exceeds the 7 x 1800s = 210 minutes that ceiling
+# permits, plus overhead. The preflight recomputes that relationship from the actual
+# item count and REFUSES if it stops holding — an eighth corpus item must not
+# silently start getting the job killed mid-replay.
+env:
+  PANEL_TIMEOUT_S: "1800"
+  JOB_TIMEOUT_MIN: "240"
+  JOB_OVERHEAD_MIN: "25"
+  EVAL_STORE_REPO: "dlgpdmsly2/wafflebase-agent-eval"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Everything that can be checked for free, checked before anything is spent.
+  # ---------------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The store, read-only and UNAUTHENTICATED. It is a public repository, so no
+      # credential is needed to read the frozen corpus out of it — and a job that
+      # needs no token should hold none.
+      - name: Clone the eval store (read-only, public)
+        run: git clone --quiet --depth 1 "https://github.com/${EVAL_STORE_REPO}.git" .eval-store
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      # No `npm ci`. The preflight reads JSON and does arithmetic; it imports only
+      # `node:` builtins and two sibling modules.
+      - name: Preflight the dispatch
+        id: plan
+        env:
+          CORPUS_VERSION: ${{ inputs.corpus_version }}
+          RUN_ID: ${{ inputs.run_id }}
+          MAX_COST_USD: ${{ inputs.max_cost_usd }}
+          PANEL: ${{ inputs.panel }}
+          REPLICATES: ${{ inputs.replicates }}
+          ITEMS: ${{ inputs.items }}
+        run: |
+          set -euo pipefail
+          node scripts/agent/eval/replay-plan.mjs \
+            --root .eval-store \
+            --corpus-version "$CORPUS_VERSION" \
+            --run-id "$RUN_ID" \
+            --replicates "$REPLICATES" \
+            --max-cost-usd "$MAX_COST_USD" \
+            --panel "$PANEL" \
+            --items "$ITEMS" \
+            --panel-timeout "$PANEL_TIMEOUT_S" \
+            --job-timeout "$JOB_TIMEOUT_MIN" \
+            --overhead "$JOB_OVERHEAD_MIN"
+
+  # ---------------------------------------------------------------------------
+  # One job per replicate. This is where the money goes.
+  # ---------------------------------------------------------------------------
+  replay:
+    needs: plan
+    runs-on: ubuntu-latest
+    # Where CLAUDE_CODE_OAUTH_TOKEN lives. NOTE for whoever adds an approval gate:
+    # this environment is shared with eight other workflows including the gating
+    # review panel, so required reviewers added to `agent` would gate every review in
+    # the repository. An approval gate for THIS lane needs its own environment, with
+    # the model token added to it. See the task doc, decision 5.
+    environment: agent
+    timeout-minutes: 240
+    strategy:
+      # A leg that fails must not cancel its siblings: each is independently paid for
+      # and independently useful, and `fail-fast` would throw away work already
+      # bought. This is the opposite trade from a test matrix.
+      fail-fast: false
+      # ONE AT A TIME, deliberately, and it costs wall clock. Three concurrent legs
+      # are three concurrent panels — six lenses times two samples each — against one
+      # account's rate limit, and the #521 pilot already met a 429 on less. The
+      # failure that makes it worth the hours: a rate-limited item is stored as an
+      # `infra` error item, `hasItem` then reports it present, and a resume of that
+      # run id SKIPS it forever. So quota contention does not merely waste a leg, it
+      # poisons item slots under run ids that cannot be re-used. Raise this once a
+      # real dispatch has measured the headroom.
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # `fetch-depth: 0` for the review BASES — every one of them is an ancestor of
+      # `main`, and the novelty gate blames against them. Without it #716 refuses each
+      # item with `base-unresolved`, which is free and correct and replays nothing.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # The panel reads a worktree built from this checkout and a model reads
+          # that tree. No credential belongs in its `.git/config`; the repository is
+          # public, so unauthenticated fetch still works. Same reasoning as the
+          # review panel's own checkout.
+          persist-credentials: false
+
+      # Read-only and unauthenticated, as in the preflight — and here it MATTERS
+      # rather than merely being tidy. This job holds the model credential and points
+      # a model at a checked-out tree of an arbitrary past pull request. A token that
+      # could write to the store must never be in this environment; the last job
+      # holds it instead.
+      - name: Clone the eval store (read-only, public)
+        run: git clone --quiet --depth 1 "https://github.com/${EVAL_STORE_REPO}.git" .eval-store
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      # The install IS needed here, unlike the collector: this job calls models.
+      - name: Install the agent scripts
+        run: cd scripts/agent && npm ci --no-audit --no-fund
+
+      # Recomputed per leg rather than passed down from the preflight, because the
+      # refspecs have to land in THIS runner's checkout: the worktree root is
+      # per-process and sharded jobs share no cache or object store.
+      - name: Resolve which pull refs this corpus needs
+        env:
+          CORPUS_VERSION: ${{ inputs.corpus_version }}
+          RUN_ID: ${{ inputs.run_id }}
+          MAX_COST_USD: ${{ inputs.max_cost_usd }}
+          PANEL: ${{ inputs.panel }}
+          REPLICATES: ${{ inputs.replicates }}
+          ITEMS: ${{ inputs.items }}
+        run: |
+          set -euo pipefail
+          node scripts/agent/eval/replay-plan.mjs \
+            --root .eval-store \
+            --corpus-version "$CORPUS_VERSION" \
+            --run-id "$RUN_ID" \
+            --replicates "$REPLICATES" \
+            --max-cost-usd "$MAX_COST_USD" \
+            --panel "$PANEL" \
+            --items "$ITEMS" \
+            --panel-timeout "$PANEL_TIMEOUT_S" \
+            --job-timeout "$JOB_TIMEOUT_MIN" \
+            --overhead "$JOB_OVERHEAD_MIN" \
+            --emit-dir "$RUNNER_TEMP/plan"
+
+      # THE STEP THE WHOLE LANE TURNS ON, and the one whose absence is invisible.
+      # A squash-merged pull request's head is not reachable from `main`, so these
+      # objects are in no clone of this repository however deep.
+      #
+      # THE PULL REF IS THE PRIMARY PATH AND A BARE SHA IS THE FALLBACK, in that order
+      # and for different reasons. `refs/pull/<n>/head` is a documented, stable GitHub
+      # feature, and one batched fetch serves every item — so it is what the lane asks
+      # for first. But it is a MOVING pointer: it tracks the pull request's current
+      # head, and a frozen `review_commit` that was later force-pushed away is no
+      # longer contained in it. Measured on the pilot's pr-415, whose corpus commit and
+      # whose pull-ref tip have diverged outright.
+      #
+      # So anything the pull ref did not carry is asked for by its full sha, from the
+      # same source repository. That works here — verified: this server does serve
+      # commits unreachable from every ref — but it rests on server configuration
+      # rather than on a documented contract, which is exactly why it is the second
+      # attempt and not the first.
+      #
+      # NO `--depth` on that fallback, and this is load-bearing rather than tidy: a
+      # shallow fetch marks the repository shallow, and a shallow tree cannot be
+      # blamed — which would silently disable the novelty gate this lane exists to
+      # exercise. Verified that the undepthed form leaves the clone unshallow and that
+      # `git blame` still works in a worktree built at the fetched commit.
+      #
+      # FETCHED FROM THE REPOSITORY THE CORPUS NAMES, NOT FROM `origin`. A corpus item
+      # is a pull request OF a named repository — that is what `source_pr` means — and
+      # the manifest carries `source_repo` to say which. Using `origin` instead would
+      # couple a measurement to whichever checkout happens to be running it, and the
+      # coupling is invisible until it bites: **a fork does not carry its parent's
+      # `refs/pull/*`.** Measured — upstream has all seven pilot refs, the fork has
+      # one, its own. So an `origin` fetch works when dispatched upstream and refuses
+      # every item anywhere else, for a reason nothing in the output would name.
+      #
+      # `main` is fetched from there too, and that is not belt-and-braces: a
+      # `review_base` is not reliably an ancestor of its own pull head (pr-524 and
+      # pr-605 carry theirs; **pr-415 does not**), so the bases come from main's
+      # history. Taking main from the source repository as well is what stops base
+      # resolution depending on how fresh this checkout's own history is.
+      #
+      # Then ASSERTED, item by item. If the fetch silently brought back the wrong
+      # thing, every item refuses with `no-repo-context` — free, thanks to the
+      # runner's guard, but the run would report seven tidy refusals and no money
+      # spent on a day somebody was expecting data. A missing commit is a broken
+      # dispatch, so it fails here.
+      - name: Fetch the corpus commits, and prove they arrived
+        run: |
+          set -euo pipefail
+          source_url="$(cat "$RUNNER_TEMP/plan/source-repo-url.txt")"
+          echo "eval-replay: fetching the corpus's refs from ${source_url}"
+          xargs git fetch --no-tags "$source_url" < "$RUNNER_TEMP/plan/refspecs.txt"
+          # The second attempt, for a frozen commit its pull request has moved past.
+          # `|| true`: a failed retry falls through to the assertion below, so there is
+          # exactly ONE place that decides the step failed and exactly one message
+          # describing it.
+          while read -r commit item; do
+            if git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+              continue
+            fi
+            echo "  retry   ${item} ${commit} — not carried by its pull ref, asking for the commit directly"
+            git fetch --no-tags "$source_url" "${commit}:refs/eval/item/${item}" || true
+          done < "$RUNNER_TEMP/plan/commits.txt"
+          missing=0
+          while read -r commit item; do
+            if git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+              echo "  ok      ${item} ${commit}"
+            else
+              echo "  MISSING ${item} ${commit}"
+              missing=$((missing + 1))
+            fi
+          done < "$RUNNER_TEMP/plan/commits.txt"
+          if [ "$missing" -ne 0 ]; then
+            echo "eval-replay: ${missing} corpus commit(s) are not in this checkout after BOTH the pull-ref fetch and a direct fetch by sha." >&2
+            echo "The commit may have been garbage-collected upstream, or ${source_url} may not be the repository the corpus was frozen from." >&2
+            exit 1
+          fi
+
+      # The replay. Arguments are built as an ARRAY and never as a folded string:
+      # a quoting slip in `${VAR:+--flag "$VAR"}` drops a flag silently, and the two
+      # flags most worth not dropping here are the cost cap and the item subset.
+      #
+      # `--panel-script`/`--panel-sha` are added ONLY for a dry run. #716 refuses a
+      # non-sibling panel script without an explicit sha, so the stub cannot inherit
+      # the real panel's identity; the sha it is given is forty zeroes, which is not a
+      # commit anywhere, and `panel_sha_source` records that it was told rather than
+      # measured.
+      - name: Replay
+        env:
+          # The only credential this job holds. Nothing else is exported into a
+          # process whose working tree is a checkout of somebody else's pull request.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CORPUS_VERSION: ${{ inputs.corpus_version }}
+          MAX_COST_USD: ${{ inputs.max_cost_usd }}
+          PANEL: ${{ inputs.panel }}
+          ITEMS: ${{ inputs.items }}
+          LEG_RUN_ID: ${{ matrix.runId }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --root .eval-store
+            --corpus-version "$CORPUS_VERSION"
+            --run-id "$LEG_RUN_ID"
+            --max-cost-usd "$MAX_COST_USD"
+            --repo-source "$GITHUB_WORKSPACE"
+            --panel-timeout "$PANEL_TIMEOUT_S"
+          )
+          if [ -n "$ITEMS" ]; then
+            ARGS+=(--items "$ITEMS")
+          fi
+          if [ "$PANEL" != "real" ]; then
+            echo "eval-replay: DRY RUN — stub panel, no model calls, nothing will be pushed."
+            ARGS+=(
+              --panel-script scripts/agent/eval/adapters/stub-panel.mjs
+              --panel-sha 0000000000000000000000000000000000000000
+            )
+          fi
+          node scripts/agent/eval/run.mjs "${ARGS[@]}"
+
+      # `always()`, and the difference from the collector's `!cancelled()` is
+      # deliberate. This artifact is how paid work survives a leg that failed, was
+      # capped, or hit its `timeout-minutes` — and a timed-out job's steps are
+      # CANCELLED, so `!cancelled()` would discard exactly the run whose data is
+      # least reproducible. An artifact is not permanent history, so banking one
+      # costs nothing; the stricter rule stays on the push, which is.
+      - name: Upload this replicate's run
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-replay-${{ matrix.runId }}
+          path: .eval-store/runs/${{ matrix.runId }}
+          retention-days: 30
+          # A leg that stored nothing at all is a real outcome worth seeing in the
+          # artifact list rather than a warning buried in a log.
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # One commit, from one job, holding the only write-capable credential.
+  # ---------------------------------------------------------------------------
+  collect:
+    needs: replay
+    # Runs even when a leg failed or capped: partial paid data is data, and the
+    # collector learned this the expensive way — a run that collected five things and
+    # refused a sixth used to commit none of them. Not on cancellation, matching
+    # `capture-collect.yml`: there is no reason to push permanent history from a run
+    # somebody stopped. And not when the replay never started at all — a preflight
+    # refusal is already red, and a second red job for "no artifacts" would only
+    # obscure which of the two actually said something.
+    if: ${{ !cancelled() && needs.replay.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # The STORE, and the only checkout in this workflow that carries a credential.
+      # Credentials are persisted on purpose — the push at the end uses them.
+      - uses: actions/checkout@v4
+        with:
+          repository: dlgpdmsly2/wafflebase-agent-eval
+          path: .eval-store
+          token: ${{ secrets.EVAL_STORE_TOKEN }}
+
+      # Every leg's artifact, into the store's `runs/`. Leg run ids are distinct by
+      # construction (`__k1`, `__k2`, …), so two legs never author the same path and
+      # the merge cannot conflict — which is the property that let the legs run in
+      # parallel without a lock in the first place.
+      # `runner.temp` and not `$RUNNER_TEMP`: a `with:` value is not passed through a
+      # shell, so an environment variable written here would be the literal string.
+      - name: Download every replicate
+        uses: actions/download-artifact@v4
+        with:
+          pattern: eval-replay-*
+          path: ${{ runner.temp }}/legs
+          # One directory per artifact, named after it, which is what the staging step
+          # below reads the leg's run id back out of.
+          merge-multiple: false
+
+      - name: Stage the runs into the store
+        run: |
+          set -euo pipefail
+          mkdir -p .eval-store/runs
+          shopt -s nullglob
+          legs=("$RUNNER_TEMP"/legs/eval-replay-*)
+          if [ ${#legs[@]} -eq 0 ]; then
+            echo "eval-replay: no leg artifacts were downloaded — nothing to stage." >&2
+            exit 1
+          fi
+          for leg in "${legs[@]}"; do
+            run_id="$(basename "$leg" | sed 's/^eval-replay-//')"
+            echo "  staging ${run_id}"
+            mkdir -p ".eval-store/runs/${run_id}"
+            cp -R "${leg}/." ".eval-store/runs/${run_id}/"
+          done
+
+      # A DRY RUN STOPS HERE, one step short of the network. Everything above has
+      # been exercised — dispatch, preflight, checkout, pull-ref fetch, worktree,
+      # replay, store write, artifact, download, staging — and everything below is
+      # exercised too, up to and including the commit object. Only the push is
+      # skipped, because committing canned stub output into the store's permanent
+      # history is the one part of a dry run that could not be undone.
+      - name: Commit, and push only for a real run
+        env:
+          PANEL: ${{ inputs.panel }}
+          CORPUS_VERSION: ${{ inputs.corpus_version }}
+          RUN_ID: ${{ inputs.run_id }}
+        working-directory: .eval-store
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Explicit path, never `git add -A`: this checkout is a whole repository and
+          # a replay only ever writes under `runs/`.
+          git add runs
+          if git diff --cached --quiet; then
+            echo "eval-replay: nothing new to commit — every planned item was already stored."
+            exit 0
+          fi
+          files=$(git diff --cached --name-only | wc -l | tr -d ' ')
+          git commit -m "Replay ${CORPUS_VERSION} as ${RUN_ID} (wafflebase run ${GITHUB_RUN_ID})"
+          if [ "$PANEL" != "real" ]; then
+            echo "eval-replay: DRY RUN — committed ${files} file(s) locally and STOPPING before the push."
+            git --no-pager show --stat --oneline HEAD | head -20
+            exit 0
+          fi
+          # One retry, rebasing. The workflow-level concurrency group keeps two
+          # dispatches apart, but the capture collector pushes to this same
+          # repository on its own schedule and its group does not serialise against
+          # this one. Rebasing is always safe here: run ids are write-once, so two
+          # writers never author different content for one path.
+          git push || (git pull --rebase && git push)
+          echo "eval-replay: pushed ${files} file(s)."
