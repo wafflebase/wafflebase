@@ -72,15 +72,67 @@ const LANES = [
   //     it never covered. `reapLaneGroup` below still cleans up orphans.
   //
   // THE REMAINING FLAG GOES BEFORE `--test`. `eval/test-lane.test.mjs` captures
-  // everything after `--test ` and treats each whitespace-separated token as a
-  // glob pattern; put it after and it reads `--test-timeout=60000` back as a
-  // pattern. It
-  // does not currently FAIL on that — its assertions are one-directional (every
-  // eval suite must match some pattern) — so this is a latent corruption a green
-  // test would not catch. Node does not care about the order; that extractor does.
+  // everything after `--test ` in each invocation and expands it with `sh`; put
+  // the flag after and it is read back as a FILE to run, which node then fails to
+  // find. That is now a loud failure rather than the silent one this note used to
+  // describe: the check no longer matches globs by hand, it runs the command
+  // substitution and compares its real output against the files on disk.
+  //
+  // WHY THIS LANE INVOKES NODE TWICE. `eval/run.test.mjs` runs in a process of
+  // its own, and that is the whole fix for a failure this lane has been red with
+  // since #750: the file dies with `Unable to deserialize cloned data` thrown by
+  // the RUNNER's `#processRawBuffer`, never by a test — a partial frame on the
+  // v8-serialized channel a test file reports its results over. It always takes
+  // some of that file's trailing tests with it, so the run also goes SHORT.
+  //
+  // Measured on ubuntu-latest across 180 lane runs on a fork, counting the
+  // string:
+  //
+  //   in one invocation with the rest of the suite   6 / 60
+  //   alone, in its own invocation                   0 / 60   (p = 0.027)
+  //
+  // What that measurement also rules out, each on its own arm of 20-40 runs:
+  // node 22 vs node 24 (5/40 vs 4/40, p = 1.000 — not a runtime bug to wait
+  // out); `--test-concurrency=1` (still 1/20, and it doubles the lane); CPU
+  // pressure and OOM (`cancelled 0`, no kernel OOM line, 10.9 GB free, and the
+  // corrupted runs finish EARLY — 6.7s against a 9.6s median — which is the
+  // shape of a process that stopped, not one that struggled).
+  //
+  // So the trigger is this file sharing a runner with the rest of the suite, and
+  // the cheapest true statement about it is that nobody knows why. Isolation is
+  // therefore a MITIGATION with a measurement behind it, not a diagnosis, and it
+  // is written this way deliberately: nothing is skipped, no result is dropped,
+  // and the two invocations together report the SAME total one invocation reports
+  // when it is not corrupted — 1556 + 55 = 1611 as measured at `7dbeb61ce`, a
+  // number that moves with every test added, so it is the equality that is the
+  // claim here and not the figure. Compare
+  // `--test-force-exit` below, which also made this lane green and did so by
+  // losing up to 58 tests without saying so.
+  //
+  // The cost is +5s on a lane that is 0.9% of `verify-self` (#692 measured 3.5s
+  // of 412s), against a failure that was costing a re-run on roughly one PR in
+  // eight.
+  //
+  // SEQUENCED, NOT `&&`. Joining the two invocations with `&&` would skip
+  // `eval/run.test.mjs` entirely whenever anything in the first list failed — the
+  // lane reporting less than it ran, on the exact failure path where a second
+  // failure is most worth seeing. That is the defect #750 was about, reintroduced
+  // by the fix for it, so both invocations run and the first non-zero status is
+  // what the lane exits with.
+  //
+  // `-prune` rather than `! -path './node_modules/*'`: that form only excludes the
+  // TOP-LEVEL install, so a nested `node_modules` anywhere under `scripts/agent`
+  // would still have its vendored suites run. `-prune` drops the directory at any
+  // depth, and `eval/test-lane.test.mjs` plants a file in a nested one to prove it.
+  //
+  // `find` rather than a second glob because node's `--test` has no exclusion
+  // syntax, and an ENUMERATED list would silently stop covering a file someone
+  // adds later — the exact failure `eval/test-lane.test.mjs` exists to prevent.
+  // That test now runs this command substitution and checks its real output, so
+  // the two invocations are proven to partition the suite rather than asserted to.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test '**/*.test.mjs'",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) ; rest=$? ; node --test-timeout=60000 --test 'eval/run.test.mjs' ; iso=$? ; if [ $rest -ne 0 ] ; then exit $rest ; fi ; exit $iso",
   },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
