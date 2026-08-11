@@ -2266,6 +2266,39 @@ record, sitting in the same thread. And `MAX_REVIEW_ROUNDS` still counts only
 autonomous rounds; an on-demand fix is deliberately outside that budget, which is
 the point of the verb but does mean a maintainer can spend past it by hand.
 
+### The fixer's push cancels the job it is still reporting from
+
+The autonomous fixer posts its own report, and for a while it posted it *after*
+pushing. That ordering loses the report, because the push is what ends the job:
+it re-triggers CI, CI re-triggers the review panel, and
+`.github/workflows/agent-review-panel.yml` is `cancel-in-progress` — so the fresh
+panel run cancels the run the fixer is still inside, about half a minute later.
+
+#757 measured it. The fixer pushed on all three rounds and reported on one:
+
+| round | commit | fix job cancelled | report |
+|---|---|---|---|
+| 1 | 07:54:45 | 07:55:19 (+34s) | lost |
+| 2 | 08:47:14 | 08:47:48 (+34s) | posted 08:47:41, 7s of margin |
+| 3 | 09:32:58 | 09:33:29 (+31s) | lost |
+
+Nothing was broken and nothing had to be retried — the fixer was simply racing a
+cancellation it caused itself, and won once. This is the same shape as the
+dispatch-record window (above): work done in the seconds after a push is not
+reliably delivered, so the fix is ordering rather than machinery. **Commit,
+report, then push.** Nothing can cancel work that happened before the push that
+causes the cancellation, and `scripts/agent/fix-report.mjs`'s `--head` is the SHA the fixer
+acted *on*, so the report is already complete before the new commit exists.
+
+`scripts/agent/fix-report.test.mjs` pins the ordering in the prompt — both the report and any
+rebuttal must precede the push instruction, and the prompt must SAY so rather
+than merely be arranged that way, because the agent reads prose and "THEN REPORT"
+sitting above a push section reads as "report last".
+
+`.github/workflows/agent-fix.yml` (the on-demand `@claude fix`) is not exposed:
+it declares no workflow-level concurrency, so the panel run its push triggers
+cancels nothing, and its prompt already ordered the report first.
+
 ### The metrics sweep deleted other people's comments
 
 `metrics.mjs summarize` posts the effort summary fresh each round and deletes the
