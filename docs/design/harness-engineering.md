@@ -243,6 +243,96 @@ reached a public PR as a diff appearing to delete every file in the repo.
   retention).
 - On PRs, CI automatically posts a verification summary comment with per-lane
   results for both `verify:self` and `verify:integration`.
+- CI triggers on `push` to `main`, `pull_request` targeting `main`, and
+  `merge_group` (see below).
+
+### Merge queue
+
+`main`'s three required checks — `verify-self (22.x)`, `verify-browser (22.x)`,
+`verify-integration (22.x)` — are green against the PR's own branch, not against
+what `main` will actually contain once the PR lands. On a repository merging
+several PRs a day that gap costs a rebase per PR: rebase onto `main`, wait ~18
+minutes for CI, discover `main` moved again, repeat. Nothing is wrong with the
+change; the queue behind it moved.
+
+GitHub's merge queue closes that gap. A contributor clicks **Merge when ready**
+instead of rebasing; GitHub builds a throwaway
+`gh-readonly-queue/main/pr-<n>-<sha>` branch holding that PR merged onto `main`'s
+current tip plus every PR ahead of it in the queue, requests the required checks
+against that *speculative merge*, and merges when they pass. Checks now run
+against the tree that will exist post-merge, which is the property a
+pre-merge-only gate cannot give.
+
+What the queue does **not** do is reduce the number of CI runs. Each queue entry
+gets its own speculative build, so runs stay roughly linear in queued PRs — and
+the queue *adds* runs on top of the ones a PR's own pushes already trigger. Two
+settings are easy to misread here:
+
+- **Build concurrency** is "the maximum number of `merge_group` webhooks to
+  dispatch … throttling the total amount of concurrent CI builds". It caps how
+  many speculative builds run at once. A throughput and cost-spike dial, not a
+  total-work dial.
+- **Merge limits** (minimum / maximum) batch the *merges*, not the builds.
+  GitHub's docs are explicit: "Merge limits do not combine `merge_group` builds.
+  Merge limits only affect merges to the base branch once one or more
+  `merge_group` has satisfied build checks." Raising the maximum lets several
+  already-validated entries land together; it does not make them share a run.
+
+So the queue is not a CI-cost optimisation, and anything claiming it batches
+several PRs into one run is wrong. What it buys is the two things a
+pre-merge-only gate cannot: checks against the post-merge tree, and a human no
+longer sitting in a rebase-and-wait loop.
+
+**CI's side of the contract:**
+
+- `.github/workflows/ci.yml` triggers on `merge_group: types: [checks_requested]`. This is load
+  bearing — the queue waits on the required contexts by name, so if they never
+  start the entry sits until the status-check timeout expires and is dequeued.
+  The trigger must therefore be merged *before* "Require merge queue" is
+  enabled, and is inert until then (no queue, no event).
+- Required contexts are matrix job names and do not vary by event, so enabling
+  the queue needs no change to the required-check list.
+- The two PR-comment steps are already guarded on
+  `github.event_name == 'pull_request'`. A merge-group run has no PR to comment
+  on (`context.issue.number` is unset), so they skip rather than fail.
+- Codecov upload is skipped on `merge_group`: the queue SHA need not ever reach
+  `main` (a failing entry is dequeued, and the entries behind it are rebuilt
+  without it), so coverage filed against it is unreachable from any branch. The
+  `push` run on `main` covers the merged tree.
+- The `workflow_run` consumers (`agent-review-panel`, `agent-iterate-ci`) stay
+  inert in queue context without modification. Both gate on
+  `head_branch.startsWith('agent/')` plus a `pulls.list` lookup by head branch;
+  `gh-readonly-queue/main/...` matches neither, so `managed` resolves `false` and
+  the expensive jobs skip. Review and the auto-fix loop belong to the PR, not to
+  the speculative merge.
+- Runner cost rises by roughly one CI run per queue entry, on top of the runs a
+  PR's own pushes already trigger — with no grouping discount, per the settings
+  above. At ~18 minutes wall clock (`verify-self` ≤9.3 min, then
+  `verify-browser` ≤9.3 and `verify-integration` ≤4.4 in parallel) a 60-minute
+  status-check timeout leaves ~3x headroom. Build concurrency is the only lever
+  on the cost *spike*; the total is what it is.
+
+**Residual risk.** A `merge_group` run executes the PR's code in the *base*
+repository, so it is not sandboxed the way a fork's `pull_request` run is (that
+one gets a read-only token and no secrets). Concretely, in this workflow that
+means the PR's code runs alongside a `GITHUB_TOKEN` carrying the workflow-level
+`pull-requests: write` and `issues: write`, and alongside any secret the workflow
+references — here only `CODECOV_TOKEN`, whose sole step is skipped in queue
+context, so it is not put into the environment of a queue run at all. It does not
+mean arbitrary access to every repository secret: a run can only reach secrets
+the workflow itself references.
+
+Only users with write access can queue a PR, so this is the trust boundary that
+already governs merging — but it moves code execution one step earlier, to
+queueing rather than merge. Review before queueing, exactly as before merging.
+Tightening the workflow-level `permissions` to per-job least privilege would
+shrink the `GITHUB_TOKEN` half of this and is worth doing, but it is a change to
+the `pull_request` path too, so it belongs in its own change rather than riding
+along with the trigger.
+
+Enabling the queue is a repository-admin setting, not a workflow change; the
+runbook and recommended parameters live in
+[MAINTAINING.md](../../MAINTAINING.md#merge-queue).
 
 ## Dependency Layering
 
