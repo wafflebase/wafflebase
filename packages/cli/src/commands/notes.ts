@@ -1,7 +1,11 @@
 import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runNotesImport } from '../notes/import.js';
 import {
@@ -138,19 +142,10 @@ export function registerNotesCommand(program: Command) {
         }
 
         const res = await getClient(opts).getNoteContent(docId);
-        if (!res.ok) {
-          const body = res.data as
-            | { error?: { code?: string; message?: string } }
-            | null;
-          if (body?.error) {
-            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field.
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
+        // Surfaces a backend-shaped error (e.g., TYPE_MISMATCH) verbatim so
+        // agents reading stderr can act on its `code`; anything else throws
+        // and comes back out through `outputError`.
+        if (!res.ok) return forwardUpstreamError(res);
 
         runNotesContent({
           note: res.data,
@@ -197,15 +192,7 @@ export function registerNotesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).getNoteContent(docId);
-        if (!res.ok) {
-          const body = res.data as { error?: { code?: string } } | null;
-          if (body?.error) {
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
+        if (!res.ok) return forwardUpstreamError(res);
         runNotesContent({
           note: res.data,
           format: 'md',
