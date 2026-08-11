@@ -771,9 +771,25 @@ const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]
  * than as a disabled button, because the client's `SceneMeta` can be stale — the
  * same reason `/validate` shares `composeIntents` with `/commit`.
  *
+ * `role` says what the anchor IS to the caller's op, because two of the three
+ * guards depend on it:
+ *
+ *   - `'target'` (default) — the node itself is spliced into or out of a sibling
+ *     list: `applyLayoutRemove`, or an insert-as-sibling. All three guards.
+ *   - `'container'` — the node RECEIVES a child: `applyLayoutInsert`. Only the
+ *     scope guard applies.
+ *
+ * Verified against the parser rather than assumed: a child spliced into a
+ * returned root (`return <div><A/><NEW/></div>`) parses, and so does one spliced
+ * into a conditionally-rendered element; a SIBLING beside a returned root
+ * (`return <div/><NEW/>`) is a syntax error. The guards that exist to prevent
+ * the third case were refusing the first two, which made
+ * `applyLayoutRemove`'s inverse unapplicable for the commonest component shape
+ * — a remove that succeeded and could not be undone.
+ *
  * @param {ts.SourceFile} sf
  * @param {{component: string, path: number[], tag: string, fp: string, fpx?: string}} anchor
- * @param {{requireStatic?: boolean}} [opts]
+ * @param {{requireStatic?: boolean, role?: 'target'|'container'}} [opts]
  * @returns {{located: true, entry: JsxEntry, relocated: boolean} |
  *           {located: false, reason: string, candidates?: number[][], scope?: string}}
  */
@@ -836,10 +852,16 @@ export function resolveNode(sf, anchor, opts = {}) {
           `Extract the row into a component or a render helper to restructure it.`,
       };
     }
+    // The remaining two guards are about splicing THIS node into or out of a
+    // sibling list. When it is only receiving a child, neither hazard exists —
+    // the splice lands inside the node's own children region, which is why both
+    // shapes parse. See the `role` note above.
+    const asContainer = opts.role === 'container';
+
     // A node reached through an expression container cannot be spliced: removing
     // the element would leave `{}`, and removing the container would drop the
-    // condition. Its attributes are still editable.
-    if (hit.owner !== hit.node) {
+    // condition. Its attributes are still editable, and so are its children.
+    if (!asContainer && hit.owner !== hit.node) {
       return {
         located: false,
         reason:
@@ -859,13 +881,10 @@ export function resolveNode(sf, anchor, opts = {}) {
     // puts A and B at depth 1 — and those two are real siblings inside a real
     // container, so splicing between them is legal and must stay allowed.
     //
-    // FOLLOW-UP, for the PR that lands `inject.mjs`: this refuses the node, so it
-    // also refuses inserting a CHILD into it, which is perfectly valid. The
-    // correct guard needs the OP, not just the node — and `inject.mjs` is what
-    // defines the ops. Widening `opts` to carry it is a published-signature
-    // change, so it belongs there rather than here. Refusing is the safe half:
-    // a visible refusal costs a capability, a bad splice corrupts the file.
-    if (isReturnsRoot(root) && root.jsx.includes(/** @type {ts.Node} */ (hit.node))) {
+    // Inserting a CHILD into a returned root is fine and is the commonest
+    // structural op there is, which is what `role: 'container'` exempts. This
+    // guard is only about the node itself joining or leaving a sibling list.
+    if (!asContainer && isReturnsRoot(root) && root.jsx.includes(/** @type {ts.Node} */ (hit.node))) {
       return {
         located: false,
         reason:
