@@ -69,27 +69,37 @@ export const POPULATION_STATES = Object.freeze(["present", "absent"]);
  * WHICH SNAPSHOT of the pull request a CodeRabbit finding is about — the item
  * scoping rule, and the most consequential thing in this file.
  *
- * Our arm replays a pull request AS IT WAS OPENED: every pilot item is frozen at
- * `review_point: pr-open`, and the panel sees exactly that diff. CodeRabbit
- * reviewed the same pull request whenever it got to it, which is usually NOT that
- * commit. So "every CodeRabbit comment on PR #471" and "what our panel was shown"
- * are two different questions, and a comparison that pretends otherwise is
- * comparing two reviewers on two different inputs.
+ * Our arm replays a pull request at ONE frozen commit — `review_point` says which
+ * one, and it is a property of the corpus version rather than a constant — and the
+ * panel sees exactly that diff. CodeRabbit reviewed the same pull request whenever
+ * it got to it, which need not be that commit. So "every CodeRabbit comment on PR
+ * #471" and "what our panel was shown" are two different questions, and a
+ * comparison that pretends otherwise is comparing two reviewers on two different
+ * inputs.
  *
- * FOUR values, and the measurement is why there are four rather than two.
- * Measured 2026-08-07 across all seven pilot items, n=30 findings:
- * 3 in-window (10.0%) · 24 after-window (80.0%) · 3 unplaceable (10.0%).
+ * FOUR values, and the measurement is why there are four rather than two. Measured
+ * 2026-08-07 over a corpus frozen at `review_point: pr-open`, all seven pilot
+ * items, n=30 findings: 3 in-window (10.0%) · 24 after-window (80.0%) ·
+ * 3 unplaceable (10.0%). The split is a property of the FREEZE, not of the rule:
+ * re-measured 2026-08-10 over the same seven items frozen instead at each pull
+ * request's reviewed commit (`review_point: pinned`), the same n=30 reads
+ * 30 in-window · 0 after-window · 0 unplaceable. Both are real answers about
+ * different questions, which is why all four values still exist.
  *
- *   in-window     the commit this finding was written against is at or before the
- *                 frozen `review_commit`. Our panel saw that snapshot.
+ *   in-window     the commit this finding was written against IS the frozen
+ *                 `review_commit`, or is before it. Our panel saw that snapshot.
  *   after-window  it is after. Our panel never saw that code.
- *   unplaceable   the finding names a commit that is not on the pull request, or
- *                 names none, or the frozen commit itself cannot be located. NOT a
- *                 side of the line — a force-push rewrites history and leaves
+ *   unplaceable   the finding names a commit that is neither the frozen one nor on
+ *                 the pull request, or names none, or the frozen commit itself
+ *                 cannot be located while the finding sits on some OTHER commit.
+ *                 NOT a side of the line — a force-push rewrites history and leaves
  *                 `original_commit_id` pointing at an object no longer reachable
  *                 from the branch, which `harvest.mjs` already documents as a trap
  *                 and which really happens: PR #415's only CodeRabbit review sits
- *                 on `51c01826a`, a commit the PR no longer has.
+ *                 on `51c01826a`, and the PR's commit list no longer contains it
+ *                 (`51c01826a` compares as `diverged` against the head, ahead 3 /
+ *                 behind 1). What makes THAT case placeable anyway is that the item
+ *                 is frozen at `51c01826a` too — see `commit-is-review-commit`.
  *   no-window     no frozen `review_commit` was supplied, so the question does not
  *                 apply. Separated from `unplaceable` for the same reason
  *                 `GATING` separates `not-applicable` from `unknown`: "this pull
@@ -99,11 +109,12 @@ export const POPULATION_STATES = Object.freeze(["present", "absent"]);
  *                 off-corpus pull requests somebody asked about.
  *
  * NOTHING IS EXCLUDED ON THIS BASIS. The rule TAGS; it does not filter. That is
- * the measurement's doing rather than a preference: a strict in-window rule would
- * leave the CodeRabbit arm with 3 findings across the entire pilot and would zero
- * five of the seven items — and it would do so for a reason that is not
- * CodeRabbit's advantage. Excluding 80% of the comparator's findings, in a
- * comparison we are running about ourselves, is not a defensible default.
+ * the measurement's doing rather than a preference: on the `pr-open` freeze above,
+ * a strict in-window rule would leave the CodeRabbit arm with 3 findings across the
+ * entire pilot and would zero five of the seven items — and it would do so for a
+ * reason that is not CodeRabbit's advantage. Excluding 80% of the comparator's
+ * findings, in a comparison we are running about ourselves, is not a defensible
+ * default.
  */
 export const WINDOW = Object.freeze(["in-window", "after-window", "unplaceable", "no-window"]);
 
@@ -114,7 +125,26 @@ export const WINDOW = Object.freeze(["in-window", "after-window", "unplaceable",
  * eventually contradicts itself.
  */
 export const WINDOW_BASIS = Object.freeze({
-  /** The finding's commit is at or before `review_commit` in the PR's commit list. */
+  /** The finding's commit IS `review_commit`. Answered from the two shas alone,
+   *  which is why it is a basis of its own rather than a case of the next one: an
+   *  ORDER needs the pull request's commit list, and identity does not. The list is
+   *  mutable — a force-push rewrites it — so requiring the frozen commit to still be
+   *  on the pull request would make an answer we already hold depend on something
+   *  that can be taken away afterwards. It really is taken away: pr-415's 3 findings
+   *  sit exactly on the commit that item is frozen at, on a pull request whose one
+   *  remaining commit is a different one.
+   *
+   *  Not a corner either, on a corpus frozen at the reviewed commit: measured
+   *  2026-08-10 over `2026-08-10-pilot-reviewed`, ALL 30 findings across the 7
+   *  items carry this basis and none carries `commit-at-or-before-review`. That is
+   *  a fact about the freeze, not about the rule — and it is why the two are
+   *  separate keys. Pooled, the census could not say that no finding in this
+   *  corpus version needed the commit list at all. */
+  "commit-is-review-commit": "in-window",
+  /** The finding's commit is at or before `review_commit` in the PR's commit list.
+   *  In practice this now means strictly BEFORE — equality is answered above,
+   *  before the list is consulted at all — and the name still describes every
+   *  record that carries it. */
   "commit-at-or-before-review": "in-window",
   /** It is after it. */
   "commit-after-review": "after-window",
@@ -124,7 +154,8 @@ export const WINDOW_BASIS = Object.freeze({
    *  for the whole review and GitHub may return it empty. */
   "commit-absent": "unplaceable",
   /** The frozen `review_commit` is not on the pull request either, so there is no
-   *  line to be on a side of. Distinct from `commit-not-on-pr`: this one means the
+   *  line to be on a side of — and the finding is not sitting on it, or the basis
+   *  above would have answered. Distinct from `commit-not-on-pr`: this one means the
    *  WINDOW is unlocatable, which invalidates every finding on the item rather
    *  than one of them, and a CLI that prints the census will show all of them. */
   "review-commit-not-on-pr": "unplaceable",
@@ -150,12 +181,37 @@ export const WINDOW_BASIS = Object.freeze({
  * if the frozen commit cannot be found, no answer about the finding is available,
  * and reporting `after-window` because the review commit resolved to -1 would put
  * every finding on the wrong side of a line that was never drawn.
+ *
+ * IDENTITY IS TESTED BEFORE EITHER COMMIT IS LOOKED UP, and that is the order this
+ * function originally had backwards. Ordering exists to answer "is this commit
+ * before or after that one?"; when the two are THE SAME COMMIT there is nothing to
+ * order, and the commit list — which a force-push rewrites at any time — has no
+ * bearing on the answer. Asking for the frozen commit's position first made
+ * the function report `unplaceable` for a finding while looking at the exact commit
+ * that finding's review was posted against: on the pilot corpus, all 3 of the
+ * findings it could not place were pr-415's, every one of them sitting on the very
+ * commit pr-415 is frozen at, unplaceable only because a force-push later left that
+ * commit off the pull request.
+ *
+ * `commits-unavailable` DELIBERATELY still wins over identity, even though the
+ * identity answer would be just as correct without the list. An unreadable commit
+ * list is OUR failure and it costs the placement of every finding on the item; the
+ * CLI says so in those words and asks for a re-run. Answering some of that item's
+ * findings from identity would make a whole-item read failure look partial, for no
+ * gain on any real input — a pull request whose commits could not be listed is one
+ * we re-run, not one we harvest a few placements from.
  */
 export function placeInWindow({ commits, reviewCommit, atCommit } = {}) {
   const basis = (b) => ({ window: WINDOW_BASIS[b], window_basis: b });
   if (str(reviewCommit).trim() === "") return basis("no-review-commit");
   const list = Array.isArray(commits) ? commits : null;
   if (list === null || list.length === 0) return basis("commits-unavailable");
+  // The SAME comparison `commitIndex` makes, whole string against whole string, so
+  // the two can never disagree about which shas are one commit. Nothing looser: an
+  // abbreviation that prefix-matched would place a finding on a guess, and the fail
+  // direction here is `unplaceable`, never a maybe. Both being empty cannot reach
+  // this line — `no-review-commit` above is what stops it.
+  if (str(atCommit) === str(reviewCommit)) return basis("commit-is-review-commit");
   const reviewIdx = commitIndex(list, reviewCommit);
   if (reviewIdx < 0) return basis("review-commit-not-on-pr");
   if (str(atCommit).trim() === "") return basis("commit-absent");

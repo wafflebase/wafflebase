@@ -25,9 +25,11 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
 | `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
 | `replay-plan.mjs` | the CI lane's **preflight** — validates one dispatch, computes what it can spend, and resolves the pull refs a runner has to fetch before any item will materialise | no |
+| `volume-mix.mjs` | **the first scorer** — volume, severity mix, nit ratio, localisation, scope discipline and restatement, per item and per arm, from finding records. Owns the `localization`, `scope` and `restatement` vocabularies, and the rule that a rate with no denominator prints `n/a` rather than 0 | no |
 
-The cross-arm matcher and every scorer are not built yet. When they arrive they
-read items through `EvalStore` and nothing else.
+The cross-arm matcher and the remaining scorers — complementarity, reliability,
+cost and latency — are not built yet. When they arrive they read items through
+`EvalStore` and nothing else.
 
 ## One record, two arms
 
@@ -59,7 +61,7 @@ CodeRabbit record carries `coderabbit.window`:
 
 | `window` | `window_basis` | What it means |
 |---|---|---|
-| `in-window` | `commit-at-or-before-review` | the finding's commit is at or before the frozen `review_commit` — our panel saw that snapshot |
+| `in-window` | `commit-is-review-commit` · `commit-at-or-before-review` | the finding's commit IS the frozen `review_commit`, or is before it — our panel saw that snapshot. Identity is answered from the two shas, before the commit list is consulted: a force-push can remove the frozen commit from the pull request, and it does on #415 |
 | `after-window` | `commit-after-review` | it is after it. Our panel never saw that code |
 | `unplaceable` | `commit-not-on-pr` · `commit-absent` · `review-commit-not-on-pr` · `commits-unavailable` | the commit is not on the pull request (a force-push), names nothing, or the frozen commit itself cannot be located |
 | `no-window` | `no-review-commit` | no frozen commit was supplied — an off-corpus pull request, so the question does not apply |

@@ -142,6 +142,15 @@ detached.
 6. **Merge.** Once CI is green and review is approved, capture lessons
    in `*-lessons.md`, archive the task, and merge.
 
+If `main` moves while your PR waits, step 4 repeats — rebase, wait for CI
+again. A merge queue would absorb that loop (click **Merge when ready**;
+GitHub tests your PR merged onto `main`'s current tip and merges it when
+green). It is **not enabled today**; `ci.yml` already carries the
+`merge_group` trigger it needs, so it is a maintainer settings change —
+see [MAINTAINING.md](MAINTAINING.md#merge-queue) and
+[`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
+Until then, rebase by hand.
+
 We don't require a per-PR `CHANGELOG` entry — release notes are
 generated from merged PRs at release time
 (`gh release create --generate-notes`). See
