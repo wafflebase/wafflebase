@@ -21,8 +21,10 @@ import {
   runHunt,
   replayPlanFor,
   replayDidRun,
+  uiScopedTitle,
+  uiOverclaimed,
 } from "./hunt-ui.mjs";
-import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS } from "./hunt-gate.mjs";
+import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS, UI_VERIFIER_SCHEMA } from "./hunt-gate.mjs";
 import { UI_SURFACES } from "./hunt-ui-tool.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -281,6 +283,87 @@ test("the verifier is told the scope and the path format it is the sole source o
     // as style advice rather than a hard gate.
     assert.match(seenPrompt, /silently dropped by the gate/);
   });
+});
+
+// --- the claim, bounded to the evidence ---------------------------------------
+
+test("uiScopedTitle prefers the verifiers' claim, and falls back rather than dropping", () => {
+  const claimed = { title: "Bold can NEVER apply — one-way toggle" };
+  const scoped = { scopedTitle: "Bold fails to re-apply to a sub-range inside a bold run" };
+  assert.equal(uiScopedTitle(claimed, [scoped, scoped]), scoped.scopedTitle);
+  // First non-empty wins; a verifier that omitted it does not veto one that supplied it.
+  assert.equal(uiScopedTitle(claimed, [{ scopedTitle: "  " }, scoped]), scoped.scopedTitle);
+  // A missing scopedTitle degrades the report, it does not invalidate the finding —
+  // the fail-quiet gate already refused anything no verifier confirmed.
+  assert.equal(uiScopedTitle(claimed, [{}]), claimed.title);
+  assert.equal(uiScopedTitle(claimed, null), claimed.title);
+  assert.equal(uiScopedTitle({}, []), "(untitled)");
+});
+
+test("uiOverclaimed is true if ANY verifier says the claim outran its evidence", () => {
+  assert.equal(uiOverclaimed([{ overclaimed: false }, { overclaimed: true }]), true);
+  assert.equal(uiOverclaimed([{ overclaimed: false }, { overclaimed: false }]), false);
+  // Absent means "not asserted", not "true" — this only ever counts, so a missing
+  // field must not inflate the number.
+  assert.equal(uiOverclaimed([{}, {}]), false);
+  assert.equal(uiOverclaimed(null), false);
+});
+
+test("UI_VERIFIER_SCHEMA requires the verifier to bound the claim", () => {
+  for (const f of ["scopedTitle", "overclaimed"]) {
+    assert.ok(UI_VERIFIER_SCHEMA.required.includes(f), `${f} must be required, or it will simply be omitted`);
+  }
+  assert.equal(UI_VERIFIER_SCHEMA.properties.scopedTitle.type, "string");
+  assert.equal(UI_VERIFIER_SCHEMA.properties.overclaimed.type, "boolean");
+});
+
+test("overclaiming does NOT block the gate — it is a description defect, not a validity one", () => {
+  // Letting wording refute a finding would discard real defects. All three real
+  // defects found so far were overclaimed AND real.
+  const persona = {
+    oracles: ["prediction"], reportableSeverities: ["critical", "major"], verifiers: 2,
+    minCitations: 1, codeScope: ["packages/docs/src/**"],
+  };
+  const record = {
+    replay: { status: "reproduced", deterministic: true },
+    claimed: { oracle: "prediction", severity: "major", title: "t", expected: "e", observed: "o" },
+  };
+  const loose = { ...CONFIRMED, confirmationGround: "expectation-violated", overclaimed: true, scopedTitle: "narrower" };
+  assert.equal(isFilingVerdict(record, [loose, loose], persona, UI_GATE_OPTIONS), true);
+});
+
+test("renderUiReport headlines the VERIFIERS' claim, and shows what the hunter said", () => {
+  // The real over-claim from the last live run, verbatim.
+  const proposed = "Docs: the Italic toolbar toggle only applies — it never removes italic from a right-to-left selection";
+  const narrowed = "Docs: a toggle reads the run PRECEDING a right-to-left selection, so it inverts when that run's style differs";
+  const md = renderUiReport({
+    runId: "r", headSha: "s", personas: ["doc-writer"], dropped: [], stats: { ...STATS, reported: 1 },
+    reported: [{
+      personaId: "doc-writer", briefId: "b", surface: "doc", defectKey: "k",
+      claimed: { severity: "major", title: proposed, oracle: "prediction", expected: "e", observed: "o" },
+      scopedTitle: narrowed, actions: ACTIONS, groundedIn: ["packages/docs/src/view/editor.ts:1007"],
+    }],
+  });
+  const headingAt = md.indexOf(`### [major] ${narrowed}`);
+  assert.ok(headingAt > -1, "the scoped claim must be the heading");
+  // The original survives, below the heading, so a filed issue can be traced back —
+  // but it must not read as interchangeable with the scoped one.
+  assert.ok(md.indexOf(proposed) > headingAt, "the hunter's original must appear AFTER the scoped heading");
+  assert.match(md, /narrowed by the verifiers/);
+});
+
+test("renderUiReport does not add narrowing noise when the claim was already right", () => {
+  const same = "Docs: Bold fails to re-apply after clearing a sub-range";
+  const md = renderUiReport({
+    runId: "r", headSha: "s", personas: ["p"], dropped: [], stats: { ...STATS, reported: 1 },
+    reported: [{
+      personaId: "p", briefId: "b", surface: "doc", defectKey: "k",
+      claimed: { severity: "major", title: same, oracle: "prediction", expected: "e", observed: "o" },
+      scopedTitle: same, actions: ACTIONS, groundedIn: [],
+    }],
+  });
+  assert.match(md, /### \[major\] Docs: Bold fails to re-apply/);
+  assert.doesNotMatch(md, /narrowed by the verifiers/);
 });
 
 test("the UI gate options report on a verifier-supplied citation and nothing else", () => {
