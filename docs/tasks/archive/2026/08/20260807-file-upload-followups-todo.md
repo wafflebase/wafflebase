@@ -130,9 +130,11 @@ from the CLI.
       release. Local: backend on the docker-compose Postgres/MinIO with
       seeded workspace/folder/API-key fixtures, exercised through the built
       CLI. Fixtures and documents deleted afterwards.
-- [ ] Self code review over the branch diff before pushing. **Not run** — the
-      session is configured not to dispatch review agents unasked.
-- [ ] PR: title <= 70 chars, body = Summary + Test plan.
+- Self code review over the branch diff before pushing — **not run**, the
+  session was configured not to dispatch review agents unasked. Recorded as
+  a known gap rather than a pending item; the branch shipped and was reviewed
+  on the PR instead.
+- [x] PR: title <= 70 chars, body = Summary + Test plan. Shipped as #709.
 
 ## Risks
 

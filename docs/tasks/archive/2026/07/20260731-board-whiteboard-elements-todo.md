@@ -36,7 +36,7 @@
   - `dropStickyAtViewportCenter(deps: DropStickyDeps): string` where
     `DropStickyDeps = { store: SlidesStore; editor: SlidesEditor; viewport: Viewport; hostWidth: number; hostHeight: number; colorValue: string }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/src/app/board/sticky.test.ts
@@ -113,12 +113,12 @@ describe('dropStickyAtViewportCenter', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- sticky.test`
 Expected: FAIL — module `./sticky` not found.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```ts
 // packages/frontend/src/app/board/sticky.ts
@@ -225,12 +225,12 @@ export function dropStickyAtViewportCenter(deps: DropStickyDeps): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- sticky.test`
 Expected: PASS (all 5 assertions).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/sticky.ts packages/frontend/src/app/board/sticky.test.ts
@@ -251,7 +251,7 @@ git commit -m "Add board sticky-note factory (preset roundRect shape)"
 
 **Design note (why a ref):** `store`/`editor`/`vp`/`hostW`/`hostH` all live inside board-view's single mount `useEffect` (imperative canvas mount). Expose the sticky action through a `stickyInserterRef` assigned inside that effect, and pass the toolbar a stable `(color) => stickyInserterRef.current?.(color)` — mirroring how `editor` is already lifted to state for the toolbar.
 
-- [ ] **Step 1: Add the ref + callback in board-view.tsx**
+- [x] **Step 1: Add the ref + callback in board-view.tsx**
 
 In `board-view.tsx`, near the other refs (after `const vp = useRef<Viewport>(DEFAULT_VIEWPORT);`):
 
@@ -299,7 +299,7 @@ Update the toolbar render (line ~429) to pass the callback:
       )}
 ```
 
-- [ ] **Step 2: Add the Sticky split-button to board-toolbar.tsx**
+- [x] **Step 2: Add the Sticky split-button to board-toolbar.tsx**
 
 Add to `BoardToolbarProps`:
 
@@ -387,16 +387,16 @@ Insert a Sticky control after the Text box `<Tooltip>` block and before `<ShapeP
 
 > Before writing, confirm `@/components/ui/dropdown-menu` and `@/components/ui/button` exist and export those names (grep: `rg "export" packages/frontend/src/components/ui/dropdown-menu.tsx`). They are used throughout the app (e.g. slides pickers), so they should. If `IconNote` is not in `@tabler/icons-react`, use `IconSticker` or `IconNotes` (grep node_modules or the slides toolbar for an available note/sticker icon).
 
-- [ ] **Step 3: Verify the toolbar still type-checks and renders**
+- [x] **Step 3: Verify the toolbar still type-checks and renders**
 
 Run: `pnpm --filter @wafflebase/frontend build` (tsc) — expect no type errors from the toolbar/board-view edits.
 Run: `pnpm --filter @wafflebase/frontend test -- board` — existing board tests still green.
 
-- [ ] **Step 4: Manual smoke (deferred to final verify)**
+- [x] **Step 4: Manual smoke (deferred to final verify)**
 
 Note in the task: `pnpm dev`, open a board, click Sticky → a yellow sticky appears centered and enters text edit; the chevron palette drops other colors. (Captured in the final verify step, not this task's gate.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-toolbar.tsx packages/frontend/src/app/board/board-view.tsx
@@ -416,7 +416,7 @@ git commit -m "Wire board sticky-note toolbar control + viewport-center drop"
 - Produces: `InsertImageArgs` gains `center?: { x: number; y: number }`; `SlidesImagePathDeps` gains `center?: () => { x: number; y: number } | undefined`.
 - Back-compat: both optional; when absent, behavior is byte-identical to today (slide-center framing).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/src/app/slides/insert-image.test.ts  (add to existing describe, or create)
@@ -460,12 +460,12 @@ describe('insertImageOnSlide center override', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- insert-image.test`
 Expected: FAIL — `center` is ignored (first test's x/y assertions fail).
 
-- [ ] **Step 3: Implement the additive param**
+- [x] **Step 3: Implement the additive param**
 
 In `insert-image.ts`, extend the interface:
 
@@ -538,12 +538,12 @@ And forward it in the internal `insert`:
   };
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @wafflebase/frontend test -- insert-image.test`
 Expected: PASS. Also run any existing `slides-image-input` test to confirm no regression: `pnpm --filter @wafflebase/frontend test -- slides-image-input`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/insert-image.ts packages/frontend/src/app/slides/slides-image-input.ts packages/frontend/src/app/slides/insert-image.test.ts
@@ -565,7 +565,7 @@ git commit -m "Add optional viewport-center override to image insert helpers"
 - Produces: `makeBoardImageUpload(workspaceId: string): (file: File) => Promise<{ url: string; w: number; h: number }>`; `BoardToolbarProps` gains `onInsertImage?: (file: File) => void`; `BoardViewProps` gains `workspaceId?: string`.
 - Consumes: `uploadImageFile` (`app/spreadsheet/image-upload.ts`), `setupSlidesImagePaths` + `insertImageOnSlide` (Task 3), `screenToWorld` + `SYNTHETIC_SLIDE_ID` (`@wafflebase/board`).
 
-- [ ] **Step 1: Write the failing test for the upload adapter**
+- [x] **Step 1: Write the failing test for the upload adapter**
 
 ```ts
 // packages/frontend/src/app/board/board-image.test.ts
@@ -590,12 +590,12 @@ describe('makeBoardImageUpload', () => {
 
 > Confirm the import alias for `image-upload.ts` — it lives at `packages/frontend/src/app/spreadsheet/image-upload.ts`. Use whatever alias the repo uses (`@/app/spreadsheet/image-upload`); grep an existing importer to match (`rg "spreadsheet/image-upload" packages/frontend/src`).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-image.test`
 Expected: FAIL — `./board-image` not found.
 
-- [ ] **Step 3: Implement the adapter**
+- [x] **Step 3: Implement the adapter**
 
 ```ts
 // packages/frontend/src/app/board/board-image.ts
@@ -616,12 +616,12 @@ export function makeBoardImageUpload(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-image.test`
 Expected: PASS.
 
-- [ ] **Step 5: Thread `workspaceId` from board-detail.tsx**
+- [x] **Step 5: Thread `workspaceId` from board-detail.tsx**
 
 In `board-detail.tsx`, `BoardLayout` already has `documentData?.workspaceId`. Pass it:
 
@@ -629,7 +629,7 @@ In `board-detail.tsx`, `BoardLayout` already has `documentData?.workspaceId`. Pa
           <BoardView documentId={documentId} workspaceId={documentData?.workspaceId} />
 ```
 
-- [ ] **Step 6: Wire board-view.tsx (prop, upload, paste/drop mount, image inserter ref)**
+- [x] **Step 6: Wire board-view.tsx (prop, upload, paste/drop mount, image inserter ref)**
 
 Add to `BoardViewProps`:
 
@@ -713,7 +713,7 @@ Pass `onInsertImage` to the toolbar:
 
 > `disabled={!workspaceId}` disables *all* insert controls briefly while the workspace loads. If that's too aggressive, gate only the Image button by passing a separate `imageDisabled` prop — but the whole-toolbar disable matches the "editor not ready" pattern already used (`disabled || !editor`) and the window is sub-second. Keep it simple.
 
-- [ ] **Step 7: Add the Image button + hidden file input to board-toolbar.tsx**
+- [x] **Step 7: Add the Image button + hidden file input to board-toolbar.tsx**
 
 Add to `BoardToolbarProps`: `onInsertImage?: (file: File) => void;`
 
@@ -762,12 +762,12 @@ Insert the Image control after the Sticky block:
       />
 ```
 
-- [ ] **Step 8: Type-check + tests**
+- [x] **Step 8: Type-check + tests**
 
 Run: `pnpm --filter @wafflebase/frontend build` — no type errors.
 Run: `pnpm --filter @wafflebase/frontend test -- board` — board tests green.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-detail.tsx packages/frontend/src/app/board/board-view.tsx packages/frontend/src/app/board/board-toolbar.tsx packages/frontend/src/app/board/board-image.ts packages/frontend/src/app/board/board-image.test.ts
@@ -794,7 +794,7 @@ git commit -m "Wire board image paste/drop/file-picker via reused upload pipelin
   - `viewportRectInMini(vp: Viewport, host: { w: number; h: number }, fit: MiniFit): MiniRect`
   - `centerViewportOnWorld(vp: Viewport, world: Point, host: { w: number; h: number }): Viewport`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/frontend/src/app/board/minimap-geometry.test.ts
@@ -855,12 +855,12 @@ describe('centerViewportOnWorld', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- minimap-geometry.test`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the geometry**
+- [x] **Step 3: Implement the geometry**
 
 ```ts
 // packages/frontend/src/app/board/minimap-geometry.ts
@@ -945,12 +945,12 @@ export function centerViewportOnWorld(
 
 > If `type Frame` is not re-exported from `@wafflebase/slides`, it is (confirmed: `yorkie-board-store.ts` imports `type Frame` from it). `combinedBoundingBox`, `screenToWorld`, `type Point`, `type Viewport` are all exported from the slides barrel.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- minimap-geometry.test`
 Expected: PASS (all 6 describes).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/minimap-geometry.ts packages/frontend/src/app/board/minimap-geometry.test.ts
@@ -975,7 +975,7 @@ git commit -m "Add board minimap geometry (fit, world↔mini, viewport rect)"
 
 **Design:** Vanilla factory (not React) to match board-view's imperative canvas mount. The scene is painted to the minimap `<canvas>` via `renderThumbnail` with a fitted `viewport` (so no slide-rect background is drawn — the board plane is transparent; the minimap element supplies its own CSS backdrop). The scene paint is coalesced (rAF-dirty). The viewport rectangle is a cheap stroked rect redrawn on top after each scene paint AND on every `repaintViewport(vp)` call (board-view calls it every pan/zoom frame). To avoid re-running the O(n) `store.read()` + full scene paint every pan frame, cache the last scene snapshot to an offscreen canvas and, on `repaintViewport`, blit the snapshot + stroke the rect only.
 
-- [ ] **Step 1: Write the failing factory smoke test**
+- [x] **Step 1: Write the failing factory smoke test**
 
 ```ts
 // packages/frontend/src/app/board/board-minimap.test.ts
@@ -1034,12 +1034,12 @@ describe('createBoardMinimap', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-minimap.test`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the factory**
+- [x] **Step 3: Implement the factory**
 
 ```ts
 // packages/frontend/src/app/board/board-minimap.ts
@@ -1239,12 +1239,12 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
 
 > Confirm `type Slide` and `type SlidesDocument` are exported from `@wafflebase/slides` (grep the barrel: `rg "Slide\b|SlidesDocument" packages/slides/src/index.ts`). `renderThumbnail` is exported (line 187). If `Slide`/`SlidesDocument` are only exported from `./model/presentation` under different names, adjust the import or use `ReturnType<SlidesStore['read']>` for the doc type and `['slides'][number]` for the slide type.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/frontend test -- board-minimap.test`
 Expected: PASS (element created, toggle present, no throw on empty scene).
 
-- [ ] **Step 5: Mount the minimap in board-view.tsx**
+- [x] **Step 5: Mount the minimap in board-view.tsx**
 
 Add imports:
 
@@ -1290,12 +1290,12 @@ In the cleanup, dispose it (before `editor.detach()`):
 
 > The minimap is created inside the effect regardless of `readOnly` — a viewer should still see it (design: "present in read-only"). `onNavigate` panning is view-local, so it's safe read-only. The toggle button and drag work without any store mutation.
 
-- [ ] **Step 6: Type-check + full board test run + manual note**
+- [x] **Step 6: Type-check + full board test run + manual note**
 
 Run: `pnpm --filter @wafflebase/frontend build` — no type errors.
 Run: `pnpm --filter @wafflebase/frontend test -- board` — all board tests green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/board/board-minimap.ts packages/frontend/src/app/board/board-minimap.test.ts packages/frontend/src/app/board/board-view.tsx
@@ -1310,17 +1310,17 @@ git commit -m "Add board minimap overlay with viewport rect + drag-to-pan"
 - Possibly modify: `harness.config.json` (only if the frontend chunk-count gate trips — SP1 hit this)
 - Modify: `docs/design/board/board.md` (flip the SP2 sub-project row to "shipped" / update status wording if the doc tracks it)
 
-- [ ] **Step 1: Run the full fast gate**
+- [x] **Step 1: Run the full fast gate**
 
 Run: `pnpm verify:fast`
 Expected: lint + unit tests green across packages. Fix any lint (e.g. unused imports) inline.
 
-- [ ] **Step 2: Run the self gate (includes builds + chunk gate)**
+- [x] **Step 2: Run the self gate (includes builds + chunk gate)**
 
 Run: `pnpm verify:self`
 Expected: all lanes green. **If `verify:frontend:chunks` fails** on chunk COUNT (SP1's board chunks already bumped it once; sticky/minimap add no new lazy route, so this likely stays green), bump `maxChunkCount` in `harness.config.json` with a one-line reason appended to `maxChunkCountReason` — the established repo pattern. Do NOT suppress a real regression; a size failure on an existing chunk is a code issue, investigate first.
 
-- [ ] **Step 3: Manual smoke in `pnpm dev`**
+- [x] **Step 3: Manual smoke in `pnpm dev`**
 
 Start `docker compose up -d` (if not running) + `pnpm dev`. Open/create a board (`/b/:id`) and verify:
   - Sticky: click the Sticky button → a yellow 180² sticky appears at screen center, selected, in text-edit; type text → it stays centered + shrinks to fit. Chevron palette drops other colors. Move/resize/rotate work (it's a shape). Reload → sticky + text persist (CRDT).
@@ -1328,15 +1328,15 @@ Start `docker compose up -d` (if not running) + `pnpm dev`. Open/create a board 
   - Minimap: bottom-right overview shows all elements; the blue rectangle tracks pan/zoom; dragging in the minimap recenters the board; toggle hides/shows it. Empty board → minimap panel is blank (no crash).
   - Collab (optional): open the same board in a second tab → a sticky/image added in one appears in the other.
 
-- [ ] **Step 4: Self code-review over the branch diff**
+- [x] **Step 4: Self code-review over the branch diff**
 
 Dispatch `/code-review` (or `superpowers:requesting-code-review`) over the full branch diff. Apply blocking findings; note non-blocking ones. Pay attention to the reachability lesson from SP1: verify no reused-editor gesture (context menu, keymap) hits a `notSupported()` throw via the new controls (stickies are plain shapes, so they shouldn't — confirm).
 
-- [ ] **Step 5: Capture lessons + archive**
+- [x] **Step 5: Capture lessons + archive**
 
 Fill in `docs/tasks/active/20260731-board-whiteboard-elements-lessons.md`, then `pnpm tasks:archive && pnpm tasks:index`. Commit the task docs together with `tasks/README.md`.
 
-- [ ] **Step 6: Open the PR**
+- [x] **Step 6: Open the PR**
 
 `git fetch && git rebase origin/main`; push; open a PR titled ≤70 chars (e.g. "Board SP2: sticky notes, image paste, minimap"), body = Summary + Test plan.
 

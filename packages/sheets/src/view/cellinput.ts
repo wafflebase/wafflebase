@@ -336,14 +336,14 @@ export class CellInput {
     for (const token of tokens) {
       if (token.type === 'REFERENCE') {
         contents.push(
-          `<span style="color: ${getFormulaRangeColor(this.theme, refIndex)}">${token.text}</span>`,
+          `<span style="color: ${getFormulaRangeColor(this.theme, refIndex)}">${escapeHTML(token.text)}</span>`,
         );
         refIndex++;
         continue;
       }
       if (token.type === 'NUM') {
         contents.push(
-          `<span style="color: ${this.getThemeColor('tokens.NUM')}">${token.text}</span>`,
+          `<span style="color: ${this.getThemeColor('tokens.NUM')}">${escapeHTML(token.text)}</span>`,
         );
         continue;
       }

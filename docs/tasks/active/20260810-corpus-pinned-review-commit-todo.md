@@ -183,7 +183,15 @@ from every ref on the server. `fetchPinnedCommit` is the working reference for i
       Every commit reachable for this work was servable, so the false branch of
       `fetchPinnedCommit`'s fetch is covered by an injected fake and not by a live
       server that says no.
+
+      Still true as of 10 Aug 2026, and now over production data: all seven
+      frozen corpus items pin a `review_commit` and every one of them resolved.
+      The feature is exercised; this branch of it is not.
 - [ ] **Not verified: `--review-commit` under `--review-point head`.** The pin
       overrides the mode in `resolveReviewPoint` (unit-tested over all four
       modes), but `head` is the one mode that skips `fetchPrRefs` entirely, and
       that combination has not been run against the network.
+
+      Checked 10 Aug 2026: **every one of the seven frozen items records
+      `review_point: "pinned"`**, so no stored extraction has taken the `head`
+      path with a pin. The combination remains unexercised outside unit tests.

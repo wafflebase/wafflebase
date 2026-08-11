@@ -330,5 +330,16 @@ invocation needed no change.
 - [ ] **A real dispatch has never been run**, so the GitHub-side behaviour of the
       matrix, the artifact round trip and the push is reasoned rather than observed.
       Named precisely in the hand-back.
+
+      Still true as of 10 Aug 2026: `actions/workflows/eval-replay.yml/runs`
+      reports `total_count: 0`. Nothing about the workflow's GitHub-side
+      behaviour has been observed yet.
 - [ ] **The real panel has never been driven by this lane.** Everything above uses
       `adapters/stub-panel.mjs`.
+
+      Half of this moved on 10 Aug 2026: the real panel **has** now been driven
+      and its results pushed to the store (`runs/pilot-01__k1`, adapter
+      `reviewer`, 7/7 items, $32.91). It was driven locally, not by this lane —
+      so what remains unobserved is narrower than when this was written: the
+      lane's own path to the same outcome, not the panel's ability to produce
+      one.

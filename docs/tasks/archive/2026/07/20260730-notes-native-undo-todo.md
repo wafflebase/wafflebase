@@ -61,17 +61,17 @@ vim undo would silently no-op with CM history disabled.
 
 ## Tasks
 
-- [ ] `NoteStore`: `batch` / `undo` / `redo` / `canUndo` / `canRedo`
-- [ ] `MemNoteStore`: snapshot history + `replace` emission on undo/redo
-- [ ] `YorkieNoteStore`: ambient root, `withUpdate`, batch, undo floor,
+- [x] `NoteStore`: `batch` / `undo` / `redo` / `canUndo` / `canRedo`
+- [x] `MemNoteStore`: snapshot history + `replace` emission on undo/redo
+- [x] `YorkieNoteStore`: ambient root, `withUpdate`, batch, undo floor,
       `doc.history` delegation
-- [ ] `note-sync.ts`: wrap local edits in `store.batch()`
-- [ ] `editor.ts`: disable CM history, history keymap → store, API
+- [x] `note-sync.ts`: wrap local edits in `store.batch()`
+- [x] `editor.ts`: disable CM history, history keymap → store, API
       delegation, vim command routing
-- [ ] Tests: batch grouping = 1 undo unit, undo floor, peer-edit
+- [x] Tests: batch grouping = 1 undo unit, undo floor, peer-edit
       preservation (churn regression), no-echo on undo, MemNoteStore
       history, engine-level keybinding
-- [ ] `docs/design/notes/notes.md`: Yorkie-native undo section
+- [x] `docs/design/notes/notes.md`: Yorkie-native undo section
 
 ## Out of scope
 
