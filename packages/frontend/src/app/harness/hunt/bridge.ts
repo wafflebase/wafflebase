@@ -19,7 +19,7 @@
 // pipeline downstream assumes the action list is the complete causal history. If you
 // need to change something, that is an action, not a reader.
 
-import type { Block, EditorAPI, InlineStyle } from "@wafflebase/docs";
+import type { Block, EditorAPI, InlineStyle, StoredColor } from "@wafflebase/docs";
 import { parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
@@ -48,6 +48,24 @@ export type RunSnapshot = {
   underline?: boolean;
   strikethrough?: boolean;
   href?: string;
+  /**
+   * Emitted RAW, never resolved to a hex string.
+   *
+   * `StoredColor` is a union — a bare hex string, `{kind:'srgb'}`, or a
+   * `{kind:'role'}` theme reference — and the docs model's own `storedColorsEqual`
+   * treats a string and an equivalent `{kind:'srgb'}` as DIFFERENT. Running these
+   * through `defaultColorResolver` would collapse that distinction, and collapsing
+   * is what hides the defect class this reader exists to expose: #749 is a toggle
+   * leaving `italic: false` behind, invisible unless "unset" and "explicitly set"
+   * stay distinguishable. `stable()` in `hunt-ui-expect.mjs` refuses to fold
+   * `undefined` into `null` for the same reason; a resolving reader would undo it.
+   *
+   * `doc.styleSummary` already reports colour, but selection-scoped and collapsed to
+   * `'mixed'` — no per-run structure, so residue in one run of three reads the same
+   * as a clean apply. That is the gap these two fields close.
+   */
+  color?: StoredColor;
+  backgroundColor?: StoredColor;
 };
 
 type BridgeState = {
@@ -127,6 +145,8 @@ function runsOf(editor: EditorAPI): RunSnapshot[] {
         underline: style.underline,
         strikethrough: style.strikethrough,
         href: style.href,
+        color: style.color,
+        backgroundColor: style.backgroundColor,
       });
     }
   });

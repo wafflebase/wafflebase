@@ -469,6 +469,126 @@ async function checkUndoCapability(page, baseUrl) {
 }
 
 /**
+ * Colour, end to end: apply one through the real toolbar, read it back PER RUN.
+ *
+ * `doc.runs` gained `color`/`backgroundColor` so colour defects become findable at
+ * all. `doc.styleSummary` already reported colour, but selection-scoped and collapsed
+ * to `'mixed'` — under which residue left in one run of three is indistinguishable
+ * from a clean apply. Per-run structure is the whole point, so the assertion below is
+ * not "the colour appears somewhere": it is that the marker run carries it and a
+ * neighbour still reads `undefined`.
+ *
+ * This also exercises the only TWO-STEP control the hunter can reach (open a popover,
+ * then pick from a grid). Every live run so far has used single-click toggles, so that
+ * path had never been proven. Both halves are asserted here because both must hold for
+ * colour to be huntable: a reader that reports nothing and a control the agent cannot
+ * open are the same outcome from outside — a surface that never yields a finding.
+ *
+ * `#1A73E8` is a hardcoded literal in `TEXT_COLORS`, deliberately not one of the
+ * `palette.*` entries: a token refresh must not be able to silently retarget this.
+ */
+async function checkRunColor(page, baseUrl) {
+  const problems = [];
+  const HEX = "#1A73E8";
+  const MARKER = "ZZQ";
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  // No canvas click, for the reason `checkReaderRegistry` records: the seeded document
+  // is three short paragraphs at the top, so a centre click lands in empty space. The
+  // editor auto-focuses and typing goes straight in — which is also what the hunter does.
+  await page.keyboard.type(MARKER);
+  for (const _ of MARKER) await page.keyboard.press("Shift+ArrowLeft");
+
+  await page.getByRole("button", { name: "Text color" }).click();
+  await page.getByRole("button", { name: `Select text color ${HEX}` }).click();
+
+  // Poll: the style lands asynchronously relative to the click, same as everywhere else
+  // in this lane. Non-vacuous — if it never lands, the assertions run on the last read.
+  let runs = [];
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    const got = await readReader(page, "doc.runs", []);
+    runs = got.ok && Array.isArray(got.value) ? got.value : [];
+    if (runs.some((r) => r?.color === HEX) || Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
+
+  const colored = runs.filter((r) => r?.color === HEX);
+  if (colored.length === 0) {
+    problems.push(
+      `doc.runs reported no run with color ${HEX} after applying it through the toolbar — ` +
+        "either the reader dropped the field (harness fault), the swatch's accessible name changed " +
+        "(harness fault, the agent targets controls by name), or applyStyle regressed (product fault).",
+    );
+  } else if (colored.length > 1) {
+    problems.push(`applying a colour to "${MARKER}" coloured ${colored.length} runs, expected exactly 1`);
+  } else if (colored[0].text !== MARKER) {
+    problems.push(`the coloured run should be "${MARKER}", got ${JSON.stringify(colored[0].text)}`);
+  } else if (colored[0].backgroundColor !== undefined) {
+    // The two fields are independent; a reader wiring both to `style.color` would pass
+    // every assertion above.
+    problems.push(`a text colour must not populate backgroundColor, got ${JSON.stringify(colored[0].backgroundColor)}`);
+  }
+
+  // The per-run claim: an uncoloured neighbour must still read `undefined`. A reader
+  // that stamped every run with the same colour would satisfy everything above.
+  if (colored.length === 1 && !runs.some((r) => r?.text !== MARKER && r?.color === undefined)) {
+    problems.push("every run reported a colour — doc.runs must distinguish a styled run from an unstyled one");
+  }
+
+  // --- what `doc.styleSummary` is, asserted rather than described --------------
+  //
+  // Its tool description used to read "which inline styles are present anywhere in the
+  // document". It is `getRangeStyleSummary()`, which reads the CURRENT SELECTION — and
+  // the explorer's only map of this surface is that description, so the wrong scope is
+  // a false-finding source rather than a documentation nit. The corrected line now
+  // claims selection scope, and a claim nothing checks is how the old one drifted.
+  //
+  // The proof is that ONE document answers differently for two selections, which a
+  // document-wide summary could not do: the marker alone reports a concrete colour,
+  // and widening by a single uncoloured character collapses it to 'mixed'. That
+  // collapse is also the reason per-run colour had to exist — 'mixed' is precisely
+  // what cannot distinguish residue in one run from a clean apply.
+  const onMarker = await readReader(page, "doc.styleSummary", []);
+  if (onMarker.value?.color !== HEX) {
+    problems.push(`doc.styleSummary should report ${HEX} for a selection covering only the coloured run, got ${JSON.stringify(onMarker.value)}`);
+  }
+
+  // Radix restores focus to the editor's hidden textarea ASYNCHRONOUSLY as the popover
+  // closes, and arrow keys sent into that window are swallowed silently — measured: five
+  // presses left `doc.selection` byte-identical while the textarea already reported
+  // focus and typing still worked. Wait for the close to settle rather than sleeping
+  // through it. (Not an agent-facing trap: an SDK round-trip between actions is orders
+  // of magnitude longer than this window. It is a hazard for anything driving faster
+  // than a human, which is exactly what this lane does.)
+  await page.locator("[data-radix-popper-content-wrapper]").waitFor({ state: "detached", timeout: 5_000 }).catch(() => {});
+  await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA", null, { timeout: 5_000 }).catch(() => {});
+
+  // The selection is backward (anchor after focus, focus at offset 0), so ArrowLeft
+  // collapses to the block start and the marker plus one more character can be taken
+  // rightward. Measured, not assumed — a Shift+ArrowLeft here is a silent no-op.
+  await page.keyboard.press("ArrowLeft");
+  for (let i = 0; i <= MARKER.length; i++) await page.keyboard.press("Shift+ArrowRight");
+  let wider = null;
+  const widerDeadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    wider = (await readReader(page, "doc.styleSummary", [])).value;
+    if (wider?.color === "mixed" || Date.now() >= widerDeadline) break;
+    await page.waitForTimeout(25);
+  }
+  if (wider?.color !== "mixed") {
+    problems.push(
+      `doc.styleSummary must be SELECTION-scoped: widening past the coloured run should read 'mixed', got ${JSON.stringify(wider)}. ` +
+        "If this reads the same as the narrower selection, the reader went document-wide and its tool description is now wrong.",
+    );
+  }
+
+  return problems;
+}
+
+/**
  * The seeded positive control: does a KNOWN defect actually show up?
  *
  * Everything else in this file is a negative control — it proves the hunter does not
@@ -816,6 +936,11 @@ try {
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
+    }
+    const colorProblems = await checkRunColor(page, baseUrl);
+    for (const p of colorProblems) failures.push(`run colour: ${p}`);
+    if (colorProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a toolbar-applied colour reads back on exactly its own run");
     }
     const undoProblems = await checkUndoCapability(page, baseUrl);
     for (const p of undoProblems) failures.push(`undo capability: ${p}`);
