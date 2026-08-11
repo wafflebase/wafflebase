@@ -189,9 +189,17 @@ CI-side contract, and residual risks:
 **What it buys.** `main`'s required checks currently prove a PR is green against
 its own branch, not against the `main` it will land on, so a busy day costs a
 rebase → ~18 min CI → `main` moved → rebase again loop. The queue tests each PR
-merged onto `main`'s real tip and merges it automatically when green; with
-grouping it batches several queued PRs into one CI run and dequeues only the
-entry that actually failed.
+merged onto `main`'s real tip and merges it automatically when green, so nobody
+sits in that loop, and semantic conflicts between two independently-green PRs get
+caught before they land rather than after.
+
+**What it does not buy: fewer CI runs.** Each queue entry gets its own
+speculative build, *added* to the runs a PR's own pushes already trigger. Neither
+setting below batches builds — GitHub's docs: "Merge limits do not combine
+`merge_group` builds. Merge limits only affect merges to the base branch once one
+or more `merge_group` has satisfied build checks." Budget for roughly one extra
+CI run per queued PR and treat the win as human time and correctness, not runner
+minutes.
 
 **Enable it** (`main` uses classic branch protection — Settings → Branches → rule
 for `main` → **Require merge queue**). Recommended parameters:
@@ -199,12 +207,12 @@ for `main` → **Require merge queue**). Recommended parameters:
 | Setting | Value | Why |
 | --- | --- | --- |
 | Merge method | Squash | Matches how `main`'s history is written today (`… (#739)` subjects) |
-| Build concurrency | 5 | Ceiling on `merge_group` dispatches in flight, i.e. on simultaneous queue CI runs |
-| Merge limits — maximum | 5 | **This is the grouping knob.** Up to 5 queued PRs tested in one CI run instead of one run each; the reason added cost is sublinear in PR count |
+| Build concurrency | 5 | Caps `merge_group` dispatches in flight, so at most 5 speculative builds run at once. Limits the cost *spike*, not the total |
+| Merge limits — maximum | 5 | How many already-validated entries land together. Batches **merges**, not builds — it does not reduce CI runs |
 | Merge limits — minimum | 1 | A lone PR must not wait for company |
-| Merge limits — timeout | 5 min | How long to wait for a group to form before merging with fewer |
+| Merge limits — timeout | 5 min | How long to wait for more entries before merging with fewer than the minimum |
 | Status check timeout | 60 min | Must exceed CI wall clock or entries are dequeued while still green. CI is ~18 min at its slowest, so this is ~3x headroom |
-| Only merge non-failing pull requests | on | Isolate and dequeue the offender instead of failing the whole group |
+| Only merge non-failing pull requests | on | Keeps an entry whose own checks failed out of the merge group. With it off, a failed entry can still ride along as long as the last entry in the group passed |
 
 Then verify before relying on it: queue one low-risk PR, confirm a run appears
 for `verify-self (22.x)` / `verify-browser (22.x)` / `verify-integration (22.x)`
@@ -220,7 +228,12 @@ Two things to know before flipping it:
 - Required check names must keep matching. Renaming a `ci.yml` job (or its Node
   matrix value) without updating the required-check list strands every queued PR
   until the status-check timeout expires.
-- A `merge_group` run executes PR code in this repository with access to secrets,
-  where a fork's `pull_request` run is sandboxed. Queueing requires write access,
-  so it is the trust boundary that already governs merging — but review lands
-  before *queueing* now, not before merging.
+- A `merge_group` run executes PR code in this repository, not in a fork's
+  sandbox, so that code runs alongside a `GITHUB_TOKEN` holding `ci.yml`'s
+  workflow-level `pull-requests: write` / `issues: write` and alongside any secret
+  the workflow references (only `CODECOV_TOKEN`, and its step is skipped in queue
+  context). Not every repository secret — only what the workflow references.
+  Queueing requires write access, so it is the trust boundary that already governs
+  merging, but review now lands before *queueing*, not before merging. Narrowing
+  those workflow-level permissions to per-job least privilege is the obvious
+  hardening follow-up.

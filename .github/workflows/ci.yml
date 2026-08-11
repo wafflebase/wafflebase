@@ -87,13 +87,13 @@ jobs:
       - name: Upload coverage to Codecov
         # Not in the merge queue. The SHA under test there is a throwaway
         # `gh-readonly-queue` commit that need never reach `main` — a failing entry
-        # is dequeued, and a batched group is rebuilt without the offender — so
+        # is dequeued and the entries behind it are rebuilt without it — so
         # coverage filed against it lands on a commit Codecov cannot reach from any
         # branch. The `push` run on `main` right after the queue merges reports the
         # same tree, so no coverage is actually lost. Skipping also keeps
-        # CODECOV_TOKEN out of runs whose tree contains not-yet-merged fork code
-        # (`merge_group` runs in the base repo with full access to secrets, unlike
-        # a fork's `pull_request` run).
+        # CODECOV_TOKEN out of the environment of runs whose tree contains
+        # not-yet-merged fork code: a `merge_group` run executes in the base repo,
+        # so it is not sandboxed the way a fork's `pull_request` run is.
         if: github.event_name != 'merge_group'
         uses: codecov/codecov-action@v4
         with:

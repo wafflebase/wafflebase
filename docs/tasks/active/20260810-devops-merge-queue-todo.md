@@ -16,9 +16,11 @@ wait ~18 min, find `main` moved again, rebase again. The change was never wrong;
 the queue behind it moved. Semantic conflicts (two PRs that each pass alone and
 break together) are not caught at all until they are already on `main`.
 
-Batching PRs by hand — rebase several onto one branch, run CI once — is the
-manual version of the fix, and it does not survive contact with a repo where
-contributors land work independently.
+Batching PRs by hand — rebase several onto one branch, run CI once — saves runner
+minutes but not the loop, and it does not survive contact with a repo where
+contributors land work independently. Note that the merge queue is **not** an
+automated version of that batching: it does not combine builds (see the cost
+note below). It removes the human from the loop; it does not spend less CI.
 
 ## Goal
 
@@ -68,24 +70,40 @@ Contributor-visible change: click **Merge when ready** instead of rebasing.
 - [ ] Enable **Require merge queue** for `main` (Settings → Branches → rule for
       `main`; the repo uses classic branch protection, not a ruleset).
       Recommended parameters and the verify/rollback steps are in
-      [MAINTAINING.md](../../../MAINTAINING.md#merge-queue). The one parameter
-      worth arguing about is **Merge limits — maximum = 5** — that is the
-      grouping knob that keeps runner cost sublinear in PR count.
-- [ ] Accept the trade: one extra CI run per queue entry (or per group), against
-      one fewer manual rebase cycle per PR. At ~18 min per run, grouping is what
-      keeps that trade favourable.
+      [MAINTAINING.md](../../../MAINTAINING.md#merge-queue).
+- [ ] **Accept that this costs CI time rather than saving it.** Roughly one extra
+      run per queued PR, on top of what its own pushes trigger, at ~18 min each.
+      There is no grouping discount: per GitHub's docs, "Merge limits do not
+      combine `merge_group` builds", and Build concurrency only throttles how many
+      speculative builds run at once. What is bought is human time (nobody sits in
+      the rebase loop) and correctness (semantic conflicts caught pre-merge). If
+      runner minutes are the binding constraint, this is the wrong trade and the
+      proposal should be declined.
 - [ ] Accept the residual risk: a `merge_group` run executes PR code in this
-      repository **with access to secrets**, where a fork's `pull_request` run is
-      sandboxed with a read-only token. Queueing requires write access, so this
-      is the trust boundary that already governs merging — but code execution
-      moves one step earlier, to queueing rather than merge. Review before
-      queueing, exactly as before merging.
+      repository rather than a fork's sandbox, so it runs alongside a
+      `GITHUB_TOKEN` carrying `ci.yml`'s workflow-level `pull-requests: write` /
+      `issues: write`, and alongside any secret the workflow references — here
+      only `CODECOV_TOKEN`, whose step is skipped in queue context. Not every
+      repository secret. Queueing requires write access, so this is the trust
+      boundary that already governs merging, but code execution moves one step
+      earlier, to queueing rather than merge. Review before queueing, exactly as
+      before merging.
 
 ## Deferred
 
 - A `concurrency` group on `ci.yml` to cancel superseded PR runs. Real savings,
   independent of the queue, and easy to get wrong here — cancelling a
   `merge_group` run would dequeue a PR. Separate change, separate reasoning.
+  Worth more now than it looked: since the queue adds runs rather than batching
+  them, this is the change that actually pays for it.
+- Per-job least-privilege `permissions` in `ci.yml`. The workflow-level
+  `pull-requests: write` / `issues: write` exist for the PR-comment steps in
+  `verify-self` and `verify-integration`; `verify-browser` needs neither, and
+  `permissions` cannot be made conditional on the event. Narrowing this shrinks
+  the `GITHUB_TOKEN` half of the merge-queue residual risk — but it also changes
+  the `pull_request` path, where a mistake silently breaks the summary comment,
+  so it should not ride along with a trigger addition. Raised by CodeRabbit on
+  PR #755.
 
 ## Test plan
 
