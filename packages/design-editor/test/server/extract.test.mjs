@@ -350,18 +350,30 @@ describe('structuralEditable agrees with resolveNode', () => {
       for (const [rootName, tree] of Object.entries(roots)) {
         expect(live[rootName]).toBeTruthy();
         for (const node of flatten(tree)) {
-          const r = resolveNode(
-            sf,
-            { component: rootName, path: node.path, tag: node.tag, fp: node.fp, fpx: node.fpx },
-            { requireStatic: true },
-          );
-          expect(
-            node.structuralEditable,
-            `<${node.tag}> at ${node.path.join('.') || '[]'} in ${rootName}: ` +
-              `outline says ${node.structuralEditable}, server says ${r.located}` +
-              (r.located ? '' : ` (${r.reason})`),
-          ).toBe(r.located === true);
-          checked++;
+          const anchor = {
+            component: rootName,
+            path: node.path,
+            tag: node.tag,
+            fp: node.fp,
+            fpx: node.fpx,
+          };
+          // BOTH roles. `role: 'container'` split one predicate into two, and an
+          // outline that models only the first is wrong in the opposite
+          // direction from the original bug: it withholds an "insert child"
+          // control the server would have accepted.
+          for (const [role, flag] of /** @type {const} */ ([
+            ['target', 'structuralEditable'],
+            ['container', 'containerEditable'],
+          ])) {
+            const r = resolveNode(sf, anchor, { requireStatic: true, role });
+            expect(
+              node[flag],
+              `<${node.tag}> at ${node.path.join('.') || '[]'} in ${rootName} as ${role}: ` +
+                `outline says ${node[flag]}, server says ${r.located}` +
+                (r.located ? '' : ` (${r.reason})`),
+            ).toBe(r.located === true);
+            checked++;
+          }
         }
       }
       // Guards the guard: a fixture that walked no nodes would pass vacuously.

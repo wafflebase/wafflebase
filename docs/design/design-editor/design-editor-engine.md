@@ -903,32 +903,41 @@ directions, and §8.1 check 9 proves the round-trip through real writes.
 
 ### 5.10 The outline PREDICTS the resolver (`src/server/extract.mjs`)
 
-`extract.mjs` builds the node tree the outline renders, and each node carries a
-`structuralEditable` flag. That flag is what enables or greys out "insert
-sibling" and "remove", which makes it a **prediction of what `resolveNode(…,
-{requireStatic: true})` will answer** — a third place the node model is
-interpreted, alongside the injector and the stamper.
+`extract.mjs` builds the node tree the outline renders, and each node carries
+**two** prediction flags. They are what enable or grey out the structural
+controls, which makes them predictions of what `resolveNode(…, {requireStatic:
+true})` will answer — a third place the node model is interpreted, alongside the
+injector and the stamper.
 
-A prediction that disagrees with the resolver is worse than a missing one: the
-UI offers a control, the designer uses it, and the server refuses. So the flag
-mirrors the resolver guard for guard, and the *same* distinction applies —
-identity against the root's returned expressions, not `path.length === 1`,
-because a returned fragment is transparent and its children are genuine
-siblings:
+There are two because the resolver answers two questions (§5.7). A node the
+editor may not move or delete can still legitimately RECEIVE a child:
 
 ```js
-structuralEditable =
-  scope === 'static' &&           // an iteration/callback body renders N times
-  tag !== '#returns' &&           // the synthetic container itself
-  owner === node &&               // reached through `{…}` — see §5.7
-  !returnedJsx.includes(node)     // a whole return value has no sibling list
+structuralEditable =                // role: 'target' — "insert sibling", "remove"
+  scope === 'static' &&             // an iteration/callback body renders N times
+  tag !== '#returns' &&             // the synthetic container itself
+  owner === node &&                 // reached through `{…}` — see §5.7
+  !returnedJsx.includes(node)       // a whole return value has no sibling list
+
+containerEditable =                 // role: 'container' — "insert child"
+  scope === 'static' &&             // the only guard a container still faces
+  tag !== '#returns'
 ```
 
-Only the first two of these were tested before, and on a four-shape fixture the
-two rules disagreed on **half the nodes** — every single-return root element and
-every `{cond && …}` child read as editable. `extract.test.mjs` now asserts the
-agreement node-by-node over eight shapes rather than trusting the rules to stay
-in step, in the same spirit as the stamper's cross-consumer test.
+A prediction that disagrees with the resolver is worse than a missing one, and
+it can be wrong in **either direction**. Offering a control the server refuses
+is the original failure: only the first two guards were tested once, and on a
+four-shape fixture the rules disagreed on **half the nodes** — every
+single-return root element and every `{cond && …}` child read as editable.
+Withholding a control the server accepts is the mirror, and is what a
+single-flag outline did after `role: 'container'` landed: the commonest
+component shape there is — a returned root element — greyed out "insert child"
+even though the injector would have taken it.
+
+`extract.test.mjs` therefore asserts the agreement node-by-node **for both
+roles** over eight shapes, rather than trusting the rules to stay in step, in
+the same spirit as the stamper's cross-consumer test. Adding a third role
+without a third flag fails there.
 
 `analyzeNodes` also drops **ambiguous** roots, matching `resolveNode`'s
 treatment of a name two JSX-returning functions claim, and returns those names so
