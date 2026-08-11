@@ -99,35 +99,46 @@ const INTERRUPTS = Object.freeze(["SIGINT", "SIGTERM"]);
 const IS_POSIX = process.platform !== "win32";
 
 /**
- * The panel's environment, minus the parent's IPC channel.
+ * The panel's environment, minus anything that tells a child it belongs to the test
+ * runner.
  *
- * `NODE_CHANNEL_FD` is how a Node process is told "you have an IPC channel on this
- * fd". Nothing here wants one — no panel calls `process.send`, and the adapter reads
- * the panel over stdout/stderr pipes. But `runAgent` defaults `env` to `process.env`,
- * and under `node --test` the process doing the spawning IS a test-runner child, which
- * has that variable set: the runner talks to each test file over an IPC channel with
- * advanced serialization. So the panel — and the grandchild it spawns with
- * `stdio: "inherit"` — booted believing they shared that channel, and whatever their
- * runtimes wrote into it landed in the middle of the runner's message stream.
+ * WHAT IS MEASURED. Under `node --test`, the process that spawns the panel IS a
+ * test-runner child, and `runAgent` defaults `env` to `process.env`. Probed on Node
+ * 22.23.2, that environment carries exactly one `NODE_*` variable:
  *
- * The runner then failed to parse its own protocol, which surfaces nowhere near here:
+ *   PARENT NODE_*: ["NODE_TEST_CONTEXT"]
+ *   CHILD  NODE_*: ["NODE_TEST_CONTEXT"]      // spawned with env: process.env
+ *   CHILD  fds:    [0,1,2,3,4,5]              // fd 3 — the runner's channel — inherited
+ *
+ * `NODE_TEST_CONTEXT=child-v8` is how Node tells a process "you are a test file; report
+ * over the V8-serialized channel". So every Node process this adapter spawns is told it
+ * is a test file, AND is handed the fd that claim refers to. Nothing here wants either:
+ * no panel loads `node:test`, and the adapter reads the panel over stdout/stderr pipes.
+ * Two processes believing they own one protocol stream is a hazard whether or not it has
+ * yet been caught writing.
+ *
+ * WHAT IS NOT ESTABLISHED, stated plainly because the previous version of this comment
+ * claimed it. `agent:tests` fails intermittently in CI with
  *
  *   not ok 19 - eval/run.test.mjs
- *     failureType: 'uncaughtException'
  *     error: 'Unable to deserialize cloned data due to invalid or unsupported version.'
  *     stack: #processRawBuffer (node:internal/test_runner/runner)
  *
- * No assertion fails, the file that "fails" is the one being corrupted rather than the
- * one at fault, and it only reproduces when the timing lines up — it hit `main` and an
- * unrelated PR within half an hour of each other while passing locally either side.
- *
- * Stripped here, at the boundary where this repo hands an environment to a process it
- * spawns, because that is the only place that knows the child has no business with the
- * parent's channel. The grandchild inherits the sanitised copy for free.
+ * and this is NOT known to be its cause. #772 asserted that it was, blamed
+ * `NODE_CHANNEL_FD`, and shipped a strip for it — but `NODE_CHANNEL_FD` is never set
+ * here (measured above: the list has one entry, and that is not it), so that change was
+ * inert and the failure continued unchanged. The flake has not reproduced locally in 15
+ * runs across Node 22 and 24, at CI's concurrency, on both `main` and the branch that
+ * hit it twice. Treat the leak below as a real defect worth closing on its own terms and
+ * the deserialize failure as still open; if it recurs after this, this comment is the
+ * record that this was ruled in, not proven.
  */
 export function panelEnv(env) {
   const copy = { ...(env ?? {}) };
+  // `NODE_CHANNEL_FD` is kept in the strip list despite never being set here: it is the
+  // `fork()` equivalent of the same mistake, and costs one line to be right about.
   delete copy.NODE_CHANNEL_FD;
+  delete copy.NODE_TEST_CONTEXT;
   return copy;
 }
 

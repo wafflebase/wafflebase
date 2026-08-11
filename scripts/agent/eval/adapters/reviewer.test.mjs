@@ -506,22 +506,24 @@ test("every one of the panel's six outputs is accounted for by name", async () =
   }
 });
 
-test("the panel is not handed the parent's IPC channel", () => {
-  // The bug this pins produced no failing assertion. Under `node --test` the process
-  // that spawns the panel is itself a test-runner child, so `process.env` carries
-  // `NODE_CHANNEL_FD`; the panel and its grandchild booted believing they shared the
-  // runner's channel and corrupted its message stream, and the runner reported it
-  // against whichever file it was mid-parse on. Passing it through is therefore the
-  // mutation to defend against, and it is invisible to every other test here.
-  const env = panelEnv({ ...process.env, NODE_CHANNEL_FD: "3", PATH: "/usr/bin" });
-  assert.equal("NODE_CHANNEL_FD" in env, false, "the child must not inherit the parent's IPC channel");
-  assert.equal(env.PATH, "/usr/bin", "everything else the panel needs must survive");
+test("the panel is not told it belongs to the test runner", () => {
+  // THE VARIABLE THAT IS ACTUALLY SET IS `NODE_TEST_CONTEXT`. This test's first version
+  // pinned `NODE_CHANNEL_FD`, which is never set here, so it passed against a strip that
+  // could not do anything. Asserting on the live environment rather than a hand-built
+  // one is what makes that failure mode impossible to repeat: if the runner stops
+  // setting this, or renames it, the assertion below stops being vacuous by construction.
+  const underRunner = "NODE_TEST_CONTEXT" in process.env;
+  assert.equal(underRunner, true, "this suite runs under `node --test`, so the runner must be advertising itself");
+
+  const env = panelEnv(process.env);
+  assert.equal("NODE_TEST_CONTEXT" in env, false, "the panel must not be told it is a test file");
+  assert.equal("NODE_CHANNEL_FD" in env, false, "nor handed an IPC channel");
+  assert.equal(env.PATH, process.env.PATH, "everything else the panel needs must survive");
 
   // The caller's object is not the child's: mutating the copy must not reach back into
-  // `process.env`, which is what `runAgent` defaults to.
-  const source = { NODE_CHANNEL_FD: "3", KEEP: "1" };
-  panelEnv(source);
-  assert.equal(source.NODE_CHANNEL_FD, "3", "panelEnv must copy, not strip its argument in place");
+  // `process.env`, which is what `runAgent` defaults to — stripping that in place would
+  // disconnect THIS file from the runner mid-suite.
+  assert.equal("NODE_TEST_CONTEXT" in process.env, true, "panelEnv must copy, not strip its argument in place");
 
   // Absent, empty and nullish inputs are all "nothing to strip", not a throw — the
   // spawn site must never fail because the environment was unusual.
