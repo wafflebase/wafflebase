@@ -39,23 +39,23 @@ coordinate, collapsing all of them onto the origin.
 
 ## Plan
 
-- [ ] Failing test: an item with a `parent` frame maps to the frame's absolute
+- [x] Failing test: an item with a `parent` frame maps to the frame's absolute
       position plus its relative offset.
-- [ ] Failing test: `relativeTo: "canvas_center"` stays absolute even when a
+- [x] Failing test: `relativeTo: "canvas_center"` stays absolute even when a
       `parent` is present.
-- [ ] Failing test: an item whose parent is missing from the payload keeps its
+- [x] Failing test: an item whose parent is missing from the payload keeps its
       raw position and is reported as an approximation.
-- [ ] `geometry.ts` — `MiroPositionLike.relativeTo`, `MiroParentLike`, and a
+- [x] `geometry.ts` — `MiroPositionLike.relativeTo`, `MiroParentLike`, and a
       `resolveMiroFrames(items)` that resolves the whole payload once, with a
       cycle guard, returning the frames plus the unresolved-parent ids.
-- [ ] `types.ts` — declare `parent` and `position.relativeTo` on
+- [x] `types.ts` — declare `parent` and `position.relativeTo` on
       `MiroItemLike`.
-- [ ] `map-items.ts` — build the frame map from `resolveMiroFrames`; count a
+- [x] `map-items.ts` — build the frame map from `resolveMiroFrames`; count a
       mappable item with an unresolvable parent under
       `approximated['parent-position']`.
-- [ ] `miro-import-summary.ts` — wording for the new approximation kind.
-- [ ] Update `docs/design/board/board-miro-import.md` with the coordinate rule.
-- [ ] `pnpm verify:fast`.
+- [x] `miro-import-summary.ts` — wording for the new approximation kind.
+- [x] Update `docs/design/board/board-miro-import.md` with the coordinate rule.
+- [x] `pnpm verify:fast`.
 
 ## Review findings applied
 

@@ -599,17 +599,31 @@ no new scope. The on-demand job's permissions are byte-identical before and afte
 - [x] **Both workflows parse**, and the on-demand `review` job's permissions are
       unchanged: `{contents: read, pull-requests: read, checks: read, issues: write}`
       — no `checks: write`, no addition.
-- [ ] **The artifact itself, from either producer.** Still unverified end-to-end and
-      cannot be from here: the gating side needs one managed PR to run the panel, the
-      on-demand side one `@claude review`. The number to check against the size table
-      is the largest per-lens file, which is the check #641 asked for and never got.
-- [ ] **Two producers, one artifact name — a collector requirement, recorded now.**
-      `stage-detail.json` carries no field naming the workflow that wrote it, so a
-      collector resolving "artifacts named `review-panel-stage-detail` for PR X"
-      gets both producers with nothing in the payload to tell a gating round from an
-      advisory one, and would double-count one head sha as two rounds. Recoverable
-      from run metadata (`event: issue_comment` versus the panel's `workflow_run`).
-      Not a blocker here; it must be settled in the collector.
+- [x] **The artifact itself, from either producer** — verified 10 Aug 2026
+      against production. Both producers have uploaded real captures:
+      `agent-review-panel.yml` (`event: workflow_run`, `channel: gating`) and
+      `agent-review-on-demand.yml` (`event: issue_comment`, `channel: advisory`),
+      25+ artifacts standing. **The largest per-lens file, which #641 asked for
+      and never got: 32.0 KB** (PR 757, `design-fit`), against 24.2 KB (PR 738,
+      `correctness`), 15.6 KB (PR 718) and 9.4 KB (PR 734). Their PR diffs were
+      25.6 / 18.0 / 13.7 / 15.8 KB.
+
+      **This is 3.5–12× the size table's default-path prediction** (2.6–5.5 KB
+      largest lens). The table modelled two findings per sample and three
+      verifier verdicts per lens; a real round carries more findings and much
+      longer evidence prose, and that term — not diff volume — now dominates
+      the file. The direction of the earlier conclusion is unchanged and the
+      absolute cost is still negligible (a whole round zips to 10–29 KB), but
+      the "largest lens, default" column under-predicts and should not be
+      quoted as a ceiling.
+- [x] **Two producers, one artifact name** — settled in the payload, not
+      deferred to the collector. The artifact name now carries the PR
+      (`review-panel-stage-detail-pr-<N>`) and `meta.json` names the producer
+      directly: `workflow` (`agent-review-panel.yml` vs
+      `agent-review-on-demand.yml`), `channel` (`gating` vs `advisory`),
+      `event`, `runId` and `runAttempt`. A collector no longer has to recover
+      the distinction from run metadata, so the double-counting risk this item
+      recorded cannot arise.
 
 ---
 
@@ -756,9 +770,17 @@ is already gone.
 - [x] **Purity holds.** The existing "derives only — it never mutates its inputs" test
       is unchanged and still passes; `annotateFindings` copies, so the findings the
       panel gates on are the same objects they were.
-- [ ] **The field itself, in a real artifact.** Blocked on the same thing as the
-      section above: no capture has left a runner yet. The first one to arrive should
-      show a `lane` on every blocking fresh row and none on a minor.
+- [x] **The field itself, in a real artifact** — verified 10 Aug 2026. In
+      production captures `lane` sits at `verifications[].finding.lane` and
+      appears on **fresh rows only**; no `prior-round` row in any artifact
+      examined carries one. Observed values: `blocking`, `discarded`, `backlog`.
+
+      The "none on a minor" half could not be shown from the captures alone —
+      every verification row they record is `major`, so the minor case is
+      vacuous there. It is confirmed instead against real model output in the
+      eval store (`runs/pilot-01__k1`, adapter `reviewer`): of pr-524's nine
+      findings, all four majors carry `lane: "blocking"` and all five minors
+      carry no `lane` at all.
 
 ---
 
@@ -980,15 +1002,16 @@ validation path passing its first real test, not a regression.
       raw bytes, all 13 jobs.
 - [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not
       the working copy.
-- [ ] **A real artifact from either producer.** Unverified end-to-end and cannot
-      be from here: the gating side needs one managed PR, the on-demand side one
-      `@claude review`. The first capture to arrive should hold a `meta.json` whose
-      `pr` matches the PR it was posted on and whose `panelSha` is the `main`
-      commit this merged into. That is also the only check that can confirm
-      `steps.pr.outputs.number` and `needs.authorize.outputs.pr` arrive non-empty
-      in production.
-- [ ] **90-day retention on a real upload.** The value is asserted in the YAML;
-      whether GitHub honours it depends on the repository's
-      `actions.artifact_retention_days` maximum, which a workflow cannot read.
-      If the repo setting is lower, GitHub silently clamps — check the first
-      artifact's expiry rather than assuming.
+- [x] **A real artifact from either producer** — verified 10 Aug 2026.
+      Gating side: `meta.json` `pr: 757`, `panelSha:
+      ae9375e0be2876d069b81c4b460c59776ce0f24c` — the `main` commit "Stop
+      dedupe discarding a second finding with no record (#748)". Advisory side:
+      `pr: 738`, `panelSha: 2f67c78fb`, `workflow:
+      agent-review-on-demand.yml`. Both carry a `pr` matching the PR they were
+      posted on, which is what confirms `steps.pr.outputs.number` and
+      `needs.authorize.outputs.pr` arrive non-empty in production.
+- [x] **90-day retention on a real upload** — verified, not clamped. The
+      earliest standing artifact reads `created_at 2026-08-06T10:11:25Z` /
+      `expires_at 2026-11-04T10:01:41Z`: exactly 90 days. The repository's
+      `actions.artifact_retention_days` maximum is therefore at least 90, and
+      the YAML value is honoured as written.
