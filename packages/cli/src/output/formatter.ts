@@ -108,3 +108,26 @@ export function forwardUpstreamError(res: {
   }
   throw new Error(`HTTP ${res.status}`);
 }
+
+/**
+ * The stderr body for a failed upstream response on the import/upload/
+ * download paths, which report through their own injected `io.stderr` and an
+ * exit code instead of throwing into `outputError`.
+ *
+ * Same rule as `forwardUpstreamError` — only a body that *is* the documented
+ * envelope is forwarded verbatim. Anything else becomes the `HTTP_ERROR`
+ * envelope those commands' skill files already promise
+ * (`packages/cli/skills/docs-import-docx.md`), instead of a framework
+ * 404/500 body whose `error.code` reads `undefined`.
+ */
+export function upstreamErrorJson(res: {
+  status: number;
+  data?: unknown;
+}): string {
+  if (isErrorEnvelope(res.data)) return JSON.stringify(res.data, null, 2);
+  return JSON.stringify(
+    { error: { code: 'HTTP_ERROR', message: `HTTP ${res.status}` } },
+    null,
+    2,
+  );
+}

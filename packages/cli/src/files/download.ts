@@ -5,6 +5,7 @@ import {
   type BinaryIO,
 } from '../output/binary.js';
 import type { BinaryResponse } from '../client/http-client.js';
+import { upstreamErrorJson } from '../output/formatter.js';
 
 /**
  * Where the bytes go: the caller's path when given, otherwise the filename the
@@ -53,9 +54,7 @@ export async function runFilesDownload(
 
   const res = await client.downloadFileDocument(docId);
   if (!res.ok || !res.bytes) {
-    io.stderr(
-      JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
+    io.stderr(upstreamErrorJson(res));
     return { exitCode: 1 };
   }
 

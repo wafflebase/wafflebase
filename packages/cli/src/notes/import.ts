@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { upstreamErrorJson } from '../output/formatter.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -155,9 +156,7 @@ export async function runNotesImport(
     }
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
-      io.stderr(
-        JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-      );
+      io.stderr(upstreamErrorJson(res));
       return { exitCode: 1 };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
@@ -184,9 +183,7 @@ export async function runNotesImport(
 
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
-    io.stderr(
-      JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
+    io.stderr(upstreamErrorJson(created));
     return { exitCode: 1 };
   }
   const newId = (created.data as { id?: string } | null)?.id;
@@ -208,9 +205,7 @@ export async function runNotesImport(
 
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
-    io.stderr(
-      JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
+    io.stderr(upstreamErrorJson(put));
     return { exitCode: 1 };
   }
 

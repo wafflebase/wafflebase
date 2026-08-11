@@ -1,10 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Command } from 'commander';
-import { forwardUpstreamError } from '../src/output/formatter.js';
+import { DEFAULT_BLOCK_STYLE, DocxExporter, type Document } from '@wafflebase/docs';
+import { ImportReport, type SlidesDocument } from '@wafflebase/slides/node';
+import {
+  forwardUpstreamError,
+  upstreamErrorJson,
+} from '../src/output/formatter.js';
 import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSlidesCommand } from '../src/commands/slides.js';
 import { registerNotesCommand } from '../src/commands/notes.js';
+import { runDocsImport } from '../src/docs/import.js';
+import { runNotesImport } from '../src/notes/import.js';
+import {
+  runSlidesImport,
+  type SlidesImportParser,
+} from '../src/slides/import.js';
+import { runFilesUpload } from '../src/files/upload.js';
+import { runFilesDownload } from '../src/files/download.js';
 
 /** The documented envelope: `error` is an object carrying a string `code`. */
 const ENVELOPE = {
@@ -179,3 +192,291 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     });
   }
 });
+
+describe('upstreamErrorJson', () => {
+  it('forwards the documented envelope verbatim', () => {
+    expect(JSON.parse(upstreamErrorJson({ status: 409, data: ENVELOPE }))).toEqual(
+      ENVELOPE,
+    );
+  });
+
+  it('replaces a framework body with the documented HTTP_ERROR envelope', () => {
+    expect(JSON.parse(upstreamErrorJson({ status: 404, data: EXPRESS_404 }))).toEqual({
+      error: { code: 'HTTP_ERROR', message: 'HTTP 404' },
+    });
+  });
+
+  it('carries the status for a missing or unparseable body', () => {
+    for (const data of [null, undefined, '<html>bad gateway</html>', { error: 42 }]) {
+      expect(JSON.parse(upstreamErrorJson({ status: 502, data }))).toEqual({
+        error: { code: 'HTTP_ERROR', message: 'HTTP 502' },
+      });
+    }
+  });
+});
+
+// The import/upload/download commands report through their own injected
+// `io.stderr` + exit code rather than throwing into `outputError`, so they
+// need their own guard: before `upstreamErrorJson` they printed `res.data`
+// verbatim and only substituted `HTTP_ERROR` for a null body.
+describe('import/upload/download commands envelope non-envelope error bodies', () => {
+  const fail = (status: number, data: unknown) => ({ ok: false, status, data });
+  const created = { ok: true, status: 201, data: { id: 'new-1' } };
+
+  async function docxBytes(): Promise<Uint8Array> {
+    const doc: Document = {
+      blocks: [
+        {
+          id: 'p1',
+          type: 'paragraph',
+          inlines: [{ text: 'hi', style: {} }],
+          style: { ...DEFAULT_BLOCK_STYLE },
+        },
+      ],
+    };
+    const blob = await DocxExporter.export(doc);
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  const stubParser: SlidesImportParser = async () => ({
+    document: {
+      meta: { title: 'Deck', themeId: 'default-light', masterId: 'default' },
+      themes: [],
+      masters: [],
+      layouts: [],
+      slides: [],
+    } as unknown as SlidesDocument,
+    report: new ImportReport(),
+  });
+
+  /** stderr + exit code from one orchestrator run whose upstream call failed. */
+  type Runner = (
+    status: number,
+    data: unknown,
+  ) => Promise<{ stderr: string[]; exitCode: number }>;
+
+  function textIO(stderr: string[]) {
+    return {
+      stdout: () => {
+        /* swallow */
+      },
+      stderr: (line: string) => stderr.push(line),
+      confirm: async () => true,
+      isTTY: false,
+    };
+  }
+
+  const CASES: Array<{ name: string; run: Runner }> = [
+    {
+      name: 'docs import --replace',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const bytes = await docxBytes();
+        const res = await runDocsImport(
+          { file: 'a.docx', replace: 'doc-1', yes: true },
+          {
+            createDocument: async () => created,
+            putDocContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readBytes: async () => bytes },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'docs import (create)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const bytes = await docxBytes();
+        const res = await runDocsImport(
+          { file: 'a.docx' },
+          {
+            createDocument: async () => fail(status, data),
+            putDocContent: async () => created,
+          },
+          { ...textIO(stderr), readBytes: async () => bytes },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'docs import (content PUT)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const bytes = await docxBytes();
+        const res = await runDocsImport(
+          { file: 'a.docx' },
+          {
+            createDocument: async () => created,
+            putDocContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readBytes: async () => bytes },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'notes import --replace',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runNotesImport(
+          { file: 'a.md', replace: 'doc-1', yes: true },
+          {
+            createDocument: async () => created,
+            putNoteContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readText: async () => '# hi' },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'notes import (create)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runNotesImport(
+          { file: 'a.md' },
+          {
+            createDocument: async () => fail(status, data),
+            putNoteContent: async () => created,
+          },
+          { ...textIO(stderr), readText: async () => '# hi' },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'notes import (content PUT)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runNotesImport(
+          { file: 'a.md' },
+          {
+            createDocument: async () => created,
+            putNoteContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readText: async () => '# hi' },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'slides import --replace',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runSlidesImport(
+          { file: 'a.pptx', replace: 'doc-1', yes: true, parser: stubParser },
+          {
+            createDocument: async () => created,
+            putSlidesContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readBytes: async () => new Uint8Array([1]) },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'slides import (create)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runSlidesImport(
+          { file: 'a.pptx', parser: stubParser },
+          {
+            createDocument: async () => fail(status, data),
+            putSlidesContent: async () => created,
+          },
+          { ...textIO(stderr), readBytes: async () => new Uint8Array([1]) },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'slides import (content PUT)',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runSlidesImport(
+          { file: 'a.pptx', parser: stubParser },
+          {
+            createDocument: async () => created,
+            putSlidesContent: async () => fail(status, data),
+          },
+          { ...textIO(stderr), readBytes: async () => new Uint8Array([1]) },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'files upload',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runFilesUpload(
+          { file: 'a.zip' },
+          {
+            uploadFileDocument: async () =>
+              fail(status, data) as unknown as {
+                ok: boolean;
+                status: number;
+                data: never;
+              },
+          },
+          {
+            stdout: () => {
+              /* swallow */
+            },
+            stderr: (line) => stderr.push(line),
+            readBytes: () => new Uint8Array([1]),
+            sizeOf: () => 1,
+          },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+    {
+      name: 'files download',
+      run: async (status, data) => {
+        const stderr: string[] = [];
+        const res = await runFilesDownload(
+          { docId: 'doc-1' },
+          { downloadFileDocument: async () => fail(status, data) },
+          {
+            stdout: () => {
+              throw new Error('should not write bytes');
+            },
+            stderr: (line) => stderr.push(line),
+            writeFile: () => {
+              throw new Error('should not write bytes');
+            },
+          },
+        );
+        return { stderr, exitCode: res.exitCode };
+      },
+    },
+  ];
+
+  for (const { name, run } of CASES) {
+    it(`\`${name}\` reports an Express 404 body as the documented envelope`, async () => {
+      const { stderr, exitCode } = await run(404, EXPRESS_404);
+      expect(exitCode).toBe(1);
+      const bodies = stderr.map((l) => tryParse(l)).filter((b) => b !== null);
+      expect(bodies.at(-1)).toEqual({
+        error: { code: 'HTTP_ERROR', message: 'HTTP 404' },
+      });
+    });
+
+    it(`\`${name}\` still forwards a backend-shaped error verbatim`, async () => {
+      const { stderr, exitCode } = await run(409, ENVELOPE);
+      expect(exitCode).toBe(1);
+      const bodies = stderr.map((l) => tryParse(l)).filter((b) => b !== null);
+      expect(bodies.at(-1)).toEqual(ENVELOPE);
+    });
+  }
+});
+
+/** Non-JSON stderr lines (progress notices) are not error bodies. */
+function tryParse(line: string): unknown {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+}

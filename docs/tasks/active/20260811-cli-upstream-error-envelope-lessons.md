@@ -13,3 +13,10 @@
   `message` field from its cast, one was collapsed onto a single line).
   Centralizing next to `outputError` keeps the envelope contract in one
   file with the code that produces it.
+- Fixing "the sites that match this grep" is not the same as fixing the
+  rule. The `?? { error: { code: 'HTTP_ERROR' } }` spelling in the
+  import/upload/download paths is the *same* defect written differently —
+  it only substitutes the envelope when the body is null — so the first
+  pass left five sites bypassing the guard it had just centralized. The
+  second spelling was found by grepping for the promised code
+  (`HTTP_ERROR`), not for the original expression.

@@ -29,17 +29,30 @@ Sites:
       body, `null`, string body, non-string `code` all rejected) plus a
       command-level regression driving `docs content` / `slides content` /
       `notes content` through commander with a stubbed fetch.
+- [x] Same rule for the import/upload/download paths, which report through
+      an injected `io.stderr` + exit code instead of throwing:
+      `upstreamErrorJson()` returns the envelope verbatim or the
+      `HTTP_ERROR` envelope their skill files already promise. Sites:
+      `src/docs/import.ts` (×3), `src/notes/import.ts` (×3),
+      `src/slides/import.ts` (×3), `src/files/upload.ts`,
+      `src/files/download.ts` — each previously printed
+      `res.data ?? { error: { code: 'HTTP_ERROR' } }`, which only
+      substituted the envelope for a *null* body.
 
 ## Acceptance criteria
 
 - An Express-shaped 404 body reaches stderr as
-  `{"error":{"code":"ERROR","message":"HTTP 404"}}`, exit code 1.
+  `{"error":{"code":"ERROR","message":"HTTP 404"}}` on the
+  content/export paths and `{"error":{"code":"HTTP_ERROR","message":"HTTP
+  404"}}` on the import/upload/download paths, exit code 1.
 - A backend-shaped body (e.g. `TYPE_MISMATCH`) is still forwarded
   verbatim, exit code 1.
-- All six sites share one helper.
+- Every CLI path that prints an upstream body shares one guard
+  (`isErrorEnvelope`) in `src/output/formatter.ts`.
 
 ## Non-goals
 
 - Any change to the backend's error bodies.
-- Touching other command paths (sheets/cells/files) that do not have
-  this pattern.
+- `sheets cells` / `sheets export`, which flatten or cast an upstream
+  envelope rather than forwarding it verbatim — a different defect, left
+  for a follow-up.
