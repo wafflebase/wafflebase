@@ -99,6 +99,39 @@ const INTERRUPTS = Object.freeze(["SIGINT", "SIGTERM"]);
 const IS_POSIX = process.platform !== "win32";
 
 /**
+ * The panel's environment, minus the parent's IPC channel.
+ *
+ * `NODE_CHANNEL_FD` is how a Node process is told "you have an IPC channel on this
+ * fd". Nothing here wants one — no panel calls `process.send`, and the adapter reads
+ * the panel over stdout/stderr pipes. But `runAgent` defaults `env` to `process.env`,
+ * and under `node --test` the process doing the spawning IS a test-runner child, which
+ * has that variable set: the runner talks to each test file over an IPC channel with
+ * advanced serialization. So the panel — and the grandchild it spawns with
+ * `stdio: "inherit"` — booted believing they shared that channel, and whatever their
+ * runtimes wrote into it landed in the middle of the runner's message stream.
+ *
+ * The runner then failed to parse its own protocol, which surfaces nowhere near here:
+ *
+ *   not ok 19 - eval/run.test.mjs
+ *     failureType: 'uncaughtException'
+ *     error: 'Unable to deserialize cloned data due to invalid or unsupported version.'
+ *     stack: #processRawBuffer (node:internal/test_runner/runner)
+ *
+ * No assertion fails, the file that "fails" is the one being corrupted rather than the
+ * one at fault, and it only reproduces when the timing lines up — it hit `main` and an
+ * unrelated PR within half an hour of each other while passing locally either side.
+ *
+ * Stripped here, at the boundary where this repo hands an environment to a process it
+ * spawns, because that is the only place that knows the child has no business with the
+ * parent's channel. The grandchild inherits the sanitised copy for free.
+ */
+export function panelEnv(env) {
+  const copy = { ...(env ?? {}) };
+  delete copy.NODE_CHANNEL_FD;
+  return copy;
+}
+
+/**
  * Every flag this adapter passes, named once so a test can pin the contract
  * rather than an audit re-deriving it by hand every few months. Verified against
  * `review-panel.mjs`'s usage block: all six are still accepted there.
@@ -312,7 +345,7 @@ export function reviewerAdapter(options) {
         // pid is not a group id at all, and the signal lands on nothing — or on
         // an unrelated group that happens to hold that number. Same reasoning,
         // and same mutation result, as `reapLaneGroup`.
-        const child = spawn("node", args, { env, detached: IS_POSIX });
+        const child = spawn("node", args, { env: panelEnv(env), detached: IS_POSIX });
         let stdout = "", stderr = "";
         child.stdout?.on("data", (d) => { stdout += d; });
         child.stderr?.on("data", (d) => { stderr += d; });
