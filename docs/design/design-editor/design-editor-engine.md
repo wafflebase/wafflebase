@@ -798,13 +798,32 @@ client's `SceneMeta` can be stale — the same reason `/validate` shares
   numbering, so `return <><A/><B/></>` puts A and B at depth 1 where they are
   genuine siblings in a real container, and splicing between them stays legal.
 
-  This guard is deliberately **wider than the rule it enforces**. Refusing the
-  node also refuses inserting a *child* into it, which is valid — and that is
-  the mainline "insert into the page's root `<div>`" case. Narrowing it needs
-  the OP, which `resolveNode` is not given; `inject.mjs` is what defines the
-  ops, so widening `opts` to carry one belongs with that module rather than
-  ahead of it. Until then the refusal is visible and costs a capability, where
-  the alternative writes an unparseable file.
+**`opts.role` — because two of the three guards depend on what the anchor IS.**
+The guards above were written for one op ("splice this node") and applied to
+all, which refused inserting a *child* into any component whose body is
+`return <div>…</div>`. That is not a missing capability but **data loss**:
+`applyLayoutRemove` inside such a root succeeds, and its `verbatim` inverse is
+refused, so the node is gone with no way back.
+
+| guard | `role: 'target'` (default) | `role: 'container'` |
+|---|---|---|
+| `scope !== 'static'` | refuse | **refuse** — renders N times either way |
+| `owner !== node` | refuse | allow |
+| is a returned expression | refuse | allow |
+
+Verified against the parser rather than argued: a child spliced into a returned
+root parses, a child spliced into a conditionally-rendered element parses, and a
+*sibling* beside a returned root is a syntax error. `applyLayoutInsert` passes
+`'container'` for its parent anchor; everything else keeps the default, so every
+pre-existing caller is unchanged.
+
+One shape stays refused for the same data-loss reason, from the other direction:
+removing a **direct child of a returned fragment**. The fragment is transparent,
+so its children sit at depth 1 with the synthetic `#returns` container above
+them — and no anchor can name that, so the re-insert has no parent to target.
+`applyLayoutRemove` refuses rather than outrunning its own inverse. Making the
+returns root addressable as a container (delegating the offset to the wrapped
+fragment's opening token) would restore it.
 
 `walkJsx` numbering: only JSX elements count; `JsxText`/comments do not.
 Fragments are **transparent** (their children number into the parent's list, so
@@ -915,6 +934,34 @@ in step, in the same spirit as the stamper's cross-consumer test.
 treatment of a name two JSX-returning functions claim, and returns those names so
 the UI can say *"two components here are called `Row`"* instead of rendering a
 subtree whose every node rejects its first edit.
+
+### 5.11 Maps keyed by consumer identifiers carry no prototype
+
+Every map keyed by an identifier read out of a consumer's source is a
+prototype-pollution surface. `roots.__proto__ = tree` hits the inherited setter
+rather than defining a key, so that component **disappears** with nothing
+reported; and `roots.valueOf` answers with an inherited method — truthy, so a
+caller testing `if (roots[name])` walks a function instead of reporting "no such
+component". Both are silent.
+
+The rule is about **who chooses the key**, not which constructor was used.
+`analyzeClasses`'s `antiPatterns` is built with `Object.fromEntries` and *does*
+carry `Object.prototype`; it is exempt because every key comes from `ANTI_KEYS`,
+a closed vocabulary in our own source that no consumer identifier can reach.
+
+**Enforced by a table, not by convention.** `findJsxRoots` was fixed for this,
+and `analyzeNodes` then copied its entries into a plain `{}` and undid the fix
+one layer down — written by the author who had just added the comment explaining
+the hazard. A helper you must remember to call fails exactly where memory
+already failed, so `test/server/name-keyed-maps.test.mjs` enumerates every
+export returning such a map and asserts the invariant against deliberately
+hostile component names. A new export evades it only by omitting its row, which
+is visible in review; the table's own length is asserted so an empty one cannot
+pass vacuously.
+
+This is a different failure from the drift §5.10 guards — that one is two files
+re-deriving one rule, this one is one file re-keying a map — and they need
+different guards.
 
 ---
 
