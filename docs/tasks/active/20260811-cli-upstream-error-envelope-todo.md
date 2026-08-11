@@ -21,10 +21,21 @@ Sites:
 - [x] Add a shared guard next to `outputError` (`src/output/formatter.ts`,
       which already owns the envelope contract) that forwards the upstream
       body only when `error` is an object with a string `code`, and
-      otherwise throws `HTTP <status>` so the existing `catch` routes it
-      through `outputError`.
+      otherwise throws an `UpstreamHttpError` (`code = 'HTTP_ERROR'`,
+      message `HTTP <status>[: <upstream message>]`) so the existing
+      `catch` routes it through `outputError`.
 - [x] Replace all six sites with the helper (kills the local casts that
       asserted a shape nobody checked).
+- [x] Then every *other* `!res.ok` branch too. They threw
+      `new Error("HTTP <status>")`, which flattens a real backend envelope
+      — the client's own 401 `SESSION_EXPIRED` above all — to
+      `{code: "ERROR"}`, so the code an agent branches on depended on which
+      subcommand it ran. Sites: `commands/docs.ts` (×5),
+      `commands/notes.ts` (×5), `commands/slides.ts` (×5),
+      `commands/cells.ts` (×4), `commands/tabs.ts` (×3),
+      `commands/files.ts` (×4), `commands/api-keys.ts` (×3),
+      `commands/sheets-import.ts`, `commands/sheets-export.ts` (which
+      additionally lifted `error.message` out and dropped the `code`).
 - [x] Tests: unit tests for the guard (envelope forwarded; Express 404
       body, `null`, string body, non-string `code` all rejected) plus a
       command-level regression driving `docs content` / `slides content` /
@@ -42,17 +53,21 @@ Sites:
 ## Acceptance criteria
 
 - An Express-shaped 404 body reaches stderr as
-  `{"error":{"code":"ERROR","message":"HTTP 404"}}` on the
-  content/export paths and `{"error":{"code":"HTTP_ERROR","message":"HTTP
-  404"}}` on the import/upload/download paths, exit code 1.
-- A backend-shaped body (e.g. `TYPE_MISMATCH`) is still forwarded
-  verbatim, exit code 1.
+  `{"error":{"code":"HTTP_ERROR","message":"HTTP 404: <upstream
+  message>"}}`, exit code 1 — the **same** code on every path
+  (content/export as well as import/upload/download), because both
+  describe the identical condition and an agent must not have to branch
+  on which command it ran to know what the code will be.
+- A backend-shaped body (e.g. `TYPE_MISMATCH`, `SESSION_EXPIRED`) is
+  still forwarded verbatim, exit code 1, from *every* command — not just
+  the six that already did.
 - Every CLI path that prints an upstream body shares one guard
   (`isErrorEnvelope`) in `src/output/formatter.ts`.
+- `packages/cli/README.md` and `docs/design/cli.md`'s error matrix
+  document `HTTP_ERROR`, since it is a code agents may branch on.
 
 ## Non-goals
 
 - Any change to the backend's error bodies.
-- `sheets cells` / `sheets export`, which flatten or cast an upstream
-  envelope rather than forwarding it verbatim — a different defect, left
-  for a follow-up.
+- `login`'s workspace fetch, which reports a bespoke, actionable message
+  ("Try again with `wafflebase login`") rather than forwarding a body.

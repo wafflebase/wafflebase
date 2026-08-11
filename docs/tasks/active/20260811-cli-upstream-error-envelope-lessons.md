@@ -20,3 +20,16 @@
   pass left five sites bypassing the guard it had just centralized. The
   second spelling was found by grepping for the promised code
   (`HTTP_ERROR`), not for the original expression.
+- …and a *third* spelling was still out there: the ~25 sites that wrote
+  `throw new Error("HTTP <status>")`. Those look like they predate the
+  envelope contract and so feel out of scope, but they flatten a real
+  backend envelope — the client's own 401 `SESSION_EXPIRED` most of all —
+  to `{code: "ERROR"}`, which means the code an agent branches on depended
+  on which subcommand it ran. For a cross-cutting output contract, the
+  scope is "every site that can emit it," not "every site whose spelling
+  matched the bug report."
+- Introducing a code agents may branch on is an API change. The first
+  pass added `HTTP_ERROR` without touching `packages/cli/README.md` or
+  `docs/design/cli.md`'s error matrix, both of which still said everything
+  untyped reports `ERROR`. A contract nobody documented is a contract
+  nobody can rely on.

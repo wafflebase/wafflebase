@@ -146,9 +146,16 @@ export class UpstreamHttpError extends Error {
 }
 
 /**
- * Handle a failed upstream response for the commands that want to pass a
- * backend-shaped error through untouched (e.g. `TYPE_MISMATCH`), so agents
- * reading stderr can act on its `code`.
+ * Handle a failed upstream response, passing a backend-shaped error through
+ * untouched (e.g. `TYPE_MISMATCH`, `SESSION_EXPIRED`) so agents reading
+ * stderr can act on its `code`.
+ *
+ * Every command that talks to the backend routes its `!res.ok` branch
+ * through here. It used to be six sites, with the rest throwing
+ * `new Error("HTTP <status>")` — which flattened a real envelope (the
+ * client's own 401 `SESSION_EXPIRED` most of all) to `{code: "ERROR"}`
+ * depending only on which subcommand the agent happened to run. The code an
+ * agent branches on must not depend on that.
  *
  * Only a body that *is* the documented envelope is forwarded verbatim.
  * Anything else — a framework 404/500 body where `error` is a string, an

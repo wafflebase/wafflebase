@@ -11,6 +11,9 @@ import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSlidesCommand } from '../src/commands/slides.js';
 import { registerNotesCommand } from '../src/commands/notes.js';
+import { registerSheetsCommand } from '../src/commands/sheets.js';
+import { registerFilesCommand } from '../src/commands/files.js';
+import { registerApiKeysCommand } from '../src/commands/api-keys.js';
 import { runDocsImport } from '../src/docs/import.js';
 import { runNotesImport } from '../src/notes/import.js';
 import {
@@ -190,6 +193,9 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     registerDocsCommand(program);
     registerSlidesCommand(program);
     registerNotesCommand(program);
+    registerSheetsCommand(program);
+    registerFilesCommand(program);
+    registerApiKeysCommand(program);
     return program;
   }
 
@@ -209,6 +215,33 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     { name: 'slides export', argv: ['slides', 'export', 'doc-1', 'out.pptx'] },
     { name: 'notes content', argv: ['notes', 'content', 'doc-1'] },
     { name: 'notes export', argv: ['notes', 'export', 'doc-1', 'out.md'] },
+    // Every other command that talks to the backend. These used to throw
+    // `new Error("HTTP <status>")`, so a real envelope (the client's own 401
+    // SESSION_EXPIRED above all) was flattened to `{code: "ERROR"}` and the
+    // code an agent branches on depended on which subcommand it ran.
+    { name: 'docs list', argv: ['docs', 'list'] },
+    { name: 'docs create', argv: ['docs', 'create', 'T'] },
+    { name: 'docs get', argv: ['docs', 'get', 'doc-1'] },
+    { name: 'docs rename', argv: ['docs', 'rename', 'doc-1', 'T'] },
+    { name: 'docs delete', argv: ['docs', 'delete', 'doc-1'] },
+    { name: 'notes list', argv: ['notes', 'list'] },
+    { name: 'notes get', argv: ['notes', 'get', 'doc-1'] },
+    { name: 'slides list', argv: ['slides', 'list'] },
+    { name: 'slides get', argv: ['slides', 'get', 'doc-1'] },
+    { name: 'sheets cells get', argv: ['sheets', 'cells', 'get', 'doc-1', 'A1'] },
+    { name: 'sheets cells set', argv: ['sheets', 'cells', 'set', 'doc-1', 'A1', '1'] },
+    { name: 'sheets cells delete', argv: ['sheets', 'cells', 'delete', 'doc-1', 'A1'] },
+    { name: 'sheets tabs list', argv: ['sheets', 'tabs', 'list', 'doc-1'] },
+    { name: 'sheets tabs create', argv: ['sheets', 'tabs', 'create', 'doc-1', 'S2'] },
+    { name: 'sheets tabs rename', argv: ['sheets', 'tabs', 'rename', 'doc-1', 'tab-1', 'S2'] },
+    { name: 'sheets export', argv: ['sheets', 'export', 'doc-1', 'out.csv'] },
+    { name: 'files list', argv: ['files', 'list'] },
+    { name: 'files get', argv: ['files', 'get', 'doc-1'] },
+    { name: 'files rename', argv: ['files', 'rename', 'doc-1', 'T'] },
+    { name: 'files delete', argv: ['files', 'delete', 'doc-1'] },
+    { name: 'api-keys create', argv: ['api-keys', 'create', 'k'] },
+    { name: 'api-keys list', argv: ['api-keys', 'list'] },
+    { name: 'api-keys revoke', argv: ['api-keys', 'revoke', 'key-1'] },
   ];
 
   for (const { name, argv } of CASES) {

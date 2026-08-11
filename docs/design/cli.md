@@ -1036,6 +1036,8 @@ is the agent interface. This approach has key advantages:
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
 | Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
+| Backend error body *is* the envelope                | 1    | (forwarded verbatim) | (forwarded verbatim — e.g. SESSION_EXPIRED, TYPE_MISMATCH)        |
+| Backend error body is not the envelope              | 1    | HTTP_ERROR          | "HTTP <status>" (+ ": <upstream message>" when the body had one)   |
 | Backend 5xx or network                              | 2    | SYSTEM              | (original message preserved)                                       |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |

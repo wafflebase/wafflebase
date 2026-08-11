@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 
 export function registerTabsCommand(parent: Command) {
@@ -13,7 +17,7 @@ export function registerTabsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).listTabs(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -46,7 +50,7 @@ export function registerTabsCommand(parent: Command) {
       }
       try {
         const res = await getClient(opts).createTab(docId, body);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -72,7 +76,7 @@ export function registerTabsCommand(parent: Command) {
       }
       try {
         const res = await getClient(opts).renameTab(docId, tabId, name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);

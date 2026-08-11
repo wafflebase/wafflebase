@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 
 export function registerApiKeysCommand(program: Command) {
   const apiKey = program
@@ -15,7 +19,7 @@ export function registerApiKeysCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).createApiKey(name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -29,7 +33,7 @@ export function registerApiKeysCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).listApiKeys();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -43,7 +47,7 @@ export function registerApiKeysCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).revokeApiKey(keyId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);

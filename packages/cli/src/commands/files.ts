@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
@@ -83,7 +87,7 @@ export function registerFilesCommand(program: Command) {
           );
         }
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter((d) =>
@@ -103,7 +107,7 @@ export function registerFilesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -121,7 +125,7 @@ export function registerFilesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -139,7 +143,7 @@ export function registerFilesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);

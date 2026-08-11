@@ -77,7 +77,7 @@ export function registerDocsCommand(program: Command) {
       try {
         const filterType = parseType(typeStr);
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
         if (filterType && Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -104,7 +104,7 @@ export function registerDocsCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, type);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -118,7 +118,7 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -136,7 +136,7 @@ export function registerDocsCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -154,7 +154,7 @@ export function registerDocsCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);

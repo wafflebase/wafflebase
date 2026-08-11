@@ -42,7 +42,7 @@ export function registerSlidesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -69,7 +69,7 @@ export function registerSlidesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, 'slides');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -83,7 +83,7 @@ export function registerSlidesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -101,7 +101,7 @@ export function registerSlidesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);
@@ -119,7 +119,7 @@ export function registerSlidesCommand(program: Command) {
       }
       try {
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, opts.format);
       } catch (e) {
         outputError(e);

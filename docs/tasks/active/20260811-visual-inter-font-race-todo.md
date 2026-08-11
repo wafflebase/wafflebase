@@ -45,12 +45,32 @@ has three gaps:
 - [x] Await the weights the UI actually renders (400/500/600/700).
 - [x] Settle fonts *after* the root + section ready waits.
 - [x] Add a catch-all poll: no registered `FontFace` left in `status === "loading"`.
+- [x] Downgrade both settling waits from hard-fail to warn-and-shoot
+      (`settle()`), for the reason in Notes below.
 - [x] `pnpm verify:fast`.
 
 ## Notes
 
-The `check()` wait already hard-fails (10s timeout) if a family never becomes
-available, so pulling Inter into the same set keeps the existing risk posture:
-an unreachable `fonts.googleapis.com` now reports a clear timeout instead of an
-opaque pixel diff. Baselines are unchanged — the fix pins capture to the
-Inter-loaded state the baselines already record.
+**Risk posture — deliberately *not* hard-fail.** An earlier draft of this plan
+kept the `check()` wait's 10s timeout fatal, on the theory that a clear timeout
+beats an opaque pixel diff. That reasoning does not survive widening the set to
+the `index.html` families: those three come from `fonts.googleapis.com` on
+*every* harness page, so a fatal wait turns a third-party outage into a total
+harness failure across all ~200 captures — a much worse failure than the one
+being fixed. Both settling waits therefore go through `settle()`, which warns
+(naming the families that never settled) and shoots anyway. A genuinely
+unloaded font still surfaces as a baseline diff, now with a warning line in the
+log that says which family to blame. Anything that is not a timeout — a broken
+selector, a closed page — still throws, because that is a harness bug rather
+than a slow font.
+
+Baselines are unchanged — the fix pins capture to the Inter-loaded state the
+baselines already record.
+
+## Why this rides on the CLI branch
+
+This is unrelated to that branch's subject, and would normally be its own PR.
+It landed here because `verify-browser` is a required check on PR #770 and
+failed there on a race the branch does not touch (see Problem above): without
+the fix the CLI change cannot go green, and with it split out the two PRs
+would each be blocked on the other.

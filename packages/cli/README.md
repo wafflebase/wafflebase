@@ -116,8 +116,14 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Errors**: a single JSON line on stderr —
   `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
-  command-specific `code` agents can branch on; everything else
-  reports `"ERROR"`.
+  command-specific `code` agents can branch on. A failed request whose
+  body the backend did *not* send in that shape (an Express/Nest
+  `{message, error, statusCode}` 404/500, an HTML proxy page) reports
+  `"HTTP_ERROR"` with `"HTTP <status>"` — plus the upstream's own
+  wording when it had any, as `"HTTP 404: Document has no file"`. Every
+  command reports the same code for that condition, so the branch does
+  not depend on which subcommand ran. Local failures (bad input, a
+  filesystem error) still report `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error (network, auth).
 

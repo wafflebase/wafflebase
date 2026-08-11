@@ -303,7 +303,9 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
       error: { code: string; message: string };
     };
-    expect(body.error).toEqual({ code: 'ERROR', message: 'HTTP 500' });
+    // A failed request with no parseable body is an upstream failure, so it
+    // reports the same `HTTP_ERROR` every other command reports for it.
+    expect(body.error).toEqual({ code: 'HTTP_ERROR', message: 'HTTP 500' });
     expect(process.exitCode).toBe(1);
   });
 
