@@ -103,12 +103,32 @@ describe('applyLayoutProps', () => {
     const r = applyLayoutProps(SCENE, {
       anchor: anchorFor(SCENE, 'Alpha'),
       sets: [
-        { name: 'onClick', value: 'handlers.save', valueKind: 'expression' },
+        { name: 'label', value: 'labels.save', valueKind: 'expression' },
         { name: 'count', value: '3', valueKind: 'expression' },
       ],
     });
-    expect(r.text).toContain('onClick={handlers.save}');
+    expect(r.text).toContain('label={labels.save}');
     expect(r.text).toContain('count={3}');
+  });
+
+  it('REFUSES attributes whose meaning is unsafe, however well-shaped', () => {
+    // `handlers.save` is exactly the bare dotted reference the expression guard
+    // is designed to allow, so shape-checking alone accepted
+    // `onClick={handlers.save}` and `dangerouslySetInnerHTML={x.y}`. Shape is
+    // the wrong question for these names.
+    for (const [name, value, valueKind] of [
+      ['onClick', 'handlers.save', 'expression'],
+      ['onMouseOver', 'handlers.save', 'expression'],
+      ['dangerouslySetInnerHTML', 'x.y', 'expression'],
+      ['srcDoc', 'hello', 'string'],
+    ]) {
+      const r = applyLayoutProps(SCENE, {
+        anchor: anchorFor(SCENE, 'Alpha'),
+        sets: [{ name, value, valueKind }],
+      });
+      expect(r.located, `${name} was accepted`).toBe(false);
+      expect(r.text).toBe(SCENE);
+    }
   });
 
   it('rewrites class tokens on whole-token boundaries only', () => {
@@ -120,6 +140,47 @@ describe('applyLayoutProps', () => {
     });
     expect(r.located).toBe(true);
     expect(r.text).toContain('className="wrapper gap-2"');
+  });
+
+  it('strips EVERY occurrence of a repeated class, not just the first', () => {
+    // `rewriteClassLiteral`'s removal loop says it does this; nothing checked
+    // it, so a regression to a single pass would have been invisible.
+    const src = `function C() { return <div className="p-2 gap-1 p-2 mt-1 p-2"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { removals: ['p-2'] },
+    });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain('className="gap-1 mt-1"');
+  });
+
+  it('refuses a replacement whose `from` carries whitespace', () => {
+    // `from` is only ever a search pattern, so it looks harmless — but a
+    // whitespace-carrying one builds a matcher spanning two tokens and deletes
+    // a neighbour the caller never named.
+    const src = `function C() { return <div className="p-2 gap-1"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { replacements: [{ from: 'p-2 gap-1', to: 'x' }] },
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/rejected unsafe class tokens/);
+    expect(r.text).toBe(src);
+  });
+
+  it('applies the safe ops and reports the rest, rather than all-or-nothing', () => {
+    // Partial application is deliberate: one bad token in a batch should not
+    // discard the good ones. The REASON is what keeps that honest.
+    const src = `function C() { return <div className="p-2"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: ['gap-1', 'bad token', 'mt-1'], removals: ['absent'] },
+    });
+    expect(r.located).toBe(true);
+    expect(r.text).toContain('gap-1');
+    expect(r.text).toContain('mt-1');
+    expect(r.text).not.toContain('bad token');
+    expect(r.reason).toMatch(/rejected unsafe class tokens: bad token/);
   });
 
   it('creates a className attribute when the node has none', () => {
@@ -671,6 +732,124 @@ describe('hostile values are refused before they reach the file', () => {
     expect(r.text).toBe(src);
   });
 
+  it('refuses a ${…} token inside a TEMPLATE-literal className', () => {
+    // The alphabet depends on the delimiter, and `classLiteralOf` returns
+    // backtick literals too. `${alert(1)}` carries no quote, no backtick and no
+    // whitespace, so the double-quoted rule waved it through — and it turned the
+    // literal into a live TemplateExpression at zero parse errors.
+    const src = 'function C() { return <div className={`p-4 gap-2`}/>; }';
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: ['${alert(1)}'] },
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/rejected unsafe class tokens/);
+    expect(r.text).toBe(src);
+  });
+
+  it('still edits a template-literal className with ordinary classes', () => {
+    // The fix must not make backtick literals read-only.
+    const src = 'function C() { return <div className={`p-4`}/>; }';
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: ['[&>svg]:size-4'] },
+    });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain('`p-4 [&>svg]:size-4`');
+  });
+
+  it('allows `$` in a QUOTED literal, where it means nothing', () => {
+    // The rule is per-delimiter, not a blanket ban — pinned so it is not
+    // "simplified" into rejecting `$` everywhere.
+    const src = `function C() { return <div className="p-4"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: ['content-[$x]'] },
+    });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain('content-[$x]');
+  });
+
+  it('refuses a snippet that is not a single JSX element', () => {
+    // `intent.raw` was spliced with no validation at all. The middle case is the
+    // sharp one: it closes the JSX, runs a call at module scope and reopens the
+    // element, and the RESULT PARSES CLEANLY — so nothing downstream would have
+    // caught it either.
+    for (const [raw, why] of [
+      ['</div>); } evil(); function D(){ return (<div>', /not valid JSX/],
+      ['<A/><B/>', /single JSX element/],
+      ['evil()', /single JSX element/],
+    ]) {
+      const r = applyLayoutInsert(SCENE, { parent: anchorFor(SCENE, 'div'), index: 1, raw });
+      expect(r.located, `${raw} was accepted`).toBe(false);
+      expect(r.reason).toMatch(why);
+      expect(r.text).toBe(SCENE);
+    }
+  });
+
+  it('refuses a snippet carrying a disallowed attribute', () => {
+    // Otherwise the `sets` denylist is bypassed by inserting the handler
+    // instead of setting it.
+    for (const raw of ['<X onClick={fetch(`//evil`)}/>', '<X dangerouslySetInnerHTML={x.y}/>']) {
+      const r = applyLayoutInsert(SCENE, { parent: anchorFor(SCENE, 'div'), index: 1, raw });
+      expect(r.located, `${raw} was accepted`).toBe(false);
+      expect(r.reason).toMatch(/disallowed attribute/);
+      expect(r.text).toBe(SCENE);
+    }
+  });
+
+  it('still inserts ordinary snippets, including nested and fragment ones', () => {
+    for (const raw of ['<X/>', '<Row><Cell/></Row>', '<p>hello</p>', '<><A/><B/></>']) {
+      const r = applyLayoutInsert(SCENE, { parent: anchorFor(SCENE, 'div'), index: 1, raw });
+      expect(r.located, `${raw} was refused: ${r.reason}`).toBe(true);
+      expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+    }
+  });
+
+  it('every accepted insert leaves a parseable file, across shapes and positions', () => {
+    // The PROPERTY, asserted over the matrix rather than at one call. It holds
+    // today because the snippet is validated and the offset is derived, so this
+    // passes with or without the post-splice backstop — which is the honest
+    // status of that backstop: redundant by construction, retained because the
+    // offset half is what has actually shipped bugs.
+    const PARENTS = {
+      block: `function C() {\n  return (\n    <div>\n      <A/>\n      <B/>\n    </div>\n  );\n}\n`,
+      mixed: `function C() {\n  return (\n    <div>\n      <A/>\n      prose\n      {n}\n      <B/>\n    </div>\n  );\n}\n`,
+      oneLine: `function C() { return <div><A/><B/></div>; }`,
+      empty: `function C() { return <div></div>; }`,
+    };
+    let accepted = 0;
+    for (const src of Object.values(PARENTS)) {
+      const kids = src.match(/<[AB]\/>/g)?.length ?? 0;
+      for (let index = 0; index <= kids; index++) {
+        for (const raw of ['<X/>', '<Row><Cell/></Row>', '<><A/></>']) {
+          const r = applyLayoutInsert(src, { parent: anchorFor(src, 'div'), index, raw });
+          if (!r.located) continue;
+          accepted++;
+          expect(parse(r.text, 'x.tsx').parseDiagnostics ?? [], `${index} ${raw}`).toHaveLength(0);
+        }
+      }
+    }
+    expect(accepted).toBeGreaterThan(20); // the matrix is not vacuously empty
+  });
+
+  it('leaves `verbatim` replay unvalidated, so undo can restore anything', () => {
+    // A captured span came out of a parseable file and may legitimately contain
+    // whatever the consumer wrote — handlers included. Validating it would make
+    // undo refuse to restore the very thing it removed.
+    const src = `function C() {\n  return (\n    <div>\n      <A/>\n      <B onClick={h.save}/>\n    </div>\n  );\n}\n`;
+    const rm = applyLayoutRemove(src, { anchor: anchorFor(src, 'B') });
+    expect(rm.located, rm.reason).toBe(true);
+    const back = applyLayoutInsert(rm.text, {
+      parent: anchorFor(src, 'div'),
+      index: rm.removedIndex,
+      raw: rm.removedText,
+      verbatim: true,
+    });
+    expect(back.located, back.reason).toBe(true);
+    expect(back.text).toBe(src);
+  });
+
   it('refuses an all-whitespace snippet instead of reporting a successful insert', () => {
     const r = applyLayoutInsert(SCENE, { parent: anchorFor(SCENE, 'div'), index: 1, raw: '   ' });
     expect(r.located).toBe(false);
@@ -775,6 +954,45 @@ describe('insertImport', () => {
     const r = insertImport(src, { module: './m', named: ['A'] });
     expect(r.located).toBe(false);
     expect(r.reason).toBe('unsupported import form');
+    expect(r.text).toBe(src);
+  });
+
+  it('REFUSES to interpolate an unvalidated specifier', () => {
+    // Every part of this statement is concatenated into source. Unvalidated, a
+    // module specifier closed its own quote and appended a whole statement that
+    // the dev server then ran; a named specifier did the same by closing the
+    // brace. `isIdent` and the module rule are why the template is safe.
+    const src = `const x = 1;\n`;
+    for (const spec of [
+      { module: "./m'; evil(); import './n", named: ['A'] },
+      { module: './m', named: ['A } from "./z"; evil(); import { B'] },
+      { module: './m', default: 'A; evil()' },
+      { module: './m\nimport "./z"', named: ['A'] },
+    ]) {
+      const r = insertImport(src, spec);
+      expect(r.located, `${JSON.stringify(spec)} was accepted`).toBe(false);
+      expect(r.reason).toMatch(/invalid (module specifier|import specifier|default binding)/);
+      expect(r.text).toBe(src);
+    }
+  });
+
+  it('accepts the module shapes real code uses', () => {
+    // The module rule constrains what would ESCAPE the quotes, not a grammar —
+    // scopes, deep relative paths and extensions all have to keep working.
+    for (const module of ['@scope/pkg', '../../a/b.css', './m.js', 'react-dom/client']) {
+      const r = insertImport(`const x = 1;\n`, { module, named: ['A'] });
+      expect(r.located, `${module} was refused: ${r.reason}`).toBe(true);
+      expect(r.text).toContain(`from '${module}'`);
+    }
+  });
+
+  it('refuses to add a value binding to a type-only import', () => {
+    // `import type { Foo, bar }` typechecks and leaves `bar` undefined at run
+    // time — worse than a missing import, because nothing complains.
+    const src = `import type { Foo } from './m';\n`;
+    const r = insertImport(src, { module: './m', named: ['bar'] });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/type-only import/);
     expect(r.text).toBe(src);
   });
 

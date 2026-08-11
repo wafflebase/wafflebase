@@ -76,6 +76,29 @@ function spliceSpan(text, start, end, replacement) {
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * A bare JS identifier — the only shape safe to concatenate into a binding
+ * position (an import specifier, a default binding).
+ *
+ * @param {string} s
+ */
+const isIdent = (s) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(s);
+
+/**
+ * Does this source text parse cleanly?
+ *
+ * `parseDiagnostics` is internal to the compiler's `SourceFile`, so it is read
+ * through a cast rather than the public type. There is no public API that
+ * reports syntax errors for a file parsed without a `Program`, and building one
+ * would mean a filesystem-backed compilation for what is a local question.
+ *
+ * @param {ts.SourceFile} sf
+ */
+const parsesCleanly = (sf) =>
+  (/** @type {{parseDiagnostics?: readonly unknown[]}} */ (/** @type {unknown} */ (sf))
+    .parseDiagnostics ?? []
+  ).length === 0;
+
+/**
  * Token-boundary matcher: whitespace or the literal's own quote on both sides.
  *
  * The lookbehind/lookahead is what keeps `bg-primary` from matching inside
@@ -89,15 +112,25 @@ const tokenRe = (token, flags = '') =>
   new RegExp(`(?<=[\\s"'\`])${escapeRe(token)}(?=[\\s"'\`])`, flags);
 
 /**
- * Is `token` safe to splice into a quoted `className` literal?
+ * Is `token` safe to splice into a class literal delimited by `quote`?
  *
- * The alphabet comes from the SPLICE CONTEXT, not from what Tailwind happens to
- * emit. Inside `className="…"` every character is literal — checked against the
- * parser rather than assumed: `className="a{b}c"` parses with zero errors as a
- * StringLiteral whose `.text` is `a{b}c`, and `<`, `>`, `{`, `}` are all inert
- * there. The ONLY character that escapes the quoted context is the quote.
+ * The alphabet comes from the SPLICE CONTEXT, and the context is **not one
+ * context**. `classLiteralOf` returns a `StringLiteral` OR a
+ * `NoSubstitutionTemplateLiteral`, and those two have different escapes:
  *
- * So this rejects exactly what can do harm, and nothing else:
+ *   - `"…"` / `'…'` — every other character is inert. Checked against the
+ *     parser rather than assumed: `className="a{b}c"` parses with zero errors
+ *     as a StringLiteral whose `.text` is `a{b}c`. Only the quote escapes.
+ *   - `` `…` `` — `${` opens a SUBSTITUTION. A token of `${alert(1)}` turns the
+ *     literal into a live `TemplateExpression` at zero parse errors, which the
+ *     dev server then executes.
+ *
+ * An earlier version of this took the alphabet from the double-quoted case and
+ * applied it everywhere, which left the template-literal path wide open. Hence
+ * `quote`: it is required, not optional, so a caller cannot reintroduce the
+ * same hole by forgetting which delimiter it is splicing into.
+ *
+ * Always rejected:
  *
  *   - `"` — closes the literal. `x" onMouseOver={fetch(...)} y="` then parses as
  *     a REAL event handler (verified: 0 parse errors, `kind=JsxExpression`).
@@ -111,15 +144,25 @@ const tokenRe = (token, flags = '') =>
  *   - `\` — never legitimate here, and the escape lead-in for anything that
  *     re-quotes this text downstream.
  *
+ * Rejected only inside a template literal:
+ *
+ *   - `$` — the substitution lead-in. Rejecting the whole character rather than
+ *     the `${` pair costs nothing real (no Tailwind class contains `$`) and
+ *     leaves no adjacency to reason about.
+ *
  * Everything else is ALLOWED, deliberately. `[&>svg]:size-4`,
  * `[&:not(:first-child)]:border-t` and `[&::-webkit-scrollbar]:hidden` are real
  * classes in this repo. A rule that also rejected `<`, `>` or braces would be
  * safe and useless: it would block the commonest shadcn utilities while leaving
- * the actual hole — the quote — open.
+ * the actual holes — the quote and the substitution — open.
  *
  * @param {string} token
+ * @param {string} quote  The literal's delimiter: `"`, `'` or a backtick.
  */
-const isSafeClassToken = (token) => token.length > 0 && !/["'`\\\s]/.test(token);
+const isSafeClassToken = (token, quote) =>
+  token.length > 0 &&
+  !/["'`\\\s]/.test(token) &&
+  !(quote === '`' && token.includes('$'));
 
 /**
  * Delete one class token from a quoted class literal, collapsing exactly one
@@ -188,9 +231,13 @@ function rewriteClassLiteral(original, { replacements = [], additions = [], remo
   const missing = [];
   /** @type {string[]} */
   const rejected = [];
+  // The delimiter decides the alphabet, and it is read from the literal being
+  // spliced rather than assumed — `classLiteralOf` returns backtick literals too,
+  // where `${` opens a substitution.
+  const quote = original[0];
   /** Record and refuse an unsafe token. @param {string} t */
   const safe = (t) => {
-    if (isSafeClassToken(t)) return true;
+    if (isSafeClassToken(t, quote)) return true;
     rejected.push(t);
     return false;
   };
@@ -418,6 +465,28 @@ function childSpliceOffset(sf, parent, scope, index) {
 }
 
 /**
+ * Attributes a design tool has no business writing, whatever their value.
+ *
+ * `renderAttribute` validated the SHAPE of a name and the shape of a value, and
+ * both `dangerouslySetInnerHTML={x.y}` and `onClick={h.save}` satisfy every
+ * shape rule it had — a bare dotted reference is exactly what the expression
+ * guard is designed to allow. Shape is the wrong question for these names:
+ *
+ *   - `on*` — a handler is behaviour, not design, and the reference it names is
+ *     resolved in the consumer's scope at run time.
+ *   - `dangerouslySetInnerHTML` — React's own explicit escape from escaping.
+ *   - `srcDoc` — a whole document inlined into an iframe, script tags included.
+ *
+ * This is a denylist and therefore not a security boundary on its own; it is the
+ * layer that stops the obvious cases from being reachable through an ordinary
+ * intent. The boundary is that values are validated at all.
+ *
+ * @param {string} name
+ */
+const isDangerousAttribute = (name) =>
+  /^on[A-Z]/.test(name) || name === 'dangerouslySetInnerHTML' || name === 'srcDoc';
+
+/**
  * The `JsxAttribute` node named `name`, or null.
  *
  * @param {ts.Node} node
@@ -466,6 +535,7 @@ function tagNameOf(node) {
  */
 function renderAttribute(name, value, valueKind) {
   if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return null;
+  if (isDangerousAttribute(name)) return null;
   if (valueKind === 'expression') {
     const ok =
       /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(value) ||
@@ -541,9 +611,11 @@ export function applyLayoutProps(fileText, intent) {
       // splice `renderAttribute` exists to perform safely, and it accepted a
       // token carrying a quote — writing a live `onLoad={…}` handler onto the
       // element. One renderer means the escaping rule cannot differ by path.
+      // A fresh attribute is always written double-quoted by `renderAttribute`,
+      // so that is the alphabet to check against.
       const requested = intent.classOps.additions ?? [];
-      const additions = requested.filter(isSafeClassToken);
-      const unsafe = requested.filter((t) => !isSafeClassToken(t));
+      const additions = requested.filter((t) => isSafeClassToken(t, '"'));
+      const unsafe = requested.filter((t) => !isSafeClassToken(t, '"'));
       if (unsafe.length) notes.push(`rejected unsafe class tokens: ${unsafe.join(', ')}`);
       const tagName = tagNameOf(node);
       if (additions.length && tagName) {
@@ -760,6 +832,8 @@ export function applyLayoutInsert(fileText, intent) {
     if (!intent.raw.trim()) {
       return { located: false, text: fileText, reason: 'snippet is empty' };
     }
+    const bad = snippetRejection(intent.raw);
+    if (bad) return { located: false, text: fileText, reason: bad };
     const lines = intent.raw.replace(/\s+$/, '').split(/\r?\n/);
     const base = Math.min(
       ...lines.filter((l) => l.trim()).map((l) => /^[ \t]*/.exec(l)?.[0].length ?? 0),
@@ -767,8 +841,86 @@ export function applyLayoutInsert(fileText, intent) {
     snippet = nl + lines.map((l) => (l.trim() ? indent + l.slice(base) : '')).join(nl);
   }
 
+  const out = spliceSpan(fileText, offset, offset, snippet);
+  // Backstop on the OFFSET, not on the snippet. `snippetRejection` has already
+  // proved the snippet is one well-formed JSX element, so given a correct
+  // insertion point the result parses by construction — and no test here
+  // reaches this branch, which is stated plainly rather than implied: removing
+  // it breaks nothing in the suite.
+  //
+  // It is kept because the insertion point is the part that has actually been
+  // wrong. `childSpliceOffset` shipped two defects (a span that swallowed
+  // sibling text, a position that silently collapsed onto the next index), and
+  // a bad offset with a valid snippet is exactly the combination every other
+  // guard here waves through. One parse per explicit insert is a fair price for
+  // never writing an unparseable file into someone's working tree.
+  //
+  // `verbatim` is exempt: its bytes came out of a parseable file at this very
+  // offset, so re-parsing would only re-derive that.
+  if (!intent.verbatim && !parsesCleanly(parse(out, 'check.tsx'))) {
+    return { located: false, text: fileText, reason: 'insert would not parse' };
+  }
   const why = r.relocated ? `relocated to path ${r.entry.path.join('.')}` : undefined;
-  return { located: true, text: spliceSpan(fileText, offset, offset, snippet), reason: why };
+  return { located: true, text: out, reason: why };
+}
+
+/**
+ * Why a fresh snippet may not be spliced, or null if it may.
+ *
+ * `intent.raw` went in with NO validation at all, which made
+ * `applyLayoutInsert` the widest hole in the module: a raw of
+ * `</div>); } evil(); function D(){ return (<div>` closed the enclosing JSX,
+ * ran a call at module scope, and reopened the element — producing a file that
+ * PARSES CLEANLY, so no downstream check would have caught it either.
+ *
+ * Three questions, cheapest first:
+ *
+ *   1. Does it parse standalone, as exactly one JSX element or fragment? That
+ *      is what "insert a node" means, and it rejects the structural escape
+ *      above (which parses as several statements, not one element).
+ *   2. Does the subtree carry an attribute we refuse to write anywhere else?
+ *      Otherwise the denylist `renderAttribute` enforces is trivially bypassed
+ *      by inserting the handler instead of setting it.
+ *   3. (At the call site) does the SPLICED FILE still parse? That is the
+ *      generic backstop — it does not depend on enumerating escapes correctly.
+ *
+ * `verbatim` is exempt, and must stay exempt: it replays bytes that were
+ * already in the file, so validating it would make undo refuse to restore
+ * anything the consumer had legitimately written.
+ *
+ * @param {string} raw
+ * @returns {string | null}
+ */
+function snippetRejection(raw) {
+  const wrapper = parse(`<>${raw}</>`, 'snippet.tsx');
+  if (!parsesCleanly(wrapper)) return 'snippet is not valid JSX';
+
+  const stmt = wrapper.statements[0];
+  if (wrapper.statements.length !== 1 || !stmt || !ts.isExpressionStatement(stmt)) {
+    return 'snippet must be a single JSX element';
+  }
+  const frag = stmt.expression;
+  if (!ts.isJsxFragment(frag)) return 'snippet must be a single JSX element';
+  const kids = frag.children.filter((c) => !ts.isJsxText(c) || c.text.trim());
+  if (kids.length !== 1) return 'snippet must be a single JSX element';
+  const only = kids[0];
+  if (!ts.isJsxElement(only) && !ts.isJsxSelfClosingElement(only) && !ts.isJsxFragment(only)) {
+    return 'snippet must be a single JSX element';
+  }
+
+  /** @type {string | null} */
+  let offending = null;
+  /** @param {ts.Node} n */
+  const walk = (n) => {
+    if (offending) return;
+    if (ts.isJsxAttribute(n) && isDangerousAttribute(n.name.getText())) {
+      offending = n.name.getText();
+      return;
+    }
+    n.forEachChild(walk);
+  };
+  walk(frag);
+  return offending ? `snippet sets a disallowed attribute: ${offending}` : null;
 }
 
 /**
@@ -884,6 +1036,27 @@ function nodeAtPath(root, path, scope) {
 export function insertImport(fileText, spec) {
   const sf = parse(fileText);
   const wantNamed = spec.named ?? [];
+
+  // EVERY part of this statement is interpolated into source, so every part is
+  // validated first. Unvalidated, a module of `./m'; evil(); import './n` wrote
+  // `import { A } from './m'; evil(); import './n';` — a whole extra statement,
+  // executed on the next reload — and a named specifier could do the same by
+  // closing the brace. `isIdent` and the module rule below are the only reason
+  // the template below is safe to build by concatenation.
+  for (const n of wantNamed) {
+    if (!isIdent(n)) {
+      return { located: false, text: fileText, reason: `invalid import specifier: ${n}` };
+    }
+  }
+  if (spec.default !== undefined && !isIdent(spec.default)) {
+    return { located: false, text: fileText, reason: `invalid default binding: ${spec.default}` };
+  }
+  // A module specifier is freer than an identifier (slashes, dots, scopes), so
+  // it is constrained by what would ESCAPE the quotes rather than by a grammar.
+  if (typeof spec.module !== 'string' || !spec.module || /["'`\\\r\n]/.test(spec.module)) {
+    return { located: false, text: fileText, reason: `invalid module specifier: ${spec.module}` };
+  }
+
   /** @type {ts.ImportDeclaration | null} */
   let target = null;
   for (const st of sf.statements) {
@@ -900,6 +1073,17 @@ export function insertImport(fileText, spec) {
   if (target) {
     const clause = target.importClause;
     const nb = clause?.namedBindings;
+    // `import type { Foo } from './m'` is a TYPE-ONLY statement: everything it
+    // brings in is erased at compile time. Merging a value binding into it
+    // produced `import type { Foo, bar }`, where `bar` is undefined at run time
+    // — worse than a missing import, because it typechecks.
+    if (clause?.isTypeOnly) {
+      return {
+        located: false,
+        text: fileText,
+        reason: 'refusing to add a value binding to a type-only import',
+      };
+    }
     // The two bindings are decided INDEPENDENTLY and spliced together. Treating
     // "an import for this module exists" as "already imported" answered
     // `located: false, 'already imported'` to a request for a default binding

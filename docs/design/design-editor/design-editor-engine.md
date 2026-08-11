@@ -971,27 +971,50 @@ a model. So an unvalidated splice is **code execution**, not cosmetic corruption
 `renderAttribute` and `applyTokenValue`'s `valueKind` already refuse on that
 basis; the class and text paths did not, and were closed the same way.
 
-The rule that matters is that **the two splice contexts have different safe
-alphabets**, derived from the parser rather than from taste:
+The rule that matters is that **each splice context has its own safe alphabet**,
+derived from the parser rather than from taste. There are three, not two — an
+earlier revision of this section listed two and was wrong in a way that left a
+live hole for a release:
 
 | Context | Verified behaviour | Rule |
 | --- | --- | --- |
-| Inside `className="…"` | `className="a{b}c"` parses with 0 errors as a StringLiteral whose `.text` is `a{b}c`. `<`, `>`, `{`, `}` are inert. Only `"` escapes the literal. | Reject whitespace, `"`, `'`, `` ` ``, `\` — nothing else |
+| Inside `className="…"` / `'…'` | `className="a{b}c"` parses with 0 errors as a StringLiteral whose `.text` is `a{b}c`. `<`, `>`, `{`, `}` are inert. Only the quote escapes. | Reject whitespace, `"`, `'`, `` ` ``, `\` |
+| Inside ``className={`…`}`` | `classLiteralOf` returns `NoSubstitutionTemplateLiteral` too. `${alert(1)}` carries no quote and no whitespace, so the quoted rule admits it — and it turns the literal into a live `TemplateExpression` at **0 parse errors** | The above, **plus `$`** |
 | Inside JSXText | `{e()}` → `JsxExpression` and `<F/>` → `JsxElement`, both executable at 0 errors; a bare `>` or `}` is a **parse error** | Reject `{`, `}`, `<`, `>` |
 
-Applying the text rule to class tokens looks safer and is strictly worse: it
-rejects `[&>svg]:size-4`, `[&:not(:first-child)]:border-t` and
+The template-literal row is the lesson. The alphabet was derived correctly for
+the double-quoted case and then applied to a delimiter that has an extra escape,
+so `isSafeClassToken` now takes the delimiter as a **required** parameter read
+from the literal being spliced (`original[0]`) — a caller cannot reintroduce the
+hole by forgetting which context it is in.
+
+Tightening in the other direction is equally wrong: applying the JSXText rule to
+class tokens rejects `[&>svg]:size-4`, `[&:not(:first-child)]:border-t` and
 `[&::-webkit-scrollbar]:hidden` — real classes in this repo — while leaving the
-quote, the only character that actually escapes, untouched. `isSafeClassToken`
-is therefore deliberately permissive about `<`, `>` and braces, and
-`test/server/inject.test.mjs` asserts a list of real Tailwind shapes are
-**accepted** so a later well-meaning tightening fails loudly instead of quietly
-disabling the editor's commonest operation.
+quote untouched. `isSafeClassToken` is therefore deliberately permissive about
+`<`, `>` and braces, and `test/server/inject.test.mjs` asserts both directions:
+a list of real Tailwind shapes must be **accepted**, and `$` must stay legal in
+a quoted literal where it means nothing.
 
 Validation lives in `rewriteClassLiteral`, the chokepoint both halves share, so
 the layout path and the CVA path cannot diverge — and the "create a fresh
 `className`" branch renders through `renderAttribute` rather than interpolating
 a template, for the same reason: one renderer means one escaping rule.
+
+**Names are validated by meaning, not only by shape.** `renderAttribute` proved
+an attribute name was well-formed and a value was a bare dotted reference, which
+is exactly what `dangerouslySetInnerHTML={x.y}` and `onClick={handlers.save}`
+are. `isDangerousAttribute` refuses `on*`, `dangerouslySetInnerHTML` and
+`srcDoc` on both the attribute path and inside inserted subtrees — otherwise the
+denylist is bypassed by inserting the handler instead of setting it.
+
+**Whole statements are validated too.** `insertImport` concatenates its module
+specifier and bindings into source, so bindings go through `isIdent` and the
+module specifier is rejected if it contains anything that would escape its
+quotes. Unvalidated, a module of `./m'; evil(); import './n` wrote an extra
+executable statement. `applyLayoutInsert` parses a fresh snippet standalone and
+requires exactly one JSX element — `verbatim` replay is exempt, and must stay
+exempt, because it restores bytes that were already in the consumer's file.
 
 ---
 
