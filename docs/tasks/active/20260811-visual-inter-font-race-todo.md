@@ -69,11 +69,8 @@ the same code from the other side. Both point at one bad assumption:
 
 ### Plan
 
-- [x] Derive the awaited set from `document.fonts` itself — every registered
-      face, at the weights it declares — so it cannot drift from
-      `index.html`, `FONT_CATALOG`'s eager set or a lazily injected link.
 - [x] Pair `check()` with a per-family "at least one face reached `loaded`"
-      assertion, which is what makes an unreachable CDN fail rather than pass.
+      assertion.
 - [x] Poll in-page with a deadline (re-reading the registry each tick) so a
       timeout yields the missing families by name, not a `TimeoutError`.
 - [x] Bound `document.fonts.ready` with that same deadline.
@@ -83,6 +80,46 @@ the same code from the other side. Both point at one bad assumption:
 - [x] Record the failure and keep capturing; fail the run at the end, after
       the artifacts are written, and refuse `visual:update` outright.
 - [x] `pnpm verify:fast` + the Docker browser lane.
+
+## Follow-up 2: a registry-derived wait is both too wide and still vacuous
+
+Deriving the awaited set from `document.fonts` fixed the drift problem but
+reintroduced the vacuity one level up, and widened the gate far past the
+families a capture paints:
+
+- **Vacuous when the stylesheet itself fails.** `pending()` iterated only
+  families *already registered*. A blocked/failed `css2` request registers no
+  @font-face rules at all, so the registry is empty, nothing is pending, the
+  pass is declared settled, and `visual:update` happily records fallback
+  glyphs — the exact failure the follow-up claimed to close. There was also
+  no floor left asserting that Inter/Fraunces/JetBrains Mono — the families
+  the baselines were recorded against — were present at all.
+- **Too wide.** `src/index.css` imports `katex.min.css` on every route, so
+  ~16 same-origin KaTeX families (several italic-only, which never match a
+  `normal` `fonts.load()` and so can never reach `loaded`) became hard gates
+  that a `fonts.googleapis.com` refetch could not recover and the operator
+  message could not explain. The 8 eager catalog families did the same on
+  every one of the ~25 passes, for glyphs no screenshot paints.
+- **The cache-buster was unverified.** `wbVisualRetry=<n>` was appended to
+  the `css2` URL on the assumption the endpoint ignores unknown params; an
+  error payload there drops every registered face and — with the vacuity
+  above — converts a failure into a silent pass.
+
+### Plan
+
+- [x] Gate on an explicit floor (`REQUIRED_WEB_FONTS`) mirroring
+      `index.html`'s css2 query, asserted positively: registered at all →
+      one face `loaded` → `check()` at every declared weight.
+- [x] Demote everything else to a non-gating, shorter (3s) wait for quiet
+      (no face in `status: "loading"`) that warns instead of failing.
+- [x] Force-load only the floor, so italic-only/unpainted faces are never
+      awaited.
+- [x] Guarantee the poll evaluates at least once, however much budget
+      `fonts.ready` consumed.
+- [x] Refetch by re-inserting the `<link>` elements instead of mutating
+      their `href`, so no query param can invalidate the css2 request; fail
+      fast when there is no stylesheet to refetch.
+- [x] `pnpm verify:fast`.
 
 ## Known limitations
 
