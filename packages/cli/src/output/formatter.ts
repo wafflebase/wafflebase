@@ -84,6 +84,67 @@ function isErrorEnvelope(
   );
 }
 
+/** Longest upstream text kept in `message`; enough for a Nest validation
+ * list, short enough that an HTML page or a stack trace cannot flood the
+ * agent's stderr. */
+const MAX_UPSTREAM_MESSAGE = 500;
+
+/**
+ * The human-readable part of a non-envelope upstream body, or `null` when
+ * there is nothing worth quoting.
+ *
+ * The backend has no global exception filter, so almost every failure
+ * arrives as Nest's default body — `{message, error: "Not Found",
+ * statusCode}` — where `message` is the only text that says *what* went
+ * wrong ("Document has no file", "Invalid block at blocks[2]: 'id' must be
+ * a non-empty string"). `class-validator` makes that field an array of
+ * strings. Dropping it and reporting a bare `HTTP 400` leaves the caller
+ * with nothing to act on, so it is preserved here.
+ */
+function upstreamDetail(body: unknown): string | null {
+  const raw =
+    typeof body === 'string'
+      ? body
+      : (body as { message?: unknown } | null | undefined)?.message;
+  const text = Array.isArray(raw)
+    ? raw.filter((part) => typeof part === 'string').join('; ')
+    : typeof raw === 'string'
+      ? raw
+      : '';
+  const trimmed = text.trim();
+  // An HTML error page (proxy 502, dev-server index) is a document, not a
+  // message; quoting its first 500 characters helps nobody.
+  if (!trimmed || trimmed.startsWith('<')) return null;
+  return trimmed.length > MAX_UPSTREAM_MESSAGE
+    ? `${trimmed.slice(0, MAX_UPSTREAM_MESSAGE)}…`
+    : trimmed;
+}
+
+/** `HTTP <status>`, plus the upstream's own wording when it had any. */
+function upstreamMessage(res: { status: number; data?: unknown }): string {
+  const detail = upstreamDetail(res.data);
+  return detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`;
+}
+
+/**
+ * A failed upstream response whose body was not the documented envelope.
+ *
+ * Carries `code` so `outputError` reports the same `HTTP_ERROR` that
+ * `upstreamErrorJson` writes: the two paths describe the identical
+ * condition, so an agent must not have to branch on which command it ran
+ * to know what the code will be.
+ */
+export class UpstreamHttpError extends Error {
+  readonly code = 'HTTP_ERROR';
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'UpstreamHttpError';
+  }
+}
+
 /**
  * Handle a failed upstream response for the commands that want to pass a
  * backend-shaped error through untouched (e.g. `TYPE_MISMATCH`), so agents
@@ -91,11 +152,12 @@ function isErrorEnvelope(
  *
  * Only a body that *is* the documented envelope is forwarded verbatim.
  * Anything else — a framework 404/500 body where `error` is a string, an
- * HTML page that failed to parse to `null`, a bare string — throws
- * `HTTP <status>`, which the caller's `catch` routes through
- * `outputError` and back into the documented shape. Forwarding those
- * verbatim produced valid JSON with `error.code` and `error.message` both
- * `undefined`, which gives a consumer no signal that the shape is wrong.
+ * HTML page that failed to parse to `null`, a bare string — throws an
+ * `UpstreamHttpError`, which the caller's `catch` routes through
+ * `outputError` and back into the documented shape, keeping the upstream's
+ * own `message` text. Forwarding those verbatim produced valid JSON with
+ * `error.code` and `error.message` both `undefined`, which gives a consumer
+ * no signal that the shape is wrong.
  */
 export function forwardUpstreamError(res: {
   status: number;
@@ -106,7 +168,7 @@ export function forwardUpstreamError(res: {
     process.exitCode = 1;
     return;
   }
-  throw new Error(`HTTP ${res.status}`);
+  throw new UpstreamHttpError(upstreamMessage(res), res.status);
 }
 
 /**
@@ -114,11 +176,12 @@ export function forwardUpstreamError(res: {
  * download paths, which report through their own injected `io.stderr` and an
  * exit code instead of throwing into `outputError`.
  *
- * Same rule as `forwardUpstreamError` — only a body that *is* the documented
- * envelope is forwarded verbatim. Anything else becomes the `HTTP_ERROR`
- * envelope those commands' skill files already promise
- * (`packages/cli/skills/docs-import-docx.md`), instead of a framework
- * 404/500 body whose `error.code` reads `undefined`.
+ * Same rule as `forwardUpstreamError`, and the same output for the same
+ * input — only a body that *is* the documented envelope is forwarded
+ * verbatim; anything else becomes the `HTTP_ERROR` envelope those commands'
+ * skill files already promise (`packages/cli/skills/docs-import-docx.md`),
+ * carrying the upstream's own message rather than a framework 404/500 body
+ * whose `error.code` reads `undefined`.
  */
 export function upstreamErrorJson(res: {
   status: number;
@@ -126,7 +189,7 @@ export function upstreamErrorJson(res: {
 }): string {
   if (isErrorEnvelope(res.data)) return JSON.stringify(res.data, null, 2);
   return JSON.stringify(
-    { error: { code: 'HTTP_ERROR', message: `HTTP ${res.status}` } },
+    { error: { code: 'HTTP_ERROR', message: upstreamMessage(res) } },
     null,
     2,
   );

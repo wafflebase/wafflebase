@@ -337,6 +337,10 @@ async function readBaseline(target, profile) {
 //      This covers families nobody thought to list here — the enumerated
 //      set below is a floor, not the whole truth.
 //
+// Steps 3 and 4 are best-effort (see `settle`): they wait, but a timeout
+// warns rather than failing the capture, so the harness never hard-depends
+// on fonts.googleapis.com being reachable.
+//
 // The list must include the families the *app itself* pulls from
 // fonts.googleapis.com in index.html, not just the ones a component
 // injects lazily. Those arrive over the network too, so `fonts.ready` alone
@@ -381,21 +385,62 @@ async function waitForFontsReady(page) {
   await page.evaluate(loadPass, spec);
   await page.waitForLoadState("networkidle");
   await page.evaluate(loadPass, spec);
-  await page.waitForFunction(
-    ({ families, weights }) =>
-      families.every((family) =>
-        weights.every((weight) =>
-          document.fonts.check(`${weight} 12px "${family}"`),
+  // Best-effort, never fatal. Inter/Fraunces/JetBrains Mono come from
+  // fonts.googleapis.com on *every* harness page, so making the capture
+  // itself depend on that host answering within the timeout would turn a
+  // third-party outage into a total harness failure across all ~200
+  // captures. On timeout we warn (naming what never settled) and shoot
+  // anyway: a genuinely unloaded font still shows up as a baseline diff,
+  // which is a far more legible signal than an aborted run.
+  await settle(
+    page.waitForFunction(
+      ({ families, weights }) =>
+        families.every((family) =>
+          weights.every((weight) =>
+            document.fonts.check(`${weight} 12px "${family}"`),
+          ),
         ),
-      ),
-    spec,
-    { timeout: 10000 },
+      spec,
+      { timeout: 10000 },
+    ),
+    async () => {
+      const pending = await page
+        .evaluate(
+          ({ families, weights }) =>
+            families.filter((family) =>
+              weights.some(
+                (weight) => !document.fonts.check(`${weight} 12px "${family}"`),
+              ),
+            ),
+          spec,
+        )
+        .catch(() => []);
+      return `families not ready: ${pending.join(", ") || "unknown"}`;
+    },
   );
-  await page.waitForFunction(
-    () => [...document.fonts].every((face) => face.status !== "loading"),
-    undefined,
-    { timeout: 10000 },
+  await settle(
+    page.waitForFunction(
+      () => [...document.fonts].every((face) => face.status !== "loading"),
+      undefined,
+      { timeout: 10000 },
+    ),
+    async () => "some registered faces are still loading",
   );
+}
+
+/**
+ * Await a font-settling wait, downgrading its timeout to a warning. Anything
+ * that is not a timeout still throws — a broken selector or a closed page is
+ * a harness bug, not a slow font.
+ */
+async function settle(pending, describe) {
+  try {
+    await pending;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/Timeout .* exceeded|timeout/i.test(message)) throw error;
+    console.warn(`[visual] fonts did not settle — ${await describe()}`);
+  }
 }
 
 // Captures one page load — either the full assembled page (`section` is

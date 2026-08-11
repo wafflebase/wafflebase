@@ -4,6 +4,7 @@ import { DEFAULT_BLOCK_STYLE, DocxExporter, type Document } from '@wafflebase/do
 import { ImportReport, type SlidesDocument } from '@wafflebase/slides/node';
 import {
   forwardUpstreamError,
+  outputError,
   upstreamErrorJson,
 } from '../src/output/formatter.js';
 import { createProgram } from '../src/commands/root.js';
@@ -71,6 +72,40 @@ describe('forwardUpstreamError', () => {
     );
     expect(stderrSpy).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(0);
+  });
+
+  // The backend has no global exception filter, so a stock Nest exception
+  // body is what nearly every real failure looks like. Its `message` is the
+  // only text saying what went wrong; rejecting the shape must not discard it.
+  it("keeps the framework body's own message", () => {
+    expect(() =>
+      forwardUpstreamError({
+        status: 404,
+        data: { message: 'Document has no file', error: 'Not Found', statusCode: 404 },
+      }),
+    ).toThrow('HTTP 404: Document has no file');
+  });
+
+  it('joins a class-validator message array', () => {
+    expect(() =>
+      forwardUpstreamError({
+        status: 400,
+        data: { message: ['name must be a string', 'name should not be empty'] },
+      }),
+    ).toThrow('HTTP 400: name must be a string; name should not be empty');
+  });
+
+  it('reports the same code as `upstreamErrorJson` for the same body', () => {
+    let thrown: unknown;
+    try {
+      forwardUpstreamError({ status: 404, data: EXPRESS_404 });
+    } catch (error) {
+      thrown = error;
+    }
+    outputError(thrown);
+    expect(JSON.parse(String(stderrSpy.mock.calls[0]?.[0]))).toEqual(
+      JSON.parse(upstreamErrorJson({ status: 404, data: EXPRESS_404 })),
+    );
   });
 
   it('rejects an `error` object without a string `code`', () => {
@@ -180,7 +215,10 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     it(`\`${name}\` reports an Express 404 body as the documented envelope`, async () => {
       stubFetch(404, EXPRESS_404);
       await run(...argv);
-      expect(emitted().error).toEqual({ code: 'ERROR', message: 'HTTP 404' });
+      expect(emitted().error).toEqual({
+        code: 'HTTP_ERROR',
+        message: `HTTP 404: ${EXPRESS_404.message}`,
+      });
       expect(process.exitCode).toBe(1);
     });
 
@@ -202,8 +240,24 @@ describe('upstreamErrorJson', () => {
 
   it('replaces a framework body with the documented HTTP_ERROR envelope', () => {
     expect(JSON.parse(upstreamErrorJson({ status: 404, data: EXPRESS_404 }))).toEqual({
-      error: { code: 'HTTP_ERROR', message: 'HTTP 404' },
+      error: { code: 'HTTP_ERROR', message: `HTTP 404: ${EXPRESS_404.message}` },
     });
+  });
+
+  it("keeps the framework body's own message", () => {
+    expect(
+      JSON.parse(
+        upstreamErrorJson({ status: 403, data: { message: 'Forbidden resource' } }),
+      ),
+    ).toEqual({
+      error: { code: 'HTTP_ERROR', message: 'HTTP 403: Forbidden resource' },
+    });
+  });
+
+  it('does not quote an HTML error page as a message', () => {
+    expect(
+      JSON.parse(upstreamErrorJson({ status: 502, data: '<html>bad gateway</html>' })),
+    ).toEqual({ error: { code: 'HTTP_ERROR', message: 'HTTP 502' } });
   });
 
   it('carries the status for a missing or unparseable body', () => {
@@ -459,7 +513,7 @@ describe('import/upload/download commands envelope non-envelope error bodies', (
       expect(exitCode).toBe(1);
       const bodies = stderr.map((l) => tryParse(l)).filter((b) => b !== null);
       expect(bodies.at(-1)).toEqual({
-        error: { code: 'HTTP_ERROR', message: 'HTTP 404' },
+        error: { code: 'HTTP_ERROR', message: `HTTP 404: ${EXPRESS_404.message}` },
       });
     });
 
