@@ -124,6 +124,19 @@ every one of them.
 On this data that ceiling **saturates** — see the numbers below — and the module says so in
 those words rather than printing a number that reads as a real bound.
 
+**The queue's size and the queue's cost are different numbers, so both are printed.** Sorted
+strongest first, with the count at or above `TRIAGE_SCORE` (0.70) beside the total. The
+distribution is bottom-heavy by construction: L2 answers `maybe` for any cross-source pair
+with a location tie, and two findings on one file have a location tie whether or not they are
+about the same thing. Measured on k1 — **412 undecided cross-arm pairs, 315 of them below
+0.50, and 17 at or above 0.70.** *"412 unresolved, 17 worth reading"* is actionable where
+*"412 unresolved"* reads as intractable.
+
+`TRIAGE_SCORE` is a **reporting aid and nothing more**: it re-thresholds nothing, promotes
+nothing, and enters no count this module reports. `matchFindings` owns the
+`match`/`maybe`/`no` decision and its bar is calibrated; a scorer that quietly moved it would
+be adjudicating.
+
 ## Corrected while building
 
 ### 1. `groupFindings` reads `lens` off the finding; a finding record does not have one
@@ -186,7 +199,26 @@ report them as an arm that answered with nothing.
 Checked against the store: all three pilot legs read **7 ok of 7** after the 2026-08-11
 repair, so this is a guard rather than a correction.
 
-### 4. A `--run-id` cannot be repeated through `parseArgs`
+### 4. "Cross-arm" read off the CLASSES over-counted the undecided queue by 12
+
+The first version of the triage count asked *"does one class carry panel and the other
+carry CodeRabbit?"*. A **shared** class carries both, so a link from it to a panel-only class
+satisfies that test while joining two **panel** findings. It reported **424** undecided
+cross-arm pairs on k1 where the true count is **412**.
+
+Caught by disagreement rather than by a test: an independent inspector that pairs every panel
+record against every CodeRabbit record through `matchFindings` directly returns 412, and two
+numbers about one dataset must not disagree. The fix reads the arms off the two **findings** a
+link joins — `link.members` carries their digests and `groupFindings`' own group members carry
+each digest's arm — which reproduces 412 and 17 exactly.
+
+**It then failed a second time, silently and in the safe direction.** The digest→arm map was
+built from this module's own class rows, which deliberately do **not** carry members, so it
+was empty and the queue read zero. The map is built from the raw `grouped.groups` instead.
+Both mistakes are pinned by a test now, and the second is the argument for the first: a
+lookup that silently yields nothing is the shape of every bug in this project.
+
+### 5. A `--run-id` cannot be repeated through `parseArgs`
 
 `parseArgs` is single-valued by construction (`a[key] = argv[i + 1]`), so a three-replicate
 invocation would have scored one leg and said nothing. `runIdsFrom` collects the repeats
@@ -240,9 +272,30 @@ printed, because our arm raised them in one or two replicates but not all three.
   *"24 unique to CodeRabbit"* means **24 unresolved pairs**, not 24 established misses, and
   the true overlap is somewhere in `[3.6%, 21.1%]` on k1. Closing that gap needs adjudication
   — a curator, or the designed-and-unbuilt L3 — and cannot be done inside a scorer.
+  **But the adjudication is small.** Of k1's 652 cross-arm pairs: 6 `match`, 412 `maybe`, 234
+  `no`; and of the 412, **315 score below 0.50 and only 17 reach 0.70** (5 at 1.00, 6 in
+  0.80–0.89, 6 in 0.70–0.79). Read by hand, the five at 1.00 all look like one defect said
+  twice — the clearest is pr-471, where both arms name the **same file and the same line 67**
+  and both say the task doc has a duplicate empty `Review` section, and the matcher still
+  answers `maybe`. That is not a defect: `matchFindings` requires `tokens >= 0.3` and denies
+  `symbolOverlap` a vote on clearing the bar, which is right for `harvest.mjs`, where a false
+  `match` SUPPRESSES a real candidate. **In this benchmark a false `maybe` has the opposite
+  cost — it inflates both arms' unique-catch counts.** Same threshold, different cost
+  structure; stated here, not changed here.
 - **Four of the seven items share nothing at all**, including pr-429 where CodeRabbit raised
   7 findings and our arm 19. That is the strongest single argument in the data for running
   both reviewers, and it is also the item where the saturated ceiling bites hardest.
+- 🔴 **The severity census sits on a population that is itself not reproducible.** Measured
+  across the three replicates over the (item, file) sets each one flagged: **34.3% of
+  blocking-severity anchors appear in all three replicates and 40.0% in only one** (n=35).
+  Blocking findings churn **more** than average, not less — all findings are 40.7% / 32.1%
+  (n=81) — so the spread cannot be written off as nit noise, even though nits are the
+  churniest individually (17.6% / 58.8%, n=34). So a 1-exact / 3-adjacent / 2-further split
+  over 4–6 shared classes is **a sample, not a property of either reviewer.** Reporting per
+  replicate rather than a mean is most of the defence; this is why it matters.
+  **The saving grace, in the same breath: the gate verdict never moves.** All 7 items reach
+  the same verdict in all three replicates (6 gated, pr-471 clean ×3), on blocking-lane counts
+  of 35 · 34 · 30. What gates is reproducible; what gets reported is not.
 - **Where the two arms disagree on severity by two steps, both cases are missing-test-coverage
   findings** — `touchUpdatedAt`'s guard is untested (pr-465) and vim-mode coverage for
   `routeVimHistoryToStore` (pr-605) — our arm `major`, CodeRabbit `nit`. **n=2.** Worth one
@@ -287,9 +340,9 @@ and its branch is exercised only by fixtures.
 - **No edit to `finding-match.mjs`, the adapters, `finding-record.mjs` or anything under
   `clusterFindings`.** Two findings for them are recorded below instead.
 
-## Two findings for the modules this consumes
+## Findings for the modules this consumes
 
-Neither is fixed here; both are edits to merged files this change has no other reason to touch.
+None is fixed here; all are edits to merged files this change has no other reason to touch.
 
 1. **`groupFindings` has no `lensOf` accessor, so its same-run gate silently depends on the
    caller's record shape.** It reads `finding.lens` while `finding-record.mjs` deliberately
@@ -301,26 +354,50 @@ Neither is fixed here; both are edits to merged files this change has no other r
    `panel.item_status`, so an item that ended `error` with **zero findings** carries its
    status nowhere a scorer can see — and that is precisely the item decision 8 most needs
    excluded. The CLI works around it by reading the envelope from the store.
+3. **Within-arm restatement across lenses is never collapsed, and that is the same-run gate
+   doing it.** Two of k1's five strongest undecided pairs are the *same panel defect* —
+   `database.e2e-spec.ts:309`, a duplicated e2e test — reported once by `correctness` and once
+   by `design-fit`, each pairing separately against the one CodeRabbit comment. The gate
+   requires an identical lens, so the two never merge and one defect occupies two classes.
+   **This is very likely why #759 measured within-arm collapse at only 1.4%:** the gate
+   partitions by lens before anything can collapse. Filed beside finding 1 because it is the
+   same accessor: the gate's strictness is right for round-to-round comparison and is being
+   applied to a cross-lens question it was not calibrated for.
+4. **A degenerate CodeRabbit record exists, and it inflates the queue.** On pr-549 one
+   finding's summary is literally `/node_modules/`. It carries almost no token content, so
+   every panel finding on that file scores 0.85–0.88 against it on location alone — it
+   accounts for **3 of k1's 17 strongest undecided pairs**, none of which a human could
+   adjudicate. A parse artefact rather than a matcher or adapter defect, named here because a
+   triage queue that leads with it wastes the first thing a curator reads.
 
 ## Verification
 
-- [x] `agent:tests` on the **committed tree**: **1640 tests, 1640 pass, 0 fail, 0 skipped**,
+- [x] `agent:tests` on the **committed tree**: **1642 tests, 1642 pass, 0 fail, 0 skipped**,
       against a freshly measured `upstream/main` (`f860743fbdb7`) at
-      **1618 / 1618 / 0 / 0**. **+22.** Both trees extracted with `git archive` and given
+      **1618 / 1618 / 0 / 0**. **+24.** Both trees extracted with `git archive` and given
       identical `node_modules` (root → eslint 9.24.0 as the lockfile pins it; `scripts/agent`
       → the Agent SDK), so 0 skips on both rather than an environment artefact.
 - [x] `eslint scripts` exits **0** on the branch tree and on the base tree, at the pinned
       9.24.0.
-- [x] **Every new test mutation-tested: 25 mutations, 25 caught, 0 survivors**, source
+- [x] **Every new test mutation-tested: 30 mutations, 30 caught, 0 survivors**, source
       restored byte-for-byte afterwards. The mutations cover each guard's condition, both
       severity branches, the `absent`-wins rule, the intersection's `every`, the
-      comparable-items `every`, the null-denominator rule and the repeated-flag parse.
+      comparable-items `every`, the null-denominator rule, the repeated-flag parse, the
+      queue's sort direction, its triage count and the arm the cross-arm test reads.
+      **One survived the first pass and was ineffective rather than uncaught** — reversing the
+      queue's sort changed nothing because all three pairs in that fixture scored exactly
+      0.50, so no order was observable. Proving that took five seconds and was worth it: the
+      fix is a fixture with three distinct scores (1.00 / 0.75 / 0.50, driven by
+      `symbolOverlap` exactly as the real 1.00 pairs are), not a second test.
 - [x] Run end to end against the real store over all three replicates, and the six shared
       classes of k1 **read by hand** against their summaries and files: each is one coherent
       defect described twice, not a co-location artefact.
 - [x] The window census **reproduced from the CodeRabbit adapter's own CLI** before scoring
       anything: `30 record(s), in-window=30, commit-is-review-commit=30`.
 - [x] The lens-hoist decision **measured both ways** on all three replicates, table above.
+- [x] The undecided queue's score distribution and the 17 pairs at or above 0.70 **read by
+      hand** on k1, and the severity-stratified churn re-derived from the three replicates'
+      payloads directly rather than through this module.
 - [ ] **Not verified: an `after-window` record on real data.** The corpus is frozen at the
       reviewed commit, so the assertion is exercised by fixtures only. The same is true of
       an `absent` arm, an `error` item, an unstated CodeRabbit severity and a coerced panel

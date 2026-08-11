@@ -148,6 +148,29 @@ export const CLAIMS = Object.freeze(["both", "panel-only", "coderabbit-only", "n
  */
 export const SEVERITY_AGREEMENT = Object.freeze(["exact", "adjacent", "further-apart"]);
 
+/**
+ * The score at or above which an undecided cross-arm pair is worth a curator's
+ * eye. A REPORTING AID, and it is important that it is nothing more.
+ *
+ * It does NOT re-threshold the matcher, promote anything, or enter any count this
+ * module reports. `matchFindings` owns the `match`/`maybe`/`no` decision and its
+ * bar is calibrated (`loc >= 0.6 && tokens >= 0.3`); a scorer that quietly moved
+ * that bar would be adjudicating, which is a human's job or L3's.
+ *
+ * What it is for: the raw queue size reads as intractable and is not. The
+ * distribution is bottom-heavy by construction — L2 answers `maybe` for any
+ * cross-source pair with a location tie, and two findings on one file have a
+ * location tie whether or not they are about the same thing — so a queue of
+ * hundreds has a head of tens. Measured on the pilot's first replicate: 412
+ * unresolved cross-arm pairs, 315 of them below 0.50, and **17 at or above this
+ * value**. "412 unresolved, 17 worth reading" is actionable where "412
+ * unresolved" is not.
+ *
+ * 0.70 is a reporting convenience rather than a calibrated boundary, and it is
+ * named here rather than inlined so nobody mistakes it for the matcher's.
+ */
+export const TRIAGE_SCORE = 0.7;
+
 /** Worst-first position on `KNOWN`; `-1` for a severity outside it, which
  *  `validateFindingRecord` already refuses, so it can only mean a caller built a
  *  record by hand. */
@@ -458,28 +481,61 @@ function overlapOf(rows) {
  * resolving a `maybe` needs a curator or the designed-and-unbuilt L3, and both are
  * somebody else's PR.
  */
-function unresolvedCrossArm(links, classes, overlap) {
+function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
   const armsOf = new Map(classes.map((c) => [c.id, { panel: c.panel_claims > 0, coderabbit: c.coderabbit_claims > 0 }]));
+  const itemOf = new Map(classes.map((c) => [c.id, c.item]));
+  // A link joins two FINDINGS, and the arms that decide whether it is cross-arm are
+  // theirs — not those of the classes they landed in.
+  //
+  // Keying this off the classes over-counts, and not by a rounding error: a SHARED
+  // class carries both arms, so a link from it to a panel-only class satisfies
+  // "one side has panel, the other has coderabbit" while joining two panel
+  // findings. Measured on the pilot's first replicate, that read 424 where the
+  // true count is 412 — and 412 is what an independent inspector gets pairing every
+  // panel record against every CodeRabbit record through `matchFindings` directly.
+  // `link.members` carries the two digests and `groupFindings`' own group members
+  // carry each digest's arm, so the honest answer needs no new data — but it does
+  // need the RAW groups: the class rows this module reports deliberately do not
+  // carry members, and reading `c.members ?? []` off them silently yielded an empty
+  // map and a queue of zero.
   const crWithCandidate = new Set();
   const panelWithCandidate = new Set();
-  let maybeLinks = 0;
+  const pairs = [];
   for (const link of links) {
     if (link.verdict !== "maybe") continue;
-    const [a, b] = link.groups.map((id) => armsOf.get(id));
-    if (!a || !b) continue;
-    const crossArm = (a.panel && b.coderabbit) || (a.coderabbit && b.panel);
-    if (!crossArm) continue;
-    maybeLinks++;
-    for (const [id, arms] of link.groups.map((id, i) => [id, [a, b][i]])) {
+    const memberArms = link.members.map((d) => armOfDigest.get(d) ?? null);
+    if (memberArms[0] === null || memberArms[1] === null || memberArms[0] === memberArms[1]) continue;
+    pairs.push({ score: link.score, groups: [...link.groups], item: itemOf.get(link.groups[0]) ?? null });
+    // The CLASS each of those findings sits in is what could become shared, so the
+    // candidate sets stay class-keyed — and view-aware, since `intersection`
+    // narrows what counts as a panel claim.
+    for (const id of link.groups) {
+      const arms = armsOf.get(id);
+      if (!arms) continue;
       if (arms.coderabbit && !arms.panel) crWithCandidate.add(id);
       if (arms.panel && !arms.coderabbit) panelWithCandidate.add(id);
     }
   }
+  // STRONGEST FIRST, because the queue is a work list rather than a count and its
+  // head is the only part anybody will read. Ties broken on the class ids, which
+  // are content-derived, so two runs over one dataset print in one order.
+  pairs.sort((p, q) => q.score - p.score || p.groups[0].localeCompare(q.groups[0]) || p.groups[1].localeCompare(q.groups[1]));
   const m = crWithCandidate.size;
   const both = overlap.both + m;
   const total = overlap.classes - m;
   return {
-    maybe_links: maybeLinks,
+    maybe_links: pairs.length,
+    // The whole queue, strongest first — not a top-N. A cap here would be silent
+    // truncation of the one artefact a curator would work from.
+    pairs,
+    triage_threshold: TRIAGE_SCORE,
+    // WHAT THE QUEUE ACTUALLY COSTS. The count alone reads as intractable and is
+    // not: the score distribution is bottom-heavy, because L2 hands a `maybe` to
+    // any cross-source pair with a location tie, and two findings on one file have
+    // a location tie by construction. So most of the queue is same-file-different-
+    // subject and the triage is the head of it. Printed beside the total for that
+    // reason, never instead of it.
+    strong_maybe_links: pairs.filter((p) => p.score >= TRIAGE_SCORE).length,
     coderabbit_classes_with_a_panel_candidate: m,
     panel_classes_with_a_coderabbit_candidate: panelWithCandidate.size,
     both_upper_bound: both,
@@ -551,6 +607,10 @@ export function complementarityOf(records, opts = {}) {
   const grouped = groupFindings(input.map(groupable), { threshold: opts.threshold });
   const replicates = panelRuns.filter((r) => r !== "(none)");
   const classes = grouped.groups.map((g) => classify(g, { view, replicates }));
+  // digest → the arm of the FINDING, off the raw groups, because a link joins two
+  // findings and the class each landed in carries whichever arms merged into it.
+  const armOfDigest = new Map();
+  for (const g of grouped.groups) for (const m of g.members) armOfDigest.set(m.digest, m.arm);
 
   // An item is COMPARABLE only when every arm answered for it. The cross-arm
   // numbers are computed over those items alone, because an item where one arm is
@@ -628,7 +688,7 @@ export function complementarityOf(records, opts = {}) {
     byItem,
     overlap,
     severity: severityCensus(scored),
-    unresolved: unresolvedCrossArm(grouped.links, scored, overlap),
+    unresolved: unresolvedCrossArm(grouped.links, scored, overlap, armOfDigest),
     stats: {
       view,
       label: typeof opts.label === "string" ? opts.label : null,
@@ -712,6 +772,10 @@ function reportView(title, result) {
         ? `\n  ! THE CEILING IS SATURATED and therefore uninformative: EVERY coderabbit-only class has an undecided panel` +
           ` candidate. Read "${o.coderabbit_only} unique to CodeRabbit" as ${o.coderabbit_only} UNRESOLVED pairs, not as ${o.coderabbit_only} established misses`
         : "") +
+      // The queue is bottom-heavy, so its size and its cost are different numbers
+      // and printing only the first reads as intractable.
+      `\n  the undecided queue is triageable: ${u.strong_maybe_links} of ${u.maybe_links} pair(s) score >= ${u.triage_threshold}` +
+      ` (strongest first in --json; the rest are mostly same-file, different subject)` +
       (o.not_claimed_in_view ? `\n  ! ${o.not_claimed_in_view} class(es) dropped BY this view — our arm raised them, but not in every replicate` : "") +
       (o.no_arm ? `\n  ! ${o.no_arm} class(es) whose members carry no readable arm — counted nowhere, credited to nobody` : "") +
       `\n  severity agreement on the ${s.stated.n} shared class(es) CodeRabbit stated a severity for:` +

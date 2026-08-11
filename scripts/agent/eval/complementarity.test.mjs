@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFindingRecord } from "./finding-record.mjs";
-import { CLAIMS, VIEWS, complementarityOf, runIdsFrom, windowCensusOf, assertComparableWindow } from "./complementarity.mjs";
+import { CLAIMS, TRIAGE_SCORE, VIEWS, complementarityOf, runIdsFrom, windowCensusOf, assertComparableWindow } from "./complementarity.mjs";
 
 // --- fixtures ---------------------------------------------------------------
 //
@@ -381,6 +381,58 @@ test("complementarityOf: an unresolved cross-arm maybe makes the overlap a LOWER
   const clean = complementarityOf([panel({ summary: DEFECT_B }), coderabbit({ summary: DEFECT_C, file: "b.ts" })], { coverage: COVER_1 });
   assert.equal(clean.unresolved.maybe_links, 0);
   assert.equal(clean.unresolved.saturated, false);
+});
+
+test("complementarityOf: the undecided queue is sorted strongest first and counted against the triage score", () => {
+  // Three CodeRabbit findings on one file, each undecided against the panel's one,
+  // at THREE DISTINCT scores — which is what makes the sort direction observable.
+  // The spread comes from `symbolOverlap`: all three share the panel's file (so
+  // `locationScore` is 1) and none reaches the token bar, and they differ only in
+  // how many of the panel's backticked symbols they name. That is not a contrived
+  // shape — it is exactly how the strongest real pairs score: a shared symbol
+  // carries a pair to 1.00 while the prose stays under the bar, so it is a `maybe`
+  // rather than a `match`.
+  const withSymbols = (summary, evidence) => coderabbit({ summary, evidence });
+  const records = [
+    panel({ summary: DEFECT_A_PANEL, evidence: "`applyPaste` and `readOnlyGuard` are both involved" }),
+    withSymbols("clipboard sanitiser concern", "`applyPaste` and `readOnlyGuard`"), // both symbols → 1.00
+    withSymbols("another separate remark", "`applyPaste` and `unrelatedHelper`"), // one of two → 0.75
+    withSymbols("a third distinct note", "`totallyOther` and `anotherThing`"), // none → 0.50
+  ];
+  const r = complementarityOf(records, { coverage: COVER_1 });
+  const scores = r.unresolved.pairs.map((p) => p.score);
+  assert.equal(new Set(scores).size, 3, "the fixture must produce DISTINCT scores or it cannot observe an order");
+  assert.deepEqual(scores, [1, 0.75, 0.5], "strongest first — the head is the only part anybody reads");
+  assert.equal(r.unresolved.maybe_links, 3, "the count is the whole queue, never a capped top-N");
+  assert.equal(r.unresolved.triage_threshold, TRIAGE_SCORE);
+  assert.equal(r.unresolved.strong_maybe_links, 2, "two of the three clear 0.70");
+  assert.ok(r.unresolved.strong_maybe_links < r.unresolved.maybe_links, "a bottom-heavy queue is the point: the two numbers must be able to differ");
+  // Every pair names the classes it joins, so the queue is a work list rather than
+  // a tally — and TRIAGE_SCORE moves no count the module reports.
+  assert.ok(r.unresolved.pairs.every((p) => p.groups.length === 2 && p.item === "pr-1"));
+  assert.equal(r.overlap.both, 0, "a maybe never merges, whatever it scores");
+  assert.equal(r.overlap.coderabbit_only, 3);
+});
+
+test("complementarityOf: cross-arm is a property of the two FINDINGS a link joins, not of their classes", () => {
+  // A shared class carries BOTH arms, so a link from it to a panel-only class looks
+  // cross-arm if you read the classes — while joining two panel findings. Here the
+  // grouping emits two maybe links and exactly ONE of them is cross-arm.
+  //
+  // Not a hypothetical: reading the classes reported 424 undecided cross-arm pairs
+  // on the pilot's first replicate where the true count is 412, which is what an
+  // inspector pairing every panel record against every CodeRabbit record through
+  // `matchFindings` directly returns.
+  const records = [
+    panel({ summary: DEFECT_A_PANEL, evidence: "`sharedHelper`" }), // merges with the CodeRabbit finding
+    panel({ summary: "wholly separate wording about something else entirely", evidence: "`sharedHelper`" }), // maybe against it, same arm
+    coderabbit({ summary: DEFECT_A_CODERABBIT }),
+  ];
+  const r = complementarityOf(records, { coverage: COVER_1 });
+  assert.equal(r.overlap.both, 1);
+  assert.equal(r.overlap.panel_only, 1);
+  assert.equal(r.stats.grouping.links.maybe, 2, "the grouping saw two undecided links");
+  assert.equal(r.unresolved.maybe_links, 1, "and only one of them joins findings from different arms");
 });
 
 test("complementarityOf: a rate with no denominator is null, never 0", () => {
