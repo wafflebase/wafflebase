@@ -882,6 +882,40 @@ forward `remove@3 + insert@1` reverted in *descending* order yields
 `[a, s, s, g, D]`. Verified empirically — `scripts/smoke-layout.ts` asserts both
 directions, and §8.1 check 9 proves the round-trip through real writes.
 
+### 5.10 The outline PREDICTS the resolver (`src/server/extract.mjs`)
+
+`extract.mjs` builds the node tree the outline renders, and each node carries a
+`structuralEditable` flag. That flag is what enables or greys out "insert
+sibling" and "remove", which makes it a **prediction of what `resolveNode(…,
+{requireStatic: true})` will answer** — a third place the node model is
+interpreted, alongside the injector and the stamper.
+
+A prediction that disagrees with the resolver is worse than a missing one: the
+UI offers a control, the designer uses it, and the server refuses. So the flag
+mirrors the resolver guard for guard, and the *same* distinction applies —
+identity against the root's returned expressions, not `path.length === 1`,
+because a returned fragment is transparent and its children are genuine
+siblings:
+
+```js
+structuralEditable =
+  scope === 'static' &&           // an iteration/callback body renders N times
+  tag !== '#returns' &&           // the synthetic container itself
+  owner === node &&               // reached through `{…}` — see §5.7
+  !returnedJsx.includes(node)     // a whole return value has no sibling list
+```
+
+Only the first two of these were tested before, and on a four-shape fixture the
+two rules disagreed on **half the nodes** — every single-return root element and
+every `{cond && …}` child read as editable. `extract.test.mjs` now asserts the
+agreement node-by-node over eight shapes rather than trusting the rules to stay
+in step, in the same spirit as the stamper's cross-consumer test.
+
+`analyzeNodes` also drops **ambiguous** roots, matching `resolveNode`'s
+treatment of a name two JSX-returning functions claim, and returns those names so
+the UI can say *"two components here are called `Row`"* instead of rendering a
+subtree whose every node rejects its first edit.
+
 ---
 
 ## 6. Architecture decisions & the "why"
