@@ -171,6 +171,17 @@ export const SEVERITY_AGREEMENT = Object.freeze(["exact", "adjacent", "further-a
  */
 export const TRIAGE_SCORE = 0.7;
 
+/**
+ * An item id as the GROUPING will key it.
+ *
+ * `finding-match.mjs`'s `defaultItemOf` trims (`f.item_id.trim()`), so a record
+ * carrying `" pr-1 "` is grouped under `"pr-1"` and its class reports the trimmed
+ * id. A frame keyed on the untrimmed string then matches no class at all, and the
+ * failure is TOTAL AND SILENT: every class is filtered out of the scored set and
+ * the run reports 0 of 0 with no error. Both sides use this, so there is one rule.
+ */
+const itemKey = (v) => String(v ?? "").trim();
+
 /** Worst-first position on `KNOWN`; `-1` for a severity outside it, which
  *  `validateFindingRecord` already refuses, so it can only mean a caller built a
  *  record by hand. */
@@ -314,11 +325,14 @@ function coverageIndex(rows) {
   const items = new Set();
   for (const [i, row] of rows.entries()) {
     const arm = row?.arm;
-    const item = row?.item_id;
+    const raw = row?.item_id;
     const state = row?.state;
     if (!ARMS.includes(arm)) refuse(`coverage[${i}].arm must be one of ${ARMS.join(" | ")}, got ${JSON.stringify(arm)}`);
-    if (typeof item !== "string" || item.trim() === "") refuse(`coverage[${i}].item_id must be a non-empty string, got ${JSON.stringify(item)}`);
+    // Validated on the ORIGINAL value — `"   "` is not an item id — and then keyed
+    // on the trimmed one, because that is what the grouping will key on.
+    if (typeof raw !== "string" || raw.trim() === "") refuse(`coverage[${i}].item_id must be a non-empty string, got ${JSON.stringify(raw)}`);
     if (!POPULATION_STATES.includes(state)) refuse(`coverage[${i}].state must be one of ${POPULATION_STATES.join(" | ")}, got ${JSON.stringify(state)}`);
+    const item = itemKey(raw);
     items.add(item);
     const key = `${arm}/${item}`;
     // `absent` wins: one unreadable draw makes the pair unreadable for this view.
@@ -331,7 +345,10 @@ function coverageIndex(rows) {
   if (holes.length > 0) {
     refuse(`coverage declares no state for ${holes.join(", ")} — every arm must say whether it answered for every item in the frame, the arms that found nothing included`);
   }
-  return { index, items: [...items].sort(), stateOf: (arm, item) => index.get(`${arm}/${item}`) ?? null };
+  // `stateOf` normalises its argument the same way, so a record whose `item_id`
+  // carries whitespace resolves to the pair it was declared under instead of
+  // silently missing it.
+  return { index, items: [...items].sort(), stateOf: (arm, item) => index.get(`${arm}/${itemKey(item)}`) ?? null };
 }
 
 /** Caller errors, all four of them: a number computed over any of these subsets is
@@ -505,13 +522,21 @@ function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
     if (link.verdict !== "maybe") continue;
     const memberArms = link.members.map((d) => armOfDigest.get(d) ?? null);
     if (memberArms[0] === null || memberArms[1] === null || memberArms[0] === memberArms[1]) continue;
+    // BOTH classes must be in scope before this pair is counted anywhere.
+    //
+    // `links` spans every item the grouping saw, while `classes` here is the SCORED
+    // set — comparable items only. A link on an item one arm never answered for
+    // therefore resolves to no class, and counting it would give the queue a
+    // different denominator from the overlap it qualifies: measured, a
+    // non-comparable item contributed a pair with `item: null` to a queue whose
+    // every other row belongs to an item that was actually scored.
+    const [a, b] = link.groups.map((id) => armsOf.get(id));
+    if (!a || !b) continue;
     pairs.push({ score: link.score, groups: [...link.groups], item: itemOf.get(link.groups[0]) ?? null });
     // The CLASS each of those findings sits in is what could become shared, so the
     // candidate sets stay class-keyed — and view-aware, since `intersection`
     // narrows what counts as a panel claim.
-    for (const id of link.groups) {
-      const arms = armsOf.get(id);
-      if (!arms) continue;
+    for (const [id, arms] of [[link.groups[0], a], [link.groups[1], b]]) {
       if (arms.coderabbit && !arms.panel) crWithCandidate.add(id);
       if (arms.panel && !arms.coderabbit) panelWithCandidate.add(id);
     }
@@ -595,7 +620,13 @@ function severityCensus(rows) {
 export function complementarityOf(records, opts = {}) {
   const view = opts.view ?? "per-replicate";
   if (!VIEWS.includes(view)) refuse(`view must be one of ${VIEWS.join(" | ")}, got ${JSON.stringify(view)}`);
-  const input = (Array.isArray(records) ? records : []).filter((r) => r && typeof r === "object" && !Array.isArray(r));
+  const supplied = Array.isArray(records) ? records : [];
+  const input = supplied.filter((r) => r && typeof r === "object" && !Array.isArray(r));
+  // Counted, not swallowed. `groupFindings` records its own non-finding inputs in
+  // `stats.skipped` with their positions, and anything dropped HERE never reaches
+  // it — so without this the two censuses disagree and a caller that passed an
+  // array half full of nulls reads a clean run over the half that survived.
+  const malformed = supplied.length - input.length;
   const foreign = input.filter((r) => !ARMS.includes(r.arm));
   if (foreign.length > 0) refuse(`${foreign.length} record(s) carry an arm outside ${ARMS.join(" | ")} (first: ${JSON.stringify(foreign[0].arm)})`);
 
@@ -630,7 +661,7 @@ export function complementarityOf(records, opts = {}) {
           arm,
           {
             state: coverage.stateOf(arm, item),
-            findings: input.filter((r) => r.arm === arm && r.item_id === item).length,
+            findings: input.filter((r) => r.arm === arm && itemKey(r.item_id) === item).length,
             classes: rows.filter((c) => (arm === PANEL ? c.panel_claims > 0 : c.coderabbit_claims > 0)).length,
           },
         ]),
@@ -648,7 +679,7 @@ export function complementarityOf(records, opts = {}) {
         arm,
         {
           findings: input.filter((r) => r.arm === arm).length,
-          findings_comparable: input.filter((r) => r.arm === arm && comparableSet.has(r.item_id)).length,
+          findings_comparable: input.filter((r) => r.arm === arm && comparableSet.has(itemKey(r.item_id))).length,
           items: tally(coverage.items, (item) => coverage.stateOf(arm, item)),
           classes: both + only,
           shared: both,
@@ -667,6 +698,7 @@ export function complementarityOf(records, opts = {}) {
   const note = (n, msg) => {
     if (n) concerns.push(`${msg} (${n})`);
   };
+  note(malformed, "inputs dropped before grouping: not a record object");
   note(g.skipped.length, "inputs skipped by grouping");
   note(g.accessor_failures.length, "accessor failures during grouping");
   note(g.unattributed, "findings naming no pull request, grouped with nothing");
@@ -697,7 +729,15 @@ export function complementarityOf(records, opts = {}) {
       // readable as a bound rather than as a result.
       draws: { panel: replicates.length || (panelRuns.length ? 1 : 0), coderabbit: 1 },
       panel_runs: panelRuns,
-      records: { n: input.length, panel: input.filter((r) => r.arm === PANEL).length, coderabbit: input.filter((r) => r.arm === CODERABBIT).length },
+      records: {
+        n: input.length,
+        panel: input.filter((r) => r.arm === PANEL).length,
+        coderabbit: input.filter((r) => r.arm === CODERABBIT).length,
+        // Supplied but not a record object, so never grouped and never counted
+        // anywhere else. A number rather than a note alone, because `n` is a
+        // denominator and this says what it is missing.
+        malformed,
+      },
       items: { declared: coverage.items, comparable, not_comparable: coverage.items.filter((i) => !comparableSet.has(i)) },
       window,
       // Surfaced whole, never summarised: every one of these is a denominator or a
@@ -816,6 +856,18 @@ async function main() {
   // called this `--out`); this CLI writes nothing at all.
   if (!args.root || !args["corpus-version"] || runIds.length === 0) {
     console.error(USAGE);
+    process.exit(2);
+  }
+  // A REPEATED run id is a typo, and it is the expensive kind. Each `--run-id` is
+  // scored as an independent draw, so naming one twice prints the same replicate
+  // twice and reports a range across "two" draws that is really one. Worse, the
+  // union and intersection views are fed that leg's records TWICE while
+  // `stats.draws` still reads 1, because the draw count is derived from the
+  // distinct run ids on the records. Deduping silently would hide the typo; this
+  // is a usage error and it exits like one.
+  const duplicates = [...new Set(runIds.filter((id, i) => runIds.indexOf(id) !== i))];
+  if (duplicates.length > 0) {
+    console.error(`--run-id must name distinct runs; repeated: ${duplicates.join(", ")}`);
     process.exit(2);
   }
   const { EvalStore } = await import("./store.mjs");

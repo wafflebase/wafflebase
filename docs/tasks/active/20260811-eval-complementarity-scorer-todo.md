@@ -10,9 +10,10 @@ somebody will quote out of it. The rule it establishes — *the reviewer we can 
 reviewer we cannot are not symmetric, and every count has to say how many tries each one got*
 — is not about the relation.
 
-Measured against `upstream/main` at `f860743fbdb7`. (It moved from `64ac5d4998a8` mid-build;
-the two differ only in `.github/workflows/ci.yml` and documentation, and the test lane
-measures the same at both.)
+Measured against `upstream/main` at `62b5b986b935`. (It moved three times during this work —
+`64ac5d4998a8` → `f860743fbdb7` → `62b5b986b935` — and the branch was brought up to date with a
+merge from `main` in between. The last move matters: **#773 landed `eval/volume-mix.mjs`**, so
+the test baseline rose from 1618 to 1661 and every count below is against the later one.)
 
 ## The problem
 
@@ -218,7 +219,34 @@ was empty and the queue read zero. The map is built from the raw `grouped.groups
 Both mistakes are pinned by a test now, and the second is the argument for the first: a
 lookup that silently yields nothing is the shape of every bug in this project.
 
-### 5. A `--run-id` cannot be repeated through `parseArgs`
+### 5. Four defects found in review, every one of them silent
+
+None changes a published number — all seven pilot items are comparable, every record is
+well formed and no item id carries whitespace — so each is a latent fault on a path the pilot
+does not reach. That is exactly why they are worth writing down: **each fails silently and in
+a plausible direction.**
+
+- **The undecided queue counted pairs from items nothing else counted.** `links` spans every
+  item the grouping saw, while the classes it was matched against are the SCORED set —
+  comparable items only. A link on an item one arm never answered for resolved to no class,
+  and was pushed onto the queue anyway with `item: null`. The queue and the overlap it
+  qualifies would have had different denominators. Both classes must now resolve before a pair
+  is counted.
+- **A coverage frame keyed item ids differently from the grouping.** `defaultItemOf` trims, so
+  a record carrying `" pr-1 "` is grouped under `"pr-1"` and its class reports the trimmed id.
+  A frame keyed on the raw string matches no class, so `scored` filters **every class away**
+  and the run reports 0 of 0 — total, and with no error. One `itemKey` helper now normalises
+  both sides, and `stateOf` normalises its argument too.
+- **A repeated `--run-id` was scored as two draws.** Each is scored as an independent replicate,
+  so naming one twice prints the same leg twice and reports a range across "two" draws that is
+  one. Worse, the union and intersection views were fed that leg's records **twice** while
+  `stats.draws` still read 1, since the draw count derives from the distinct run ids on the
+  records. Refused as a usage error rather than deduped — deduping would hide the typo.
+- **Inputs that were not record objects vanished.** They were filtered out before grouping, so
+  `groupFindings`' own `stats.skipped` never saw them either and nothing anywhere said a
+  record had been dropped. Counted now, in `stats.records.malformed` and in `concerns`.
+
+### 6. A `--run-id` cannot be repeated through `parseArgs`
 
 `parseArgs` is single-valued by construction (`a[key] = argv[i + 1]`), so a three-replicate
 invocation would have scored one leg and said nothing. `runIdsFrom` collects the repeats
@@ -372,18 +400,19 @@ None is fixed here; all are edits to merged files this change has no other reaso
 
 ## Verification
 
-- [x] `agent:tests` on the **committed tree**: **1642 tests, 1642 pass, 0 fail, 0 skipped**,
+- [x] `agent:tests` on the **committed tree**: **1689 tests, 1689 pass, 0 fail, 0 skipped**,
       against a freshly measured `upstream/main` (`f860743fbdb7`) at
-      **1618 / 1618 / 0 / 0**. **+24.** Both trees extracted with `git archive` and given
+      **1661 / 1661 / 0 / 0**. **+28.** Both trees extracted with `git archive` and given
       identical `node_modules` (root → eslint 9.24.0 as the lockfile pins it; `scripts/agent`
       → the Agent SDK), so 0 skips on both rather than an environment artefact.
 - [x] `eslint scripts` exits **0** on the branch tree and on the base tree, at the pinned
       9.24.0.
-- [x] **Every new test mutation-tested: 30 mutations, 30 caught, 0 survivors**, source
+- [x] **Every new test mutation-tested: 38 mutations, 38 caught, 0 survivors**, source
       restored byte-for-byte afterwards. The mutations cover each guard's condition, both
       severity branches, the `absent`-wins rule, the intersection's `every`, the
       comparable-items `every`, the null-denominator rule, the repeated-flag parse, the
-      queue's sort direction, its triage count and the arm the cross-arm test reads.
+      queue's sort direction, its triage count, the arm the cross-arm test reads, both
+      halves of the item-id normalisation and each coverage-row guard on its own.
       **One survived the first pass and was ineffective rather than uncaught** — reversing the
       queue's sort changed nothing because all three pairs in that fixture scored exactly
       0.50, so no order was observable. Proving that took five seconds and was worth it: the
@@ -402,10 +431,15 @@ None is fixed here; all are edits to merged files this change has no other reaso
       reviewed commit, so the assertion is exercised by fixtures only. The same is true of
       an `absent` arm, an `error` item, an unstated CodeRabbit severity and a coerced panel
       severity — every one of them is unit-tested and none occurs in this store.
-- [ ] **Not verified: the CLI's non-zero exit.** `main()` has no test — the sibling adapters
-      in this directory test their exported functions and not their CLIs, and a CLI test here
-      would need a store to write to, which these tests deliberately do not have. The complete
-      case was observed exiting **0**; the partial path is read but unrun.
+- [x] The duplicate-`--run-id` guard exercised end to end: `--run-id k1 --run-id k2 --run-id
+      k1` exits **2** with `--run-id must name distinct runs; repeated: k1`, and two distinct
+      ids pass it and reach the store. Observed, not unit-tested — see the box below.
+- [ ] **Not verified by a test: `main()`.** The sibling adapters in this directory test their
+      exported functions and not their CLIs, and a CLI test here would need a store to write
+      to, which these tests deliberately do not have. So the duplicate-run-id guard and the
+      non-zero exit on a partial result are **observed by running the CLI** rather than
+      pinned. The complete case was observed exiting **0**; the partial path is read but
+      unrun.
 - [ ] **Not verified: more than three replicates**, or a corpus other than the pilot.
 - [ ] **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
       `verify:integration`, `build`. This diff is `scripts/agent/**` and a task doc; nothing

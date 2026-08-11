@@ -158,6 +158,35 @@ test("complementarityOf: coverage is REQUIRED, and every arm/item pair must be d
   assert.throws(() => complementarityOf(records, { coverage: [{ arm: "panel", item_id: "pr-1", state: "maybe" }] }), /state must be one of/);
 });
 
+test("coverageIndex: each row guard refuses on its own, with the offending row named", () => {
+  // One condition per case, the rest of the row valid, so a passing assertion
+  // names the guard that fired rather than whichever one happened to be first.
+  const ok = present("coderabbit", "pr-1");
+  const rows = (bad) => ({ coverage: [bad, ok] });
+  const records = [];
+  assert.throws(() => complementarityOf(records, rows({ arm: "human", item_id: "pr-1", state: "present" })), /coverage\[0\]\.arm must be one of panel \| coderabbit, got "human"/);
+  assert.throws(() => complementarityOf(records, rows({ item_id: "pr-1", state: "present" })), /coverage\[0\]\.arm must be one of/);
+  assert.throws(() => complementarityOf(records, rows({ arm: "panel", state: "present" })), /coverage\[0\]\.item_id must be a non-empty string, got undefined/);
+  assert.throws(() => complementarityOf(records, rows({ arm: "panel", item_id: 415, state: "present" })), /coverage\[0\]\.item_id must be a non-empty string, got 415/);
+  assert.throws(() => complementarityOf(records, rows({ arm: "panel", item_id: "   ", state: "present" })), /coverage\[0\]\.item_id must be a non-empty string, got " {3}"/);
+  assert.throws(() => complementarityOf(records, rows({ arm: "panel", item_id: "pr-1" })), /coverage\[0\]\.state must be one of/);
+});
+
+test("coverageIndex: an item id is keyed the way the GROUPING keys it — trimmed", () => {
+  // `defaultItemOf` trims, so a record carrying whitespace is grouped under the
+  // trimmed id and its class reports that. A frame keyed on the raw string would
+  // match no class at all and the run would report 0 of 0 with no error — total,
+  // and silent, which is the failure mode this module exists to refuse.
+  const r = complementarityOf([panel({ item: " pr-1 ", summary: DEFECT_B }), coderabbit({ item: "pr-1", summary: DEFECT_C, file: "b.ts" })], {
+    coverage: [{ arm: "panel", item_id: " pr-1 ", state: "present" }, present("coderabbit", "pr-1")],
+  });
+  assert.deepEqual(r.stats.items.declared, ["pr-1"], "one item, not two spellings of one");
+  assert.deepEqual(r.stats.items.comparable, ["pr-1"]);
+  assert.equal(r.overlap.classes, 2, "and both arms' findings are scored rather than filtered away");
+  assert.equal(r.byItem["pr-1"].arms.panel.findings, 1);
+  assert.equal(r.byArm.panel.findings_comparable, 1);
+});
+
 // --- K draws against 1 ------------------------------------------------------
 
 test("complementarityOf: the default view REFUSES to pool replicates", () => {
@@ -433,6 +462,33 @@ test("complementarityOf: cross-arm is a property of the two FINDINGS a link join
   assert.equal(r.overlap.panel_only, 1);
   assert.equal(r.stats.grouping.links.maybe, 2, "the grouping saw two undecided links");
   assert.equal(r.unresolved.maybe_links, 1, "and only one of them joins findings from different arms");
+});
+
+test("complementarityOf: the undecided queue covers the SAME items the overlap does", () => {
+  // pr-2 is not comparable — CodeRabbit was never loaded for it — so it is out of
+  // every pooled figure. Its cross-arm maybe must be out of the queue too, or the
+  // queue and the overlap it qualifies have different denominators (and the pair
+  // arrives with `item: null`, because the scored classes do not name that item).
+  const records = [
+    panel({ summary: DEFECT_B }),
+    panel({ item: "pr-2", summary: DEFECT_A_PANEL }),
+    coderabbit({ item: "pr-2", summary: "paste guard missing" }),
+  ];
+  const r = complementarityOf(records, {
+    coverage: [...COVER_1, present("panel", "pr-2"), absent("coderabbit", "pr-2")],
+  });
+  assert.deepEqual(r.stats.items.comparable, ["pr-1"]);
+  assert.equal(r.unresolved.maybe_links, 0, "the only cross-arm maybe is on the item nothing else counts");
+  assert.deepEqual(r.unresolved.pairs, []);
+  assert.ok(r.unresolved.pairs.every((p) => p.item !== null));
+});
+
+test("complementarityOf: an input that is not a record object is COUNTED, never silently dropped", () => {
+  const r = complementarityOf([panel({ summary: DEFECT_B }), null, "nope", ["also nope"]], { coverage: COVER_1 });
+  assert.equal(r.stats.records.malformed, 3);
+  assert.equal(r.stats.records.n, 1, "`n` is the denominator and it counts what survived");
+  assert.match(r.stats.concerns.join("\n"), /inputs dropped before grouping: not a record object \(3\)/);
+  assert.equal(r.overlap.panel_only, 1, "and the record that WAS usable is still scored");
 });
 
 test("complementarityOf: a rate with no denominator is null, never 0", () => {
