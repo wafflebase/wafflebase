@@ -538,6 +538,53 @@ async function checkRunColor(page, baseUrl) {
     problems.push("every run reported a colour — doc.runs must distinguish a styled run from an unstyled one");
   }
 
+  // --- what `doc.styleSummary` is, asserted rather than described --------------
+  //
+  // Its tool description used to read "which inline styles are present anywhere in the
+  // document". It is `getRangeStyleSummary()`, which reads the CURRENT SELECTION — and
+  // the explorer's only map of this surface is that description, so the wrong scope is
+  // a false-finding source rather than a documentation nit. The corrected line now
+  // claims selection scope, and a claim nothing checks is how the old one drifted.
+  //
+  // The proof is that ONE document answers differently for two selections, which a
+  // document-wide summary could not do: the marker alone reports a concrete colour,
+  // and widening by a single uncoloured character collapses it to 'mixed'. That
+  // collapse is also the reason per-run colour had to exist — 'mixed' is precisely
+  // what cannot distinguish residue in one run from a clean apply.
+  const onMarker = await readReader(page, "doc.styleSummary", []);
+  if (onMarker.value?.color !== HEX) {
+    problems.push(`doc.styleSummary should report ${HEX} for a selection covering only the coloured run, got ${JSON.stringify(onMarker.value)}`);
+  }
+
+  // Radix restores focus to the editor's hidden textarea ASYNCHRONOUSLY as the popover
+  // closes, and arrow keys sent into that window are swallowed silently — measured: five
+  // presses left `doc.selection` byte-identical while the textarea already reported
+  // focus and typing still worked. Wait for the close to settle rather than sleeping
+  // through it. (Not an agent-facing trap: an SDK round-trip between actions is orders
+  // of magnitude longer than this window. It is a hazard for anything driving faster
+  // than a human, which is exactly what this lane does.)
+  await page.locator("[data-radix-popper-content-wrapper]").waitFor({ state: "detached", timeout: 5_000 }).catch(() => {});
+  await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA", null, { timeout: 5_000 }).catch(() => {});
+
+  // The selection is backward (anchor after focus, focus at offset 0), so ArrowLeft
+  // collapses to the block start and the marker plus one more character can be taken
+  // rightward. Measured, not assumed — a Shift+ArrowLeft here is a silent no-op.
+  await page.keyboard.press("ArrowLeft");
+  for (let i = 0; i <= MARKER.length; i++) await page.keyboard.press("Shift+ArrowRight");
+  let wider = null;
+  const widerDeadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    wider = (await readReader(page, "doc.styleSummary", [])).value;
+    if (wider?.color === "mixed" || Date.now() >= widerDeadline) break;
+    await page.waitForTimeout(25);
+  }
+  if (wider?.color !== "mixed") {
+    problems.push(
+      `doc.styleSummary must be SELECTION-scoped: widening past the coloured run should read 'mixed', got ${JSON.stringify(wider)}. ` +
+        "If this reads the same as the narrower selection, the reader went document-wide and its tool description is now wrong.",
+    );
+  }
+
   return problems;
 }
 
