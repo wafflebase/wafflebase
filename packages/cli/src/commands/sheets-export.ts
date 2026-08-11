@@ -54,7 +54,7 @@ export function registerSheetsExportCommand(parent: Command) {
           }
         }
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

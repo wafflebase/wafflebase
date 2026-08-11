@@ -16,7 +16,7 @@ export function registerTabsCommand(parent: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -34,6 +34,7 @@ export function registerTabsCommand(parent: Command) {
       if (type !== 'sheet') {
         outputError(
           new Error(`Unsupported tab type "${type}"; only "sheet" is supported.`),
+          this,
         );
         return;
       }
@@ -49,7 +50,7 @@ export function registerTabsCommand(parent: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -75,7 +76,7 @@ export function registerTabsCommand(parent: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

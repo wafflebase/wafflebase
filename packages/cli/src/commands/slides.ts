@@ -47,7 +47,7 @@ export function registerSlidesCommand(program: Command) {
         }
         output(data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -68,7 +68,7 @@ export function registerSlidesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -82,7 +82,7 @@ export function registerSlidesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -100,7 +100,7 @@ export function registerSlidesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -118,7 +118,7 @@ export function registerSlidesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -167,7 +167,7 @@ export function registerSlidesCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -208,7 +208,7 @@ export function registerSlidesCommand(program: Command) {
         const bytes = await exportPptxCli(res.data, { imageFetcher });
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -241,7 +241,7 @@ export function registerSlidesImportCommand(slides: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

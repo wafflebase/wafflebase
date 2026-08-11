@@ -90,7 +90,7 @@ export function registerSheetsImportCommand(parent: Command) {
           : { imported: cellCount };
         output(result, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

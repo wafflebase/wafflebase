@@ -41,7 +41,7 @@ export function registerFilesCommand(program: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -65,7 +65,7 @@ export function registerFilesCommand(program: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -92,7 +92,7 @@ export function registerFilesCommand(program: Command) {
         }
         output(data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -106,7 +106,7 @@ export function registerFilesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -124,7 +124,7 @@ export function registerFilesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -142,7 +142,7 @@ export function registerFilesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

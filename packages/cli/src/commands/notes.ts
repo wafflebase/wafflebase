@@ -42,7 +42,7 @@ export function registerNotesCommand(program: Command) {
         }
         output(data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -63,7 +63,7 @@ export function registerNotesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -77,7 +77,7 @@ export function registerNotesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -95,7 +95,7 @@ export function registerNotesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -113,7 +113,7 @@ export function registerNotesCommand(program: Command) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -160,7 +160,7 @@ export function registerNotesCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -214,7 +214,7 @@ export function registerNotesCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -245,7 +245,7 @@ export function registerNotesImportCommand(notes: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

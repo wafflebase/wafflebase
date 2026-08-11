@@ -5,6 +5,7 @@ import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { formatYaml } from '../src/output/yaml.js';
 import {
+  commandPath,
   format,
   output,
   outputError,
@@ -140,10 +141,17 @@ describe('outputError', () => {
     process.exitCode = originalExitCode;
   });
 
-  function getEmittedBody(): { error: { code: string; message: string } } {
+  function getEmittedBody(): {
+    error: { code: string; message: string; command?: string };
+  } {
     expect(stderrSpy).toHaveBeenCalledOnce();
     const raw = String(stderrSpy.mock.calls[0]?.[0]);
-    return JSON.parse(raw) as { error: { code: string; message: string } };
+    // The documented envelope is one line on stderr, so a caller can read it
+    // with a line-delimited parser and tell two errors apart (#661).
+    expect(raw).not.toContain('\n');
+    return JSON.parse(raw) as {
+      error: { code: string; message: string; command?: string };
+    };
   }
 
   it('defaults to code:"ERROR" for plain Error instances', () => {
@@ -172,6 +180,33 @@ describe('outputError', () => {
     outputError('plain string failure');
     expect(getEmittedBody().error.message).toBe('plain string failure');
     expect(process.exitCode).toBe(1);
+  });
+
+  it('omits `command` when no command is known', () => {
+    outputError(new Error('boom'));
+    expect(getEmittedBody().error).not.toHaveProperty('command');
+  });
+
+  it('reports the dotted command name of a nested command', () => {
+    const program = createProgram();
+    const nested = program.command('sheets').command('cells').command('get');
+    outputError(new Error('boom'), nested);
+    expect(getEmittedBody().error.command).toBe('sheets.cells.get');
+  });
+
+  it('reports the canonical name when the command was reached by alias', () => {
+    const program = createProgram();
+    const docs = program.command('docs').alias('doc');
+    outputError(new Error('boom'), docs.command('content'));
+    expect(getEmittedBody().error.command).toBe('docs.content');
+  });
+});
+
+describe('commandPath', () => {
+  it('excludes the root program', () => {
+    const program = createProgram();
+    expect(commandPath(program.command('status'))).toBe('status');
+    expect(commandPath(program)).toBe('');
   });
 });
 
@@ -300,11 +335,27 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     await run('docs', 'get', 'doc-1', '--quiet');
     expect(stdoutSpy).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
-      error: { code: string; message: string };
+    const raw = String(stderrSpy.mock.calls[0]?.[0]);
+    expect(raw).not.toContain('\n');
+    const body = JSON.parse(raw) as {
+      error: { code: string; message: string; command?: string };
     };
-    expect(body.error).toEqual({ code: 'ERROR', message: 'HTTP 500' });
+    expect(body.error).toEqual({
+      code: 'ERROR',
+      message: 'HTTP 500',
+      command: 'docs.get',
+    });
     expect(process.exitCode).toBe(1);
+  });
+
+  // #661: an agent driving several calls needs to know *which* one failed.
+  it('attributes the envelope to the command that emitted it', async () => {
+    stubFetch(500, null);
+    await run('sheets', 'cells', 'get', 'doc-1', 'A1');
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+      error: { command?: string };
+    };
+    expect(body.error.command).toBe('sheets.cells.get');
   });
 
   // `sheets cells batch` parses its input before it talks to the server; that
@@ -374,9 +425,15 @@ describe('runCli entrypoint', () => {
 
     expect(stderrSpy).toHaveBeenCalledOnce();
     const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
-      error: { code: string; message: string };
+      error: { code: string; message: string; command?: string };
     };
-    expect(body.error).toEqual({ code: 'LATE_FAILURE', message: 'kaboom' });
+    // The command name comes from the `preAction` hook: the root program
+    // alone cannot say which subcommand was running when the throw escaped.
+    expect(body.error).toEqual({
+      code: 'LATE_FAILURE',
+      message: 'kaboom',
+      command: 'boom',
+    });
     expect(process.exitCode).toBe(1);
   });
 

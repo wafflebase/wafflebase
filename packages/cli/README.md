@@ -114,7 +114,9 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Binary results** (pdf/docx): positional `<file>`; `-` writes to stdout.
   `--force` is required to overwrite an existing target.
 - **Errors**: a single JSON line on stderr —
-  `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
+  `{"error":{"code":"…","message":"…","command":"docs.content"}}`. `command`
+  is the dotted command name (the same string `schema` indexes on), so a
+  caller running several commands can tell which one failed. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
   command-specific `code` agents can branch on; everything else
   reports `"ERROR"`.

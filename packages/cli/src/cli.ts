@@ -47,14 +47,23 @@ export function buildProgram(): Command {
  * Lives here rather than in `bin.ts` so it is reachable from tests: a
  * module-scope side effect in the shebang entrypoint cannot be driven with a
  * rejecting action, which is exactly the path that needs a regression guard.
+ *
+ * The `preAction` hook records which subcommand is running so that envelope
+ * can carry `command` too. The root program alone cannot say — and this is
+ * the path where attribution matters most, since the throw is by definition
+ * one no command handled itself.
  */
 export async function runCli(
   program: Command = buildProgram(),
   argv?: readonly string[],
 ): Promise<void> {
+  let acting: Command | undefined;
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    acting = actionCommand;
+  });
   try {
     await program.parseAsync(argv as string[] | undefined);
   } catch (e: unknown) {
-    outputError(e);
+    outputError(e, acting);
   }
 }
