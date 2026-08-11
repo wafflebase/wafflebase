@@ -286,6 +286,51 @@ describe('owner', () => {
   });
 });
 
+// --- role: what the anchor IS to the caller's op ---------------------------
+
+describe("resolveNode role: 'container'", () => {
+  // Two of the three guards are about splicing THIS node into or out of a
+  // sibling list. When it only RECEIVES a child, neither hazard exists. Checked
+  // against the parser before these were written: a child spliced into a
+  // returned root parses, a child spliced into a conditionally-rendered element
+  // parses, and a SIBLING beside a returned root is a syntax error.
+
+  it('admits a top-level returned element as a container', () => {
+    // The op this unblocks is "insert into the page's root <div>" — and, more
+    // sharply, the INVERSE of a remove. Without it a remove inside the root
+    // succeeds and cannot be undone: data loss, not a missing capability.
+    const src = `function C() { return <div><A/></div>; }`;
+    expect(selfResolve(src, 'div', { requireStatic: true }).located).toBe(false);
+    expect(selfResolve(src, 'div', { requireStatic: true, role: 'container' }).located).toBe(true);
+  });
+
+  it('admits a conditionally-rendered element as a container', () => {
+    // `{cond && <div/>}` cannot be spliced as a sibling (removing it leaves a
+    // bare `{}`), but a child lands inside its own children region.
+    const src = `function C() { return <p>{cond && <div/>}</p>; }`;
+    expect(selfResolve(src, 'div', { requireStatic: true }).located).toBe(false);
+    expect(selfResolve(src, 'div', { requireStatic: true, role: 'container' }).located).toBe(true);
+  });
+
+  it('still refuses a non-static scope as a container', () => {
+    // The one guard that survives the role: a `.map()` body renders N times
+    // whether you are moving it or filling it, so the splice is undefined
+    // either way.
+    const src = `function C() { return <ul>{items.map(d => <li/>)}</ul>; }`;
+    const r = selfResolve(src, 'li', { requireStatic: true, role: 'container' });
+    expect(r.located).toBe(false);
+    expect(r.scope).toBe('iteration');
+  });
+
+  it("defaults to 'target', so every existing caller is unchanged", () => {
+    // Guards the guard: the widening must not have relaxed the default. If it
+    // had, a remove of a whole return value would start succeeding.
+    const src = `function C() { return <div/>; }`;
+    expect(selfResolve(src, 'div', { requireStatic: true }).located).toBe(false);
+    expect(selfResolve(src, 'div', { requireStatic: true, role: 'target' }).located).toBe(false);
+  });
+});
+
 // --- fp: the stable identity ----------------------------------------------
 
 describe('fpOf', () => {

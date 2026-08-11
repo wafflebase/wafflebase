@@ -798,13 +798,32 @@ client's `SceneMeta` can be stale — the same reason `/validate` shares
   numbering, so `return <><A/><B/></>` puts A and B at depth 1 where they are
   genuine siblings in a real container, and splicing between them stays legal.
 
-  This guard is deliberately **wider than the rule it enforces**. Refusing the
-  node also refuses inserting a *child* into it, which is valid — and that is
-  the mainline "insert into the page's root `<div>`" case. Narrowing it needs
-  the OP, which `resolveNode` is not given; `inject.mjs` is what defines the
-  ops, so widening `opts` to carry one belongs with that module rather than
-  ahead of it. Until then the refusal is visible and costs a capability, where
-  the alternative writes an unparseable file.
+**`opts.role` — because two of the three guards depend on what the anchor IS.**
+The guards above were written for one op ("splice this node") and applied to
+all, which refused inserting a *child* into any component whose body is
+`return <div>…</div>`. That is not a missing capability but **data loss**:
+`applyLayoutRemove` inside such a root succeeds, and its `verbatim` inverse is
+refused, so the node is gone with no way back.
+
+| guard | `role: 'target'` (default) | `role: 'container'` |
+|---|---|---|
+| `scope !== 'static'` | refuse | **refuse** — renders N times either way |
+| `owner !== node` | refuse | allow |
+| is a returned expression | refuse | allow |
+
+Verified against the parser rather than argued: a child spliced into a returned
+root parses, a child spliced into a conditionally-rendered element parses, and a
+*sibling* beside a returned root is a syntax error. `applyLayoutInsert` passes
+`'container'` for its parent anchor; everything else keeps the default, so every
+pre-existing caller is unchanged.
+
+One shape stays refused for the same data-loss reason, from the other direction:
+removing a **direct child of a returned fragment**. The fragment is transparent,
+so its children sit at depth 1 with the synthetic `#returns` container above
+them — and no anchor can name that, so the re-insert has no parent to target.
+`applyLayoutRemove` refuses rather than outrunning its own inverse. Making the
+returns root addressable as a container (delegating the offset to the wrapped
+fragment's opening token) would restore it.
 
 `walkJsx` numbering: only JSX elements count; `JsxText`/comments do not.
 Fragments are **transparent** (their children number into the parent's list, so
@@ -884,37 +903,127 @@ directions, and §8.1 check 9 proves the round-trip through real writes.
 
 ### 5.10 The outline PREDICTS the resolver (`src/server/extract.mjs`)
 
-`extract.mjs` builds the node tree the outline renders, and each node carries a
-`structuralEditable` flag. That flag is what enables or greys out "insert
-sibling" and "remove", which makes it a **prediction of what `resolveNode(…,
-{requireStatic: true})` will answer** — a third place the node model is
-interpreted, alongside the injector and the stamper.
+`extract.mjs` builds the node tree the outline renders, and each node carries
+**two** prediction flags. They are what enable or grey out the structural
+controls, which makes them predictions of what `resolveNode(…, {requireStatic:
+true})` will answer — a third place the node model is interpreted, alongside the
+injector and the stamper.
 
-A prediction that disagrees with the resolver is worse than a missing one: the
-UI offers a control, the designer uses it, and the server refuses. So the flag
-mirrors the resolver guard for guard, and the *same* distinction applies —
-identity against the root's returned expressions, not `path.length === 1`,
-because a returned fragment is transparent and its children are genuine
-siblings:
+There are two because the resolver answers two questions (§5.7). A node the
+editor may not move or delete can still legitimately RECEIVE a child:
 
 ```js
-structuralEditable =
-  scope === 'static' &&           // an iteration/callback body renders N times
-  tag !== '#returns' &&           // the synthetic container itself
-  owner === node &&               // reached through `{…}` — see §5.7
-  !returnedJsx.includes(node)     // a whole return value has no sibling list
+structuralEditable =                // role: 'target' — "insert sibling", "remove"
+  scope === 'static' &&             // an iteration/callback body renders N times
+  tag !== '#returns' &&             // the synthetic container itself
+  owner === node &&                 // reached through `{…}` — see §5.7
+  !returnedJsx.includes(node)       // a whole return value has no sibling list
+
+containerEditable =                 // role: 'container' — "insert child"
+  scope === 'static' &&             // the only guard a container still faces
+  tag !== '#returns'
 ```
 
-Only the first two of these were tested before, and on a four-shape fixture the
-two rules disagreed on **half the nodes** — every single-return root element and
-every `{cond && …}` child read as editable. `extract.test.mjs` now asserts the
-agreement node-by-node over eight shapes rather than trusting the rules to stay
-in step, in the same spirit as the stamper's cross-consumer test.
+A prediction that disagrees with the resolver is worse than a missing one, and
+it can be wrong in **either direction**. Offering a control the server refuses
+is the original failure: only the first two guards were tested once, and on a
+four-shape fixture the rules disagreed on **half the nodes** — every
+single-return root element and every `{cond && …}` child read as editable.
+Withholding a control the server accepts is the mirror, and is what a
+single-flag outline did after `role: 'container'` landed: the commonest
+component shape there is — a returned root element — greyed out "insert child"
+even though the injector would have taken it.
+
+`extract.test.mjs` therefore asserts the agreement node-by-node **for both
+roles** over eight shapes, rather than trusting the rules to stay in step, in
+the same spirit as the stamper's cross-consumer test. Adding a third role
+without a third flag fails there.
 
 `analyzeNodes` also drops **ambiguous** roots, matching `resolveNode`'s
 treatment of a name two JSX-returning functions claim, and returns those names so
 the UI can say *"two components here are called `Row`"* instead of rendering a
 subtree whose every node rejects its first edit.
+
+### 5.11 Maps keyed by consumer identifiers carry no prototype
+
+Every map keyed by an identifier read out of a consumer's source is a
+prototype-pollution surface. `roots.__proto__ = tree` hits the inherited setter
+rather than defining a key, so that component **disappears** with nothing
+reported; and `roots.valueOf` answers with an inherited method — truthy, so a
+caller testing `if (roots[name])` walks a function instead of reporting "no such
+component". Both are silent.
+
+The rule is about **who chooses the key**, not which constructor was used.
+`analyzeClasses`'s `antiPatterns` is built with `Object.fromEntries` and *does*
+carry `Object.prototype`; it is exempt because every key comes from `ANTI_KEYS`,
+a closed vocabulary in our own source that no consumer identifier can reach.
+
+**Enforced by a table, not by convention.** `findJsxRoots` was fixed for this,
+and `analyzeNodes` then copied its entries into a plain `{}` and undid the fix
+one layer down — written by the author who had just added the comment explaining
+the hazard. A helper you must remember to call fails exactly where memory
+already failed, so `test/server/name-keyed-maps.test.mjs` enumerates every
+export returning such a map and asserts the invariant against deliberately
+hostile component names. A new export evades it only by omitting its row, which
+is visible in review; the table's own length is asserted so an empty one cannot
+pass vacuously.
+
+This is a different failure from the drift §5.10 guards — that one is two files
+re-deriving one rule, this one is one file re-keying a map — and they need
+different guards.
+
+### 5.12 Every spliced value is validated, and the alphabet comes from the splice context
+
+This module writes to a file the dev server executes on the next HMR reload, and
+its values arrive from a browser — including, once the agent popover lands, from
+a model. So an unvalidated splice is **code execution**, not cosmetic corruption.
+`renderAttribute` and `applyTokenValue`'s `valueKind` already refuse on that
+basis; the class and text paths did not, and were closed the same way.
+
+The rule that matters is that **each splice context has its own safe alphabet**,
+derived from the parser rather than from taste. There are three, not two — an
+earlier revision of this section listed two and was wrong in a way that left a
+live hole for a release:
+
+| Context | Verified behaviour | Rule |
+| --- | --- | --- |
+| Inside `className="…"` / `'…'` | `className="a{b}c"` parses with 0 errors as a StringLiteral whose `.text` is `a{b}c`. `<`, `>`, `{`, `}` are inert. Only the quote escapes. | Reject whitespace, `"`, `'`, `` ` ``, `\` |
+| Inside ``className={`…`}`` | `classLiteralOf` returns `NoSubstitutionTemplateLiteral` too. `${alert(1)}` carries no quote and no whitespace, so the quoted rule admits it — and it turns the literal into a live `TemplateExpression` at **0 parse errors** | The above, **plus `$`** |
+| Inside JSXText | `{e()}` → `JsxExpression` and `<F/>` → `JsxElement`, both executable at 0 errors; a bare `>` or `}` is a **parse error** | Reject `{`, `}`, `<`, `>` |
+
+The template-literal row is the lesson. The alphabet was derived correctly for
+the double-quoted case and then applied to a delimiter that has an extra escape,
+so `isSafeClassToken` now takes the delimiter as a **required** parameter read
+from the literal being spliced (`original[0]`) — a caller cannot reintroduce the
+hole by forgetting which context it is in.
+
+Tightening in the other direction is equally wrong: applying the JSXText rule to
+class tokens rejects `[&>svg]:size-4`, `[&:not(:first-child)]:border-t` and
+`[&::-webkit-scrollbar]:hidden` — real classes in this repo — while leaving the
+quote untouched. `isSafeClassToken` is therefore deliberately permissive about
+`<`, `>` and braces, and `test/server/inject.test.mjs` asserts both directions:
+a list of real Tailwind shapes must be **accepted**, and `$` must stay legal in
+a quoted literal where it means nothing.
+
+Validation lives in `rewriteClassLiteral`, the chokepoint both halves share, so
+the layout path and the CVA path cannot diverge — and the "create a fresh
+`className`" branch renders through `renderAttribute` rather than interpolating
+a template, for the same reason: one renderer means one escaping rule.
+
+**Names are validated by meaning, not only by shape.** `renderAttribute` proved
+an attribute name was well-formed and a value was a bare dotted reference, which
+is exactly what `dangerouslySetInnerHTML={x.y}` and `onClick={handlers.save}`
+are. `isDangerousAttribute` refuses `on*`, `dangerouslySetInnerHTML` and
+`srcDoc` on both the attribute path and inside inserted subtrees — otherwise the
+denylist is bypassed by inserting the handler instead of setting it.
+
+**Whole statements are validated too.** `insertImport` concatenates its module
+specifier and bindings into source, so bindings go through `isIdent` and the
+module specifier is rejected if it contains anything that would escape its
+quotes. Unvalidated, a module of `./m'; evil(); import './n` wrote an extra
+executable statement. `applyLayoutInsert` parses a fresh snippet standalone and
+requires exactly one JSX element — `verbatim` replay is exempt, and must stay
+exempt, because it restores bytes that were already in the consumer's file.
 
 ---
 

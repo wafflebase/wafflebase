@@ -554,6 +554,18 @@ function buildNode(node, path, ancestorTags, scope, owner, returnedJsx) {
       tag !== '#returns' &&
       owner === node &&
       !returnedJsx.includes(/** @type {ts.Node} */ (node)),
+    // The CONTAINER half of the same prediction, and it is a second flag rather
+    // than a widening of the first because the resolver now answers two
+    // different questions. `role: 'container'` drops the sibling-list guards —
+    // a node the editor may not move or delete can still legitimately RECEIVE a
+    // child — so a returned root and a `{cond && …}` element are
+    // `structuralEditable: false` but `containerEditable: true`.
+    //
+    // Without this the outline greys out "insert child" on the commonest
+    // component shape there is, which is the mirror of the bug §5.10 exists to
+    // prevent: instead of offering a control the server refuses, it withholds
+    // one the server would accept.
+    containerEditable: scope === 'static' && tag !== '#returns',
     repeated: scope === 'iteration',
     // Intrinsic elements always receive a stamped `data-*`. A component only
     // does if it spreads `{...props}`, which we cannot know from this file — so
