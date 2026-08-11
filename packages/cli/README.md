@@ -116,7 +116,9 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Errors**: a single JSON line on stderr —
   `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
-  command-specific `code` agents can branch on; everything else
+  command-specific `code` agents can branch on; argument-parsing
+  failures (missing argument, unknown option, unknown command) report
+  `USAGE`; everything else
   reports `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error (network, auth).
