@@ -367,6 +367,156 @@ describe('applyLayoutRemove', () => {
   });
 });
 
+// --- hostile input ---------------------------------------------------------
+
+/**
+ * `renderAttribute` already refuses an unguarded value, and its comment names
+ * the reason: what lands in the file is executed by the next HMR reload, so an
+ * unguarded splice is code execution in a dev server. The class and text paths
+ * bypassed that guard. These pin them shut.
+ *
+ * The two contexts get DIFFERENT rules, because the parser gives them different
+ * hazards, and conflating them is the trap here:
+ *
+ *   inside className="…"   `a{b}c` is a StringLiteral with .text `a{b}c` —
+ *                          `{`, `}`, `<`, `>` are inert. Only `"` escapes.
+ *   inside JSXText         `{e()}` → JsxExpression and `<F/>` → JsxElement,
+ *                          both executable; `>` and `}` are parse errors.
+ *
+ * So text refuses all four, and classes refuse only quotes and whitespace. A
+ * class rule that also refused `<`/`>`/braces would reject `[&>svg]:size-4` —
+ * real, and used in this repo — while leaving the quote hole open. The
+ * "accepts real Tailwind" test below is what stops that from being tightened
+ * into uselessness by a later well-meaning pass.
+ */
+describe('hostile values are refused before they reach the file', () => {
+  const EVIL = 'x" onMouseOver={fetch(`//evil`)} y="';
+
+  it('refuses a class token that would break out of the quoted literal', () => {
+    const src = `function C() { return <div className="p-4"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: [EVIL] },
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/rejected unsafe class tokens/);
+    expect(r.text).toBe(src);
+  });
+
+  it('refuses it on the CREATE path too, where no className exists yet', () => {
+    // This branch used to interpolate ` className="${additions.join(' ')}"` by
+    // hand rather than calling `renderAttribute`, so it accepted what the
+    // attribute path refused — and wrote a live event handler onto the element.
+    const src = `function C() { return <div><Row/></div>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'Row'),
+      classOps: { additions: [EVIL] },
+    });
+    expect(r.located).toBe(false);
+    expect(r.text).toBe(src);
+    expect(r.text).not.toContain('onMouseOver');
+  });
+
+  it('the refusal stops EXECUTABLE code, not merely a messy string', () => {
+    // Positive control first: spliced in, this value is not ugly-but-inert. It
+    // parses with ZERO errors as a real event handler — which is what makes the
+    // guard load-bearing rather than cosmetic, and what a test asserting only
+    // on `reason` would never establish.
+    const injected = `function C() { return <div className="p-4 ${EVIL}"/>; }`;
+    expect(parse(injected, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+    expect(injected).toContain('onMouseOver={fetch(`//evil`)}');
+
+    const src = `function C() { return <div className="p-4"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: [EVIL] },
+    });
+    expect(r.text).toBe(src);
+    expect(r.text).not.toContain('onMouseOver');
+  });
+
+  it('refuses class tokens carrying whitespace or a stray quote', () => {
+    const src = `function C() { return <div className="p-4"/>; }`;
+    for (const token of ['a b', "a'b", 'a`b', 'a\\b', '']) {
+      const r = applyLayoutProps(src, {
+        anchor: anchorFor(src, 'div'),
+        classOps: { additions: [token] },
+      });
+      expect(r.located).toBe(false);
+      expect(r.text).toBe(src);
+    }
+  });
+
+  it('ACCEPTS every real Tailwind shape, including the ones with < > and braces', () => {
+    // Harvested from packages/frontend. If a later tightening of the class rule
+    // rejects one of these, the editor can no longer add the commonest shadcn
+    // utilities — which is a worse outcome than the bug the rule guards.
+    const src = `function C() { return <div className="p-4"/>; }`;
+    const real = [
+      '[&>svg]:size-4',
+      '[&:not(:first-child)]:border-t',
+      '[&::-webkit-scrollbar]:hidden',
+      '[&>span:last-child]:truncate',
+      'supports-[display:grid]:grid',
+      'data-[state=open]:bg-accent',
+      'grid-cols-[repeat(auto-fill,minmax(0,1fr))]',
+      'bg-[#1da1f2]',
+      'w-1/2',
+      'p-2.5',
+      '!font-bold',
+      'hover:bg-red-500',
+    ];
+    for (const cls of real) {
+      const r = applyLayoutProps(src, {
+        anchor: anchorFor(src, 'div'),
+        classOps: { additions: [cls] },
+      });
+      expect(r.located, `${cls} was refused`).toBe(true);
+      expect(r.text).toContain(cls);
+    }
+  });
+
+  it('treats a replacement literally instead of as a substitution pattern', () => {
+    // `String.prototype.replace` reads `$&` out of a STRING replacement, so this
+    // used to write `text-sm-text-sm`. A function replacer has no such grammar.
+    const src = `function C() { return <div className="text-sm"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { replacements: [{ from: 'text-sm', to: '$&-$&' }] },
+    });
+    expect(r.located).toBe(true);
+    expect(r.text).toContain('className="$&-$&"');
+    expect(r.text).not.toContain('text-sm-text-sm');
+  });
+
+  it('refuses text that would become a JSX expression or element', () => {
+    const src = `function C() {\n  return (\n    <p>\n      hello\n    </p>\n  );\n}\n`;
+    for (const text of ['{fetch(`//evil`)}', '<Foo/>', 'a > b', 'a } b']) {
+      const r = applyLayoutProps(src, { anchor: anchorFor(src, 'p'), text });
+      expect(r.located, `${text} was accepted`).toBe(false);
+      expect(r.reason).toMatch(/rejected text containing JSX syntax/);
+      expect(r.text).toBe(src);
+    }
+  });
+
+  it('still accepts ordinary prose, apostrophes and ampersands included', () => {
+    const src = `function C() {\n  return (\n    <p>\n      hello\n    </p>\n  );\n}\n`;
+    for (const text of ["it's fine", 'Tom & Jerry', 'plain text']) {
+      const r = applyLayoutProps(src, { anchor: anchorFor(src, 'p'), text });
+      expect(r.located, `${text} was refused`).toBe(true);
+      expect(r.text).toContain(text);
+      expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+    }
+  });
+
+  it('refuses an all-whitespace snippet instead of reporting a successful insert', () => {
+    const r = applyLayoutInsert(SCENE, { parent: anchorFor(SCENE, 'div'), index: 1, raw: '   ' });
+    expect(r.located).toBe(false);
+    expect(r.reason).toBe('snippet is empty');
+    expect(r.text).toBe(SCENE);
+  });
+});
+
 // --- imports ---------------------------------------------------------------
 
 describe('insertImport', () => {
@@ -404,6 +554,71 @@ describe('insertImport', () => {
   it('refuses a namespace import rather than reshaping it', () => {
     const src = `import * as M from './m';\n`;
     const r = insertImport(src, { module: './m', named: ['B'] });
+    expect(r.located).toBe(false);
+    expect(r.reason).toBe('unsupported import form');
+    expect(r.text).toBe(src);
+  });
+
+  it('inserts into an EMPTY named group without a leading comma', () => {
+    // `import {} from './m'` is legal input with no element for a new name to
+    // follow. The comma-first splice used for a populated group emitted
+    // `import {, B }`, which does not parse — so the check is the parser, not
+    // just the string.
+    const src = `import {} from './m';\n\nconst x = 1;\n`;
+    const r = insertImport(src, { module: './m', named: ['B'] });
+    expect(r.located).toBe(true);
+    expect(r.text).toContain(`import { B } from './m';`);
+    expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('adds a missing DEFAULT binding to an existing named-only import', () => {
+    // "an import for this module exists" is not "already imported". Answering
+    // `already imported` to this left the caller without the binding it asked
+    // for, and a missing import breaks the consumer's build.
+    const src = `import { useState } from 'react';\n`;
+    const r = insertImport(src, { module: 'react', default: 'React' });
+    expect(r.located).toBe(true);
+    expect(r.text).toContain(`import React, { useState } from 'react';`);
+    expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('adds a default and a named binding in one call', () => {
+    const src = `import { useState } from 'react';\n`;
+    const r = insertImport(src, { module: 'react', default: 'React', named: ['useEffect'] });
+    expect(r.located).toBe(true);
+    expect(r.text).toContain(`import React, { useState, useEffect } from 'react';`);
+    expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('is a no-op when the requested default is already the one bound', () => {
+    const src = `import React from 'react';\n`;
+    const r = insertImport(src, { module: 'react', default: 'React' });
+    expect(r.located).toBe(false);
+    expect(r.reason).toBe('already imported');
+    expect(r.text).toBe(src);
+  });
+
+  it('refuses a default that would displace a different existing one', () => {
+    const src = `import Preact from 'react';\n`;
+    const r = insertImport(src, { module: 'react', default: 'React' });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/different default binding \(Preact\)/);
+    expect(r.text).toBe(src);
+  });
+
+  it('refuses to add a named group beside `default, * as ns`', () => {
+    // Appending `, { A }` after the default would have produced
+    // `import D, { A }, * as M` — three clauses, which does not parse.
+    const src = `import D, * as M from './m';\n`;
+    const r = insertImport(src, { module: './m', named: ['A'] });
+    expect(r.located).toBe(false);
+    expect(r.reason).toBe('unsupported import form');
+    expect(r.text).toBe(src);
+  });
+
+  it('refuses to extend a side-effect import', () => {
+    const src = `import './m';\n`;
+    const r = insertImport(src, { module: './m', default: 'M' });
     expect(r.located).toBe(false);
     expect(r.reason).toBe('unsupported import form');
     expect(r.text).toBe(src);

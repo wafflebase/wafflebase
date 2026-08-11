@@ -963,6 +963,36 @@ This is a different failure from the drift §5.10 guards — that one is two fil
 re-deriving one rule, this one is one file re-keying a map — and they need
 different guards.
 
+### 5.12 Every spliced value is validated, and the alphabet comes from the splice context
+
+This module writes to a file the dev server executes on the next HMR reload, and
+its values arrive from a browser — including, once the agent popover lands, from
+a model. So an unvalidated splice is **code execution**, not cosmetic corruption.
+`renderAttribute` and `applyTokenValue`'s `valueKind` already refuse on that
+basis; the class and text paths did not, and were closed the same way.
+
+The rule that matters is that **the two splice contexts have different safe
+alphabets**, derived from the parser rather than from taste:
+
+| Context | Verified behaviour | Rule |
+| --- | --- | --- |
+| Inside `className="…"` | `className="a{b}c"` parses with 0 errors as a StringLiteral whose `.text` is `a{b}c`. `<`, `>`, `{`, `}` are inert. Only `"` escapes the literal. | Reject whitespace, `"`, `'`, `` ` ``, `\` — nothing else |
+| Inside JSXText | `{e()}` → `JsxExpression` and `<F/>` → `JsxElement`, both executable at 0 errors; a bare `>` or `}` is a **parse error** | Reject `{`, `}`, `<`, `>` |
+
+Applying the text rule to class tokens looks safer and is strictly worse: it
+rejects `[&>svg]:size-4`, `[&:not(:first-child)]:border-t` and
+`[&::-webkit-scrollbar]:hidden` — real classes in this repo — while leaving the
+quote, the only character that actually escapes, untouched. `isSafeClassToken`
+is therefore deliberately permissive about `<`, `>` and braces, and
+`test/server/inject.test.mjs` asserts a list of real Tailwind shapes are
+**accepted** so a later well-meaning tightening fails loudly instead of quietly
+disabling the editor's commonest operation.
+
+Validation lives in `rewriteClassLiteral`, the chokepoint both halves share, so
+the layout path and the CVA path cannot diverge — and the "create a fresh
+`className`" branch renders through `renderAttribute` rather than interpolating
+a template, for the same reason: one renderer means one escaping rule.
+
 ---
 
 ## 6. Architecture decisions & the "why"

@@ -89,6 +89,39 @@ const tokenRe = (token, flags = '') =>
   new RegExp(`(?<=[\\s"'\`])${escapeRe(token)}(?=[\\s"'\`])`, flags);
 
 /**
+ * Is `token` safe to splice into a quoted `className` literal?
+ *
+ * The alphabet comes from the SPLICE CONTEXT, not from what Tailwind happens to
+ * emit. Inside `className="…"` every character is literal — checked against the
+ * parser rather than assumed: `className="a{b}c"` parses with zero errors as a
+ * StringLiteral whose `.text` is `a{b}c`, and `<`, `>`, `{`, `}` are all inert
+ * there. The ONLY character that escapes the quoted context is the quote.
+ *
+ * So this rejects exactly what can do harm, and nothing else:
+ *
+ *   - `"` — closes the literal. `x" onMouseOver={fetch(...)} y="` then parses as
+ *     a REAL event handler (verified: 0 parse errors, `kind=JsxExpression`).
+ *     This module writes to disk and the dev server executes what lands there,
+ *     so that is code execution, not cosmetic corruption. It is the same hole
+ *     `renderAttribute` already refuses; the class path simply bypassed it.
+ *   - `'` and a backtick — `tokenRe`'s boundary class. A token carrying one
+ *     matches at boundaries the caller never meant.
+ *   - whitespace — one "token" holding several smuggles the extras past every
+ *     per-token check, this one included.
+ *   - `\` — never legitimate here, and the escape lead-in for anything that
+ *     re-quotes this text downstream.
+ *
+ * Everything else is ALLOWED, deliberately. `[&>svg]:size-4`,
+ * `[&:not(:first-child)]:border-t` and `[&::-webkit-scrollbar]:hidden` are real
+ * classes in this repo. A rule that also rejected `<`, `>` or braces would be
+ * safe and useless: it would block the commonest shadcn utilities while leaving
+ * the actual hole — the quote — open.
+ *
+ * @param {string} token
+ */
+const isSafeClassToken = (token) => token.length > 0 && !/["'`\\\s]/.test(token);
+
+/**
  * Delete one class token from a quoted class literal, collapsing exactly one
  * adjacent space so the result never grows a double space or a space just
  * inside the quotes. Returns null when the token isn't present.
@@ -134,27 +167,51 @@ function addClassToken(text, token) {
  *
  * `applied` counts operations that changed something; `missing` names the ones
  * that found nothing to act on, so a caller can report a partial result rather
- * than claiming success.
+ * than claiming success. `rejected` names the ones refused by
+ * `isSafeClassToken` — kept separate from `missing` because "you may not write
+ * that" and "that class is not here" are different answers for the UI.
+ *
+ * EVERY class token is validated here, on the way in. This is the chokepoint
+ * both halves share, so one guard covers the layout path and the CVA path; a
+ * check at each call site is the arrangement that already failed once, in the
+ * re-keying hazard `test/server/name-keyed-maps.test.mjs` exists to prevent.
  *
  * @param {string} original  The literal's source text, quotes included.
  * @param {{replacements?: {from: string, to: string}[], additions?: string[],
  *          removals?: string[]}} ops
- * @returns {{applied: number, text: string, missing: string[]}}
+ * @returns {{applied: number, text: string, missing: string[], rejected: string[]}}
  */
 function rewriteClassLiteral(original, { replacements = [], additions = [], removals = [] }) {
   let updated = original;
   let applied = 0;
   /** @type {string[]} */
   const missing = [];
+  /** @type {string[]} */
+  const rejected = [];
+  /** Record and refuse an unsafe token. @param {string} t */
+  const safe = (t) => {
+    if (isSafeClassToken(t)) return true;
+    rejected.push(t);
+    return false;
+  };
   for (const { from, to } of replacements) {
+    // `from` is only ever a search pattern and `to` is the only one spliced,
+    // but both are checked: a `from` carrying whitespace builds a matcher that
+    // spans two tokens and deletes a neighbour the caller never named.
+    if (!safe(from) || !safe(to)) continue;
     if (!tokenRe(from).test(updated)) {
       missing.push(from);
       continue;
     }
-    updated = updated.replace(tokenRe(from, 'g'), to);
+    // The replacement is a FUNCTION, not a string: `String.prototype.replace`
+    // reads `$&`, `` $` ``, `$'` and `$1` out of a string replacement, so a
+    // `to` of `$&-$&` silently produced `text-sm-text-sm`. A function replacer
+    // has no substitution grammar, so `to` lands verbatim.
+    updated = updated.replace(tokenRe(from, 'g'), () => to);
     applied++;
   }
   for (const token of removals) {
+    if (!safe(token)) continue;
     let next = removeClassToken(updated, token);
     if (next === null) {
       missing.push(token);
@@ -168,6 +225,7 @@ function rewriteClassLiteral(original, { replacements = [], additions = [], remo
     applied++;
   }
   for (const token of additions) {
+    if (!safe(token)) continue;
     const next = addClassToken(updated, token);
     if (next === null) {
       missing.push(token);
@@ -176,7 +234,7 @@ function rewriteClassLiteral(original, { replacements = [], additions = [], remo
     updated = next;
     applied++;
   }
-  return { applied, text: updated, missing };
+  return { applied, text: updated, missing, rejected };
 }
 
 /**
@@ -377,7 +435,8 @@ export function applyLayoutProps(fileText, intent) {
     const lit = classLiteralOf(node);
     if (lit) {
       const original = lit.getText(sf); // quotes included
-      const { applied: n, text, missing } = rewriteClassLiteral(original, intent.classOps);
+      const { applied: n, text, missing, rejected } = rewriteClassLiteral(original, intent.classOps);
+      if (rejected.length) notes.push(`rejected unsafe class tokens: ${rejected.join(', ')}`);
       if (n === 0) notes.push(`no matching classes: ${missing.join(', ')}`);
       else {
         splices.push({ start: lit.getStart(sf), end: lit.getEnd(), text });
@@ -402,13 +461,27 @@ export function applyLayoutProps(fileText, intent) {
       // but nothing to lose either: create a fresh attribute from `additions`
       // alone (there is no existing blob for `replacements`/`removals` to act
       // on), the same "append after the tag name" splice the `sets` loop uses.
-      const additions = intent.classOps.additions ?? [];
+      //
+      // The attribute is rendered by `renderAttribute`, not by interpolating
+      // into a template here. Hand-rolling ` className="${…}"` was the same
+      // splice `renderAttribute` exists to perform safely, and it accepted a
+      // token carrying a quote — writing a live `onLoad={…}` handler onto the
+      // element. One renderer means the escaping rule cannot differ by path.
+      const requested = intent.classOps.additions ?? [];
+      const additions = requested.filter(isSafeClassToken);
+      const unsafe = requested.filter((t) => !isSafeClassToken(t));
+      if (unsafe.length) notes.push(`rejected unsafe class tokens: ${unsafe.join(', ')}`);
       const tagName = tagNameOf(node);
       if (additions.length && tagName) {
         const tagEnd = tagName.getEnd();
-        splices.push({ start: tagEnd, end: tagEnd, text: ` className="${additions.join(' ')}"` });
-        applied += additions.length;
-      } else {
+        const rendered = renderAttribute('className', additions.join(' '), 'string');
+        if (rendered === null) {
+          notes.push('could not render a className attribute');
+        } else {
+          splices.push({ start: tagEnd, end: tagEnd, text: ` ${rendered}` });
+          applied += additions.length;
+        }
+      } else if (!unsafe.length) {
         notes.push('no className attribute to remove classes from');
       }
     }
@@ -454,7 +527,16 @@ export function applyLayoutProps(fileText, intent) {
 
   // --- text: replace the node's direct JSXText ---
   if (intent.text != null) {
-    if (!ts.isJsxElement(node)) {
+    // JSXText has a WIDER hazard than a quoted attribute value, and the guard
+    // differs accordingly — the two contexts are not interchangeable. Verified
+    // against the parser: `{expr()}` becomes a JsxExpression and `<Foo/>` a
+    // JsxElement (both executable, 0 parse errors), while a bare `>` or `}`
+    // yields a parse error and breaks the consumer's build. All four are
+    // refused. Escaping to `&gt;`/`{'}'}` would also work but silently rewrites
+    // what the designer typed; refusing says so.
+    if (/[{}<>]/.test(intent.text)) {
+      notes.push('rejected text containing JSX syntax ({, }, < or >)');
+    } else if (!ts.isJsxElement(node)) {
       notes.push('a self-closing element has no text to replace');
     } else {
       const texts = node.children.filter((c) => ts.isJsxText(c) && c.text.trim());
@@ -556,6 +638,14 @@ export function applyLayoutInsert(fileText, intent) {
   if (intent.verbatim) {
     snippet = intent.raw;
   } else {
+    // An all-whitespace snippet has nothing to indent and nothing to insert: it
+    // used to report `located: true` after splicing a bare newline, which reads
+    // to the client as a successful insert and leaves the file dirty with no
+    // element to show for it. `verbatim` is exempt — a captured span is
+    // whitespace-significant by definition.
+    if (!intent.raw.trim()) {
+      return { located: false, text: fileText, reason: 'snippet is empty' };
+    }
     const lines = intent.raw.replace(/\s+$/, '').split(/\r?\n/);
     const base = Math.min(
       ...lines.filter((l) => l.trim()).map((l) => /^[ \t]*/.exec(l)?.[0].length ?? 0),
@@ -690,23 +780,74 @@ export function insertImport(fileText, spec) {
   if (target) {
     const clause = target.importClause;
     const nb = clause?.namedBindings;
-    if (!wantNamed.length) return { located: false, text: fileText, reason: 'already imported' };
-    if (nb && ts.isNamedImports(nb)) {
-      const have = new Set(nb.elements.map((e) => e.name.getText()));
-      const add = wantNamed.filter((n) => !have.has(n));
-      if (!add.length) return { located: false, text: fileText, reason: 'already imported' };
-      const last = nb.elements[nb.elements.length - 1];
-      const at = last ? last.getEnd() : nb.getStart(sf) + 1;
-      return { located: true, text: spliceSpan(fileText, at, at, `, ${add.join(', ')}`) };
+    // The two bindings are decided INDEPENDENTLY and spliced together. Treating
+    // "an import for this module exists" as "already imported" answered
+    // `located: false, 'already imported'` to a request for a default binding
+    // the file did not have — a refusal that reads as a no-op, so the caller
+    // omits an import it needs and the consumer's build breaks.
+    /** @type {{start: number, end: number, text: string}[]} */
+    const splices = [];
+
+    if (spec.default) {
+      if (clause?.name) {
+        const existing = clause.name.getText();
+        if (existing !== spec.default) {
+          return {
+            located: false,
+            text: fileText,
+            reason: `module already has a different default binding (${existing})`,
+          };
+        }
+      } else if (clause) {
+        // `import { A } from 'm'` / `import * as X from 'm'` — a default may sit
+        // in front of either form.
+        const at = clause.getStart(sf);
+        splices.push({ start: at, end: at, text: `${spec.default}, ` });
+      } else {
+        // `import 'm'` — a side-effect import has no clause to extend.
+        return { located: false, text: fileText, reason: 'unsupported import form' };
+      }
     }
-    // Default-only import: add a named group after it.
-    if (clause?.name) {
-      const at = clause.name.getEnd();
-      return { located: true, text: spliceSpan(fileText, at, at, `, { ${wantNamed.join(', ')} }`) };
+
+    if (wantNamed.length) {
+      if (nb && ts.isNamedImports(nb)) {
+        const have = new Set(nb.elements.map((e) => e.name.getText()));
+        const add = wantNamed.filter((n) => !have.has(n));
+        if (add.length) {
+          const last = nb.elements[nb.elements.length - 1];
+          if (last) {
+            const at = last.getEnd();
+            splices.push({ start: at, end: at, text: `, ${add.join(', ')}` });
+          } else {
+            // `import {} from 'm'` — an EMPTY group is legal input, and it has
+            // no element for a new name to follow. The comma-first splice used
+            // for a populated group emitted `import {, B }`, which does not
+            // parse. Sit just inside the brace instead, with no comma.
+            const at = nb.getStart(sf) + 1;
+            splices.push({ start: at, end: at, text: ` ${add.join(', ')} ` });
+          }
+        }
+      } else if (nb) {
+        // A namespace import (`import * as X`) has no named group to merge into;
+        // reshaping it is not this function's call. This also covers
+        // `import D, * as X`, where appending `, { A }` after the default would
+        // have produced the illegal `import D, { A }, * as X`.
+        return { located: false, text: fileText, reason: 'unsupported import form' };
+      } else if (clause?.name) {
+        // Default-only import: add a named group after it.
+        const at = clause.name.getEnd();
+        splices.push({ start: at, end: at, text: `, { ${wantNamed.join(', ')} }` });
+      } else {
+        return { located: false, text: fileText, reason: 'unsupported import form' };
+      }
     }
-    // A namespace import (`import * as X`) has no named group to merge into and
-    // no default to sit beside; reshaping it is not this function's call.
-    return { located: false, text: fileText, reason: 'unsupported import form' };
+
+    if (!splices.length) return { located: false, text: fileText, reason: 'already imported' };
+    let out = fileText;
+    for (const s of splices.sort((a, b) => b.start - a.start)) {
+      out = spliceSpan(out, s.start, s.end, s.text);
+    }
+    return { located: true, text: out };
   }
 
   const parts = [];
