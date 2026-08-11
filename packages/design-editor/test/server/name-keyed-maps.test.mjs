@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { analyzeClasses, analyzeNodes, analyzeScene } from '../../src/server/extract.mjs';
+import { readSemanticBindings } from '../../src/server/inject.mjs';
 import { findJsxRoots, parse } from '../../src/server/jsx-nodes.mjs';
 
 /**
@@ -44,34 +45,69 @@ function fixture(src) {
   return p;
 }
 
-/** Source whose component names collide with `Object.prototype` members. */
+/** Source whose COMPONENT names collide with `Object.prototype` members. */
 const HOSTILE = `
   function toString() { return <div/>; }
   function valueOf() { return <span/>; }
   function __proto__() { return <b/>; }
 `;
 
+/** The same hazard reached through TOKEN names instead of component names. */
+const HOSTILE_TOKENS = `
+type SemanticColorMap = { toString: string; };
+export const light: SemanticColorMap = {
+  toString: '#111',
+  valueOf: '#222',
+  __proto__: '#333',
+};
+export const dark: SemanticColorMap = {
+  toString: '#444',
+  valueOf: '#555',
+  __proto__: '#666',
+};
+`;
+
+const HOSTILE_KEYS = ['__proto__', 'toString', 'valueOf'];
+
 /**
- * Every export that returns a map keyed by identifiers from consumer source.
- * One row per such map. `get` returns the map from a call on HOSTILE input.
+ * Every export returning a map keyed by identifiers from consumer source. One
+ * row per map; `keys` is what that map should contain for the hostile input.
+ *
+ * NOT listed, for the same reason `antiPatterns` is exempt: the OUTER
+ * `readSemanticBindings().bindings` map is keyed by `light`/`dark`, which are
+ * names from our own source, not the consumer's. Its inner maps are the ones a
+ * consumer's token names reach, and those are listed.
  */
 const NAME_KEYED = [
   {
     what: 'findJsxRoots().roots',
     get: () => findJsxRoots(parse(HOSTILE, 'x.tsx')).roots,
+    keys: HOSTILE_KEYS,
   },
   {
     what: 'analyzeNodes().roots',
     get: () => analyzeNodes(fixture(HOSTILE)).roots,
+    keys: HOSTILE_KEYS,
   },
   {
     what: 'analyzeScene().roots',
     get: () => analyzeScene(fixture(HOSTILE), { id: 's', kind: 'dom', label: 'S' }).roots,
+    keys: HOSTILE_KEYS,
+  },
+  {
+    what: 'readSemanticBindings().bindings.light',
+    get: () => readSemanticBindings(HOSTILE_TOKENS).bindings.light,
+    keys: HOSTILE_KEYS,
+  },
+  {
+    what: 'readSemanticBindings().bindings.dark',
+    get: () => readSemanticBindings(HOSTILE_TOKENS).bindings.dark,
+    keys: HOSTILE_KEYS,
   },
 ];
 
 describe('maps keyed by consumer identifiers carry no prototype', () => {
-  for (const { what, get } of NAME_KEYED) {
+  for (const { what, get, keys } of NAME_KEYED) {
     it(`${what} has a null prototype`, () => {
       expect(Object.getPrototypeOf(get())).toBeNull();
     });
@@ -80,7 +116,7 @@ describe('maps keyed by consumer identifiers carry no prototype', () => {
       const map = get();
       // `__proto__` is the sharp one: on a plain `{}` the assignment hits the
       // inherited setter, so the component disappears from `Object.keys`.
-      expect(Object.keys(map).sort()).toEqual(['__proto__', 'toString', 'valueOf']);
+      expect(Object.keys(map).sort()).toEqual([...keys].sort());
     });
 
     it(`${what} reports an absent name as absent, not as an inherited method`, () => {
@@ -116,7 +152,7 @@ describe('the table itself', () => {
     // Guards the guard. If a new name-keyed export lands without a row, the
     // count is the reminder — and the count is asserted rather than trusted
     // because an empty table would make every loop above pass vacuously.
-    expect(NAME_KEYED).toHaveLength(3);
+    expect(NAME_KEYED).toHaveLength(5);
     for (const { get } of NAME_KEYED) expect(Object.keys(get()).length).toBeGreaterThan(0);
   });
 });

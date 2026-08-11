@@ -320,21 +320,745 @@ function removeNodeLine(fileText, sf, node) {
 }
 
 // ---------------------------------------------------------------------------
-// TOKEN MUTATION — lands in the following PR.
+// TOKEN MUTATION — the token pipeline, addressed by names that exist in source.
 //
-// `applyClassRewrite` (CVA value literals), `applyTokenValue` (a token's value),
-// the introspection readers, semantic-token creation/removal, and the Tailwind
-// `@theme inline` alias maintenance.
+// Every op here is located by a name the author wrote (`cvaName`, `constName`, a
+// CSS custom property) rather than by a `NodeAnchor`, so this half never touches
+// the child-numbering model. That is the seam the two-PR split follows: this is
+// reviewable against the token-file contract alone.
 //
-// Split out rather than held back: that half is addressed by names that exist in
-// the source (`cvaName`, `constName`, a CSS custom property) and never touches
-// the node model, so it is reviewable against the token-file contract alone.
-// This half is reviewable against the child-numbering contract alone. Reviewing
-// ~2,800 lines against both at once is what the split avoids.
-//
-// It reuses `rewriteClassLiteral`, `removeNodeLine` and `indentOf` above, which
-// is why those sit in the shared section rather than travelling with it.
+// It reuses `rewriteClassLiteral`, `removeNodeLine`, `indentOf` and `tokenRe`
+// from the shared section above, which is why those do not travel with it.
 // ---------------------------------------------------------------------------
+
+/**
+ * Find `const <cvaName> = cva(...)` and return the CallExpression.
+ *
+ * @param {ts.SourceFile} sf
+ * @param {string} cvaName
+ * @returns {ts.CallExpression | null}
+ */
+function findCvaCall(sf, cvaName) {
+  /** @type {ts.CallExpression | null} */
+  let found = null;
+  /** @param {ts.Node} n */
+  const visit = (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      n.name.getText(sf) === cvaName &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      n.initializer.expression.getText(sf) === 'cva'
+    ) {
+      found = n.initializer;
+    }
+    if (!found) ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/**
+ * Navigate an object literal by property name, returning the initializer node.
+ *
+ * @param {ts.Node | null | undefined} objExpr
+ * @param {string} key
+ * @returns {ts.Expression | null}
+ */
+function getProp(objExpr, key) {
+  if (!objExpr || !ts.isObjectLiteralExpression(objExpr)) return null;
+  for (const p of objExpr.properties) {
+    if (
+      ts.isPropertyAssignment(p) &&
+      p.name &&
+      p.name.getText().replace(/^["']|["']$/g, '') === key
+    ) {
+      return p.initializer;
+    }
+  }
+  return null;
+}
+
+/**
+ * The PropertyAssignment node for `key` (not its initializer) — what a REMOVE
+ * needs, since deleting the initializer alone would leave a dangling `key:`.
+ *
+ * @param {ts.Node | null | undefined} objExpr
+ * @param {string} key
+ * @returns {ts.PropertyAssignment | null}
+ */
+function findPropAssignment(objExpr, key) {
+  if (!objExpr || !ts.isObjectLiteralExpression(objExpr)) return null;
+  for (const p of objExpr.properties) {
+    if (
+      ts.isPropertyAssignment(p) &&
+      p.name &&
+      p.name.getText().replace(/^["']|["']$/g, '') === key
+    ) {
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * Locate the string-literal node holding a CVA value's classes.
+ * `value === '__base__'` targets the base (first) argument.
+ *
+ * @param {ts.SourceFile} sf
+ * @param {string} cvaName
+ * @param {string} axis
+ * @param {string} value
+ * @returns {ts.Expression | null}
+ */
+function findClassLiteral(sf, cvaName, axis, value) {
+  const call = findCvaCall(sf, cvaName);
+  if (!call) return null;
+  if (value === '__base__') return call.arguments[0] ?? null;
+
+  const config = call.arguments[1];
+  const variants = getProp(config, 'variants');
+  const axisObj = getProp(variants, axis);
+  return getProp(axisObj, value);
+}
+
+/**
+ * Rewrite the class tokens inside ONE CVA value literal.
+ *
+ * Shares `rewriteClassLiteral` with `applyLayoutProps`: they are the same
+ * user-visible operation reached from two panels, and two definitions of
+ * class-token semantics would drift into behaving differently.
+ *
+ * @param {string} fileText
+ * @param {{cvaName: string, axis?: string, value: string,
+ *          replacements?: {from: string, to: string}[], additions?: string[],
+ *          removals?: string[]}} intent
+ * @returns {InjectResult}
+ */
+export function applyClassRewrite(fileText, intent) {
+  const { cvaName, axis, value } = intent;
+  const sf = parse(fileText);
+  const node = findClassLiteral(sf, cvaName, axis ?? '', value);
+  if (!node) {
+    return {
+      located: false,
+      text: fileText,
+      reason: `could not locate ${cvaName}.${axis}.${value}`,
+    };
+  }
+
+  const original = node.getText(sf); // includes surrounding quotes
+  if (!/["'`]$/.test(original)) {
+    return {
+      located: false,
+      text: fileText,
+      reason: `${cvaName}.${value} is not a plain string literal`,
+    };
+  }
+
+  const { applied, text: updated, missing, rejected } = rewriteClassLiteral(original, intent);
+  // The guard lives in `rewriteClassLiteral`, so this path is already SAFE — an
+  // unsafe token never reaches the splice. Surfacing `rejected` is about the
+  // ANSWER: without it a refused token reported `no matching classes: ` with an
+  // empty list, which reads as "that class was not there" instead of "you may
+  // not write that", and the designer retries the same edit forever.
+  if (rejected.length) {
+    return {
+      located: false,
+      text: fileText,
+      reason: `rejected unsafe class tokens: ${rejected.join(', ')}`,
+    };
+  }
+  if (applied === 0) {
+    return { located: false, text: fileText, reason: `no matching classes: ${missing.join(', ')}` };
+  }
+  return { located: true, text: spliceSpan(fileText, node.getStart(sf), node.getEnd(), updated) };
+}
+
+/**
+ * Find `const <name> = <objectLiteral>` and return the object literal.
+ *
+ * @param {ts.SourceFile} sf
+ * @param {string} name
+ * @returns {ts.ObjectLiteralExpression | null}
+ */
+function findConstObject(sf, name) {
+  /** @type {ts.ObjectLiteralExpression | null} */
+  let found = null;
+  /** @param {ts.Node} n */
+  const visit = (n) => {
+    if (ts.isVariableDeclaration(n) && n.name.getText(sf) === name && n.initializer) {
+      let init = n.initializer;
+      // `const light: SemanticColorMap = {…}` — unwrap the assertion forms too.
+      if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) init = init.expression;
+      if (ts.isObjectLiteralExpression(init)) found = init;
+    }
+    if (!found) ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/** Quote a value as a single-quoted TS string literal. @param {string} value */
+const quoteLiteral = (value) =>
+  `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+/**
+ * Replace a nested object-property initializer.
+ *
+ * `valueKind` is the design-system-integrity rule, not a formatting choice:
+ *
+ *   - `'literal'` (default) — a quoted string, `'#B865aa'`. Right for a raw
+ *     value (a palette leaf, a semantic neutral).
+ *   - `'expression'` — verbatim and UNQUOTED, `palette.butter`. This is what
+ *     keeps a semantic token BOUND to the palette. Always writing a literal
+ *     severs that link and leaves every other palette consumer on the old
+ *     color, so the single source of truth diverges silently.
+ *
+ * Only a bare dotted `palette.<key>` reference is accepted, for the same reason
+ * `renderAttribute` guards its expression kind: the value arrives from a browser
+ * and is spliced into a file the dev server executes.
+ *
+ * @param {string} fileText
+ * @param {{constName: string, path: string[], value: string,
+ *          valueKind?: 'literal'|'expression'}} intent
+ * @returns {InjectResult}
+ */
+export function applyTokenValue(fileText, intent) {
+  const { constName, path, value, valueKind = 'literal' } = intent;
+  const sf = parse(fileText);
+  let obj = findConstObject(sf, constName);
+  if (!obj) return { located: false, text: fileText, reason: `const ${constName} not found` };
+
+  /** @type {ts.Expression | null} */
+  let target = null;
+  for (let i = 0; i < path.length; i++) {
+    const init = getProp(obj, path[i]);
+    if (!init) {
+      return {
+        located: false,
+        text: fileText,
+        reason: `property ${path.slice(0, i + 1).join('.')} not found`,
+      };
+    }
+    if (i === path.length - 1) {
+      target = init;
+    } else if (ts.isObjectLiteralExpression(init)) {
+      obj = init;
+    } else {
+      return { located: false, text: fileText, reason: `${path[i]} is not an object` };
+    }
+  }
+  if (!target) return { located: false, text: fileText, reason: 'no target' };
+
+  let replacement;
+  if (valueKind === 'expression') {
+    if (!/^palette(\.[a-zA-Z_$][a-zA-Z0-9_$]*)+$/.test(value)) {
+      return { located: false, text: fileText, reason: `invalid palette reference: ${value}` };
+    }
+    replacement = value;
+  } else {
+    replacement = quoteLiteral(value);
+  }
+  return {
+    located: true,
+    text: spliceSpan(fileText, target.getStart(sf), target.getEnd(), replacement),
+  };
+}
+
+// --- Introspection readers -------------------------------------------------
+// Read the CURRENT binding form of each token so the editor can distinguish
+// "bound to the palette" from "raw literal", and enumerate the palette's leaves
+// for the rebind picker.
+
+/**
+ * Flatten a const object's string leaves into `{path, value}` pairs.
+ *
+ * The editor's "current value" comes from SOURCE rather than `getComputedStyle`,
+ * which goes stale the moment a write lands — that staleness is what made saved
+ * values look unsaved.
+ *
+ * @param {string} fileText
+ * @param {string} constName
+ * @returns {{located: boolean, leaves?: {path: string[], value: string}[], reason?: string}}
+ */
+export function readConstLeaves(fileText, constName) {
+  const sf = parse(fileText, `${constName}.ts`);
+  const obj = findConstObject(sf, constName);
+  if (!obj) return { located: false, reason: `const ${constName} not found` };
+  /** @type {{path: string[], value: string}[]} */
+  const leaves = [];
+  /**
+   * @param {ts.ObjectLiteralExpression} node
+   * @param {string[]} path
+   */
+  const walk = (node, path) => {
+    for (const p of node.properties) {
+      if (!ts.isPropertyAssignment(p) || !p.name) continue;
+      const key = p.name.getText(sf).replace(/^["']|["']$/g, '');
+      const init = p.initializer;
+      if (ts.isObjectLiteralExpression(init)) walk(init, [...path, key]);
+      else if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
+        leaves.push({ path: [...path, key], value: init.text });
+      }
+    }
+  };
+  walk(obj, []);
+  return { located: true, leaves };
+}
+
+/**
+ * Classify one semantic-map initializer into a binding descriptor.
+ *
+ * @param {ts.Expression} init
+ * @param {ts.SourceFile} sf
+ * @returns {{kind: string, value?: string, ref?: string}}
+ */
+function classifyInit(init, sf) {
+  if (ts.isStringLiteral(init)) return { kind: 'literal', value: init.text };
+  if (ts.isPropertyAccessExpression(init)) {
+    const text = init.getText(sf);
+    return text.startsWith('palette.')
+      ? { kind: 'palette', ref: text }
+      : { kind: 'other', value: text };
+  }
+  if (ts.isTemplateExpression(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
+    return { kind: 'computed', value: init.getText(sf) };
+  }
+  return { kind: 'other', value: init.getText(sf) };
+}
+
+/**
+ * Read every `light`/`dark` semantic token's binding form.
+ *
+ * @param {string} fileText
+ * @returns {{located: boolean, bindings?: Record<string, Record<string, object>>,
+ *            reason?: string}}
+ */
+export function readSemanticBindings(fileText) {
+  const sf = parse(fileText, 'semantic.ts');
+  // Null-prototype: the keys are token names read out of a consumer's source.
+  // See §5.11 and `test/server/name-keyed-maps.test.mjs`.
+  /** @type {Record<string, Record<string, object>>} */
+  const bindings = Object.create(null);
+  for (const constName of ['light', 'dark']) {
+    const obj = findConstObject(sf, constName);
+    if (!obj) return { located: false, reason: `const ${constName} not found` };
+    bindings[constName] = Object.create(null);
+    for (const p of obj.properties) {
+      if (!ts.isPropertyAssignment(p) || !p.name) continue;
+      const key = p.name.getText(sf).replace(/^["']|["']$/g, '');
+      bindings[constName][key] = classifyInit(p.initializer, sf);
+    }
+  }
+  return { located: true, bindings };
+}
+
+const COLOR_RE = /^(#[0-9a-fA-F]{3,8}|oklch\(|rgba?\(|hsla?\()/;
+
+/**
+ * Flatten the `palette` const's string leaves. Each entry carries its dotted ref
+ * (`palette.neutrals.light.ink`), path, value, and whether it reads as a color —
+ * rgb tuples like `syrupRgb` are flagged `isColor: false` so a color picker does
+ * not offer them.
+ *
+ * @param {string} fileText
+ * @returns {{located: boolean, reason?: string,
+ *            colors?: {ref: string, path: string[], value: string, isColor: boolean}[]}}
+ */
+export function readPaletteColors(fileText) {
+  const sf = parse(fileText, 'palette.ts');
+  const obj = findConstObject(sf, 'palette');
+  if (!obj) return { located: false, reason: 'const palette not found' };
+  /** @type {{ref: string, path: string[], value: string, isColor: boolean}[]} */
+  const colors = [];
+  /**
+   * @param {ts.ObjectLiteralExpression} node
+   * @param {string[]} path
+   */
+  const walk = (node, path) => {
+    for (const p of node.properties) {
+      if (!ts.isPropertyAssignment(p) || !p.name) continue;
+      const key = p.name.getText(sf).replace(/^["']|["']$/g, '');
+      const init = p.initializer;
+      if (ts.isObjectLiteralExpression(init)) {
+        walk(init, [...path, key]);
+      } else if (ts.isStringLiteral(init)) {
+        colors.push({
+          ref: ['palette', ...path, key].join('.'),
+          path: [...path, key],
+          value: init.text,
+          isColor: COLOR_RE.test(init.text),
+        });
+      }
+    }
+  };
+  walk(obj, []);
+  return { located: true, colors };
+}
+
+// --- Token creation and removal: the three-point edit -----------------------
+// The token pipeline is CLOSED (source const → emitter array → `@theme inline`
+// alias), so creating a token in ANY family is the same coordinated edit in
+// three places. Miss one and the token exists but is unreachable as a utility.
+
+/**
+ * Find `type <name> = { … }` and return its TypeLiteral node.
+ *
+ * @param {ts.SourceFile} sf
+ * @param {string} name
+ * @returns {ts.TypeLiteralNode | null}
+ */
+function findTypeLiteral(sf, name) {
+  /** @type {ts.TypeLiteralNode | null} */
+  let found = null;
+  /** @param {ts.Node} n */
+  const visit = (n) => {
+    if (
+      ts.isTypeAliasDeclaration(n) &&
+      n.name.getText(sf) === name &&
+      ts.isTypeLiteralNode(n.type)
+    ) {
+      found = n.type;
+    }
+    if (!found) ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/**
+ * Insert `member` as its own line just above a literal's closing bracket.
+ *
+ * The splice lands at the START of the closing bracket's line, not immediately
+ * before the bracket, so the bracket's own indentation is not prepended to the
+ * new line.
+ *
+ * @param {string} fileText
+ * @param {ts.SourceFile} sf
+ * @param {ts.Node} node
+ * @param {string} member
+ * @param {ts.Node} sampleForIndent
+ */
+function insertBeforeClose(fileText, sf, node, member, sampleForIndent) {
+  const indent = indentOf(sf, sampleForIndent);
+  const full = sf.getFullText();
+  const nl = full.includes('\r\n') ? '\r\n' : '\n';
+  const closeAt = node.getEnd() - 1; // the `}` or `]`
+  let ls = closeAt;
+  while (ls > 0 && full[ls - 1] !== '\n') ls--; // start of the closing-bracket line
+  return spliceSpan(fileText, ls, ls, `${indent}${member}${nl}`);
+}
+
+/**
+ * Find a function declaration by name and return its first array literal.
+ *
+ * @param {ts.SourceFile} sf
+ * @param {string} fnName
+ * @returns {ts.ArrayLiteralExpression | null}
+ */
+function findFirstArrayInFn(sf, fnName) {
+  /** @type {ts.FunctionDeclaration | null} */
+  let fn = null;
+  /** @param {ts.Node} n */
+  const findFn = (n) => {
+    if (ts.isFunctionDeclaration(n) && n.name && n.name.getText(sf) === fnName) fn = n;
+    if (!fn) ts.forEachChild(n, findFn);
+  };
+  findFn(sf);
+  if (!fn) return null;
+  /** @type {ts.ArrayLiteralExpression | null} */
+  let arr = null;
+  /** @param {ts.Node} n */
+  const findArr = (n) => {
+    if (!arr && ts.isArrayLiteralExpression(n)) arr = n;
+    if (!arr) ts.forEachChild(n, findArr);
+  };
+  findArr(fn);
+  return arr;
+}
+
+/**
+ * Add a brand-new semantic color token: the `SemanticColorMap` type, plus the
+ * `light` and `dark` maps (same starting value in both, so the token is valid
+ * across themes from the moment it exists).
+ *
+ * Splices run BOTTOM-UP — dark, then light, then the type — because they share
+ * one `sf`, so an earlier write would invalidate every later offset.
+ *
+ * @param {string} fileText
+ * @param {{camelKey: string, value: string}} intent
+ * @returns {InjectResult}
+ */
+export function insertSemanticToken(fileText, intent) {
+  const { camelKey, value } = intent;
+  if (!isIdent(camelKey)) {
+    return { located: false, text: fileText, reason: `invalid token key: ${camelKey}` };
+  }
+  const sf = parse(fileText, 'semantic.ts');
+
+  const typeLit = findTypeLiteral(sf, 'SemanticColorMap');
+  const light = findConstObject(sf, 'light');
+  const dark = findConstObject(sf, 'dark');
+  if (!typeLit || !light || !dark) {
+    return {
+      located: false,
+      text: fileText,
+      reason: 'semantic.ts shape not recognized (type/light/dark)',
+    };
+  }
+  if (getProp(light, camelKey) || getProp(dark, camelKey)) {
+    return { located: false, text: fileText, reason: `token "${camelKey}" already exists` };
+  }
+
+  const val = quoteLiteral(value);
+  const lightSample = light.properties[light.properties.length - 1] ?? light;
+  const darkSample = dark.properties[dark.properties.length - 1] ?? dark;
+  const typeSample = typeLit.members[typeLit.members.length - 1] ?? typeLit;
+
+  let text = fileText;
+  text = insertBeforeClose(text, sf, dark, `${camelKey}: ${val},`, darkSample);
+  text = insertBeforeClose(text, sf, light, `${camelKey}: ${val},`, lightSample);
+  text = insertBeforeClose(text, sf, typeLit, `${camelKey}: string;`, typeSample);
+  return { located: true, text };
+}
+
+/**
+ * Remove a semantic token from all three places `insertSemanticToken` added it.
+ * Bottom-up for the same shared-`sf` reason.
+ *
+ * Tolerates a PARTIAL presence — a token in `light` but not `dark` still gets
+ * cleaned up — because refusing would leave the half-created state permanently
+ * unfixable through this API.
+ *
+ * @param {string} fileText
+ * @param {{camelKey: string}} intent
+ * @returns {InjectResult}
+ */
+export function removeSemanticToken(fileText, intent) {
+  const { camelKey } = intent;
+  const sf = parse(fileText, 'semantic.ts');
+  const typeLit = findTypeLiteral(sf, 'SemanticColorMap');
+  const light = findConstObject(sf, 'light');
+  const dark = findConstObject(sf, 'dark');
+  if (!typeLit || !light || !dark) {
+    return {
+      located: false,
+      text: fileText,
+      reason: 'semantic.ts shape not recognized (type/light/dark)',
+    };
+  }
+  const lightProp = findPropAssignment(light, camelKey);
+  const darkProp = findPropAssignment(dark, camelKey);
+  const typeMember = typeLit.members.find(
+    (m) =>
+      ts.isPropertySignature(m) &&
+      m.name &&
+      m.name.getText(sf).replace(/^["']|["']$/g, '') === camelKey,
+  );
+  if (!lightProp && !darkProp && !typeMember) {
+    return { located: false, text: fileText, reason: `token "${camelKey}" not found` };
+  }
+  let text = fileText;
+  if (darkProp) text = removeNodeLine(text, sf, darkProp);
+  if (lightProp) text = removeNodeLine(text, sf, lightProp);
+  if (typeMember) text = removeNodeLine(text, sf, typeMember);
+  return { located: true, text };
+}
+
+/**
+ * Add a member to `const <constName> = { … }` — the generic form for the
+ * palette / radius / typography families, which have no type-literal member.
+ *
+ * @param {string} fileText
+ * @param {{constName: string, key: string, value: string,
+ *          valueKind?: 'literal'|'expression'}} intent
+ * @returns {InjectResult}
+ */
+export function insertConstMember(fileText, intent) {
+  const { constName, key, value, valueKind = 'literal' } = intent;
+  if (!isIdent(key)) return { located: false, text: fileText, reason: `invalid token key: ${key}` };
+  const sf = parse(fileText, `${constName}.ts`);
+  const obj = findConstObject(sf, constName);
+  if (!obj) return { located: false, text: fileText, reason: `const ${constName} not found` };
+  if (getProp(obj, key)) {
+    return { located: false, text: fileText, reason: `"${key}" already exists in ${constName}` };
+  }
+  if (valueKind === 'expression' && !/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(value)) {
+    return { located: false, text: fileText, reason: `invalid expression: ${value}` };
+  }
+  const val = valueKind === 'expression' ? value : quoteLiteral(value);
+  const sample = obj.properties[obj.properties.length - 1] ?? obj;
+  return { located: true, text: insertBeforeClose(fileText, sf, obj, `${key}: ${val},`, sample) };
+}
+
+/**
+ * Remove `key` from `const <constName> = { … }` — the inverse of
+ * `insertConstMember`, used when an undo rolls back past a save.
+ *
+ * @param {string} fileText
+ * @param {{constName: string, key: string}} intent
+ * @returns {InjectResult}
+ */
+export function removeConstMember(fileText, intent) {
+  const { constName, key } = intent;
+  const sf = parse(fileText, `${constName}.ts`);
+  const obj = findConstObject(sf, constName);
+  if (!obj) return { located: false, text: fileText, reason: `const ${constName} not found` };
+  const prop = findPropAssignment(obj, key);
+  if (!prop) return { located: false, text: fileText, reason: `"${key}" not found in ${constName}` };
+  return { located: true, text: removeNodeLine(fileText, sf, prop) };
+}
+
+/**
+ * Register a CSS variable in one of the emitter arrays, so the token actually
+ * reaches the generated stylesheet. Without this the const exists and nothing
+ * is emitted — the token is invisible.
+ *
+ * @param {string} fileText
+ * @param {{fnName: string, cssVar: string, expr: string}} intent
+ * @returns {InjectResult}
+ */
+export function insertBlockEmit(fileText, intent) {
+  const { fnName, cssVar, expr } = intent;
+  const sf = parse(fileText, 'build-css.ts');
+  const arr = findFirstArrayInFn(sf, fnName);
+  if (!arr) return { located: false, text: fileText, reason: `${fnName}() array not found` };
+  if (arr.elements.some((e) => e.getText(sf).includes(`'${cssVar}'`))) {
+    return { located: false, text: fileText, reason: `emitter for ${cssVar} already present` };
+  }
+  const sample = arr.elements[arr.elements.length - 1] ?? arr;
+  return {
+    located: true,
+    text: insertBeforeClose(fileText, sf, arr, `['${cssVar}', ${expr}],`, sample),
+  };
+}
+
+/**
+ * Remove a CSS variable's emitter entry — the inverse of `insertBlockEmit`.
+ *
+ * @param {string} fileText
+ * @param {{fnName: string, cssVar: string}} intent
+ * @returns {InjectResult}
+ */
+export function removeBlockEmit(fileText, intent) {
+  const { fnName, cssVar } = intent;
+  const sf = parse(fileText, 'build-css.ts');
+  const arr = findFirstArrayInFn(sf, fnName);
+  if (!arr) return { located: false, text: fileText, reason: `${fnName}() array not found` };
+  const el = arr.elements.find((e) => e.getText(sf).includes(`'${cssVar}'`));
+  if (!el) return { located: false, text: fileText, reason: `emitter for ${cssVar} not found` };
+  return { located: true, text: removeNodeLine(fileText, sf, el) };
+}
+
+// --- Tailwind `@theme inline` aliases --------------------------------------
+// A CSS variable in `:root` is NOT a Tailwind utility. `bg-brand-accent` only
+// exists once `@theme inline { --color-brand-accent: var(--brand-accent); }` is
+// declared. Plain-text surgery, not TS, bounded to that block — and it is the
+// step that makes a newly created token usable as a class.
+
+/**
+ * Locate the `@theme inline { … }` block's brace span.
+ *
+ * Brace-counts rather than regex-matching, so a nested block inside `@theme`
+ * cannot end the span early.
+ *
+ * @param {string} cssText
+ * @returns {{open: number, close: number} | null}
+ */
+function findThemeBlock(cssText) {
+  const at = cssText.indexOf('@theme inline');
+  if (at < 0) return null;
+  const open = cssText.indexOf('{', at);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < cssText.length; i++) {
+    if (cssText[i] === '{') depth++;
+    else if (cssText[i] === '}') {
+      depth--;
+      if (depth === 0) return { open, close: i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Every custom property declared inside `@theme inline` — i.e. which tokens are
+ * reachable as utility classes.
+ *
+ * @param {string} cssText
+ * @returns {{located: boolean, mappings?: string[], reason?: string}}
+ */
+export function readThemeMappings(cssText) {
+  const block = findThemeBlock(cssText);
+  if (!block) return { located: false, reason: '@theme inline block not found' };
+  const body = cssText.slice(block.open + 1, block.close);
+  const mappings = [...body.matchAll(/^[ \t]*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]);
+  return { located: true, mappings };
+}
+
+/**
+ * Add `<cssVar>: var(<mapTo>);` to `@theme inline`, grouped after the last
+ * declaration sharing its namespace (`--color-*`, `--radius-*`, `--font-*`).
+ *
+ * Grouping is not cosmetic: it keeps the block sorted by family, and it puts a
+ * `--font-*` alias inside the existing lint-disable region rather than beside it.
+ *
+ * @param {string} cssText
+ * @param {{cssVar: string, mapTo: string}} intent
+ * @returns {InjectResult}
+ */
+export function insertThemeMapping(cssText, intent) {
+  const { cssVar, mapTo } = intent;
+  if (!/^--[a-z0-9-]+$/.test(cssVar) || !/^--[a-z0-9-]+$/.test(mapTo)) {
+    return {
+      located: false,
+      text: cssText,
+      reason: `invalid custom property: ${cssVar} / ${mapTo}`,
+    };
+  }
+  const block = findThemeBlock(cssText);
+  if (!block) return { located: false, text: cssText, reason: '@theme inline block not found' };
+  const body = cssText.slice(block.open + 1, block.close);
+  if (new RegExp(`^[ \\t]*${escapeRe(cssVar)}\\s*:`, 'm').test(body)) {
+    return { located: false, text: cssText, reason: `${cssVar} already mapped` };
+  }
+
+  const ns = /^(--[a-z]+)-/.exec(cssVar)?.[1] ?? '';
+  const lines = [
+    ...body.matchAll(new RegExp(`^[ \\t]*${escapeRe(ns)}-[a-z0-9-]+\\s*:[^\\n]*\\n`, 'gm')),
+  ];
+  const last = lines[lines.length - 1];
+  const nl = cssText.includes('\r\n') ? '\r\n' : '\n';
+  const decl = `  ${cssVar}: var(${mapTo});`;
+
+  if (last && last.index !== undefined) {
+    const at = block.open + 1 + last.index + last[0].length;
+    return { located: true, text: spliceSpan(cssText, at, at, `${decl}${nl}`) };
+  }
+  // No same-namespace sibling — insert at the start of the closing brace's line.
+  let ls = block.close;
+  while (ls > 0 && cssText[ls - 1] !== '\n') ls--;
+  return { located: true, text: spliceSpan(cssText, ls, ls, `${decl}${nl}`) };
+}
+
+/**
+ * Remove a `@theme inline` alias — the inverse of `insertThemeMapping`.
+ *
+ * @param {string} cssText
+ * @param {{cssVar: string}} intent
+ * @returns {InjectResult}
+ */
+export function removeThemeMapping(cssText, intent) {
+  const { cssVar } = intent;
+  const block = findThemeBlock(cssText);
+  if (!block) return { located: false, text: cssText, reason: '@theme inline block not found' };
+  const body = cssText.slice(block.open + 1, block.close);
+  const m = new RegExp(`^[ \\t]*${escapeRe(cssVar)}\\s*:[^\\n]*\\n`, 'm').exec(body);
+  if (!m) return { located: false, text: cssText, reason: `${cssVar} is not mapped` };
+  const start = block.open + 1 + m.index;
+  return { located: true, text: spliceSpan(cssText, start, start + m[0].length, '') };
+}
 
 // ---------------------------------------------------------------------------
 // LAYOUT MUTATION — arbitrary JSX nodes in a scene file.
