@@ -16,8 +16,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -54,9 +55,19 @@ function laneCmd() {
  * real output is what gets checked. That is strictly stronger than matching globs
  * by hand — it tests the command rather than a reading of it.
  */
+/**
+ * The `node --test` calls in the lane, in order.
+ *
+ * Split on `;` as well as `&&`: the two invocations are SEQUENCED rather than
+ * chained, so that a failure in the first still runs the second.
+ */
+function laneNodeCalls(cmd) {
+  return cmd.split(/&&|;/).map((p) => p.trim()).filter((p) => p.startsWith("node "));
+}
+
 function laneInvocations() {
   const cmd = laneCmd();
-  const parts = cmd.split("&&").map((p) => p.trim()).filter((p) => p.startsWith("node "));
+  const parts = laneNodeCalls(cmd);
   assert.equal(parts.length, 2, `expected two node invocations in the lane, got ${parts.length}: ${cmd}`);
   return parts.map((part) => {
     const args = /--test\s+(.+)$/.exec(part);
@@ -134,7 +145,7 @@ test("EVERY invocation carries the timeout flag, not just one of them", () => {
   // does nothing for the second, and the whole-command check below would still
   // pass — so it is asserted per invocation.
   const cmd = laneCmd();
-  const invocations = cmd.split("&&").map((p) => p.trim()).filter((p) => p.startsWith("node "));
+  const invocations = laneNodeCalls(cmd);
   for (const invocation of invocations) {
     assert.match(invocation, /--test-timeout=\d+/, `no per-test timeout in: ${invocation}`);
     // Before `--test`, or node reads it as a file to run.
@@ -170,6 +181,53 @@ test("the lane does not run vendored tests, proven against a real node_modules",
   } finally {
     rmSync(probeDirs[0], { recursive: true, force: true });
     rmSync(path.join(AGENT_DIR, "eval", "node_modules"), { recursive: true, force: true });
+  }
+});
+
+test("a failure in the FIRST invocation still runs the second, and the lane still fails", () => {
+  // `&&` between the invocations would skip `eval/run.test.mjs` whenever anything
+  // in the first list failed — the lane reporting less than it ran, on exactly the
+  // path where a second failure is most worth seeing. Driven through the REAL
+  // command with a fake `node` on PATH, so it tests the shell the lane ships
+  // rather than a reading of it.
+  const bin = mkdtempSync(path.join(tmpdir(), "lane-fake-node-"));
+  const log = path.join(bin, "calls.log");
+  const fake = path.join(bin, "node");
+  // Exits with the Nth code in $FAKE_CODES, so both orders can be driven.
+  writeFileSync(fake, [
+    "#!/bin/sh",
+    `echo call >> ${JSON.stringify(log)}`,
+    `n=$(wc -l < ${JSON.stringify(log)} | tr -d ' ')`,
+    'code=$(echo "$FAKE_CODES" | cut -d" " -f"$n")',
+    'exit "${code:-0}"',
+    "",
+  ].join("\n"));
+  chmodSync(fake, 0o755);
+  const repoRoot = path.join(AGENT_DIR, "..", "..");
+  const run = (codes) => {
+    writeFileSync(log, "");
+    const r = spawnSync("sh", ["-c", laneCmd()], {
+      cwd: repoRoot,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_CODES: codes },
+    });
+    return { status: r.status, calls: readFileSync(log, "utf8").split("\n").filter(Boolean).length };
+  };
+  try {
+    const first = run("7 0");
+    assert.equal(first.calls, 2, "the second invocation was skipped after the first failed");
+    assert.equal(first.status, 7, "the lane did not report the first invocation's failure");
+
+    // The other direction, so the test cannot pass by always running both and
+    // always returning 0.
+    const second = run("0 9");
+    assert.equal(second.calls, 2);
+    assert.equal(second.status, 9, "a failure in the isolated invocation must fail the lane");
+
+    const clean = run("0 0");
+    assert.equal(clean.calls, 2);
+    assert.equal(clean.status, 0, "an all-green lane must exit 0");
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
   }
 });
 

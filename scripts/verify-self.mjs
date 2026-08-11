@@ -113,6 +113,13 @@ const LANES = [
   // of 412s), against a failure that was costing a re-run on roughly one PR in
   // eight.
   //
+  // SEQUENCED, NOT `&&`. Joining the two invocations with `&&` would skip
+  // `eval/run.test.mjs` entirely whenever anything in the first list failed — the
+  // lane reporting less than it ran, on the exact failure path where a second
+  // failure is most worth seeing. That is the defect #750 was about, reintroduced
+  // by the fix for it, so both invocations run and the first non-zero status is
+  // what the lane exits with.
+  //
   // `-prune` rather than `! -path './node_modules/*'`: that form only excludes the
   // TOP-LEVEL install, so a nested `node_modules` anywhere under `scripts/agent`
   // would still have its vendored suites run. `-prune` drops the directory at any
@@ -125,7 +132,7 @@ const LANES = [
   // the two invocations are proven to partition the suite rather than asserted to.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) && node --test-timeout=60000 --test 'eval/run.test.mjs'",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) ; rest=$? ; node --test-timeout=60000 --test 'eval/run.test.mjs' ; iso=$? ; if [ $rest -ne 0 ] ; then exit $rest ; fi ; exit $iso",
   },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.

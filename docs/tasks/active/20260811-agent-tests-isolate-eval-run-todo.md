@@ -57,6 +57,12 @@ that file alone. `find` rather than a second glob because node's `--test` has no
 exclusion syntax, and an enumerated list would silently stop covering a file
 added later — the exact failure `eval/test-lane.test.mjs` exists to prevent.
 
+The two invocations are SEQUENCED, not joined by `&&`. Chaining them would skip
+`eval/run.test.mjs` whenever anything in the first list failed — the lane
+reporting less than it ran, on precisely the path where a second failure is most
+worth seeing, which is #750's defect reintroduced by the fix for it. Both run;
+the first non-zero status is what the lane exits with.
+
 **This is a mitigation, not a diagnosis. Nobody knows why sharing a runner with
 the rest of the suite corrupts that file's channel.** It is written so that being
 wrong about the cause costs nothing: no test is skipped, no result is dropped,
@@ -82,6 +88,13 @@ the EQUALITY is the claim. Cost: +5s on a lane that is 0.9% of `verify-self`.
   -prune`, with probes in BOTH a top-level and a nested `node_modules`; reverting
   to the old filter is a caught mutation. On a clean checkout both forms return the
   same 57 files, so the prune drops only vendored paths.
+- **The `&&` was a third instance of the same escaping trap.** Sequencing the
+  invocations with `if [ \"$rest\" -ne 0 ]` put escaped quotes in the command, and
+  `laneCmd()`'s `[^"]+` capture truncated it at the first one — so the guard was
+  checking a command that could not run. Caught loudly by the new regression test,
+  which EXECUTES the command rather than reading it. Resolved by dropping the
+  quotes (`$rest`/`$iso` come from `$?` and are always integers), which also keeps
+  the extractor simple.
 - Coverage widened from `eval/` to all of `scripts/agent`: the first invocation now
   enumerates the whole package, so a file dropped anywhere is the silent skip this
   guard exists to prevent.
