@@ -445,6 +445,14 @@ Phase 23 delivered:
   `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
 - `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
   baselines outside Docker.
+- The image bundles system fonts, but the app's *web* fonts still arrive from
+  fonts.googleapis.com, so each capture settles them after the section-ready
+  wait: every face `document.fonts` has registered is loaded and polled until
+  usable (per-family "at least one face loaded" plus a per-weight
+  `fonts.check()`), with a stylesheet refetch on failure. A pass that never
+  settles is recorded and fails the run *after* capture — screenshots and
+  diffs still land — and blocks `visual:update` from recording fallback
+  glyphs as a baseline.
 - CI `verify-browser` job builds Docker image and runs browser lanes in
   container. Uploads `*.actual.png` artifacts on failure.
 

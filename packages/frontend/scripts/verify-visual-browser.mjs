@@ -316,86 +316,185 @@ async function readBaseline(target, profile) {
   }
 }
 
-// The slides ThemedFontPicker (and any preview that hosts named families)
-// injects the Google Fonts CSS link from a child mount effect. networkidle
-// + a bare fonts.ready can race the post-mount link injection —
-// fonts.load() called before the link is in the DOM falls back to the
-// system family and never re-resolves, leaving the screenshot half on the
-// swap and half on the fallback.
+// Web fonts are the one input to a capture that arrives over the network,
+// so they are the one input that can differ between the run that recorded a
+// baseline and the run being compared against it. index.html requests
+// Inter/Fraunces/JetBrains Mono up front, and the slides ThemedFontPicker
+// (plus any preview hosting named families) injects further Google Fonts
+// links from a child mount effect. A bare `fonts.ready` is not enough for
+// either: it can resolve before a late-injected link registers its faces at
+// all, and once it has resolved nothing re-arms it — the screenshot then
+// paints the browser's default serif where the baseline holds Inter, which
+// is how slides-theme-panel and slides-pickers drifted while every
+// system-family row around them matched.
 //
-// Sequence to defeat it:
-//   1. First pass: `fonts.load()` whatever the page already knows about,
-//      plus `fonts.ready` to drain the in-flight queue.
-//   2. Wait for another networkidle so any link injected after mount has
-//      time to fetch (`page.waitForLoadState` is keyed to the *current*
-//      idle, not the initial one).
-//   3. Second pass: `fonts.check()` polled until every family is live.
-//      `fonts.check()` returns true only when the face is ready for
-//      synchronous rendering — strictly stronger than `fonts.ready`,
-//      which can resolve before late-mounted families register at all.
-//   4. Catch-all poll: no registered FontFace left in `status: "loading"`.
-//      This covers families nobody thought to list here — the enumerated
-//      set below is a floor, not the whole truth.
+// What to await is derived from `document.fonts` itself rather than from a
+// hand-kept family list: every face the page registered, at every weight it
+// declared. `index.html`, `FONT_CATALOG`'s eager set and each lazily
+// injected per-family link all land in that registry, so the wait cannot
+// drift from them, and no weight is demanded that the app never requested.
 //
-// The list must include the families the *app itself* pulls from
-// fonts.googleapis.com in index.html, not just the ones a component
-// injects lazily. Those arrive over the network too, so `fonts.ready` alone
-// can resolve while an Inter face is still unusable and the preview paints
-// in the browser's default serif — which is how slides-theme-panel and
-// slides-pickers drifted while every system-family row around them matched.
-const VISUAL_FONT_FAMILIES = [
-  // Injected lazily by useGoogleFontsLink() from a component mount effect.
-  "Noto Sans KR",
-  "Noto Serif KR",
-  "Nanum Gothic",
-  "Roboto",
-  // Requested up front by index.html's Google Fonts stylesheet.
-  "Inter",
-  "Fraunces",
-  "JetBrains Mono",
-];
+// Per pass:
+//   1. networkidle, so a link injected by a mount effect has resolved and
+//      its faces are registered (`page.waitForLoadState` is keyed to the
+//      *current* idle, not the initial one).
+//   2. `fonts.load()` every registered (family, weight), then poll until
+//      each is usable. `fonts.check()` is the right per-weight signal — it
+//      is true only when the face can render synchronously — but it is true
+//      *vacuously* for a family with no matching face, so it is paired with
+//      a per-family "at least one face reached `loaded`" assertion. The
+//      poll re-reads the registry each tick, picking up families a paint
+//      only just triggered.
+//   3. If the poll runs out: re-point the Google Fonts stylesheets so
+//      Chromium refetches them, then settle again. A face whose woff2 fetch
+//      failed sits in `status: "error"` for good, so waiting longer cannot
+//      recover it — only a refetch can.
+//
+// Exhausting the refetches records the pass and lets capture continue: the
+// run then fails at the end, after every screenshot, diff and per-target
+// report is on disk, rather than aborting mid-capture on a TimeoutError
+// that leaves nothing to look at.
+const FONT_SETTLE_TIMEOUT_MS = 10000;
+// Refetch attempts after the first settle poll comes up short. Two absorbs
+// a transient 404/429 from fonts.googleapis.com; a face still unusable
+// after them is not coming back this run.
+const FONT_REFETCH_ATTEMPTS = 2;
 
-// Every weight the UI actually paints these families at. css2 can serve a
-// requested weight list as one face per weight, so checking only 400/700
-// can pass while the face a preview needs is still unloaded — e.g.
-// ThemeThumbnail's `aA` sample renders at 600.
-const VISUAL_FONT_WEIGHTS = [400, 500, 600, 700];
+// Once one pass has burned through every refetch the network is broken
+// rather than flaky, and retrying in each of the ~24 remaining passes would
+// add minutes of pure waiting to a run that is already going to fail. Later
+// passes still do their single bounded settle.
+let webFontRefetchExhausted = false;
 
-async function waitForFontsReady(page) {
-  const spec = { families: VISUAL_FONT_FAMILIES, weights: VISUAL_FONT_WEIGHTS };
-  const loadPass = async ({ families, weights }) => {
-    if (!document.fonts) return;
-    await Promise.all(
-      families.flatMap((family) =>
-        weights.map((weight) =>
-          // A family the page never registered resolves immediately; a
-          // rejection here means the fetch failed, which the check pass
-          // below reports as a timeout naming the family.
-          document.fonts.load(`${weight} 12px "${family}"`).catch(() => {}),
-        ),
-      ),
-    );
-    await document.fonts.ready;
+// Passes whose fonts never became usable: `{ label, pending }`. Reported
+// and turned into a non-zero exit once capture is done.
+const webFontFailures = [];
+
+async function waitForFontsReady(page, label) {
+  // Polls in-page rather than through `page.waitForFunction` so running out
+  // of time yields *what* is still missing instead of a bare TimeoutError.
+  const settlePass = async ({ timeoutMs }) => {
+    if (!document.fonts) return [];
+    const deadline = performance.now() + timeoutMs;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    // FontFace.family keeps the quoting style of the @font-face rule.
+    const unquote = (family) => family.replace(/^["']|["']$/g, "");
+
+    // Registered faces, collapsed to family -> declared weights. A variable
+    // font declares a range ("500 700"); every endpoint gets awaited.
+    const registry = () => {
+      const byFamily = new Map();
+      for (const face of document.fonts) {
+        const family = unquote(face.family);
+        const weights = byFamily.get(family) ?? new Set();
+        for (const weight of String(face.weight).match(/\d+/g) ?? ["400"]) {
+          weights.add(Number(weight));
+        }
+        byFamily.set(family, weights);
+      }
+      return byFamily;
+    };
+
+    const requested = new Set();
+    const load = async (families) => {
+      const jobs = [];
+      for (const [family, weights] of families) {
+        for (const weight of weights) {
+          const key = `${weight} ${family}`;
+          if (requested.has(key)) continue;
+          requested.add(key);
+          // Swallowed deliberately: a rejection means the fetch failed,
+          // which the `pending()` below reports by name from the face's own
+          // status — a thrown rejection here would only say "one of them".
+          jobs.push(document.fonts.load(`${weight} 12px "${family}"`).catch(() => {}));
+        }
+      }
+      if (jobs.length > 0) await Promise.all(jobs);
+    };
+
+    const pending = (families) => {
+      const missing = [];
+      for (const [family, weights] of families) {
+        const statuses = [...document.fonts]
+          .filter((face) => unquote(face.family) === family)
+          .map((face) => face.status);
+        // Every family here is one the page registered, so a family with no
+        // loaded face is a real failure — not the "renders with a system
+        // fallback" case `check()` reports as success. Subset faces the text
+        // never needs stay `unloaded`, so one loaded face is the bar.
+        if (!statuses.includes("loaded")) {
+          missing.push(`${family} (${[...new Set(statuses)].join("/") || "no faces"})`);
+          continue;
+        }
+        for (const weight of weights) {
+          if (!document.fonts.check(`${weight} 12px "${family}"`)) {
+            missing.push(`${family} @${weight}`);
+          }
+        }
+      }
+      if ([...document.fonts].some((face) => face.status === "loading")) {
+        missing.push("(a face is still loading)");
+      }
+      return missing;
+    };
+
+    let families = registry();
+    await load(families);
+    // `fonts.ready` drains the in-flight queue, but it can also outlive a
+    // hung fetch — the poll below, not this, is the gate.
+    await Promise.race([
+      document.fonts.ready,
+      sleep(Math.max(0, deadline - performance.now())),
+    ]);
+
+    let missing = pending(families);
+    while (missing.length > 0 && performance.now() < deadline) {
+      await sleep(100);
+      families = registry();
+      await load(families);
+      missing = pending(families);
+    }
+    return missing;
   };
 
-  await page.evaluate(loadPass, spec);
-  await page.waitForLoadState("networkidle");
-  await page.evaluate(loadPass, spec);
-  await page.waitForFunction(
-    ({ families, weights }) =>
-      families.every((family) =>
-        weights.every((weight) =>
-          document.fonts.check(`${weight} 12px "${family}"`),
-        ),
-      ),
-    spec,
-    { timeout: 10000 },
-  );
-  await page.waitForFunction(
-    () => [...document.fonts].every((face) => face.status !== "loading"),
-    undefined,
-    { timeout: 10000 },
-  );
+  // Re-pointing `href` (rather than replacing the element) keeps the app's
+  // own `data-wafflebase-font` bookkeeping and load listeners intact; the
+  // extra param only busts the cache, and css2 ignores it.
+  const refetchPass = (attempt) => {
+    const links = [...document.querySelectorAll("link[rel='stylesheet']")].filter(
+      (link) => link.href.startsWith("https://fonts.googleapis.com/"),
+    );
+    for (const link of links) {
+      const url = new URL(link.href);
+      url.searchParams.set("wbVisualRetry", String(attempt));
+      link.href = url.toString();
+    }
+    return links.length;
+  };
+
+  const spec = { timeoutMs: FONT_SETTLE_TIMEOUT_MS };
+  const maxAttempts = webFontRefetchExhausted ? 0 : FONT_REFETCH_ATTEMPTS;
+  for (let attempt = 0; ; attempt += 1) {
+    await page.waitForLoadState("networkidle");
+    const pending = await page.evaluate(settlePass, spec);
+    if (pending.length === 0) {
+      if (attempt > 0) {
+        console.warn(
+          `[verify:visual:browser] ${label}: webfonts settled after ${attempt} refetch(es).`,
+        );
+      }
+      return;
+    }
+    if (attempt >= maxAttempts) {
+      if (maxAttempts > 0) webFontRefetchExhausted = true;
+      webFontFailures.push({ label, pending });
+      console.error(
+        `[verify:visual:browser] ${label}: webfonts never became usable: ${pending.join(", ")}`,
+      );
+      return;
+    }
+    await page.evaluate(refetchPass, attempt + 1);
+  }
 }
 
 // Captures one page load — either the full assembled page (`section` is
@@ -431,7 +530,7 @@ async function capturePass(context, profile, section, targets, captures) {
     // After the section is mounted, not before: Chromium only requests a
     // face once text using it is laid out, so settling fonts first leaves
     // the fetches a mount triggers entirely unwaited-for.
-    await waitForFontsReady(page);
+    await waitForFontsReady(page, `${profile.id}/${section ?? "all-sections"}`);
 
     for (const target of targets) {
       const locator = page.locator(target.locator).first();
@@ -520,6 +619,30 @@ const playwright = await loadPlaywright();
 const capturedById = await captureScreenshots(playwright);
 
 await mkdir(baselineDir, { recursive: true });
+
+// A pass that captured with unusable webfonts painted fallback families, so
+// its screenshots are worthless as a comparison *and* as a baseline. Report
+// it here — after every capture, before anything is written or compared —
+// and let it fail the run below alongside any pixel mismatches it caused.
+if (webFontFailures.length > 0) {
+  console.error(
+    "[verify:visual:browser] Webfonts never became usable during capture:",
+  );
+  for (const failure of webFontFailures) {
+    console.error(`- ${failure.label}: ${failure.pending.join(", ")}`);
+  }
+  console.error(
+    "[verify:visual:browser] These screenshots paint fallback families. " +
+      "Check network access to fonts.googleapis.com and re-run.",
+  );
+}
+
+if (updateBaseline && webFontFailures.length > 0) {
+  console.error(
+    "[verify:visual:browser] Refusing to record baselines from fallback glyphs.",
+  );
+  process.exit(1);
+}
 
 if (updateBaseline && process.env.WAFFLEBASE_DOCKER_BROWSER !== "true") {
   console.warn(
@@ -625,6 +748,10 @@ if (missingTargets.length > 0 || mismatchedTargets.length > 0) {
     "[verify:visual:browser] Inspect mismatches and refresh intended baselines: " +
       "`pnpm frontend test:visual:browser:update`.",
   );
+  process.exit(1);
+}
+
+if (webFontFailures.length > 0) {
   process.exit(1);
 }
 
