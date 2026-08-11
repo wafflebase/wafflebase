@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
@@ -247,6 +247,40 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
     assert.match(wf, /command\.mjs "\$BODY"/, `${name} must route through the shared command parser`);
     assert.match(wf, /AGENT_PIPELINE_ENABLED == 'true'/, `${name} must honour the pipeline kill switch`);
   }
+});
+
+test("every agent-pipeline checkout pins an immutable commit SHA, not a tag", () => {
+  // The trusted pipeline is checked out from another repository, and in this
+  // phase NOTHING re-verifies that the code fetched is the code intended: the
+  // OIDC `job_workflow_ref` assertion only becomes available once these
+  // workflows are themselves reusable. Until then the pin IS the guard.
+  //
+  // A tag would put that guarantee in a repository setting (a ruleset on
+  // refs/tags/v*) which a reader of these files cannot see and an org admin can
+  // change. A 40-hex SHA cannot be re-pointed by anyone. This is the same rule
+  // the repo already applies to create-github-app-token and claude-code-action,
+  // for the same reason, and it is asserted here rather than trusted to review
+  // because a bump that quietly reverts to a tag is invisible in a diff.
+  //
+  // Deliberately NOT pinned to one specific SHA: that would need editing in
+  // lockstep with every version bump, and a bumper updating both would learn
+  // nothing. The invariant is the SHAPE of the pin.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let pins = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (!/repository:\s*wafflebase\/agent-pipeline\s*$/.test(line)) return;
+      // `ref:` is the next non-comment key in every one of these blocks.
+      const ref = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l)) ?? "";
+      pins += 1;
+      if (!/^\s*ref:\s*[0-9a-f]{40}\b/.test(ref)) offenders.push(`${file}:${i + 2} -> ${ref.trim() || "(no ref)"}`);
+    });
+  }
+  assert.ok(pins > 0, "expected at least one agent-pipeline checkout to exist");
+  assert.deepEqual(offenders, [], `these agent-pipeline checkouts are not SHA-pinned:\n  ${offenders.join("\n  ")}`);
 });
 
 test("agent-fix decides eligibility on TRUSTED main, before the branch checkout", () => {
