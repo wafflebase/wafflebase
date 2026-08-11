@@ -59,7 +59,7 @@ CodeRabbit record carries `coderabbit.window`:
 
 | `window` | `window_basis` | What it means |
 |---|---|---|
-| `in-window` | `commit-at-or-before-review` | the finding's commit is at or before the frozen `review_commit` — our panel saw that snapshot |
+| `in-window` | `commit-is-review-commit` · `commit-at-or-before-review` | the finding's commit IS the frozen `review_commit`, or is before it — our panel saw that snapshot. Identity is answered from the two shas, before the commit list is consulted: a force-push can remove the frozen commit from the pull request, and it does on #415 |
 | `after-window` | `commit-after-review` | it is after it. Our panel never saw that code |
 | `unplaceable` | `commit-not-on-pr` · `commit-absent` · `review-commit-not-on-pr` · `commits-unavailable` | the commit is not on the pull request (a force-push), names nothing, or the frozen commit itself cannot be located |
 | `no-window` | `no-review-commit` | no frozen commit was supplied — an off-corpus pull request, so the question does not apply |

@@ -325,7 +325,13 @@ test("placeInWindow: every basis, and the value each one means", () => {
   // diff at that commit, so a finding written on it is a finding about code the
   // panel saw. An exclusive bound would drop the two real pilot findings that
   // sit exactly on the frozen commit — which is every in-window finding pr-471 has.
-  assert.equal(placeInWindow({ commits: list, reviewCommit: "bb", atCommit: "bb" }).window, "in-window");
+  // Its own basis, because the answer comes from the two shas and not from the
+  // list: `commit-at-or-before-review` would be true of it but would claim the
+  // list was consulted.
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "bb", atCommit: "bb" }), {
+    window: "in-window",
+    window_basis: "commit-is-review-commit",
+  });
   assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "bb", atCommit: "cc" }), {
     window: "after-window",
     window_basis: "commit-after-review",
@@ -401,6 +407,92 @@ test("placeInWindow: PR #415's real force-pushed commit is unplaceable, not a si
     atCommit: CR_TWO_FIELD.original_commit_id,
   });
   assert.deepEqual(placed, { window: "unplaceable", window_basis: "commit-not-on-pr" });
+});
+
+test("placeInWindow: the finding's own commit IS the frozen one, on a PR that no longer lists it", () => {
+  // The same pull request as the test above, frozen at the OTHER commit — which is
+  // the shape that broke the function. #415's review sits on `51c01826a`; freeze
+  // the item there and the finding is in-window BY CONSTRUCTION, because the frozen
+  // commit and the finding's commit are the same object. The pull request's commit
+  // list still does not contain it — the force-push that removed it happened after
+  // CodeRabbit reviewed, and `51c01826a` compares as `diverged` against the head,
+  // ahead 3 / behind 1 — and that is exactly the input the old order got wrong:
+  // it asked for the frozen commit's POSITION first, found none, and answered
+  // `unplaceable` about a finding it was looking straight at.
+  const placed = placeInWindow({
+    commits: commits("eeda30c751a4d215924bd8ecd379f769b869be6b"),
+    reviewCommit: CR_TWO_FIELD.original_commit_id,
+    atCommit: CR_TWO_FIELD.original_commit_id,
+  });
+  assert.deepEqual(placed, { window: "in-window", window_basis: "commit-is-review-commit" });
+  // End to end, because this is an ITEM-shaped failure rather than a function-shaped
+  // one: every one of pr-415's findings names this same commit, so the whole item
+  // moved from `unplaceable` to `in-window` on this one comparison.
+  const { records } = codeRabbitRecords({
+    pr: 415,
+    reviewCommit: CR_TWO_FIELD.original_commit_id,
+    commits: commits("eeda30c751a4d215924bd8ecd379f769b869be6b"),
+    comments: [CR_TWO_FIELD],
+    reviews: [],
+  });
+  assert.equal(records[0].coderabbit.window, "in-window");
+  assert.equal(records[0].coderabbit.window_basis, "commit-is-review-commit");
+  assert.equal(records[0].coderabbit.review_commit, CR_TWO_FIELD.original_commit_id);
+});
+
+test("placeInWindow: identity answers ONLY identity — every unplaceable cause still fires", () => {
+  // The test that matters. Widening a placement rule moves findings from "excluded,
+  // and counted" into a comparison, which is the direction that flatters whichever
+  // arm gains records — and nothing downstream would complain. So the case to pin is
+  // not that the new branch fires, it is that the old ones still do.
+  const list = commits("aa", "bb", "cc");
+  // The window is unlocatable and the finding is on a DIFFERENT commit: still the
+  // whole-item failure, still named as such. Note that NONE of the assertions in
+  // this test can catch a mutation that moves the identity check back after the
+  // bail — that is the previous test's job, and this one's is the opposite one.
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "zz", atCommit: "aa" }), {
+    window: "unplaceable",
+    window_basis: "review-commit-not-on-pr",
+  });
+  // …including when the finding names no commit at all. Identity must not read
+  // `""` as "the same as the frozen commit" for a frozen commit that is also
+  // missing — the `no-review-commit` check above it is what guarantees that, so
+  // both empty is `no-window`, never `in-window`.
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "zz", atCommit: "" }), {
+    window: "unplaceable",
+    window_basis: "review-commit-not-on-pr",
+  });
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "", atCommit: "" }), {
+    window: "no-window",
+    window_basis: "no-review-commit",
+  });
+  // A finding on a commit that is neither the frozen one nor on the pull request.
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "bb", atCommit: "zz" }), {
+    window: "unplaceable",
+    window_basis: "commit-not-on-pr",
+  });
+  // Still ordered, and still on the after side, for a commit that is not the
+  // frozen one. Identity is an equality, not a widening of the bound.
+  assert.deepEqual(placeInWindow({ commits: list, reviewCommit: "bb", atCommit: "cc" }), {
+    window: "after-window",
+    window_basis: "commit-after-review",
+  });
+  // An unreadable commit list wins over identity, deliberately: it is OUR failure
+  // and it costs the whole item's placement, which the CLI reports in those words.
+  assert.deepEqual(placeInWindow({ commits: null, reviewCommit: "bb", atCommit: "bb" }), {
+    window: "unplaceable",
+    window_basis: "commits-unavailable",
+  });
+  // Near-misses are not identity. `commitIndex` compares full shas exactly, and so
+  // does this: a prefix that placed a finding would be a guess, and the fail
+  // direction here is `unplaceable`.
+  const sha = "51c01826aa9f05e4cef9ee498668e3f2321b3602";
+  for (const near of [sha.slice(0, 7), sha.slice(0, 39), `${sha}0`, sha.toUpperCase()]) {
+    assert.deepEqual(placeInWindow({ commits: commits(sha), reviewCommit: sha, atCommit: near }), {
+      window: "unplaceable",
+      window_basis: "commit-not-on-pr",
+    }, `${near} was read as ${sha}`);
+  }
 });
 
 // --- the severity translation ------------------------------------------------
