@@ -308,10 +308,26 @@ function removeNodeLine(fileText, sf, node) {
 /**
  * Splice offset for "become child #index of parent", plus the indent to use.
  *
- * The offset is taken immediately after the previous sibling's OWNER (or after
- * the parent's opening tag for index 0). Using the owner matters: for
- * `{cond && <div/>}` the element's end sits before the `}`, and splicing there
- * would produce `{cond && <div/> <new/>}` — a syntax error.
+ * The offset sits immediately BEFORE the owner currently at `index`, including
+ * that owner's leading line-break and indent — not after the previous element
+ * sibling. The distinction is the whole point:
+ *
+ *     <div>
+ *       <A/>
+ *       Some prose
+ *       {count}
+ *       <B/>          <-- element index 1
+ *     </div>
+ *
+ * `childrenOf` filters to JSX elements, so `Some prose` and `{count}` are not
+ * children in this numbering — but they ARE bytes between `<A/>` and `<B/>`.
+ * Anchoring after `<A/>` made `applyLayoutRemove`'s span swallow both: removing
+ * `<B/>` silently deleted the prose and the expression too. Anchoring before
+ * `<B/>` removes exactly `<B/>` and its own line.
+ *
+ * Using the OWNER rather than the node still matters: for `{cond && <div/>}` the
+ * element's end sits before the `}`, so splicing at the element would produce
+ * `{cond && <div/> <new/>}` — a syntax error.
  *
  * BOTH `applyLayoutInsert` AND `applyLayoutRemove` derive their span from this
  * one function. That is what makes remove → insert an exact involution rather
@@ -320,27 +336,85 @@ function removeNodeLine(fileText, sf, node) {
  * arithmetic — which is how this was first written — would let the
  * byte-identity property break silently the day one of them was touched.
  *
+ * `null` means "no expressible position", which callers must refuse rather than
+ * approximate. It is returned when `index` falls INSIDE a shared-owner group:
+ * in `{flag ? <A/> : <B/>}` both branches are children with one owner, and
+ * there is no offset that means "between them". Before this returned null, an
+ * insert at that index silently landed after the whole conditional — the
+ * position of the NEXT index, byte-identical to it.
+ *
  * @param {ts.SourceFile} sf
  * @param {JsxRootNode} parent
  * @param {Scope} scope
  * @param {number} index
- * @returns {{offset: number | null, indent: string}}
+ * @returns {{offset: number | null, indent: string, reason?: string}}
  */
 function childSpliceOffset(sf, parent, scope, index) {
   const kids = childrenOf(parent, scope);
-  const prev = index > 0 ? kids[Math.min(index, kids.length) - 1] : null;
-  if (prev) return { offset: prev.owner.getEnd(), indent: indentOf(sf, prev.owner) };
-  const sample = kids[0]?.owner;
   const node = /** @type {ts.Node} */ (parent);
   const openEnd = ts.isJsxElement(node)
     ? node.openingElement.getEnd()
     : ts.isJsxFragment(node)
       ? node.openingFragment.getEnd()
       : null;
-  return {
-    offset: openEnd,
-    indent: sample ? indentOf(sf, sample) : `${indentOf(sf, node)}  `,
-  };
+
+  // Inside a shared-owner group there is no position to name.
+  if (index > 0 && index < kids.length && kids[index - 1].owner === kids[index].owner) {
+    return {
+      offset: null,
+      indent: indentOf(sf, kids[index].owner),
+      reason:
+        `index ${index} falls inside a single expression that renders ` +
+        `${kids.filter((k) => k.owner === kids[index].owner).length} children; ` +
+        `there is no source position between them`,
+    };
+  }
+
+  // Append: the one position with no "current occupant" to sit in front of, so
+  // it anchors at the END OF THE CHILD REGION — scanning back from the closing
+  // tag over whitespace — rather than after the last ELEMENT.
+  //
+  // Those differ exactly when non-element content trails the last element, and
+  // the difference is the involution: removing the last `<B/>` from
+  // `… {count} <B/> </div>` captures `"\n      <B/>"`, and re-inserting at the
+  // append index has to land after `{count}`, not after the element before it.
+  // Anchoring on the last element put `<B/>` back in the wrong place and the
+  // round-trip stopped being byte-identical.
+  //
+  // Scanning back from the closing tag also preserves what the owner-based form
+  // protected: for a trailing `{cond && <div/>}` the scan stops after the `}`,
+  // never inside the expression.
+  if (index >= kids.length) {
+    const closeStart = ts.isJsxElement(node)
+      ? node.closingElement.getStart(sf)
+      : ts.isJsxFragment(node)
+        ? node.closingFragment.getStart(sf)
+        : null;
+    const last = kids[kids.length - 1];
+    const indent = last ? indentOf(sf, last.owner) : `${indentOf(sf, node)}  `;
+    if (closeStart == null) {
+      return last
+        ? { offset: last.owner.getEnd(), indent }
+        : { offset: openEnd, indent };
+    }
+    const full = sf.getFullText();
+    let end = closeStart;
+    while (end > 0 && /\s/.test(full[end - 1])) end--;
+    if (openEnd != null && end < openEnd) end = openEnd;
+    return { offset: end, indent };
+  }
+
+  // Before the current occupant, taking its leading indent with it so the
+  // captured span carries its own line.
+  const target = kids[index].owner;
+  const full = sf.getFullText();
+  let start = target.getStart(sf);
+  while (start > 0 && full[start - 1] !== '\n' && /[ \t]/.test(full[start - 1])) start--;
+  if (start > 0 && full[start - 1] === '\n') start--;
+  if (start > 0 && full[start - 1] === '\r') start--;
+  // Never reach back past the parent's opening tag (index 0 with no newline).
+  if (openEnd != null && start < openEnd) start = openEnd;
+  return { offset: start, indent: indentOf(sf, target) };
 }
 
 /**
@@ -489,6 +563,24 @@ export function applyLayoutProps(fileText, intent) {
 
   // --- sets: whole-attribute writes ---
   for (const set of intent.sets ?? []) {
+    // `className` is not an ordinary attribute here. The `classOps` branch above
+    // refuses to touch a non-literal one (`className={t("nav.home")}`) because
+    // rewriting it would destroy the author's expression — and `sets` reached
+    // the very same attribute through a different door and overwrote it wholesale
+    // with `className="…"`, which is the exact key-destruction the joiner
+    // allowlist exists to prevent. One rule, both doors.
+    if (set.name === 'className' && set.value !== null) {
+      if (findJsxAttribute(node, 'className') && !classLiteralOf(node)) {
+        notes.push('className is not a string literal (no editable class blob)');
+        continue;
+      }
+      if (intent.classOps) {
+        // Both paths write the same attribute; their spans overlap and applying
+        // them highest-first interleaves the two texts into `"REPLACED"gap-2"`.
+        notes.push('className cannot be set and class-edited in one intent');
+        continue;
+      }
+    }
     const existing = findJsxAttribute(node, set.name);
     if (set.value === null) {
       if (!existing) {
@@ -565,7 +657,23 @@ export function applyLayoutProps(fileText, intent) {
   }
 
   let out = fileText;
-  for (const s of splices.sort((a, b) => b.start - a.start)) {
+  const ordered = splices.sort((a, b) => b.start - a.start);
+  // Highest-offset-first only keeps earlier offsets valid while the spans are
+  // DISJOINT. Two splices over the same range interleave their texts into
+  // nonsense that still gets written (`className="REPLACED"gap-2"`), so overlap
+  // is refused rather than applied. The className case above is handled at its
+  // source; this is the backstop that keeps a future third writer from
+  // reintroducing the same corruption silently.
+  for (let i = 1; i < ordered.length; i++) {
+    if (ordered[i].end > ordered[i - 1].start) {
+      return {
+        located: false,
+        text: fileText,
+        reason: 'refusing overlapping edits to the same source range',
+      };
+    }
+  }
+  for (const s of ordered) {
     out = spliceSpan(out, s.start, s.end, s.text);
   }
   const why = [
@@ -621,7 +729,13 @@ export function applyLayoutInsert(fileText, intent) {
     };
   }
 
-  const { offset, indent } = childSpliceOffset(sf, parent, r.entry.scope, intent.index);
+  const { offset, indent, reason: offsetReason } = childSpliceOffset(
+    sf,
+    parent,
+    r.entry.scope,
+    intent.index,
+  );
+  if (offsetReason) return { located: false, text: fileText, reason: offsetReason };
   if (offset == null) {
     return {
       located: false,
@@ -712,7 +826,13 @@ export function applyLayoutRemove(fileText, intent) {
 
   // The SAME offset an insert at this index would use — that identity is what
   // makes the pair an exact involution.
-  const { offset } = childSpliceOffset(sf, parent.node, parent.scope, index);
+  const { offset, reason: offsetReason } = childSpliceOffset(
+    sf,
+    parent.node,
+    parent.scope,
+    index,
+  );
+  if (offsetReason) return { located: false, text: fileText, reason: offsetReason };
   const start = offset ?? node.getStart(sf);
   const end = node.getEnd();
 

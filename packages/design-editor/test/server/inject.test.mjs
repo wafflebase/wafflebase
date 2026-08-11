@@ -281,6 +281,25 @@ describe('remove → insert is byte-identical', () => {
     'single child': [`function C() {\n  return (\n    <div>\n      <Only />\n    </div>\n  );\n}\n`, 'Only', 'div'],
     'nested child': [`function C() {\n  return (\n    <div>\n      <Row>\n        <Cell />\n      </Row>\n    </div>\n  );\n}\n`, 'Cell', 'Row'],
     'one-line body': [`function C() { return <div><A/><B/></div>; }`, 'B', 'div'],
+    // The shapes where non-element content sits between the elements. These are
+    // the cases that broke when the offset moved off "after the previous
+    // element" — the append position has to anchor at the end of the CHILD
+    // REGION, not after the last element, or the replay lands before the prose.
+    'text + expression before it': [
+      `function C() {\n  return (\n    <div>\n      <A/>\n      Some prose here\n      {count}\n      <B/>\n    </div>\n  );\n}\n`,
+      'B',
+      'div',
+    ],
+    'expression sibling after it': [
+      `function C() {\n  return (\n    <div>\n      <B/>\n      {cond && <A/>}\n    </div>\n  );\n}\n`,
+      'B',
+      'div',
+    ],
+    'prose before the only element': [
+      `function C() {\n  return (\n    <div>\n      hello there\n      <B/>\n    </div>\n  );\n}\n`,
+      'B',
+      'div',
+    ],
   };
 
   for (const [name, [src, tag, parentTag]] of Object.entries(CASES)) {
@@ -307,6 +326,104 @@ describe('remove → insert is byte-identical', () => {
     expect(rm.removedText).toBe('\n      <Beta id="b" />');
     expect(rm.removedIndex).toBe(1);
     expect(rm.parentPath).toEqual([0]);
+  });
+});
+
+// --- the child list vs the bytes between its members -----------------------
+
+/**
+ * `childrenOf` numbers JSX ELEMENTS. The source between them holds text and
+ * `{expr}` nodes that are not children under that numbering but are very much
+ * the author's content — and the splice offset used to be taken after the
+ * previous element, so everything in between fell inside the removed span.
+ *
+ * The offset now anchors immediately BEFORE the child at `index`, which makes
+ * "remove one element" mean one element. These tests pin the two halves of that:
+ * what survives a remove, and the positions an insert can and cannot name.
+ */
+describe('non-element siblings are not part of a child', () => {
+  const MIXED = `function C() {\n  return (\n    <div>\n      <A/>\n      Some prose here\n      {count}\n      <B/>\n    </div>\n  );\n}\n`;
+
+  it('removing an element leaves neighbouring text and expressions alone', () => {
+    const r = applyLayoutRemove(MIXED, { anchor: anchorFor(MIXED, 'B') });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain('Some prose here');
+    expect(r.text).toContain('{count}');
+    expect(r.text).not.toContain('<B/>');
+    // The captured span is the element and its own line — nothing more.
+    expect(r.removedText).toBe('\n      <B/>');
+  });
+
+  it('inserting before an element lands after the text, not before it', () => {
+    const r = applyLayoutInsert(MIXED, {
+      parent: anchorFor(MIXED, 'div'),
+      index: 1,
+      raw: '<NEW/>',
+    });
+    expect(r.located, r.reason).toBe(true);
+    // Order must be: A, prose, {count}, NEW, B.
+    const at = (s) => r.text.indexOf(s);
+    expect(at('<A/>')).toBeLessThan(at('Some prose here'));
+    expect(at('Some prose here')).toBeLessThan(at('{count}'));
+    expect(at('{count}')).toBeLessThan(at('<NEW/>'));
+    expect(at('<NEW/>')).toBeLessThan(at('<B/>'));
+  });
+});
+
+describe('positions inside a shared-owner group are refused, not approximated', () => {
+  // `{flag ? <A/> : <B/>}` contributes TWO children through ONE owner. There is
+  // no offset that means "between the branches", and the old arithmetic silently
+  // produced the next index's position instead — indices 1 and 2 wrote
+  // byte-identical files, so a designer asking to insert between the branches
+  // got an insert after the whole conditional with no indication.
+  const TERNARY = `function C() {\n  return (\n    <div>\n      {flag ? <A/> : <B/>}\n      <D/>\n    </div>\n  );\n}\n`;
+
+  it('refuses the interior index with a reason naming the group', () => {
+    const r = applyLayoutInsert(TERNARY, {
+      parent: anchorFor(TERNARY, 'div'),
+      index: 1,
+      raw: '<NEW/>',
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/falls inside a single expression that renders 2 children/);
+    expect(r.text).toBe(TERNARY);
+  });
+
+  it('the surrounding indices stay usable and DISTINCT', () => {
+    const outs = [0, 2, 3].map(
+      (index) =>
+        applyLayoutInsert(TERNARY, { parent: anchorFor(TERNARY, 'div'), index, raw: '<NEW/>' })
+          .text,
+    );
+    for (const t of outs) expect(parse(t, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+    // The bug was two indices agreeing. Distinctness IS the assertion.
+    expect(new Set(outs).size).toBe(3);
+  });
+});
+
+describe('inserting into a conditionally-rendered parent', () => {
+  // The case `role: 'container'` was added to unblock: the parent is reached
+  // through `{cond && …}`, so `owner !== node` and the target-role guards refuse
+  // it — correctly, for a remove. As a CONTAINER it is fine, and this is the
+  // end-to-end proof that the widening actually works through `applyLayoutInsert`
+  // rather than only at the resolver.
+  const COND = `function C() {\n  return (\n    <div>\n      {cond && <Panel>\n        <Inner/>\n      </Panel>}\n    </div>\n  );\n}\n`;
+
+  it('accepts the conditional element as a container and writes a parseable file', () => {
+    const r = applyLayoutInsert(COND, {
+      parent: anchorFor(COND, 'Panel'),
+      index: 1,
+      raw: '<NEW/>',
+    });
+    expect(r.located, r.reason).toBe(true);
+    expect(r.text).toContain('<NEW/>');
+    expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('still refuses to REMOVE that same parent — container ≠ target', () => {
+    const r = applyLayoutRemove(COND, { anchor: anchorFor(COND, 'Panel') });
+    expect(r.located).toBe(false);
+    expect(r.text).toBe(COND);
   });
 });
 
@@ -507,6 +624,51 @@ describe('hostile values are refused before they reach the file', () => {
       expect(r.text).toContain(text);
       expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
     }
+  });
+
+  it('refuses to clobber a non-literal className through the `sets` door', () => {
+    // `classOps` refuses this node; `sets` reached the same attribute by another
+    // route and overwrote `className={t("nav.home")}` with a plain string,
+    // destroying the translation key — the exact loss #718's joiner allowlist
+    // exists to prevent. One rule, both doors.
+    const src = `function C() { return <div className={t("nav.home")}/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      sets: [{ name: 'className', value: 'clobbered' }],
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/not a string literal/);
+    expect(r.text).toBe(src);
+  });
+
+  it('refuses to both set and class-edit className in one intent', () => {
+    // Their spans are the same attribute; applying highest-first interleaved
+    // them into `className="REPLACED"gap-2"` — three parse errors, written.
+    const src = `function C() { return <div className="p-4"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      classOps: { additions: ['gap-2'] },
+      sets: [{ name: 'className', value: 'REPLACED' }],
+    });
+    expect(r.reason).toMatch(/cannot be set and class-edited/);
+    expect(r.text).not.toContain('REPLACED');
+    expect(parse(r.text, 'x.tsx').parseDiagnostics ?? []).toHaveLength(0);
+  });
+
+  it('refuses overlapping splices generally, not just the className pair', () => {
+    // The backstop, reached here by two `sets` on one attribute. It exists so a
+    // future third writer cannot reintroduce the interleaving silently.
+    const src = `function C() { return <div id="a" className="p-4"/>; }`;
+    const r = applyLayoutProps(src, {
+      anchor: anchorFor(src, 'div'),
+      sets: [
+        { name: 'id', value: 'x' },
+        { name: 'id', value: 'y' },
+      ],
+    });
+    expect(r.located).toBe(false);
+    expect(r.reason).toMatch(/overlapping edits/);
+    expect(r.text).toBe(src);
   });
 
   it('refuses an all-whitespace snippet instead of reporting a successful insert', () => {
