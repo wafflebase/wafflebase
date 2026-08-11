@@ -350,3 +350,205 @@ The argument for landing it anyway is not "a later wave needs it": it is that
 next thing any caller asks of it, and it is the one place a caller will silently get the
 wrong answer. Whether that clears the bar is the reviewer's call, and **resequencing this
 behind its first consumer is a defensible answer.**
+
+---
+
+# Follow-up (2026-08-11): `lensOf`, the accessor the same-run gate never had
+
+Measured against `upstream/main` at `9d68ee0970d9`.
+
+## The problem
+
+`groupFindings` documents its same-run gate as **absolute on `(lens, file)`**. For a caller
+passing normalised finding records it ran as **file-only**, and nothing said so.
+
+The function injects three accessors — `itemOf`, `armOf`, `runOf` — and reads the **lens
+straight off the finding object**, in two places rather than one:
+
+| where | the read |
+|---|---|
+| `matchAnchored`, the L0 gate | `trim(a.lens) !== trim(b.lens) \|\| trim(a.file) !== trim(b.file)` |
+| `findingSimilarity` (`rounds.mjs:521`) | `if (trimmed(a.lens) !== trimmed(b.lens)) return 0;` |
+
+`eval/finding-record.mjs` puts the lens in the **arm namespace**, at `record.panel.lens`. That
+is deliberate and is not the bug: `lens` is the first entry in `ARM_ONLY_FIELDS.panel`,
+because a panel lens is meaningless on a CodeRabbit record and hoisting it would make the
+record's top level lie about what every arm can fill.
+
+So a record reaches the gate with `lens: undefined` on **both** sides,
+`trim(undefined) !== trim(undefined)` is `false`, and both gates fall through to the file
+check. **Nothing throws, nothing logs, and the output is a set of classes a reader would
+accept** — fewer of them, in the direction that makes our arm look more unique, because a
+smaller class count shrinks the base of any unique-catch proportion computed over it.
+
+The same absence has a second, worse property: **an unreadable lens and two equal lenses
+produce the identical comparison.** There is no value of the output that distinguishes them,
+which is why this went unnoticed until a consumer measured the same input twice.
+
+## The change
+
+1. **`defaultLensOf` beside `defaultItemOf`** — `finding.lens` first, then
+   `finding[LENSED_ARM]?.lens`. The arm namespace is reached through the existing
+   `LENSED_ARM` constant, so the one arm whose lens is real stays named in one place.
+   Blank and non-string are *absent*, not a lens.
+2. **`opts.lensOf`**, injectable, guarded by the same `read()` wrapper as the other three: a
+   throwing accessor is recorded in `stats.accessor_failures` and treated as unreadable.
+3. **`node.operand`** — the object handed to the matcher. It *is* the finding unless `lensOf`
+   resolved a lens the finding does not carry at the top level, in which case it is the
+   shallow copy widened with it. Built once per node, and only when it differs.
+4. **`stats.gate.lens_unreadable`** — same-run pairs whose lens was unreadable on at least
+   one side, so the `(lens, file)` gate ran as file-only.
+5. **`members[].lens`** — the resolved lens, reported beside `arm` and `run`.
+
+### Why the lens is not a parameter of `matchAnchored`
+
+The obvious shape is `matchAnchored(a, b, anA, anB, { lensA, lensB })`. It was rejected on the
+argument the module already makes about the anchor, a few hundred lines up: *"an anchor that
+did not come from `extractAnchor(a)` would make the verdict disagree with `matchFindings(a, b)`
+on the same operands, and a matcher with two answers for one pair is worse than a slow one."*
+A gate parameter has exactly that property. Widening the operand does not:
+`matchFindings(operand, other)` returns what the grouping saw, so every verdict stays
+reproducible by hand from the member it names.
+
+**And it would have fixed only one of the two gates.** `findingSimilarity` re-checks the lens
+itself, off its own operand, and an option on `matchAnchored` cannot reach it. This was the
+main thing the plan got wrong; see below.
+
+### Why the digest changed too
+
+`contentDigest` now reads `node.operand`. Its docblock says it covers *"every field the
+matcher reads (`lens`, `file`, `summary`, `evidence`)"*, and the matcher reads the operand.
+Left on `node.finding`, two classes the restored gate correctly separates would digest
+**identically**, collide on one id, and take the occurrence suffix that exists for genuinely
+indistinguishable classes — turning a fixed bug into a cosmetic one. This is a consequence of
+the fix, not a second change.
+
+## Corrected while building
+
+- **The defect is in two gates, not one.** The handoff named `matchAnchored:263`.
+  `findingSimilarity` has its own copy at `rounds.mjs:521`. This is what decided the operand
+  design over the gate-parameter one — the plan's first shape would have left half the defect
+  in place while passing every test written for it.
+- **The class counts in the handoff are a both-arms population.** It quoted 166/173/164
+  against 146/153/136. On the **panel** `reported` population the same measurement is
+  **142/147/139 against 121/127/110**. The *deltas* reproduce — 21, 20, 29 against the stated
+  20, 20, 28 — and the ~25-class gap per replicate is CodeRabbit's ~30 comments, which form
+  near-singletons and are unaffected: a cross-arm pair is always cross-source and L2 never
+  reads a lens. Nothing in the handoff was wrong about the defect; the absolute numbers belong
+  to a different input.
+- **Raw sampled findings carry no lens at all.** Across 282 real capture files, **0 of 941
+  findings** have a top-level `lens`. The lens is the *file name* — `adapters/reviewer.mjs`
+  stamps it from the directory, on the stated ground that a finding is model output and a
+  fill-the-blank rule would let it declare its own lens. So the arm namespace is not merely
+  where the lens is *usually* kept; for this population it is the only place it exists.
+- **A `lens` resolved out of the arm namespace is NOT written into the carried finding.** The
+  first draft did, and it hands a caller back a shape it never passed in. The resolved value
+  is node metadata, exactly like `item`, `arm` and `run`.
+
+## Fail directions
+
+| what fails | what happens | why that is the safe way |
+|---|---|---|
+| `lensOf` throws | caught, recorded in `stats.accessor_failures` with its index, lens treated as `null` | read path in merged code with live callers; a scoring run may not die on a caller's accessor |
+| the lens is unreadable | the pair keeps the **file-only** comparison it has today, and `stats.gate.lens_unreadable` counts it | no behaviour change for anything that reaches this state today, and the state is now visible |
+| the lens is blank (`""`, `"   "`) | treated as absent, so the arm namespace is still consulted | otherwise `lens: ""` silently re-opens the whole defect |
+| a caller injects a wrong `lensOf` | its findings split more than they should | the module's fail direction: more classes than defects costs a curator a second look, over-merging is unrecoverable |
+
+**It counts and reports rather than throwing, and that is a deliberate departure from lesson 1**
+(*"a guard that aborts is worth more than the fix it guards"*). `groupFindings` is merged and
+its read path is documented as degrading to fewer records and never throwing. Aborting here
+would take down a scoring run over an input that is merely *less precise* than it could be.
+
+## Explicit non-goals
+
+- **The gate's semantics, the thresholds, `LINKAGE` and every verdict rule are untouched.**
+  `matchAnchored` is not edited. This makes a documented gate reachable.
+- **`finding-record.mjs` is untouched.** Hoisting `lens` to the top level would be the wrong
+  fix — `ARM_ONLY_FIELDS` exists for it, and the change would reach every consumer of a record.
+- **Cross-lens restatement is NOT collapsed, and this doc does not decide whether it should
+  be.** Two panel findings on one file under different lenses stay separate; a regression test
+  pins that. Whether the panel's 5–6 lenses describing one defect *ought* to be one class is a
+  real open question and it belongs to a scorer, not to a missing accessor. **It is the most
+  likely reason the section above measured within-arm collapse at 1.4%.**
+- No new export. `defaultLensOf` is module-private, like the other three.
+
+## What the real data says
+
+**The pilot's three replicates, panel `reported` population, through the real adapter**
+(`eval/adapters/panel.mjs` → `groupFindings`, records passed **unmodified**):
+
+```
+run             n   classes before   classes after   Δ    same-run pairs   gate.lens_unreadable
+pilot-01__k1  142        121              142       +21        1567                 0
+pilot-01__k2  147        127              147       +20        1566                 0
+pilot-01__k3  139        110              139       +29        1432                 0
+```
+
+**20–29 of our own findings per replicate were collapsing into classes they do not belong to**,
+and `id_collisions` is 0 before and after.
+
+**The same measurement on a corpus 6× larger** — the `sampled` population from **282 capture
+files across 19 pull requests, 941 findings**, lens taken from the file name as the adapter
+takes it:
+
+```
+classes   606 (lens-blind, i.e. today)  →  695 (lens read from the arm namespace)   Δ +89
+collapse  35.6% of n                    →  26.1% of n
+items whose class count moved: 18 of 19
+```
+
+**And the number that would have caught it on day one.** With the lens deleted from the arm
+namespace — the shape the code *behaved* as if it had — the new stat reads:
+
+```
+pilot-01__k1  gate.lens_unreadable 1567 of 1567 same-run pairs
+pilot-01__k2  gate.lens_unreadable 1566 of 1566 same-run pairs
+pilot-01__k3  gate.lens_unreadable 1432 of 1432 same-run pairs
+```
+
+Every pair, every replicate. That is the line this follow-up is really about: the accessor is
+three lines, and the reason the defect survived three replicates is that **no output
+distinguished an absent lens from two equal ones.**
+
+## Verification
+
+- [x] **Tests: 1668, 0 fail, 0 skip.** Baseline **1660, 0 fail, 0 skip** on `upstream/main`
+      at `9d68ee0970d9`, measured in the same environment — both trees extracted fresh and
+      given the *same* two `node_modules` symlinks (root `eslint@9.24.0`, and
+      `scripts/agent` for the Agent SDK), because a skip delta across that difference is an
+      environment artefact that reads as a regression. **+8 tests, all in
+      `finding-match.test.mjs` (56 → 64).**
+- [x] **A record from `buildFindingRecord` gates on lens with NO `opts` passed.** Asserted
+      against the **real** builder, imported into the test rather than reproduced as a
+      fixture, so an upstream rename of `record.panel.lens` reddens this lane instead of
+      quietly loosening a gate.
+- [x] **Mutations: 12 written, 12 caught**, each by a test that names the right thing —
+      including **the default-precedence line** (arm namespace read first: caught only by
+      *"the default reads the TOP LEVEL first"*), the `read()` guard, the `||` in the stat's
+      condition, the operand at the matcher, the operand at the digest, and writing the
+      resolved lens into the carried finding. None survived.
+- [x] **A caller that already widens its records with a top-level `lens` is byte-identical.**
+      Groups, ids, members, links and **every pre-existing `stats` field** compared string-wise
+      before and after, on all three replicates: identical. The two added fields
+      (`members[].lens`, `stats.gate.lens_unreadable`) are additive and were stripped for the
+      comparison, since including them would make it vacuously false.
+- [x] **`stats.gate.lens_unreadable` is nonzero on a lens-less input and zero on a
+      record-shaped one** — 1567/1566/1432 against 0/0/0 above, and pinned in a unit test that
+      also proves one unreadable side is enough and that cross-source pairs are not counted.
+- [x] **`npx eslint scripts` exits 0** at the lockfile-pinned `eslint@9.24.0`, and exits 0 on
+      the baseline tree too, so there is no version drift in the comparison.
+- [x] **Verified from the committed tree** (`git archive <branch> | tar -x`), not the working
+      copy.
+- [x] **No shipped behaviour changes.** `groupFindings` has no consumer in the repository —
+      `harvest.mjs` uses `matchFindings`/`bestMatch`, neither of which this diff touches, and
+      `harvest.test.mjs` is green unmodified.
+
+**Not verified, and why:**
+
+- [ ] **#779's own scorer was not run.** `eval/complementarity.mjs` is not on `main`, so there
+      is nothing to execute. The property its numbers depend on — byte-identical output for a
+      top-level `lens` — was measured directly instead, on the same three replicates it reads.
+- [ ] **The 166/173/164 figures were not reproduced as stated.** They are a both-arms
+      population; reproducing them needs the CodeRabbit arm, which `corpusRecords` fetches from
+      the GitHub API. The panel half and the deltas are measured above.
+- [ ] **Whether cross-lens restatement should collapse is still open.** Reported, not decided.

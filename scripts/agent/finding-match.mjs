@@ -431,6 +431,41 @@ const defaultRunOf = (f) => {
 };
 
 /**
+ * Which lens produced the finding — the field the same-run gate compares, and
+ * the one this function did not read for its first two consumers.
+ *
+ * TOP LEVEL FIRST, THEN THE LENSED ARM'S NAMESPACE, and the second half is the
+ * whole point. A normalised finding record keeps the lens at
+ * `record.panel.lens`, deliberately: it is in `ARM_ONLY_FIELDS` because a panel
+ * lens is meaningless on a CodeRabbit record, and hoisting it would make the
+ * record's top level lie about what every arm can fill. So a caller handing this
+ * function records unmodified had `lens: undefined` on BOTH sides of every pair,
+ * `trim(undefined) !== trim(undefined)` is FALSE, and the absolute (lens, file)
+ * gate at `matchAnchored` — and `findingSimilarity`'s own copy of it — silently
+ * degraded to file-only. Nothing threw and nothing logged; the grouping just
+ * merged findings from different lenses and reported fewer, tidier classes.
+ * Measured on the pilot's three replicates that was 20, 20 and 29 classes
+ * collapsed that should not have been.
+ *
+ * The arm namespace is read by `LENSED_ARM` rather than by a literal, so the one
+ * arm whose lens is real stays named in one place. CodeRabbit's `lens` is a
+ * category→lens guess of ours and is never consulted here — `gateFor` already
+ * routes every CodeRabbit pair to L2, which does not read a lens at all.
+ *
+ * `null` means UNREADABLE, which is not "the two lenses agree". The two cases
+ * are indistinguishable at the gate, so `stats.gate.lens_unreadable` counts the
+ * same-run pairs where it happened.
+ */
+function defaultLensOf(f) {
+  if (typeof f.lens === "string" && f.lens.trim() !== "") return f.lens.trim();
+  const armed = f[LENSED_ARM];
+  if (armed && typeof armed === "object" && typeof armed.lens === "string" && armed.lens.trim() !== "") {
+    return armed.lens.trim();
+  }
+  return null;
+}
+
+/**
  * The tuple grouping's behaviour actually depends on, hashed.
  *
  * NOT a second `findingKey`, and the difference matters. `findingKey` is the
@@ -449,7 +484,13 @@ const defaultRunOf = (f) => {
  * merge order — and therefore the output — independent of input order.
  */
 function contentDigest(node) {
-  const f = node.finding;
+  // The OPERAND, not the raw finding: the matcher is handed `node.operand`, so
+  // that is what "every field the matcher reads" means. Reading `node.finding`
+  // here instead would leave a lens resolved out of the arm namespace out of the
+  // digest, and two findings on one file under different lenses — which the gate
+  // now correctly keeps in two classes — would digest identically and collide on
+  // an id, taking the occurrence suffix for a difference that is not arbitrary.
+  const f = node.operand;
   return sha256hex(
     [
       node.item ?? "",
@@ -519,6 +560,13 @@ function gateFor(x, y, fallbackCrossSource) {
  *           is 0 for any sound grouping and is the number that goes red if the
  *           linkage check is ever weakened.
  *
+ * FOUR ACCESSORS, all injectable and all with a default that reads a normalised
+ * finding record as well as a bare finding: `itemOf`, `armOf`, `runOf` and
+ * `lensOf`. The first three select WHICH gate a pair gets (`gateFor`); the fourth
+ * feeds the same-run gate's left half, and it was missing — see `defaultLensOf`
+ * for what that cost. An accessor that throws is caught, recorded in
+ * `stats.accessor_failures`, and treated as an unreadable value.
+ *
  * WHAT IT NEVER DOES:
  *
  * - **Merge across pull requests.** Two items are two subjects; a class spanning
@@ -552,6 +600,7 @@ export function groupFindings(findings, opts = {}) {
     typeof opts.itemOf === "function" ? opts.itemOf : opts.item != null ? () => String(opts.item) : defaultItemOf;
   const armOf = typeof opts.armOf === "function" ? opts.armOf : defaultArmOf;
   const runOf = typeof opts.runOf === "function" ? opts.runOf : defaultRunOf;
+  const lensOf = typeof opts.lensOf === "function" ? opts.lensOf : defaultLensOf;
   const fallbackCrossSource = opts.crossSource === true;
 
   const nodes = [];
@@ -586,17 +635,37 @@ export function groupFindings(findings, opts = {}) {
         : typeof rawItem === "number" && Number.isFinite(rawItem)
           ? String(rawItem)
           : null;
+    const rawLens = read(lensOf, finding, index, "lensOf");
     const node = {
       index,
       item,
       arm: read(armOf, finding, index, "armOf"),
       run: read(runOf, finding, index, "runOf"),
+      lens: typeof rawLens === "string" && rawLens.trim() !== "" ? rawLens.trim() : null,
       // Shallow copy. The caller's object is never touched, and `index` is kept
       // so a caller can still line a member up with the array it passed in.
       finding: { ...finding },
       key: findingKey(finding),
       anchor: extractAnchor(finding),
     };
+    // THE OPERAND THE MATCHER SEES, which is the finding itself unless `lensOf`
+    // resolved a lens the finding does not carry at the top level.
+    //
+    // The lens is not passed to `matchAnchored` as a gate parameter, and the
+    // reason is the one that keeps the anchor out of the exported surface a few
+    // hundred lines up: a matcher with two answers for one pair is worse than a
+    // slow one. `matchFindings(operand, other)` returns exactly what the grouping
+    // saw, so any verdict here is reproducible by hand from the member it names.
+    // A `lensA`/`lensB` option would also have fixed only ONE of the two gates —
+    // `findingSimilarity` in `rounds.mjs` re-checks the lens itself and reads it
+    // off its operand, so it would have stayed lens-blind.
+    //
+    // Built once per finding, and only when it differs, so the common case (a
+    // finding that already carries `lens`) allocates nothing and the copy that
+    // reaches a caller in `members[].finding` is untouched — the resolved lens is
+    // reported beside `arm` and `run` on the member instead of being written into
+    // someone else's finding shape.
+    node.operand = node.lens !== null && node.lens !== trim(finding.lens) ? { ...node.finding, lens: node.lens } : node.finding;
     // Computed once per finding for the same reason the anchor is: `summaryTokens`
     // is another regex pass, and G0 below would otherwise ask the question n²
     // times. `anchorIsEmpty` is the exported predicate for the second half.
@@ -620,7 +689,7 @@ export function groupFindings(findings, opts = {}) {
 
   const pairs = [];
   const verdictAt = new Map(); // "i:j" (i < j, positions in `nodes`) → pair
-  const gateCensus = { "same-run": 0, "cross-source": 0, defaulted: 0 };
+  const gateCensus = { "same-run": 0, "cross-source": 0, defaulted: 0, lens_unreadable: 0 };
   const tally = { compared: 0, match: 0, maybe: 0, no: 0 };
   let noEvidencePairs = 0;
   for (const positions of partitions.values()) {
@@ -629,7 +698,7 @@ export function groupFindings(findings, opts = {}) {
         const i = positions[x];
         const j = positions[y];
         const gate = gateFor(nodes[i], nodes[j], fallbackCrossSource);
-        let result = matchAnchored(nodes[i].finding, nodes[j].finding, nodes[i].anchor, nodes[j].anchor, {
+        let result = matchAnchored(nodes[i].operand, nodes[j].operand, nodes[i].anchor, nodes[j].anchor, {
           crossSource: gate.crossSource,
           threshold: opts.threshold,
         });
@@ -658,6 +727,19 @@ export function groupFindings(findings, opts = {}) {
         }
         gateCensus[gate.crossSource ? "cross-source" : "same-run"]++;
         if (!gate.derived) gateCensus.defaulted++;
+        // THE ASSERTION THIS WHOLE ACCESSOR EXISTS FOR — same job as `defaulted`
+        // beside it, one level down. An absent lens and two EQUAL lenses are
+        // indistinguishable at the gate: both make `trim(a.lens) !== trim(b.lens)`
+        // false, so the pair proceeds on the file check alone and produces a
+        // perfectly reasonable-looking verdict. Only counted on the same-run path,
+        // because L2 never reads a lens and counting there would be noise.
+        //
+        // Counted, not thrown: this is a read path in merged code, and the fail
+        // direction here is the module's — degrade to fewer merges and SAY SO,
+        // never abort a caller's scoring run. Non-zero means a caller is passing
+        // findings whose lens this file cannot see, and their same-run gate is
+        // running as file-only.
+        if (!gate.crossSource && (nodes[i].lens === null || nodes[j].lens === null)) gateCensus.lens_unreadable++;
         tally.compared++;
         tally[result.verdict]++;
         const pair = { i, j, result, crossSource: gate.crossSource, gateDerived: gate.derived };
@@ -799,6 +881,13 @@ export function groupFindings(findings, opts = {}) {
         item: m.item,
         arm: m.arm,
         run: m.run,
+        // The lens the gate compared, reported for the same reason `arm` and
+        // `run` are: they are what `gateFor` and the same-run gate READ, and a
+        // reader asking why two same-file findings stayed apart cannot answer it
+        // from the finding alone when the lens came out of the arm namespace.
+        // `null` is unreadable, and `stats.gate.lens_unreadable` says how much of
+        // the run that cost.
+        lens: m.lens,
         finding: m.finding,
       })),
       pair_count: (members.length * (members.length - 1)) / 2,
@@ -912,6 +1001,11 @@ export function groupFindings(findings, opts = {}) {
       // the input held byte-identical findings the matcher declined to merge —
       // worth a look at the input, but the ids are still unique.
       id_collisions: idCollisions,
+      // Which rule each pair got, plus the two ways that choice can be running on
+      // less than it should: `defaulted` (provenance unreadable, so the gate was
+      // guessed) and `lens_unreadable` (same-run pair, lens unreadable on at least
+      // one side, so the (lens, file) gate ran as file-only). Both are subsets of
+      // the two counts above them, and both are silent without this line.
       gate: gateCensus,
       links: {
         maybe: links.filter((l) => l.verdict === "maybe").length,
