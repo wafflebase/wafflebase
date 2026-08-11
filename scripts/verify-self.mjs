@@ -102,14 +102,21 @@ const LANES = [
   // the cheapest true statement about it is that nobody knows why. Isolation is
   // therefore a MITIGATION with a measurement behind it, not a diagnosis, and it
   // is written this way deliberately: nothing is skipped, no result is dropped,
-  // and the two invocations together report 1556 + 55 = 1611 tests, which is
-  // exactly what one invocation reports when it is not corrupted. Compare
+  // and the two invocations together report the SAME total one invocation reports
+  // when it is not corrupted — 1556 + 55 = 1611 as measured at `7dbeb61ce`, a
+  // number that moves with every test added, so it is the equality that is the
+  // claim here and not the figure. Compare
   // `--test-force-exit` below, which also made this lane green and did so by
   // losing up to 58 tests without saying so.
   //
   // The cost is +5s on a lane that is 0.9% of `verify-self` (#692 measured 3.5s
   // of 412s), against a failure that was costing a re-run on roughly one PR in
   // eight.
+  //
+  // `-prune` rather than `! -path './node_modules/*'`: that form only excludes the
+  // TOP-LEVEL install, so a nested `node_modules` anywhere under `scripts/agent`
+  // would still have its vendored suites run. `-prune` drops the directory at any
+  // depth, and `eval/test-lane.test.mjs` plants a file in a nested one to prove it.
   //
   // `find` rather than a second glob because node's `--test` has no exclusion
   // syntax, and an ENUMERATED list would silently stop covering a file someone
@@ -118,7 +125,7 @@ const LANES = [
   // the two invocations are proven to partition the suite rather than asserted to.
   {
     name: "agent:tests",
-    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -name '*.test.mjs' ! -path './node_modules/*' ! -path './eval/run.test.mjs' | cut -c3- | sort) && node --test-timeout=60000 --test 'eval/run.test.mjs'",
+    cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) && node --test-timeout=60000 --test 'eval/run.test.mjs'",
   },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.

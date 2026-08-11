@@ -60,8 +60,9 @@ added later — the exact failure `eval/test-lane.test.mjs` exists to prevent.
 **This is a mitigation, not a diagnosis. Nobody knows why sharing a runner with
 the rest of the suite corrupts that file's channel.** It is written so that being
 wrong about the cause costs nothing: no test is skipped, no result is dropped,
-and the two invocations report 1614 tests where one invocation reports 1614.
-Cost: +5s on a lane that is 0.9% of `verify-self`.
+and the two invocations report the same total one invocation does — 1556 + 55 =
+1611 at `7dbeb61ce`, 1614 at the PR head. The figure moves with every test added;
+the EQUALITY is the claim. Cost: +5s on a lane that is 0.9% of `verify-self`.
 
 ## Corrected while building
 
@@ -74,6 +75,16 @@ Cost: +5s on a lane that is 0.9% of `verify-self`.
   `node_modules` prune (the old assertion was vacuous on a checkout that never ran
   `npm ci` in `scripts/agent`, so the test now plants a file there), and removing
   `--test-timeout` from one of the two invocations.
+- **The prune itself was wrong, and review caught it.** `! -path './node_modules/*'`
+  excludes only the TOP-LEVEL install, so a nested `node_modules` anywhere under
+  `scripts/agent` would still have its vendored suites run — and the probe was
+  planted top-level, so the guard passed anyway. Now `-type d -name node_modules
+  -prune`, with probes in BOTH a top-level and a nested `node_modules`; reverting
+  to the old filter is a caught mutation. On a clean checkout both forms return the
+  same 57 files, so the prune drops only vendored paths.
+- Coverage widened from `eval/` to all of `scripts/agent`: the first invocation now
+  enumerates the whole package, so a file dropped anywhere is the silent skip this
+  guard exists to prevent.
 
 ## Still open — not this PR
 

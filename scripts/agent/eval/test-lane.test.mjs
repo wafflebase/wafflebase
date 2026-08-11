@@ -79,22 +79,25 @@ function laneInvocations() {
   });
 }
 
-/** Every `*.test.mjs` under `eval/`, at any depth, relative to `scripts/agent`. */
-function evalTestFiles(dir = HERE, out = []) {
+/** Every `*.test.mjs` under `scripts/agent`, at any depth, relative to it. */
+function agentTestFiles(dir = AGENT_DIR, out = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (e.name === "node_modules") continue;
     const abs = path.join(dir, e.name);
-    if (e.isDirectory()) evalTestFiles(abs, out);
+    if (e.isDirectory()) agentTestFiles(abs, out);
     else if (e.isFile() && e.name.endsWith(".test.mjs")) out.push(path.relative(AGENT_DIR, abs));
   }
   return out;
 }
 
-test("the two invocations together run every test file under eval/, at every depth", () => {
+test("the two invocations together run every test file under scripts/agent, at every depth", () => {
+  // Widened from `eval/` only: the lane's first invocation now enumerates the
+  // whole package with `find`, so a file dropped ANYWHERE — not just under
+  // `eval/` — is the silent skip this file exists to prevent.
   const [rest, isolated] = laneInvocations();
   const covered = new Set([...rest, ...isolated]);
-  const files = evalTestFiles();
-  assert.ok(files.length >= 3, `expected the eval test files to be found, got ${JSON.stringify(files)}`);
+  const files = agentTestFiles();
+  assert.ok(files.length >= 20, `expected the agent test files to be found, got ${files.length}`);
   for (const file of files) {
     assert.ok(covered.has(file), `${file} is run by NEITHER invocation of the agent:tests lane — it would never run in CI`);
   }
@@ -148,16 +151,25 @@ test("the lane does not run vendored tests, proven against a real node_modules",
   // would start running third-party suites. Asserting "no node_modules path came
   // back" is VACUOUS on a checkout that has not installed there — which is most
   // developer machines — so a file is planted to make the check real.
-  const probeDir = path.join(AGENT_DIR, "node_modules", "__lane_probe__");
-  const probe = path.join(probeDir, "planted.test.mjs");
-  mkdirSync(probeDir, { recursive: true });
-  writeFileSync(probe, "// planted by test-lane.test.mjs; removed in the same test\n");
+  // Two probes, and the NESTED one is the one that matters: a filter written as
+  // `! -path './node_modules/*'` excludes only the top-level install, so a probe
+  // planted there alone passes against a lane that would still run every vendored
+  // suite under `eval/node_modules`. That was this test's first version.
+  const probeDirs = [
+    path.join(AGENT_DIR, "node_modules", "__lane_probe__"),
+    path.join(AGENT_DIR, "eval", "node_modules", "__lane_probe__"),
+  ];
+  for (const dir of probeDirs) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "planted.test.mjs"), "// planted by test-lane.test.mjs; removed in the same test\n");
+  }
   try {
     const [rest, isolated] = laneInvocations();
     const vendored = [...rest, ...isolated].filter((f) => f.split("/").includes("node_modules"));
     assert.deepEqual(vendored, [], `the lane would run vendored tests: ${vendored.join(", ")}`);
   } finally {
-    rmSync(probeDir, { recursive: true, force: true });
+    rmSync(probeDirs[0], { recursive: true, force: true });
+    rmSync(path.join(AGENT_DIR, "eval", "node_modules"), { recursive: true, force: true });
   }
 });
 
