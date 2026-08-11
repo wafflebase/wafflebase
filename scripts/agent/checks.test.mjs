@@ -267,16 +267,36 @@ test("every agent-pipeline checkout pins an immutable commit SHA, not a tag", ()
   // nothing. The invariant is the SHAPE of the pin.
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  // Both patterns end in `\s*(#.*)?$` — trailing whitespace and a YAML comment
+  // are allowed, nothing else is.
+  //
+  // The REPOSITORY pattern must tolerate a comment or the guard has a silent
+  // hole: `repository: wafflebase/agent-pipeline # central` would fail to match,
+  // and a site that does not match is not scanned at all — neither counted nor
+  // reported. A checkout could then be added, or an existing one annotated, and
+  // quietly leave the guard's view. That is the exact failure shape this test
+  // exists to catch, so it must not be one the test itself has.
+  //
+  // The REF pattern must end at the SHA, or `[0-9a-f]{40}\b` accepts anything
+  // that merely STARTS with 40 hex characters: `<sha>/branch` and `<sha>-evil`
+  // both passed before this. (41+ hex already failed closed — `\b` cannot match
+  // between two hex digits.) A quoted ref is deliberately rejected too: every
+  // one of these blocks is generated from one template, so one canonical form is
+  // the point, and a clear failure naming the expected shape beats a guard that
+  // quietly accepts variants.
+  const REPO_LINE = /^\s*repository:\s*wafflebase\/agent-pipeline\s*(#.*)?$/;
+  const SHA_REF = /^\s*ref:\s*[0-9a-f]{40}\s*(#.*)?$/;
   const offenders = [];
   let pins = 0;
   for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
     const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
     lines.forEach((line, i) => {
-      if (!/repository:\s*wafflebase\/agent-pipeline\s*$/.test(line)) return;
-      // `ref:` is the next non-comment key in every one of these blocks.
+      if (!REPO_LINE.test(line)) return;
+      // `ref:` is the next non-comment key in every one of these blocks. Not
+      // finding one leaves `ref` empty, which is reported rather than skipped.
       const ref = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l)) ?? "";
       pins += 1;
-      if (!/^\s*ref:\s*[0-9a-f]{40}\b/.test(ref)) offenders.push(`${file}:${i + 2} -> ${ref.trim() || "(no ref)"}`);
+      if (!SHA_REF.test(ref)) offenders.push(`${file}:${i + 2} -> ${ref.trim() || "(no ref)"}`);
     });
   }
   assert.ok(pins > 0, "expected at least one agent-pipeline checkout to exist");
