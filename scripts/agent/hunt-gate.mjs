@@ -225,8 +225,38 @@ export const UI_VERIFIER_SCHEMA = {
     },
     groundedIn: { type: "array", items: { type: "string" } },
     duplicateOf: { type: ["string", "null"] },
+    // THE CLAIM, RESTATED WITHIN THE EVIDENCE.
+    //
+    // The explorer's `title` was the one piece of model prose reaching the report
+    // unexamined. The design already routes the code LOCATION through the verifier,
+    // because the explorer's version could not be trusted; the CLAIM never got the
+    // same treatment, and every real finding so far has been filed-blocking wrong in
+    // the same way — observing a few instances and generalising to "never"/"any":
+    //
+    //   "Bold only removes bold, it can never apply it"      — applies fine normally
+    //   "after a scroll, clicks no longer select any cell"   — clicks work fine
+    //   "never removes italic from a right-to-left selection" — removes when the
+    //                                                           preceding run matches
+    //
+    // Each was a real observation wrapped in a false universal. So the verifier
+    // restates it, and the report uses THAT.
+    scopedTitle: { type: "string" },
+    // Whether the explorer's own title asserted more than its evidence supports.
+    // Deliberately NOT a gate input: overclaiming is a description defect, not a
+    // validity one, and letting it block would discard real findings over wording.
+    // It is counted instead, so a systemic drift toward overclaiming is visible.
+    overclaimed: { type: "boolean" },
   },
-  required: ["verdict", "confidence", "reason", "confirmationGround", "groundedIn", "duplicateOf"],
+  required: [
+    "verdict",
+    "confidence",
+    "reason",
+    "confirmationGround",
+    "groundedIn",
+    "duplicateOf",
+    "scopedTitle",
+    "overclaimed",
+  ],
 };
 
 /** Derived, never hand-copied — same drift guard as `HUNT_GROUNDS`. */
