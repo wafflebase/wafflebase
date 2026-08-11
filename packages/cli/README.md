@@ -124,8 +124,10 @@ wafflebase schema cell.get          # → sheets.cells.get
   command reports the same code for that condition, so the branch does
   not depend on which subcommand ran. Local failures (bad input, a
   filesystem error) still report `"ERROR"`.
-- **Exit codes**: `0` success, `1` user error (bad input, 404, type
-  mismatch), `2` system error (network, auth).
+- **Exit codes**: `0` success, `1` failure. Every failure exits `1` —
+  including a network or auth failure — so branch on the envelope's
+  `code`, not the exit code. (`2` is reserved for a future system-error
+  split and is not emitted today.)
 
 ## Skills (for AI agents)
 

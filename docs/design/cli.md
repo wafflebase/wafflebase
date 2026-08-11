@@ -777,9 +777,11 @@ success and failure uniformly:
 }
 ```
 
-Exit codes: `0` success, `1` user error (bad input, not found),
-`2` system error (network, auth). Agents can branch on the exit code
-without parsing the error body.
+Exit codes: `0` success, `1` failure. `2` is reserved for a future
+system-error split (network, auth) and is not emitted by any command
+today — a network or auth failure exits `1` like every other failure, so
+what an agent branches on is the envelope's `code`, not the exit code
+(§10).
 
 #### 8.2 Dry-Run
 
@@ -1035,13 +1037,24 @@ is the agent interface. This approach has key advantages:
 | `--replace --dry-run` without `--yes`               | 0    | —                   | (no prompt, no gate — a preview writes nothing)                     |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
-| Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
-| Backend error body *is* the envelope                | 1    | (forwarded verbatim) | (forwarded verbatim — e.g. SESSION_EXPIRED, TYPE_MISMATCH)        |
+| Backend 401, JWT session could not be refreshed     | 1    | SESSION_EXPIRED     | "Session expired. Run `wafflebase login`."                         |
+| Backend 401/403, any other body                     | 1    | HTTP_ERROR          | "HTTP 403: Forbidden resource"                                     |
+| Backend error body *is* the envelope                | 1    | (forwarded)          | (the upstream's own code — e.g. SESSION_EXPIRED, TYPE_MISMATCH)   |
 | Backend error body is not the envelope              | 1    | HTTP_ERROR          | "HTTP <status>" (+ ": <upstream message>" when the body had one)   |
-| Backend 5xx or network                              | 2    | SYSTEM              | (original message preserved)                                       |
-| Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
+| Backend 5xx                                         | 1    | HTTP_ERROR          | "HTTP 500" (+ the upstream message when the body had one)          |
+| Network failure (no response at all)                | 1    | ERROR               | (fetch's own message preserved)                                     |
+| Yorkie attach failure †                             | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
-| Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |
+| Fontkit font load failure †                         | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |
+
+† Planned, not shipped: no path in `packages/cli/src` sets an exit code of
+`2` or emits `YORKIE_ERROR` / `FONT_LOAD_ERROR` today. Every failure the CLI
+currently produces exits `1` (§8.1). There is deliberately no `UNAUTHORIZED`
+code: an auth failure is just a backend response like any other, and it
+reports `SESSION_EXPIRED` (the client's own synthesized envelope, the one case
+the CLI knows is an auth failure) or `HTTP_ERROR` — a single classifier for
+every command, so the code an agent branches on never depends on which
+subcommand it ran.
 
 ### 11. Design Principles
 

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Command } from 'commander';
+import { HttpClient } from '../src/client/http-client.js';
 import { DEFAULT_BLOCK_STYLE, DocxExporter, type Document } from '@wafflebase/docs';
 import { ImportReport, type SlidesDocument } from '@wafflebase/slides/node';
 import {
@@ -120,6 +124,41 @@ describe('forwardUpstreamError', () => {
     ).toThrow('HTTP 500');
   });
 
+  // The forwarded body is upstream-controlled content going straight into an
+  // agent's stderr, so it gets the same bound the non-envelope path applies
+  // rather than an unbounded dump of whatever the backend attached.
+  it('caps a huge `message` on the envelope path', () => {
+    forwardUpstreamError({
+      status: 500,
+      data: { error: { code: 'BOOM', message: 'x'.repeat(5000) } },
+    });
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0]));
+    expect(body.error.message).toBe(`${'x'.repeat(500)}…`);
+  });
+
+  it('drops sibling fields once the envelope stops being small', () => {
+    forwardUpstreamError({
+      status: 500,
+      data: {
+        error: { code: 'BOOM', message: 'boom' },
+        stack: 'y'.repeat(6000),
+      },
+    });
+    expect(JSON.parse(String(stderrSpy.mock.calls[0]?.[0]))).toEqual({
+      error: { code: 'BOOM', message: 'boom' },
+    });
+  });
+
+  it('does not quote an HTML page carried as the envelope message', () => {
+    forwardUpstreamError({
+      status: 502,
+      data: { error: { code: 'BAD_GATEWAY', message: '<html>nope</html>' } },
+    });
+    expect(JSON.parse(String(stderrSpy.mock.calls[0]?.[0]))).toEqual({
+      error: { code: 'BAD_GATEWAY', message: 'HTTP 502' },
+    });
+  });
+
   it('rejects bodies that are not objects at all', () => {
     expect(() => forwardUpstreamError({ status: 502, data: null })).toThrow(
       'HTTP 502',
@@ -208,6 +247,11 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     return JSON.parse(String(stderrSpy.mock.calls[0]?.[0]));
   }
 
+  // `sheets import` parses its input off disk before it ever calls the
+  // backend, so that case needs a real file rather than a stub.
+  const importCsv = join(mkdtempSync(join(tmpdir(), 'wfb-cli-')), 'in.csv');
+  writeFileSync(importCsv, 'a,b\n1,2\n');
+
   const CASES: Array<{ name: string; argv: string[] }> = [
     { name: 'docs content', argv: ['docs', 'content', 'doc-1'] },
     { name: 'docs export', argv: ['docs', 'export', 'doc-1', 'out.pdf'] },
@@ -225,12 +269,26 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     { name: 'docs rename', argv: ['docs', 'rename', 'doc-1', 'T'] },
     { name: 'docs delete', argv: ['docs', 'delete', 'doc-1'] },
     { name: 'notes list', argv: ['notes', 'list'] },
+    { name: 'notes create', argv: ['notes', 'create', 'T'] },
     { name: 'notes get', argv: ['notes', 'get', 'doc-1'] },
+    { name: 'notes rename', argv: ['notes', 'rename', 'doc-1', 'T'] },
+    { name: 'notes delete', argv: ['notes', 'delete', 'doc-1'] },
     { name: 'slides list', argv: ['slides', 'list'] },
+    { name: 'slides create', argv: ['slides', 'create', 'T'] },
     { name: 'slides get', argv: ['slides', 'get', 'doc-1'] },
+    { name: 'slides rename', argv: ['slides', 'rename', 'doc-1', 'T'] },
+    { name: 'slides delete', argv: ['slides', 'delete', 'doc-1'] },
     { name: 'sheets cells get', argv: ['sheets', 'cells', 'get', 'doc-1', 'A1'] },
     { name: 'sheets cells set', argv: ['sheets', 'cells', 'set', 'doc-1', 'A1', '1'] },
     { name: 'sheets cells delete', argv: ['sheets', 'cells', 'delete', 'doc-1', 'A1'] },
+    // Both of these do real work before the request — a JSON parse and a
+    // file read + CSV parse — so they are the converted sites with the most
+    // room to stop reaching `forwardUpstreamError`.
+    {
+      name: 'sheets cells batch',
+      argv: ['sheets', 'cells', 'batch', 'doc-1', '--data', '{"A1":{"value":"1"}}'],
+    },
+    { name: 'sheets import', argv: ['sheets', 'import', 'doc-1', importCsv] },
     { name: 'sheets tabs list', argv: ['sheets', 'tabs', 'list', 'doc-1'] },
     { name: 'sheets tabs create', argv: ['sheets', 'tabs', 'create', 'doc-1', 'S2'] },
     { name: 'sheets tabs rename', argv: ['sheets', 'tabs', 'rename', 'doc-1', 'tab-1', 'S2'] },
@@ -260,6 +318,97 @@ describe('content/export commands envelope non-envelope error bodies', () => {
       await run(...argv);
       expect(emitted()).toEqual(ENVELOPE);
       expect(process.exitCode).toBe(1);
+    });
+  }
+});
+
+// The invariant the conversion advertises — every command reports the same
+// code, the client's own 401 SESSION_EXPIRED most of all — only holds if the
+// request actually goes through `send()`. The three `api-keys` calls sit
+// outside the `/api/v1` base and used to call `fetch` directly, so they
+// neither refreshed a JWT session nor produced that envelope.
+describe('api-keys requests report SESSION_EXPIRED like every other call', () => {
+  const SESSION_EXPIRED = {
+    error: {
+      code: 'SESSION_EXPIRED',
+      message: 'Session expired. Run `wafflebase login`.',
+    },
+  };
+
+  function jwtClient(): HttpClient {
+    return new HttpClient({
+      server: 'https://api.test',
+      apiKey: '',
+      workspace: 'ws-1',
+      authMode: 'jwt',
+      accessToken: 'stale',
+      refreshToken: 'no-longer-valid',
+    });
+  }
+
+  // A successful refresh persists to the session file; keep the test off
+  // whatever session the machine running it happens to have.
+  let savedSessionPath: string | undefined;
+
+  beforeEach(() => {
+    savedSessionPath = process.env.WAFFLEBASE_SESSION;
+    process.env.WAFFLEBASE_SESSION = join(
+      mkdtempSync(join(tmpdir(), 'wfb-session-')),
+      'session.json',
+    );
+  });
+
+  afterEach(() => {
+    if (savedSessionPath === undefined) delete process.env.WAFFLEBASE_SESSION;
+    else process.env.WAFFLEBASE_SESSION = savedSessionPath;
+    vi.unstubAllGlobals();
+  });
+
+  const CALLS = [
+    ['api-keys list', (c: HttpClient) => c.listApiKeys()],
+    ['api-keys create', (c: HttpClient) => c.createApiKey('k')],
+    ['api-keys revoke', (c: HttpClient) => c.revokeApiKey('key-1')],
+  ] as const;
+
+  for (const [name, call] of CALLS) {
+    it(`\`${name}\` synthesizes the envelope when the refresh fails`, async () => {
+      // Every request 401s, the refresh included, so the session is gone.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          json: async () => ({ message: 'Unauthorized', statusCode: 401 }),
+        }),
+      );
+      expect(await call(jwtClient())).toEqual({
+        ok: false,
+        status: 401,
+        data: SESSION_EXPIRED,
+      });
+    });
+
+    it(`\`${name}\` retries once against a refreshed session`, async () => {
+      const fetchMock = vi
+        .fn()
+        // The first attempt is rejected with the stale access token…
+        .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) })
+        // …the refresh succeeds…
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ accessToken: 'fresh', refreshToken: 'r2' }),
+        })
+        // …and the retry carries the new token.
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const res = await call(jwtClient());
+      expect(res.ok).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const retryHeaders = (fetchMock.mock.calls[2]?.[1] as RequestInit)
+        .headers as Record<string, string>;
+      expect(retryHeaders.Authorization).toBe('Bearer fresh');
     });
   }
 });

@@ -163,19 +163,27 @@ export class HttpClient {
     } as T;
   }
 
-  async request<T>(
+  /**
+   * A JSON request against a fully-qualified URL.
+   *
+   * Every JSON call — the `/api/v1` ones through `request()` and the
+   * workspace management ones that live outside that base — goes through
+   * here, so all of them refresh a JWT session on a 401 and report the same
+   * `SESSION_EXPIRED` envelope when the refresh fails. The management
+   * endpoints used to call `fetch` directly, which made `api-keys` the one
+   * namespace where an expired session surfaced as whatever the backend's
+   * 401 body happened to be.
+   */
+  private async requestUrl<T>(
     method: string,
-    path: string,
+    url: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
-    const { res, sessionExpired } = await this.send(
-      `${this.base}${path}`,
-      (auth) => ({
-        method,
-        headers: this.jsonHeaders(auth),
-        body: body ? JSON.stringify(body) : undefined,
-      }),
-    );
+    const { res, sessionExpired } = await this.send(url, (auth) => ({
+      method,
+      headers: this.jsonHeaders(auth),
+      body: body ? JSON.stringify(body) : undefined,
+    }));
 
     if (sessionExpired) {
       return { ok: false, status: 401, data: this.sessionExpiredBody<T>() };
@@ -183,6 +191,14 @@ export class HttpClient {
 
     const data = (await res.json().catch(() => null)) as T;
     return { ok: res.ok, status: res.status, data };
+  }
+
+  async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
+    return this.requestUrl<T>(method, `${this.base}${path}`, body);
   }
 
   // Documents
@@ -361,30 +377,23 @@ export class HttpClient {
     return this.request('PATCH', `/documents/${docId}/tabs/${tabId}/cells`, { cells });
   }
 
-  // API Keys (management endpoints use different base)
-  async listApiKeys() {
+  // API Keys (management endpoints sit outside the `/api/v1` base, but go
+  // through `requestUrl` like everything else so the 401 refresh and the
+  // SESSION_EXPIRED envelope apply here too).
+  private apiKeysUrl(): string {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetch(url, { headers: this.jsonHeaders() });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+    return `${server}/workspaces/${encodeURIComponent(this.config.workspace)}/api-keys`;
   }
-  async createApiKey(name: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ name }),
-    });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  listApiKeys() {
+    return this.requestUrl('GET', this.apiKeysUrl());
   }
-  async revokeApiKey(id: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys/${id}`;
-    const res = await fetch(url, { method: 'DELETE', headers: this.jsonHeaders() });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  createApiKey(name: string) {
+    return this.requestUrl('POST', this.apiKeysUrl(), { name });
+  }
+  revokeApiKey(id: string) {
+    return this.requestUrl(
+      'DELETE',
+      `${this.apiKeysUrl()}/${encodeURIComponent(id)}`,
+    );
   }
 }

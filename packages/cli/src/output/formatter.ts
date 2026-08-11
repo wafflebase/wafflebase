@@ -89,6 +89,42 @@ function isErrorEnvelope(
  * agent's stderr. */
 const MAX_UPSTREAM_MESSAGE = 500;
 
+/** Longest `code` kept. A code is an identifier agents branch on
+ * (`TYPE_MISMATCH`, `SESSION_EXPIRED`); anything longer is not one. */
+const MAX_UPSTREAM_CODE = 80;
+
+/**
+ * Longest serialized envelope forwarded with its sibling fields intact.
+ * Past this the extras are dropped and only `{code, message}` — the two
+ * documented fields — survive.
+ *
+ * The envelope is upstream-controlled content printed into an agent's
+ * stderr, so it gets the same treatment as the non-envelope path rather
+ * than an unbounded `JSON.stringify(res.data)`: a `command` hint is worth
+ * keeping, a stack trace or a megabyte of debug context is not.
+ */
+const MAX_UPSTREAM_BODY = 4000;
+
+/**
+ * The printable form of an upstream text field: a string, or a
+ * `class-validator` array of them, capped and with an HTML document
+ * rejected outright. `null` when there is nothing worth quoting.
+ */
+function clampUpstreamText(raw: unknown): string | null {
+  const text = Array.isArray(raw)
+    ? raw.filter((part) => typeof part === 'string').join('; ')
+    : typeof raw === 'string'
+      ? raw
+      : '';
+  const trimmed = text.trim();
+  // An HTML error page (proxy 502, dev-server index) is a document, not a
+  // message; quoting its first 500 characters helps nobody.
+  if (!trimmed || trimmed.startsWith('<')) return null;
+  return trimmed.length > MAX_UPSTREAM_MESSAGE
+    ? `${trimmed.slice(0, MAX_UPSTREAM_MESSAGE)}…`
+    : trimmed;
+}
+
 /**
  * The human-readable part of a non-envelope upstream body, or `null` when
  * there is nothing worth quoting.
@@ -102,22 +138,36 @@ const MAX_UPSTREAM_MESSAGE = 500;
  * with nothing to act on, so it is preserved here.
  */
 function upstreamDetail(body: unknown): string | null {
-  const raw =
+  return clampUpstreamText(
     typeof body === 'string'
       ? body
-      : (body as { message?: unknown } | null | undefined)?.message;
-  const text = Array.isArray(raw)
-    ? raw.filter((part) => typeof part === 'string').join('; ')
-    : typeof raw === 'string'
-      ? raw
-      : '';
-  const trimmed = text.trim();
-  // An HTML error page (proxy 502, dev-server index) is a document, not a
-  // message; quoting its first 500 characters helps nobody.
-  if (!trimmed || trimmed.startsWith('<')) return null;
-  return trimmed.length > MAX_UPSTREAM_MESSAGE
-    ? `${trimmed.slice(0, MAX_UPSTREAM_MESSAGE)}…`
-    : trimmed;
+      : (body as { message?: unknown } | null | undefined)?.message,
+  );
+}
+
+/**
+ * The envelope as it is safe to print: the upstream's own `code` and
+ * `message`, both bounded, with its sibling fields (`command`, a request
+ * id) kept only while the whole body stays small.
+ *
+ * Forwarding is still verbatim in the sense that matters — the `code`
+ * agents branch on is the upstream's — but the bytes it can put on stderr
+ * are bounded, and an `error.message` holding an HTML page is dropped for
+ * the same reason the non-envelope path drops one.
+ */
+function safeEnvelope(
+  body: { error: { code: string; message?: unknown } },
+  status: number,
+): unknown {
+  const code = body.error.code.slice(0, MAX_UPSTREAM_CODE);
+  const error: Record<string, unknown> = { ...body.error, code };
+  if ('message' in body.error) {
+    error.message = clampUpstreamText(body.error.message) ?? `HTTP ${status}`;
+  }
+  const whole = { ...body, error };
+  return JSON.stringify(whole).length <= MAX_UPSTREAM_BODY
+    ? whole
+    : { error: { code, message: error.message ?? `HTTP ${status}` } };
 }
 
 /** `HTTP <status>`, plus the upstream's own wording when it had any. */
@@ -157,7 +207,8 @@ export class UpstreamHttpError extends Error {
  * depending only on which subcommand the agent happened to run. The code an
  * agent branches on must not depend on that.
  *
- * Only a body that *is* the documented envelope is forwarded verbatim.
+ * Only a body that *is* the documented envelope is forwarded (through
+ * `safeEnvelope`, which bounds what upstream text can reach stderr).
  * Anything else — a framework 404/500 body where `error` is a string, an
  * HTML page that failed to parse to `null`, a bare string — throws an
  * `UpstreamHttpError`, which the caller's `catch` routes through
@@ -171,7 +222,7 @@ export function forwardUpstreamError(res: {
   data: unknown;
 }): void {
   if (isErrorEnvelope(res.data)) {
-    console.error(JSON.stringify(res.data, null, 2));
+    console.error(JSON.stringify(safeEnvelope(res.data, res.status), null, 2));
     process.exitCode = 1;
     return;
   }
@@ -184,8 +235,9 @@ export function forwardUpstreamError(res: {
  * exit code instead of throwing into `outputError`.
  *
  * Same rule as `forwardUpstreamError`, and the same output for the same
- * input — only a body that *is* the documented envelope is forwarded
- * verbatim; anything else becomes the `HTTP_ERROR` envelope those commands'
+ * input — only a body that *is* the documented envelope is forwarded (with
+ * the same `safeEnvelope` bound on its text); anything else becomes the
+ * `HTTP_ERROR` envelope those commands'
  * skill files already promise (`packages/cli/skills/docs-import-docx.md`),
  * carrying the upstream's own message rather than a framework 404/500 body
  * whose `error.code` reads `undefined`.
@@ -194,7 +246,8 @@ export function upstreamErrorJson(res: {
   status: number;
   data?: unknown;
 }): string {
-  if (isErrorEnvelope(res.data)) return JSON.stringify(res.data, null, 2);
+  if (isErrorEnvelope(res.data))
+    return JSON.stringify(safeEnvelope(res.data, res.status), null, 2);
   return JSON.stringify(
     { error: { code: 'HTTP_ERROR', message: upstreamMessage(res) } },
     null,

@@ -333,114 +333,40 @@ async function readBaseline(target, profile) {
 //      `fonts.check()` returns true only when the face is ready for
 //      synchronous rendering — strictly stronger than `fonts.ready`,
 //      which can resolve before late-mounted families register at all.
-//   4. Catch-all poll: no registered FontFace left in `status: "loading"`.
-//      This covers families nobody thought to list here — the enumerated
-//      set below is a floor, not the whole truth.
-//
-// Steps 3 and 4 are best-effort (see `settle`): they wait, but a timeout
-// warns rather than failing the capture, so the harness never hard-depends
-// on fonts.googleapis.com being reachable.
-//
-// The list must include the families the *app itself* pulls from
-// fonts.googleapis.com in index.html, not just the ones a component
-// injects lazily. Those arrive over the network too, so `fonts.ready` alone
-// can resolve while an Inter face is still unusable and the preview paints
-// in the browser's default serif — which is how slides-theme-panel and
-// slides-pickers drifted while every system-family row around them matched.
-const VISUAL_FONT_FAMILIES = [
-  // Injected lazily by useGoogleFontsLink() from a component mount effect.
-  "Noto Sans KR",
-  "Noto Serif KR",
-  "Nanum Gothic",
-  "Roboto",
-  // Requested up front by index.html's Google Fonts stylesheet.
-  "Inter",
-  "Fraunces",
-  "JetBrains Mono",
-];
-
-// Every weight the UI actually paints these families at. css2 can serve a
-// requested weight list as one face per weight, so checking only 400/700
-// can pass while the face a preview needs is still unloaded — e.g.
-// ThemeThumbnail's `aA` sample renders at 600.
-const VISUAL_FONT_WEIGHTS = [400, 500, 600, 700];
+const VISUAL_FONT_FAMILIES = ["Noto Sans KR", "Noto Serif KR", "Nanum Gothic", "Roboto"];
 
 async function waitForFontsReady(page) {
-  const spec = { families: VISUAL_FONT_FAMILIES, weights: VISUAL_FONT_WEIGHTS };
-  const loadPass = async ({ families, weights }) => {
+  await page.evaluate(async (families) => {
     if (!document.fonts) return;
     await Promise.all(
-      families.flatMap((family) =>
-        weights.map((weight) =>
-          // A family the page never registered resolves immediately; a
-          // rejection here means the fetch failed, which the check pass
-          // below reports as a timeout naming the family.
-          document.fonts.load(`${weight} 12px "${family}"`).catch(() => {}),
-        ),
-      ),
+      families.flatMap((family) => [
+        document.fonts.load(`400 12px "${family}"`),
+        document.fonts.load(`700 12px "${family}"`),
+      ]),
     );
     await document.fonts.ready;
-  };
-
-  await page.evaluate(loadPass, spec);
+  }, VISUAL_FONT_FAMILIES);
   await page.waitForLoadState("networkidle");
-  await page.evaluate(loadPass, spec);
-  // Best-effort, never fatal. Inter/Fraunces/JetBrains Mono come from
-  // fonts.googleapis.com on *every* harness page, so making the capture
-  // itself depend on that host answering within the timeout would turn a
-  // third-party outage into a total harness failure across all ~200
-  // captures. On timeout we warn (naming what never settled) and shoot
-  // anyway: a genuinely unloaded font still shows up as a baseline diff,
-  // which is a far more legible signal than an aborted run.
-  await settle(
-    page.waitForFunction(
-      ({ families, weights }) =>
-        families.every((family) =>
-          weights.every((weight) =>
-            document.fonts.check(`${weight} 12px "${family}"`),
-          ),
-        ),
-      spec,
-      { timeout: 10000 },
-    ),
-    async () => {
-      const pending = await page
-        .evaluate(
-          ({ families, weights }) =>
-            families.filter((family) =>
-              weights.some(
-                (weight) => !document.fonts.check(`${weight} 12px "${family}"`),
-              ),
-            ),
-          spec,
-        )
-        .catch(() => []);
-      return `families not ready: ${pending.join(", ") || "unknown"}`;
-    },
+  await page.evaluate(async (families) => {
+    if (!document.fonts) return;
+    await Promise.all(
+      families.flatMap((family) => [
+        document.fonts.load(`400 12px "${family}"`),
+        document.fonts.load(`700 12px "${family}"`),
+      ]),
+    );
+    await document.fonts.ready;
+  }, VISUAL_FONT_FAMILIES);
+  await page.waitForFunction(
+    (families) =>
+      families.every(
+        (family) =>
+          document.fonts.check(`400 12px "${family}"`) &&
+          document.fonts.check(`700 12px "${family}"`),
+      ),
+    VISUAL_FONT_FAMILIES,
+    { timeout: 10000 },
   );
-  await settle(
-    page.waitForFunction(
-      () => [...document.fonts].every((face) => face.status !== "loading"),
-      undefined,
-      { timeout: 10000 },
-    ),
-    async () => "some registered faces are still loading",
-  );
-}
-
-/**
- * Await a font-settling wait, downgrading its timeout to a warning. Anything
- * that is not a timeout still throws — a broken selector or a closed page is
- * a harness bug, not a slow font.
- */
-async function settle(pending, describe) {
-  try {
-    await pending;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/Timeout .* exceeded|timeout/i.test(message)) throw error;
-    console.warn(`[visual] fonts did not settle — ${await describe()}`);
-  }
 }
 
 // Captures one page load — either the full assembled page (`section` is
@@ -464,6 +390,8 @@ async function capturePass(context, profile, section, targets, captures) {
         "*,*::before,*::after{animation:none!important;transition:none!important;}",
     });
 
+    await waitForFontsReady(page);
+
     const root = page.locator("[data-testid='visual-harness-root']");
     await root.waitFor({ state: "visible" });
 
@@ -472,11 +400,6 @@ async function capturePass(context, profile, section, targets, captures) {
       const ready = page.locator(SECTION_READY_SELECTOR[sectionId]);
       await ready.waitFor({ state: "visible", timeout: 20000 });
     }
-
-    // After the section is mounted, not before: Chromium only requests a
-    // face once text using it is laid out, so settling fonts first leaves
-    // the fetches a mount triggers entirely unwaited-for.
-    await waitForFontsReady(page);
 
     for (const target of targets) {
       const locator = page.locator(target.locator).first();
