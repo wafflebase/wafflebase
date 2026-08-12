@@ -253,6 +253,40 @@ describe('analyzeNodes', () => {
     expect(a.analysis.tokensUsed).toEqual(['primary']);
   });
 
+  it('carries the className EXPRESSION onto the node, so a refusal is visible', () => {
+    // Without this the outline could not tell `className={t("nav.home")}` from a
+    // node with no class attribute: both arrived as `className: null`, so the UI
+    // offered a class edit that `applyClassRewrite` then refused. The three
+    // distinguishable shapes, on one tree:
+    const { roots } = analyzeNodes(fixture(`
+      function C() {
+        return (
+          <div className={isActive ? "bg-primary" : "bg-muted"}>
+            <b className={cn("p-2", x)}/>
+            <i/>
+          </div>
+        );
+      }`));
+    const div = roots.C.children[0];
+    // LOCKED — an expression with no blob to rewrite.
+    expect([div.className, div.classNameExpr])
+      .toEqual([null, 'isActive ? "bg-primary" : "bg-muted"']);
+    // Both fields: the blob IS editable, so a UI keying off `classNameExpr !== null`
+    // alone would wrongly grey this out.
+    expect([div.children[0].className, div.children[0].classNameExpr])
+      .toEqual(['p-2', 'cn("p-2", x)']);
+    // No attribute at all.
+    expect([div.children[1].className, div.children[1].classNameExpr]).toEqual([null, null]);
+    // `analysis` still reads `className` ALONE. A ternary is the fixture because
+    // its text carries two real tokens, so routing `classNameExpr` into
+    // `analyzeClasses` would report `['muted', 'primary']` here — measured, after
+    // an earlier version of this test used `t("nav.home")` and passed whether the
+    // expression reached the analyzer or not. Whether a refused expression's
+    // literal classes SHOULD be analyzed is a separate question; this pins only
+    // that surfacing the text did not silently change the answer.
+    expect(div.analysis.tokensUsed).toEqual([]);
+  });
+
   it('marks a .map() body repeated', () => {
     const { roots } = analyzeNodes(fixture(
       `function C() { return <ul>{items.map(d => <li/>)}</ul>; }`));
