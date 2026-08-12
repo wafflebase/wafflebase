@@ -292,11 +292,54 @@ machinery-looking entry is the signal.
 - [x] **1714 + 55 = 1769, 0 fail, 0 skipped**, against the same freshly measured
       **1696 + 55 = 1751** on `main` at `d327ee4`. `+18` over the branch's life.
 - [x] `npx eslint scripts` exits 0.
-- [x] **11 mutations, 11 caught**, including the two the round turned on: reading only
-      the unfenced text reddens 1, and a CR-intolerant fence closer reddens 3.
+- [x] **14 mutations, 14 caught, 0 skipped.** Including all five the round turned on:
+      reading only the unfenced text reddens 1, a CR-intolerant closer reddens 1, a
+      newline-spanning bold match reddens 1, a mixed-delimiter closer reddens 3, and a
+      strict closer that does NOT consume an unclosed fence reddens 3. ⚠ One mutation
+      silently SKIPPED on an earlier run because its target string had moved — the
+      harness prints `TARGET NOT FOUND`, and that is worth grepping for, not scrolling past.
 - [x] `--audit` recovery counts still identical to upstream, per PR and in total.
 - [x] Corpus: **1 of 30** summaries changes, **all 3 empty details fill in**, census
       still `30 / 0 / 0`, no record gains an empty summary.
-- [ ] **Not verified:** whether the 11 repaired titles move a downstream score. Nothing
+- [ ] **Not verified:** whether the 38 repaired titles move a downstream score. Nothing
       under `eval/` reads a CodeRabbit finding's `summary` in a published number today,
       and `volume-mix` reads counts only.
+
+## Appended: correction to a number this doc previously stated
+
+**"11 of 1588 inline summaries change against `main`" was wrong. It is 38.** The 11 was
+the delta from the *previous commit on this branch*, not from `main`, and it was quoted
+as the latter in a commit message and a PR reply before being caught by re-measuring.
+The composition, all of them markup or a fragment becoming a real title and **none
+becoming empty**:
+
+- **28** from the fenced-code rule — shell globs and multi-kilobyte transcripts, e.g.
+  `/node_modules/`, `/dist/`, and 1.4 KB of `rg` output on comment 2911274299.
+- **10** from sharing the machinery-stripped region — web-answer fragments such as
+  `Don't use`, `React 19`, `strings`, `` `DefaultLocale()` ``, plus five where a
+  preliminary note inside an analysis chain gave way to the conclusion below it.
+
+Review-body summaries change on **1** of 1693. Empty summaries are **unchanged from
+`main`** on both populations: 0 inline and 2 review-body, and both of those 2 predate
+this branch.
+
+## Appended: two more findings from the same round
+
+- **A title could be SPLICED across a removed span.** Every removed block becomes a
+  newline, and the bold match was `/s`-flagged, so an unclosed `**` above a fence joined
+  a stray `**` below it: on a constructed body the function returned *"bold to start but
+  never close it and then"* — text appearing in no line of the comment. Worse than
+  markup, because it reads like prose. The match is now single-line, which makes it
+  unrepresentable rather than unlikely, and costs nothing: **not one bolded span crosses
+  a newline in 2061 comments**, so the two forms agree on every finding here.
+- **A tilde run could close a backtick fence.** `` \1[`~]* `` accepted ```` ```~~~ ````.
+  Fixing only the strictness makes the malformed case *worse* — the fence stops closing,
+  nothing is stripped, and a `**` inside the code becomes the title — so the unclosed
+  case now consumes to the end, which is what CommonMark says and yields `""`. Both
+  halves are unobservable today (0 tilde fences, no comment with an odd fence-run count).
+
+**That second fix changed a documented behaviour, and a test I wrote in the first round
+went red for it** — it pinned *"an unclosed fence strips nothing"*, which is no longer
+true. The assertion and the docblock claim were both corrected rather than deleted; a
+title ABOVE an unclosed fence still survives, and only a `**` below one is now treated
+as code.

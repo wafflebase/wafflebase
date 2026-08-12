@@ -651,6 +651,69 @@ test("codeRabbitTitle: UNFENCED bold inside an analysis chain is not a title eit
   assert.doesNotMatch(detail, /React 19|StrictMode/, "the web answer reached the compared text");
 });
 
+test("codeRabbitTitle: a title is never SPLICED across a removed span", () => {
+  // Raised in review on #801. Every removed span becomes a newline, so a `/s`-flagged
+  // bold match joins an unclosed `**` above a fence to a stray `**` below it and
+  // returns a string that appears in no line of the comment. That is worse than
+  // returning markup, because it reads like prose. The single-line match makes it
+  // unrepresentable rather than unlikely.
+  const spliced = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold to start but never close it",
+    "",
+    "```sh",
+    "code",
+    "```",
+    "",
+    "and then** later text",
+    "",
+    "**The real title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(spliced), "The real title.");
+  assert.notEqual(codeRabbitTitle(spliced), "bold to start but never close it and then");
+  // The same join happens where a `<details>` block was dissolved, not just a fence.
+  const acrossBlock = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold that never closes",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "x",
+    "",
+    "</details>",
+    "",
+    "and then** more",
+    "",
+    "**The actual title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(acrossBlock), "The actual title.");
+});
+
+test("codeRabbitTitle: a tilde run cannot close a backtick fence", () => {
+  // A nit in the same review, and correct: `` \1[`~]* `` accepted ```` ```~~~ ```` as
+  // a closer. CommonMark requires the closer to use the opener's character, and a rule
+  // that says otherwise is a rule that will be believed.
+  // The discriminating shape is a closer that STARTS with the opener's delimiter and
+  // then carries the other one. `~~~` alone never closed a backtick fence, in either
+  // spelling, so a fixture using that cannot tell the two apart — the first version of
+  // this test did, and the mutation survived it.
+  const mixed = ["_h_ | _🟠 Major_", "", "```sh", "x **not a title** y", "```~~~", "", "**The real title.**"].join("\n");
+  // Per CommonMark that is not a closing fence, so the block runs to the end and
+  // EVERYTHING after it is code. `""` is the honest answer; accepting the mixed run
+  // would return "The real title." by luck, and rejecting it without consuming to the
+  // end would return `not a title` — markup, which is the outcome this file exists to
+  // prevent. All three differ, which is what makes this worth asserting.
+  assert.equal(codeRabbitTitle(mixed), "");
+  assert.notEqual(codeRabbitTitle(mixed), "not a title");
+  // Each delimiter closes its own kind, and a title ABOVE an unclosed fence survives.
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n```sh\nx **not a title** y\n```\n\n**Backticks.**"), "Backticks.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n~~~sh\nx **not a title** y\n~~~\n\n**Tildes.**"), "Tildes.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n**Above it.**\n\n```sh\nunclosed **x**"), "Above it.");
+});
+
 test("codeRabbitTitle: CRLF bodies behave exactly as LF ones", () => {
   // Also raised in review, on the reasoning that a multiline `$` matches only before
   // `\n`. In JavaScript it matches before any LineTerminator, and CR is one, so the
@@ -696,11 +759,13 @@ test("codeRabbitTitle: tilde fences count as code too, at any delimiter length",
   assert.equal(codeRabbitTitle(tilde), "Quote the glob.");
   const longTilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~~\n~~~\n**not a title**\n~~~\n~~~~\n\n**The real title.**\n\nprose";
   assert.equal(codeRabbitTitle(longTilde), "The real title.");
-  // A fence opened with backticks is NOT closed by tildes, so the run stays open and
-  // nothing is stripped — fewer removals, never more. The title is then whatever the
-  // body's first bold span is, and the point is that it does not throw or hang.
+  // A fence opened with backticks is NOT closed by tildes, so it never closes — and an
+  // unclosed fence runs to the end, which means the bold below it is inside code. `""`
+  // rather than `Still parses.`, and this assertion was written the other way round in
+  // the first review round: it pinned the old "an unclosed fence strips nothing"
+  // behaviour and went red when that changed, which is what it was for.
   const mixed = "_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\n~~~\n\n**Still parses.**";
-  assert.equal(codeRabbitTitle(mixed), "Still parses.");
+  assert.equal(codeRabbitTitle(mixed), "");
 });
 
 test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
@@ -716,11 +781,13 @@ test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
   assert.match(f.summary, /`getRules\(\)`/, "the backticked identifier was stripped out of the title");
 });
 
-test("codeRabbitTitle: an UNCLOSED fence strips nothing rather than eating the body", () => {
-  // The fail-safe direction. An opener with no partner matches nothing, so the search
-  // sees the text as it did before this rule existed — less stripping, not more.
-  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed");
+test("codeRabbitTitle: an UNCLOSED fence swallows what follows, not what precedes", () => {
+  // Per CommonMark an unclosed fence means everything after it is code, and that is what
+  // the rule now does. The consequence that matters: a title ABOVE such a fence is
+  // outside the span and survives, while a `**` below it is code and is not a title.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed **not this**");
   assert.equal(f.summary, "A real title.");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\nunclosed **not this**"), "");
   // And an inline code span is not a fence: it must not be treated as a block.
   assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nsee `x` then **The title.**"), "The title.");
 });

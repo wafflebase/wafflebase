@@ -545,6 +545,23 @@ const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
  * puts the title BETWEEN two of them — an analysis chain above, an AI-agents block
  * below — so a greedy match eats exactly the string this function exists to find.
  *
+ * BACKTICKS AND TILDES ARE SEPARATE ALTERNATIVES, not one class, so a run of one
+ * cannot close a fence opened with the other. Written as `` \1[`~]* `` first, which
+ * accepted ```` ```~~~ ```` as a closer — CommonMark is explicit that the closer uses
+ * the opener's character. Raised as a nit in review on #801.
+ *
+ * AN UNCLOSED FENCE THEN RUNS TO THE END, which is the second half of that fix and
+ * not decoration. Strictness alone makes the malformed case WORSE: the fence stops
+ * being closed, nothing is stripped, and a `**` sitting inside the code becomes the
+ * title — the very outcome this function exists to prevent. Consuming to the end
+ * instead says what CommonMark says, that an unclosed fence means everything after it
+ * is code, so the answer becomes `""`. A title ABOVE such a fence is still found,
+ * because it is outside the span either way.
+ *
+ * Both halves are unobservable in today's data — 0 tilde fences and no comment with an
+ * odd number of fence runs, in 2061 inline comments and 614 review bodies — and the
+ * rule is spelled this way so it states something true rather than something lucky.
+ *
  * THE CLOSING FENCE IS MATCHED BY LENGTH, via the backreference, because a fence may
  * legally contain a SHORTER one. That is not hypothetical here: 81 of this
  * repository's 2061 CodeRabbit inline comments open a fence with four or more
@@ -558,9 +575,7 @@ const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
  * one here yet (0 of 2061).
  *
  * Anchoring to line start is what makes the length rule meaningful — a fence is a
- * block construct. An UNCLOSED fence matches nothing and is left in place, which is
- * the safe direction: it yields less stripping rather than swallowing the rest of the
- * body.
+ * block construct.
  *
  * THE ANCHOR LEAVES ONE GAP AND IT IS THE LESSER EVIL. An INLINE code span holding a
  * bolded run — `` ```**x**``` `` mid-sentence — is markup by the same argument, and
@@ -573,7 +588,9 @@ const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
  * trade. The `codeRabbitTitle` test that keeps a backticked identifier inside a title
  * exists to stop someone closing this gap that way.
  */
-const CR_NON_PROSE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[`~]*[ \t]*$|<!--[\s\S]*?-->/gm;
+const CR_NON_PROSE =
+  /^[ \t]*(`{3,})(?:[\s\S]*?^[ \t]*\1`*[ \t]*$|[\s\S]*)|^[ \t]*(~{3,})(?:[\s\S]*?^[ \t]*\2~*[ \t]*$|[\s\S]*)|<!--[\s\S]*?-->/gm;
+
 
 /**
  * CodeRabbit's one-line title: the first bolded span in the same prose region
@@ -602,10 +619,20 @@ const CR_NON_PROSE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[`~]*[ \t]*$|<!--[\s\
  * one file collides on one key, and `findingSimilarity` scores two empty summaries at
  * 1.00 against each other. That is a reason to avoid EMITTING `""` — which this does,
  * emitting no more of them than `main` already does — not a reason to invent a value.
+ *
+ * THE BOLD MATCH IS SINGLE-LINE, and that is what stops a title being MANUFACTURED
+ * rather than merely mis-chosen. Every removed span becomes a newline, so with a
+ * `/s`-flagged match an unclosed `**` above a fence and a stray `**` below it join
+ * across the gap and the function returns a string that appears in no line of the
+ * comment — measured on a constructed body: "bold to start but never close it and
+ * then". Raised in review on #801. `[^\n]` makes that unrepresentable instead of
+ * unlikely, and it costs nothing: a CodeRabbit title is one line, and over all 2061
+ * inline comments not one bolded span crosses a newline, so the two forms agree on
+ * every finding in this repository.
  */
 export function codeRabbitTitle(body) {
   const prose = stripDetailsBlocks(str(body).replace(CR_BLOCKQUOTE_PREFIX, "")).replace(CR_NON_PROSE, "\n");
-  return /\*\*(.+?)\*\*/s.exec(prose)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
+  return /\*\*([^\n]+?)\*\*/.exec(prose)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 /**
