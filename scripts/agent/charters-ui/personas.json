@@ -59,7 +59,7 @@
     "briefs": [
       {
         "id": "values-and-formulas",
-        "task": "Fill in a small table the way someone building a budget would: type values into cells, then add formulas that reference them (sums, a reference to another cell, a formula referencing a cell that is itself a formula). Change an input afterwards and check that what depends on it followed. Read a cell BEFORE you change it so you have a traceable baseline, and remember that the displayed value and the stored formula are two different readers."
+        "task": "Fill in a small table the way someone building a budget would: type values into cells, then add formulas that reference them (sums, a reference to another cell, a formula referencing a cell that is itself a formula). Change an input afterwards and check that what depends on it followed. IMPORTANT \u2014 THEN PUT THAT INPUT BACK to the value it held, and predict the dependent cell equals the reading you took BEFORE you changed it: a dependency restored must produce the old result. Do the same where the dependent cell is itself referenced by a third, and check `sheet.cellFormula` never changed while `sheet.cellValue` did. Read a cell BEFORE you change it so you have a traceable baseline, and remember that the displayed value and the stored formula are two different readers."
       },
       {
         "id": "navigation-and-selection",
