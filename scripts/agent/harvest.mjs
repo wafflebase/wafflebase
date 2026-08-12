@@ -465,15 +465,28 @@ export function classifyCodeRabbitComment(body) {
 // Measured over all 2061 CodeRabbit inline comments in this repository (1588 of
 // them findings), 2026-08-12: 200 of the 1588 — 12.6% — open with a `🧩 Analysis
 // chain` <details> block carrying CodeRabbit's web queries and shell transcripts,
-// and state their title and prose AFTER it. For those, `search(CR_PROSE_END)`
-// returns 0 and this function's slice is empty, so `detail` is `""` on 200
-// findings that do have prose. Both vocabularies are affected, back to #11 (2025-04).
+// and state their title and prose AFTER it. Both vocabularies are affected, back to
+// #11 (2025-04). Cutting at the first `<details>` left `detail` as `""` on all 200 —
+// findings that DO have prose — because the slice kept only the header line and the
+// header-drop below then removed it. Two individually-correct steps composed to
+// nothing: the boundary landed on `<details>` in 200 of 200 cases, at a median offset
+// of 54 bytes, which is the length of a header line.
 //
-// That is a defect in `codeRabbitDetail`, deliberately NOT fixed here: `detail`
-// feeds the text side of finding matching, so widening it moves numbers that
-// already-merged scorers have published. It is recorded so the next change to this
-// constant starts from what the data does rather than from this comment.
-const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
+// `stripDetailsBlocks` is the answer to that, and it is why `<details>` is no longer
+// the interesting half of this pattern: a complete block is REMOVED before the
+// boundary is searched for, so what remains here is the terminator for everything a
+// block cannot enclose.
+//
+// CLOSING tags are boundaries too, and they are the ones a review-body finding hits.
+// `parseCodeRabbitReview` slices a span between two locators out of a section that is
+// itself the inside of nested `<details><blockquote>`, so a span is not a well-formed
+// document: it routinely ends on `</blockquote></details>` belonging to an element
+// that opened before it. Once the balanced blocks are gone, those orphaned closers
+// are all that stand between the prose and the end of the span — and without them
+// here, 735 of 1693 review-body findings carry a `</details>` into the compared text.
+// An unbalanced OPENING `<details>` still terminates, which is the fail-safe
+// direction: a block this function cannot pair is a body it does not understand.
+const CR_PROSE_END = /^[ \t]*(?:<\/?details>|<\/?blockquote>|```|<!--)/m;
 
 /**
  * Leading blockquote markers, which are markup rather than words.
@@ -563,25 +576,144 @@ const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
 const CR_NON_PROSE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[`~]*[ \t]*$|<!--[\s\S]*?-->/gm;
 
 /**
- * CodeRabbit's one-line title: the first bolded span that is prose rather than
- * code, or `""` when the comment states none.
+ * CodeRabbit's one-line title: the first bolded span in the same prose region
+ * `codeRabbitDetail` compares, or `""` when the comment states none.
+ *
+ * IT READS THE MACHINERY-STRIPPED TEXT, NOT MERELY THE UNFENCED TEXT, and that
+ * distinction was a defect for one review round. Skipping fenced code alone is not
+ * enough: an `🧩 Analysis chain` block also contains the UNFENCED `💡 Result:`
+ * narrative for each `🌐 Web query:`, which is LLM prose and uses `**bold**` freely —
+ * "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled…**".
+ * That text is not code, sits before the finding's real title, and is inside exactly
+ * the analysis-chain-first bodies this function exists to serve. Measured over all
+ * 2061 inline comments: reading it produced 16 titles that disagree with the prose,
+ * of which `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are bold
+ * fragments out of a web answer rather than titles. Sharing `stripDetailsBlocks`
+ * takes that to 5, and all 5 are bodies whose prose is empty, so the comparison has
+ * no opinion there rather than a different one.
+ *
+ * So the two readers now genuinely share one prose region, which is the only version
+ * of this that cannot drift: a `**` that is invisible to `detail` is invisible here.
  *
  * `""` is left absent rather than substituted. Falling back to the first sentence
  * would manufacture a title CodeRabbit never wrote, and no consumer could then tell
- * a manufactured one from a real one — while an absent one is checkable. Note that
- * absent is not inert downstream: `findingKey` is `file::summary`, so every empty
- * summary in one file collides on one key, and `findingSimilarity` scores two empty
- * summaries at 1.00 against each other. That is a reason to avoid EMITTING `""`,
- * not a reason to invent a value.
+ * a manufactured one from a real one — while an absent one is checkable. Absent is
+ * not inert downstream: `findingKey` is `file::summary`, so every empty summary in
+ * one file collides on one key, and `findingSimilarity` scores two empty summaries at
+ * 1.00 against each other. That is a reason to avoid EMITTING `""` — which this does,
+ * emitting no more of them than `main` already does — not a reason to invent a value.
  */
 export function codeRabbitTitle(body) {
-  const prose = str(body).replace(CR_BLOCKQUOTE_PREFIX, "").replace(CR_NON_PROSE, "\n");
+  const prose = stripDetailsBlocks(str(body).replace(CR_BLOCKQUOTE_PREFIX, "")).replace(CR_NON_PROSE, "\n");
   return /\*\*(.+?)\*\*/s.exec(prose)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 /**
+ * One `<details>…</details>` block containing no nested `<details>`, i.e. the
+ * INNERMOST one. Applied repeatedly, it dissolves a nested structure from the inside
+ * out. A single lazy `<details>[\s\S]*?</details>` would stop at the first CLOSING
+ * tag instead, which on the nested blocks CodeRabbit builds its review bodies from
+ * cuts in the middle and leaves a stray `</details>` behind.
+ */
+const CR_DETAILS_BLOCK = /<details>(?:(?!<details>)[\s\S])*?<\/details>/g;
+
+/**
+ * The `<summary>` labels of blocks that are CodeRabbit's MACHINERY rather than its
+ * finding: the verification transcript, the boilerplate prompt, the literal source of
+ * a suggestion, and the tool and learning dumps. Counted over this repository's 2061
+ * inline comments — `🤖 Prompt for AI Agents` 1511, `📝 Committable suggestion` 459,
+ * `🧩 Analysis chain` 240, `🧰 Tools` 173, the `🪛 <linter>` family ~150, the
+ * `Learnings` family ~217, `📍 Affects N files` ~60. The review-BODY walkthrough adds
+ * `⚙️ Run configuration`, `📥 Commits`, `ℹ️ Review info` and `🪄 Autofix (Beta)`, one
+ * per review.
+ *
+ * `🤖 Prompt for` is matched as a PREFIX rather than the full `Prompt for AI Agents`,
+ * because a review body says `🤖 Prompt for all review comments with AI agents` — a
+ * second phrasing of the same block. The narrower pattern missed it, and the census
+ * below is what surfaced that; it is the first thing that function found.
+ *
+ * A DENYLIST, not an allowlist, and the label census is the reason. The blocks that
+ * carry CONTENT are named by a long tail — "Proposed fix", "🐛 Suggested guard",
+ * "♻️ Union every matching cluster" — over 300 distinct labels, most used once. An
+ * allowlist over that tail would drop a finding's prose every time CodeRabbit invented
+ * a new phrasing, silently, which is the failure this area keeps having. The machinery
+ * labels are the short and stable half.
+ *
+ * ⚠ It therefore fails OPEN: a machinery block CodeRabbit adds tomorrow gets unwrapped
+ * into `detail` rather than dropped. That is the safe direction — extra text dilutes a
+ * comparison, a missing explanation deletes it — but it is a real gap, and
+ * `unrecognisedDetailsLabels` exists so it is countable rather than invisible.
+ */
+const CR_MACHINERY_SUMMARY =
+  /^\s*(?:🤖\s*Prompt for|📝?\s*Committable suggestion|🧩\s*Analysis chain|🧰\s*Tools|🧬\s*Code Graph Analysis|🪛|📍\s*Affects|[✏⛔🧠]️?\s*Learnings|⚙️?\s*Run configuration|📥\s*Commits|ℹ️?\s*Review info|🪄\s*Autofix)/u;
+
+/**
+ * A CodeRabbit body with its complete `<details>` blocks resolved: machinery deleted,
+ * everything else unwrapped in place.
+ *
+ * `<details>` is a CONTAINER, not a terminator, and treating it as one is what left
+ * `detail` empty on 200 of this repository's 1588 inline findings. See the comment
+ * above `CR_PROSE_END` for that measurement.
+ *
+ * UNWRAPPING rather than deleting the non-machinery blocks is not symmetry for its own
+ * sake. In the 2025 `💡 Verification agent` vintage the finding's own title and prose
+ * live INSIDE the block — `<summary>✅ Verification successful</summary>` followed by
+ * the explanation — so deleting every block empties 11 of the 1693 review-body
+ * findings. Unwrapping keeps that prose and drops only the tags; a `Proposed fix`
+ * block's fenced source is still cut by `CR_PROSE_END`, which is why unwrapping does
+ * not readmit literal code.
+ */
+function stripDetailsBlocks(text) {
+  let prev;
+  let out = text;
+  // Bounded by nesting depth: each pass dissolves the innermost layer, and a pass that
+  // changes nothing ends the loop.
+  do {
+    prev = out;
+    out = out.replace(CR_DETAILS_BLOCK, (block) => {
+      const label = /<summary>([\s\S]*?)<\/summary>/.exec(block)?.[1] ?? "";
+      if (CR_MACHINERY_SUMMARY.test(label)) return "\n";
+      return `\n${block.replace(/<\/?details>/g, "").replace(/<summary>[\s\S]*?<\/summary>/g, "")}\n`;
+    });
+  } while (out !== prev);
+  return out;
+}
+
+/**
+ * The `<summary>` labels this module unwrapped rather than recognised, with a count
+ * each. Pure reporting — nothing branches on it.
+ *
+ * It exists because `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit
+ * controls and changes without notice: four header vintages and two category
+ * vocabularies have already turned over. A new machinery block would otherwise enter
+ * `detail` with no trace, and this repository's whole history in this area is defects
+ * that printed nothing. `--audit` prints the top of this so the next vintage is a line
+ * of output rather than an archaeology exercise.
+ */
+export function unrecognisedDetailsLabels(bodies) {
+  const counts = new Map();
+  for (const body of Array.isArray(bodies) ? bodies : [bodies]) {
+    const text = str(body).replace(CR_BLOCKQUOTE_PREFIX, "");
+    for (const m of text.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
+      const label = m[1].trim();
+      // A tier or file sub-section title is review-body STRUCTURE, not a finding's
+      // block, and counting those would bury the signal under file paths. Both declare
+      // a count — `path/to/file.ts (3)`, `🧹 Nitpick comments (2)` — which is the thing
+      // that distinguishes them, so the count comes off before the path test the way
+      // `codeRabbitReviewSections` does it.
+      const titled = label.replace(/\s*\(\d+\)$/, "");
+      if (titled === label && label !== "" && !CR_MACHINERY_SUMMARY.test(label)) {
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([label, n]) => ({ label, n }));
+}
+
+/**
  * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
- * prose under it, stopping at the first `<details>`, fence or HTML comment.
+ * prose under it, with structured blocks resolved and the remainder stopping at the
+ * first fence, HTML comment or unpaired tag.
  *
  * Two failure modes sit either side of this, and the boundary is what avoids both.
  *
@@ -612,7 +744,10 @@ export function codeRabbitDetail(body) {
   // block, whose boilerplate is exactly what the docblock above says must never
   // reach the comparison. Measured before this strip: 146 of 1626 review-body
   // findings (9.0%) carried that boilerplate in `detail`, median length 1590.
-  const text = str(body).replace(CR_BLOCKQUOTE_PREFIX, "");
+  //
+  // Then the complete `<details>` blocks are resolved, BEFORE the boundary is searched
+  // for, because the boundary's job is only to stop at what a block cannot enclose.
+  const text = stripDetailsBlocks(str(body).replace(CR_BLOCKQUOTE_PREFIX, ""));
   const cut = text.search(CR_PROSE_END);
   const prose = cut === -1 ? text : text.slice(0, cut);
   // Drop the header LINE if the first non-blank line is one, in any vintage. This
@@ -1827,10 +1962,16 @@ export function auditCodeRabbit(pr, { api = gh, log = console.error } = {}) {
   const bump = (o, k) => { o[k] = (o[k] ?? 0) + 1; };
   const inline = { comments: 0, findings: 0, byVintage: {}, bySeverity: {} };
   const review = { bodies: 0, withSections: 0, declared: 0, parsed: 0, byTier: {}, byVintage: {}, bySeverity: {} };
+  // Every body this audit reads, kept only long enough to census its `<details>`
+  // labels. `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes
+  // without notice, so a block type it has not seen is unwrapped into `detail` in
+  // silence — and silence is the failure mode this module keeps re-shipping.
+  const bodies = [];
   try {
     for (const rc of listReviewComments(pr, api)) {
       if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
       inline.comments++;
+      bodies.push(rc.body);
       const f = classifyCodeRabbitComment(rc.body);
       if (!f) continue;
       inline.findings++;
@@ -1845,6 +1986,7 @@ export function auditCodeRabbit(pr, { api = gh, log = console.error } = {}) {
       if (!CODERABBIT_LOGINS.has(str(rv?.user?.login))) continue;
       if (str(rv.body).trim() === "") continue;
       review.bodies++;
+      bodies.push(rv.body);
       const { findings, declared } = parseCodeRabbitReview(rv.body);
       if (declared === 0 && findings.length === 0) continue;
       review.withSections++;
@@ -1865,7 +2007,7 @@ export function auditCodeRabbit(pr, { api = gh, log = console.error } = {}) {
   } catch (err) {
     log(`#${pr}: could not list reviews (${err.message}); review-body counts are incomplete.`);
   }
-  return { pr: String(pr), inline, review };
+  return { pr: String(pr), inline, review, detailsLabels: unrecognisedDetailsLabels(bodies) };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -2052,7 +2194,7 @@ function cmdAudit(args) {
     }
   }
   const total = { comments: 0, inline: 0, declared: 0, parsed: 0 };
-  const tiers = {}, vintages = {};
+  const tiers = {}, vintages = {}, detailsLabels = new Map();
   for (const pr of prs) {
     const a = auditCodeRabbit(pr, { api });
     total.comments += a.inline.comments;
@@ -2061,6 +2203,7 @@ function cmdAudit(args) {
     total.parsed += a.review.parsed;
     for (const [k, v] of Object.entries(a.review.byTier)) tiers[k] = (tiers[k] ?? 0) + v;
     for (const o of [a.inline.byVintage, a.review.byVintage]) for (const [k, v] of Object.entries(o)) vintages[k] = (vintages[k] ?? 0) + v;
+    for (const { label, n } of a.detailsLabels) detailsLabels.set(label, (detailsLabels.get(label) ?? 0) + n);
     console.log(
       `#${a.pr}\tinline ${a.inline.findings}/${a.inline.comments} comment(s)` +
         `\treview-body ${a.review.parsed}/${a.review.declared} declared across ${a.review.bodies} body(ies)`,
@@ -2076,6 +2219,18 @@ function cmdAudit(args) {
     console.error(`harvest: ${total.declared - total.parsed} declared review-body finding(s) were NOT read; each review is named above.`);
   }
   console.error(`harvest: by vintage ${JSON.stringify(vintages)}; by review-body tier ${JSON.stringify(tiers)}.`);
+  // The `<details>` labels `codeRabbitDetail` UNWRAPPED rather than recognised as
+  // machinery. Printed because `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary
+  // CodeRabbit owns: a block type it adds is carried into the compared text silently,
+  // and this is the line that makes the next vintage visible. A long tail of
+  // "Proposed fix" phrasings is the EXPECTED output — those are content. A new
+  // high-count entry that reads like machinery is the signal.
+  const labels = [...detailsLabels].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (labels.length) {
+    const shown = labels.slice(0, 15).map(([label, n]) => `${label}=${n}`).join(" ");
+    console.error(`harvest: unrecognised <details> label(s), ${labels.length} distinct: ${shown}` +
+      (labels.length > 15 ? ` … and ${labels.length - 15} more` : ""));
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

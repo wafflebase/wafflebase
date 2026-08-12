@@ -1,4 +1,4 @@
-# Read a CodeRabbit finding's title from prose, never from quoted code
+# Read a CodeRabbit finding's title and detail from one prose region
 
 *Follow-up to the CodeRabbit parser work in #714 and #719. It changes one field on
 one arm's findings — `summary` — and touches neither the header vintages nor the
@@ -173,9 +173,9 @@ vintage, so none of them could show it.
 
 ## Verification
 
-- [x] **Tests: 1705 + 55 = 1760, 0 fail, 0 skipped.** Baseline on `upstream/main`
+- [x] **Tests: 1714 + 55 = 1769, 0 fail, 0 skipped.** Baseline on `upstream/main`
       at `d327ee4`, measured the same way in an identically-provisioned tree:
-      **1696 + 55 = 1751**. `+9`. Two invocations, the shape the lane uses since
+      **1696 + 55 = 1751**. `+18`. Two invocations, the shape the lane uses since
       #774 — everything except `eval/run.test.mjs`, then that file alone. Both
       trees carry the same `node_modules`, which is what holds the skip count at 0
       on each side.
@@ -209,3 +209,94 @@ vintage, so none of them could show it.
       score.** Nothing consumes a CodeRabbit finding record yet on the scoring side
       except `volume-mix`, which reads counts and never `summary`. This is expected
       to move no published number today.
+
+---
+
+## Appended: review round 2 — the region, not just the fences
+
+**The first version of this change was incomplete, and the review that said so was
+right.** Skipping fenced code does not decide what a title is. An `🧩 Analysis chain`
+block also holds the UNFENCED `💡 Result:` narrative for each `🌐 Web query:` — LLM
+prose, which uses bold freely — and it sits *before* the finding's real title in
+exactly the analysis-chain-first bodies this change exists to serve.
+
+Measured over all 2061 inline comments, the fence-only rule produced **16 titles that
+disagree with the finding's own prose**, of which four are bold fragments out of a web
+answer rather than titles:
+
+| comment | fence-only rule | the finding's actual title |
+|---|---|---|
+| 2876205560 | `Don't use` | Use `fileURLToPath` for filesystem paths derived from `import.meta.url`. |
+| 2884648659 | `React 19` | Avoid side effects inside the `setDefinition` updater callback. |
+| 3294479307 | `strings` | Restore `NODE_ENV` safely to avoid cross-test contamination. |
+| 2902655936 | `` `DefaultLocale()` `` | Pin the collation used for group ordering. |
+
+Sharing one prose region takes 16 → 5, and all 5 remaining are bodies whose prose is
+empty, so the comparison has no opinion rather than a different one.
+
+### What that region now is
+
+A complete `<details>` block is **resolved** before the boundary is searched for:
+machinery deleted, everything else unwrapped in place. Three decisions, each measured:
+
+- **Unwrap rather than delete non-machinery.** The 2025 `💡 Verification agent` vintage
+  states its title and prose INSIDE the block, so deleting every block empties **11 of
+  1693** review-body findings.
+- **Dissolve innermost-first.** A lazy match to the first closing tag cuts CodeRabbit's
+  nested review bodies mid-structure and leaves an orphan behind.
+- **A CLOSING tag ends the prose.** A review-body span inherits closers from elements
+  that opened before it; without this, **735 of 1693** carried a `</details>`.
+
+### `detail`, repaired as the same defect from the other side
+
+`CR_PROSE_END` cut at the first `<details>`, so on the 200 analysis-chain-first findings
+the slice kept only the header line and the header-drop removed it — two
+individually-correct steps composing to `""` on findings that DO have prose. Empty
+details: **inline 200 → 5, review-body 3 → 1**, plus **154 pre-existing markup leaks
+cleared** (115 `</details>`, 28 `</blockquote>`). Median length 331 → 345 inline and
+282 → 283 review-body, max unchanged — it recovers a sentence or two, not blocks.
+
+### The denylist fails open, so it reports
+
+`unrecognisedDetailsLabels` counts the `<summary>` labels that were unwrapped rather
+than recognised, and `--audit` prints the top of it. `CR_MACHINERY_SUMMARY` is a
+denylist over a vocabulary CodeRabbit owns; a block type it has not seen enters the
+compared text with no trace, and this area's history is defects that printed nothing.
+**It earned itself immediately** — it surfaced five machinery labels the first list
+missed, including `🤖 Prompt for all review comments with AI agents`, a second phrasing
+of the block whose boilerplate this code exists to exclude. A long tail of "Proposed
+fix" phrasings (635 distinct labels) is the expected output; a new high-count
+machinery-looking entry is the signal.
+
+## Appended: two findings in the same round, NOT fixed
+
+- **"The closing fence is CRLF-intolerant."** Not valid *for JavaScript*. The reasoning
+  was that a multiline `$` matches only before `\n`; in JS it matches before any
+  LineTerminator and CR is one, so the fence branch works on a CRLF body unchanged.
+  Verified directly, and this repository's live bodies contain **0** `\r` in 2061
+  comments. A test now asserts CRLF and LF agree, and a mutation to a genuinely
+  CR-intolerant pattern reddens 3 tests — so the claim is answered by a guard rather
+  than by an argument.
+- **"The change newly emits `summary: \"\"`."** It does not. Across 1588 inline and 1693
+  review-body findings the count of empty summaries is **unchanged from `main`** — 0 and
+  2 — and both of the 2 predate this branch (they are `LGTM!` notes with no bolded title
+  at all). The hazard described is real and documented in `codeRabbitTitle`'s docblock —
+  `findingKey` is `file::summary`, so empties collide, and `findingSimilarity` scores two
+  at 1.00 — but it lives in `finding-key.mjs` and `rounds.mjs`, not here, and a fallback
+  would manufacture a title no consumer could distinguish from a real one. Left for its
+  own change; `validateFindingRecord` accepting `""` while refusing `run_id: ""` on the
+  adjacent line is the natural place to start.
+
+## Appended: verification for the round
+
+- [x] **1714 + 55 = 1769, 0 fail, 0 skipped**, against the same freshly measured
+      **1696 + 55 = 1751** on `main` at `d327ee4`. `+18` over the branch's life.
+- [x] `npx eslint scripts` exits 0.
+- [x] **11 mutations, 11 caught**, including the two the round turned on: reading only
+      the unfenced text reddens 1, and a CR-intolerant fence closer reddens 3.
+- [x] `--audit` recovery counts still identical to upstream, per PR and in total.
+- [x] Corpus: **1 of 30** summaries changes, **all 3 empty details fill in**, census
+      still `30 / 0 / 0`, no record gains an empty summary.
+- [ ] **Not verified:** whether the 11 repaired titles move a downstream score. Nothing
+      under `eval/` reads a CodeRabbit finding's `summary` in a published number today,
+      and `volume-mix` reads counts only.

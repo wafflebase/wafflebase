@@ -24,6 +24,7 @@ import {
   codeRabbitReviewSections,
   codeRabbitDetail,
   codeRabbitTitle,
+  unrecognisedDetailsLabels,
   attributeToPanel,
   parsePanelComment,
   panelFindingsFromComments,
@@ -604,6 +605,62 @@ test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a ti
   assert.equal(fences.length, 4, "the fixture must keep BOTH fenced blocks for that to be a real risk");
   assert.ok(fences[1] < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
   assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
+});
+
+// comment 2884648659 (PR #21, 2026-03), trimmed at the end only. Its `💡 Result:`
+// narrative is UNFENCED prose inside the analysis chain, and it opens with three
+// bolded spans before the finding's real title appears below the block.
+const CR_UNFENCED_BOLD_IN_CHAIN = [
+  "_⚠️ Potential issue_ | _🟠 Major_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🌐 Web query:",
+  "",
+  "`React 19 Strict Mode useState functional updater multiple invocations`",
+  "",
+  "💡 Result:",
+  "",
+  "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled in development**, React may **invoke your `useState` functional updater more than once** (often twice).",
+  "",
+  "</details>",
+  "",
+  "**Avoid side effects inside the `setDefinition` updater callback.**",
+  "",
+  "The updater runs twice under Strict Mode.",
+].join("\n");
+
+test("codeRabbitTitle: UNFENCED bold inside an analysis chain is not a title either", () => {
+  // Raised in review on #801, and it was right. Skipping fenced code alone is not
+  // enough — the `💡 Result:` narrative is LLM prose, not code, and uses bold freely.
+  // On this body the fence-only rule returned `React 19`. Measured over all 2061
+  // inline comments it returned 16 titles that disagree with the prose, of which
+  // `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are web-answer
+  // fragments. The fix is that the title now reads the SAME machinery-stripped region
+  // `codeRabbitDetail` does, so the two cannot disagree about what is prose.
+  assert.equal(
+    codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN),
+    "Avoid side effects inside the `setDefinition` updater callback.",
+  );
+  assert.notEqual(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN), "React 19");
+  // The title and the detail must agree on what counts as prose. That is the
+  // invariant; the two readers disagreeing is the whole defect this file keeps fixing.
+  const detail = codeRabbitDetail(CR_UNFENCED_BOLD_IN_CHAIN);
+  assert.ok(detail.includes(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN)), "the title is not inside the detail");
+  assert.doesNotMatch(detail, /React 19|StrictMode/, "the web answer reached the compared text");
+});
+
+test("codeRabbitTitle: CRLF bodies behave exactly as LF ones", () => {
+  // Also raised in review, on the reasoning that a multiline `$` matches only before
+  // `\n`. In JavaScript it matches before any LineTerminator, and CR is one, so the
+  // closing-fence branch works unchanged — asserted here rather than argued, and
+  // pinned so a future rewrite of the fence pattern cannot quietly break it.
+  const lf = CR_UNFENCED_BOLD_IN_CHAIN;
+  assert.equal(codeRabbitTitle(lf.replace(/\n/g, "\r\n")), codeRabbitTitle(lf));
+  const fenced = "_h_ | _🟠 Major_\n\n````markdown\n```sh\nrg --glob '!**/node_modules/**'\n```\n````\n\n**Real title.**";
+  assert.equal(codeRabbitTitle(fenced.replace(/\n/g, "\r\n")), "Real title.");
+  assert.equal(codeRabbitDetail(fenced.replace(/\n/g, "\r\n")), codeRabbitDetail(fenced));
 });
 
 test("codeRabbitTitle: a fence is closed by ITS OWN length, not by a shorter inner one", () => {
@@ -1417,6 +1474,158 @@ test("codeRabbitDetail: title + prose, stopping at the first structured block", 
   // it would contribute `code`, `fix`, `issues`, `validate` to every pair.
   assert.doesNotMatch(detail, /Verify each finding/);
   assert.doesNotMatch(detail, /Functional Correctness/); // the header line is dropped
+});
+
+test("codeRabbitDetail: prose BELOW an analysis-chain block is the detail, not empty", () => {
+  // THE DEFECT THIS EXISTS FOR. `<details>` is a container, not a terminator. On the
+  // `🧩 Analysis chain` vintage the block comes FIRST and the finding's title and prose
+  // come after it, so cutting at the first `<details>` kept only the header line — and
+  // the header-drop then removed that, leaving `""`. Two individually-correct steps
+  // composing to nothing, on 200 of this repo's 1588 inline findings (12.6%), all the
+  // way back to #11 (2025-04). The boundary landed on `<details>` in 200 of 200 cases,
+  // at a median offset of 54 bytes: the length of a header line.
+  const detail = codeRabbitDetail(CR_ANALYSIS_CHAIN_FIRST);
+  assert.notEqual(detail, "", "the prose below the analysis chain was dropped");
+  assert.match(detail, /Pin the markdown-it dependency/);
+  assert.match(detail, /lockfile-relative upgrade|currently resolves/);
+  // The machinery it sits between must still be absent, which is the whole reason
+  // `codeRabbitDetail` has a boundary at all.
+  assert.doesNotMatch(detail, /Verify each finding/, "AI-agents boilerplate leaked in");
+  assert.doesNotMatch(detail, /rg -n|node_modules/, "the analysis chain's shell transcript leaked in");
+  assert.doesNotMatch(detail, /Security & Privacy/, "the header line survived");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "structural tags survived");
+});
+
+test("codeRabbitDetail: a non-machinery block is UNWRAPPED, not deleted", () => {
+  // The 2025 `💡 Verification agent` vintage puts the finding's own title and prose
+  // INSIDE the block. Deleting every `<details>` empties 11 of this repo's 1693
+  // review-body findings for that reason, so anything not on the machinery denylist
+  // keeps its content and loses only its tags.
+  const body = [
+    "_💡 Verification agent_",
+    "",
+    "<details>",
+    "<summary>✅ Verification successful</summary>",
+    "",
+    "**Verify theme context compatibility.**",
+    "",
+    "The destructured `theme` property assumes a particular shape.",
+    "",
+    "</details>",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Verify theme context compatibility/);
+  assert.match(detail, /destructured `theme` property/);
+  assert.doesNotMatch(detail, /Verification successful/, "the block's label is not prose");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/);
+});
+
+test("codeRabbitDetail: NESTED blocks dissolve innermost-first, leaving no stray tag", () => {
+  // A lazy `<details>[\s\S]*?</details>` stops at the first CLOSING tag, which on
+  // CodeRabbit's nested review bodies cuts mid-structure and leaves an orphan behind.
+  //
+  // The title and prose sit BELOW the nested block deliberately. With them above it,
+  // one pass is indistinguishable from the loop: the undissolved outer `<details>`
+  // becomes the boundary and the detail comes out right for the wrong reason. Below it,
+  // a single pass leaves that outer tag standing, `CR_PROSE_END` cuts at it, and the
+  // detail is `""` — which is exactly the defect this whole change is about, so the
+  // fixture has to be able to express it.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "<details>",
+    "<summary>Proposed fix</summary>",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "inner machinery",
+    "",
+    "</details>",
+    "",
+    "</details>",
+    "",
+    "**The title.**",
+    "",
+    "prose below the nested block",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /The title\./);
+  assert.match(detail, /prose below the nested block/);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "a nested tag survived the dissolve");
+  assert.doesNotMatch(detail, /inner machinery/, "the nested machinery block was unwrapped instead of dropped");
+});
+
+test("codeRabbitDetail: the dissolve TERMINATES on deep nesting and on unpaired tags", () => {
+  // The loop runs until a pass changes nothing, so its termination rests on every pass
+  // strictly reducing the tag count. Worth a test rather than an argument: a malformed
+  // mutation of this loop hung the suite hard enough that `--test-timeout` could not
+  // fire, because a tight loop never yields the event loop.
+  const deep = `${"<details><summary>Proposed fix</summary>".repeat(60)}core${"</details>".repeat(60)}`;
+  const detail = codeRabbitDetail(`_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n${deep}`);
+  assert.match(detail, /Title\./);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "60 levels did not fully dissolve");
+  // Unpaired in both directions, and neither spins.
+  assert.equal(typeof codeRabbitDetail("<details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("</details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("<details><details></details>"), "string");
+});
+
+test("codeRabbitDetail: an orphaned CLOSING tag ends the prose", () => {
+  // A review-body span is sliced between two locators out of nested
+  // `<details><blockquote>`, so it routinely ends on closers belonging to an element
+  // that opened before it. Without treating those as boundaries, 735 of 1693
+  // review-body findings carried a `</details>` into the compared text.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n</blockquote></details>");
+  assert.equal(detail, "**Title.** prose");
+});
+
+test("codeRabbitDetail: an UNBALANCED opening block still terminates the prose", () => {
+  // The fail-safe direction. A block that cannot be paired means the body is not the
+  // shape this function understands, so it stops early and yields LESS text rather than
+  // swallowing a structured block whole.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\nVerify each finding against current code.");
+  assert.equal(detail, "**Title.** prose");
+  assert.doesNotMatch(detail, /Verify each finding/);
+});
+
+test("unrecognisedDetailsLabels: counts CONTENT labels and ignores machinery and structure", () => {
+  // `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes without
+  // notice — four header vintages and two category vocabularies have already turned
+  // over — so it fails OPEN: a new machinery block is unwrapped into `detail` rather
+  // than dropped. This makes that countable instead of invisible, which is the lesson
+  // this area keeps re-learning.
+  const bodies = [
+    "<details><summary>🤖 Prompt for AI Agents</summary>x</details>",
+    // The SECOND phrasing of that same block, which a review body uses. The narrower
+    // `Prompt for AI Agents` pattern missed it, and this function is what found that —
+    // it was the first thing it reported. Hence the `🤖 Prompt for` prefix.
+    "<details><summary>🤖 Prompt for all review comments with AI agents</summary>x</details>",
+    // The review-body walkthrough's own machinery, one of each per review.
+    "<details><summary>⚙️ Run configuration</summary>x</details>",
+    "<details><summary>📥 Commits</summary>x</details>",
+    "<details><summary>ℹ️ Review info</summary>x</details>",
+    "<details><summary>🪄 Autofix (Beta)</summary>x</details>",
+    "<details><summary>📝 Committable suggestion</summary>x</details>",
+    "<details><summary>🪛 markdownlint-cli2 (0.23.2)</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>🦄 Brand New Block Type</summary>x</details>",
+    // Review-body STRUCTURE: a tier section and a file sub-section, both declaring a
+    // count. Neither is a finding's block and counting them buries the signal.
+    "<details><summary>🧹 Nitpick comments (2)</summary><blockquote>",
+    "<details><summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  ];
+  const got = unrecognisedDetailsLabels(bodies);
+  assert.deepEqual(got, [
+    { label: "Proposed fix", n: 2 },
+    { label: "🦄 Brand New Block Type", n: 1 },
+  ]);
+  // A single body is accepted as well as a list, so a caller need not wrap it.
+  assert.deepEqual(unrecognisedDetailsLabels("<details><summary>Suggested fix</summary>x</details>"), [
+    { label: "Suggested fix", n: 1 },
+  ]);
+  assert.deepEqual(unrecognisedDetailsLabels([]), []);
 });
 
 /** A panel check-run whose findings are `findings`. */
