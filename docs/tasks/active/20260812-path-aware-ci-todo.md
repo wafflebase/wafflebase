@@ -61,29 +61,57 @@ gate; it exposes that the gate is absent.
 - `notes` and `design-editor` declare no workspace dependency, so they are the
   two lanes that run against a tree with nothing built.
 
-## Phase 3: The two heavy jobs
+## Phase 3: The two heavy jobs ✅
 
-- [ ] 3.1 `changes` job in `ci.yml` calling the resolver
-- [ ] 3.2 `if:` gates on `verify-browser` / `verify-integration`
-- [ ] 3.3 `full-ci` label override (cannot work on `merge_group` — that payload
+- [x] 3.1 `changes` job in `ci.yml` calling the resolver (`fetch-depth: 0`, no
+      `pnpm install` — the resolver imports only node builtins)
+- [x] 3.2 `if:` gates on `verify-browser` / `verify-integration`, each stating
+      `needs.verify-self.result == 'success'` explicitly
+- [x] 3.3 `full-ci` label override (cannot work on `merge_group` — that payload
       carries no PR labels, same constraint `agent-iterate-ci.yml:39` works around)
-- [ ] 3.4 `ci-config-changed` label + `::warning::` in the job summary
-- [ ] 3.5 Render filtered lanes + reasons in the `<!-- harness-verification -->` comment
+- [x] 3.4 `ci-config-changed` label + `::warning::` in the job summary
+- [x] 3.5 Render filtered lanes + reasons in the `<!-- harness-verification -->`
+      comment, with `⊘` for filtered vs `⏭️` for skipped-after-failure
+- [x] 3.6 **Unplanned:** gate the four coverage steps and the Codecov upload.
+      Ungated, an agent-only PR would have skipped its lanes and then spent
+      minutes collecting coverage for packages it never touched — most of the
+      cost this change exists to remove.
+- [x] 3.7 **Unplanned:** a skipped `verify-integration` never edits the PR
+      comment, so the comment claimed that job was "pending" for ever. It now
+      says skipped.
 
-## Phase 4: The deploy gate
+## Phase 4: The deploy gate ✅
 
-- [ ] 4.1 `full: true` on `push`-to-`main` (lands in 1.2; this is what makes the
-      gate sound)
-- [ ] 4.2 `publish-ghpage.yml`: `push` → `workflow_run` on CI success, checkout
+- [x] 4.1 `full: true` on `push`-to-`main` (landed in 1.2; this is what makes the
+      gate sound rather than ceremonial)
+- [x] 4.2 `publish-ghpage.yml`: `push` → `workflow_run` on CI success, checkout
       `event.workflow_run.head_sha`, `concurrency` coalescing
-- [ ] 4.3 `docker-publish.yml`: same, and delete the dead
+- [x] 4.3 `docker-publish.yml`: same, and delete the dead
       `paths-ignore: frontend/**` (the directory is `packages/frontend/**`, so it
-      has never skipped anything)
+      never skipped anything); `release` keeps its own direct trigger and its own
+      concurrency key so a release image can never be cancelled by a later merge
+- [x] 4.4 **Unplanned:** four `if:` clauses per deploy job, not one.
+      `workflow_run.branches` filters on the *triggering run's head branch*, and
+      a fork's default branch is usually also `main` — so a fork PR opened from
+      its own `main` would otherwise satisfy the trigger filter. `event ==
+      'push'` also excludes `merge_group`, whose commits need never reach `main`.
+- [x] 4.5 **Unplanned:** `workflow_run` supports no path filter, so
+      `publish-ghpage.yml`'s live `paths-ignore: packages/backend/**` had to be
+      reimplemented as a step. Preserved deliberately: only `KEEP_COUNT=3`
+      deployments of hashed assets are retained, so redundant deploys shorten the
+      window in which a client holding a cached `index.html` can fetch them.
 
 ## Phase 5: Deferred
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse
       closure. v1 keeps `packages/**` ⇒ both, on purpose (see lessons).
+- [ ] 5.2 Teach `wafflebase/agent-pipeline`'s `summarize-ci.mjs` to render
+      `filtered`. Until then it is absent from that tool's counts (safe, but
+      incomplete) — it cannot be changed in this repo without failing
+      `pipeline-drift`.
+- [ ] 5.3 Revisit `verify:entropy`'s `needs`. It declares all four engine builds
+      conservatively, which makes any package change pull ~47s of builds. If knip
+      does not actually need the dists, dropping them is free speed.
 
 ## Constraints discovered during planning
 
