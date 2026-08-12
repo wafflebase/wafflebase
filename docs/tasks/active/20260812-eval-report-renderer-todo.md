@@ -143,6 +143,37 @@ added and the mutation is now caught.
 figures are **56/245 = 0.229** and **118/245 = 0.482**, which match `STATE.md`'s own
 predicted post-#780 values exactly. The rendered report carries the measured ones.
 
+**⑨ Review found a partial per-run set was silently dropped.** The CLI filtered the `null`
+placeholders out of the per-run score array, so with 2 of 3 `volume-mix-v1` files present the
+section rendered *"panel — 2 replicates"* and a two-value range while the document's own header
+table listed three — the only trace of the third was a line on stderr. The comment directly above
+the code said it must not do this. The nulls are passed through now, `volumeFigures` counts the
+holes, and the section states them **on the page** above the table.
+
+**⑩ The total row ignored a guard every severity row honoured.** `coderabbit_total` and
+`pooled_ratio` used `replicates[0].coderabbit` unconditionally, so when the CodeRabbit arm read
+differently across replicates every severity row correctly said *"not measurable"* while the
+**bold total** underneath printed a confident ratio over a denominator the same function had just
+declared unreliable. The bold row is the one a reader quotes. Both now take the same guard and the
+same reason string, hoisted to `INCONSISTENT_ARM` so the rows and the total cannot drift apart.
+
+**⑪ `renderValue` protects an absent cell; it cannot protect a hollow one.** A `gate.agreement`
+carrying `ratio` and `n` but no `k` reached the page as `**1.000** (undefined/7)`, and a
+`recurrence.overall` missing `in_all` threw `TypeError` from inside the formatter and **aborted
+the whole render** — the CLI exited 1 with no report at all. Guarded at extraction by
+`isProportion` / `whyNotProportion`, which check field by field and name which half is missing.
+The existing test believed it had ruled this out but only exercised `gate: {}`, which takes the
+absent-object path; it now covers both hollow cases.
+
+**⑫ The caveats hard-coded facts about one corpus.** *"One of the seven items… `pr-524`"* and
+*"three values"* were emitted unconditionally, and *"contains all three"* likewise — while the CLI
+accepts any `--corpus-version` and any number of `--run-id`. Rendering another corpus therefore
+asserted a confound about items it had not measured, three lines under a header table printing the
+real item list. `SELF_REVIEW_ITEMS` is now intersected with the corpus being rendered (and says so
+when the intersection is empty), and both counts are derived. **Mutation testing found the gap in
+the fix's own test:** K=1 takes a different branch and K=3 makes a hard-coded `3` identical, so
+only a K=2 case discriminates — that case was added.
+
 ## Fail directions
 
 | When | What happens | Why that is the safe direction |
@@ -177,15 +208,16 @@ predicted post-#780 values exactly. The rendered report carries the measured one
 ## Verification
 
 - [x] `agent:tests`, **two invocations, the way the lane runs them since #774**:
-      **1729 (1728 pass · 0 fail · 1 skipped) + 55 (55 pass · 0 fail · 0 skipped)**,
+      **1733 (1732 pass · 0 fail · 1 skipped) + 55 (55 pass · 0 fail · 0 skipped)**,
       against a **freshly measured** baseline of **1696 (1695 · 0 · 1) + 55** on
-      `upstream/main` at `d327ee410`. **+33 tests, +0 failures, skip count unchanged.**
+      `upstream/main` at `d327ee410`. **+37 tests, +0 failures, skip count unchanged.**
       Both trees were extracted separately and had the same `node_modules` symlinked
       into them before either was measured.
 - [x] `eslint scripts` (lockfile-pinned `9.24.0`) — **exit 0**, on both trees.
-- [x] **35 mutations, 35 caught**, re-run against the final bytes of all four files.
-      One initially survived and was traced to the read/write asymmetry in ⑦ rather
-      than assumed to be an ineffective mutation; the missing assertion was added.
+- [x] **44 mutations, 44 caught**, re-run against the final bytes of all four files.
+      Two initially survived. Neither was dismissed as ineffective: one traced to the
+      read/write asymmetry in ⑦, the other to the K=2 gap in ⑫. Both got the missing
+      assertion.
 - [x] **A re-score overwrites rather than refusing**, with the pilot's real pre- and
       post-#780 figures, and leaves exactly one file in the directory.
 - [x] **A run item is still write-once**, so the score exception did not widen to
@@ -205,6 +237,13 @@ predicted post-#780 values exactly. The rendered report carries the measured one
       two recurrence figures differ from the handoff's by the documented #780 delta —
       see ⑧.
 - [x] **Verified from the committed tree**, not the working copy.
+- [x] ⚠ **`eval/run.test.mjs` flakes on this machine, pre-existing and not from this
+      diff.** Two END-TO-END cases (`a failed item KEEPS its raw panel output`, `a throw
+      inside the item loop still deregisters the worktree`) fail intermittently: measured
+      **2 of 4 runs red on `upstream/main` alone** against 1 of 3 on this branch, and this
+      diff touches neither `run.mjs` nor `run.test.mjs`. It is the shared-state fault from
+      #682 that snapshots `os.tmpdir()`. **Reported, not repaired** — fixing it inside an
+      unrelated PR would make this diff unreviewable.
 - [ ] **Not verified: atomicity under a real interruption.** The tests prove the rename
       happens (removing it goes red) and that no `.part-` debris survives a successful
       write, which is what is observable without killing a process mid-write.

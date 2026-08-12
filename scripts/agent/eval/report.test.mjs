@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AVAILABILITY,
+  SELF_REVIEW_ITEMS,
   SCORER_IDS,
   SECTIONS,
   buildReport,
@@ -347,18 +348,44 @@ test("both reliability headlines are on the page, and each names its unit", () =
 test("a missing reliability figure prints why rather than 'undefined'", () => {
   // The first draft reached into a cell's value without asking whether it held one and
   // rendered "reproduces on undefined of undefined items".
-  const rendered = renderReport(
-    buildReport({
-      configHash: CONFIG_HASH,
-      corpusVersion: CORPUS_VERSION,
-      panelSha: PANEL_SHA,
-      runIds: RUNS,
-      corpusItemIds: RELIABILITY.items,
-      scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: { ...RELIABILITY, gate: {} } },
-    }),
-  );
-  assert.doesNotMatch(rendered, /undefined/);
-  assert.match(rendered, /carries no gate agreement/);
+  const render = (reliability) =>
+    renderReport(
+      buildReport({
+        configHash: CONFIG_HASH,
+        corpusVersion: CORPUS_VERSION,
+        panelSha: PANEL_SHA,
+        runIds: RUNS,
+        corpusItemIds: RELIABILITY.items,
+        scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability },
+      }),
+    );
+  const absent = render({ ...RELIABILITY, gate: {} });
+  assert.doesNotMatch(absent, /undefined/);
+  assert.match(absent, /\*\*not computed\*\* — gate agreement is null/);
+
+  // 🔴 A HOLLOW FIGURE, NOT AN ABSENT ONE, and this is the case the test used to miss.
+  // It only exercised `gate: {}`, which takes the absent-object path — so both bugs
+  // below were live behind a green test. `renderValue` guards a cell that is ABSENT; by
+  // the time a formatter runs on a cell that is PRESENT and hollow it is too late.
+  //
+  // (a) a proportion carrying `ratio` and `n` but no `k` reached the page as
+  //     "**1.000** (undefined/7)" — a figure that looks entirely correct.
+  const noK = structuredClone(RELIABILITY);
+  delete noK.gate.agreement.k;
+  const hollowGate = render(noK);
+  assert.doesNotMatch(hollowGate, /undefined/);
+  assert.match(hollowGate, /gate agreement is missing k/);
+
+  // (b) a recurrence missing `in_all` threw a TypeError that aborted the WHOLE render,
+  //     so the CLI exited 1 with no report at all rather than a report with one gap.
+  const noInAll = structuredClone(RELIABILITY);
+  delete noInAll.recurrence.overall.in_all;
+  const hollowRecurrence = render(noInAll);
+  assert.doesNotMatch(hollowRecurrence, /undefined/);
+  assert.match(hollowRecurrence, /no usable recurrence figure \(in_all is null/);
+  // The rest of the document still renders — one hollow field is not a failed report.
+  assert.match(hollowRecurrence, /## 1\. Volume and severity mix/);
+  assert.match(hollowRecurrence, /gate verdict agreement \| \*\*1\.000\*\* \(7\/7\)/);
 });
 
 // --- the two unbuilt sections ----------------------------------------------
@@ -501,4 +528,141 @@ test("SECTIONS is the contract, and a scorer id outside it cannot be filed", () 
   // One section per key, so a report cannot render the same scorer twice.
   assert.equal(new Set(SECTIONS.map((s) => s.key)).size, SECTIONS.length);
   assert.equal(new Set(SCORER_IDS).size, SCORER_IDS.length);
+});
+
+// --- the four defects found in review ---------------------------------------
+
+test("a replicate with no score file is stated, not silently dropped from the range", () => {
+  // 🔴 The CLI passes one entry per DECLARED replicate, with `null` where no score file
+  // exists. An earlier version filtered the nulls out, so 2 of 3 files present rendered
+  // "panel — 2 replicates" and a 2-value range while the document's header table listed
+  // all 3 — the range then described a different K than the page claimed, and the only
+  // trace of the third was a line on stderr.
+  const holed = [VOLUME[0], null, VOLUME[2]];
+  const v = volumeFigures(holed);
+  assert.equal(v.availability, "present");
+  assert.equal(v.replicates_declared, 3);
+  assert.equal(v.replicates_missing, 1);
+  assert.equal(v.replicates.length, 2);
+  assert.deepEqual(v.contributing_run_ids, ["pilot-01__k1", "pilot-01__k3"]);
+  // The totals are over the two that exist — 142 and 139, not 142/147/139.
+  assert.deepEqual(v.panel_total.value.values, [142, 139]);
+
+  const markdown = renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: RUNS,
+      corpusItemIds: RELIABILITY.items,
+      scores: { volume: holed, complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
+    }),
+  );
+  // The discrepancy is ON THE PAGE, above the table, and names what contributed.
+  assert.match(markdown, /🔴 \*\*1 of 3 declared replicate\(s\) have no volume score filed\*\*/);
+  assert.match(markdown, /every range in this\nsection is over 2 draw\(s\), not 3/);
+  assert.match(markdown, /Contributing: `pilot-01__k1`, `pilot-01__k3`/);
+  // And a complete set says nothing, so the warning cannot become wallpaper.
+  assert.doesNotMatch(renderReport(FULL()), /declared replicate\(s\) have no volume score/);
+});
+
+test("when the CodeRabbit arm reads differently across replicates, the TOTAL refuses too", () => {
+  // 🔴 The per-severity rows already guarded on this; the bold total row did not, and
+  // printed a confident ratio over replicate 0's denominator — the one the same
+  // function had just declared unreliable. The bold row is the one a reader quotes.
+  const disagreeing = structuredClone(VOLUME);
+  const cr = disagreeing[1].segments.find((seg) => seg.arm === "coderabbit");
+  cr.summary.findings = 31;
+  cr.summary.severity.stated.counts.nit = 15;
+  cr.summary.severity.stated.n = 31;
+  const v = volumeFigures(disagreeing);
+  assert.equal(v.coderabbit_consistent, false);
+  assert.equal(v.pooled_ratio.availability, "not-measurable");
+  assert.equal(v.coderabbit_total.availability, "not-measurable");
+  // One reason, said the same way in the rows and in the total: it is the same fact.
+  assert.match(v.pooled_ratio.reason, /reads differently across replicates/);
+  assert.equal(v.rows.find((r) => r.severity === "nit").ratio.reason, v.pooled_ratio.reason);
+  const markdown = renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: RUNS,
+      corpusItemIds: RELIABILITY.items,
+      scores: { volume: disagreeing, complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
+    }),
+  );
+  // No ratio anywhere in the volume table — including the total row.
+  const totalRow = markdown.split("\n").find((l) => l.startsWith("| **total**"));
+  assert.match(totalRow, /not measurable/);
+  assert.doesNotMatch(totalRow, /×/);
+});
+
+test("the caveats are derived from the corpus being rendered, not hard-coded", () => {
+  // 🔴 An earlier version stated "one of the seven items … `pr-524`" and "three values"
+  // unconditionally. The CLI renders any `--corpus-version` and any number of
+  // `--run-id`, so on another corpus the page asserted a confound about an item it had
+  // not measured — three lines under a header table printing the real item list.
+  assert.ok(SELF_REVIEW_ITEMS["pr-524"], "pr-524 is the known self-review item");
+
+  // The pilot corpus DOES contain it, so caveat ① fires with the real item count.
+  const pilot = renderReport(FULL());
+  assert.match(pilot, /\*\*① One of the 7 item\(s\) below is our panel reviewing its own plumbing\.\*\* `pr-524`/);
+  assert.match(pilot, /column below carries 3 values rather than one/);
+
+  // A corpus WITHOUT it says so, rather than claiming a confound it does not have.
+  const other = renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: [RUNS[0]],
+      corpusItemIds: ["pr-999", "pr-1000"],
+      scores: { volume: [VOLUME[0]], complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
+    }),
+  );
+  assert.match(other, /\*\*① No item in this corpus is one of the known self-review items\*\*/);
+  assert.doesNotMatch(other, /pr-524 changes/);
+  assert.doesNotMatch(other, /seven items/);
+  // K=1: the panel column carries one value, and the page says not to read it as a
+  // property of the panel rather than claiming "three values".
+  assert.match(other, /carries a single value and must not be read as a property of the panel/);
+  assert.doesNotMatch(other, /carries 3 values/);
+
+  // K=2, which is the case that catches a hard-coded "3": K=1 takes the other branch
+  // entirely and K=3 makes the literal and the derived value identical, so neither
+  // would have failed on it. Mutation testing surfaced exactly this gap.
+  const two = renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: RUNS.slice(0, 2),
+      corpusItemIds: RELIABILITY.items,
+      scores: { volume: VOLUME.slice(0, 2), complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
+    }),
+  );
+  assert.match(two, /column below carries 2 values rather than one/);
+  assert.doesNotMatch(two, /carries 3 values/);
+});
+
+test("the overlap band's wording follows the number of bands it actually has", () => {
+  // The hard-coded "contains all three" was correct only at K=3. It is derived now, so a
+  // single-replicate payload does not claim to contain three of anything.
+  const one = { per_replicate: [COMPLEMENTARITY.per_replicate[0]] };
+  const markdown = renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: [RUNS[0]],
+      corpusItemIds: RELIABILITY.items,
+      scores: { volume: [VOLUME[0]], complementarity: one, reliability: RELIABILITY },
+    }),
+  );
+  assert.match(markdown, /Across 1 replicate\(s\) the band is \*\*\[3\.6%, 21\.1%\]\*\*/);
+  assert.match(markdown, /contains the single replicate's own band/);
+  assert.doesNotMatch(markdown, /contains all 3/);
+  // At K=3 it still says all three.
+  assert.match(renderReport(FULL()), /contains all 3\./);
 });

@@ -119,6 +119,25 @@ export const SECTIONS = Object.freeze([
 export const SCORER_IDS = Object.freeze(SECTIONS.map((s) => s.scorer_id));
 
 /**
+ * Corpus items whose diff is this project's OWN plumbing, so a review of one is a
+ * SELF-REVIEW and every cross-arm statement drawn from it is confounded.
+ *
+ * LISTED RATHER THAN DERIVED, and the reason is that it is not derivable: it is a fact
+ * about what a path MEANS to this repository, which no score payload carries and no
+ * file-class heuristic decides. `pr-524`'s diff is two workflow files, and one of them
+ * is the review panel's own.
+ *
+ * Keyed by item id, and `renderCaveats` INTERSECTS it with the corpus actually being
+ * rendered rather than asserting it. The report is reachable for any
+ * `--corpus-version`, so a hard-coded "one of the seven items is a self-review" states
+ * a confound about items a different corpus does not contain — three lines under a
+ * header table printing the real item list.
+ */
+export const SELF_REVIEW_ITEMS = Object.freeze({
+  "pr-524": "`.github/workflows/agent-review-panel.yml` and `.github/workflows/agent-iterate-ci.yml` — the review panel's own workflow files",
+});
+
+/**
  * WHY A FIGURE IS NOT ON THE PAGE, and there are three answers rather than one.
  *
  *   present         a real measurement. Carries its value, its `n` and its unit —
@@ -284,6 +303,10 @@ export function comparisonIdFor({ configHash, corpusVersion } = {}) {
  * `Infinity`, an em-dash or a silently dropped row would each read as a ratio so
  * large it proves something. It proves nothing: the arm did not use that label.
  */
+/** Said once, because the per-severity rows and the total row must give the same
+ *  reason — they are the same fact about the same denominator. */
+const INCONSISTENT_ARM = "the CodeRabbit arm reads differently across replicates, so it is not one review";
+
 function armRatio(panelValues, codeRabbitCount) {
   const vs = (Array.isArray(panelValues) ? panelValues : []).filter((v) => Number.isFinite(v));
   if (codeRabbitCount === 0) {
@@ -316,6 +339,11 @@ function armRatio(panelValues, codeRabbitCount) {
  * without its range.
  */
 export function volumeFigures(perReplicate) {
+  // `perReplicate` may carry HOLES — one entry per replicate the caller declared, with
+  // `null` where no score file exists. The hole count is kept, because a range over
+  // two draws under a header that names three replicates is the exact
+  // fewer-than-claimed reading this module exists to prevent.
+  const declared = Array.isArray(perReplicate) ? perReplicate.length : 0;
   const reads = Array.isArray(perReplicate) ? perReplicate.filter(Boolean) : [];
   if (reads.length === 0) {
     return { availability: "not-computed", reason: `no ${sectionFor("volume").scorer_id} score is filed for any run — the volume scorer was never run against this store`, rows: [], replicates: [] };
@@ -354,19 +382,27 @@ export function volumeFigures(perReplicate) {
       // range over replicates and its n is how many replicates produced it.
       panel: figure(s, panelValues.length, "replicates"),
       coderabbit: figure(cr, crConsistent ? reads.length : 0, "review, read once per replicate"),
-      ratio: crConsistent ? armRatio(panelValues, cr) : notMeasurable("the CodeRabbit arm reads differently across replicates, so it is not one review"),
+      ratio: crConsistent ? armRatio(panelValues, cr) : notMeasurable(INCONSISTENT_ARM),
     };
   });
 
   const panelTotals = replicates.map((r) => r.panel);
+  // THE TOTAL ROW HONOURS `crConsistent` TOO, and an earlier version did not: every
+  // severity row said "not measurable" while the bold total underneath printed a
+  // confident ratio over replicate 0's denominator — the one the same function had
+  // just declared unreliable. The BOLD row is the one a reader quotes, so it was the
+  // worst place to leave the guard out.
   return {
     availability: "present",
     replicates,
     rows,
     coderabbit_consistent: crConsistent,
     panel_total: figure(spread(panelTotals), panelTotals.length, "replicates"),
-    coderabbit_total: figure(replicates[0].coderabbit, 1, "review"),
-    pooled_ratio: armRatio(panelTotals, replicates[0].coderabbit),
+    replicates_declared: declared,
+    replicates_missing: declared - reads.length,
+    contributing_run_ids: replicates.map((r) => r.run_id).filter(Boolean),
+    coderabbit_total: crConsistent ? figure(replicates[0].coderabbit, 1, "review") : notMeasurable(INCONSISTENT_ARM),
+    pooled_ratio: crConsistent ? armRatio(panelTotals, replicates[0].coderabbit) : notMeasurable(INCONSISTENT_ARM),
     // Printed because a rate over "the ones we could label" would rise as our ability
     // to label fell. On the pilot both arms state a severity for every finding.
     unstated: { panel: unstated(reads[0], "panel"), coderabbit: unstated(reads[0], "coderabbit") },
@@ -455,6 +491,30 @@ function severityAgreementOf(rep) {
 }
 
 /**
+ * Is this a `proportion` a table cell can actually print — `{k, n, ratio}`, all three
+ * present and numeric?
+ *
+ * `k` in particular is the field that goes missing without symptom: `figure` demands
+ * an `n`, so a proportion with no `n` is already refused at construction, and `ratio`
+ * is what everyone remembers to check. `k` is the numerator, it is only read by the
+ * formatter, and a missing one reaches the page as the string `undefined` inside a
+ * pair of parentheses that otherwise looks entirely correct. `ratio` is allowed to be
+ * `null` — `proportion(0, 0)` returns exactly that, and n=0 is a real state — but it
+ * may not be absent.
+ */
+function isProportion(p) {
+  return !!p && typeof p === "object" && Number.isFinite(p.k) && Number.isFinite(p.n) && (p.ratio === null || Number.isFinite(p.ratio));
+}
+
+/** Why a proportion was refused, named field by field, so the report says which half of
+ *  the payload is missing rather than only that something is. */
+function whyNotProportion(what, p) {
+  if (!p || typeof p !== "object") return `${what} is ${JSON.stringify(p ?? null)}`;
+  const missing = ["k", "n", "ratio"].filter((f) => (f === "ratio" ? !(p.ratio === null || Number.isFinite(p.ratio)) : !Number.isFinite(p[f])));
+  return missing.length ? `${what} is missing ${missing.join(", ")}` : `${what} is unusable`;
+}
+
+/**
  * Reliability, and it is ONE-ARMED. From one `reliability-v1` payload.
  *
  * 🔴 THE SECOND ARM IS NOT MISSING, IT IS IMPOSSIBLE. CodeRabbit retest pairs are
@@ -489,12 +549,21 @@ export function reliabilityFigures(payload) {
     // The WHOLE proportion is the value, not its ratio: `{k, n, ratio}` keeps "7 of 7"
     // and "1.000" in one cell, and a renderer holding only the ratio would print a
     // rate with no numerator — which is the shape decision 33 forbids.
-    gate: gate ? figure(gate, gate.n, "items, each over all replicates") : notComputed("the reliability score carries no gate agreement"),
+    //
+    // 🔴 CHECKED FIELD BY FIELD, not merely for presence. `renderValue` protects a cell
+    // that is ABSENT; it cannot protect a cell that is present and hollow, because by
+    // then the formatter is already running. A `gate.agreement` carrying `ratio` and `n`
+    // but no `k` printed `(undefined/7)` straight onto the page, and a `recurrence`
+    // missing `in_all` threw a TypeError that aborted the whole render and left the CLI
+    // exiting 1 with no report at all. Both are cheaper to refuse here.
+    gate: isProportion(gate) ? figure(gate, gate.n, "items, each over all replicates") : notComputed(whyNotProportion("gate agreement", gate)),
     gate_per_item: payload.gate?.per_item ?? [],
     lane_census: payload.gate?.lane_census ?? [],
     jaccard: jac && jac.n > 0 ? figure(jac, jac.n, "run pairs, over defect classes") : notMeasurable("no run pair was scorable"),
     jaccard_by_severity: payload.jaccard?.across_pairs_by_severity ?? {},
-    recurrence: rec ? figure(rec, rec.n_classes ?? 0, "defect classes over all replicates") : notComputed("the reliability score carries no recurrence figure"),
+    recurrence: isProportion(rec?.in_all) && isProportion(rec?.in_one)
+      ? figure(rec, rec.n_classes ?? 0, "defect classes over all replicates")
+      : notComputed(`the reliability score carries no usable recurrence figure (${whyNotProportion("in_all", rec?.in_all)}; ${whyNotProportion("in_one", rec?.in_one)})`),
     recurrence_by_severity: payload.recurrence?.by_severity ?? {},
     // The one-armedness, from the payload's own words.
     coderabbit: retest && retest.one_armed
@@ -721,22 +790,44 @@ function renderWhatThisIsNot() {
  */
 function renderCaveats(r) {
   const rel = r.sections.reliability;
-  const inOne = rel.availability === "present" ? rel.recurrence?.value?.in_one : null;
-  return [
-    "## Two things that qualify every number below",
-    "",
-    "**① One of the seven items is our panel reviewing its own plumbing.** `pr-524` changes",
-    "`.github/workflows/agent-review-panel.yml` and `.github/workflows/agent-iterate-ci.yml` — the review",
-    "panel's own workflow files. It is one of seven items and it is not excluded, because excluding it would",
-    "shrink an already thin corpus; but any cross-arm statement drawn from it is a self-review.",
-    "",
+  const inOne = rel.availability === "present" && rel.recurrence.availability === "present" ? rel.recurrence.value.in_one : null;
+  const items = r.corpus_item_ids;
+  // WHICH of the rendered items are a self-review, intersected rather than assumed.
+  // An earlier version stated "one of the seven items … `pr-524`" unconditionally, so
+  // rendering any other corpus asserted a confound about an item that was not in it —
+  // while the header table three lines above printed the real item list.
+  const selfReviews = items.filter((id) => SELF_REVIEW_ITEMS[id]);
+  const draws = r.sections.volume.availability === "present" ? r.sections.volume.replicates.length : r.run_ids.length;
+  const out = ["## Two things that qualify every number below", ""];
+  if (selfReviews.length > 0) {
+    const n = selfReviews.length;
+    out.push(
+      `**① ${n === 1 ? "One" : String(n)} of the ${items.length} item(s) below ${n === 1 ? "is" : "are"} our panel reviewing its own plumbing.** ` +
+        selfReviews.map((id) => `\`${id}\` changes ${SELF_REVIEW_ITEMS[id]}`).join("; ") + ".",
+      `${n === 1 ? "It is" : "They are"} not excluded, because excluding ${n === 1 ? "it" : "them"} would shrink an already thin corpus; but any`,
+      `cross-arm statement drawn from ${n === 1 ? "it" : "them"} is a self-review.`,
+      "",
+    );
+  } else {
+    // Said rather than omitted: "we checked and there are none" and "nobody checked"
+    // are the same distinction this whole module is built around.
+    out.push(
+      `**① No item in this corpus is one of the known self-review items** (${Object.keys(SELF_REVIEW_ITEMS).join(", ")}), so no`,
+      "figure below carries that confound.",
+      "",
+    );
+  }
+  out.push(
     inOne
       ? `**② ${pct(inOne.ratio)} of defect classes appear in exactly one replicate of ${rel.k_runs}** (${inOne.k}/${inOne.n}). A figure`
-      : "**② A large share of defect classes appear in exactly one replicate.** A figure",
-    "computed from a single replicate is therefore a *sample*, not a measurement — which is why every panel",
-    "column below carries three values rather than one.",
+      : "**② A single replicate is a sample, not a measurement**, and this report has no recurrence figure to say by how much. A figure",
+    "computed from a single replicate is therefore a *sample*, not a measurement — which is why the panel",
+    draws === 1
+      ? "column below carries a single value and must not be read as a property of the panel."
+      : `column below carries ${draws} values rather than one.`,
     "",
-  ];
+  );
+  return out;
 }
 
 /** §1 — volume, severity-stratified, with the mix beside every ratio. */
@@ -745,6 +836,16 @@ function renderVolume(v) {
   if (v.availability !== "present") {
     out.push(renderCell(v.availability === "not-computed" ? notComputed(v.reason) : v), "");
     return out;
+  }
+  if (v.replicates_missing > 0) {
+    // ON THE PAGE, not on stderr. The column header below names the number of
+    // replicates that CONTRIBUTED, and the document's own header table names every
+    // replicate that was ASKED for; without this line the two silently disagree.
+    out.push(
+      `🔴 **${v.replicates_missing} of ${v.replicates_declared} declared replicate(s) have no volume score filed**, so every range in this`,
+      `section is over ${v.replicates.length} draw(s), not ${v.replicates_declared}. Contributing: ${v.contributing_run_ids.map((x) => `\`${x}\``).join(", ") || "(none named)"}.`,
+      "",
+    );
   }
   out.push(
     "**A bare volume ratio would be the most misleading line in this report**, so there is not one: the two",
@@ -795,8 +896,8 @@ function renderComplementarity(c) {
   }
   out.push(
     "",
-    `Across ${c.overall.n} replicates the band is **${band(c.overall.value)}** — the lowest bound and the highest ceiling, so it`,
-    `contains all three. Lower bounds ${pctValues(c.point_spread)}; ceilings ${pctValues(c.ceiling_spread)}.`,
+    `Across ${c.overall.n} replicate(s) the band is **${band(c.overall.value)}** — the lowest bound and the highest ceiling, so it`,
+    `contains ${c.overall.n === 1 ? "the single replicate's own band" : `all ${c.overall.n}`}. Lower bounds ${pctValues(c.point_spread)}; ceilings ${pctValues(c.ceiling_spread)}.`,
     "",
   );
   if (c.all_saturated) {
@@ -1105,8 +1206,12 @@ async function main() {
         if (!got) missing.push(`${section.scorer_id} for ${runId}`);
         return got ? { ...got, run_id: runId } : null;
       });
-      scores[section.key] = perRun.filter(Boolean);
-      if (scores[section.key].length !== runIds.length) scores[section.key] = scores[section.key].length ? scores[section.key] : null;
+      // The NULLS ARE PASSED THROUGH, holes and all. An earlier version filtered them
+      // out here, which did exactly what the comment above forbids: with 2 of 3 score
+      // files present the section rendered "panel — 2 replicates" and a 2-value range
+      // while the header table listed 3, and the only trace of the third was a line on
+      // stderr. `volumeFigures` counts the holes and the section states them.
+      scores[section.key] = perRun;
     } else {
       const got = store.getScore({ scorerId: section.scorer_id, scope: "cross-run", ...key });
       if (!got) missing.push(section.scorer_id);
