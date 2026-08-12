@@ -22,6 +22,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | defect class grouping (2026-08-10) | [20260810-defect-class-grouping-todo.md](./active/20260810-defect-class-grouping-todo.md) | - |
 | devops merge queue (2026-08-10) | [20260810-devops-merge-queue-todo.md](./active/20260810-devops-merge-queue-todo.md) | - |
 | eval replay lane (2026-08-10) | [20260810-eval-replay-lane-todo.md](./active/20260810-eval-replay-lane-todo.md) | - |
+| notifications (2026-08-10) | [20260810-notifications-todo.md](./active/20260810-notifications-todo.md) | [20260810-notifications-lessons.md](./active/20260810-notifications-lessons.md) |
 | release v0.6.4 (2026-08-10) | [20260810-release-v0.6.4-todo.md](./active/20260810-release-v0.6.4-todo.md) | [20260810-release-v0.6.4-lessons.md](./active/20260810-release-v0.6.4-lessons.md) |
 | corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./active/20260806-corpus-localization-scope-todo.md) | - |
 | notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./active/20260803-notes-undo-cursor-todo.md) | - |

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 /**
  * Renders the SiteHeader component.
@@ -86,7 +87,13 @@ export function SiteHeader({
         </div>
 
         {/* Always reserve space for children to prevent layout shift */}
-        <div className="flex shrink-0 items-center">{children}</div>
+        <div className="flex shrink-0 items-center">
+          {children}
+          {/* One mount point for the whole app: this header is used by the
+              documents shell and by every editor. Renders nothing for
+              anonymous share-link viewers. */}
+          <NotificationBell />
+        </div>
       </div>
     </header>
   );

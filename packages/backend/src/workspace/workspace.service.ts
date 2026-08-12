@@ -1,15 +1,22 @@
 import {
   Injectable,
   ForbiddenException,
+  Logger,
   NotFoundException,
   GoneException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class WorkspaceService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(WorkspaceService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   async create(userId: number, data: { name: string }) {
     const slug = await this.generateUniqueSlug(data.name);
@@ -130,11 +137,7 @@ export class WorkspaceService {
     });
   }
 
-  async revokeInvite(
-    workspaceId: string,
-    inviteId: string,
-    userId: number,
-  ) {
+  async revokeInvite(workspaceId: string, inviteId: string, userId: number) {
     await this.assertOwner(workspaceId, userId);
     // Scope the delete to the workspace the caller owns: deleting by id alone
     // would let an owner of one workspace revoke another workspace's invite.
@@ -185,6 +188,21 @@ export class WorkspaceService {
       }
       throw err;
     }
+
+    // Only a genuinely new membership notifies — both idempotent paths above
+    // return before reaching here. Joining must not fail because the
+    // notification write did, so this is best-effort.
+    try {
+      await this.notifications.createMemberJoined({
+        workspaceId: invite.workspaceId,
+        joinerId: userId,
+        inviteCreatorId: invite.createdBy,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `member-joined notification failed for workspace=${invite.workspaceId}: ${err}`,
+      );
+    }
     return { workspaceId: invite.workspaceId };
   }
 
@@ -207,8 +225,7 @@ export class WorkspaceService {
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: resolvedId, userId } },
     });
-    if (!member)
-      throw new ForbiddenException('Not a member of this workspace');
+    if (!member) throw new ForbiddenException('Not a member of this workspace');
     return member;
   }
 
