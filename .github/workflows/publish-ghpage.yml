@@ -1,30 +1,123 @@
 name: GitHub Page Publish
 
 on:
-  push:
-    branches:
-      - "main"
-    paths-ignore:
-      - "packages/backend/**"
+  # WAITS FOR CI. This was `push: main`, a separate workflow with no `needs:`, so
+  # wafflebase.io was published in parallel with the run deciding whether main was
+  # green — a red main deployed anyway. The other half of the gate is in
+  # `scripts/changed-areas.mjs`: a `push` to `main` is never path-filtered, so the
+  # run this waits on is always the complete suite.
+  #
+  # A SIBLING at level 2 of the `workflow_run` chain, not a new link: `ci.yml` →
+  # `agent-review-panel.yml` → `capture-collect.yml` already uses GitHub's
+  # three-level limit with no headroom (see capture-collect.yml). Nothing may be
+  # inserted between CI and this workflow.
+  #
+  # `paths-ignore` is GONE because `workflow_run` supports no path filter. Its
+  # behaviour is preserved by the "Is the published site affected" step below —
+  # deliberately, and not just for runner minutes: this workflow retains only
+  # KEEP_COUNT=3 deployments' worth of hashed assets, so deploying on merges that
+  # cannot change the site would shorten the window in which a client holding a
+  # cached index.html can still fetch what it references.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+
+# One deploy for a burst of merges, newest wins. Cancelling is safe: `keep_files:
+# true` makes each deploy additive, and the cleanup step below prunes by SET
+# rather than by diff, so a run cancelled between deploy and cleanup leaves stale
+# assets that the next run removes.
+concurrency:
+  group: publish-ghpage
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # See docker-publish.yml for why all four clauses are needed — in particular
+    # `event == 'push'`, without which a fork PR opened from a branch called
+    # `main` (most forks' default) would satisfy the trigger's `branches` filter.
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The commit CI verified, not main's tip, which may already have moved
+          # to something whose CI has not reported. Two commits of history so the
+          # affected-paths check below can diff against the first parent.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 2
+
+      - name: Is the published site affected?
+        id: affected
+        # Replaces the `paths-ignore: packages/backend/**` that `workflow_run`
+        # cannot express. Same rule: deploy unless EVERY changed path is under
+        # packages/backend/. Fails open — an unresolvable parent (a first commit,
+        # a shallow fetch, a manual dispatch) deploys, because a missed deploy is
+        # a stale public site and a redundant one costs minutes.
+        # Through `env:` rather than interpolated into the script body. Neither
+        # value is attacker-controlled today (a SHA is hex and the event name is
+        # GitHub's own), but a `${{ }}` inside a shell script is textual
+        # substitution, so the safe habit is worth more than the audit.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$EVENT_NAME" != "workflow_run" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch — deploying."
+            exit 0
+          fi
+          SHA="$HEAD_SHA"
+          if ! git rev-parse --verify -q "$SHA^" >/dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "No parent commit available — deploying."
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$SHA^" "$SHA")
+          if [ -z "$CHANGED" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Empty diff — deploying."
+            exit 0
+          fi
+          # Counted with a POSITIVE match rather than tested with `grep -qv`,
+          # because `-v` combined with `-q` is not portable: GNU grep exits 0 when
+          # ANY line fails to match, and ugrep 7.5 (what a `brew`/`apt` grep alias
+          # can resolve to locally) exits 1 on the same input. The runner has GNU
+          # grep, so the `-qv` form would have been right here and untestable
+          # anywhere else — which is worse than right. `grep -c` agrees across
+          # both.
+          N_BACKEND=$(printf '%s\n' "$CHANGED" | grep -c '^packages/backend/' || true)
+          N_TOTAL=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
+          if [ "$N_BACKEND" -lt "$N_TOTAL" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Site-affecting paths changed ($N_BACKEND of $N_TOTAL are backend-only) — deploying."
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "All $N_TOTAL changed paths are under packages/backend/ — skipping the site deploy."
+          fi
+
       - name: Install pnpm
+        if: steps.affected.outputs.deploy == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 10.5.2
       - name: Setup Node
+        if: steps.affected.outputs.deploy == 'true'
         uses: actions/setup-node@v4
         with:
           cache: "pnpm"
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install and Build
+        if: steps.affected.outputs.deploy == 'true'
         # build:all runs `pnpm core build` first — required because the
         # core dist/ (incl. tokens.css imported by the frontend) is gitignored
         # — then builds the frontend + docs and copies docs into the frontend dist.
@@ -33,6 +126,7 @@ jobs:
           pnpm build:all
 
       - name: Create asset manifest
+        if: steps.affected.outputs.deploy == 'true'
         # Covers both hashed-asset trees: the frontend's own `assets/` and the
         # VitePress `docs/assets/` copied in by build:all. Anything missing here
         # is invisible to the cleanup step below and accumulates forever.
@@ -58,6 +152,7 @@ jobs:
           ) > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
 
       - name: Deploy
+        if: steps.affected.outputs.deploy == 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -67,6 +162,7 @@ jobs:
           keep_files: true
 
       - name: Cleanup old assets
+        if: steps.affected.outputs.deploy == 'true'
         # `keep_files: true` above never deletes, so this step is the only
         # counterweight. It is set-based, not diff-based: the keep-set is the
         # union of the newest KEEP_COUNT manifests, and every tracked file under

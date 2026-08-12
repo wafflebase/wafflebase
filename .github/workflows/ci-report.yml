@@ -1,0 +1,269 @@
+# Report CI's result onto the pull request — the one job in this pair allowed to
+# write, and therefore the one that must never run pull-request code.
+#
+# WHY THIS FILE EXISTS. `ci.yml` used to post its own verification comment. That
+# never worked for how this project actually receives contributions: a fork's
+# `pull_request` run gets a READ-ONLY GITHUB_TOKEN and no secrets at all, so
+# `createComment` failed silently every time. Every merged PR from #789 to #798
+# came from a fork; not one of them received the comment. The `continue-on-error`
+# on that step is why nobody noticed.
+#
+# It cannot be fixed by adding a token to `ci.yml`, for two independent reasons:
+#
+#   1. Secrets are withheld from a fork's `pull_request` run, so
+#      `secrets.AGENT_APP_ID` would be EMPTY on exactly the PRs that need it.
+#   2. Even if it were populated, `verify-self` runs `pnpm verify:self` — arbitrary
+#      build and test code from the PR's tree. A write-capable token in that
+#      environment is a token the PR author can exfiltrate.
+#
+# `workflow_run` is the answer to both: it runs in the base repository with access
+# to secrets, and it runs THIS file from the default branch rather than the PR's
+# copy. Same reasoning as `agent-summarize.yml` and `agent-review-on-demand.yml`,
+# which reach for an App token from `issue_comment` for the identical reason.
+#
+# THE INVARIANT, and it is the only thing standing between this token and a fork:
+# this workflow performs NO checkout of pull-request code, runs no `pnpm`, and
+# executes nothing from the triggering run. It reads two artifacts as DATA and
+# calls the API. Do not add a `actions/checkout` of `head_sha` here, and do not
+# add a build step. If this file ever needs repository code, check out the BASE
+# ref explicitly and never the pull request's.
+#
+# CHAIN DEPTH. GitHub allows three levels of `workflow_run` chaining, and
+# `.github/workflows/capture-collect.yml` documents that
+# `.github/workflows/ci.yml` -> `.github/workflows/agent-review-panel.yml` ->
+# itself already uses all three with no headroom. This is a SIBLING at level 2,
+# like the two deploy workflows, so that chain is untouched.
+name: CI Report
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+# No write scope on the ambient token. Every write below goes through the App
+# installation token, which is minted per-run and scoped to `issues: write` — the
+# permission that covers both PR comments and labels.
+permissions:
+  contents: read
+  actions: read # list the triggering run's jobs and download its artifacts
+
+# Keyed on the triggering run so a re-run supersedes its own report rather than
+# racing it. Not keyed on the PR: two different runs for the same PR are two
+# different results, and the comment is updated in place anyway.
+concurrency:
+  group: ci-report-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    # Only pull requests have somewhere to post. A `push`, a `merge_group` or a
+    # re-run of either has no PR, and `main`'s own runs are read in the Actions
+    # tab. `always()` is deliberately NOT used: this must run for a FAILED CI run
+    # too, which is the case where the comment matters most, and `workflow_run`
+    # fires on `completed` regardless of conclusion — so no status gate at all.
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # `continue-on-error` on both downloads: a CI run that died before
+      # `verify-self` produced reports still deserves a comment saying so, and a
+      # missing artifact must not turn this into a second red X on the PR.
+      - name: Download the harness reports
+        id: reports
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-reports
+          path: harness-reports
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the CI context
+        id: context
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-context
+          path: ci-context
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # Scoped to `issues: write`, which the REST API uses for both PR comments
+      # and PR labels. `continue-on-error` so a repository without the App
+      # configured degrades to the ambient token — which still works for
+      # same-repo pull requests — instead of failing every run.
+      - name: Generate GitHub App token
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Post the verification summary
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const run = context.payload.workflow_run;
+
+            // ---- untrusted input ----------------------------------------------
+            // Both artifacts were produced by a job running the PULL REQUEST's
+            // code, so every string below is attacker-controlled: lane names come
+            // from the PR's own verify-self.mjs, and reasons embed paths from its
+            // diff. They are only ever interpolated into markdown, never executed
+            // — but a crafted name could still forge table rows or smuggle HTML
+            // into a maintainer's view, so collapse the characters that would let
+            // it. Length-capped too: a megabyte-long lane name is a denial of
+            // service against the comment, not a finding.
+            const clean = (v, max = 300) =>
+              String(v ?? '')
+                .replace(/[\r\n|`<>]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, max);
+
+            const readJson = (p) => {
+              try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+              catch { return null; }
+            };
+
+            // ---- which pull request -------------------------------------------
+            // `run.pull_requests` is EMPTY for a fork PR, so the number is carried
+            // in the artifact. The head-SHA lookup is the fallback for a run whose
+            // `changes` job died before uploading it.
+            let prNumber = null;
+            try {
+              prNumber = parseInt(fs.readFileSync('ci-context/pr-number', 'utf8').trim(), 10);
+            } catch { /* fall through */ }
+            if (!Number.isInteger(prNumber)) {
+              prNumber = run.pull_requests?.[0]?.number ?? null;
+            }
+            if (!Number.isInteger(prNumber)) {
+              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner, repo, commit_sha: run.head_sha,
+              });
+              prNumber = data.find((p) => p.state === 'open')?.number ?? data[0]?.number ?? null;
+            }
+            if (!Number.isInteger(prNumber)) {
+              core.warning('No pull request could be resolved for this run; nothing to report.');
+              return;
+            }
+
+            const areas = readJson('ci-context/areas.json');
+            const summary =
+              readJson('harness-reports/summary.json') ??
+              readJson('harness-reports/.harness-reports/summary.json');
+
+            // ---- what the heavy jobs did --------------------------------------
+            // Read from the run itself rather than from a second artifact, so a
+            // job that was SKIPPED is distinguishable from one that never wrote a
+            // file. This is also what lets one comment report the whole run
+            // instead of the old two-phase "pending..." dance.
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { owner, repo, run_id: run.id, per_page: 100 },
+            );
+            const jobState = (needle) => {
+              const j = jobs.find((x) => x.name.startsWith(needle));
+              if (!j) return 'missing';
+              return j.conclusion ?? j.status;
+            };
+            const ICON = {
+              success: '✅', failure: '❌', skipped: '⊘', cancelled: '🚫',
+              missing: '—', neutral: '➖', timed_out: '⏱️',
+            };
+            const badge = (s) => `${ICON[s] ?? '❔'} ${s}`;
+
+            // ---- body ---------------------------------------------------------
+            const marker = '<!-- harness-verification -->';
+            let body = `${marker}\n## Verification\n\n`;
+
+            if (areas && areas.full === false) {
+              // Phrased from what the jobs ACTUALLY did, not from `areas.heavy`.
+              // The two disagree whenever the `full-ci` label overrode a reduced
+              // resolution: `heavy` is false, yet both jobs ran. Reading `heavy`
+              // here would print "were skipped" directly above a table showing
+              // them green, which is exactly the kind of quietly-wrong reporting
+              // this whole change is meant to remove.
+              const heavyRan = ['verify-browser', 'verify-integration']
+                .map(jobState)
+                .some((s) => s !== 'skipped' && s !== 'missing');
+              body += '> **Reduced run.** ';
+              body += heavyRan
+                ? '`verify-browser` and `verify-integration` still ran.\n'
+                : '`verify-browser` and `verify-integration` were skipped — no workspace package changed.\n';
+              for (const reason of areas.reasons ?? []) body += `> - ${clean(reason)}\n`;
+              if (!heavyRan) {
+                body += '>\n> Add the **`full-ci`** label and re-run to force the whole suite.\n';
+              }
+              body += '\n';
+            } else if (areas && areas.ciConfig) {
+              body += '> **Full suite forced.** This PR changes a file that decides how much CI '
+                + 'runs, so it is measured by everything.\n\n';
+            }
+
+            body += '| Check | Result |\n|---|---|\n';
+            body += `| verify-self | ${badge(jobState('verify-self'))} |\n`;
+            body += `| verify-browser | ${badge(jobState('verify-browser'))} |\n`;
+            body += `| verify-integration | ${badge(jobState('verify-integration'))} |\n`;
+            body += `| pipeline copy (advisory) | ${badge(jobState('Pipeline copy'))} |\n\n`;
+
+            if (!summary) {
+              body += '> `verify:self` produced no lane report — it may have crashed before '
+                + 'writing one, or been skipped entirely.\n';
+            } else {
+              const icon = summary.overall === 'pass' ? '✅' : '❌';
+              body += `**Lanes:** ${icon} ${String(summary.overall).toUpperCase()}`;
+              body += ` in ${(summary.totalDurationMs / 1000).toFixed(1)}s`;
+              if (summary.lanesFiltered > 0) {
+                body += ` — ${summary.lanesRun} of ${summary.lanesTotal} run, ${summary.lanesFiltered} filtered`;
+              }
+              body += '\n\n<details><summary>Per-lane detail</summary>\n\n';
+              body += '| Lane | Status | Duration |\n|---|---|---|\n';
+              for (const lane of summary.lanes ?? []) {
+                // `filtered` and `skip` get different glyphs on purpose: one was
+                // never going to run, the other never got its turn because an
+                // earlier lane failed. Collapsing them would let a failure read
+                // as a deliberate omission.
+                const s = lane.status === 'pass' ? '✅'
+                  : lane.status === 'fail' ? '❌'
+                  : lane.status === 'filtered' ? '⊘'
+                  : '⏭️';
+                const dur = lane.durationMs > 0 ? `${(lane.durationMs / 1000).toFixed(1)}s` : '—';
+                body += `| ${clean(lane.lane, 60)} | ${s} ${clean(lane.status, 20)} | ${dur} |\n`;
+              }
+              body += '\n</details>\n';
+            }
+
+            body += `\n<sub>[run](${run.html_url}) · ${run.head_sha.slice(0, 9)}</sub>\n`;
+
+            // ---- post or update ------------------------------------------------
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: prNumber, per_page: 100,
+            });
+            const existing = comments.find((c) => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+            }
+
+            // ---- the label -----------------------------------------------------
+            // Visible half of the CI-config guard. The mechanical halves do not
+            // depend on it: `ci.ciConfig` forces the full suite and
+            // .github/CODEOWNERS requires an owner's review. So a failure here is
+            // a warning, not a red X.
+            if (areas && areas.ciConfig) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: prNumber, labels: ['ci-config-changed'],
+                });
+              } catch (error) {
+                core.warning(`Could not apply the ci-config-changed label: ${error.message}`);
+              }
+            }

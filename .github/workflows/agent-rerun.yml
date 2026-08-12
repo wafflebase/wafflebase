@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: wafflebase/agent-pipeline
-          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
+          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
           path: .pipeline-src
           sparse-checkout: packages/pipeline/command.mjs
           sparse-checkout-cone-mode: false
@@ -253,7 +253,7 @@ jobs:
         continue-on-error: true
         with:
           repository: wafflebase/agent-pipeline
-          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
+          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
