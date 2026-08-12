@@ -776,7 +776,7 @@ export const MARKER_TRIGGER = Object.freeze({
  * what CodeRabbit wrote"* (`findings-unavailable`) and *"CodeRabbit reviewed a later
  * snapshot"* (`no-in-window-finding`).
  *
- * The first five end the interval and therefore kill BOTH figures. The rest are
+ * The first six end the interval and therefore kill BOTH figures. The rest are
  * per-interval: a missing start marker costs the self-timed figure and leaves the
  * proxy, and a commit our CI never ran costs the proxy and leaves the self-timed
  * one. That is the point of carrying two.
@@ -960,7 +960,7 @@ export function pushProxyStartOf(checkRuns) {
  * pair on one axis would credit us for every queue the other arm paid and we skipped
  * — measured, and in the direction that flatters us: our replay process median is
  * 9.3 min (n=21) against this arm's 6.8, while the two pilot commits where our panel
- * ran IN PRODUCTION on the same commit took 18.6 and 19.0 min from the same anchor
+ * ran IN PRODUCTION on the same commit took 18.7 and 19.0 min from the same anchor
  * this file proxies. So the arms are reported under separate keys, in separate
  * blocks, each naming its own interval, and nothing here divides one by the other.
  */
@@ -976,6 +976,11 @@ export function latencyOf(item, { issueComments = null, checkRuns = null } = {})
   const span = (interval, start, extra) => {
     if (end.absent !== null) return { interval, ms: null, started_at: null, ...extra, absent: end.absent, poolable: false };
     if (start.absent !== null) return { interval, ms: null, started_at: null, ...extra, absent: start.absent, poolable: false };
+    // NON-NULL BY CONSTRUCTION, so there is no null branch below. Both producers set
+    // `started_at` from the very string whose `at()` they already found finite, and
+    // both return `absent: null` only in that case — which the line above has just
+    // checked. A guard here could not be made to fire, and this file's own rule for
+    // that is `checkArmFields`: a guard nothing can prove fires is decoration.
     const t0 = at(start.started_at);
     if (t0 > t1) return { interval, ms: null, started_at: start.started_at, ...extra, absent: "start-after-finding", poolable: false };
     return { interval, ms: t1 - t0, started_at: start.started_at, ...extra, absent: null, poolable: true };
@@ -1178,6 +1183,27 @@ export function latencyLine(l) {
   );
 }
 
+/**
+ * One interval's absence census as a line: every DECLARED flavour at its count, then
+ * anything else the census saw, marked.
+ *
+ * Exported for the same reason `latencyLine` is, and it has already earned it: the
+ * first version iterated `LATENCY_ABSENT` alone, which silently undid the one thing
+ * `latencyCensus` goes out of its way to do. Giving an unrecognised flavour its own
+ * key is worthless if the only thing that prints the census cannot show that key —
+ * the bucket would exist, be counted, and never be seen, which is lesson 1 with an
+ * extra step. `cost-latency.mjs` marks its unrecognised `duration_source` values the
+ * same way, and the wording matches so the two reports read alike.
+ *
+ * Declared order first and always, so the stable rows stay comparable between runs.
+ */
+export function latencyAbsentLine(absent) {
+  const o = absent ?? {};
+  const declared = LATENCY_ABSENT.map((f) => `${f}=${o[f] ?? 0}`);
+  const extra = Object.keys(o).filter((f) => !LATENCY_ABSENT.includes(f)).map((f) => `UNRECOGNISED ${f}=${o[f]}`);
+  return [...declared, ...extra].join(" ");
+}
+
 /** `key=n` over a record list, for the CLI's census lines. */
 function tallyOf(records, pick) {
   const o = {};
@@ -1275,7 +1301,6 @@ async function main() {
       `\n  vintage:  ${tally((r) => r.coderabbit?.vintage)}`,
   );
   const lat = latencyCensus(perItem);
-  const flavours = (o) => LATENCY_ABSENT.map((f) => `${f}=${o[f] ?? 0}`).join(" ");
   console.error(
     // EVERY declared absence, at zero, on both intervals. `no-check-run=0` is the row
     // that matters: it has never happened, so it is the one whose mishandling nobody
@@ -1283,9 +1308,9 @@ async function main() {
     `\nlatency over ${lat.n} item(s), ${lat.ended} with a review of the frozen snapshot to time` +
       `\n  trigger:      ${Object.entries(lat.triggers).map(([t, n]) => `${t}=${n}`).join(" ")}` +
       `\n  self-timed:   ${lat.self_timed.measured} measured, ${lat.self_timed.poolable} poolable · ${SELF_TIMED_INTERVAL}` +
-      `\n    absent:     ${flavours(lat.self_timed.absent)}` +
+      `\n    absent:     ${latencyAbsentLine(lat.self_timed.absent)}` +
       `\n  push-proxy:   ${lat.push_proxy.measured} measured, ${lat.push_proxy.poolable} poolable · ${PUSH_PROXY_INTERVAL}` +
-      `\n    absent:     ${flavours(lat.push_proxy.absent)}` +
+      `\n    absent:     ${latencyAbsentLine(lat.push_proxy.absent)}` +
       // The two sentences a reader needs before quoting any of it, in the same output
       // as the numbers rather than in a document they may not open.
       `\n  ! the push proxy UNDERSTATES: CI queueing sits between the push and the first check run starting` +

@@ -44,6 +44,7 @@ import {
   endOfReview,
   fetchCodeRabbitPr,
   inlineFinding,
+  latencyAbsentLine,
   latencyCensus,
   latencyLine,
   latencyOf,
@@ -1143,7 +1144,7 @@ test("latencyOf: every absent flavour, and not one of them is a zero", () => {
   const inWindow = (over = {}) => ({ population_state: "present", records: [{ coderabbit: { window: "in-window", posted_at: "2026-07-12T12:59:36Z", source: "inline-comment", ...over } }] });
   const ok = { issueComments: [CR_STATUS_COMMENT], checkRuns: CHECK_RUNS_471 };
   const cases = {
-    // The five that end the interval, so BOTH figures go with them.
+    // The six that end the interval, so BOTH figures go with them.
     "findings-unavailable": [{ population_state: "absent", records: [] }, ok],
     "no-finding": [{ population_state: "present", records: [] }, ok],
     "no-review-commit": [{ population_state: "present", records: [{ coderabbit: { window: "no-window" } }] }, ok],
@@ -1234,6 +1235,20 @@ test("latencyCensus: every declared absence is printed, including the zeros", ()
     assert.equal(census[key].absent["no-check-run"], 0);
     assert.equal(census[key].absent["no-finding"], 1);
   }
+});
+
+test("latencyAbsentLine: the declared zeros, AND a flavour nobody declared", () => {
+  const census = latencyCensus([{ latency: latencyOf({ population_state: "present", records: [] }, {}) }]);
+  const line = latencyAbsentLine(census.self_timed.absent);
+  // Every declared flavour, at its count, in declared order — so the rows are
+  // comparable between runs and `no-check-run=0` is visible on a run where it never
+  // happened.
+  assert.equal(line, LATENCY_ABSENT.map((f) => `${f}=${f === "no-finding" ? 1 : 0}`).join(" "));
+  // …and the bucket `latencyCensus` opens for an absence nobody declared. Printing
+  // only the declared list would count it and then hide it, which is the failure the
+  // census exists to prevent.
+  assert.match(latencyAbsentLine({ ...census.self_timed.absent, "some-new-absence": 3 }), /UNRECOGNISED some-new-absence=3$/);
+  assert.equal(latencyAbsentLine(null), LATENCY_ABSENT.map((f) => `${f}=0`).join(" "));
 });
 
 test("latencyLine: the interval and its caveat are on the same line as the number", () => {

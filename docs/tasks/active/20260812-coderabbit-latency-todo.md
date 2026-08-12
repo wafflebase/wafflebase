@@ -83,7 +83,7 @@ is the last edit of anything: on pr-415 it reads **53.7 min against a true 6.6**
 error. On the per-invocation ack it happens to be right to within 4 s, and a rule that
 is right on one comment kind and 8× wrong on the other is not a rule.
 
-**Twelve absences, five of which end the interval** (`LATENCY_ABSENT`). Three are the
+**Twelve absences, six of which end the interval** (`LATENCY_ABSENT`). Three are the
 same sentence in English and different facts: *CodeRabbit reviewed this snapshot
 cleanly* (`no-finding`), *we could not read what it wrote* (`findings-unavailable`),
 and *it reviewed a later snapshot* (`no-in-window-finding`). `no-check-run` is the one
@@ -130,6 +130,16 @@ its own header records a production median of 17.8 min. **The plan worried this 
 would read 3–5× too high against us; in production it reads roughly 2.2× too LOW in
 our favour.** No such comparison is emitted here — the two arms have separate keys and
 no ratio — but the direction is now measured rather than argued.
+
+**The census line printed the declared twelve and nothing else**, which quietly undid the one
+thing `latencyCensus` goes out of its way to do: it opens a key for an absence nobody declared,
+and the formatter iterated `LATENCY_ABSENT` alone, so that bucket would have been counted and
+never seen. Found in review. The formatter is now exported as `latencyAbsentLine`, prints the
+union with the unrecognised rows marked — the wording `cost-latency.mjs` uses for the same case
+— and two mutations pin it. **Two off-by-one statements were wrong in the same pass:** six
+absences end the interval, not five (`posted-at-absent` is one of them), and the production
+figure is 18.7 min, not 18.6 — 18.6 is when the first lens check run appeared, 18.7 is when the
+last one completed, and the latter is what "took" means here.
 
 **CodeRabbit creates no check run**, verified on `51c01826a`: the only apps posting any
 are `codecov` and `github-actions`, and the commit-status API is empty. So the
@@ -220,16 +230,23 @@ and the branch tree before either was measured, both lanes run serially.
       | | rest | iso (`eval/run.test.mjs`) | total |
       |---|---|---|---|
       | base `f4d0d65d6` | 1687 pass / 0 fail / 0 skip | 55 / 0 / 0 | **1742** |
-      | this branch | 1702 pass / 0 fail / 0 skip | 55 / 0 / 0 | **1757** |
+      | this branch | 1703 pass / 0 fail / 0 skip | 55 / 0 / 0 | **1758** |
 
-      **+15 tests, 0 fail, 0 skip on either tree.** 0 skips rather than the documented
+      **+16 tests, 0 fail, 0 skip on either tree.** 0 skips rather than the documented
       6 because both trees have the Agent SDK and a root `eslint` linked, which is what
       `lint-config.test.mjs` skips without.
 - [x] **`eslint scripts` exits 0** on the lockfile's pinned **9.24.0**, no output, on
       both trees. (A bare `npx eslint` resolves a newer version that flags pre-existing
       code on `main`; 9.24.0 with `@eslint/js` and `globals` was installed into a
       scratch tree and linked for the run.)
-- [x] **All 16 mutations caught, 0 survived**, each by a test naming the right thing;
+      ⚠ **`eval/run.test.mjs` fails 2 of its 55 when `os.tmpdir()` is dirty**, and it is not
+      this diff: *"a failed item KEEPS its raw panel output"* and *"a throw inside the item
+      loop still deregisters the worktree"* assert that no `eval-item-*` directory appeared,
+      and 604 of them had accumulated from earlier runs of the same file. **The base tree
+      fails the same two under the same dirty `TMPDIR`, and both trees pass 55/55 under a
+      fresh one.** Pre-existing, from #682, and documented. The dirs were left in place —
+      another session may own some of them.
+- [x] **All 18 mutations caught, 0 survived**, each by a test naming the right thing;
       restored after each. Latest-marker → earliest (**3 red**); author gate removed
       (**1**); same-second marker allowed (**1**); proxy `min` → `max` (**5**);
       `no-check-run` pooled into `check-runs-unavailable` (**1**); on-demand made
@@ -238,7 +255,9 @@ and the branch tree before either was measured, both lanes run serially.
       (**1**); the unplaceable branch removed (**2**); the `GH_REPO` refusal removed
       (**1**); the census zeros removed (**1**); issue comments unpaginated (**1**);
       check runs read without a frozen commit (**1**); a self-timed absence made
-      poolable (**1**); the status-comment marker dropped (**5**).
+      poolable (**1**); the status-comment marker dropped (**5**); the unrecognised
+      absence bucket hidden again (**1**); the declared zeros dropped from the census
+      line (**1**).
 
 **Not verified, and why:**
 
