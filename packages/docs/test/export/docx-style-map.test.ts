@@ -70,6 +70,22 @@ describe('buildRunPropertiesXml', () => {
     const xml = buildRunPropertiesXml({ color: '#FF0000' });
     expect(xml).toContain('<w:color w:val="FF0000"/>');
   });
+
+  it('XML-escapes a hostile color value in the w:color attribute', () => {
+    // `defaultColorResolver` passes any string through verbatim, and
+    // `InlineStyle.color` really can hold a non-palette string (DOCX/PPTX
+    // import, the legacy '' reset of issue #728). Unescaped, a value
+    // carrying `"` would close the attribute and inject OOXML.
+    const xml = buildRunPropertiesXml({ color: 'a" w:themeColor="dark1' });
+    expect(xml).toContain('<w:color w:val="a&quot; w:themeColor=&quot;dark1"/>');
+    expect(xml).not.toContain('w:themeColor="dark1"');
+  });
+
+  it('XML-escapes a hostile backgroundColor value in the w:shd fill attribute', () => {
+    const xml = buildRunPropertiesXml({ backgroundColor: 'a"/><w:b' });
+    expect(xml).toContain('w:fill="a&quot;/&gt;&lt;w:b"');
+    expect(xml).not.toContain('w:fill="a"/>');
+  });
 });
 
 describe('buildParagraphPropertiesXml', () => {

@@ -30,13 +30,38 @@ Root cause — two layers:
 - [x] Renderer treats a falsy resolved color as unset, so documents already
       saved with `color: ""` (and slides decks, which paint through the same
       docs `paintRun`) render with the theme default instead of a stale
-      `fillStyle`:
-      - [x] `paintRun` text color
+      `fillStyle`. One shared helper, `resolveStoredColor(resolve, c)` in
+      `model/color.ts`, normalizes `""` on **both** sides of the resolver —
+      before, so a theme-aware resolver takes its "no color set" branch and
+      returns the deck theme's text color (normalizing only after would paint
+      a cleared run in the docs default on a dark deck); after, so a resolver
+      that itself yields `""` never reaches `ctx.fillStyle`. Call sites:
+      - [x] `paintRun` text color (and `underlineColor`, same shape)
       - [x] `renderListMarker` marker color
       - [x] `resolveColorAtPosition` (caret color tracks the run color)
+      - [x] `table-renderer.ts` cell text + in-cell list markers — table
+            blocks never pass through `paintRun` (paint-layout skips
+            `block.type === 'table'`; the table renderer sets its own
+            `ctx.font` / `ctx.fillStyle`), so text inside a table needed the
+            same guard explicitly
+- [x] DOCX export escapes the resolved color into `<w:color>` / `<w:shd>`
+      with the `escapeXmlAttr` already applied to `fontFamily` in the same
+      element — `InlineStyle.color` can legitimately hold an arbitrary
+      string, which unescaped is OOXML attribute injection
 - [x] Tests
       - [x] docs: `paint-layout.test.ts` — a run with `color: ''` paints the
             theme default, never the previously set `fillStyle`
+      - [x] docs: `render-list-marker.test.ts` — `marker.color: ''` /
+            `inline.color: ''` paint the theme default, and the resolver sees
+            `undefined` (not `''`) so themes still apply
+      - [x] docs: `color.test.ts` — `resolveColorAtPosition` falls back for
+            `''` on both the covering-inline and trailing-inline branches;
+            `resolveStoredColor` unit cases
+      - [x] docs: `table-renderer.test.ts` — cell text and in-cell list
+            marker with `color: ''` paint the theme default, not the
+            pre-loaded selection fill
+      - [x] docs: `docx-style-map.test.ts` — hostile color / backgroundColor
+            values are escaped in the run properties XML
       - [x] frontend: reset calls `applyStyle` with `color: undefined`
 
 ## Acceptance criteria (from the issue)

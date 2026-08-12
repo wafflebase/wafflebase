@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   defaultColorResolver,
   resolveColorAtPosition,
+  resolveStoredColor,
   storedColorsEqual,
   wrapLegacyColor,
 } from '../../src/model/color.js';
@@ -152,5 +153,65 @@ describe('resolveColorAtPosition', () => {
   it('returns the fallback when the inline has no color set', () => {
     const block = { inlines: [{ text: 'hi', style: {} }] };
     expect(resolveColorAtPosition(block, 0, defaultColorResolver, fallback)).toBe(fallback);
+  });
+
+  // Issue #728: a "reset color" used to be persisted as the empty string,
+  // which is not a paintable value — the caret painter must treat it as
+  // unset and use the fallback rather than handing '' to `ctx.fillStyle`.
+  it('falls back when the covering inline stores the legacy empty-string color', () => {
+    const block = { inlines: [{ text: 'hi', style: { color: '' } }] };
+    expect(resolveColorAtPosition(block, 0, defaultColorResolver, fallback)).toBe(fallback);
+    expect(resolveColorAtPosition(block, 2, defaultColorResolver, fallback)).toBe(fallback);
+  });
+
+  it('falls back on the trailing branch when the last inline stores ""', () => {
+    // offset past every inline → the `last` branch after the loop.
+    const block = {
+      inlines: [
+        { text: 'ab', style: { color: '#ff0000' } },
+        { text: 'cd', style: { color: '' } },
+      ],
+    };
+    expect(resolveColorAtPosition(block, 99, defaultColorResolver, fallback)).toBe(fallback);
+  });
+
+  it('shows the empty string to the resolver as "unset" so themes still apply', () => {
+    // A theme-aware resolver (slides' `makeColorResolver`) maps a *missing*
+    // color to the deck theme's text color. A cleared run must reach that
+    // same branch, otherwise a dark deck paints a near-black caret.
+    const seen: Array<unknown> = [];
+    const themeAware = (c: unknown) => {
+      seen.push(c);
+      return c == null ? '#ffffff' : '#123456';
+    };
+    const block = { inlines: [{ text: 'hi', style: { color: '' } }] };
+    expect(resolveColorAtPosition(block, 0, themeAware as never, fallback)).toBe('#ffffff');
+    expect(seen).toEqual([undefined]);
+  });
+});
+
+describe('resolveStoredColor', () => {
+  it('normalizes the legacy empty-string color to undefined before resolving', () => {
+    const seen: Array<unknown> = [];
+    const resolver = (c: unknown) => {
+      seen.push(c);
+      return c == null ? undefined : 'x';
+    };
+    expect(resolveStoredColor(resolver as never, '')).toBeUndefined();
+    expect(seen).toEqual([undefined]);
+  });
+
+  it('drops an empty string the resolver itself returns', () => {
+    expect(resolveStoredColor(() => '', '#ff0000')).toBeUndefined();
+  });
+
+  it('passes real colors through untouched', () => {
+    expect(resolveStoredColor(defaultColorResolver, '#ff0000')).toBe('#ff0000');
+    expect(resolveStoredColor(defaultColorResolver, { kind: 'srgb', value: '#00ff00' }))
+      .toBe('#00ff00');
+  });
+
+  it('returns undefined for an unset color so the caller picks the fallback', () => {
+    expect(resolveStoredColor(defaultColorResolver, undefined)).toBeUndefined();
   });
 });

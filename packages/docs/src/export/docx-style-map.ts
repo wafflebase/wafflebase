@@ -14,10 +14,10 @@ const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
 
 /**
  * Escape a value for safe interpolation into a double-quoted XML
- * attribute. `style.fontFamily` originates from untrusted sources
- * (PPTX/DOCX imports, user input in the font picker), so a hostile
- * family name like `A"><script>` could break the DOCX `<w:rFonts>`
- * element or inject attributes. The five canonical replacements cover
+ * attribute. Style values like `fontFamily` and `color` originate from
+ * untrusted sources (PPTX/DOCX imports, user input in the font picker),
+ * so a hostile family name like `A"><script>` could break the DOCX
+ * `<w:rFonts>` element or inject attributes. The five canonical replacements cover
  * every reserved character inside attribute content per the XML 1.0
  * spec — applied to `&` first so subsequent escapes don't get
  * re-escaped.
@@ -68,13 +68,20 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
   // role-bound colors are dropped (no theme registered at the docs
   // layer), srgb/string forms render verbatim. Slides decks that need
   // role-aware DOCX would have to flatten themes before export.
+  //
+  // `defaultColorResolver` passes any string through untouched, and
+  // `InlineStyle.color` really can hold a non-palette string (DOCX/PPTX
+  // import, the legacy `''` reset of issue #728), so escape it exactly
+  // like `fontFamily` above — otherwise a value containing `"` or `<`
+  // would break out of the attribute and inject OOXML.
   const colorHex = defaultColorResolver(style.color);
   if (colorHex) {
-    parts.push(`<w:color w:val="${colorHex.replace('#', '')}"/>`);
+    parts.push(`<w:color w:val="${escapeXmlAttr(colorHex.replace('#', ''))}"/>`);
   }
   const bgHex = defaultColorResolver(style.backgroundColor);
   if (bgHex) {
-    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${bgHex.replace('#', '')}"/>`);
+    const fill = escapeXmlAttr(bgHex.replace('#', ''));
+    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`);
   }
   if (style.superscript) parts.push('<w:vertAlign w:val="superscript"/>');
   if (style.subscript) parts.push('<w:vertAlign w:val="subscript"/>');

@@ -2,7 +2,7 @@ import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { LayoutRun } from './layout.js';
 import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
-import { defaultColorResolver } from '../model/color.js';
+import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import { Theme, buildFont, ptToPx, lineBaselineY } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 import {
@@ -454,7 +454,14 @@ export function renderTableContent(
             style.bold,
             style.italic,
           );
-          const runTextColor = defaultColorResolver(style.color) ?? Theme.defaultColor;
+          // Table cell text never passes through `renderRun` (paint-layout
+          // skips `block.type === 'table'` and this renderer sets its own
+          // font / fillStyle), so it needs the same issue-#728 guard: a
+          // cleared color stored as '' must fall back to the theme default
+          // instead of being assigned to `ctx.fillStyle`, where the canvas
+          // ignores it and the run inherits the preceding selection fill.
+          const runTextColor =
+            resolveStoredColor(defaultColorResolver, style.color) ?? Theme.defaultColor;
           ctx.fillStyle = runTextColor;
           ctx.textBaseline = 'alphabetic';
 
@@ -561,7 +568,10 @@ export function renderTableContent(
             lineBaselineY(markerLineY, firstLine.height, firstLine.maxFontSizePx ?? fontSizePx),
           );
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
-          ctx.fillStyle = defaultColorResolver(cellBlock.inlines[0]?.style.color) ?? Theme.defaultColor;
+          // Same '' guard as the cell-text pass above (issue #728).
+          ctx.fillStyle =
+            resolveStoredColor(defaultColorResolver, cellBlock.inlines[0]?.style.color)
+            ?? Theme.defaultColor;
           ctx.fillText(marker, markerX, baselineY);
         }
       }

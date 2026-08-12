@@ -22,6 +22,34 @@ export function defaultColorResolver(c: StoredColor | undefined): string | undef
 }
 
 /**
+ * Resolve a `StoredColor` to a paintable color string, treating the
+ * legacy "reset color" empty string as *unset* (issue #728). Returns
+ * `undefined` when there is nothing paintable, so every caller supplies
+ * its own fallback: `resolveStoredColor(resolve, c) ?? theme.defaultColor`.
+ *
+ * The empty string is normalized on BOTH sides of the resolver, and both
+ * halves matter:
+ *
+ * - **Before** — `''` is collapsed to `undefined` so a theme-aware
+ *   resolver (slides' `makeColorResolver`) takes its "no color set"
+ *   branch and returns the deck theme's text color, exactly as it does
+ *   for a run that was never colored. Normalizing only afterwards would
+ *   send a cleared run to the docs default color, painting near-black
+ *   text on a dark deck.
+ * - **After** — a resolver can still hand back an empty string (a custom
+ *   resolver, or an `{ kind: 'srgb', value: '' }` shape), and
+ *   `ctx.fillStyle = ''` is an invalid assignment the canvas IGNORES,
+ *   leaving the run painted in whatever the previous pass set (typically
+ *   the selection fill). That was the visible bug in #728.
+ */
+export function resolveStoredColor(
+  resolve: ColorResolver,
+  c: StoredColor | undefined,
+): string | undefined {
+  return resolve(c === '' ? undefined : c) || undefined;
+}
+
+/**
  * Value-based equality for `StoredColor` so callers like
  * `inlineStylesEqual` don't suffer reference-equality false negatives
  * after color migration / Yorkie deserialization produces fresh object
@@ -51,9 +79,9 @@ export function wrapLegacyColor(c: string | StoredColor): StoredColor {
  * block. Finds the inline whose span covers `offset` (with the standard
  * "cursor at the seam between two inlines belongs to the leading
  * inline" rule used by `getStyleAtCursor` / `getSelectionStyle`), runs
- * its `style.color` through `colorResolver`, and falls back when the
- * inline has no color or the resolver returns nothing usable (`undefined`,
- * or the empty string a legacy "reset color" left behind — see issue #728).
+ * its `style.color` through `resolveStoredColor` (so a legacy "reset
+ * color" empty string is treated as unset — see issue #728), and falls
+ * back when the inline has no color or nothing paintable resolves.
  *
  * The caret painter consumes this so the cursor tracks the text color
  * it would assume on the next keystroke — important in slides on dark
@@ -72,10 +100,10 @@ export function resolveColorAtPosition(
   for (const inline of block.inlines) {
     const inlineEnd = pos + inline.text.length;
     if (offset <= inlineEnd) {
-      return colorResolver(inline.style.color) || fallback;
+      return resolveStoredColor(colorResolver, inline.style.color) ?? fallback;
     }
     pos = inlineEnd;
   }
   const last = block.inlines[block.inlines.length - 1];
-  return colorResolver(last.style.color) || fallback;
+  return resolveStoredColor(colorResolver, last.style.color) ?? fallback;
 }
