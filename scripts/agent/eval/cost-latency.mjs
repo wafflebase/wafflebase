@@ -608,11 +608,23 @@ export function costLatencyOf(runs = [], { sizes = new Map(), corpusVersion = nu
     for (const r of rep.items.filter((x) => !x.poolable)) reasons.push(`${rep.run_id}/${r.item_id}: ${r.status}${r.reason ? ` (${r.reason})` : ""}, $${r.cost_usd.toFixed(2)} spent and not counted as a review`);
     for (const r of rep.items.filter((x) => x.poolable && !x.wall_measured)) reasons.push(`${rep.run_id}/${r.item_id}: no wall clock (duration_source ${r.duration_source}) — excluded from every latency figure, not counted as zero`);
     for (const [value, n] of Object.entries(rep.duration_source.unrecognised)) reasons.push(`${rep.run_id}: ${n} item(s) carry an unrecognised duration_source ${JSON.stringify(value)} — it is not one of ${DURATION_SOURCES.join(" | ")} and has been pooled with nothing`);
-    if (rep.spend.stored_total_agrees === false) reasons.push(`${rep.run_id}: run.json totals say $${rep.spend.stored_total_usd} and the stored envelopes sum to $${rep.spend.total_usd.toFixed(4)} — the summary and the items disagree`);
+    // Both sides at the same precision: two dollar figures printed to different
+    // numbers of places invite a reader to blame the formatting for the gap.
+    if (rep.spend.stored_total_agrees === false) reasons.push(`${rep.run_id}: run.json totals say $${rep.spend.stored_total_usd.toFixed(4)} and the stored envelopes sum to $${rep.spend.total_usd.toFixed(4)} — the summary and the items disagree`);
     const seen = new Set(rep.items.map((r) => r.item_id));
     const missing = corpusIds.filter((id) => !seen.has(id));
     if (missing.length > 0) reasons.push(`${rep.run_id}: ${missing.length} corpus item(s) never replayed (${missing.join(", ")})`);
   }
+  // AN UNKNOWN SIZE IS A LABELLED SHORTFALL, not a silent bucket. An item whose
+  // frozen input is not under this root is priced correctly — the dollars come off
+  // the envelope — but it can be placed in no size bucket, so it lands in
+  // `(unknown)` and every size-segmented statement is about less than the corpus.
+  // Derived from the ROWS rather than from what the caller passed, so a caller that
+  // built its size map wrongly is caught by the same check as one that could not
+  // read an item: the reason this file exists is that a scorer which computes a
+  // right number over a wrong subset looks exactly like one that did not.
+  const unsized = [...new Set(replicates.flatMap((rep) => rep.items.filter((r) => r.size_bucket === null).map((r) => r.item_id)))].sort();
+  for (const id of unsized) reasons.push(`${id}: size unknown (no frozen corpus item under this root) — priced, but in no size bucket, so every per-size figure excludes it`);
   // The items priced in EVERY replicate: the only population a range may be quoted
   // over, because an item measured twice and an item measured three times have
   // ranges that are not comparable.
@@ -645,8 +657,12 @@ export function costLatencyOf(runs = [], { sizes = new Map(), corpusVersion = nu
       per_item,
       by_size_bucket: bySizeBucket(replicates, sizes),
       // Across replicates, so the stability of the PRICE is visible beside the
-      // instability of the content: the pilot's replicate totals move ~6% while
-      // per-item finding volume moves 12–67%.
+      // instability of the content: the pilot's replicate totals move ~11% of the
+      // cheapest leg while per-item finding volume moves 12–67%. The denominator is
+      // named because both figures are quoted in this project against the minimum
+      // and against the mean, and half-range-over-mean makes the same three legs
+      // read ~6%. This field is `spread_over_min`, so ~11% is the one that matches
+      // what the row prints.
       replicate_spend_usd: seriesOf(replicates.map((r) => r.spend.total_usd)),
       duration_source: durationCensus(envelopes),
     },
@@ -724,7 +740,12 @@ export function renderReport(result) {
   out.push("by size bucket (there is NO pooled cost-per-line figure — the per-item floor makes the average invert)");
   for (const b of p.by_size_bucket) {
     out.push(
-      `  ${b.size_bucket}: ${b.item_count} item(s) × ${b.observations} observation(s) · ${b.diff_lines.min}–${b.diff_lines.max} line(s)` +
+      // Through `rangeStr` like every other series, because an item with no frozen
+      // input has an UNKNOWN size and lands in this bucket with an empty line-count
+      // series — which interpolated straight into the string printed `null–null`,
+      // the one shape that reads as a measurement of nothing rather than as an
+      // absence.
+      `  ${b.size_bucket}: ${b.item_count} item(s) × ${b.observations} observation(s) · ${rangeStr(b.diff_lines, (v) => String(v))} line(s)` +
         ` · cost ${rangeStr(b.cost_usd, usd)} · wall ${rangeStr(b.wall_ms, mins)}`,
     );
   }
@@ -791,9 +812,11 @@ async function main() {
     const input = store.getCorpusItemInput(it.id);
     // A read path: an item that is not frozen under this root degrades to an
     // unknown size, and every per-line and per-bucket figure on it says so rather
-    // than placing it in the smallest bucket.
-    if (input) sizes.set(it.id, sizeOf(it.id, input.meta));
-    else console.error(`  ! ${it.id}: no frozen item under this root — its size is unknown and it is bucketed as such`);
+    // than placing it in the smallest bucket. It is RECORDED as unsized rather than
+    // left out of the map, so the shortfall reaches `completeness` as a named
+    // reason — and therefore the non-zero exit — instead of only reaching a line of
+    // stderr somebody has to notice.
+    sizes.set(it.id, input ? sizeOf(it.id, input.meta) : { item_id: it.id, diff_lines: null, size_bucket: null });
   }
 
   const runs = [];

@@ -84,7 +84,7 @@ unexplained count rather than folding into one of the three.
 
 ### Two money questions, kept apart, and neither is called "cost"
 
-```
+```text
 spend.total_usd    what this run's stored envelopes add up to, failures included
 review.cost_usd    the distribution over `ok` items only — what one review costs
 ```
@@ -201,7 +201,28 @@ again). And the two arms' intervals are **not the same measurement** — ours is
 elapsed time from an offline replay that never queued for anything, against a live reviewer's
 execution on its own infrastructure, measured once and unrepeatable.
 
-### 5. Three of the first mutation pass's survivors were test gaps, not ineffective mutations
+### 5. Four defects found in review, three of them the same failure
+
+Fixed after the first push, and worth listing together because three are one shape —
+a value that is absent printing as though it were measured:
+
+- **The unknown size bucket printed `null–null` lines.** An item with no frozen
+  input has an empty line-count series, interpolated straight into the string. It
+  now goes through the same empty-series formatter as every other range and prints
+  `n/a (n=0)`.
+- **An unknown size was bucketed but never LABELLED.** The result could read
+  `COMPLETE` and exit 0 while a size bucket said `(unknown)` — every per-size figure
+  quietly about less than the corpus. It is now a named completeness reason, and
+  therefore a non-zero exit. Derived from the scored rows rather than from what the
+  caller passed, so a caller that built its size map wrongly is caught by the same
+  check as one that could not read an item.
+- **Two dollar figures in one message at different precisions**, which invites a
+  reader to blame the formatting for the gap.
+- **The comment on `replicate_spend_usd` said ~6%** while the field it describes is
+  `spread_over_min` and prints ~11%. Both numbers are real and they have different
+  denominators; the comment now names which.
+
+### 6. Three of the first mutation pass's survivors were test gaps, not ineffective mutations
 
 All three were checked against the "prove the mutation changed behaviour at all"
 rule before writing anything, and all three had genuinely changed behaviour on
@@ -300,9 +321,9 @@ the latency exceptions are real and specific (22 lines slower than 160).
 
 ## Verification
 
-- [x] `agent:tests` — **1770 tests (1715 + 55), 1770 pass, 0 fail, 0 skipped**,
+- [x] `agent:tests` — **1771 tests (1716 + 55), 1771 pass, 0 fail, 0 skipped**,
       against a freshly measured `main` (`c615b8c`) at **1741 (1686 + 55) / 1741 / 0
-      / 0**. **+29.** Two invocations, because the lane runs everything except
+      / 0**. **+30.** Two invocations, because the lane runs everything except
       `eval/run.test.mjs` and then that file alone. Both trees extracted with `git
       archive` and given identical `node_modules`, so 0 skips on both is a
       measurement rather than an environment artefact.
@@ -312,7 +333,7 @@ the latency exceptions are real and specific (22 lines slower than 160).
       the older baseline being carried forward. That merge is also what made two of
       this file's guards duplicates, and why they are now imported.
 - [x] `eslint scripts` exits **0** on the committed tree, at the pinned 9.24.0.
-- [x] **Mutation testing: 36 mutations, 36 caught by the test that names the
+- [x] **Mutation testing: 40 mutations, 40 caught by the test that names the
       behaviour, 0 survivors.** Three survived the first pass; each was checked for
       effectiveness before anything was written, all three had really changed
       behaviour, and all three were fixed by widening a test rather than weakening

@@ -207,7 +207,7 @@ test("run.json's total is checked against the stored envelopes rather than trust
   assert.equal(good.panel.replicates[0].spend.stored_total_agrees, true);
   const r = costLatencyOf(oneRun({ totals: { cost_usd: 40 } }), { sizes: k1Sizes(), corpusVersion: CORPUS, corpusItemIds: K1.map((x) => x.item_id) });
   assert.equal(r.panel.replicates[0].spend.stored_total_agrees, false);
-  assert.match(r.completeness.reasons.join("\n"), /run\.json totals say \$40 and the stored envelopes sum to/);
+  assert.match(r.completeness.reasons.join("\n"), /run\.json totals say \$40\.0000 and the stored envelopes sum to \$32\.9\d{3}/);
 });
 
 // --- the guards --------------------------------------------------------------
@@ -283,8 +283,12 @@ test("size ordering COUNTS the pairs that violate it rather than asserting a tre
   const wall = sizeOrder(K1.map((r) => ({ diff_lines: r.lines, value: r.duration_ms })));
   assert.equal(cost.pairs, 21);
   assert.equal(cost.concordant, 20);
-  // The counterexample the fixture exists for: 22 lines took longer than 160.
-  assert.ok(wall.discordant >= 3, `latency is not monotonic in size — ${wall.discordant} discordant pair(s)`);
+  // The counterexample the fixture exists for: 22 lines took longer than 160. The
+  // fixture is fixed, so the count is asserted EXACTLY — a lower bound passes just
+  // as happily when a change makes latency look less ordered than it is, which is
+  // the direction this number would be misread in.
+  assert.equal(wall.discordant, 3, `latency is not monotonic in size — ${wall.discordant} discordant pair(s)`);
+  assert.equal(wall.concordant, 18);
   assert.ok(wall.tau < cost.tau, "cost tracks size more closely than latency does, and both are reported as counts");
   assert.equal(sizeOrder([]).tau, null, "no pairs means no statistic, never 0");
   // Two items of one size are not evidence either way, and rolling them into
@@ -295,6 +299,14 @@ test("size ordering COUNTS the pairs that violate it rather than asserting a tre
   assert.equal(tie.tied, 1);
   assert.equal(tie.concordant, 2);
   assert.equal(tie.pairs, 3, "every pair is accounted for: concordant + discordant + tied");
+  // A tie is reachable from EITHER side — two items of one size, or two sizes at
+  // one cost — and both must land in the same bucket. Two pull requests that cost
+  // the same say nothing about which is bigger, and calling that agreement would
+  // manufacture order out of a coincidence.
+  const valueTie = sizeOrder([{ diff_lines: 100, value: 5 }, { diff_lines: 200, value: 5 }]);
+  assert.equal(valueTie.tied, 1);
+  assert.equal(valueTie.concordant, 0);
+  assert.equal(valueTie.tau, null, "one pair, and it is tied — no untied pair means no statistic");
 });
 
 // --- the range, not the mean -------------------------------------------------
@@ -321,6 +333,27 @@ test("per item across replicates reports the range over the draws that succeeded
   assert.equal(byId.get("pr-471").replicates, 1, "one usable draw, and the range is over that one");
   assert.deepEqual(byId.get("pr-471").replicates_excluded.map((e) => e.run_id), ["pilot-01__k2"]);
   assert.equal(r.completeness.items_priced_in_every_replicate.includes("pr-471"), false, "an item priced in one leg of two cannot carry a range comparable with the others'");
+});
+
+test("an item with no frozen metadata is bucketed unknown, LABELLED, and prints n/a for its lines", () => {
+  // The CLI records such an item as unsized rather than leaving it out of the map,
+  // so this is the shape the real read path produces.
+  const sizes = k1Sizes();
+  sizes.set("pr-524", { item_id: "pr-524", diff_lines: null, size_bucket: null });
+  const r = costLatencyOf(oneRun(), { sizes, corpusVersion: CORPUS, corpusItemIds: K1.map((x) => x.item_id) });
+  const unknown = r.panel.by_size_bucket.find((b) => b.size_bucket === "(unknown)");
+  assert.deepEqual(unknown.items, ["pr-524"]);
+  assert.equal(unknown.diff_lines.n, 0, "no line count, rather than a zero line count");
+  assert.ok(unknown.cost_usd.n > 0, "its DOLLARS are still counted — the envelope has them, only the size is missing");
+  // Labelled, not merely bucketed: an unknown size makes every per-size figure
+  // about less than the corpus, so it has to reach the verdict and the exit code.
+  assert.match(r.completeness.reasons.join("\n"), /pr-524: size unknown \(no frozen corpus item under this root\)/);
+  assert.equal(r.completeness.verdict, "partial");
+  // And it must not print `null–null`, which reads as a measurement rather than
+  // as an absence.
+  const line = renderReport(r).find((l) => l.includes("(unknown):"));
+  assert.match(line, /n\/a \(n=0\) line\(s\)/);
+  assert.equal(line.includes("null"), false, `the unknown bucket printed a null: ${line}`);
 });
 
 test("size buckets carry their ITEM count beside the observation count", () => {
