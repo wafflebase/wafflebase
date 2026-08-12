@@ -285,10 +285,50 @@ export function replayDidRun(observations) {
  * already refuses anything a verifier did not confirm.
  */
 export function uiScopedTitle(claimed, verdicts) {
-  const scoped = (Array.isArray(verdicts) ? verdicts : [])
-    .map((v) => (typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : ""))
-    .filter((t) => t.length > 0);
+  const scoped = uiScopedTitles(verdicts);
   return scoped[0] ?? claimed?.title ?? "(untitled)";
+}
+
+/**
+ * EVERY distinct scoped title, in verifier order.
+ *
+ * `uiScopedTitle` returns the first and the report headlines it. That headline is the
+ * one line a maintainer reads before deciding whether to open a defect, and taking it
+ * from `scoped[0]` silently discarded what the other verifier wrote — including, on
+ * the run that motivated this, the version without a false claim in it.
+ *
+ * Both verifiers confirmed the same real defect at high confidence, and scoped it
+ * differently:
+ *
+ *   A  `setBlockType` omits `notifyStyleApplied()`, so the Text style control keeps
+ *      showing the previous style until a caret move or another style action
+ *   B  ...the same, plus "the ⌘⌥N shortcut path is unaffected"
+ *
+ * B is what got headlined, and B's exclusion is FALSE — the shortcut path goes through
+ * `text-editor.ts` and does not notify either, so both entry points are equally stale.
+ * Filed as written it would have sent a maintainer looking for a difference between
+ * two paths that behave identically. A was correct, present, and thrown away.
+ *
+ * Nothing mechanical can tell which of two plausible sentences is true. What is
+ * mechanical is refusing to pick one and hide the other, which is the same lesson as
+ * the collapsed duplicate (#748) and the split panel (#785): a silent choice between
+ * two things a human would want to compare is how this pipeline loses information.
+ */
+export function uiScopedTitles(verdicts) {
+  const seen = new Set();
+  const out = [];
+  for (const v of Array.isArray(verdicts) ? verdicts : []) {
+    const t = typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : "";
+    if (t === "" || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Did the verifiers scope the same finding differently? Then a human must choose. */
+export function uiScopedTitleDisagreement(verdicts) {
+  return uiScopedTitles(verdicts).length > 1;
 }
 
 /** Did any verifier judge the explorer's own title broader than its evidence? */
@@ -557,6 +597,19 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "PRECONDITION that makes it fire if there is one. Prefer the mechanism over the",
     "symptom when you have found it — a title naming the wrong cause is as costly as",
     "one naming the wrong scope.",
+    "",
+    "AN EXCLUSION IS A CLAIM, AND IT NEEDS THE SAME EVIDENCE. \"...but the keyboard",
+    "shortcut is unaffected\", \"...only in tables\", \"...rendering is fine\" — each of",
+    "those asserts something about code you may not have read. Measured: a verifier",
+    "correctly narrowed a real defect and appended \"the ⌘⌥N shortcut path is",
+    "unaffected\". It was false — that path calls the store directly and does not notify",
+    "either, so both entry points were equally broken. Its colleague wrote the same",
+    "finding WITHOUT the exclusion and was right. Narrowing introduced an error that",
+    "the original, broader title did not contain.",
+    "",
+    "So: state an exclusion only when you went and looked, and cite it in `groundedIn`",
+    "like anything else. If you did not check the other path, say nothing about it —",
+    "a title that is silent on a question is narrower than one that answers it wrongly.",
     "",
     "Set `overclaimed: true` when the hunter's title asserts more than its evidence.",
     "That does NOT refute the finding — a real defect described loosely is still real,",
@@ -849,6 +902,19 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
         // filed issue back to its run needs to see the original.
         ...(c.scopedTitle && c.scopedTitle !== k.title
           ? [`> The hunter proposed this as **"${k.title}"** — narrowed by the verifiers to the heading above.`, ""]
+          : []),
+        // The OTHER verifier's scoping, when it wrote a different one. The heading is
+        // one verifier's prose and nothing verifies it; the alternative is the only
+        // cheap check available, and it is the check that catches an exclusion one
+        // verifier asserted and the other did not. DO NOT collapse this to "they
+        // agreed" — that is the assumption that put a false claim in a headline.
+        ...(Array.isArray(c.scopedTitles) && c.scopedTitles.length > 1
+          ? [
+              "> **The verifiers scoped this differently. Reconcile before filing —**",
+              "> the heading above is one of them, not a consensus:",
+              ...c.scopedTitles.map((t, i) => `> ${i + 1}. ${t}`),
+              "",
+            ]
           : []),
         `- **persona:** ${c.personaId} / ${c.briefId} (surface \`${c.surface}\`)`,
         `- **oracle:** ${k.oracle}`,
@@ -1146,6 +1212,9 @@ async function cmdRun(args) {
       (stats.ungroundedRefutation > 0
         ? `         ${stats.ungroundedRefutation} refutation(s) fell short of the confirmation standard\n`
         : "") +
+      (stats.scopedTitleDisagreement > 0
+        ? `         ${stats.scopedTitleDisagreement} reported finding(s) the verifiers scoped DIFFERENTLY — reconcile before filing\n`
+        : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -1198,6 +1267,9 @@ export async function runHunt({
     splitPanel: 0,
     // Refutations that would not have cleared the bar their own confirmation had to.
     ungroundedRefutation: 0,
+    // Reported findings whose verifiers wrote DIFFERENT scoped titles. The headline is
+    // one of them; a human has to reconcile before filing.
+    scopedTitleDisagreement: 0,
     // A candidate no verifier could finish judging. Distinct from every other drop
     // because it is pure WASTE, twice over: the truncated session is paid for and
     // produces nothing, and the candidate is deliberately not ledgered so the next
@@ -1472,8 +1544,10 @@ export async function runHunt({
         record.planPath = path.relative(repo, planPath);
         record.groundedIn = uiCitationsOf(record.claimed, verdicts);
         record.scopedTitle = uiScopedTitle(record.claimed, verdicts);
+        record.scopedTitles = uiScopedTitles(verdicts);
         record.overclaimed = uiOverclaimed(verdicts);
         if (record.overclaimed) stats.overclaimed++;
+        if (uiScopedTitleDisagreement(verdicts)) stats.scopedTitleDisagreement++;
         reported.push(record);
         stats.reported++;
         ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "reported", runId, sha: headSha });
