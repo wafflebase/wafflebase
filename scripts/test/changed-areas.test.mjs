@@ -235,6 +235,18 @@ test("resolve fail-safes", async (t) => {
     const out = resolve({ WAFFLEBASE_CHANGED_AREAS: "{not json" }, REPO_ROOT);
     assert.equal(out.full, true);
   });
+
+  await t.test("an EMPTY precomputed resolution falls through, not to {}", () => {
+    // ci.yml's whole fail-safe rests on this. If the `changes` job crashes it
+    // produces no `areas` output, so the env var arrives as an empty string —
+    // and `verify-self` runs anyway (`if: !cancelled()`). Parsing "" as an
+    // object would yield `{ full: undefined }`, which `selectLaneNames` reads as
+    // "not full" and would select ZERO lanes: a green run that tested nothing.
+    // It must instead be ignored so resolution continues and fails safe.
+    const out = resolve({ WAFFLEBASE_CHANGED_AREAS: "" }, REPO_ROOT);
+    assert.equal(out.full, true);
+    assert.notEqual(out.reasons?.length, 0, "a full run must say why");
+  });
 });
 
 test("laneSelected", async (t) => {

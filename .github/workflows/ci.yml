@@ -127,6 +127,18 @@ jobs:
 
   verify-self:
     needs: changes
+    # `!cancelled()` and not the default, because the default is the dangerous
+    # one. Without an `if:`, a job whose `needs` FAILED is skipped — and GitHub
+    # counts a skipped required check as passing, so a crash in the `changes` job
+    # above (a checkout failure, a bad node install, anything) would silently skip
+    # this entire suite and leave the PR mergeable with nothing verified.
+    #
+    # Running anyway is safe because it degrades to a FULL run rather than an
+    # unfiltered guess: a failed `changes` job produces an empty `areas` output,
+    # so `WAFFLEBASE_CHANGED_AREAS` is empty, `resolve()` falls through to
+    # computing it here, and the depth-1 checkout below makes `git diff` fail —
+    # which the resolver treats as "run everything".
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # A ceiling on a hang, not a performance budget. Without it this job inherits
     # GitHub's 360-minute default. On 2026-08-06 a regression stalled the
@@ -176,19 +188,19 @@ jobs:
       # meaningful when a workspace package changed, and that is exactly what
       # `heavy` means.
       - name: Collect coverage (sheets)
-        if: needs.changes.outputs.heavy == 'true'
+        if: needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/sheets exec vitest run --coverage
 
       - name: Collect coverage (cli)
-        if: needs.changes.outputs.heavy == 'true'
+        if: needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/cli exec vitest run --coverage
 
       - name: Collect coverage (docs)
-        if: needs.changes.outputs.heavy == 'true'
+        if: needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/docs exec vitest run --coverage
 
       - name: Collect coverage (backend)
-        if: needs.changes.outputs.heavy == 'true'
+        if: needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/backend test:cov
         continue-on-error: true
 
@@ -206,7 +218,9 @@ jobs:
         # Also not when the coverage steps above were gated out — there would be
         # no lcov files to upload, and Codecov reports a partial run as a coverage
         # drop rather than as an absence.
-        if: github.event_name != 'merge_group' && needs.changes.outputs.heavy == 'true'
+        if: >-
+          github.event_name != 'merge_group' &&
+          (needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true')
         uses: codecov/codecov-action@v4
         with:
           files: >-
@@ -398,9 +412,16 @@ jobs:
     # and no rebase. It cannot work on `merge_group`, whose payload carries no PR
     # labels — the same limitation `agent-iterate-ci.yml` resolves by looking the
     # PR up, which is not worth a job here.
+    #
+    # `needs.changes.result != 'success'` comes FIRST and is a fail-safe, not a
+    # formality: if that job crashed there is no `heavy` output, the comparison
+    # would be `'' == 'true'`, and this job would SKIP — turning a resolver crash
+    # into "these tests were not required after all". A broken filter must always
+    # mean more testing, never less.
     if: >-
       needs.verify-self.result == 'success' &&
-      (needs.changes.outputs.heavy == 'true' ||
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.heavy == 'true' ||
        contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # Same reasoning as verify-self, same sample: max 9.3 min, p95 7.6, median
     # 6.5 across those 188 successful runs, so 20 min is ~2.2x the worst observed.
@@ -460,9 +481,16 @@ jobs:
     # change to an engine package with no backend file in it can absolutely break
     # it. Narrowing this to the closure is a later step, taken against observed
     # behaviour rather than against this reasoning.
+    #
+    # `needs.changes.result != 'success'` comes FIRST and is a fail-safe, not a
+    # formality: if that job crashed there is no `heavy` output, the comparison
+    # would be `'' == 'true'`, and this job would SKIP — turning a resolver crash
+    # into "these tests were not required after all". A broken filter must always
+    # mean more testing, never less.
     if: >-
       needs.verify-self.result == 'success' &&
-      (needs.changes.outputs.heavy == 'true' ||
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.heavy == 'true' ||
        contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # 10 rather than 20: this job is genuinely shorter — max 4.4 min, p99 3.6,
     # median 2.8 over the same 188 successful runs — and a ceiling that could
