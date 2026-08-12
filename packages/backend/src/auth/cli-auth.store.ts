@@ -5,6 +5,12 @@ interface StateEntry {
   csrf: string;
   mode: string;
   port: number;
+  /**
+   * Nonce the CLI minted for this login. Echoed back to its localhost
+   * callback as `state` so the CLI can tell its own flow's code from one an
+   * attacker pushed at the guessable callback port (RFC 8252 §8.9).
+   */
+  nonce?: string;
   expiresAt: number;
 }
 
@@ -21,6 +27,7 @@ export class CliAuthStore {
   createState(
     mode: string,
     port: number,
+    nonce?: string,
   ): { stateToken: string; csrf: string } {
     const csrf = randomBytes(32).toString('base64url');
     const stateToken = randomBytes(32).toString('base64url');
@@ -28,6 +35,7 @@ export class CliAuthStore {
       csrf,
       mode,
       port,
+      nonce,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
     this.cleanup();
@@ -36,14 +44,21 @@ export class CliAuthStore {
 
   consumeState(
     stateToken: string,
-  ): { csrf: string; mode: string; port: number } | undefined {
+  ):
+    | { csrf: string; mode: string; port: number; nonce?: string }
+    | undefined {
     const entry = this.states.get(stateToken);
     if (!entry || entry.expiresAt < Date.now()) {
       this.states.delete(stateToken);
       return undefined;
     }
     this.states.delete(stateToken);
-    return { csrf: entry.csrf, mode: entry.mode, port: entry.port };
+    return {
+      csrf: entry.csrf,
+      mode: entry.mode,
+      port: entry.port,
+      nonce: entry.nonce,
+    };
   }
 
   createCode(userId: number): string {

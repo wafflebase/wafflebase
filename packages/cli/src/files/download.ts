@@ -5,6 +5,7 @@ import {
   type BinaryIO,
 } from '../output/binary.js';
 import type { BinaryResponse } from '../client/http-client.js';
+import { backendErrorEnvelope } from '../output/formatter.js';
 
 /**
  * Where the bytes go: the caller's path when given, otherwise the filename the
@@ -37,6 +38,12 @@ export interface RunFilesDownloadArgs {
   out?: string;
   force?: boolean;
   quiet?: boolean;
+  /**
+   * Dotted name of the command driving this run (`files.download`), stamped
+   * into the error envelope so an agent running several calls can tell which
+   * one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunFilesDownloadResult {
@@ -49,12 +56,16 @@ export async function runFilesDownload(
   client: FilesDownloadClient,
   io: BinaryIO = defaultBinaryIO,
 ): Promise<RunFilesDownloadResult> {
-  const { docId, out, force = false, quiet = false } = args;
+  const { docId, out, force = false, quiet = false, command } = args;
 
   const res = await client.downloadFileDocument(docId);
   if (!res.ok || !res.bytes) {
     io.stderr(
-      JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
+      backendErrorEnvelope(
+        res.data,
+        { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
+        command,
+      ),
     );
     return { exitCode: 1 };
   }

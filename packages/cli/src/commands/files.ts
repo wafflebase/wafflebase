@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import { commandPath, output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
@@ -36,6 +36,7 @@ export function registerFilesCommand(program: Command) {
             folder: local.folder,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );
@@ -60,7 +61,13 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const result = await runFilesDownload(
-          { docId, out, force: local.force, quiet: opts.quiet },
+          {
+            docId,
+            out,
+            force: local.force,
+            quiet: opts.quiet,
+            command: commandPath(this),
+          },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;

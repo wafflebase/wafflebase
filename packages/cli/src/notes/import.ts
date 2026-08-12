@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { backendErrorEnvelope, errorEnvelope } from '../output/formatter.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -85,6 +86,12 @@ export interface RunNotesImportArgs {
   quiet?: boolean;
   /** Print the request that *would* fire instead of issuing it. */
   dryRun?: boolean;
+  /**
+   * Dotted name of the command driving this run (`notes.import`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunNotesImportResult {
@@ -105,7 +112,14 @@ export async function runNotesImport(
   client: NotesImportClient,
   io: NotesImportIO = defaultNotesImportIO,
 ): Promise<RunNotesImportResult> {
-  const { file, replace, yes = false, quiet = false, dryRun = false } = args;
+  const {
+    file,
+    replace,
+    yes = false,
+    quiet = false,
+    dryRun = false,
+    command,
+  } = args;
 
   const inferredTitle = args.title ?? defaultTitleFor(file);
 
@@ -117,15 +131,10 @@ export async function runNotesImport(
     if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
-          JSON.stringify(
-            {
-              error: {
-                code: 'CONFIRMATION_REQ',
-                message: `Pass --yes to confirm replacing note "${replace}".`,
-              },
-            },
-            null,
-            2,
+          errorEnvelope(
+            'CONFIRMATION_REQ',
+            `Pass --yes to confirm replacing note "${replace}".`,
+            command,
           ),
         );
         return { exitCode: 1 };
@@ -156,7 +165,11 @@ export async function runNotesImport(
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
       io.stderr(
-        JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
+        backendErrorEnvelope(
+          res.data,
+          { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
+          command,
+        ),
       );
       return { exitCode: 1 };
     }
@@ -185,23 +198,18 @@ export async function runNotesImport(
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
     io.stderr(
-      JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
+      backendErrorEnvelope(
+        created.data,
+        { code: 'HTTP_ERROR', message: `HTTP ${created.status}` },
+        command,
+      ),
     );
     return { exitCode: 1 };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
-      JSON.stringify(
-        {
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'Server did not return an id',
-          },
-        },
-        null,
-        2,
-      ),
+      errorEnvelope('INVALID_RESPONSE', 'Server did not return an id', command),
     );
     return { exitCode: 1 };
   }
@@ -209,7 +217,11 @@ export async function runNotesImport(
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
     io.stderr(
-      JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
+      backendErrorEnvelope(
+        put.data,
+        { code: 'HTTP_ERROR', message: `HTTP ${put.status}` },
+        command,
+      ),
     );
     return { exitCode: 1 };
   }

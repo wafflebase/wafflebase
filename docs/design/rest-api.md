@@ -331,15 +331,18 @@ The CLI uses three endpoints in addition to the standard
 GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
-- **`GET /auth/github?mode=cli&port=<port>`** — extends the existing
-  endpoint to carry CLI parameters through OAuth `state`. The backend
-  generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`.
+- **`GET /auth/github?mode=cli&port=<port>&nonce=<nonce>`** — extends the
+  existing endpoint to carry CLI parameters through OAuth `state`. The
+  backend generates a CSRF token (random 32 bytes, TTL 5 minutes,
+  in-memory map) and embeds it in the encoded `state`. The CLI's own
+  `nonce` (≤128 chars, optional) is stored beside it.
 - **`GET /auth/github/callback`** — when the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
-  `http://127.0.0.1:<port>/callback?code=<auth-code>`. `port` must be
-  `1024–65535`; the redirect host is always `127.0.0.1` (hard-coded).
+  `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<nonce>`.
+  `port` must be `1024–65535`; the redirect host is always `127.0.0.1`
+  (hard-coded). Echoing the nonce is what lets the CLI reject a code it
+  did not ask for at its guessable callback port.
 - **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
   validates TTL, deletes it (single-use), and returns
   `{ accessToken, refreshToken }`. No authentication required (the code

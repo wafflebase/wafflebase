@@ -3,6 +3,10 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
 import { importDocx, InvalidDocxError } from './docx-import.js';
+import {
+  backendErrorEnvelope,
+  errorEnvelope,
+} from '../output/formatter.js';
 
 /**
  * Minimal HTTP surface `runDocsImport` needs from the CLI's
@@ -89,6 +93,13 @@ export interface RunImportArgs {
   quiet?: boolean;
   /** Print the request that *would* fire instead of issuing it. */
   dryRun?: boolean;
+  /**
+   * Dotted name of the command driving this run (`docs.import`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`; omitted in
+   * unit tests, where the envelope simply carries no `command`.
+   */
+  command?: string;
 }
 
 export interface RunImportResult {
@@ -112,7 +123,15 @@ export async function runDocsImport(
   client: ImportClient,
   io: ImportIO = defaultImportIO,
 ): Promise<RunImportResult> {
-  const { file, replace, yes = false, imageUploader, quiet = false, dryRun = false } = args;
+  const {
+    file,
+    replace,
+    yes = false,
+    imageUploader,
+    quiet = false,
+    dryRun = false,
+    command,
+  } = args;
 
   const inferredTitle = args.title ?? defaultTitleFor(file);
 
@@ -124,15 +143,10 @@ export async function runDocsImport(
     if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
-          JSON.stringify(
-            {
-              error: {
-                code: 'CONFIRMATION_REQ',
-                message: `Pass --yes to confirm replacing document "${replace}".`,
-              },
-            },
-            null,
-            2,
+          errorEnvelope(
+            'CONFIRMATION_REQ',
+            `Pass --yes to confirm replacing document "${replace}".`,
+            command,
           ),
         );
         return { exitCode: 1 };
@@ -146,7 +160,7 @@ export async function runDocsImport(
       }
     }
     const buf = await io.readBytes(file);
-    const parsed = await safeImportDocx(buf, imageUploader, io);
+    const parsed = await safeImportDocx(buf, imageUploader, io, command);
     if (parsed === null) return { exitCode: 1 };
     const doc = parsed;
     if (dryRun) {
@@ -161,7 +175,13 @@ export async function runDocsImport(
     }
     const res = await client.putDocContent(replace, doc);
     if (!res.ok) {
-      io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+      io.stderr(
+        backendErrorEnvelope(
+          res.data,
+          { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
+          command,
+        ),
+      );
       return { exitCode: 1 };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
@@ -170,7 +190,7 @@ export async function runDocsImport(
 
   // Default flow: POST + PUT.
   const buf = await io.readBytes(file);
-  const parsedNew = await safeImportDocx(buf, imageUploader, io);
+  const parsedNew = await safeImportDocx(buf, imageUploader, io, command);
   if (parsedNew === null) return { exitCode: 1 };
   const doc = parsedNew;
   if (dryRun) {
@@ -191,16 +211,22 @@ export async function runDocsImport(
 
   const created = await client.createDocument(inferredTitle, 'doc');
   if (!created.ok) {
-    io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(
+      backendErrorEnvelope(
+        created.data,
+        { code: 'HTTP_ERROR', message: `HTTP ${created.status}` },
+        command,
+      ),
+    );
     return { exitCode: 1 };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
-      JSON.stringify(
-        { error: { code: 'INVALID_RESPONSE', message: 'Server did not return an id' } },
-        null,
-        2,
+      errorEnvelope(
+        'INVALID_RESPONSE',
+        'Server did not return an id',
+        command,
       ),
     );
     return { exitCode: 1 };
@@ -208,7 +234,13 @@ export async function runDocsImport(
 
   const put = await client.putDocContent(newId, doc);
   if (!put.ok) {
-    io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(
+      backendErrorEnvelope(
+        put.data,
+        { code: 'HTTP_ERROR', message: `HTTP ${put.status}` },
+        command,
+      ),
+    );
     return { exitCode: 1 };
   }
 
@@ -235,18 +267,13 @@ async function safeImportDocx(
   buf: Uint8Array,
   imageUploader: ImageUploader | undefined,
   io: ImportIO,
+  command?: string,
 ): Promise<Document | null> {
   try {
     return await importDocx(buf, { imageUploader });
   } catch (e) {
     if (e instanceof InvalidDocxError) {
-      io.stderr(
-        JSON.stringify(
-          { error: { code: e.code, message: e.message } },
-          null,
-          2,
-        ),
-      );
+      io.stderr(errorEnvelope(e.code, e.message, command));
       return null;
     }
     throw e;

@@ -1,7 +1,12 @@
 import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  backendErrorEnvelope,
+  commandPath,
+  output,
+  outputError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runSlidesImport } from '../slides/import.js';
 import {
@@ -149,9 +154,17 @@ export function registerSlidesCommand(program: Command) {
             | { error?: { code?: string; message?: string } }
             | null;
           if (body?.error) {
-            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field.
-            console.error(JSON.stringify(body, null, 2));
+            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) so agents
+            // reading stderr can act on the `code` field — re-emitted through
+            // the shared envelope so this path is one line with `command`
+            // like every other error (docs/design/cli.md §9).
+            console.error(
+              backendErrorEnvelope(
+                body,
+                { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
+                commandPath(this),
+              ),
+            );
             process.exitCode = 1;
             return;
           }
@@ -201,7 +214,17 @@ export function registerSlidesCommand(program: Command) {
         const res = await getClient(opts).getSlidesContent(docId);
         if (!res.ok) {
           const body = res.data as { error?: { code?: string } } | null;
-          if (body?.error) { console.error(JSON.stringify(body, null, 2)); process.exitCode = 1; return; }
+          if (body?.error) {
+            console.error(
+              backendErrorEnvelope(
+                body,
+                { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
+                commandPath(this),
+              ),
+            );
+            process.exitCode = 1;
+            return;
+          }
           throw new Error(`HTTP ${res.status}`);
         }
         const imageFetcher = createImageFetcher({ serverBase: getConfig(opts).server });
@@ -236,6 +259,7 @@ export function registerSlidesImportCommand(slides: Command) {
             yes: local.yes,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );

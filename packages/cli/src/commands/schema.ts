@@ -1,6 +1,11 @@
 import { Command } from 'commander';
 import { getGlobalOpts } from './root.js';
-import { output, type OutputFormat } from '../output/formatter.js';
+import {
+  commandPath,
+  errorEnvelope,
+  output,
+  type OutputFormat,
+} from '../output/formatter.js';
 import {
   getCommandSchema,
   getAllCommandSchemas,
@@ -29,11 +34,14 @@ export function registerSchemaCommand(program: Command) {
       if (commandName) {
         const schema = getCommandSchema(commandName);
         if (!schema) {
+          // Not thrown through `outputError`: an unknown name is a lookup
+          // miss, not an exception. It still has to leave stderr in the
+          // documented one-line, attributed shape.
           console.error(
-            JSON.stringify(
-              { error: { code: 'NOT_FOUND', message: `Unknown command: ${commandName}` } },
-              null,
-              2,
+            errorEnvelope(
+              'NOT_FOUND',
+              `Unknown command: ${commandName}`,
+              commandPath(this),
             ),
           );
           process.exitCode = 1;

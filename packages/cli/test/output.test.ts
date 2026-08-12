@@ -5,7 +5,9 @@ import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { formatYaml } from '../src/output/yaml.js';
 import {
+  backendErrorEnvelope,
   commandPath,
+  errorEnvelope,
   format,
   output,
   outputError,
@@ -16,6 +18,7 @@ import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
+import { registerSchemaCommand } from '../src/commands/schema.js';
 
 describe('formatJson', () => {
   it('pretty-prints JSON', () => {
@@ -194,11 +197,93 @@ describe('outputError', () => {
     expect(getEmittedBody().error.command).toBe('sheets.cells.get');
   });
 
-  it('reports the canonical name when the command was reached by alias', () => {
+  // Reaching the command *through* the alias is the point: commander hands
+  // the action the same `Command` object either way, so a test that calls
+  // `outputError` with the canonical object asserts nothing about aliases.
+  // This one parses `doc content` — the alias — and reads what the action
+  // actually emitted.
+  it('reports the canonical name when the command was reached by alias', async () => {
     const program = createProgram();
-    const docs = program.command('docs').alias('doc');
-    outputError(new Error('boom'), docs.command('content'));
+    program
+      .command('docs')
+      .alias('doc')
+      .command('content')
+      .action(function (this: Command) {
+        outputError(new Error('boom'), this);
+      });
+
+    await program.parseAsync(['node', 'wafflebase', 'doc', 'content']);
+
     expect(getEmittedBody().error.command).toBe('docs.content');
+  });
+});
+
+// #661 follow-up: `outputError` is not the only emitter. The import /
+// upload / download orchestrators own their own IO seam and exit code, and
+// `schema` reports a miss without throwing — they all have to produce the
+// same one-line, attributed envelope, so they share these builders.
+describe('errorEnvelope / backendErrorEnvelope', () => {
+  it('emits one line carrying the command', () => {
+    const line = errorEnvelope('CONFIRMATION_REQ', 'Pass --yes.', 'docs.import');
+    expect(line).not.toContain('\n');
+    expect(JSON.parse(line)).toEqual({
+      error: {
+        code: 'CONFIRMATION_REQ',
+        message: 'Pass --yes.',
+        command: 'docs.import',
+      },
+    });
+  });
+
+  it('omits `command` when the caller has none', () => {
+    expect(JSON.parse(errorEnvelope('ERROR', 'boom')).error).not.toHaveProperty(
+      'command',
+    );
+  });
+
+  it('keeps a backend `code` and extra context so agents can branch on it', () => {
+    const line = backendErrorEnvelope(
+      { error: { code: 'TYPE_MISMATCH', message: 'not a doc', type: 'sheet' } },
+      { code: 'HTTP_ERROR', message: 'HTTP 400' },
+      'docs.content',
+    );
+    expect(line).not.toContain('\n');
+    expect(JSON.parse(line)).toEqual({
+      error: {
+        code: 'TYPE_MISMATCH',
+        message: 'not a doc',
+        type: 'sheet',
+        command: 'docs.content',
+      },
+    });
+  });
+
+  it('falls back to the caller code/message for a bodyless failure', () => {
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(null, { code: 'HTTP_ERROR', message: 'HTTP 500' }),
+      ),
+    ).toEqual({ error: { code: 'HTTP_ERROR', message: 'HTTP 500' } });
+  });
+
+  // Attribution is the CLI's own statement about which command it ran. A
+  // server that echoes a `command` must not be able to relabel the failure.
+  it('never lets the server dictate `command`', () => {
+    const forged = { error: { code: 'X', message: 'y', command: 'sheets.wipe' } };
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(
+          forged,
+          { code: 'HTTP_ERROR', message: 'HTTP 400' },
+          'docs.content',
+        ),
+      ).error.command,
+    ).toBe('docs.content');
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(forged, { code: 'HTTP_ERROR', message: 'HTTP 400' }),
+      ).error,
+    ).not.toHaveProperty('command');
   });
 });
 
@@ -371,6 +456,95 @@ describe('--quiet does not suppress the body or the error envelope', () => {
       error: { code: string; message: string };
     };
     expect(body.error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+// End-to-end guards for the emitters that never reach `outputError`: the
+// backend-error passthrough (`docs content` on a non-doc) and `schema`'s
+// lookup miss. Both used to print pretty-printed, unattributed JSON, which
+// broke a line-delimited stderr reader (#661).
+describe('error envelopes emitted outside `outputError`', () => {
+  const ENV_KEYS = [
+    'WAFFLEBASE_CONFIG',
+    'WAFFLEBASE_API_KEY',
+    'WAFFLEBASE_SERVER',
+    'WAFFLEBASE_WORKSPACE',
+  ] as const;
+
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let savedEnv: Record<string, string | undefined>;
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    process.env.WAFFLEBASE_CONFIG = '/nonexistent/wafflebase-test.yaml';
+    process.env.WAFFLEBASE_API_KEY = 'wfb_test';
+    process.env.WAFFLEBASE_SERVER = 'https://api.test';
+    process.env.WAFFLEBASE_WORKSPACE = 'ws-1';
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      /* swallow */
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {
+      /* swallow */
+    });
+    process.exitCode = 0;
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    process.exitCode = originalExitCode;
+  });
+
+  function emitted(): { code: string; message: string; command?: string } {
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const raw = String(stderrSpy.mock.calls[0]?.[0]);
+    expect(raw).not.toContain('\n');
+    return (
+      JSON.parse(raw) as {
+        error: { code: string; message: string; command?: string };
+      }
+    ).error;
+  }
+
+  it('re-emits a backend-shaped error as one attributed line', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: { code: 'TYPE_MISMATCH', message: 'Not a doc document' },
+        }),
+      }),
+    );
+    const program = createProgram();
+    registerDocsCommand(program);
+    await program.parseAsync(['node', 'wafflebase', 'docs', 'content', 'd-1']);
+
+    expect(emitted()).toEqual({
+      code: 'TYPE_MISMATCH',
+      message: 'Not a doc document',
+      command: 'docs.content',
+    });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('envelopes an unknown `schema` name', async () => {
+    const program = createProgram();
+    registerSchemaCommand(program);
+    await program.parseAsync(['node', 'wafflebase', 'schema', 'bogus.thing']);
+
+    expect(emitted()).toEqual({
+      code: 'NOT_FOUND',
+      message: 'Unknown command: bogus.thing',
+      command: 'schema',
+    });
     expect(process.exitCode).toBe(1);
   });
 });

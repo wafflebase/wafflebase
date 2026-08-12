@@ -64,6 +64,56 @@ export function commandPath(cmd: Command): string {
 }
 
 /**
+ * Render the error envelope as the single line that goes on stderr.
+ *
+ * Exported because `outputError` is not the only emitter: the import /
+ * upload / download orchestrators own their own IO seam and exit code, and
+ * `schema` reports an unknown command without throwing. They all have to
+ * produce the same one-line, `command`-attributed shape (docs/design/cli.md
+ * §9), so the shape is defined once here rather than hand-rolled per file.
+ */
+export function errorEnvelope(
+  code: string,
+  message: string,
+  command?: string,
+): string {
+  return JSON.stringify({
+    error: { code, message, ...(command ? { command } : {}) },
+  });
+}
+
+/**
+ * The same envelope, built from a backend error body.
+ *
+ * The upstream `error` object's own fields are preserved — agents branch on
+ * `code`, and endpoints attach extra context alongside it — but never its
+ * `command`: attribution is the CLI's statement about which command *it*
+ * ran, so a server cannot forge it. Anything that is not a backend-shaped
+ * `{ error: { … } }` body falls back to the caller's code/message.
+ */
+export function backendErrorEnvelope(
+  data: unknown,
+  fallback: { code: string; message: string },
+  command?: string,
+): string {
+  const raw = (data as { error?: unknown } | null | undefined)?.error;
+  const fields: Record<string, unknown> =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  delete fields.command;
+  const code =
+    typeof fields.code === 'string' && fields.code ? fields.code : fallback.code;
+  const message =
+    typeof fields.message === 'string' && fields.message
+      ? fields.message
+      : fallback.message;
+  return JSON.stringify({
+    error: { ...fields, code, message, ...(command ? { command } : {}) },
+  });
+}
+
+/**
  * Emit the error envelope on stderr and mark the process as failed.
  *
  * A single line, not pretty-printed JSON (docs/design/cli.md §9): one line
@@ -80,14 +130,6 @@ export function commandPath(cmd: Command): string {
 export function outputError(error: unknown, command?: Command) {
   const message = error instanceof Error ? error.message : String(error);
   const name = command ? commandPath(command) : '';
-  console.error(
-    JSON.stringify({
-      error: {
-        code: errorCode(error),
-        message,
-        ...(name ? { command: name } : {}),
-      },
-    }),
-  );
+  console.error(errorEnvelope(errorCode(error), message, name));
   process.exitCode = 1;
 }

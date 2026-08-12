@@ -172,12 +172,13 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
+  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
-  │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
+  │     redirects to http://127.0.0.1:<port>/callback
+  │       ?code=<short-lived-code>&state=<nonce>
   ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
   │     with { code } → receives { accessToken, refreshToken }
   ├─ 8. CLI local server serves success HTML, shuts down
@@ -191,6 +192,17 @@ The local server binds to `127.0.0.1` only, accepts only `GET
 /callback`, and shuts down after a single request with a 30-second
 timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
+
+The `nonce` is what binds a callback to the flow that started it. The
+callback port is on loopback but guessable, and any page in the user's
+browser can navigate to it; without the binding the CLI would redeem the
+first `code` that arrived, so an attacker could log the terminal into
+*their* account (RFC 8252 §8.9). The CLI mints 32 random bytes per login,
+the backend stores them alongside the OAuth state and echoes them back as
+`state`, and a callback whose `state` does not match (constant-time
+compare) is answered `400` and ignored — the listener stays open for the
+genuine one. The nonce never leaves the user's machine and the backend
+except through their own browser, and is never persisted.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -1020,6 +1032,14 @@ is the agent interface. This approach has key advantages:
   either stream leaves the caller with nothing to act on. Only progress
   notices are display output; the envelope is the machine-readable
   failure signal, and stderr already survives stdout redirection.
+  Every emitter builds it through `errorEnvelope` / `backendErrorEnvelope`
+  in `src/output/formatter.ts` (`outputError` included), so "one line,
+  attributed" holds on the paths that never throw either: the
+  import/upload/download orchestrators, the backend-error passthroughs on
+  `docs`/`notes`/`slides` content and export, and `schema`'s lookup miss.
+  A backend error body keeps its `code` and any extra context — agents
+  branch on it — but never its `command`: attribution is the CLI's
+  statement about which command *it* ran, so a server cannot forge it.
 
 ### 10. Error Matrix
 
