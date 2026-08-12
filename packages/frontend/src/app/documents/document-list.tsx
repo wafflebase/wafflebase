@@ -93,6 +93,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { useDateFormat } from "@/lib/date-format-preference";
 import type { Document, DocumentType, Folder } from "@/types/documents";
 import {
   allManageable,
@@ -105,7 +106,8 @@ import { FolderBreadcrumb } from "./folder-breadcrumb";
 import { folderPath } from "./folder-path";
 import {
   compareDates,
-  formatRelativeTime,
+  formatFullDateTime,
+  formatListDate,
   getDocumentPath,
   isBlobBacked,
   lastModified,
@@ -230,8 +232,24 @@ function SortableHeader<TData>({
 }
 
 /**
- * A right-aligned, time-based sortable column rendering a relative timestamp
- * (e.g. "3 days ago"). Used by the Modified column.
+ * A date cell's visible text: relative ("3 days ago") or an exact locale date
+ * ("Jul 25"), per the user's Settings preference. The full localized date and
+ * time is always the tooltip, so the exact timestamp stays reachable in either
+ * format — and a missing or unparseable value renders an em dash in both.
+ */
+function DateCell({ value }: { value: string | undefined }) {
+  const format = useDateFormat();
+  return (
+    <div className="text-right font-medium" title={formatFullDateTime(value)}>
+      {formatListDate(value, format)}
+    </div>
+  );
+}
+
+/**
+ * A right-aligned, time-based sortable column. Used by the Modified and
+ * Created columns. Sorting compares the raw accessor values, so the order is
+ * independent of how the cell chooses to display them.
  */
 function dateColumn(
   id: string,
@@ -248,11 +266,7 @@ function dateColumn(
     ),
     sortingFn: (a, b, colId) =>
       compareDates(a.getValue<string>(colId), b.getValue<string>(colId)),
-    cell: ({ row }) => (
-      <div className="text-right font-medium">
-        {formatRelativeTime(row.getValue<string>(id))}
-      </div>
-    ),
+    cell: ({ row }) => <DateCell value={row.getValue<string>(id)} />,
   };
 }
 
