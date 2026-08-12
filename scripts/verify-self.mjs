@@ -153,6 +153,21 @@ const LANES = [
     name: "agent:tests",
     cmd: "cd scripts/agent && node --test-timeout=60000 --test $(find . -type d -name node_modules -prune -o -name '*.test.mjs' ! -path './eval/run.test.mjs' -print | cut -c3- | sort) ; rest=$? ; node --test-timeout=60000 --test 'eval/run.test.mjs' ; iso=$? ; if [ $rest -ne 0 ] ; then exit $rest ; fi ; exit $iso",
   },
+  // Top-level harness scripts (`scripts/*.mjs`), whose suites live in
+  // `scripts/test/`. NOTHING RAN THESE BEFORE THIS LANE. `agent:tests` above
+  // covers `scripts/agent/` only — a standalone npm package outside the pnpm
+  // workspace — and `pnpm verify:fast` reaches neither, so
+  // `scripts/test/verify-entropy.test.mjs` sat in the repository for months
+  // having never been executed by CI. It passes; that is luck, not evidence.
+  //
+  // Single-quoted so NODE expands the pattern rather than `sh`, for the reason
+  // spelled out on `agent:tests` above: node's globber is recursive and skips
+  // `node_modules`, so a suite added in a subdirectory later is picked up
+  // instead of silently matching nothing.
+  {
+    name: "scripts:tests",
+    cmd: "node --test-timeout=60000 --test 'scripts/test/**/*.test.mjs'",
+  },
   // core must build first — sheets/docs/slides/frontend all import
   // `@wafflebase/core` (geometry, tokens) from its gitignored `dist/`.
   { name: "core:build", cmd: "pnpm core build" },

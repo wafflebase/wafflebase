@@ -1,4 +1,41 @@
 {
+  "ci": {
+    "inertReason": "Which changed paths are allowed to shrink a CI run. This list is an ALLOW-LIST and the default is the full suite: a changed path matching nothing here forces `verify-browser` + `verify-integration` to run and every `verify:self` lane to run. That direction is the whole safety property — a new package, a new top-level directory, or a file nobody classified is covered by default, and no catch-all rule has to be remembered. Adding an entry is the only way to make anything skippable, which is why this file is code-owned (.github/CODEOWNERS) and why touching it lands in `ciConfig` below and forces a full run on its own PR. Never invert this into a list of paths that DO trigger things.",
+    "inert": [
+      {
+        "paths": ["scripts/agent/**"],
+        "tags": ["agent"],
+        "reason": "The agent-pipeline copy. Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports it (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it). The `pipeline-drift` job stays ungated and still checks this directory against the pinned wafflebase/agent-pipeline commit."
+      },
+      {
+        "paths": ["docs/**", "*.md"],
+        "tags": ["docsProse"],
+        "reason": "Prose. Maps to the entropy lane rather than to nothing because entropy.docStaleness.designDir below is `docs/design`, so a design-doc edit genuinely can fail that gate. Root-level `*.md` only — the single `*` does not cross a separator, so packages/README.md is deliberately NOT matched and falls through to a full run."
+      },
+      {
+        "paths": [".claude/**"],
+        "tags": [],
+        "reason": "Agent-facing instructions. Read by Claude Code, executed by no lane. Empty tags means a .claude-only PR runs no verify:self lane at all."
+      },
+      {
+        "paths": ["packages/documentation/**"],
+        "tags": ["documentation"],
+        "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is the one packages/ entry that is genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy."
+      }
+    ],
+    "ciConfigReason": "The gating surface itself. A change to any of these forces a full run, so a PR can never use the filter to grade its own homework — the reduced-run decision is always made by the version of the mapping already on main. It also drives the loud `ci-config-changed` label and job-summary warning, because CODEOWNERS only binds when branch protection has 'Require review from Code Owners' switched on.",
+    "ciConfig": [
+      "harness.config.json",
+      "scripts/changed-areas.mjs",
+      "scripts/verify-*.mjs",
+      ".github/workflows/**",
+      ".github/CODEOWNERS",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "knip.json"
+    ]
+  },
   "frontend": {
     "chunkBudgets": {
       "maxChunkKb": 710,
