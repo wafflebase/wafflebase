@@ -552,8 +552,8 @@ Tailwind (shadcn/ui pattern).
 
 Display preferences that need no server round-trip live in `localStorage` and
 are read through a `useSyncExternalStore` hook rather than a React context —
-the same pattern `src/app/documents/use-upload-queue.ts` uses. The theme above is the
-oldest instance; **date display format**
+the same pattern `packages/frontend/src/app/documents/use-upload-queue.ts` uses.
+The theme above is the oldest instance; **date display format**
 (`packages/frontend/src/lib/date-format-preference.ts`) is the second.
 
 | Preference   | Storage key              | Values                  | Default    |
