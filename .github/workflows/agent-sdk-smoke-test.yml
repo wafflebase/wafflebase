@@ -43,7 +43,7 @@ jobs:
           # that exfiltrates CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent`
           # environment's deployment branches to `main` in repo settings.)
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false

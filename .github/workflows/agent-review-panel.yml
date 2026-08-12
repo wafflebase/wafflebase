@@ -345,7 +345,7 @@ jobs:
       - uses: actions/checkout@v4 # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
@@ -537,7 +537,7 @@ jobs:
         if: steps.pr.outputs.number != ''
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
@@ -1302,7 +1302,7 @@ jobs:
       - uses: actions/checkout@v4 # the pipeline, pinned — only the gate script is needed
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
@@ -1455,7 +1455,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
@@ -2160,7 +2160,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline
           sparse-checkout-cone-mode: false
