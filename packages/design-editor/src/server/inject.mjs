@@ -1421,9 +1421,12 @@ export function applyLayoutProps(fileText, intent) {
       //
       // Since `classLiteralOf` was narrowed to a joiner allowlist, this branch
       // also catches `className={t("nav.home")}` — which the earlier code would
-      // have rewritten, destroying the translation key. The refusal is correct;
-      // it is also currently invisible to the designer, which the follow-up PR
-      // fixes by surfacing the expression on the node's metadata.
+      // have rewritten, destroying the translation key. The refusal is correct,
+      // and it is no longer invisible: the node carries `classNameExpr`
+      // (`attrsOf`) so the UI can show the expression read-only rather than an
+      // empty class list. NOTE the condition here is `findJsxAttribute &&
+      // !classLiteralOf`, which is BROADER than `classNameExpr !== null` — a
+      // valueless `className` lands here with no expression to show.
       notes.push('className is not a string literal (no editable class blob)');
     } else {
       // No `className` attribute AT ALL — common for a `.map()` row that is a
