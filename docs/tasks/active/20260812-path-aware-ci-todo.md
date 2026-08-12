@@ -101,6 +101,40 @@ gate; it exposes that the gate is absent.
       deployments of hashed assets are retained, so redundant deploys shorten the
       window in which a client holding a cached `index.html` can fetch them.
 
+## Phase 4b: Make the PR reporting actually work on fork PRs ✅
+
+Found while watching PR #803's first real run: the `ci-config-changed` label never
+appeared. Not a bug in the label step — **the whole PR-comment path was dead for
+every fork PR**, and all six most recent merged PRs (#789–#798) came from forks.
+
+- [x] 4b.1 Move every PR write out of `ci.yml` into a new
+      `.github/workflows/ci-report.yml`, triggered on `workflow_run: [CI]`
+- [x] 4b.2 Mint `actions/create-github-app-token` scoped to `issues: write`,
+      reusing the `AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY` App that
+      `agent-summarize.yml` already uses for this exact reason
+- [x] 4b.3 Carry the resolution + PR number in a `ci-context` artifact —
+      `github.event.workflow_run.pull_requests` is **empty for a fork PR**
+- [x] 4b.4 Read heavy-job outcomes from the run's job list, so one comment covers
+      the whole run and `skipped` is distinguishable from `never wrote a file`
+      (this also removes the old two-phase "⏳ pending…" dance)
+- [x] 4b.5 Sanitise artifact-sourced strings: they come from a job that ran the
+      PR's own code, so lane names and reasons are attacker-controlled
+- [x] 4b.6 Drop `ci.yml` to `permissions: contents: read` — the least-privilege
+      hardening MAINTAINING.md's merge-queue notes ask for
+
+### Why the token could not simply be added to ci.yml
+
+1. **Secrets are withheld from a fork's `pull_request` run**, so
+   `secrets.AGENT_APP_ID` would be empty on exactly the PRs that need it. ci.yml's
+   own `CODECOV_TOKEN` comment records the same constraint.
+2. `verify-self` runs `pnpm verify:self` — arbitrary build/test code from the PR's
+   tree. A write-capable token there is a token the author can exfiltrate.
+
+`workflow_run` solves both: base-repo context (secrets available) and the
+workflow file is taken from the default branch, not the PR. **Invariant:** the
+reporter checks out no PR code and runs no `pnpm`. Adding either would hand the
+token to the fork.
+
 ## Phase 5: Deferred
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse

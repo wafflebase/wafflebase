@@ -27,10 +27,25 @@ on:
   merge_group:
     types: [checks_requested]
 
+# READ ONLY, and that is a change. This workflow used to carry workflow-level
+# `pull-requests: write` + `issues: write` so `verify-self` could post its summary
+# comment — in a job that runs `pnpm verify:self`, i.e. arbitrary build and test
+# code from the pull request's own tree. Every write this workflow used to do now
+# happens in `.github/workflows/ci-report.yml`, which is `workflow_run`-triggered,
+# executes no PR code, and carries a scoped GitHub App token.
+#
+# Two reasons, and the second is why the comment never worked anyway:
+#
+#   1. Least privilege. MAINTAINING.md's merge-queue notes call narrowing these
+#      out "the obvious hardening follow-up", because a `merge_group` run executes
+#      PR code in this repository alongside whatever this block grants.
+#   2. It was dead code on every fork PR. Secrets — and a writable GITHUB_TOKEN —
+#      are withheld from a fork's `pull_request` run (the CODECOV_TOKEN note in
+#      `verify-self` says the same thing), so `createComment` failed silently. Every
+#      merged PR from #789 to #798 came from a fork and none of them ever received
+#      the verification comment.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 jobs:
   # WHAT CHANGED, decided ONCE. The two heavy jobs read this job's booleans and
@@ -60,9 +75,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # For the `ci-config-changed` label only, and best-effort — a fork PR's
-      # GITHUB_TOKEN is read-only, so that step cannot be allowed to fail the job.
-      pull-requests: write
     outputs:
       full: ${{ steps.resolve.outputs.full }}
       heavy: ${{ steps.resolve.outputs.heavy }}
@@ -82,9 +94,10 @@ jobs:
         run: node ./scripts/changed-areas.mjs
 
       - name: Explain the decision
-        # On the run, not just in a log: a reviewer approving a pull request must
-        # be able to see which checks were skipped and why without opening the
-        # Actions tab. The same reasons go onto the PR comment in `verify-self`.
+        # On the run itself, and this is the copy that ALWAYS works: it needs no
+        # token, so unlike the PR comment it survives a fork PR even if the App
+        # credentials are missing. `ci-report.yml` renders the same reasons onto
+        # the pull request.
         env:
           AREAS: ${{ steps.resolve.outputs.areas }}
         run: |
@@ -107,23 +120,34 @@ jobs:
             echo "::warning::This PR changes a file that decides how much CI runs (see harness.config.json ci.ciConfig). The full suite is forced for this PR, but review the mapping change on its own merits — it affects every later PR."
           fi
 
-      - name: Label CI-config changes
-        # Visible half of the guard. The mechanical halves are elsewhere and do
-        # not depend on this succeeding: `ci.ciConfig` forces the full suite, and
-        # .github/CODEOWNERS requires an owner's review.
-        if: >-
-          steps.resolve.outputs.ci_config == 'true' &&
-          github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
+      # Hand the decision to `ci-report.yml`, which does the PR writes. It cannot
+      # recompute this: a `workflow_run` job checks out nothing from the pull
+      # request, and it must not — that is the whole reason it is allowed to hold a
+      # token. So the resolution travels as DATA, in an artifact.
+      #
+      # The PR number travels with it because `github.event.workflow_run
+      # .pull_requests` is EMPTY for a fork PR. That array is populated only for
+      # same-repo branches, which is the one case that never needed this.
+      #
+      # Written via `env:` rather than interpolated into the script body, so a
+      # changed path containing a quote cannot break out of the command.
+      - name: Save the resolution for the reporter
+        if: github.event_name == 'pull_request'
+        env:
+          AREAS: ${{ steps.resolve.outputs.areas }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p .ci-context
+          printf '%s' "$AREAS" > .ci-context/areas.json
+          printf '%s' "$PR_NUMBER" > .ci-context/pr-number
+
+      - name: Upload the CI context
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: ['ci-config-changed'],
-            });
+          name: ci-context
+          path: .ci-context/
+          retention-days: 7
 
   verify-self:
     needs: changes
@@ -239,86 +263,6 @@ jobs:
           path: .harness-reports/
           include-hidden-files: true
           retention-days: 14
-
-      - name: Post verification summary on PR
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
-        env:
-          AREAS: ${{ needs.changes.outputs.areas }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = '.harness-reports/summary.json';
-            let body = '## Verification: verify:self\n\n';
-
-            // What was NOT run, and why, before what was. A reviewer approving
-            // this PR is being asked to accept a reduced signal, so the reduction
-            // has to be the visible part rather than something they could only
-            // find by counting rows in a table.
-            const areas = JSON.parse(process.env.AREAS || '{}');
-            if (areas.full === false) {
-              body += '> **Reduced run.** ';
-              body += areas.heavy
-                ? 'Lane selection is on; `verify-browser` and `verify-integration` still ran.\n'
-                : 'Lane selection is on; `verify-browser` and `verify-integration` were skipped.\n';
-              for (const reason of areas.reasons ?? []) body += `> - ${reason}\n`;
-              body += '>\n> Add the **`full-ci`** label to force the whole suite.\n\n';
-            }
-
-            if (!fs.existsSync(path)) {
-              body += '> Report not generated — verify:self may have crashed before producing output.\n';
-            } else {
-              const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
-              const icon = summary.overall === 'pass' ? '✅' : '❌';
-              body += `**Result:** ${icon} ${summary.overall.toUpperCase()} in ${(summary.totalDurationMs / 1000).toFixed(1)}s`;
-              if (summary.lanesFiltered > 0) {
-                body += ` — ${summary.lanesRun} of ${summary.lanesTotal} lanes run, ${summary.lanesFiltered} filtered`;
-              }
-              body += '\n\n';
-              body += '| Lane | Status | Duration |\n|---|---|---|\n';
-              for (const lane of summary.lanes) {
-                // `filtered` and `skip` are deliberately different glyphs: one was
-                // never going to run, the other never got its turn because an
-                // earlier lane failed. Rendering both as ⏭️ would hide a failure.
-                const s = lane.status === 'pass' ? '✅'
-                  : lane.status === 'fail' ? '❌'
-                  : lane.status === 'filtered' ? '⊘'
-                  : '⏭️';
-                const dur = lane.durationMs > 0 ? `${(lane.durationMs / 1000).toFixed(1)}s` : '—';
-                body += `| ${lane.lane} | ${s} ${lane.status} | ${dur} |\n`;
-              }
-            }
-            // A skipped verify-integration never edits this comment, so without
-            // this branch a filtered PR would claim that job was "pending" for
-            // ever. The wording below is also what the integration job's own
-            // regex looks for, so only one of the two can ever be present.
-            body += areas.heavy === false
-              ? '\n---\n*⊘ verify:integration skipped — no workspace package changed.*\n'
-              : '\n---\n*⏳ verify:integration pending...*\n';
-            const marker = '<!-- harness-verification -->';
-            body = marker + '\n' + body;
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
 
   # scripts/agent/ is no longer what runs — the agent workflows execute
   # wafflebase/agent-pipeline at a pinned commit, and the copy in this repo is a
@@ -599,31 +543,3 @@ jobs:
       - name: Yorkie logs on failure
         if: failure() && steps.integration.outcome == 'failure'
         run: docker logs yorkie
-
-      - name: Update PR comment with integration result
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const marker = '<!-- harness-verification -->';
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.body.includes(marker));
-            if (!existing) return;
-            const passed = '${{ steps.integration.outcome }}' === 'success';
-            const icon = passed ? '✅' : '❌';
-            const status = passed ? 'PASS' : 'FAIL';
-            const updated = existing.body.replace(
-              /\n---\n\*⏳ verify:integration pending\.\.\.\*\n?/,
-              `\n\n## Verification: verify:integration\n\n**Result:** ${icon} ${status}\n`
-            );
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: existing.id,
-              body: updated,
-            });

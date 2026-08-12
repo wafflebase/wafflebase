@@ -269,10 +269,60 @@ reached a public PR as a diff appearing to delete every file in the repo.
   blocking while the mirror exists — see #798.)
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
-- On PRs, CI automatically posts a verification summary comment with per-lane
-  results for both `verify:self` and `verify:integration`.
+- **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
+  a pull request happens in `.github/workflows/ci-report.yml`; see
+  [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
+- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
+  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
+  detail, and applies `ci-config-changed` when the mapping was touched.
 - CI triggers on `push` to `main`, `pull_request` targeting `main`, and
   `merge_group` (see below).
+
+### Reporting onto a fork PR
+
+`.github/workflows/ci.yml` used to post its own verification comment, and **it never worked for how
+this project actually receives contributions.** A fork's `pull_request` run gets a
+read-only `GITHUB_TOKEN` and no secrets, so `createComment` failed silently; the
+step's `continue-on-error` is why nobody noticed. Every merged PR from #789 to
+#798 came from a fork and not one received the comment.
+
+It cannot be fixed by adding a token to `.github/workflows/ci.yml`, for two independent reasons:
+
+1. **Secrets are withheld from a fork's `pull_request` run**, so
+   `secrets.AGENT_APP_ID` would be empty on exactly the PRs that need it. The
+   `CODECOV_TOKEN` note in `verify-self` records the same constraint.
+2. Even if it were populated, `verify-self` runs `pnpm verify:self` — arbitrary
+   build and test code from the PR's tree. A write-capable token in that
+   environment is a token the PR author can exfiltrate.
+
+So the writes moved to a `workflow_run`-triggered reporter, which runs in the base
+repository with access to secrets and runs *its own* copy from the default branch
+rather than the PR's. This is the same reasoning `.github/workflows/agent-summarize.yml` and
+`.github/workflows/agent-review-on-demand.yml` apply from `issue_comment`, and it reuses their App:
+`actions/create-github-app-token` with `AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY`,
+scoped to `issues: write` (which covers both PR comments and PR labels).
+
+**The invariant that makes the token safe:** the reporter performs no checkout of
+pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
+It reads two artifacts as *data* and calls the API. Adding a checkout of
+`head_sha` or a build step there would hand the token to the fork.
+
+Consequences worth knowing:
+
+- The resolution and the PR number travel in a `ci-context` artifact, because
+  `github.event.workflow_run.pull_requests` is **empty for a fork PR** — it is
+  populated only for same-repo branches, the one case that never needed this.
+- Artifact contents are attacker-controlled (lane names come from the PR's own
+  `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
+  into markdown, never executed, but are still collapsed for `|`, backticks,
+  angle brackets and newlines so a crafted name cannot forge table rows or
+  smuggle HTML, and length-capped so it cannot flood the comment.
+- Heavy-job outcomes are read from the run's job list rather than a second
+  artifact, so *skipped* is distinguishable from *never wrote a file*. That is
+  also what collapses the old two-phase "⏳ pending…" comment into one.
+- Without the App configured the reporter degrades to the ambient token, which
+  still works for same-repo PRs. The `changes` job's **run summary** needs no
+  token at all, so it remains the copy that always survives.
 
 ### Path-aware CI
 
@@ -315,10 +365,11 @@ backend file in it can break that job. Narrowing them to the closure is deferred
 until the mechanism has been observed working.
 
 **A reduced run must not hide that it was reduced.** The `changes` job writes its
-decision and reasons to the run summary; the PR comment leads with the same
-reasons and names the `full-ci` label that overrides them. Filtered lanes render
-as `⊘` and skipped-after-failure as `⏭️`, because collapsing the two would let a
-real failure read as a deliberate omission.
+decision and reasons to the run summary — the copy that needs no token and
+therefore always survives — and `.github/workflows/ci-report.yml` leads the PR
+comment with the same reasons and names the `full-ci` label that overrides them.
+Filtered lanes render as `⊘` and skipped-after-failure as `⏭️`, because collapsing
+the two would let a real failure read as a deliberate omission.
 
 **`filtered` is a distinct lane status, not a reuse of `skip`.**
 `scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
