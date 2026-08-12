@@ -1,20 +1,31 @@
 # Pre-arm auth check. A shim: the workflow itself lives in the pipeline repo.
 #
-# THE `id-token: write` GRANT IS LOAD-BEARING. A called workflow's job may only
-# request permissions the CALLER has already granted, and the pipeline's `pin`
-# job needs the OIDC claim to prove which pipeline commit this run is about to
-# trust. Omit it and the run is a `startup_failure` with zero jobs and no usable
-# message — measured, not theorised.
+# Three things here are load-bearing, and each was measured on a real runner
+# rather than assumed — every one of them fails in a way that is hard to read.
 #
-# CLAUDE_CODE_OAUTH_TOKEN is NOT passed at call time. It stays in the protected
-# `agent` environment, which is what lets a required reviewer gate spend, and the
-# called workflow's job reads it through its own `environment:` — environments
-# resolve in the caller. `secrets: inherit` cannot forward an environment secret,
-# so passing it explicitly would mean moving it to repository scope and losing
-# that gate.
+# 1. THE `id-token: write` GRANT. A called workflow's job may only request
+#    permissions the CALLER already granted, and the pipeline's `pin` job needs
+#    the OIDC claim to prove which pipeline commit this run is about to trust.
+#    Omit it and the run is a `startup_failure` with zero jobs and no message.
 #
-# Deliberately NOT gated on AGENT_PIPELINE_ENABLED: the whole point is to test
-# BEFORE arming.
+# 2. `secrets: inherit` IS THE DELIVERY MECHANISM, not decoration. This repo
+#    keeps CLAUDE_CODE_OAUTH_TOKEN as a REPOSITORY secret, and environment
+#    secrets do not reach a called workflow's job at all — measured: a token in
+#    the environment, with the job naming that environment, still arrived empty.
+#    Remove this line and the smoke test loses its credential.
+#
+# 3. THE `agent` ENVIRONMENT STILL GATES SPEND. Protection rules DO apply to a
+#    called workflow's job (measured: a required reviewer left it in `waiting`
+#    with a pending deployment). The environment gates the JOB; it just cannot
+#    also be the secret store. Note this repo's `agent` environment currently has
+#    no protection rules configured — see the PR discussion.
+#
+# The pipeline is pinned by commit SHA rather than tag, matching the convention
+# already applied to every other pipeline checkout: the pin is the only thing
+# establishing which code runs, and tag protection is an invisible repo setting.
+#
+# Deliberately NOT gated on AGENT_PIPELINE_ENABLED: the point is to test BEFORE
+# arming.
 name: Agent SDK Auth Smoke Test
 
 on:
@@ -26,7 +37,7 @@ jobs:
   smoke:
     permissions:
       id-token: write # the pipeline's pin job needs the OIDC claim — see above
-    uses: wafflebase/agent-pipeline/.github/workflows/auth-smoke.yml@v0.2.1
+    uses: wafflebase/agent-pipeline/.github/workflows/auth-smoke.yml@4c9ee18de95f873ab14f11e98004457a1decd706 # v0.2.3
     with:
-      pipeline-ref: v0.2.1
-    secrets: inherit
+      pipeline-ref: 4c9ee18de95f873ab14f11e98004457a1decd706 # v0.2.3 — asserted against the OIDC claim; must match the pin above
+    secrets: inherit # required: the token is a REPOSITORY secret — see above
