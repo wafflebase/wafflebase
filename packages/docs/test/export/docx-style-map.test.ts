@@ -110,6 +110,13 @@ describe('toDocxHexColor', () => {
     expect(toDocxHexColor('#11223344')).toBe('112233');
   });
 
+  it('drops a fully transparent color rather than shading it solid', () => {
+    // `w:shd` has no alpha channel, so keeping the triplet would paint a
+    // solid block behind text that is invisible on screen.
+    expect(toDocxHexColor('rgba(0, 0, 0, 0)')).toBeUndefined();
+    expect(toDocxHexColor('#11223300')).toBeUndefined();
+  });
+
   it('converts the CSS rgb()/rgba() forms browsers hand back on paste', () => {
     // `view/clipboard.ts` copies the pasted HTML's CSS straight into
     // style.color, and every browser normalizes colors to `rgb(...)`.

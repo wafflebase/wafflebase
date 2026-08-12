@@ -53,11 +53,23 @@ Root cause — two layers:
       recognized CSS forms convert; anything else drops the attribute.
       Applied to **both** sinks — the run properties and the table cell fill
       in `export/docx-exporter.ts`, which writes the same attribute
-- [x] PPTX export adopts the same "`''` means unset" convention (`hasColor`
-      in `export/pptx/text.ts`): since there is no migration, decks keep
-      `color: ""` forever, and `<a:srgbClr val=""/>` is an invalid
-      `ST_HexColorRGB` that PowerPoint rejects. Covers run color, highlight,
-      underline fill and the bullet marker color
+- [x] One shared normalizer, `toRgbHexColor` in `model/color.ts`, backs both
+      export sinks (`toDocxHexColor` is now its DOCX-facing name) — the
+      "`''` means unset" convention is expressed once instead of per sink.
+      It also drops a **fully transparent** color (`rgba(r,g,b,0)`,
+      `#RRGGBB00`) rather than returning its RGB triplet: neither `w:shd`
+      nor `<a:srgbClr>` carries alpha, so keeping it would paint a solid
+      block behind text that is invisible on screen. Partial alpha still
+      keeps the triplet (rendered opaque)
+- [x] PPTX export runs colors through the same normalizer
+      (`storedColorToThemeColor` in `export/pptx/text.ts` now returns
+      `ThemeColor | undefined`): slide text boxes are edited by the docs
+      `TextEditor`, so HTML paste writes `rgb(255, 0, 0)` into
+      `Inline.style.color`, and the #728 reset reaches the exporter both as
+      `''` and as `{ kind: 'srgb', value: '' }` — all of which
+      `colorChildXml` would have written into `<a:srgbClr val>` as an
+      invalid `ST_HexColorRGB` that PowerPoint rejects. Covers run color,
+      highlight, underline fill and the bullet marker color
 - [x] Tests
       - [x] docs: `paint-layout.test.ts` — a run with `color: ''` paints the
             theme default, never the previously set `fillStyle`
@@ -75,11 +87,16 @@ Root cause — two layers:
             explicit `underlineColor` still wins
       - [x] docs: `docx-style-map.test.ts` — hostile / non-hex color and
             backgroundColor values drop the attribute; `toDocxHexColor`
-            unit cases (hex forms, `rgb()`/`rgba()`, rejects)
+            unit cases (hex forms, `rgb()`/`rgba()`, transparent, rejects)
+      - [x] docs: `color.test.ts` — `toRgbHexColor` unit cases, including
+            fully transparent → `undefined` and partial alpha → triplet
       - [x] docs: `docx-exporter.test.ts` — a table cell background
             normalizes into `<w:shd w:fill>`, a hostile one emits nothing
       - [x] slides: `export/pptx/text.test.ts` — `''` color / background /
-            underline color emit no color children
+            underline color emit no color children, the
+            `{ kind: 'srgb', value: '' }` object form is unset too, CSS
+            `rgb()`/`rgba()` normalize into `val="RRGGBB"`, and a named /
+            hostile color drops the child
       - [x] frontend: reset calls `applyStyle` with `color: undefined`
 
 ## Acceptance criteria (from the issue)

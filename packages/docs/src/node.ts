@@ -91,6 +91,14 @@ export {
   rematerializeDocSpacing,
 } from './model/named-styles.js';
 
+// Color model. `toRgbHexColor` is the shared OOXML color normalizer — the
+// slides PPTX exporter (a Node consumer via `@wafflebase/slides/node`)
+// writes docs `StoredColor` values into `<a:srgbClr val>` and needs it, so
+// it must be reachable from this entry, not just the browser one.
+// `model/color.js` is pure data-model code with no DOM dependency.
+export type { StoredColor, ColorResolver } from './model/color.js';
+export { defaultColorResolver, toRgbHexColor } from './model/color.js';
+
 // Block-level edit helpers. These are pure data-model transforms — the
 // source module only imports from `model/types.js`, so it carries no
 // DOM/Canvas dependency and is safe under the Node entry. `YorkieDocStore`

@@ -66,6 +66,7 @@ export type { StoredColor, ColorResolver } from './model/color.js';
 export {
   defaultColorResolver,
   storedColorsEqual,
+  toRgbHexColor,
   wrapLegacyColor,
 } from './model/color.js';
 

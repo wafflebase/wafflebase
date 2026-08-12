@@ -1,5 +1,5 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
-import { defaultColorResolver } from '../model/color.js';
+import { defaultColorResolver, toRgbHexColor } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 import { isKoreanCapableFamily } from '../view/fonts.js';
 
@@ -34,44 +34,18 @@ function escapeXmlAttr(value: string): string {
 /**
  * Normalize a color string into an OOXML `ST_HexColor` value (six hex
  * digits, no leading `#`), or `undefined` when it cannot be expressed as
- * one.
+ * one — in which case the caller drops the attribute and the run inherits
+ * the document default rather than carrying a broken value.
  *
- * Escaping alone is not enough for `w:color/@w:val` and `w:shd/@w:fill`:
- * those attributes are typed `ST_HexColor`, but `InlineStyle.color` and a
- * table cell's `backgroundColor` hold whatever string reached the model.
- * The HTML-paste path (`view/clipboard.ts`) copies browser-normalized CSS
- * verbatim, so `rgb(255, 0, 0)` is routine; DOCX/PPTX import and the
- * legacy `''` reset of issue #728 add more non-hex shapes. Emitting those
- * verbatim yields a schema-invalid document Word refuses to open, so the
- * recognized CSS forms are converted and everything else drops the
- * attribute (the run inherits the document default) rather than writing a
- * broken one.
- *
- * Returning only `[0-9A-F]{6}` also makes these attributes injection-proof
- * by construction — the validation subsumes `escapeXmlAttr`.
+ * DOCX-facing name for the shared `toRgbHexColor` normalizer: `w:color`
+ * (`ST_HexColor`) and PPTX's `<a:srgbClr val>` (`ST_HexColorRGB`) need the
+ * same six-digit triplet from the same untrusted `StoredColor` strings, so
+ * both sinks share one implementation in `model/color.ts` (including its
+ * fully-transparent → `undefined` rule: `w:shd` has no alpha, so an
+ * `rgba(0,0,0,0)` paste must not become an opaque black block).
  */
 export function toDocxHexColor(color: string | undefined): string | undefined {
-  if (!color) return undefined;
-  const v = color.trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{6}$/.test(v)) return v.toUpperCase();
-  // #RGB shorthand — expand each nibble (CSS rule: #abc === #aabbcc).
-  if (/^[0-9a-fA-F]{3}$/.test(v)) {
-    return v.split('').map((ch) => ch + ch).join('').toUpperCase();
-  }
-  // #RRGGBBAA — DOCX has no per-run alpha, so keep the RGB and drop it.
-  if (/^[0-9a-fA-F]{8}$/.test(v)) return v.slice(0, 6).toUpperCase();
-  // Channels accept a sign so an out-of-gamut `rgb(300, -5, 0)` clamps
-  // below instead of falling through to "not a color" and dropping a
-  // background the user can see.
-  const rgb = /^rgba?\(\s*([-+\d.]+)\s*,\s*([-+\d.]+)\s*,\s*([-+\d.]+)\s*(?:,[^)]*)?\)$/i.exec(v);
-  if (rgb) {
-    const channels = [rgb[1], rgb[2], rgb[3]].map((n) =>
-      Math.max(0, Math.min(255, Math.round(Number(n)))),
-    );
-    if (channels.some((n) => Number.isNaN(n))) return undefined;
-    return channels.map((n) => n.toString(16).padStart(2, '0')).join('').toUpperCase();
-  }
-  return undefined;
+  return toRgbHexColor(color);
 }
 
 /**

@@ -106,6 +106,53 @@ describe('textBodyToXml', () => {
     expect(xml).not.toContain('<a:uFill>');
   });
 
+  it('treats the object form of the cleared color as unset too', () => {
+    // The docs color model documents `{ kind: 'srgb', value: '' }` as a
+    // reachable shape of the same #728 reset — it must not slip past the
+    // guard the bare `''` hits and emit `<a:srgbClr val=""/>`.
+    const xml = textBodyToXml({
+      blocks: [
+        para('X', {
+          color: { kind: 'srgb', value: '' },
+          backgroundColor: { kind: 'srgb', value: '' },
+        }),
+      ],
+    });
+    expect(xml).not.toContain('val=""');
+    expect(xml).not.toContain('<a:solidFill>');
+    expect(xml).not.toContain('<a:highlight>');
+  });
+
+  it('normalizes CSS colors from HTML paste into ST_HexColorRGB', () => {
+    // Slide text boxes are edited by the docs TextEditor, so HTML paste
+    // writes browser-normalized CSS (`rgb(...)`) into style.color. Emitted
+    // verbatim that is an invalid ST_HexColorRGB and PowerPoint rejects the
+    // deck, so it must be converted.
+    const xml = textBodyToXml({
+      blocks: [
+        para('X', { color: 'rgb(255, 0, 0)', backgroundColor: 'rgba(0, 128, 255, 0.5)' }),
+      ],
+    });
+    expect(xml).toContain('<a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>');
+    expect(xml).toContain('<a:highlight><a:srgbClr val="0080FF"/></a:highlight>');
+    // Shorthand hex expands rather than emitting three digits.
+    expect(textBodyToXml({ blocks: [para('X', { color: '#abc' })] })).toContain(
+      '<a:srgbClr val="AABBCC"/>',
+    );
+  });
+
+  it('drops a color string that cannot be written as a hex triplet', () => {
+    const xml = textBodyToXml({
+      blocks: [para('X', { color: 'red', backgroundColor: 'var(--fg)' })],
+    });
+    expect(xml).not.toContain('<a:solidFill>');
+    expect(xml).not.toContain('<a:highlight>');
+    // A hostile value never reaches the attribute at all.
+    expect(
+      textBodyToXml({ blocks: [para('X', { color: 'a"/><a:alpha val="0' })] }),
+    ).not.toContain('<a:solidFill>');
+  });
+
   it('emits dblStrike for double strikethrough and round-trips it', () => {
     const xml = textBodyToXml({
       blocks: [para('D', { strikethrough: true, strikeStyle: 'double' })],

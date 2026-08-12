@@ -4,6 +4,7 @@ import {
   resolveColorAtPosition,
   resolveStoredColor,
   storedColorsEqual,
+  toRgbHexColor,
   wrapLegacyColor,
 } from '../../src/model/color.js';
 
@@ -213,5 +214,39 @@ describe('resolveStoredColor', () => {
 
   it('returns undefined for an unset color so the caller picks the fallback', () => {
     expect(resolveStoredColor(defaultColorResolver, undefined)).toBeUndefined();
+  });
+});
+
+describe('toRgbHexColor', () => {
+  it('normalizes the hex forms to six upper-case digits', () => {
+    expect(toRgbHexColor('#ff0000')).toBe('FF0000');
+    expect(toRgbHexColor('ff0000')).toBe('FF0000');
+    expect(toRgbHexColor('#abc')).toBe('AABBCC');
+    // Partial alpha keeps the triplet — rendering it opaque is closer to
+    // what the user sees than dropping the color.
+    expect(toRgbHexColor('#11223380')).toBe('112233');
+    expect(toRgbHexColor('rgba(0, 128, 255, 0.5)')).toBe('0080FF');
+  });
+
+  it('converts the CSS rgb() forms browsers hand back on paste', () => {
+    expect(toRgbHexColor('rgb(255, 0, 0)')).toBe('FF0000');
+    // Out-of-range channels clamp rather than producing >2 hex digits.
+    expect(toRgbHexColor('rgb(300, -5, 0)')).toBe('FF0000');
+  });
+
+  it('drops a fully transparent color instead of returning an opaque triplet', () => {
+    // No OOXML color attribute carries alpha, so keeping the triplet would
+    // paint a solid block where the screen shows nothing.
+    expect(toRgbHexColor('rgba(0, 0, 0, 0)')).toBeUndefined();
+    expect(toRgbHexColor('rgba(255, 255, 255, 0%)')).toBeUndefined();
+    expect(toRgbHexColor('#11223300')).toBeUndefined();
+  });
+
+  it('returns undefined for anything not expressible as a hex triplet', () => {
+    expect(toRgbHexColor('')).toBeUndefined();
+    expect(toRgbHexColor(undefined)).toBeUndefined();
+    expect(toRgbHexColor('red')).toBeUndefined();
+    expect(toRgbHexColor('var(--fg)')).toBeUndefined();
+    expect(toRgbHexColor('a" w:themeColor="dark1')).toBeUndefined();
   });
 });
