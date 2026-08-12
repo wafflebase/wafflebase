@@ -69,6 +69,16 @@ const refuse = (msg) => {
   throw new Error(`segmentation: ${msg}`);
 };
 
+/** A caller-supplied list, or `[]` when it was not supplied at all. A non-array is
+ *  REFUSED by name rather than coerced: an iterable that is not a list of records —
+ *  a string is the reachable case — would be walked element by element and bucketed,
+ *  which is a wrong grid rather than an error. */
+const asArray = (value, what) => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) refuse(`${what} must be an array, got ${JSON.stringify(value)} — a non-list would be iterated element by element and filed as findings`);
+  return value;
+};
+
 /**
  * A composite-key separator no bucket can contain — CodeRabbit's own category names
  * carry spaces and ampersands, so `/` and `|` are not safe.
@@ -233,22 +243,6 @@ const WINDOW_UNSTATED = "window-unstated";
  */
 const NOT_ANNOTATED = "not-annotated";
 
-// A bucket name that collides with the vocabulary it sits beside would pool the two
-// facts it exists to separate, silently — and both vocabularies are imported from
-// the modules that own them, so a rename upstream could introduce exactly that
-// collision. Checked at import time, which is where `pin` puts the same class of
-// check: a guard that fires when the code loads beats one that never fires at all.
-for (const [name, vocabulary, what] of [
-  [SEVERITY_UNSTATED, KNOWN, "the unstated-severity bucket"],
-  [NO_FILE, FILE_CLASSES, "the no-file bucket"],
-  [NOT_ANNOTATED, ORIGINS, "the not-annotated novelty bucket"],
-  [WINDOW_UNSTATED, WINDOW, "the unstated-window bucket"],
-]) {
-  if (vocabulary.includes(name)) {
-    refuse(`${what} is ${JSON.stringify(name)}, which is now also a value of the vocabulary it sits beside — the two facts it exists to keep apart would be pooled under one bucket`);
-  }
-}
-
 /**
  * Diff size, and WHICH of the two scales this is.
  *
@@ -275,6 +269,45 @@ const SCOPE_SIZE_SCALE = "scopeSize (S ≤50 · M ≤300 · L >300 changed lines
  *  extractor produces THREE values, not two, and collapsing `local-cli-agent` into
  *  either side would be a judgement this scorer has no basis for. */
 const PROVENANCE_BUCKETS = Object.freeze(["human", "local-cli-agent", "autonomous"]);
+
+/**
+ * Every bucket name that must stay disjoint from the vocabulary it sits beside, and
+ * the vocabulary in question. A collision would pool the two facts the bucket exists
+ * to separate, silently.
+ *
+ * BOTH KINDS OF VOCABULARY ARE IN HERE and they fail differently. The first four are
+ * imported from the modules that own them, so a rename upstream could introduce a
+ * collision under a file nobody edited. The last two are re-typed here — `scopeSize`
+ * and `classifyProvenance` export no list to `pin` against — so a collision would be a
+ * same-file typo instead. Neither is more survivable once it happens, which is why the
+ * check does not discriminate between them.
+ *
+ * Exported, with the check exported beside it, for the reason `pin` is: a guard nothing
+ * can prove fires is decoration, and this one runs over frozen constants at import time
+ * so a test cannot otherwise reach it.
+ */
+export const DISJOINT_BUCKETS = Object.freeze([
+  Object.freeze([SEVERITY_UNSTATED, KNOWN, "the unstated-severity bucket"]),
+  Object.freeze([NO_FILE, FILE_CLASSES, "the no-file bucket"]),
+  Object.freeze([NOT_ANNOTATED, ORIGINS, "the not-annotated novelty bucket"]),
+  Object.freeze([WINDOW_UNSTATED, WINDOW, "the unstated-window bucket"]),
+  Object.freeze([SIZE_UNKNOWN, SCOPE_SIZE_BUCKETS, "the unknown-size bucket"]),
+  Object.freeze([PROVENANCE_UNRECOGNISED, PROVENANCE_BUCKETS, "the unrecognised-provenance bucket"]),
+]);
+
+/** Refuses if any bucket name has become a member of the vocabulary beside it. */
+export function assertBucketsDisjoint(rows) {
+  for (const [name, vocabulary, what] of Array.isArray(rows) ? rows : []) {
+    if ((Array.isArray(vocabulary) ? vocabulary : []).includes(name)) {
+      refuse(`${what} is ${JSON.stringify(name)}, which is now also a value of the vocabulary it sits beside — the two facts it exists to keep apart would be pooled under one bucket`);
+    }
+  }
+  return rows.length;
+}
+
+// At import time, which is where `pin` puts the same class of check: a guard that fires
+// when the code loads beats one that never fires at all.
+assertBucketsDisjoint(DISJOINT_BUCKETS);
 
 /**
  * Every axis, what it cuts, and which arms can answer it.
@@ -905,8 +938,23 @@ export function scoreSegmentation({ arms = [], geometry = new Map(), items = new
   if (selected.length === 0) refuse("no axis selected — a grid with no axis is the ungrouped total wearing a segment label");
   for (const a of selected) if (a.status === "not-computed") refuse(`axis ${a.id} cannot be computed: ${a.reason}`);
 
-  const armList = Array.isArray(arms) ? arms : [];
-  const allRecords = armList.flatMap((a) => (Array.isArray(a.legs) ? a.legs : []).flatMap((l) => (Array.isArray(l.records) ? l.records : [])));
+  // NORMALISED ONCE, at the entry, and every read below is of the normalised copy.
+  // `records` and `item_ids` are iterated in five places; guarding each of them
+  // separately is how one gets missed, and the one that was missed iterated a STRING
+  // character by character — `for (const r of "abc")` yields three one-letter
+  // "records" and buckets them, silently, instead of failing. Absent still means
+  // empty (a caller may legitimately pass neither); a non-array is a caller error and
+  // is refused by name, because a raw TypeError says nothing about which arm or which
+  // replicate was malformed. Nothing the caller owns is mutated (decision 7).
+  const armList = (Array.isArray(arms) ? arms : []).map((arm) => ({
+    ...arm,
+    legs: (Array.isArray(arm?.legs) ? arm.legs : []).map((leg) => ({
+      ...leg,
+      records: asArray(leg?.records, `${arm?.arm}/${leg?.run_id ?? "(no run id)"} records`),
+      item_ids: asArray(leg?.item_ids, `${arm?.arm}/${leg?.run_id ?? "(no run id)"} item_ids`),
+    })),
+  }));
+  const allRecords = armList.flatMap((a) => a.legs.flatMap((l) => l.records));
   const population = assertOnePopulation(allRecords);
   const gateState = assertOneGateState(allRecords);
   assertWindowSegmented(
@@ -917,8 +965,8 @@ export function scoreSegmentation({ arms = [], geometry = new Map(), items = new
     assertDistinctLegs(arm.arm, arm.legs);
     for (const leg of arm.legs) {
       assertRunMatchesCorpus(leg.run_id ? { run_id: leg.run_id, corpus_version: leg.corpus_version ?? corpusVersion } : null, corpusVersion);
-      const declared = new Set(Array.isArray(leg.item_ids) ? leg.item_ids : []);
-      const stray = [...new Set((Array.isArray(leg.records) ? leg.records : []).map((r) => r?.item_id).filter((id) => !declared.has(id)))];
+      const declared = new Set(leg.item_ids);
+      const stray = [...new Set(leg.records.map((r) => r?.item_id).filter((id) => !declared.has(id)))];
       if (stray.length > 0) {
         refuse(
           `${arm.arm}/${leg.run_id ?? "(no run id)"} holds findings on ${stray.join(", ")}, which the caller did not list as read — ` +
@@ -938,12 +986,30 @@ export function scoreSegmentation({ arms = [], geometry = new Map(), items = new
         continue;
       }
       const legs = arm.legs;
+      // WHICH BUCKETS EXIST IN THIS DATA, counted in the axis's OWN unit.
+      //
+      // 🔴 An ITEM axis is read off the item list, not off the records, and this is
+      // not symmetry for its own sake: an item the reviewer found nothing in still
+      // belongs to its own size and authorship bucket. Reading item buckets off the
+      // records alone dropped such an item out of the grid ENTIRELY — its bucket was
+      // never observed, so `bucketsFor` emitted no cell for it, so it appeared in no
+      // per-PR denominator on that axis and in no census row either. Reachable
+      // wherever a fault bucket is involved: an item whose frozen size would not read,
+      // or whose provenance is a value this file has not heard of, AND which produced
+      // no finding. Both are exactly the cases the fault buckets exist to make visible.
+      //
+      // Counted in ITEMS for an item axis and in FINDINGS for a finding axis, because
+      // one number that pooled the two units would be the unit error this file spends
+      // its length on; `observed_unit` names which it is. The item ids are unioned
+      // across the legs — one pull request is one observation of its own size however
+      // many replicates saw it — which is also what keeps an item that DOES have
+      // records from being counted once per record.
       const observed = new Map();
-      for (const leg of legs) {
-        for (const r of leg.records) {
-          const b = bucketOf(axis.id, { record: r, item: items.get(r.item_id) ?? null });
-          observed.set(b, (observed.get(b) ?? 0) + 1);
-        }
+      const sawBucket = (b) => observed.set(b, (observed.get(b) ?? 0) + 1);
+      if (axis.unit === "item") {
+        for (const id of new Set(legs.flatMap((leg) => leg.item_ids))) sawBucket(bucketOf(axis.id, { item: items.get(id) ?? null }));
+      } else {
+        for (const leg of legs) for (const r of leg.records) sawBucket(bucketOf(axis.id, { record: r, item: items.get(r.item_id) ?? null }));
       }
       const buckets = bucketsFor(axis, observed);
       census.push({
@@ -956,6 +1022,9 @@ export function scoreSegmentation({ arms = [], geometry = new Map(), items = new
         // "we never looked at severity" are different facts and only one of them is
         // a measurement.
         buckets_observed: Object.fromEntries([...observed.entries()].sort()),
+        // What the numbers above count. An item axis counts pull requests and a
+        // finding axis counts findings, and on this corpus those differ by 20×.
+        observed_unit: axis.unit === "item" ? "items" : "findings",
         buckets_discovered: buckets.discovered,
         buckets_outside_vocabulary: buckets.outside,
       });

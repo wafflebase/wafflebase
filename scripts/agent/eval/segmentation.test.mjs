@@ -38,12 +38,14 @@ import { itemGeometry } from "./volume-mix.mjs";
 import {
   AXES,
   AXIS_IDS,
+  DISJOINT_BUCKETS,
   MIN_N,
   METRIC_IDS,
   SCOPE,
   SCORER_ID,
   TAUTOLOGICAL_PAIRS,
   Z_95,
+  assertBucketsDisjoint,
   assertDistinctLegs,
   assertOneGateState,
   assertWindowSegmented,
@@ -456,6 +458,135 @@ test("a per-PR median counts the items that produced NOTHING", () => {
   assert.equal(cell.suppressed, false, "six items clears a threshold of five");
   assert.equal(cell.n, 6, "the denominator is every item read, not the two with findings");
   assert.equal(cell.value, 0, "four of six items found nothing, so the median is a measured 0");
+});
+
+test("an item with NO finding still lands in its own item-axis bucket", () => {
+  // The defect this replaces was silent and total: item buckets were read off the
+  // RECORDS, so an item the reviewer found nothing in never made its bucket
+  // "observed" — and a fault bucket only becomes a cell when something is observed in
+  // it. So an item whose frozen size would not read, or whose provenance is a value
+  // this file has not heard of, disappeared from the axis entirely: no cell, no
+  // per-PR denominator, no census row. Both cases are precisely what the fault
+  // buckets exist to make visible.
+  const items = new Map([
+    ["pr-1", { item_id: "pr-1", additions: 10, deletions: 0, scope: "S", provenance: "human" }],
+    // No `additions`/`deletions` at all, and no finding on it below.
+    ["pr-2", { item_id: "pr-2", provenance: "some-new-pipeline" }],
+  ]);
+  const grid = gridOf([panelRecord({ item: "pr-1" })], { axisIds: ["diff_size:scopeSize", "provenance"], items, itemIds: ["pr-1", "pr-2"], minN: 1 });
+  for (const [axis, bucket] of [["diff_size:scopeSize", "size-unknown"], ["provenance", "provenance-unrecognised"]]) {
+    const cell = grid.cells.find((c) => c.axis === axis && c.bucket === bucket && c.metric === "findings_per_pr");
+    assert.ok(cell, `${axis}=${bucket} must have a cell: pr-2 is in the population and belongs to that bucket`);
+    assert.equal(cell.n, 1, "one item is in the bucket");
+    assert.equal(cell.value, 0, "and it found nothing, which is a measured zero rather than an absence");
+    assert.equal(grid.census.find((c) => c.axis === axis).buckets_observed[bucket], 1);
+  }
+  // The census counts the axis's OWN unit, and says which: an item axis counts pull
+  // requests, so `S` is 1 item here and not the 1 finding on it.
+  const size = grid.census.find((c) => c.axis === "diff_size:scopeSize");
+  assert.equal(size.observed_unit, "items");
+  assert.deepEqual(size.buckets_observed, { S: 1, "size-unknown": 1 });
+  assert.equal(grid.census.find((c) => c.axis === "provenance").observed_unit, "items");
+  // A finding axis still counts findings, and an item with records is not counted
+  // once per record on an item axis.
+  const bySeverity = gridOf(
+    [panelRecord({ item: "pr-1" }), panelRecord({ item: "pr-1", line: 11 })],
+    { axisIds: ["severity", "provenance"], items, itemIds: ["pr-1", "pr-2"], minN: 1 },
+  );
+  assert.equal(bySeverity.census.find((c) => c.axis === "severity").observed_unit, "findings");
+  assert.equal(bySeverity.census.find((c) => c.axis === "severity").buckets_observed.minor, 2);
+  assert.equal(bySeverity.census.find((c) => c.axis === "provenance").buckets_observed.human, 1, "two findings on one item is one item");
+  // And K legs over the same items is still one observation per item: the ids are
+  // unioned across the legs, so a 3-replicate arm does not report three pull requests
+  // where there is one.
+  const threeLegs = scoreSegmentation({
+    arms: [
+      {
+        arm: "panel",
+        legs: ["k1", "k2", "k3"].map((run) => ({ run_id: run, item_ids: ["pr-1", "pr-2"], records: [panelRecord({ item: "pr-1", run })], corpus_version: "c1" })),
+      },
+    ],
+    geometry: GEOMETRY,
+    items,
+    axisIds: ["provenance"],
+    corpusVersion: "c1",
+    corpusItemIds: ["pr-1", "pr-2"],
+    minN: 1,
+  });
+  assert.deepEqual(threeLegs.census.find((c) => c.axis === "provenance").buckets_observed, { human: 1, "provenance-unrecognised": 1 });
+});
+
+test("the bucket names that must not collide are all checked, and the check can be proved to fire", () => {
+  // `pin`'s own argument, applied to this file's guard: it runs over frozen constants
+  // at import time, so without an exported check nothing could demonstrate it fires —
+  // and a guard nobody can prove fires is decoration. Six pairs, and the list is
+  // asserted by name so that dropping one is a red test rather than a quiet gap.
+  assert.deepEqual(
+    DISJOINT_BUCKETS.map(([name]) => name),
+    ["severity-unstated", "no-file", "not-annotated", "window-unstated", "size-unknown", "provenance-unrecognised"],
+  );
+  assert.equal(assertBucketsDisjoint(DISJOINT_BUCKETS), 6, "and the live constants are disjoint today");
+  // It fires on a collision in either kind of vocabulary — the ones imported from
+  // their owning modules and the ones re-typed in this file — and the live severity
+  // vocabulary is used for one of them rather than a stand-in.
+  assert.throws(() => assertBucketsDisjoint([["nit", KNOWN, "a colliding severity bucket"]]), /would be pooled under one bucket/);
+  assert.throws(() => assertBucketsDisjoint([["S", ["S", "M", "L"], "a colliding size bucket"]]), /would be pooled under one bucket/);
+  assert.throws(() => assertBucketsDisjoint([["human", ["human", "autonomous"], "a colliding provenance bucket"]]), /a colliding provenance bucket/);
+  assert.equal(assertBucketsDisjoint([["size-unknown", ["S", "M", "L"], "a bucket that does not collide"]]), 1);
+});
+
+test("a malformed leg is refused by name rather than iterated character by character", () => {
+  // `records: "abc"` used to reach `for (const r of leg.records)`, which walks a
+  // string and files three one-letter "findings". Absent still means empty, because a
+  // caller may legitimately pass neither field.
+  assert.throws(() => gridOf("not-an-array"), /records must be an array/);
+  assert.throws(
+    () => scoreSegmentation({ arms: [{ arm: "panel", legs: [{ run_id: "k1", item_ids: "pr-1", records: [] }] }], geometry: GEOMETRY, items: ITEMS, corpusVersion: "c1", corpusItemIds: ["pr-1"] }),
+    /item_ids must be an array/,
+  );
+  assert.match(
+    (() => {
+      try {
+        gridOf("nope", { run: "k9" });
+      } catch (e) {
+        return e.message;
+      }
+      return "";
+    })(),
+    /panel\/k9/,
+    "the refusal names the arm and the replicate, which a raw TypeError would not",
+  );
+  assert.doesNotThrow(() => scoreSegmentation({ arms: [{ arm: "panel", legs: [{ run_id: "k1" }] }], geometry: GEOMETRY, items: ITEMS, corpusVersion: "c1", corpusItemIds: ["pr-1"] }));
+});
+
+test("a density with no diff size leaves the denominator, and never reads as infinite", () => {
+  // `findings / 0` is either Infinity or a silent skip, so an item whose frozen size
+  // would not read is excluded from `findings_per_100_lines` and the `n` says so —
+  // while it stays in `findings_per_pr`, where the size is irrelevant.
+  const items = new Map([
+    ["pr-1", { item_id: "pr-1", additions: 10, deletions: 0, scope: "S", provenance: "human" }],
+    ["pr-2", { item_id: "pr-2", scope: "S", provenance: "human" }],
+  ]);
+  const grid = gridOf([panelRecord({ item: "pr-1" }), panelRecord({ item: "pr-2" })], { axisIds: ["provenance"], items, itemIds: ["pr-1", "pr-2"], minN: 1 });
+  const density = grid.cells.find((c) => c.metric === "findings_per_100_lines" && c.bucket === "human");
+  const perPr = grid.cells.find((c) => c.metric === "findings_per_pr" && c.bucket === "human");
+  assert.equal(density.n, 1, "only the item with a known size is in the density denominator");
+  assert.equal(perPr.n, 2, "both items are in the per-PR denominator, where size does not matter");
+  assert.ok(Number.isFinite(density.value) && density.value === 10, "1 finding over 10 lines is 10 per 100");
+  for (const cell of grid.cells) assert.equal(cell.value === Infinity, false, `${cell.segment} reports an infinite density`);
+});
+
+test("a cell whose denominator clears min_n and whose metric cannot answer is a DEFECT, not a suppression", () => {
+  // The documented refusal on the far side of the suppression branch: filing it as a
+  // thin cell would hide a metric that returned null over a full denominator.
+  assert.throws(
+    () => cellFrom({ metric: "m", axis: "a", bucket: "b", arm: "panel", unit: "findings", minN: 5, legs: [{ run_id: "k1", value: null, k: null, n: 9 }] }),
+    /clears min_n=5 and no replicate produced a finite value/,
+  );
+  // With one answering leg it is a cell again, and the answering leg is the one used.
+  const cell = cellFrom({ metric: "m", axis: "a", bucket: "b", arm: "panel", unit: "findings", minN: 5, legs: [{ run_id: "k1", value: null, k: null, n: 9 }, { run_id: "k2", value: 4, k: null, n: 9 }] });
+  assert.equal(cell.value, 4);
+  assert.equal(cell.value_from_replicate, "k2");
 });
 
 test("an item-axis cell narrows the item denominator too", () => {

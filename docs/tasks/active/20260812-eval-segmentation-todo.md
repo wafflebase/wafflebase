@@ -150,7 +150,7 @@ intended guard produces; nothing was weakened.
 
 ## The numbers — the pilot's grid, measured once with the code frozen
 
-```
+```sh
 node eval/segmentation.mjs --root <store> --corpus-version 2026-08-10-pilot-reviewed \
   --run-id pilot-01__k1 --run-id pilot-01__k2 --run-id pilot-01__k3
 ```
@@ -222,13 +222,13 @@ A sample of what survives both arms' suppression tests:
 
 ## Verification
 
-- [x] `agent:tests`, the real CI lane (two invocations since #774) — **1792 tests (1736
-      + 56), 1791 pass, 0 fail, 1 skipped**, against a freshly measured `main`
-      (`49b51885a`) at **1755 (1699 + 56) tests, 1754 pass, 0 fail, 1 skipped**. **+37**,
+- [x] `agent:tests`, the real CI lane (two invocations since #774) — **1797 tests (1741
+      + 56), 1796 pass, 0 fail, 1 skipped**, against a freshly measured `main`
+      (`49b51885a`) at **1755 (1699 + 56) tests, 1754 pass, 0 fail, 1 skipped**. **+42**,
       which is exactly this file's test count. Both trees were extracted with `git
       archive` and given identical `node_modules` symlinks **before either was measured**,
       so the single skip (the Agent SDK) is a property of both trees rather than an
-      environment artefact.
+      environment artefact. *(Was 1792 / +37 before the review round below.)*
 
       ⚠ **`eval/run.test.mjs` failed 2–3 rotating tests mid-session on BOTH trees, and it
       is not this change.** Another session was running its own mutation harness over the
@@ -239,10 +239,12 @@ A sample of what survives both arms' suppression tests:
       deregisters the worktree`, `the reaper is WIRED UP`), and clean again — 56/56 — once
       the other harness stopped. Not investigated further and not touched.
 - [x] `eslint scripts` exits **0** at the lockfile-pinned 9.24.0, on both trees.
-- [x] **Mutation testing: 54 mutations, 54 caught, 0 survivors** — and each by the test
-      that *claims* to prevent it, checked by test name rather than by the suite going
-      red. Three survived the first pass; all three were ineffective rather than
-      uncaught, and all three are written up above.
+- [x] **Mutation testing: 67 mutations, 66 caught, 1 ineffective** — 54 in the first
+      pass and 13 more over the review round's code, each caught by the test that
+      *claims* to prevent it, checked by test name rather than by the suite going red.
+      All 54 originals were re-run against the reworked module and still apply. Four
+      survived a first pass across the two rounds; all four were **ineffective rather
+      than uncaught**, and all four are written up above and below.
 - [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not the
       working copy; both new files are byte-identical between the two.
 - [x] Measured against the real store **once, with the code frozen**, and the whole run
@@ -264,3 +266,66 @@ A sample of what survives both arms' suppression tests:
 - [ ] **Not verified: any figure a label would produce.** Precision, recall and defect
       type are Wave 5/6 and no adjudicated labels exist. This scorer segments behaviour,
       not quality.
+
+---
+
+## Review round 1 — four findings, all four reproduced first
+
+*Appended after review on the open pull request. Every finding was checked against the
+PR head's own tree before anything was changed; the head's tree matched the local commit
+exactly, so the working copy was the reviewed code.*
+
+**🔴 1. An item with no finding fell out of the grid entirely — valid, and worse than
+reported.** Item buckets were read off the RECORDS, so an item the reviewer found nothing
+in never made its bucket "observed", and a fault bucket only becomes a cell once
+something is observed in it. Reproduced before fixing: an item with no frozen size and no
+finding appeared in **no cell of the size axis, no per-PR denominator on that axis, and no
+census row** — total silent loss of exactly the item the `size-unknown` bucket exists to
+show. The same held for an unrecognised provenance.
+
+An item axis now reads its buckets off the **item list**, unioned across the legs. That
+union is load-bearing twice: it counts an item the reviewer found nothing in, and it
+counts an item once rather than once per replicate.
+
+**The fix also corrected a unit error the finding did not mention.** `buckets_observed`
+counted *records* on every axis, including the two whose buckets are properties of a
+*pull request* — so the size axis reported `{"S":1}` meaning one finding, on an axis whose
+denominators are items. It now counts items on an item axis and findings on a finding
+axis, and `observed_unit` names which. On the pilot the two differ by 20×
+(`{"L":4,"M":2,"S":1}` items, against the record counts it printed before).
+
+**No published cell moved.** All 149 cells are byte-identical to the reviewed head —
+76 reported, 73 withheld, 22 of 53 two-arm segments comparable — because the pilot's seven
+items all have a frozen size and a recognised provenance. The defect was latent here and
+total wherever it fired.
+
+**2. A malformed leg was iterated instead of refused — valid.** `records: "abc"` reached
+`for (const r of leg.records)`, which walks a **string** and files three one-letter
+findings. Four of the five read sites guarded, one did not, which is how one gets missed.
+`records` and `item_ids` are now normalised once at the entry — absent still means empty,
+a non-array is refused **by arm and replicate id** — and the redundant inline guards are
+gone so there is one source of truth.
+
+**3. The collision guard covered four vocabularies of six — valid, and it was
+unprovable.** `SIZE_UNKNOWN` and `PROVENANCE_UNRECOGNISED` were declared *after* the
+guard, so they were never checked. Both are now in it, and the guard is `DISJOINT_BUCKETS`
+plus an exported `assertBucketsDisjoint` — because a guard that runs over frozen
+constants at import time cannot otherwise be shown to fire, which is `pin`'s own argument
+and the reason a test can now prove it. Adding the two rows alone would have been
+decoration: the mutation that deletes a row is only catchable because the list is
+exported and asserted by name.
+
+**4. Two documented paths had no test — valid.** The refusal on the far side of the
+suppression branch (every leg clears `min_n`, no leg produces a finite value → a defect,
+not a suppression) and the density denominator dropping an item whose size will not read.
+Both now have direct tests; the second asserts the item stays in `findings_per_pr`, where
+size is irrelevant, while leaving `findings_per_100_lines`.
+
+**The nitpick on the fence** (a bare ``` around the command above) is fixed: it is `sh`.
+
+**One mutation survives, and it is ineffective rather than uncaught.** Making `linesOf`
+return `0` instead of `null` changes nothing observable, because the guard reading it is
+`!Number.isFinite(lines) || lines === 0` — the second half catches what the first would
+have. The effective mutation of that guard, disabling both halves, **is** caught. Proving
+that cost one read of the line and is why it is recorded rather than papered over with a
+test that would have asserted nothing.
