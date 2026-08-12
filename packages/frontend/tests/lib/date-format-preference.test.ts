@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_DATE_FORMAT,
@@ -37,5 +37,42 @@ describe("date format preference", () => {
     setDateFormat("exact");
     window.removeEventListener("wafflebase-date-format-change", handler);
     expect(notified).toBe(1);
+  });
+
+  it("falls back to the default when storage throws on read", () => {
+    setDateFormat(DEFAULT_DATE_FORMAT);
+    const spy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+    try {
+      // Reading is the `useSyncExternalStore` snapshot, so this runs during
+      // render — it must never throw.
+      expect(getDateFormat()).toBe(DEFAULT_DATE_FORMAT);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps the preference for the session when storage is unwritable", () => {
+    const setSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+    const getSpy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+    try {
+      expect(() => setDateFormat("exact")).not.toThrow();
+      expect(getDateFormat()).toBe("exact");
+    } finally {
+      setSpy.mockRestore();
+      getSpy.mockRestore();
+    }
+    setDateFormat(DEFAULT_DATE_FORMAT);
   });
 });

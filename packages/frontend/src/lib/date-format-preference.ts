@@ -27,15 +27,42 @@ function isFormat(value: unknown): value is DateDisplayFormat {
   return value === "relative" || value === "exact";
 }
 
+/**
+ * In-memory mirror of the preference, consulted only when `localStorage` is
+ * unreadable or unwritable. It keeps a choice made in an environment without
+ * storage applied for the rest of the session — it just does not survive a
+ * reload.
+ */
+let memoryFormat: DateDisplayFormat | null = null;
+
 /** The stored preference, falling back to the default on absent/junk values. */
 export function getDateFormat(): DateDisplayFormat {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return isFormat(stored) ? stored : DEFAULT_DATE_FORMAT;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (isFormat(stored)) return stored;
+  } catch {
+    // Touching `localStorage` throws outright (SecurityError) in Safari
+    // private mode, with third-party/blocked storage, and in sandboxed
+    // iframes. This function is the `useSyncExternalStore` snapshot, so it
+    // runs during render of the documents list — a throw here would blank
+    // the whole list rather than lose a display preference.
+  }
+  return memoryFormat ?? DEFAULT_DATE_FORMAT;
 }
 
 /** Persist the preference and notify every subscriber in this tab. */
 export function setDateFormat(format: DateDisplayFormat): void {
-  localStorage.setItem(STORAGE_KEY, format);
+  // Set before the write so the preference still applies when storage is
+  // unavailable: `getDateFormat` reads storage first and falls back here.
+  memoryFormat = format;
+  try {
+    localStorage.setItem(STORAGE_KEY, format);
+  } catch {
+    // Same environments as above. Throwing out of the Settings `Select`'s
+    // `onValueChange` would leave the control showing the old value with no
+    // explanation; degrading to a session-only preference is the graceful
+    // failure.
+  }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
