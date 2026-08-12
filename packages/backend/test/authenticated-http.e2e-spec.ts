@@ -371,6 +371,14 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
     expect(listResponse.body).toHaveLength(1);
     expect(listResponse.body[0].credentials).toBe('********');
 
+    // Ownership is checked before the query ever reaches BigQuery, so this
+    // is safe to assert without a real project/network call.
+    await request(app.getHttpServer())
+      .post(`/bigquery/${sourceId}/query`)
+      .set('Cookie', authCookie(other))
+      .send({ query: 'SELECT 1' })
+      .expect(403);
+
     await request(app.getHttpServer())
       .delete(`/bigquery/${sourceId}`)
       .set('Cookie', authCookie(other))

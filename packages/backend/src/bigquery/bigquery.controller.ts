@@ -15,6 +15,7 @@ import {
   UpdateBigQuerySourceDto,
   TestBigQueryConnectionDto,
 } from './bigquery.dto';
+import { ExecuteQueryDto } from '../datasource/datasource.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
 import { WorkspaceService } from '../workspace/workspace.service';
@@ -114,5 +115,19 @@ export class BigQueryController {
       Number(req.user.id),
     );
     return this.bigQueryService.testConnection(id);
+  }
+
+  @Post('bigquery/:id/query')
+  async executeQuery(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: ExecuteQueryDto,
+  ) {
+    const source = await this.bigQueryService.findRaw(id);
+    await this.workspaceService.assertMember(
+      source.workspaceId,
+      Number(req.user.id),
+    );
+    return this.bigQueryService.executeQuery(id, dto);
   }
 }
