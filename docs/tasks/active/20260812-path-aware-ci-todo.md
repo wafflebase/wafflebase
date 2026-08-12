@@ -14,26 +14,52 @@ Separately: **nothing gates deployment on CI today.** `publish-ghpage.yml` and
 they race ci.yml. A red `main` publishes. Path filtering does not weaken that
 gate; it exposes that the gate is absent.
 
-## Phase 1: The resolver, unused
+## Phase 1: The resolver, unused ✅
 
-- [ ] 1.1 `harness.config.json` — new `"ci"` key: `inert` entries + `ciConfig` globs
-- [ ] 1.2 `scripts/changed-areas.mjs` — base resolution per event, changed-path
+- [x] 1.1 `harness.config.json` — new `"ci"` key: `inert` entries + `ciConfig` globs
+- [x] 1.2 `scripts/changed-areas.mjs` — base resolution per event, changed-path
       read, reverse-dependency closure over the pnpm workspace graph, fail-safe
       `full: true`, `GITHUB_OUTPUT` writer
-- [ ] 1.3 `scripts/changed-areas.test.mjs` — one case per `full: true` path, plus
-      closure cases and a "new top-level directory ⇒ full" fixture
-- [ ] 1.4 `.github/CODEOWNERS` — own `ci.yml`, `harness.config.json`,
+- [x] 1.3 `scripts/test/changed-areas.test.mjs` — one case per `full: true` path,
+      plus closure cases and a "new top-level directory ⇒ full" fixture
+- [x] 1.4 `.github/CODEOWNERS` — own `ci.yml`, `harness.config.json`,
       `changed-areas.mjs`, `verify-self.mjs` (note: `agent-*.yml` does **not**
-      match `ci.yml`, so the CI gating surface is currently unowned)
+      match `ci.yml`, so the CI gating surface was unowned until this)
+- [x] 1.5 **Unplanned:** a `scripts:tests` lane. `scripts/test/` was run by
+      nothing — `agent:tests` covers only `scripts/agent/` and `verify:fast`
+      reaches neither, so `verify-entropy.test.mjs` had never been executed by
+      CI. Without this, the resolver's own suite would have been orphaned too.
 
-## Phase 2: verify-self decomposition, no filtering
+## Phase 2: verify-self decomposition ✅
 
-- [ ] 2.1 Split `verify:fast`'s `&&` chain into per-package `LANES` entries
-- [ ] 2.2 Add `needs` per lane + transitive-closure selection
-- [ ] 2.3 Add a `documentation:build` lane — **no CI lane builds
-      `packages/documentation` today**; a broken VitePress build is caught only
-      by `publish-ghpage.yml` at deploy time, which Phase 4 makes unacceptable
-- [ ] 2.4 Keep `pnpm verify:fast` working as a human alias
+- [x] 2.1 Split `verify:fast`'s `&&` chain into per-package `LANES` entries
+      (12 lanes → 27)
+- [x] 2.2 Add `pkgs`/`tags`/`anyPkg` selectors + `needs` with transitive-closure
+      selection, and a startup assertion that no `needs` edge points forward
+- [x] 2.3 Add a `documentation:build` lane — **no CI lane built
+      `packages/documentation`**; a broken VitePress build was caught only by
+      `publish-ghpage.yml` at deploy time, which Phase 4 makes unacceptable
+- [x] 2.4 Keep `pnpm verify:fast` working unchanged as the pre-commit gate
+- [x] 2.5 `status: "filtered"`, distinct from `skip`, plus the `overall` fix
+      (`some(fail)`, not `every(pass)` — the old form reports `fail` on any run
+      with a filtered lane, which would have made every filtered PR red)
+- [x] 2.6 `scripts/test/verify-self-lanes.test.mjs` — asserts the real lane graph
+      (read via `--print-lanes`, not imported): backward `needs` edges, every
+      `pkgs` entry a real package, every package covered by a lane, only the
+      enumerated lanes selector-less, and that no lane is ever selected without
+      its prerequisite chain
+
+### Lane `needs` established per package, not assumed
+
+- No engine package has tsconfig `paths`, so `@wafflebase/x` in
+  sheets/docs/slides/board/cli resolves through `exports` to that package's `dist/`.
+- The frontend aliases sheets/docs/notes/slides/board to `src/` in
+  `vite.config.ts` and does **not** alias core — so its lanes need `core:build`
+  and nothing else.
+- The backend's jest `moduleNameMapper` maps every workspace import, core
+  included, to `src/` — so `backend:test` needs no build. `backend:build` does.
+- `notes` and `design-editor` declare no workspace dependency, so they are the
+  two lanes that run against a tree with nothing built.
 
 ## Phase 3: The two heavy jobs
 

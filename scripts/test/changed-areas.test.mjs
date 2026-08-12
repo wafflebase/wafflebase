@@ -241,8 +241,23 @@ test("laneSelected", async (t) => {
   const resolved = { full: false, packages: ["notes", "frontend"], tags: ["agent"] };
 
   await t.test("matches on package", () => {
-    assert.equal(laneSelected({ name: "notes:check", pkg: "notes" }, resolved), true);
-    assert.equal(laneSelected({ name: "sheets:check", pkg: "sheets" }, resolved), false);
+    assert.equal(laneSelected({ name: "notes:check", pkgs: ["notes"] }, resolved), true);
+    assert.equal(laneSelected({ name: "sheets:check", pkgs: ["sheets"] }, resolved), false);
+  });
+
+  await t.test("matches on any one of several packages", () => {
+    const dts = { name: "verify:dts", pkgs: ["core", "sheets", "docs", "notes"] };
+    assert.equal(laneSelected(dts, resolved), true);
+  });
+
+  await t.test("anyPkg matches whenever some package changed", () => {
+    const entropy = { name: "verify:entropy", anyPkg: true };
+    assert.equal(laneSelected(entropy, resolved), true);
+    assert.equal(
+      laneSelected(entropy, { full: false, packages: [], tags: ["agent"] }),
+      false,
+      "anyPkg must not fire when only non-package areas changed",
+    );
   });
 
   await t.test("matches on tag", () => {

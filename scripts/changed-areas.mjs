@@ -393,11 +393,71 @@ export function resolve(env = process.env, repoRoot = REPO_ROOT) {
   return classify(files, ci, graph);
 }
 
-/** True when `lane` must run, given a resolution. Prerequisites are not considered here. */
+/**
+ * True when `lane` is selected on its own merits. Prerequisites are NOT
+ * considered here — `selectLaneNames` closes over those.
+ *
+ * `pkgs` names the packages a lane is *about*, not everything it can be broken
+ * by: the resolution's `packages` is already a reverse closure, so a lane about
+ * `frontend` is selected by a change to `core` without listing `core` here.
+ */
 export function laneSelected(lane, resolved) {
   if (resolved.full) return true;
-  if (lane.pkg && resolved.packages.includes(lane.pkg)) return true;
+  if ((lane.pkgs ?? []).some((p) => resolved.packages.includes(p))) return true;
+  if (lane.anyPkg && resolved.packages.length > 0) return true;
   return (lane.tags ?? []).some((t) => resolved.tags.includes(t));
+}
+
+/**
+ * The set of lane names to run: everything selected on its own merits, plus the
+ * transitive closure of their `needs`.
+ *
+ * The closure is the part that is easy to leave out and expensive to leave out.
+ * `frontend:test` resolves `@wafflebase/core` through that package's `exports`
+ * to its gitignored `dist/`, so selecting it without `core:build` does not run a
+ * smaller suite — it runs a broken one, and the failure looks like a bug in the
+ * change under test rather than in the selection.
+ */
+export function selectLaneNames(lanes, resolved) {
+  if (resolved.full) return new Set(lanes.map((l) => l.name));
+
+  const byName = new Map(lanes.map((l) => [l.name, l]));
+  const selected = new Set();
+  const add = (name) => {
+    if (selected.has(name)) return;
+    selected.add(name);
+    for (const need of byName.get(name)?.needs ?? []) add(need);
+  };
+  for (const lane of lanes) {
+    if (laneSelected(lane, resolved)) add(lane.name);
+  }
+  return selected;
+}
+
+/**
+ * Every `needs` edge that points at an unknown lane, or at one declared LATER in
+ * the array.
+ *
+ * The runner executes `lanes` in array order, so a forward edge is a lane whose
+ * prerequisite has not been built yet. Nothing about the selection logic catches
+ * that — the closure would happily select both and then run them in the wrong
+ * order — so it is asserted instead, and asserted over the real array by
+ * `scripts/test/verify-self-lanes.test.mjs`.
+ */
+export function laneOrderViolations(lanes) {
+  const seen = new Set();
+  const bad = [];
+  for (const lane of lanes) {
+    for (const need of lane.needs ?? []) {
+      if (!lanes.some((l) => l.name === need)) {
+        bad.push(`${lane.name} needs unknown lane ${need}`);
+      } else if (!seen.has(need)) {
+        bad.push(`${lane.name} needs ${need}, which is declared later`);
+      }
+    }
+    seen.add(lane.name);
+  }
+  return bad;
 }
 
 // --- CLI: write the resolution to GITHUB_OUTPUT (and stdout for humans) ---
