@@ -422,6 +422,86 @@ describe('fpxOf', () => {
   });
 });
 
+// --- THE ANCHOR-STABILITY GUARD --------------------------------------------
+
+describe('fp/fpx are frozen values, not incidental ones', () => {
+  /**
+   * HARDCODED HASHES, ON PURPOSE. An anchor is `{path, tag, fp, fpx}` and it is
+   * STORED — in a pending edit, in a transaction log, in a client that has not
+   * reloaded. So `fp` and `fpx` are a wire format: any change to the bytes hashed
+   * into them silently invalidates every anchor already written down, and the
+   * failure surfaces later as "your edit could not be located" with no pointer
+   * back to the commit that caused it.
+   *
+   * The values below were captured by running this fixture set against
+   * `4ccbd8656` — before `classNameExpr` existed. They are what makes the
+   * ADDITIVE claim checkable rather than asserted: the new field is read out of
+   * the same `attrsOf` call that feeds `fpOf`, and one extra name in that
+   * destructure reaching the hash payload would change all 40 lines here.
+   *
+   * A deliberate change to the fingerprint scheme SHOULD fail this test. Re-record
+   * it in the same commit and say so — that is the point, not an obstacle.
+   */
+  const FROZEN = {
+    // The four editable-blob shapes are byte-identical under BOTH hashes: `fp`
+    // excludes class content, and `fpx` sees the same resolved tokens whether
+    // they were written bare, braced, templated, or inside `cn()`. Rewriting
+    // `className="p-2 flex"` as `className={cn("p-2 flex", x)}` therefore keeps
+    // every stored anchor valid.
+    'plain literal': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f eb23554e', '0.0 b 3ffb9405 e0ba70ef'],
+    'braced literal': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f eb23554e', '0.0 b 3ffb9405 e0ba70ef'],
+    'template literal': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f eb23554e', '0.0 b 3ffb9405 e0ba70ef'],
+    'cn joiner': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f eb23554e', '0.0 b 3ffb9405 e0ba70ef'],
+    // No attributable blob: same `fp` as above (the attribute NAME is present
+    // either way), and an `fpx` computed over no class tokens.
+    'non-joiner call': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f cbb1aa6c', '0.0 b 3ffb9405 e0ba70ef'],
+    'bare identifier': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f cbb1aa6c', '0.0 b 3ffb9405 e0ba70ef'],
+    'bare attribute': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f cbb1aa6c', '0.0 b 3ffb9405 e0ba70ef'],
+    'empty braces': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f cbb1aa6c', '0.0 b 3ffb9405 e0ba70ef'],
+    // Dropping the attribute changes `fp` itself — `attrNames` is hashed.
+    'no className': ['- #returns 5df8fdfc 3e22f841', '0 div c971b93e 798d1169', '0.0 b 3ffb9405 e0ba70ef'],
+    'duplicate className': ['- #returns 5df8fdfc 3e22f841', '0 div f62d6d74 28229f9d', '0.0 b 2346673c c8f36efe'],
+    'nested + map': ['- #returns 5df8fdfc f2730f1e', '0 ul 34d82812 d3d1b984', '0.0 li 3a273f92 c59ad441'],
+    'conditional child': ['- #returns 5df8fdfc 3e22f841', '0 div 0184d92f 9d897f27', '0.0 span 071ab0b6 8005e494'],
+    'fragment root': ['- #returns 5df8fdfc edc70add', '0 a 2bd338bc d4de0aeb', '1 a 2bd338bc a6b342e3'],
+    'two returns': ['- #returns 5df8fdfc b3843468', '0 p 60d8f3cc 90b4e389', '1 div 0184d92f ba09822a'],
+    'identity attrs': ['- #returns 5df8fdfc edc9ad7f', '0 a 90203349 0b8baba4'],
+    spread: ['- #returns 5df8fdfc 3e22f841', '0 div b52c06f9 f84c56dc'],
+  };
+
+  const FIXTURES = {
+    'plain literal': `function C(){ return <div className="p-2 flex"><b id="x">hi</b></div>; }`,
+    'braced literal': `function C(){ return <div className={"p-2 flex"}><b id="x">hi</b></div>; }`,
+    'template literal': 'function C(){ return <div className={`p-2 flex`}><b id="x">hi</b></div>; }',
+    'cn joiner': `function C(){ return <div className={cn("p-2 flex", other)}><b id="x">hi</b></div>; }`,
+    'non-joiner call': `function C(){ return <div className={t("nav.home")}><b id="x">hi</b></div>; }`,
+    'bare identifier': `function C(){ return <div className={other}><b id="x">hi</b></div>; }`,
+    'bare attribute': `function C(){ return <div className><b id="x">hi</b></div>; }`,
+    'empty braces': `function C(){ return <div className={}><b id="x">hi</b></div>; }`,
+    'no className': `function C(){ return <div><b id="x">hi</b></div>; }`,
+    'duplicate className': `function C(){ return <div className={t("x")} className="p-2"><b/></div>; }`,
+    'nested + map': `function C(){ return <ul className="list">{items.map(d => <li className={cn("row", d.x)}>{d.n}</li>)}</ul>; }`,
+    'conditional child': `function C(){ return <div className="a">{open && <span className={styles.x}>x</span>}</div>; }`,
+    'fragment root': `function C(){ return <><a className="one"/><a className="two"/></>; }`,
+    'two returns': `function C(){ if (x) return <p className="early"/>; return <div className="late"/>; }`,
+    'identity attrs': `function C(){ return <a href="/x" role="link" aria-label="Go" className="u">Go</a>; }`,
+    spread: `function C(){ return <div {...rest} className="s"/>; }`,
+  };
+
+  for (const [name, src] of Object.entries(FIXTURES)) {
+    it(`is unchanged for: ${name}`, () => {
+      const lines = entriesOf(src).map(
+        (e) => `${e.path.join('.') || '-'} ${e.tag} ${e.fp} ${e.fpx}`,
+      );
+      expect(lines).toEqual(FROZEN[name]);
+    });
+  }
+
+  it('covers every fixture, so a dropped row cannot pass silently', () => {
+    expect(Object.keys(FIXTURES).sort()).toEqual(Object.keys(FROZEN).sort());
+  });
+});
+
 // --- resolveNode -----------------------------------------------------------
 
 describe('resolveNode', () => {
@@ -738,7 +818,106 @@ describe('attrsOf', () => {
 
   it('returns empty lists for the returns root', () => {
     const root = entriesOf(`function C(){ return <div/>; }`)[0];
-    expect(attrsOf(root.node)).toEqual({ names: [], identity: {}, className: null });
+    expect(attrsOf(root.node)).toEqual({
+      names: [],
+      identity: {},
+      className: null,
+      classNameExpr: null,
+    });
+  });
+});
+
+// --- the className / classNameExpr pair ------------------------------------
+
+describe('attrsOf classNameExpr', () => {
+  /** `[className, classNameExpr]` for the `<div>` in `src`. */
+  const pairOf = (src) => {
+    const { className, classNameExpr } = attrsOf(find(src, 'div').node);
+    return [className, classNameExpr];
+  };
+
+  /**
+   * `classLiteralOf` refuses to name a rewrite target it cannot attribute, which
+   * is correct and — before this field — INVISIBLE: `className={t("nav.home")}`
+   * reached the UI as `className: null`, indistinguishable from a node with no
+   * class attribute at all, so the editor offered an edit `applyClassRewrite`
+   * then refused. `classNameExpr` carries the text to show instead.
+   *
+   * The pair is a 2x2, and the tests below walk all four corners. Only ONE of
+   * them is locked; the trap this guards is reading `classNameExpr !== null` as
+   * "locked" and greying out the editable `cn("p-2", x)` blob.
+   */
+  it('is null for a plain literal — nothing is withheld', () => {
+    expect(pairOf(`function C(){ return <div className="p-2 flex"/>; }`)).toEqual(['p-2 flex', null]);
+  });
+
+  it('is null for a BRACED literal, which reads identically to the unbraced form', () => {
+    // The braces are the author's punctuation, not a restriction: `classLiteralOf`
+    // returns the same literal, so a read-only token here would claim there is
+    // something the designer cannot edit when there is not.
+    expect(pairOf(`function C(){ return <div className={"p-2 flex"}/>; }`)).toEqual(['p-2 flex', null]);
+    expect(pairOf('function C(){ return <div className={`p-2 flex`}/>; }')).toEqual(['p-2 flex', null]);
+    expect(pairOf(`function C(){ return <div className={("p-2 flex")}/>; }`)).toEqual(['p-2 flex', null]);
+  });
+
+  it('fills BOTH fields for a joiner call — an editable blob inside an expression', () => {
+    // NOT locked. The literal is a live rewrite target; the rest is the author's.
+    expect(pairOf(`function C(){ return <div className={cn("p-2", x)}/>; }`))
+      .toEqual(['p-2', 'cn("p-2", x)']);
+    expect(pairOf(`function C(){ return <div className={utils.cn("p-2")}/>; }`))
+      .toEqual(['p-2', 'utils.cn("p-2")']);
+  });
+
+  it('LOCKED: an expression with no attributable blob', () => {
+    // Each of these is refused by `applyClassRewrite`; each now has text to show.
+    expect(pairOf(`function C(){ return <div className={t("nav.home")}/>; }`))
+      .toEqual([null, 't("nav.home")']);
+    expect(pairOf(`function C(){ return <div className={styles.row}/>; }`))
+      .toEqual([null, 'styles.row']);
+    expect(pairOf(`function C(){ return <div className={a ? "yes" : "no"}/>; }`))
+      .toEqual([null, 'a ? "yes" : "no"']);
+    expect(pairOf('function C(){ return <div className={`p-2 ${x}`}/>; }'))
+      .toEqual([null, '`p-2 ${x}`']);
+    expect(pairOf(`function C(){ return <div className={cn(button({size:"sm"}))}/>; }`))
+      .toEqual([null, 'cn(button({size:"sm"}))']);
+  });
+
+  it('is null with no className attribute at all', () => {
+    expect(pairOf(`function C(){ return <div id="x"/>; }`)).toEqual([null, null]);
+  });
+
+  it('reads the FIRST className when an invalid duplicate is present', () => {
+    // A duplicate `className` is a TYPE error, not a parse error, so it reaches
+    // `attrsOf` intact. `classLiteralOf` answers for the first attribute; taking
+    // the expression from a later one would pair one attribute's literal with
+    // another's expression and describe a node that does not exist. Both orders,
+    // because only one of them is wrong in the dangerous direction.
+    expect(pairOf(`function C(){ return <div className="p-2" className={t("x")}/>; }`))
+      .toEqual(['p-2', null]);
+    expect(pairOf(`function C(){ return <div className={t("x")} className="p-2"/>; }`))
+      .toEqual([null, 't("x")']);
+  });
+
+  it('does NOT distinguish a valueless className from no className', () => {
+    // The documented hole in the pair, asserted so it stays a known shape rather
+    // than a surprise: both are `[null, null]`, which row 4 of the contract reads
+    // as "no attribute" — yet `applyClassRewrite` refuses them, since its test is
+    // `findJsxAttribute && !classLiteralOf`. `names` is what separates them, so a
+    // UI mirroring the refusal must test that instead.
+    for (const src of [
+      `function C(){ return <div className/>; }`,
+      `function C(){ return <div className={}/>; }`,
+    ]) {
+      expect(pairOf(src)).toEqual([null, null]);
+      expect(attrsOf(find(src, 'div').node).names).toContain('className');
+    }
+  });
+
+  it('returns the expression VERBATIM, newlines included', () => {
+    // Source text, not a display string. A UI rendering a single-line token has
+    // to collapse it; nothing downstream does that for it.
+    const src = `function C(){ return <div className={cn(\n  "p-2",\n  other,\n)}/>; }`;
+    expect(pairOf(src)).toEqual(['p-2', 'cn(\n  "p-2",\n  other,\n)']);
   });
 });
 
