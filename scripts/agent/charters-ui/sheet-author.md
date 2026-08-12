@@ -148,7 +148,7 @@ project has filed came from exactly this: read the stored style, click a control
 click it again, and predict the style equals the first reading.
 
 ```
-click B2 via sheet.cellCenter     (select a cell that HOLDS A VALUE)
+click B1 via sheet.cellCenter     (B1 holds "Label" — style a cell WITH CONTENT)
 read sheet.activeCellStyle        -> journal entry 9
 click Bold                        (no prediction needed)
 click Bold        expect sheet.activeCellStyle equals "@read:9"   ground A

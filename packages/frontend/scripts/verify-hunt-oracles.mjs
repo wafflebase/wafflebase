@@ -522,7 +522,27 @@ async function checkSheetToolbar(page, baseUrl) {
     problems.push(`sheet.cellCenter did not yield a clickable point for B1: ${JSON.stringify(centre.value ?? centre.error)}`);
     return problems;
   }
+  // Select somewhere ELSE first, so "the selection is B1" cannot be true by default.
+  // Without this the whole check passes vacuously when the click misses: Bold would
+  // style whatever happened to be selected, a patch would still appear, and every
+  // assertion below would hold while proving nothing about B1.
+  const away = await readReader(page, "sheet.cellCenter", ["A3"]);
+  if (away.ok && Number.isFinite(away.value?.x)) {
+    await page.mouse.click(away.value.x, away.value.y);
+  }
+  const parked = (await readReader(page, "sheet.activeCell", [])).value;
+  if (parked === "B1") {
+    problems.push("could not park the selection away from B1, so a missed click would be indistinguishable from a hit");
+    return problems;
+  }
+
   await page.mouse.click(centre.value.x, centre.value.y);
+
+  const landed = (await readReader(page, "sheet.activeCell", [])).value;
+  if (landed !== "B1") {
+    problems.push(`clicking B1's centre selected ${JSON.stringify(landed)} instead — the cell-targeting path the hunter depends on is broken`);
+    return problems;
+  }
 
   const before = (await readReader(page, "sheet.rangeStyles", [])).value;
   const beforeCount = Array.isArray(before) ? before.length : -1;
@@ -532,7 +552,6 @@ async function checkSheetToolbar(page, baseUrl) {
   }
 
   await page.getByRole("button", { name: "Bold" }).click();
-  await page.waitForTimeout(500);
 
   let after = null;
   const deadline = Date.now() + FIRE_DEADLINE_MS;
