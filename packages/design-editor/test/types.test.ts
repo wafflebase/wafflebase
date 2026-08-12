@@ -22,6 +22,7 @@ function node(tag: string, children: SceneNodeMeta[] = []): SceneNodeMeta {
     tag,
     attrs: [],
     className: null,
+    classNameExpr: null,
     identity: {},
     text: null,
     fp: `fp:${tag}`,
