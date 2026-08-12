@@ -1265,6 +1265,63 @@ test("END TO END: --no-require-repo-context degrades instead of refusing, and th
   }
 });
 
+// --- the result channel ------------------------------------------------------
+
+test("END TO END: the progress heartbeat reaches stderr and NOTHING reaches stdout", async () => {
+  // This file drives `main` in-process, so under `node --test` this process's
+  // stdout is the runner's result channel: v8-serialized frames the parent parses
+  // in `#processRawBuffer`. That parser re-checks for the `0xFF 0x0F` magic only
+  // at the top of a call, so plain text sitting behind a frame in the same read
+  // chunk is read as the next frame's 4-byte length — a large one stalls the
+  // stream and loses this file's remaining results, a small one deserializes
+  // garbage and throws `Unable to deserialize cloned data` in the parent. That is
+  // the `agent:tests` flake, and `run.mjs`'s heartbeat was its only source: the
+  // captured stream of this file carried 931 bytes of it, and nothing else.
+  //
+  // BOTH directions are asserted on purpose. Deleting the heartbeat would satisfy
+  // "stdout is clean" while removing the progress a minutes-long run exists to
+  // show, so the stderr assertion is what stops the cheap way out. `logs` is not
+  // the check: `runCli` redirects `console.log`, which the heartbeat never used.
+  const c = tempCorpus();
+  const seen = [];
+  const realOut = process.stdout.write;
+  const realErr = process.stderr.write;
+  // stdout is TEED, never swallowed — a patch that dropped writes here would
+  // discard the runner's own frames and corrupt the very stream this defends.
+  // stderr is swallowed, because the heartbeat is noise in a test lane.
+  process.stdout.write = function (chunk, ...rest) {
+    seen.push({ fd: 1, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return realOut.call(this, chunk, ...rest);
+  };
+  process.stderr.write = function (chunk) {
+    seen.push({ fd: 2, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return true;
+  };
+  try {
+    const { code } = await runCli(c.root, {});
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    assert.equal(code, 0);
+    const heartbeat = /→ .*: reviewing \(\d+ lenses/;
+    assert.ok(
+      seen.some((w) => w.fd === 2 && heartbeat.test(w.text)),
+      "the heartbeat must still report progress, on stderr",
+    );
+    // Scoped to the heartbeat rather than "stdout saw no bytes at all", because
+    // the runner's own frames legitimately travel this fd while a test runs.
+    const leaked = seen.filter((w) => w.fd === 1 && heartbeat.test(w.text));
+    assert.deepEqual(
+      leaked.map((w) => w.text),
+      [],
+      "stdout carries the test runner's v8 result frames; plain text there desynchronizes them",
+    );
+  } finally {
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    c.cleanup();
+  }
+});
+
 // --- the two spend guards ----------------------------------------------------
 
 test("END TO END: a panel that never exits is a panel-timeout, with its own reason", async () => {
