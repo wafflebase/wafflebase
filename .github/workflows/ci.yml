@@ -216,6 +216,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+      # vendor/ is verified OFFLINE against its manifest — no network, no second
+      # checkout. It is the check that survives once the mirror is deleted.
+      - run: node scripts/vendor-pipeline.mjs
       - id: drift
         continue-on-error: true
         run: node scripts/verify-pipeline-drift.mjs --pipeline-dir .pipeline-check
