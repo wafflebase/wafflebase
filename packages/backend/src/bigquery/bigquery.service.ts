@@ -1,12 +1,75 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { BigQuery } from '@google-cloud/bigquery';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import {
+  BigQuery,
+  BigQueryDate,
+  BigQueryDatetime,
+  BigQueryTime,
+  BigQueryTimestamp,
+  BigQueryInt,
+  Geography,
+} from '@google-cloud/bigquery';
 import { PrismaService } from 'src/database/prisma.service';
 import { encrypt, decrypt } from '../datasource/crypto.util';
+import {
+  validateSelectQuery,
+  wrapWithRowLimit,
+} from '../datasource/sql-validator';
+import { ExecuteQueryDto } from '../datasource/datasource.dto';
 import {
   CreateBigQuerySourceDto,
   TestBigQueryConnectionDto,
   UpdateBigQuerySourceDto,
 } from './bigquery.dto';
+
+const MAX_ROWS = 10_000;
+
+/**
+ * The wrapper classes the BigQuery client uses for DATE/DATETIME/TIME/
+ * TIMESTAMP/GEOGRAPHY/INT64 values all carry the raw server value on
+ * `.value` — unwrap those (and Buffer/Big.js instances the client also
+ * returns for BYTES/NUMERIC) into plain, JSON-friendly values recursively,
+ * so STRUCT/ARRAY nesting round-trips through `toCell` cleanly instead of
+ * rendering as `{"value":"..."}`.
+ */
+const VALUE_WRAPPER_CLASSES = [
+  BigQueryDate,
+  BigQueryDatetime,
+  BigQueryTime,
+  BigQueryTimestamp,
+  BigQueryInt,
+  Geography,
+];
+
+function unwrapBigQueryValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Buffer.isBuffer(value)) return value.toString('base64');
+  if (Array.isArray(value)) return value.map(unwrapBigQueryValue);
+
+  if (VALUE_WRAPPER_CLASSES.some((cls) => value instanceof cls)) {
+    return (value as { value: unknown }).value;
+  }
+
+  if (typeof value === 'object') {
+    // Big.js instances (NUMERIC/BIGNUMERIC) are duck-typed rather than
+    // imported, since `big.js` is only a transitive dependency here.
+    if (typeof (value as { toFixed?: unknown }).toFixed === 'function') {
+      return (value as { toString(): string }).toString();
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, val]) => [
+        key,
+        unwrapBigQueryValue(val),
+      ]),
+    );
+  }
+
+  return value;
+}
 
 /**
  * Connection settings ready to hand to the BigQuery client. The credentials
@@ -173,6 +236,61 @@ export class BigQueryService {
       return { success: true };
     } catch (error) {
       return { success: false, error: describeConnectionError(error) };
+    }
+  }
+
+  async executeQuery(id: string, dto: ExecuteQueryDto) {
+    const validation = validateSelectQuery(dto.query);
+    if (!validation.valid) {
+      throw new BadRequestException(validation.error);
+    }
+
+    const source = await this.prisma.bigQuerySource.findUnique({
+      where: { id },
+    });
+    if (!source) {
+      throw new NotFoundException('BigQuerySource not found');
+    }
+
+    const client = this.createClient(this.toConnectionConfig(source));
+    try {
+      const wrappedQuery = wrapWithRowLimit(dto.query, MAX_ROWS + 1);
+      const startTime = Date.now();
+      const [job] = await client.createQueryJob({
+        query: wrappedQuery,
+        location: source.location ?? undefined,
+        defaultDataset: source.dataset
+          ? { datasetId: source.dataset }
+          : undefined,
+        maximumBytesBilled:
+          source.maximumBytesBilled != null
+            ? source.maximumBytesBilled.toString()
+            : undefined,
+      });
+      const [rawRows, , apiResponse] = await job.getQueryResults();
+      const executionTime = Date.now() - startTime;
+
+      const truncated = rawRows.length > MAX_ROWS;
+      const rows = (truncated ? rawRows.slice(0, MAX_ROWS) : rawRows).map(
+        (row) => unwrapBigQueryValue(row),
+      ) as Array<Record<string, unknown>>;
+
+      return {
+        columns: (apiResponse?.schema?.fields ?? []).map((field) => ({
+          name: field.name!,
+          // A BigQuery type name (e.g. "STRING", "TIMESTAMP"), not a pg
+          // OID — the field is kept for shape parity with the datasource
+          // connector, since neither ReadOnlyStore nor the frontend
+          // currently consumes it for cell formatting.
+          dataTypeID: field.type!,
+        })),
+        rows,
+        rowCount: rows.length,
+        truncated,
+        executionTime,
+      };
+    } catch (error) {
+      throw new BadRequestException(describeConnectionError(error));
     }
   }
 

@@ -1,4 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BigQueryDate, BigQueryTimestamp } from '@google-cloud/bigquery';
 import { PrismaService } from 'src/database/prisma.service';
 import { encrypt } from '../datasource/crypto.util';
 import { BigQueryService } from './bigquery.service';
@@ -28,6 +29,17 @@ function createMockPrisma() {
 function createMockBigQueryClient() {
   return {
     createQueryJob: jest.fn().mockResolvedValue([{}, {}]),
+  };
+}
+
+function createMockJob(
+  rows: unknown[],
+  apiResponse: { schema?: { fields?: Array<{ name: string; type: string }> } },
+) {
+  return {
+    getQueryResults: jest
+      .fn()
+      .mockResolvedValue([rows, undefined, apiResponse]),
   };
 }
 
@@ -282,6 +294,191 @@ describe('BigQueryService', () => {
     expect(result).toEqual({
       success: false,
       error: 'Access Denied: Project my-project',
+    });
+  });
+
+  it('rejects invalid SQL before touching persistence', async () => {
+    await expect(
+      service.executeQuery('bq-1', { query: 'DELETE FROM users' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.bigQuerySource.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('throws not found when the source does not exist', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.executeQuery('bq-1', { query: 'SELECT 1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('wraps the query with a limit, passes cost/location settings, and maps the schema', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: 'analytics',
+      location: 'US',
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: 5_000_000_000n,
+    });
+
+    const rows = Array.from({ length: 10_001 }, (_, i) => ({ id: i + 1 }));
+    const job = createMockJob(rows, {
+      schema: { fields: [{ name: 'id', type: 'INTEGER' }] },
+    });
+    const client = { createQueryJob: jest.fn().mockResolvedValue([job]) };
+    const createClient = jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue(client);
+
+    const result = await service.executeQuery('bq-1', {
+      query: 'SELECT id FROM t',
+    });
+
+    expect(createClient).toHaveBeenCalledWith(
+      expect.objectContaining({ plaintextCredentials: CREDENTIALS_JSON }),
+    );
+    expect(client.createQueryJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'SELECT * FROM (SELECT id FROM t\n) AS _q LIMIT 10001',
+        defaultDataset: { datasetId: 'analytics' },
+        maximumBytesBilled: '5000000000',
+        location: 'US',
+      }),
+    );
+
+    expect(result.columns).toEqual([{ name: 'id', dataTypeID: 'INTEGER' }]);
+    expect(result.rowCount).toBe(10_000);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('does not let a trailing line comment in the query swallow the LIMIT wrapper', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: null,
+      location: null,
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: null,
+    });
+
+    const job = createMockJob([], { schema: { fields: [] } });
+    const client = { createQueryJob: jest.fn().mockResolvedValue([job]) };
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue(client);
+
+    await service.executeQuery('bq-1', {
+      query: 'SELECT id FROM t -- filter TODO',
+    });
+
+    const callArg = client.createQueryJob.mock.calls[0][0] as {
+      query: string;
+    };
+    // The wrapper clause must survive on its own line, not get commented out.
+    expect(callArg.query).toBe(
+      'SELECT * FROM (SELECT id FROM t -- filter TODO\n) AS _q LIMIT 10001',
+    );
+  });
+
+  it('omits defaultDataset and maximumBytesBilled when unset on the source', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: null,
+      location: null,
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: null,
+    });
+
+    const job = createMockJob([], { schema: { fields: [] } });
+    const client = { createQueryJob: jest.fn().mockResolvedValue([job]) };
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue(client);
+
+    await service.executeQuery('bq-1', { query: 'SELECT 1' });
+
+    const callArg = client.createQueryJob.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(callArg.defaultDataset).toBeUndefined();
+    expect(callArg.maximumBytesBilled).toBeUndefined();
+  });
+
+  it('unwraps BigQuery date/timestamp/struct values into plain JSON-friendly values', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: null,
+      location: null,
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: null,
+    });
+
+    const row = {
+      signed_up: new BigQueryDate('2024-01-01'),
+      profile: { verified_at: new BigQueryTimestamp('2024-01-02T03:04:05Z') },
+      tags: ['a', 'b'],
+    };
+    const job = createMockJob([row], { schema: { fields: [] } });
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue({ createQueryJob: jest.fn().mockResolvedValue([job]) });
+
+    const result = await service.executeQuery('bq-1', {
+      query: 'SELECT * FROM t',
+    });
+
+    expect(result.rows).toEqual([
+      {
+        signed_up: '2024-01-01',
+        profile: { verified_at: '2024-01-02T03:04:05.000Z' },
+        tags: ['a', 'b'],
+      },
+    ]);
+  });
+
+  it('converts a failed query into a BadRequestException with a reason', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: null,
+      location: null,
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: null,
+    });
+
+    const client = {
+      createQueryJob: jest
+        .fn()
+        .mockRejectedValue(new Error('Syntax error: Unexpected keyword FROM')),
+    };
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue(client);
+
+    await expect(
+      service.executeQuery('bq-1', { query: 'SELECT * FROM FROM' }),
+    ).rejects.toMatchObject({
+      message: 'Syntax error: Unexpected keyword FROM',
     });
   });
 });
