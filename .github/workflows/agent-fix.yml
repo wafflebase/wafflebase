@@ -30,6 +30,16 @@ on:
 
 permissions: {}
 
+env:
+  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
+  # in the working directory. Since the pipeline moved to its own repo, the
+  # trusted checkout lands in a scratch path that is then deleted — which removed
+  # the only .git in the workspace, and every step that runs before the PR-branch
+  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
+  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
+  # this exact reason; it was the one workflow the regression did not reach.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   route:
     if: >-
