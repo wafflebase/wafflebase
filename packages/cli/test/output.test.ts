@@ -266,6 +266,54 @@ describe('errorEnvelope / backendErrorEnvelope', () => {
     ).toEqual({ error: { code: 'HTTP_ERROR', message: 'HTTP 500' } });
   });
 
+  // The backend has no global exception filter, so most failures arrive in
+  // Nest's default shape — the reason at the top level, `error` a bare
+  // reason phrase. These paths used to print the body verbatim, so reading
+  // only a nested `error.message` would silently drop the server's text.
+  it("keeps the server's message from Nest's default error shape", () => {
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(
+          { statusCode: 404, message: 'Document not found', error: 'Not Found' },
+          { code: 'HTTP_ERROR', message: 'HTTP 404' },
+          'docs.content',
+        ),
+      ),
+    ).toEqual({
+      error: {
+        code: 'HTTP_ERROR',
+        message: 'Document not found',
+        command: 'docs.content',
+      },
+    });
+  });
+
+  it('joins a validation `message` array instead of dropping it', () => {
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(
+          {
+            statusCode: 400,
+            message: ['title must be a string', 'title should not be empty'],
+            error: 'Bad Request',
+          },
+          { code: 'HTTP_ERROR', message: 'HTTP 400' },
+        ),
+      ).error.message,
+    ).toBe('title must be a string; title should not be empty');
+  });
+
+  it('falls back to a bare `error` string when there is no message', () => {
+    expect(
+      JSON.parse(
+        backendErrorEnvelope(
+          { statusCode: 403, error: 'Forbidden' },
+          { code: 'HTTP_ERROR', message: 'HTTP 403' },
+        ),
+      ).error.message,
+    ).toBe('Forbidden');
+  });
+
   // Attribution is the CLI's own statement about which command it ran. A
   // server that echoes a `command` must not be able to relabel the failure.
   it('never lets the server dictate `command`', () => {

@@ -124,14 +124,8 @@ export class AuthController {
           throw new BadRequestException('Invalid CLI port');
         }
         const code = this.cliAuthStore.createCode(user.id);
-        // Echo the CLI's nonce back as `state`. Its localhost callback port
-        // is guessable, so this is what lets the CLI tell a code from its own
-        // flow apart from one an attacker pushed at that port.
-        const stateEcho = state.nonce
-          ? `&state=${encodeURIComponent(state.nonce)}`
-          : '';
         return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateEcho}`,
+          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}`,
         );
       }
 

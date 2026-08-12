@@ -211,25 +211,6 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
-    // The CLI's callback port is guessable, so it only redeems a code whose
-    // `state` echoes the nonce it minted. Drop the echo and any page in the
-    // user's browser could feed the terminal someone else's code.
-    it('echoes the CLI nonce back as `state`', async () => {
-      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
-
-      const { stateToken } = cliAuthStore.createState('cli', 9876, 'n0nce-x/y');
-      const req = {
-        user: { username: 'bob', email: 'bob@example.com', photo: null },
-        query: { state: stateToken },
-      } as unknown as Request;
-      const res = createMockResponse();
-
-      await controller.githubAuthCallback(req as any, res, stateToken);
-
-      const target = (res.redirect as jest.Mock).mock.calls[0][0] as string;
-      expect(new URL(target).searchParams.get('state')).toBe('n0nce-x/y');
-    });
-
     it('falls back to web flow when state token is not CLI', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({

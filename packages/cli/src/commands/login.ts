@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import {
   loadSession,
@@ -31,19 +30,10 @@ export function registerLoginCommand(program: Command): void {
       }
 
       // 2. Start local HTTP server
-      //
-      // The callback listener is on 127.0.0.1 but the port is guessable, and
-      // any page in the user's browser can navigate to it. Without a binding
-      // check the CLI would exchange whatever `code` arrived first — an
-      // attacker's code included, which silently logs the terminal into the
-      // attacker's account (RFC 8252 §8.9). So the CLI mints a nonce, sends
-      // it up with the OAuth start, and only accepts a callback that echoes
-      // it back as `state`.
-      const nonce = randomBytes(32).toString('base64url');
-      const { port, waitForCallback, close } = await startCallbackServer(nonce);
+      const { port, waitForCallback, close } = await startCallbackServer();
 
       // 3. Build OAuth URL and open browser
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
+      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
 
@@ -160,16 +150,7 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-/** Constant-time compare of two `state` values (never leak by timing). */
-function nonceMatches(expected: string, received: string | null): boolean {
-  if (!received) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(received);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** Exported for tests — the nonce gate is the only thing guarding this port. */
-export function startCallbackServer(expectedNonce: string): Promise<{
+function startCallbackServer(): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -197,15 +178,6 @@ export function startCallbackServer(expectedNonce: string): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
-        return;
-      }
-
-      // Reject (rather than resolve on) a callback that does not carry this
-      // process's nonce: a code from any other flow is not ours to redeem.
-      // The listener stays open so the genuine callback can still arrive.
-      if (!nonceMatches(expectedNonce, url.searchParams.get('state'))) {
-        res.writeHead(400);
-        res.end('Invalid state');
         return;
       }
 

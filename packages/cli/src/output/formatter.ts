@@ -83,20 +83,45 @@ export function errorEnvelope(
 }
 
 /**
+ * A backend body's error text, if it carries any.
+ *
+ * Nest's `ValidationPipe` puts a list of failures in `message`, so an array
+ * of strings is a message too — joining beats dropping it.
+ */
+function messageText(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (Array.isArray(value)) {
+    const parts = value.filter(
+      (part): part is string => typeof part === 'string' && part.length > 0,
+    );
+    if (parts.length > 0) return parts.join('; ');
+  }
+  return undefined;
+}
+
+/**
  * The same envelope, built from a backend error body.
  *
  * The upstream `error` object's own fields are preserved — agents branch on
  * `code`, and endpoints attach extra context alongside it — but never its
  * `command`: attribution is the CLI's statement about which command *it*
- * ran, so a server cannot forge it. Anything that is not a backend-shaped
- * `{ error: { … } }` body falls back to the caller's code/message.
+ * ran, so a server cannot forge it.
+ *
+ * Only `docs-content.controller.ts` hand-builds the `{ error: { … } }`
+ * shape; there is no global exception filter, so most backend failures
+ * arrive as Nest's default `{ statusCode, message, error: "Not Found" }`,
+ * where the reason lives at the *top* level and `error` is a bare string.
+ * Reading `message` (then the `error` string) off the body keeps that text
+ * instead of flattening every such failure to `HTTP <status>`, which is
+ * what the call sites printed verbatim before they moved onto this path.
  */
 export function backendErrorEnvelope(
   data: unknown,
   fallback: { code: string; message: string },
   command?: string,
 ): string {
-  const raw = (data as { error?: unknown } | null | undefined)?.error;
+  const body = data as Record<string, unknown> | null | undefined;
+  const raw = body?.error;
   const fields: Record<string, unknown> =
     raw && typeof raw === 'object' && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
@@ -105,9 +130,10 @@ export function backendErrorEnvelope(
   const code =
     typeof fields.code === 'string' && fields.code ? fields.code : fallback.code;
   const message =
-    typeof fields.message === 'string' && fields.message
-      ? fields.message
-      : fallback.message;
+    messageText(fields.message) ??
+    messageText(body?.message) ??
+    messageText(raw) ??
+    fallback.message;
   return JSON.stringify({
     error: { ...fields, code, message, ...(command ? { command } : {}) },
   });
