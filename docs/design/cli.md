@@ -1033,8 +1033,8 @@ is the agent interface. This approach has key advantages:
   notices are display output; the envelope is the machine-readable
   failure signal, and stderr already survives stdout redirection.
   Every emitter builds it through `errorEnvelope` / `backendErrorEnvelope`
-  in `src/output/formatter.ts` (`outputError` included), so "one line,
-  attributed" holds on the paths that never throw either: the
+  in `packages/cli/src/output/formatter.ts` (`outputError` included), so
+  "one line, attributed" holds on the paths that never throw either: the
   import/upload/download orchestrators, the backend-error passthroughs on
   `docs`/`notes`/`slides` content and export, and `schema`'s lookup miss.
   A backend error body keeps its `code` and any extra context — agents
