@@ -262,8 +262,11 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- `pipeline-drift` job is independent and never gated: it checks `scripts/agent/`
-  against the pinned `wafflebase/agent-pipeline` commit.
+- `pipeline-drift` job is independent and never path-gated: it checks
+  `scripts/agent/` against the pinned `wafflebase/agent-pipeline` commit. It is
+  the correctness gate on the very directory path filtering makes cheapest to
+  change, and it costs seconds, so it always runs. (It is advisory rather than
+  blocking while the mirror exists — see #798.)
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
 - On PRs, CI automatically posts a verification summary comment with per-lane
@@ -319,11 +322,13 @@ real failure read as a deliberate omission.
 
 **`filtered` is a distinct lane status, not a reuse of `skip`.**
 `scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
-this never got its turn", and it is pinned to a commit in another repository that
-`scripts/verify-pipeline-drift.mjs` compares against — so it cannot be taught the
-difference here. An unrecognised status is merely absent from its counts; a
-reused one would have made it state something untrue. Teaching the pipeline repo
-to render `filtered` is an outstanding follow-up.
+this never got its turn". It cannot be taught the difference *here*, because the
+copy in this repository is not what runs — the agent workflows execute
+`wafflebase/agent-pipeline` at a pinned commit, and this mirror only backs the
+`agent:tests` lane. An unrecognised status is merely absent from that tool's
+counts; a reused one would have made it state something untrue about every
+filtered lane. Teaching the pipeline repo to render `filtered` is an outstanding
+follow-up.
 
 `overall` is `some(fail)`, not `every(pass)`: the two were equivalent only while
 `skip` could not appear without a `fail` ahead of it, which is exactly what

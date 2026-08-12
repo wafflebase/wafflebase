@@ -115,14 +115,23 @@ gate; it exposes that the gate is absent.
 
 ## Constraints discovered during planning
 
-- **`scripts/agent/summarize-ci.mjs` must not be edited here.**
-  `scripts/verify-pipeline-drift.mjs` compares `scripts/agent/` against the
-  pinned `wafflebase/agent-pipeline` commit, and `summarize-ci.` is not in its
-  `STAYS` exclusion list — an edit here fails the `pipeline-drift` job. The new
-  lane status is named `filtered` (not a reuse of `skip`) specifically so the
-  pinned pipeline's `summarize-ci.mjs` *ignores* it rather than mislabeling it as
-  "skipped because an earlier lane failed" (`summarize-ci.mjs:102`). Teaching it
-  to render `filtered` is a follow-up in that other repo.
+- **`scripts/agent/summarize-ci.mjs` must not be edited here** — because it is
+  not what runs. The agent workflows execute `wafflebase/agent-pipeline` at a
+  pinned commit; the copy in this repo is a mirror that only backs the
+  `agent:tests` lane, so editing it would change nothing that executes and would
+  register as drift in `scripts/verify-pipeline-drift.mjs` (which does not list
+  `summarize-ci.` in its `STAYS` exclusions).
+
+  Note: #798 made the `pipeline-drift` job **advisory** (`continue-on-error`)
+  while the mirror still exists, so an edit would warn rather than fail. That
+  removes the enforcement, not the reason — the tool that actually renders the CI
+  summary lives in the other repository either way.
+
+  So the new lane status is named `filtered` rather than reusing `skip`
+  specifically so the pinned pipeline's `summarize-ci.mjs` *ignores* it instead of
+  mislabeling it as "skipped because an earlier lane failed"
+  (`summarize-ci.mjs:102`). Teaching it to render `filtered` is a follow-up in
+  that other repo (5.2).
 - **`packages/docs|slides|sheets|core` can break `verify-integration` with zero
   backend files touched** — `ci.yml` builds those four for that job, and the e2e
   set includes `docs-cli-roundtrip`, `notes-cli-roundtrip`, `slides-pptx-import`.

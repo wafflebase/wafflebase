@@ -592,8 +592,10 @@ for (const { name, cmd } of LANES) {
   // things and must not be conflated: `filtered` is "no changed path can reach
   // this lane", `skip` is "an earlier lane failed, so this never got its turn".
   // `scripts/agent/summarize-ci.mjs` renders `skip` as the latter in prose, and
-  // it is pinned to a commit in another repository — reusing `skip` here would
-  // have made it state, confidently, something untrue about every filtered lane.
+  // that tool cannot be fixed from here: the copy under `scripts/agent/` is a
+  // mirror, and what actually runs is `wafflebase/agent-pipeline` at a pinned
+  // commit. So reusing `skip` would have made a tool nobody can edit in this
+  // repository state, confidently, something untrue about every filtered lane.
   // An unrecognised status is instead simply absent from its counts.
   if (!selected.has(name)) {
     const filteredReport = {
