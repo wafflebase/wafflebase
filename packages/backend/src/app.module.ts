@@ -18,6 +18,7 @@ import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { MiroModule } from './miro/miro.module';
     AnalyticsModule,
     FolderModule,
     MiroModule,
+    NotificationModule,
   ],
   controllers: [],
   providers: [

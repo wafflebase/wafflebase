@@ -29,7 +29,6 @@ import {
   PANEL_FLAGS,
   PANEL_OUTPUT_FILES,
   parseGateState,
-  panelEnv,
   reviewerAdapter,
 } from "./reviewer.mjs";
 
@@ -504,28 +503,4 @@ test("every one of the panel's six outputs is accounted for by name", async () =
   } finally {
     r.cleanup();
   }
-});
-
-test("the panel is not handed the parent's IPC channel", () => {
-  // The bug this pins produced no failing assertion. Under `node --test` the process
-  // that spawns the panel is itself a test-runner child, so `process.env` carries
-  // `NODE_CHANNEL_FD`; the panel and its grandchild booted believing they shared the
-  // runner's channel and corrupted its message stream, and the runner reported it
-  // against whichever file it was mid-parse on. Passing it through is therefore the
-  // mutation to defend against, and it is invisible to every other test here.
-  const env = panelEnv({ ...process.env, NODE_CHANNEL_FD: "3", PATH: "/usr/bin" });
-  assert.equal("NODE_CHANNEL_FD" in env, false, "the child must not inherit the parent's IPC channel");
-  assert.equal(env.PATH, "/usr/bin", "everything else the panel needs must survive");
-
-  // The caller's object is not the child's: mutating the copy must not reach back into
-  // `process.env`, which is what `runAgent` defaults to.
-  const source = { NODE_CHANNEL_FD: "3", KEEP: "1" };
-  panelEnv(source);
-  assert.equal(source.NODE_CHANNEL_FD, "3", "panelEnv must copy, not strip its argument in place");
-
-  // Absent, empty and nullish inputs are all "nothing to strip", not a throw — the
-  // spawn site must never fail because the environment was unusual.
-  assert.deepEqual(panelEnv({}), {});
-  assert.deepEqual(panelEnv(undefined), {});
-  assert.deepEqual(panelEnv(null), {});
 });

@@ -445,6 +445,23 @@ Phase 23 delivered:
   `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
 - `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
   baselines outside Docker.
+- The image bundles system fonts, but the app's *web* fonts still arrive from
+  fonts.googleapis.com, so each capture settles them after the section-ready
+  wait. The gate is an explicit floor — the families/weights `index.html`
+  requests (Inter, Fraunces, JetBrains Mono), the families the baselines were
+  recorded with — asserted positively: registered in `document.fonts` at all,
+  at least one face `loaded`, and `fonts.check()` true at every declared
+  weight. Asserting registration is what makes an unreachable CDN fail: it
+  registers no @font-face rules, and both `fonts.check()` and a
+  registry-derived wait would otherwise pass vacuously. Every *other*
+  registered family (KaTeX's same-origin maths faces, the eager catalog
+  families) gets only a shorter, non-gating wait for quiet — no face left in
+  `status: "loading"` — which warns rather than fails, so a family no
+  screenshot paints cannot fail the lane. Recovery re-inserts the Google
+  Fonts `<link>` elements (URL untouched) so Chromium refetches them. A pass
+  whose floor never settles is recorded and fails the run *after* capture —
+  screenshots and diffs still land — and blocks `visual:update` from
+  recording fallback glyphs as a baseline.
 - CI `verify-browser` job builds Docker image and runs browser lanes in
   container. Uploads `*.actual.png` artifacts on failure.
 

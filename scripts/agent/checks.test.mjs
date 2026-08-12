@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
@@ -249,12 +249,70 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
   }
 });
 
+test("every agent-pipeline checkout pins an immutable commit SHA, not a tag", () => {
+  // The trusted pipeline is checked out from another repository, and in this
+  // phase NOTHING re-verifies that the code fetched is the code intended: the
+  // OIDC `job_workflow_ref` assertion only becomes available once these
+  // workflows are themselves reusable. Until then the pin IS the guard.
+  //
+  // A tag would put that guarantee in a repository setting (a ruleset on
+  // refs/tags/v*) which a reader of these files cannot see and an org admin can
+  // change. A 40-hex SHA cannot be re-pointed by anyone. This is the same rule
+  // the repo already applies to create-github-app-token and claude-code-action,
+  // for the same reason, and it is asserted here rather than trusted to review
+  // because a bump that quietly reverts to a tag is invisible in a diff.
+  //
+  // Deliberately NOT pinned to one specific SHA: that would need editing in
+  // lockstep with every version bump, and a bumper updating both would learn
+  // nothing. The invariant is the SHAPE of the pin.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  // Both patterns end in `\s*(#.*)?$` — trailing whitespace and a YAML comment
+  // are allowed, nothing else is.
+  //
+  // The REPOSITORY pattern must tolerate a comment or the guard has a silent
+  // hole: `repository: wafflebase/agent-pipeline # central` would fail to match,
+  // and a site that does not match is not scanned at all — neither counted nor
+  // reported. A checkout could then be added, or an existing one annotated, and
+  // quietly leave the guard's view. That is the exact failure shape this test
+  // exists to catch, so it must not be one the test itself has.
+  //
+  // The REF pattern must end at the SHA, or `[0-9a-f]{40}\b` accepts anything
+  // that merely STARTS with 40 hex characters: `<sha>/branch` and `<sha>-evil`
+  // both passed before this. (41+ hex already failed closed — `\b` cannot match
+  // between two hex digits.) A quoted ref is deliberately rejected too: every
+  // one of these blocks is generated from one template, so one canonical form is
+  // the point, and a clear failure naming the expected shape beats a guard that
+  // quietly accepts variants.
+  const REPO_LINE = /^\s*repository:\s*wafflebase\/agent-pipeline\s*(#.*)?$/;
+  const SHA_REF = /^\s*ref:\s*[0-9a-f]{40}\s*(#.*)?$/;
+  const offenders = [];
+  let pins = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (!REPO_LINE.test(line)) return;
+      // `ref:` is the next non-comment key in every one of these blocks. Not
+      // finding one leaves `ref` empty, which is reported rather than skipped.
+      const ref = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l)) ?? "";
+      pins += 1;
+      if (!SHA_REF.test(ref)) offenders.push(`${file}:${i + 2} -> ${ref.trim() || "(no ref)"}`);
+    });
+  }
+  assert.ok(pins > 0, "expected at least one agent-pipeline checkout to exist");
+  assert.deepEqual(offenders, [], `these agent-pipeline checkouts are not SHA-pinned:\n  ${offenders.join("\n  ")}`);
+});
+
 test("agent-fix decides eligibility on TRUSTED main, before the branch checkout", () => {
   // The gate authorises a bot push and the brief becomes the agent's prompt. Both
   // must be computed by main's code — a branch that could supply either would be
   // choosing whether it gets fixed and what the fixer is told to do.
   const wf = WF("agent-fix.yml");
-  const trustedCheckout = wf.indexOf("ref: main");
+  // Anchored on the step NAME, not on a ref literal: the trusted source is now
+  // the pinned agent-pipeline repo, and the pin moves at every version bump.
+  // The step's name is what stays stable, and it is unique to this job — the
+  // router's checkout in the `route` job would otherwise match first.
+  const trustedCheckout = wf.indexOf("- name: Check out the trusted pipeline");
   const gate = wf.indexOf("fix-eligible.mjs");
   const brief = wf.indexOf("fix-brief.mjs");
   const branchCheckout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");
