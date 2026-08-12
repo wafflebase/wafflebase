@@ -50,6 +50,7 @@ import {
   UI_GROUNDS,
   isFilingVerdict,
   dropReason,
+  refutationDefects,
   coerceCandidates,
   dedupeCandidates,
 } from "./hunt-gate.mjs";
@@ -567,6 +568,38 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "the code proves generalises — not the whole control.",
     "",
     "Establish the facts yourself with Read/Grep/Glob.",
+    "",
+    "## Refuting costs the same work as confirming — `refutes`",
+    "",
+    "A refutation ends the candidate on its own: your colleague may have confirmed at",
+    "high confidence and the run will still report nothing. So it is held to the bar a",
+    "confirmation clears. When `verdict` is `refuted`, `refutes` must name the SPECIFIC",
+    "claim your evidence contradicts, and `groundedIn` must cite the code that",
+    "contradicts it — in scope, the same as a confirmation.",
+    "",
+    "The failure this exists to stop, measured on a real defect that was lost:",
+    "",
+    "  claim      un-listing a heading downgrades it to a plain paragraph",
+    "  cited      `list items map to \\`normal\\`` — a rule about how a block is STYLED",
+    "             WHILE IT IS a list item",
+    "  concluded  therefore the downgrade is intended",
+    "",
+    "Every citation was real. Two of them were evidence FOR the defect. The refutation",
+    "was still wrong, because the cited rule answers a different question than the claim",
+    "asks — current-state styling, not what the block returns to afterwards.",
+    "",
+    "So before refuting, read your own citation back against the exact claim: does this",
+    "line say the observed behaviour is CORRECT, or does it merely describe some",
+    "neighbouring behaviour? \"The code does what the code does\" is not a refutation —",
+    "the question is whether it does what it SHOULD. Intended-by-design is a real",
+    "refutation only when something states the intent for THIS behaviour: a spec, a",
+    "test asserting it, a comment about this case. A helper that computes the current",
+    "state is not a statement that the state is desired.",
+    "",
+    "If you cannot name what your evidence contradicts, you have not refuted it — you",
+    "have failed to confirm it. Say that instead: `confirmed` with `confidence: \"low\"`.",
+    "The gate reports only on HIGH-confidence unanimity, so that outcome files nothing",
+    "either, and it does not spend your colleague's confirmation to say so.",
     "",
     "## `groundedIn` — you are the ONLY source of it",
     "",
@@ -1097,6 +1130,16 @@ async function cmdRun(args) {
       (stats.overclaimed > 0
         ? `         ${stats.overclaimed} reported finding(s) the verifiers had to narrow\n`
         : "") +
+      // Loud on stderr, not just in the table: a split panel is the one drop where a
+      // verifier said "real defect, high confidence" and the run still reported
+      // nothing. It is the line most worth a human's attention on an otherwise empty
+      // run, and an empty run is exactly when nobody opens the report.
+      (stats.splitPanel > 0
+        ? `         ${stats.splitPanel} candidate(s) SPLIT the panel — some verifier confirmed; read the drop table\n`
+        : "") +
+      (stats.ungroundedRefutation > 0
+        ? `         ${stats.ungroundedRefutation} refutation(s) fell short of the confirmation standard\n`
+        : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -1144,6 +1187,11 @@ export async function runHunt({
     novel: 0,
     reproduced: 0,
     refutedAfterReplay: 0,
+    // Half the panel found a defect and the run reported nothing. Distinct from a
+    // unanimous refusal, which is the panel agreeing.
+    splitPanel: 0,
+    // Refutations that would not have cleared the bar their own confirmation had to.
+    ungroundedRefutation: 0,
     // A candidate no verifier could finish judging. Distinct from every other drop
     // because it is pure WASTE, twice over: the truncated session is paid for and
     // produces nothing, and the candidate is deliberately not ledgered so the next
@@ -1433,6 +1481,18 @@ export async function runHunt({
         if (unjudged) stats.unjudgedVerifier++;
         if (!unjudged) {
           stats.refutedAfterReplay++;
+          // A SPLIT PANEL IS NOT THE SAME EVENT AS A UNANIMOUS NO, and until now the
+          // funnel spelled them identically. Measured on #783: one verifier confirmed
+          // at HIGH confidence and one refuted, the candidate was a real defect, and
+          // the only trace was a single drop-table line naming neither the dissent nor
+          // its reasoning. A stat is what makes "half the panel found a defect" a
+          // number somebody can watch rise.
+          const confirmations = verdicts.filter((v) => v?.verdict === "confirmed").length;
+          if (confirmations > 0 && confirmations < verdicts.length) stats.splitPanel++;
+          // Counted separately from the split, because the two say different things: a
+          // split is disagreement, this is a refutation that would not have passed the
+          // bar its own confirmation had to clear. Neither is a gate input.
+          if (verdicts.some((v) => refutationDefects(v, persona, {}).length > 0)) stats.ungroundedRefutation++;
           ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
         }
       }
