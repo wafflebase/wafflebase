@@ -860,6 +860,25 @@ describe('attrsOf classNameExpr', () => {
     expect(pairOf(`function C(){ return <div className={("p-2 flex")}/>; }`)).toEqual(['p-2 flex', null]);
   });
 
+  it('sees through parentheses wrapping the WHOLE expression', () => {
+    // Distinct from the braced-literal case above, and from the existing
+    // `cn(("a b"))` test: there the parens are around an ARGUMENT, here they are
+    // around the joiner call itself, so this is the one shape that exercises
+    // `unwrapParens` on the path to the CALL check rather than the literal check.
+    // A refactor that unwrapped only for `asLiteral` and then tested
+    // `isCallExpression` on the raw expression would pass every other test in
+    // this file and silently stop finding the blob in `{(cn(…))}`.
+    expect(pairOf(`function C(){ return <div className={(cn("p-2", x))}/>; }`))
+      .toEqual(['p-2', '(cn("p-2", x))']);
+    // Refused either way — but the expression text still reaches the UI, and it
+    // keeps the parens because `classNameExpr` is source text, not a normal form.
+    expect(pairOf(`function C(){ return <div className={(t("nav.home"))}/>; }`))
+      .toEqual([null, '(t("nav.home"))']);
+    // The unwrap recurses, so nesting does not defeat it.
+    expect(pairOf(`function C(){ return <div className={((cn("p-2", x)))}/>; }`))
+      .toEqual(['p-2', '((cn("p-2", x)))']);
+  });
+
   it('fills BOTH fields for a joiner call — an editable blob inside an expression', () => {
     // NOT locked. The literal is a live rewrite target; the rest is the author's.
     expect(pairOf(`function C(){ return <div className={cn("p-2", x)}/>; }`))
