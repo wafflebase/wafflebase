@@ -531,8 +531,36 @@ const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
  * from the first fence to the last, and the ordinary shape of a CodeRabbit comment
  * puts the title BETWEEN two of them — an analysis chain above, an AI-agents block
  * below — so a greedy match eats exactly the string this function exists to find.
+ *
+ * THE CLOSING FENCE IS MATCHED BY LENGTH, via the backreference, because a fence may
+ * legally contain a SHORTER one. That is not hypothetical here: 81 of this
+ * repository's 2061 CodeRabbit inline comments open a fence with four or more
+ * backticks, and 35 of those wrap a three-backtick run — which is exactly why an
+ * author reaches for four, to quote markdown inside markdown. Matching a fixed
+ * ```` ``` ```` would end the span at that inner run and hand the remainder of the
+ * block back to the title search as though it were prose. It changes no title in
+ * today's data (0 of 1588 inline, 0 of 1693 review-body), so this is the shape being
+ * made safe rather than a live defect being fixed. Tildes are accepted for the same
+ * reason and are pure widening: CommonMark allows them and CodeRabbit has not emitted
+ * one here yet (0 of 2061).
+ *
+ * Anchoring to line start is what makes the length rule meaningful — a fence is a
+ * block construct. An UNCLOSED fence matches nothing and is left in place, which is
+ * the safe direction: it yields less stripping rather than swallowing the rest of the
+ * body.
+ *
+ * THE ANCHOR LEAVES ONE GAP AND IT IS THE LESSER EVIL. An INLINE code span holding a
+ * bolded run — `` ```**x**``` `` mid-sentence — is markup by the same argument, and
+ * this rule does not strip it. Widening to inline spans is not the fix: a real title
+ * routinely CONTAINS inline code (`Pin the markdown-it dependency or switch to the
+ * public `getRules()` API.`), and stripping spans before the bold search would delete
+ * the identifier out of the middle of the title it is trying to read. Corrupting
+ * every title that quotes a symbol to guard a shape that occurs zero times in 2061
+ * comments — 39 carry a mid-line run, none with a `**` on that line — is the worse
+ * trade. The `codeRabbitTitle` test that keeps a backticked identifier inside a title
+ * exists to stop someone closing this gap that way.
  */
-const CR_NON_PROSE = /```[\s\S]*?```|<!--[\s\S]*?-->/g;
+const CR_NON_PROSE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[`~]*[ \t]*$|<!--[\s\S]*?-->/gm;
 
 /**
  * CodeRabbit's one-line title: the first bolded span that is prose rather than

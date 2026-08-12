@@ -606,6 +606,68 @@ test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a ti
   assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
 });
 
+test("codeRabbitTitle: a fence is closed by ITS OWN length, not by a shorter inner one", () => {
+  // Raised in review on #801. A four-backtick fence may legally contain a
+  // three-backtick one — that is the reason to open with four, to quote markdown
+  // inside markdown — and 35 of this repo's 2061 CodeRabbit inline comments do it.
+  // Closing on a fixed ``` would end the span at the INNER run and hand the rest of
+  // the block back to the title search as prose, which is the defect this whole
+  // function exists to prevent.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "````markdown",
+    "```sh",
+    "rg --glob '!**/node_modules/**'",
+    "```",
+    "````",
+    "",
+    "**Add a language tag to the fenced block.**",
+    "",
+    "prose",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(body), "Add a language tag to the fenced block.");
+  assert.notEqual(codeRabbitTitle(body), "/node_modules/");
+});
+
+test("codeRabbitTitle: tilde fences count as code too, at any delimiter length", () => {
+  // Pure widening — CommonMark allows `~~~` and CodeRabbit has emitted none here yet
+  // (0 of 2061 inline comments, 0 of 614 review bodies). Kept because the failure
+  // mode if it ever does is markup becoming a finding's summary, and because the two
+  // delimiters cannot be mixed: a `~~~` run must not close a ``` fence.
+  const tilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~sh\nrg --glob '!**/dist/**'\n~~~\n\n**Quote the glob.**\n\nprose";
+  assert.equal(codeRabbitTitle(tilde), "Quote the glob.");
+  const longTilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~~\n~~~\n**not a title**\n~~~\n~~~~\n\n**The real title.**\n\nprose";
+  assert.equal(codeRabbitTitle(longTilde), "The real title.");
+  // A fence opened with backticks is NOT closed by tildes, so the run stays open and
+  // nothing is stripped — fewer removals, never more. The title is then whatever the
+  // body's first bold span is, and the point is that it does not throw or hang.
+  const mixed = "_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\n~~~\n\n**Still parses.**";
+  assert.equal(codeRabbitTitle(mixed), "Still parses.");
+});
+
+test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
+  // This is the test that bounds the fix. The fence rule is anchored to line start,
+  // which leaves inline code spans unstripped — and the tempting next step is to
+  // strip those too. It must not happen: a real title routinely quotes a symbol, and
+  // removing inline spans before the bold search deletes the identifier out of the
+  // middle of the title. The title below is verbatim from comment 3651715274.
+  const f = classifyCodeRabbitComment(
+    "_🔒 Security & Privacy_ | _🟡 Minor_\n\n**Pin the markdown-it dependency or switch to the public `getRules()` API.**\n\nprose",
+  );
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.match(f.summary, /`getRules\(\)`/, "the backticked identifier was stripped out of the title");
+});
+
+test("codeRabbitTitle: an UNCLOSED fence strips nothing rather than eating the body", () => {
+  // The fail-safe direction. An opener with no partner matches nothing, so the search
+  // sees the text as it did before this rule existed — less stripping, not more.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed");
+  assert.equal(f.summary, "A real title.");
+  // And an inline code span is not a fence: it must not be treated as a block.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nsee `x` then **The title.**"), "The title.");
+});
+
 test("codeRabbitTitle: an HTML comment cannot supply a title, and absent stays absent", () => {
   // `<!-- … -->` is markup for the same reason a fence is. And a body with no
   // bolded span anywhere yields "" rather than a manufactured first sentence:

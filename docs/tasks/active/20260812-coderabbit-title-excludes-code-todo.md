@@ -123,6 +123,21 @@ vintage, so none of them could show it.
   string the function exists to find. The first version of the regression fixture was
   trimmed down to one fenced block, which made that mutation survive because the
   fixture could not express the risk rather than because a test was missing.
+- **The closing fence must be matched BY LENGTH** (raised in review on #801). A fence
+  may legally contain a shorter one, and 81 of the 2061 inline comments open with four
+  or more backticks — 35 of those wrapping a three-backtick run, which is the whole
+  reason to open with four. A fixed ```` ``` ```` closer ends the span at the inner run
+  and hands the rest of the block back to the title search as prose. It changes **no
+  title in today's data** (0 of 1588 inline, 0 of 1693 review-body), so this hardens a
+  shape that exists rather than fixing a live defect. Tildes are accepted for the same
+  reason and are pure widening — CommonMark allows them, CodeRabbit has emitted none
+  here (0 of 2061).
+- **The anchor's one gap is deliberate, and bounded by a test.** Anchoring the fence to
+  line start leaves an inline `` ```**x**``` `` span unstripped. Widening to inline code
+  spans is NOT the fix: a real title routinely quotes a symbol, so stripping spans
+  before the bold search deletes the identifier out of the middle of the title. Measured
+  — 39 comments carry a mid-line backtick run, **none** with a `**` on that line, 0
+  titles differ. The wrong fix reddens 6 tests, one of which exists only to say so.
 
 ## Fail directions
 
@@ -158,18 +173,24 @@ vintage, so none of them could show it.
 
 ## Verification
 
-- [x] **Tests: 1701 + 55 = 1756, 0 fail, 0 skipped.** Baseline on `upstream/main`
+- [x] **Tests: 1705 + 55 = 1760, 0 fail, 0 skipped.** Baseline on `upstream/main`
       at `d327ee4`, measured the same way in an identically-provisioned tree:
-      **1696 + 55 = 1751**. `+5`. Two invocations, the shape the lane uses since
+      **1696 + 55 = 1751**. `+9`. Two invocations, the shape the lane uses since
       #774 — everything except `eval/run.test.mjs`, then that file alone. Both
       trees carry the same `node_modules`, which is what holds the skip count at 0
       on each side.
 - [x] `npx eslint scripts` exits 0 on the branch, and on the base tree.
-- [x] **Every new test mutation-tested — 7 mutations, 7 caught.** Unbounding the
-      title again reddens 4; stripping only comments reddens 3; stripping only
-      fences reddens 1; a greedy `CR_NON_PROSE` reddens 2; giving the review-body
-      path its own regex back reddens 1; reading its title from the de-locatored
-      copy reddens 1; a first-sentence fallback reddens 2.
+- [x] **Every new test mutation-tested — 12 mutations, 11 caught, 1 deliberate.**
+      Unbounding the title again reddens 4; stripping only comments reddens 3;
+      stripping only fences reddens 1; a greedy `CR_NON_PROSE` reddens 2; giving the
+      review-body path its own regex back reddens 1; reading its title from the
+      de-locatored copy reddens 1; a first-sentence fallback reddens 2. From the
+      review round: a fixed-length fence closer reddens 2, dropping tildes reddens 1,
+      an exactly-three opener reddens 1, and stripping inline code spans — the wrong
+      way to close the anchor gap — reddens 6. **Dropping the line anchors survives**,
+      and that one is a documented trade-off rather than a missing test: it is
+      behaviour-changing on a synthetic inline-code-span shape that occurs 0 times in
+      2061 comments, and the alternative corrupts every title that quotes a symbol.
 - [x] **Comment 3651715274 now yields the real title**, against the live body
       fetched from the API: `"Pin the markdown-it dependency or switch to the public
       `getRules()` API."`, where `upstream/main` yields `"/node_modules/"`.
