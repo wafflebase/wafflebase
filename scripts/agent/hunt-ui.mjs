@@ -621,7 +621,13 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "",
     "Confirming causes a report. A false report costs maintainer attention; a missed",
     "defect costs nothing, because the next run looks again. So:",
-    '  - Unsure for ANY reason -> {verdict:"refuted", confirmationGround:"none"}.',
+    // This used to read `Unsure for ANY reason -> refuted`, which contradicted the
+    // refutation section above and was the instruction MANUFACTURING the ungrounded
+    // refutations that section exists to stop. Both outcomes below file nothing — the
+    // gate reports only on high-confidence unanimity — so uncertainty loses nothing by
+    // taking the honest one, and a refutation stays a claim somebody has to argue.
+    '  - Unsure for ANY reason -> {verdict:"confirmed", confidence:"low"}. Files nothing.',
+    '  - Refute only when you can name what your evidence contradicts, in `refutes`.',
     "  - Confirm only at high confidence, naming a `confirmationGround`.",
     "",
     `Claimed [${claimed.severity}] ${claimed.title}`,

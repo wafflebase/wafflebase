@@ -635,6 +635,14 @@ export function refutationDefects(verdict, charter, options = {}) {
   if (verdict.verdict !== "refuted") return [];
 
   const out = [];
+  // The asymmetry #785 left in place: a refutation at LOW confidence still outvotes a
+  // colleague who confirmed at HIGH. The confirmation path has required `high` all
+  // along, so "held to the same standard" has to mean this too — and an unsure verifier
+  // now has somewhere else to go, since the prompt routes uncertainty to
+  // `confirmed`+low rather than to a refutation.
+  if (verdict.confidence !== "high") {
+    out.push("refuted at low confidence");
+  }
   if (typeof verdict.refutes !== "string" || verdict.refutes.trim() === "") {
     out.push("names no contradicted claim");
   }
@@ -647,8 +655,13 @@ export function refutationDefects(verdict, charter, options = {}) {
   }
   const all = Array.isArray(sourced) ? sourced : [];
   const cites = all.filter((s) => typeof s === "string" && CITATION.test(s));
+  // `charter.minCitations`, not a hardcoded 1 — the confirmation path reads it, so a
+  // charter that demands two citations to confirm must demand two to refute.
+  const minCitations = charter && Number.isInteger(charter.minCitations) ? charter.minCitations : 1;
   if (cites.length === 0) {
     out.push("cites nothing that locates code");
+  } else if (cites.length < minCitations) {
+    out.push(`cites ${cites.length} of the ${minCitations} citations this charter requires`);
   } else if (charter && typeof charter === "object" && !cites.some((c) => citationInScope(c, charter.codeScope))) {
     // Same rule the confirmation path applies: SOME citation must land in scope. A
     // refutation resting entirely on files this charter does not govern is the shape

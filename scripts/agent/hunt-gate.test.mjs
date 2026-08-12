@@ -483,6 +483,7 @@ test("refutationDefects: a refutation is held to the confirmation's standard", (
   const charter = { codeScope: ["packages/docs/**"] };
   const sound = {
     verdict: "refuted",
+    confidence: "high",
     refutes: "that un-listing loses the heading",
     groundedIn: ["packages/docs/src/store/memory.ts:250"],
   };
@@ -509,7 +510,25 @@ test("refutationDefects: a refutation is held to the confirmation's standard", (
 
   // Both shortfalls are reported together: a drop table that named only the first
   // would send someone to fix one half and re-run for the other.
-  assert.deepEqual(refutationDefects({ verdict: "refuted", refutes: "", groundedIn: [] }, charter).length, 2);
+  assert.deepEqual(
+    refutationDefects({ verdict: "refuted", confidence: "low", refutes: "", groundedIn: [] }, charter).length,
+    3,
+  );
+
+  // A refutation at LOW confidence still outvotes a colleague who confirmed at HIGH.
+  // The confirmation path has always required `high`, so the same standard requires it
+  // here — this is the asymmetry #785 left behind.
+  assert.deepEqual(refutationDefects({ ...sound, confidence: "low" }, charter), ["refuted at low confidence"]);
+  assert.deepEqual(refutationDefects({ ...sound, confidence: undefined }, charter), ["refuted at low confidence"]);
+
+  // `charter.minCitations` is read, not assumed to be 1: a charter that demands two
+  // citations to confirm must demand two to refute.
+  const strict = { codeScope: ["packages/docs/**"], minCitations: 2 };
+  assert.deepEqual(refutationDefects(sound, strict), ["cites 1 of the 2 citations this charter requires"]);
+  assert.deepEqual(
+    refutationDefects({ ...sound, groundedIn: [...sound.groundedIn, "packages/docs/src/view/editor.ts:3100"] }, strict),
+    [],
+  );
 
   // A `citationsOf` that throws yields zero citations rather than escaping — same
   // fail-quiet rule the confirmation path uses.
