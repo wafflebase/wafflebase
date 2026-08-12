@@ -382,7 +382,11 @@ export function renderRun(
     : style.fontSize;
 
   // Link defaults: blue text + underline (user-set values take precedence)
-  const resolvedColor = resolveColor(style.color);
+  // `|| undefined` (not `??`) because a cleared color can reach here as an
+  // empty string — no legal color value is falsy, and `ctx.fillStyle = ''`
+  // is an invalid assignment the canvas IGNORES, leaving the run painted in
+  // whatever the previous pass set (the selection fill). See issue #728.
+  const resolvedColor = resolveColor(style.color) || undefined;
   let textColor = resolvedColor ?? theme.defaultColor;
   let showUnderline = style.underline ?? false;
   if (style.href) {
@@ -541,7 +545,8 @@ export function renderListMarker(
   // `StoredColor` has no falsy legal value (hex strings start with '#',
   // role / srgb shapes are objects), so `??` and `!== undefined` produce
   // identical results here — keep `??` for stylistic uniformity with the
-  // axes above.
+  // axes above. The resolved value below is guarded with `||` instead,
+  // because a cleared color can still be stored as '' (issue #728).
   const colorSource = m?.color ?? firstInline?.color;
   const fontSizePx = ptToPx(fontSize);
   // Marker font stays the marker's own size, but the baseline uses the
@@ -550,6 +555,6 @@ export function renderListMarker(
     lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? fontSizePx),
   );
   ctx.font = buildFont(fontSize, fontFamily, false, false);
-  ctx.fillStyle = resolveColor(colorSource) ?? theme.defaultColor;
+  ctx.fillStyle = resolveColor(colorSource) || theme.defaultColor;
   ctx.fillText(markerText, markerX, baselineY);
 }

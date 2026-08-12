@@ -52,7 +52,8 @@ export function wrapLegacyColor(c: string | StoredColor): StoredColor {
  * "cursor at the seam between two inlines belongs to the leading
  * inline" rule used by `getStyleAtCursor` / `getSelectionStyle`), runs
  * its `style.color` through `colorResolver`, and falls back when the
- * inline has no color or the resolver returns `undefined`.
+ * inline has no color or the resolver returns nothing usable (`undefined`,
+ * or the empty string a legacy "reset color" left behind — see issue #728).
  *
  * The caret painter consumes this so the cursor tracks the text color
  * it would assume on the next keystroke — important in slides on dark
@@ -71,10 +72,10 @@ export function resolveColorAtPosition(
   for (const inline of block.inlines) {
     const inlineEnd = pos + inline.text.length;
     if (offset <= inlineEnd) {
-      return colorResolver(inline.style.color) ?? fallback;
+      return colorResolver(inline.style.color) || fallback;
     }
     pos = inlineEnd;
   }
   const last = block.inlines[block.inlines.length - 1];
-  return colorResolver(last.style.color) ?? fallback;
+  return colorResolver(last.style.color) || fallback;
 }
