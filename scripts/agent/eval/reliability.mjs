@@ -5,7 +5,11 @@
 // detection→reported attribution. Every number is stratified by severity and every
 // number carries its `n`, because the pilot measured the churn to BE
 // severity-dependent — one pooled agreement figure would average a gate verdict
-// that never flips together with a nit population that reproduces 17% of the time.
+// that never flips together with a nit population that reproduces 6% of the time.
+// (6%, not the 17% an earlier draft of this comment carried: 17.6% is the FILE-level
+// figure, and at finding level nits reproduce in all three replicates 2 times out of
+// 34. Quoting a file-level share in a finding-level file is the exact confusion this
+// module's own measurements corrected.)
 //
 // THE ONE SENTENCE THIS FILE EXISTS TO SUPPORT, and it has two halves that must
 // travel together: **the panel is reliable at the decision level and unreliable at
@@ -81,7 +85,7 @@ const refuse = (msg) => {
  *  `finding-match.mjs`'s — a character no id, path or hash can contain, so two
  *  different tuples can never read alike. A space would not do: a cited file path
  *  may contain one. */
-const NUL = "\\u0000";
+const NUL = "\u0000";
 
 /** Bumped when a field changes meaning, never when one is added — the rule
  *  `finding-record.mjs` states, for the reason it states it. */
@@ -446,6 +450,40 @@ export function assertItemsOk(runs) {
   }
 }
 
+/**
+ * The corpus the caller ASKED for must be the corpus the runs replayed.
+ *
+ * `assertOneReviewer` proves the runs agree with EACH OTHER; this proves they agree
+ * with the label being printed on the result. Without it a caller may pass
+ * `--corpus-version A` while every run replayed B: the corpus item ids — and
+ * therefore the coverage figure and the `completeness` verdict — come from A, the
+ * agreement figures come from B, and the output is labelled A. Every number would be
+ * real and the report would be about a corpus it never read, which is
+ * `assertRunMatchesCorpus`'s hazard in `volume-mix.mjs` reached by a different route.
+ *
+ * A LABEL NOBODY CAN CHECK IS ALSO REFUSED. When the caller names a version and the
+ * runs state none, there is nothing to verify it against — lesson 7's question, asked
+ * of this guard's own input rather than of its rule. Requesting nothing is fine: the
+ * result then carries the runs' own stated version and claims no more than that.
+ */
+export function assertRequestedCorpus(stated, requested) {
+  if (!(typeof requested === "string" && requested.trim() !== "")) return stated;
+  if (!(typeof stated === "string" && stated.trim() !== "")) {
+    refuse(
+      `the caller asked for corpus ${JSON.stringify(requested)} and no run states a corpus_version, so the label cannot be ` +
+        `checked against the data — a figure labelled with an unverifiable corpus is worse than one labelled with none`,
+    );
+  }
+  if (stated !== requested) {
+    refuse(
+      `the caller asked for corpus ${JSON.stringify(requested)} but the runs replayed ${JSON.stringify(stated)} — the item ` +
+        `ids, the coverage figure and the completeness verdict would come from one corpus and every agreement figure from ` +
+        `another, under one label`,
+    );
+  }
+  return stated;
+}
+
 /** Two runs at the least. Reliability over one replicate is not a weaker number,
  *  it is undefined: there is no pair to compare, so `either` has no second set and
  *  every class would trivially recur 1/1. */
@@ -759,6 +797,7 @@ export function reliabilityOf(runs, { corpusItemIds = [], corpusVersion = null }
     assertPopulation(run.sampled, "sampled", `run ${run.run_id}'s sampled records`);
   }
   const reviewer = assertOneReviewer(list);
+  assertRequestedCorpus(reviewer.corpus_version, corpusVersion);
   assertItemsOk(list);
 
   const runIds = list.map((r) => r.run_id);
@@ -907,19 +946,52 @@ export function reliabilityOf(runs, { corpusItemIds = [], corpusVersion = null }
   };
 
   // --- (e) per-stage --------------------------------------------------------
-  const haveSampled = list.some((run) => sampledOf(run).length > 0);
-  const detection = haveSampled
+  // A DETECTION PAIR NEEDS THE POPULATION FROM BOTH SIDES, and the items both sides
+  // hold. Neither was checked at first, and each produced the failure this whole file
+  // is written against:
+  //
+  //   - `some(...)` meant that if ONE run carried sampled records, every pair
+  //     involving a run that did not was still scored — 0 shared classes over the one
+  //     side's N, printed as a Jaccard of 0.000. That reads as two runs agreeing on
+  //     nothing when the truth is that one population was never supplied. Absence is
+  //     not disagreement, and this is the metric where the distinction is cheapest to
+  //     lose: a caller may legitimately pass `sampled` for some runs and not others.
+  //   - the reported arm restricts each pair to the items BOTH runs hold
+  //     (`items_compared`); the detection pairs did not, so an item present in only
+  //     one run inflated the detection union. (e) exists to compare the two stages,
+  //     and comparing them across different denominators is the confound it would
+  //     have introduced into its own headline.
+  const sampledItemsOf = (run) => new Set(sampledOf(run).map((r) => r.item_id));
+  const detectionPairs = pairs.map(([a, b]) => {
+    const A = list.find((r) => r.run_id === a);
+    const B = list.find((r) => r.run_id === b);
+    if (sampledOf(A).length === 0 || sampledOf(B).length === 0) {
+      const missing = [sampledOf(A).length === 0 ? a : null, sampledOf(B).length === 0 ? b : null].filter(Boolean);
+      // `overall: null`, never a ratio: `spread` drops a non-finite value, so an
+      // unscorable pair cannot enter the across-pairs figure, and `renderReport`
+      // prints why instead of printing a 0.
+      return { runs: [a, b], available: false, reason: `no sampled records for ${missing.join(", ")} — absence is not disagreement`, items_compared: [], overall: null, by_severity: null, unmerged: null };
+    }
+    const shared = itemIds.filter((id) => sampledItemsOf(A).has(id) && sampledItemsOf(B).has(id));
+    const mine = [...sampledOf(A), ...sampledOf(B)].filter((r) => shared.includes(r.item_id));
+    const classified = classify(mine);
+    return {
+      runs: [a, b],
+      available: true,
+      items_compared: shared,
+      overall: jaccardOf(classified.classes, a, b),
+      by_severity: bySeverity((cs) => jaccardOf(cs, a, b), classified.classes),
+      unmerged: classified.unmerged,
+    };
+  });
+  const scorablePairs = detectionPairs.filter((p) => p.available);
+  const detection = scorablePairs.length > 0
     ? (() => {
-        const sampledPairs = pairs.map(([a, b]) => {
-          const A = list.find((r) => r.run_id === a);
-          const B = list.find((r) => r.run_id === b);
-          const classified = classify([...sampledOf(A), ...sampledOf(B)]);
-          return { runs: [a, b], overall: jaccardOf(classified.classes, a, b), by_severity: bySeverity((cs) => jaccardOf(cs, a, b), classified.classes), unmerged: classified.unmerged };
-        });
         const kWaySampled = classify(list.flatMap(sampledOf));
         return {
           available: true,
-          jaccard: { per_pair: sampledPairs, across_pairs: spread(sampledPairs.map((p) => p.overall.ratio)) },
+          jaccard: { per_pair: detectionPairs, across_pairs: spread(scorablePairs.map((p) => p.overall.ratio)) },
+          pairs_unscorable: detectionPairs.filter((p) => !p.available).map((p) => ({ runs: p.runs, reason: p.reason })),
           recurrence: { overall: recurrenceOf(kWaySampled.classes, kRuns), by_severity: bySeverity((cs) => recurrenceOf(cs, kRuns), kWaySampled.classes) },
           // Stated, not implied: nothing lane-derived is computed on this
           // population, because `buildStageDetail` records samples as the lens
@@ -929,7 +1001,11 @@ export function reliabilityOf(runs, { corpusItemIds = [], corpusVersion = null }
           lane_note: "the sampled population is structurally pre-annotation: no lane, so no lane-derived figure",
         };
       })()
-    : { available: false, reason: "no sampled records supplied — pass the sampled population to attribute the detection→reported delta" };
+    : {
+        available: false,
+        reason: "no pair has the sampled population on both sides — pass it for at least two runs to attribute the detection→reported delta",
+        pairs_unscorable: detectionPairs.map((p) => ({ runs: p.runs, reason: p.reason })),
+      };
   const stages = {
     detection,
     // The delta itself, per item and per run: how many findings the detection
@@ -1134,7 +1210,15 @@ export function renderReport(result) {
   }
   if (r.stages.detection.available) {
     out.push(`  detection-stage Jaccard: ${values(r.stages.detection.jaccard.across_pairs)}`);
-    for (const p of r.stages.detection.jaccard.per_pair) out.push(`     ${p.runs.join(" ↔ ")}: ${ratio(p.overall)} · by severity ${KNOWN.map((s) => `${s} ${ratio(p.by_severity[s])}`).join(" · ")}`);
+    for (const p of r.stages.detection.jaccard.per_pair) {
+      // An unscorable pair prints its REASON, never a ratio — a 0.000 here would be
+      // one run's missing population reported as the two runs disagreeing.
+      if (!p.available) {
+        out.push(`     ${p.runs.join(" ↔ ")}: not scored — ${p.reason}`);
+        continue;
+      }
+      out.push(`     ${p.runs.join(" ↔ ")}: ${ratio(p.overall)} over ${p.items_compared.length} item(s) · by severity ${KNOWN.map((s) => `${s} ${ratio(p.by_severity[s])}`).join(" · ")}`);
+    }
     const d = r.stages.detection.recurrence.overall;
     out.push(`  detection-stage recurrence: ${d.n_classes} class(es) · in all ${r.k_runs} ${ratio(d.in_all)} · in one ${ratio(d.in_one)}`);
     out.push(`  ${r.stages.detection.lane_note}`);

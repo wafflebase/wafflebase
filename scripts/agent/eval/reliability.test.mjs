@@ -51,6 +51,7 @@ import {
   assertEnoughRuns,
   assertItemsOk,
   assertOneReviewer,
+  assertRequestedCorpus,
 } from "./reliability.mjs";
 
 // --- fixtures ---------------------------------------------------------------
@@ -489,6 +490,106 @@ test("(e) attributes the detection→reported delta per item, and never invents 
   assert.equal(none.stages.attribution[0].per_item[0].delta, null);
   assert.equal(none.stages.attribution[0].per_item[0].sampled, 0);
   assert.ok(none.completeness.reasons.some((x) => /detection stage was not scored/.test(x)));
+});
+
+test("a detection pair needs the population on BOTH sides — one run's absence is not disagreement", () => {
+  // The shape a caller reaches by passing `sampled` for some runs and not others.
+  // Scoring it would print Jaccard 0.000 for a pair where one side was never
+  // supplied, which reads as two runs agreeing on nothing.
+  const runs = [
+    { run_id: "k1", records: [rec({ run: "k1", defect: "f1" })], sampled: [rec({ run: "k1", defect: "f1", population: "sampled" })], items: [okItem("pr-1")] },
+    { run_id: "k2", records: [rec({ run: "k2", defect: "f1" })], sampled: [], items: [okItem("pr-1")] },
+  ];
+  const r = reliabilityOf(runs);
+  const pair = r.stages.detection.jaccard === undefined ? null : r.stages.detection.jaccard.per_pair[0];
+  // No pair is scorable here, so the stage itself is unavailable and says why.
+  assert.equal(r.stages.detection.available, false);
+  assert.equal(pair, null);
+  assert.match(r.stages.detection.pairs_unscorable[0].reason, /no sampled records for k2/);
+  assert.match(r.stages.detection.reason, /both sides/);
+  // With three runs, the two that HAVE the population are still compared, and the
+  // pairs that cannot be are reported rather than scored as 0.
+  const three = reliabilityOf([
+    ...runs.map((run) => ({ ...run, items: [okItem("pr-1")] })),
+    { run_id: "k3", records: [rec({ run: "k3", defect: "f1" })], sampled: [rec({ run: "k3", defect: "f1", population: "sampled" })], items: [okItem("pr-1")] },
+  ]);
+  const scored = three.stages.detection.jaccard.per_pair.filter((p) => p.available);
+  const unscored = three.stages.detection.jaccard.per_pair.filter((p) => !p.available);
+  assert.deepEqual(scored.map((p) => p.runs), [["k1", "k3"]]);
+  assert.equal(scored[0].overall.ratio, 1, "k1 and k3 both raised the same defect: perfect agreement, not 0");
+  assert.equal(unscored.length, 2, "the two pairs involving k2 are unscorable");
+  for (const p of unscored) {
+    assert.notEqual(p.overall?.ratio, 0, "an unsupplied population must never read as a ratio of 0");
+    assert.equal(p.overall, null);
+  }
+  // And the across-pairs figure is over the scorable pairs only.
+  assert.equal(three.stages.detection.jaccard.across_pairs.n, 1);
+  // The renderer prints the reason rather than a number.
+  const text = renderReport(three).join("\n");
+  assert.match(text, /k1 ↔ k2: not scored — no sampled records for k2/);
+  assert.doesNotMatch(text, /k1 ↔ k2: 0\/\d+=0\.000/);
+});
+
+test("a detection pair is restricted to the items BOTH runs sampled, like the reported arm", () => {
+  // pr-2 is sampled by k1 only. Counting it would inflate the detection union and
+  // make (e) compare the two stages over different denominators.
+  const runs = [
+    {
+      run_id: "k1",
+      records: [rec({ run: "k1", defect: "f1" }), rec({ item: "pr-2", run: "k1", defect: "f2" })],
+      sampled: [rec({ run: "k1", defect: "f1", population: "sampled" }), rec({ item: "pr-2", run: "k1", defect: "f2", population: "sampled" })],
+      items: [okItem("pr-1"), okItem("pr-2")],
+    },
+    {
+      run_id: "k2",
+      records: [rec({ run: "k2", defect: "f1" }), rec({ item: "pr-2", run: "k2", defect: "f2" })],
+      sampled: [rec({ run: "k2", defect: "f1", population: "sampled" })],
+      items: [okItem("pr-1"), okItem("pr-2")],
+    },
+  ];
+  const pair = reliabilityOf(runs).stages.detection.jaccard.per_pair[0];
+  assert.deepEqual(pair.items_compared, ["pr-1"]);
+  assert.deepEqual([pair.overall.both, pair.overall.either], [1, 1], "only the shared item is in either side of the ratio");
+  assert.equal(pair.overall.ratio, 1);
+});
+
+test("the corpus asked for must be the corpus the runs replayed", () => {
+  const stated = "2026-08-10-pilot-reviewed";
+  const runs = WORKED.map((run) => ({ ...run, corpus_version: stated }));
+  // Matching, and unrequested, both pass.
+  assert.equal(reliabilityOf(runs, { corpusVersion: stated }).corpus_version, stated);
+  assert.equal(reliabilityOf(runs).completeness.verdict, "partial");
+  // A different corpus would take the item ids and the coverage figure from one
+  // corpus and every agreement figure from another, under one label.
+  assert.throws(() => reliabilityOf(runs, { corpusVersion: "2026-08-07-pilot" }), /the runs replayed/);
+  assert.equal(assertRequestedCorpus(stated, stated), stated);
+  assert.equal(assertRequestedCorpus(null, null), null, "requesting nothing claims nothing");
+  // A label nobody can check is refused too — lesson 7 asked of the guard's input.
+  assert.throws(() => assertRequestedCorpus(null, stated), /cannot be checked/);
+  assert.throws(() => assertRequestedCorpus("", stated), /cannot be checked/);
+});
+
+test("the partition separator cannot occur inside a field it separates", () => {
+  // WHY THIS SHAPE. The separator's whole job is `finding-match.mjs`'s: "a character
+  // no finding can contain, so ['a','b'] and ['a b'] can never digest alike". The
+  // source briefly carried `"\\u0000"` — a literal backslash and five more characters
+  // — after a pass that removed a raw NUL byte over-escaped it. Six printable
+  // characters ARE spellable in a path, so the guarantee quietly lapsed.
+  //
+  // A test that merely separates line 1 from line 11 does not notice: those differ
+  // under any separator. The only assertion that does is a pair whose parts differ
+  // ONLY in where the boundary falls, so it is the one written here.
+  const boundary = String.fromCharCode(92) + "u0000"; // the six characters, as text
+  const a = { item_id: "pr-1", file: `a.ts${boundary}b.ts`, line: 5, panel: { lens: "correctness" } };
+  const b = { item_id: `pr-1${boundary}a.ts`, file: "b.ts", line: 5, panel: { lens: "correctness" } };
+  // Under a real U+0000 these are two locations. Under the six-character version they
+  // build the identical key and read as one location carrying two findings.
+  assert.equal(duplicateLocationsOf([a, b]).locations, 0, "two different (item, file, line) triples must not collide into one location");
+  assert.equal(duplicateLocationsOf([a, b]).records_involved, 0);
+  // And the ordinary case still works, so the assertion above is not vacuous.
+  const c = { item_id: "pr-1", file: "a.ts", line: 5, panel: { lens: "correctness" } };
+  const d = { item_id: "pr-1", file: "a.ts", line: 5, panel: { lens: "design-fit" } };
+  assert.equal(duplicateLocationsOf([c, d]).locations, 1);
 });
 
 test("a population may not be passed as the other one", () => {

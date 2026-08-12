@@ -59,7 +59,7 @@ average a gate verdict that never flips together with a nit population that repr
 block a merge the two runs alone would have made. Slicing a pair out of one K-way
 grouping would therefore make a pair's answer depend on how many other replicates were
 passed in. So (a) and (c) group each pair on its own and (b) groups all K, and the two
-class counts differ for exactly that reason — 183/171/175 per pair against 219 over
+class counts differ for exactly that reason — 201/196/200 per pair against 245 over
 three. Both denominators are reported.
 
 ### Three refusals, each aborting
@@ -189,7 +189,7 @@ The file-level proxy in the handoff kit measured blocking severity as *churnier*
 average (40.0% of blocking-flagged files in exactly one replicate against 32.1%
 overall). At finding level the opposite holds: **`major` classes are the most
 reproducible stratum** (38.2% in all three, 32.7% in exactly one) against an overall
-50.7% in exactly one. Both measurements are real and they are about different units —
+48.2% in exactly one. Both measurements are real and they are about different units —
 a file is flagged if *any* finding lands in it, so one churny nit makes a whole file
 churn. **The file-level stratification does not survive to finding level, and the claim
 built on it should not be quoted.**
@@ -200,7 +200,7 @@ Measured **once**, with the code frozen, 2026-08-11, against the real store
 (`dlgpdmsly2/wafflebase-agent-eval`), all three replicates, all seven items
 `status: "ok"`, novelty gate **on**. Exits 0 — `COMPLETE`.
 
-```
+```text
 reliability · 3 replicate(s) pilot-01__k1, k2, k3 · corpus 2026-08-10-pilot-reviewed
              reviewer 46da673dd/sha256:1c7853debf4ed · COMPLETE
   ONE ARM ONLY: CodeRabbit retest pairs n=0. Nothing below is a comparison.
@@ -216,43 +216,43 @@ reliability · 3 replicate(s) pilot-01__k1, k2, k3 · corpus 2026-08-10-pilot-re
 | **(d) Gate verdict agreement** | **7/7 = 1.000** (6 gated, pr-471 clean ×3) | 7 items × 3 runs |
 | Gate routes agree (panel rows vs lanes) | 21/21 item-runs · **111/111** lens slots | — |
 | Blocking-lane findings per run | 35 · 34 · 30 (spread 17%) | 428 records |
-| **(a) Jaccard, per pair** | **0.415 · 0.421 · 0.429** (range 0.013) | 183 / 171 / 175 classes |
-| **(b) In all three replicates** | **48/219 = 0.219** | 219 classes |
-| In exactly one replicate | 111/219 = 0.507 | 219 classes |
-| **(c) Verifier raw agreement** | **15/15 · 9/9 · 10/10 = 1.000** | 34 comparable pairs total |
+| **(a) Jaccard, per pair** | **0.438 · 0.434 · 0.430** (range 0.008) | 201 / 196 / 200 classes |
+| **(b) In all three replicates** | **56/245 = 0.229** | 245 classes |
+| In exactly one replicate | 118/245 = 0.482 | 245 classes |
+| **(c) Verifier raw agreement** | **20/20 · 17/17 · 16/16 = 1.000** | 53 comparable pairs total |
 | **(e) Detection → reported** | 158→142 (−16) · 161→147 (−14) · 156→139 (−17) | 21 replays |
 
-**(a) came out at 0.42, below the file-level proxy's 0.61 — the direction the handoff
-required.** File level is coarser, so agreement there is an upper bound on this. Every
-per-item value is in `MEASURED` below; the spread across items (0.32–0.62) is wider
-than the spread across pairs (0.013), which is the same "per item is one draw"
-conclusion volume-mix reached from a different metric.
+**(a) came out at 0.43, below the file-level proxy's 0.61 — the direction the handoff
+required.** File level is coarser, so agreement there is an upper bound on this. The
+spread across items (0.34–0.57) is far wider than the spread across pairs (0.008), which
+is the same "per item is one draw" conclusion volume-mix reached from a different metric.
 
 **Severity stratification, and this is the headline stratified:**
 
 | stratum | classes | in all 3 | in exactly one |
 |---|---|---|---|
 | `critical` | 4 | **0/4 = 0.000** | 4/4 = 1.000 |
-| `major` | 55 | 21/55 = **0.382** | 18/55 = 0.327 |
-| `minor` | 126 | 25/126 = 0.198 | 61/126 = 0.484 |
-| `nit` | 34 | 2/34 = **0.059** | 28/34 = **0.824** |
+| `major` | 58 | 23/58 = **0.397** | 21/58 = 0.362 |
+| `minor` | 148 | 31/148 = 0.209 | 65/148 = 0.439 |
+| `nit` | 35 | 2/35 = **0.057** | 28/35 = **0.800** |
 
-**Nits barely reproduce at all (6%), majors reproduce best (38%), and all four
+**Nits barely reproduce at all (6%), majors reproduce best (40%), and all four
 `critical` findings in the whole pilot appeared in exactly one replicate.** The last
 row is n=4 and must be quoted with it.
 
 **(c) is degenerate, exactly as predicted, and the numbers are worth stating anyway:**
-raw agreement is **1.000 on all three pairs** over 15, 9 and 10 comparable pairs.
-κ = 1.000 on k1↔k2 (two outcomes present) and **undefined** on the other two — one
-outcome holds every rating, so expected agreement is 1. Across all 21 replays the
-verifier emitted `confirmed-high 89 · confirmed-low 6 · errored 2 · null 331` and
-**not one refutation**, so κ carries no information about this verifier here. Excluded
-from the denominator: 109/105/108 `not-run` and 7/10/12 `split`. **7 blocking-severity
-records carry no verification at all** — reported, not explained.
+raw agreement is **1.000 on all three pairs** over 20, 17 and 16 comparable pairs, and
+κ = 1.000 on each (two outcomes appear on both sides of every pair, so it is defined
+here). Across all 21 replays the verifier emitted `confirmed-high 89 · confirmed-low 6 ·
+errored 2 · null 331` and **not one refutation**, so κ carries no information about this
+verifier's reliability — a perfect κ over a population with one real outcome is the
+kappa paradox pointing the other way, and it is reported with its marginals for exactly
+that reason. Excluded from the denominator: 131/128/130 `not-run` and **0 `split`**.
+**7 blocking-severity records carry no verification at all** — reported, not explained.
 
 **(e) says the noise is in detection, and the later stages do not add much:** the
-detection population agrees *better* than the reported one (0.452 · 0.475 · 0.457
-against 0.415 · 0.421 · 0.429), so dedupe, clustering, verification and lane routing
+detection population agrees *better* than the reported one (0.467 · 0.486 · 0.472
+against 0.438 · 0.434 · 0.430), so dedupe, clustering, verification and lane routing
 slightly **reduce** cross-run agreement rather than cleaning it up. The delta is
 −16/−14/−17 findings, ~10% of each replicate.
 
@@ -261,7 +261,7 @@ slightly **reduce** cross-run agreement rather than cleaning it up. The delta is
 Two mechanisms, both counted rather than argued:
 
 - **5565 cross-run `maybe` pairs never merged** across the three pairwise groupings
-  (1941 · 1776 · 1848), against 611 `match`es in the K-way grouping. A `maybe` is a
+  (1941 · 1776 · 1848), against 503 `match`es in the K-way grouping. A `maybe` is a
   pair the matcher called *plausible* and the policy refuses to merge, so each one
   splits a same-defect pair into two classes, inflating the union and deflating the
   ratio. Nothing here re-thresholds or promotes one: resolving a `maybe` is
@@ -271,24 +271,20 @@ Two mechanisms, both counted rather than argued:
   its own restatements, so a run that said one thing twice looks like it disagreed with
   a run that said it once. A confound, not a bug — and printed so a reader can size it.
 
-**Which gate the within-run pairs took is PROBED rather than assumed:** `file-only`
-today, and 0 of 428 records expose a top-level `lens` (all 428 carry one at
-`panel.lens`). Cross-run pairs are unaffected — 9387 of 13952 pairs took the
-cross-source gate, 0 defaulted.
+### Which grouper these numbers were measured against — and it changed mid-review
 
-### Which grouper these numbers were measured against, and what moves under the other
+**Every figure above was measured against `groupFindings` as it stands on the base this
+branch now sits on, where the same-run gate DOES read a finding record's lens** (`#780`,
+merged while this PR was open). That is not a detail to leave for a reader to discover: a
+change to that gate moves every denominator here.
 
-**Every figure above was measured against `groupFindings` as it stands on `main`
-(`76f87ce`), where the same-run gate does not read a record's lens.** That is not a
-detail to leave for a reader to discover: a change to that gate moves every
-denominator here, so the numbers are pinned to the grouper that produced them and the
-alternative was measured rather than predicted.
+The point is not academic, because it happened. The first revision of this document
+published figures measured against the lens-blind grouper, named it explicitly, and
+carried a measured table of what would move if the accessor landed. It then landed. The
+figures above are the re-measured ones and the earlier column is kept below, because the
+delta is the most useful thing either measurement produced:
 
-The change in question is open, not merged, and its default makes records lens-aware
-with no caller change (`defaultLensOf` reads `finding.lens`, then the lensed arm's
-`panel.lens`). Measured by running this scorer, unmodified, against that grouper:
-
-| | `main` `76f87ce` | with the lens-aware gate |
+| | lens-blind gate (`76f87ce`) | lens-aware gate (current base) |
 |---|---|---|
 | Jaccard per pair | 0.415 · 0.421 · 0.429 (mean 0.422) | **0.438 · 0.434 · 0.430** (mean 0.434) |
 | K-way defect classes | 219 | **245** |
@@ -296,36 +292,82 @@ with no caller change (`defaultLensOf` reads `finding.lens`, then the lensed arm
 | in exactly one | 111/219 = 0.507 | 118/245 = 0.482 |
 | `major` / `minor` / `nit` classes | 55 / 126 / 34 | 58 / 148 / 35 |
 | detection-stage Jaccard | 0.452 · 0.475 · 0.457 | 0.467 · 0.486 · 0.472 |
+| (c) comparable pairs · `split` | 15 / 9 / 10 · 7 / 10 / 12 | 20 / 17 / 16 · **0 / 0 / 0** |
 | **same-run pair verdicts** | **611 match** · 5817 maybe · 7524 no | **503 match** · 5639 maybe · 7810 no |
 | **cross-source pair verdicts** | **9387** | **9387 — identical** |
 
-Three things that table settles, none of which was obvious beforehand:
+Four things that table settles, none of which was obvious beforehand:
 
-- **The lens reaches only the same-run gate.** Cross-source pair verdicts are
-  *identical* (9387 either way), because L2 never reads a lens. So a change there
-  cannot move which findings the matcher considers the same defect *across*
-  replicates; it moves how many classes each run contributes.
+- **The lens reaches only the same-run gate.** Cross-source pair verdicts are *identical*
+  (9387 either way), because L2 never reads a lens. So the change cannot move which
+  findings the matcher considers the same defect *across* replicates; it moves how many
+  classes each run contributes.
 - **The arithmetic bridge is the flipped verdicts, not a resemblance between two
   numbers.** 108 same-run pairs flip from `match` to `no` (611 → 503) and that yields
-  **+26 classes**, because breaking one pair inside a class of four splits it once
-  rather than six times. An earlier draft of this section called +26 *"consistent
-  with"* the 20/20/29 classes the accessor's own author measured collapsing per
-  replicate; those are three separate per-replicate groupings against one pooled
-  grouping, so they are not comparable quantities and the loose equivalence is
-  removed. Credit to that session for the correction.
-- **Today's figures are the CONSERVATIVE ones, which is the opposite of the intuition.**
-  Splitting a within-run cross-lens class raises the union and should deflate Jaccard —
-  but when *both* runs restated the same location it raises the intersection too, and on
-  this data that dominates: agreement goes **up** by 0.012. So the lens-blind gate this
-  PR measured against understates agreement rather than flattering it.
+  **+26 classes**, because breaking one pair inside a class of four splits it once rather
+  than six times. An earlier draft called +26 *"consistent with"* the 20/20/29 classes
+  the accessor's own author measured collapsing per replicate; those are three separate
+  per-replicate groupings against one pooled grouping, so they are not comparable
+  quantities and the loose equivalence is removed. Credit to that session for the
+  correction.
+- **Agreement goes UP, which is the opposite of the intuition.** Splitting a within-run
+  cross-lens class raises the union and should deflate Jaccard — but when *both* runs
+  restated the same location it raises the intersection too, and on this data that
+  dominates: +0.012. **So the lens-blind figures were the conservative ones**, and the
+  accessor did not flatter this metric; it made it slightly kinder.
+- **`split` fell to zero in (c)**, which is the mechanism confirming itself from a
+  different direction: a lens-aware same-run gate stops one class holding two members of
+  the same run, so "this run's own members disagree about the verdict" no longer occurs.
+  The (c) denominator grows from 34 comparable pairs to 53 for the same reason.
 
 **Nothing this PR publishes carries a `D-` class id** — checked, 0 occurrences in the
 54 KB of `--json` output — so the accessor's accompanying `contentDigest` change, which
-does move those ids for record-shaped input, cannot move a figure here.
+does move those ids for record-shaped input, moves nothing here.
 
-**And the scorer's tests pass against both groupers**, unmodified: 39/39 either way.
-The gate census is read by key rather than `deepEqual`d, so the key that change adds
-(`lens_unreadable`) prints automatically instead of reddening the lane.
+**Which gate the within-run pairs took is PROBED rather than assumed**, and that is what
+made this re-measurement a re-run rather than an edit: the scorer now prints
+`lens-and-file` because it asks the installed grouper, where the first revision would
+have kept printing `file-only` from the record shape. 0 of 428 records expose a top-level
+`lens`; all 428 carry one at `panel.lens`. **The scorer's tests pass unmodified against
+both groupers, 43/43 either way**, and the gate census is read by key rather than
+`deepEqual`d, so the `lens_unreadable` key the accessor adds prints instead of reddening
+the lane.
+
+### 7. Four defects found in review, two of them mine and silent
+
+**The separator had been over-escaped.** An earlier pass removed a raw NUL byte from the
+source and left one backslash too many, so the value this file joins composite keys with
+was six printable characters rather than U+0000. A path able to contain those six
+characters could collide two different `(item, file, line)` triples into one location. It
+is now byte-identical to `finding-match.mjs` and proven at runtime. The test that catches
+it had to be built from a pair whose parts differ ONLY in where the boundary falls — an
+ordinary "line 1 is not line 11" assertion passes under either separator, which made the
+first version of that test decoration.
+
+**The detection stage had the exact bug this module is written against.** Availability was
+`some(run => sampled.length > 0)`, so a caller supplying the sampled population for one
+run and not another had every pair involving the missing side scored as **Jaccard
+0.000** — one run's absent population reported as two runs agreeing on nothing. It also
+did not restrict its pairs to the items both runs hold, while the reported arm does, so
+(e) would have compared its own two stages across different denominators. Both fixed: a
+pair now needs the population on both sides, is restricted to shared items, and an
+unscorable pair carries `overall: null` plus a reason the renderer prints instead of a
+ratio.
+
+**A guard was missing.** `--corpus-version` was never checked against the version the
+runs state, so the item ids, the coverage figure and the completeness verdict could come
+from the requested corpus while every agreement figure came from the runs' — under one
+label. `assertRequestedCorpus` refuses that, and also refuses a label nobody can check (a
+requested version against runs stating none), which is lesson 7 asked of the guard's own
+input.
+
+**And a comment quoted the wrong unit:** the header said nits reproduce 17% of the time,
+which is the FILE-level share; at finding level it is 2 of 34. The same reversal §6
+records, reached by copying a number instead of re-reading it.
+
+**None of the four moved a published figure.** Re-measured against the real store with
+all of them in place, every metric line is identical to the frozen measurement above; the
+only output change is that the detection lines now name their item count.
 
 ## Fail directions
 
@@ -340,6 +382,8 @@ The gate census is read by key rather than `deepEqual`d, so the key that change 
 | A payload carries no `panel[]` rows | The verdict is `unknown`, the item is `agrees: null` and excluded from (d)'s denominator | Reading it as `clean` would manufacture a decision from a missing input |
 | An item is missing from one replicate | Its own figures quote the K it had; the pair that lacks it excludes it; `completeness` says so and exits non-zero | A per-item number that cannot name its K is not attributable |
 | No sampled population is supplied | (e)'s deltas are `null` and the detection stage is `available: false` with its reason | `0` would read as "detection raised nothing extra" |
+| The sampled population is supplied for ONE side of a pair | That pair is `available: false` with a reason the renderer prints; the scorable pairs are still compared | A Jaccard of 0.000 there is one run's missing population reported as two runs agreeing on nothing |
+| `--corpus-version` disagrees with what the runs replayed, or the runs state none | **Aborts** | The item ids and the coverage verdict would come from one corpus and every agreement figure from another, under one label |
 | A record's `verification` is a value this file does not know | Counted in `outside_vocabulary`, excluded from the denominator, and surfaced in `completeness.reasons` | Lesson 7: a vocabulary that grew is a guard that stopped guarding |
 | Any ratio has no denominator | `ratio: null`, printed `n/a (n=0)` | `0/0 → 0.000` reads as a measurement of a reviewer that produced nothing |
 
@@ -389,18 +433,17 @@ to touch.
 
 ## Verification
 
-- [x] `agent:tests`, the real CI lane (two invocations since #774) — **1699 tests
-      (1644 + 55), 1699 pass, 0 fail, 0 skipped**, against a freshly measured
-      `upstream/main` (`76f87ce`) at **1660 (1605 + 55) / 1660 / 0 / 0**. **+39.** Both
+- [x] `agent:tests`, the real CI lane (two invocations since #774) — **1739 tests
+      (1684 + 55), 1739 pass, 0 fail, 0 skipped**, against a freshly measured
+      `upstream/main` (`a5f414e6`) at **1696 (1641 + 55) / 1696 / 0 / 0**. **+43.** Both
       trees extracted with `git archive` and given identical `node_modules` symlinks
       before either was measured, so the 0 skips is a property of both trees rather
-      than an environment artefact. `main` moved from `9d68ee0` to `76f87ce`
-      mid-session; both trees were rebuilt at the new tip and re-measured rather than
-      carried over, and the counts and the store measurement are byte-identical
-      (the intervening commits touch `packages/design-editor`, `packages/frontend` and
-      `hunt-ui-tool.mjs` — nothing this module reads).
+      than an environment artefact. `main` moved three times while this was open — `9d68ee0` → `76f87ce` → `a5f414e6`, the
+      last of them merged into this branch — and every tree was rebuilt at the new tip and
+      re-measured rather than carried over. The last move mattered: it brought #780, which
+      changes this scorer’s denominators, so the figures above are the re-measured ones.
 - [x] `eslint scripts` exits **0** at the lockfile-pinned 9.24.0, on both trees.
-- [x] **Mutation testing: 41 mutations, 41 caught, 0 survivors** — and each by the test
+- [x] **Mutation testing: 46 mutations, 46 caught, 0 survivors** — and each by the test
       that *claims* to prevent it, checked by name rather than by the suite going red.
       Three survived a first pass across two rounds; each was fixed by strengthening a
       fixture or adding an assertion rather than by weakening a test, and all three are
@@ -408,8 +451,8 @@ to touch.
       the record-shape inference it replaced is **behaviour-preserving on `main`** —
       which is exactly why the inference looked correct — and is caught only by
       asserting that the verdict is independent of the records handed in.
-- [x] **The whole suite runs green against BOTH groupers** — 39/39 with `main`'s
-      `finding-match.mjs` and 39/39 with the open lens-accessor version, unmodified. The
+- [x] **The whole suite runs green against BOTH groupers** — 43/43 with `main`'s
+      `finding-match.mjs` and 43/43 with the open lens-accessor version, unmodified. The
       gate census is read by key rather than `deepEqual`d, so the key that change adds
       prints instead of reddening the lane.
 - [x] Measured against the real store **once, with the code frozen**, and the full
