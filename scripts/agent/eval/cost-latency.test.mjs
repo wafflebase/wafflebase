@@ -422,8 +422,18 @@ test("the two uncomputable metrics are explicit nulls with reasons, not omission
   // stops looking, and this one can — from the other arm's own status-comment edit
   // history, which is the adapter's to read.
   assert.match(gaps.get("coderabbit_latency_ms").reason, /MEASURABLE, and not from anything this scorer reads/);
-  assert.match(gaps.get("coderabbit_latency_ms").reason, /status comment.*edits it in place/);
-  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /timing read in the CodeRabbit adapter/);
+  // The DECIDED interval, named. A gap that says "measurable" without saying which
+  // interval invites the next reader to pick one, and three of the available
+  // choices are wrong in ways that were measured rather than argued.
+  assert.match(gaps.get("coderabbit_latency_ms").reason, /coderabbit-start-marker-to-first-finding/);
+  // Including the one THIS FIELD used to propose, kept as a named rejection with
+  // its error rather than quietly dropped: a deleted wrong answer gets reinvented.
+  assert.match(gaps.get("coderabbit_latency_ms").reason, /created_at-to-updated_at pair, which is wrong by 8x/);
+  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /timing read in the arm's adapter/);
+  // The half that matters most: arriving at a number does not make the two arms
+  // comparable, and the bias runs the opposite way from the long-standing worry.
+  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /2\.2x LONGER/);
+  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /no ratio/);
   assert.deepEqual(r.declared_gaps.map((g) => g.metric), ["cost_per_real_finding", "coderabbit_latency_ms"]);
   assert.equal(r.coderabbit.latency.wall_ms, null);
 });

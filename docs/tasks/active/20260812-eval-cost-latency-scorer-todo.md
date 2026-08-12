@@ -184,22 +184,15 @@ commit's committer date can precede the push by hours, and the pull request's `c
 trigger for a review of a later commit. Measured across the seven items, those two candidate starts
 disagree by **up to 38 hours**.
 
-But CodeRabbit brackets its own work. It posts a status comment carrying a `review in progress`
-marker and **edits it in place** when the review lands, so the two revision timestamps are a duration
-it timed itself, needing no push time at all. Measured over the seven items: **2.5–14.4 minutes,
-median 6.8**, and on every one of them the closing edit lands **3–4 seconds** before that review's
-`submitted_at` — which is what makes the pairing a measurement rather than a coincidence.
+But CodeRabbit brackets its own work: it stamps a marker when it takes a job. So the gap now reads
+**measurable, and not from anything this scorer reads** — the read belongs to the arm's adapter, not to
+a scorer that touches no network. The distinction matters more than the wording, because *"this number
+cannot exist"* stops a reader looking and this one can exist.
 
-So the gap now reads **measurable, and not from anything this scorer reads**: it is a GraphQL read of
-one comment's edit history, and it belongs to the arm's adapter rather than to a scorer that otherwise
-touches no network. The distinction matters more than the wording — *"this number cannot exist"* stops
-a reader looking, and this one can exist.
-
-⚠ Two things any PR that wires it up inherits. **It does not recover every round**: some items carry
-earlier comment revisions with no marker, so an absent marker is *not* a zero-length round (lesson 6
-again). And the two arms' intervals are **not the same measurement** — ours is the panel process's own
-elapsed time from an offline replay that never queued for anything, against a live reviewer's
-execution on its own infrastructure, measured once and unrepeatable.
+⚠ **The mechanism this document first proposed for it was wrong, and is corrected in §7 below.**
+The first version said the status comment is *"edited in place, so the two revision timestamps are a
+duration it timed itself"*. Measured properly, that pair is wrong by **8×**. Read §7 rather than this
+paragraph for the interval.
 
 ### 5. Four defects found in review, three of them the same failure
 
@@ -230,6 +223,60 @@ inputs the tests did not supply: tied sizes never occur in the pilot fixture, a
 one-replicate fixture cannot tell an item count from an observation count, and the
 declared-gaps test checked the reasons without checking the values. Three tests
 widened; no code changed.
+
+### 7. ⟳ The other arm's interval is settled, and this file's proposed mechanism was 8× wrong
+
+*Appended after the interval was decided elsewhere and measured by the arm's own adapter. §4 above is
+kept because it was confident and documented; where the two disagree, this section wins.*
+
+**`t0` is CodeRabbit's OWN start marker** — the HTML comment it stamps when it takes a job, per
+**invocation** for an on-demand `@coderabbitai review` and once per **pull request** for its status
+comment, taking the latest such marker before the finding. **`t1` is the earliest CodeRabbit artefact
+on the frozen commit**, off the arm's own `posted_at`. Interval name
+`coderabbit-start-marker-to-first-finding`; **n=7/7, median 6.8 min, range 2.6–14.4.**
+
+**What §4 got wrong.** It proposed the status comment's `created_at → updated_at` pair. That reads
+**53.7 min against a true 6.6 on pr-415** — wrong by 8× — because *the last edit is the last edit of
+anything*: the comment is re-edited long after the review lands. The same rule is right to within
+**4 seconds** on the per-invocation ack. **A rule that is right on one comment kind and 8× wrong on
+another is not a rule**, and the failure is this project's signature one — a value that is a property
+of the container read as a property of the work.
+
+**Two other starts were rejected, and one of them this file measured itself.** A push-time proxy from
+`min(check-run started_at)` on the frozen commit agrees with the marker to **0.1–0.4 min on the five
+automatic items** — but **2 of 7 pilot items are on-demand**, where it times a *human*: pr-549 reads
+**183.7 min** from the push against **7.8** from CodeRabbit's own ack, and **pr-605 has the same defect
+behind an innocent 9.8 min**, so an outlier rule that catches the first keeps the second. It also
+depends on *our* CI having run on that commit, which is a fact about our repository. The pull request's
+`created_at` and the commit's `committer.date` were rejected for the reasons §4 gives.
+
+**🔴 And the direction of the bias is the opposite of what was feared.** This is the correction that
+matters to a reader of *this* module:
+
+| | interval | environment | pilot |
+|---|---|---|---|
+| **us** | panel process, `review-timing.json` | **offline replay** | median **9.3** min, n=21 |
+| **CodeRabbit** | its own marker → its first finding | production | median **6.8** min, n=7 |
+| **us, production** | CI-start → our lens check runs | production | **18.7 and 19.0** min, **n=2** |
+
+The third row settles it. On the two items carrying `agent-review-*` check runs at the frozen commit,
+both arms' clocks start from the same event, and ours reads **18.7 / 19.0** against their **8.0 / 8.6**
+— **about 2.2× LONGER.** The spec warned for months that latency would read 3–5× too high *against*
+us; in production it reads too **low, in our favour**, and publishing *9.3 vs 6.8* unqualified would be
+the most misleading number this project could produce. ⚠ Note also that **9.6 is replicate k1's median
+alone** (k2 8.7, k3 9.3); the figure over all 21 replays is **9.3**. Every per-item `9.6` in this
+document is pr-524's k1 wall clock and is correct as an item figure.
+
+**So the declared gap is rewritten rather than deleted**, and it now carries three things it did not:
+the interval's name, the rejected mechanisms *with* their measured errors, and the fact that arriving
+at a number does not make the two arms comparable. **Separate blocks, separate units, no shared axis
+and no ratio** — minutes need that discipline more than dollars, because they look commensurable.
+
+**Still not built here, deliberately:** the latency block itself. It becomes `seriesOf` over the
+poolable figures with the interval named in the field, its `n` and range beside it, and the absent
+census with its zeros — fed in as an **injected option** so this module stays hermetic and its tests
+stay fixture-only. That waits on the adapter read landing; consuming a shape that does not exist yet
+would make this PR undefensible on the day it lands, which is the rule that governs every PR here.
 
 ## The numbers
 
@@ -321,17 +368,22 @@ the latency exceptions are real and specific (22 lines slower than 160).
 
 ## Verification
 
-- [x] `agent:tests` — **1771 tests (1716 + 55), 1771 pass, 0 fail, 0 skipped**,
-      against a freshly measured `main` (`c615b8c`) at **1741 (1686 + 55) / 1741 / 0
-      / 0**. **+30.** Two invocations, because the lane runs everything except
+- [x] `agent:tests` — **1772 tests (1717 + 55), 1772 pass, 0 fail, 0 skipped**,
+      against a freshly measured base at **1742 (1687 + 55) / 1742 / 0 / 0**.
+      **+30.** The base is this branch's own tip with only this PR's three files
+      removed, rather than a `main` sha: `main` moved four times during the work and
+      the branch has been brought up to it, so the tree that will exist after merge
+      is the one measured — not the older base the branch was cut from. Two invocations, because the lane runs everything except
       `eval/run.test.mjs` and then that file alone. Both trees extracted with `git
       archive` and given identical `node_modules`, so 0 skips on both is a
       measurement rather than an environment artefact.
-- [x] **Re-measured after `main` moved mid-build.** The branch was first cut at
-      `a5f414e` and measured there; the reliability scorer merged during the work,
-      so both trees were re-extracted at `c615b8c` and measured again rather than
-      the older baseline being carried forward. That merge is also what made two of
-      this file's guards duplicates, and why they are now imported.
+- [x] **Re-measured every time `main` moved**, four times: cut at `a5f414e`, then
+      `c615b8c` when the reliability scorer merged mid-build — which is what made two
+      of this file's guards duplicates and why they are now imported — and finally at
+      the branch tip after it was brought up to `main`. No baseline was carried
+      forward; each pair of trees was extracted with `git archive` and given
+      identical `node_modules`, so 0 skips on both sides is a measurement rather than
+      an environment artefact.
 - [x] `eslint scripts` exits **0** on the committed tree, at the pinned 9.24.0.
 - [x] **Mutation testing: 40 mutations, 40 caught by the test that names the
       behaviour, 0 survivors.** Three survived the first pass; each was checked for

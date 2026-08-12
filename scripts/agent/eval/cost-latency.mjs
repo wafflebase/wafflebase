@@ -34,8 +34,11 @@
 // `declaredGaps`. Cost per real finding needs confirmed-real findings and zero
 // adjudicated labels exist; the tempting substitute — cost ÷ all findings — is the
 // worst option available precisely because it looks like the real metric. Same for
-// CodeRabbit's latency, for a different reason: it is measurable, and not from
-// anything in the store — see `declaredGaps`.
+// CodeRabbit's latency, for a different reason: it is measurable, from the other
+// arm's own start marker, and not from anything in the store. When it arrives it
+// arrives as an INJECTED option and goes in its own block — never on one axis with
+// our figure, which is a replay process's time and runs about 2.2x LONGER than
+// theirs when both are measured in production from one trigger. See `declaredGaps`.
 //
 // WHAT THIS FILE DELIBERATELY DOES NOT DO. No stage attribution — which stage
 // spends the money is §3.6, and `stageDetail` is not read here. No cost per
@@ -547,8 +550,9 @@ export function declaredGaps() {
       metric: "coderabbit_latency_ms",
       value: null,
       reason:
-        "MEASURABLE, and not from anything this scorer reads. A finding's posted_at is the end of the interval and no start is stored — nothing records when the review was triggered, and the two obvious substitutes (the commit's committer date, the pull request's created_at) are not it: a commit can be authored long before it is pushed, and a review of a later commit is not a review of the opening head. What DOES bracket the work is CodeRabbit's own clock — it posts a status comment carrying a \"review in progress\" marker and edits it in place when the review lands, so the pair of revision timestamps is a duration it timed itself. That is a GitHub GraphQL read of one comment's edit history, which belongs to the arm's adapter rather than to a scorer that otherwise touches no network",
-      unblocked_by: "a timing read in the CodeRabbit adapter, plus a stated decision about what the two arms compare — ours is the panel process's own elapsed time, from an offline replay that never queued for anything, so it is not the same interval as a live reviewer's",
+        "MEASURABLE, and not from anything this scorer reads. The end is a finding's own posted_at; the start is CodeRabbit's OWN start marker — the HTML comment it stamps when it takes a job, per invocation for an on-demand review and once per pull request for its status comment — taking the latest such marker before the finding. The interval is therefore coderabbit-start-marker-to-first-finding, and reading it is an API call that belongs to the arm's adapter rather than to a scorer which touches no network; it arrives here as an injected option. Three other starts were rejected, and one of them is the trap THIS FIELD USED TO PROPOSE: the status comment's created_at-to-updated_at pair, which is wrong by 8x — 53.7 min against a true 6.6 on one pilot item — because the last edit is the last edit of anything, and a rule that is right on one comment kind and 8x wrong on another is not a rule. Also rejected: a push-time proxy off our own check runs, which times a HUMAN whenever a human asked for the review, and the pull request's created_at or the commit's committer date, neither of which dates the reviewed snapshot",
+      unblocked_by:
+        "a timing read in the arm's adapter. Note what that will NOT unblock: a COMPARISON. Ours is a panel process's elapsed time on an offline replay that queued for nothing; theirs is a production reviewer measured end to end. Where both were measured from one trigger in production, ours ran about 2.2x LONGER — the opposite of the direction this was long assumed to err in — so the two stay in separate blocks with separate units and no ratio, and minutes need that discipline more than dollars because they look commensurable",
     },
   ];
 }
