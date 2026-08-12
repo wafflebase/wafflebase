@@ -98,10 +98,29 @@ const LANES = [
   // corrupted runs finish EARLY — 6.7s against a 9.6s median — which is the
   // shape of a process that stopped, not one that struggled).
   //
-  // So the trigger is this file sharing a runner with the rest of the suite, and
-  // the cheapest true statement about it is that nobody knows why. Isolation is
-  // therefore a MITIGATION with a measurement behind it, not a diagnosis, and it
-  // is written this way deliberately: nothing is skipped, no result is dropped,
+  // THE CAUSE IS NOW KNOWN, and it was never really about sharing a runner. A
+  // test file reports over its own STDOUT, as v8 frames (`0xFF 0x0F`, 4-byte
+  // big-endian length, payload). `#processRawBuffer` looks for that magic only at
+  // the TOP of a call: having consumed one frame it takes whatever follows in the
+  // same read chunk as the next frame's header and length without re-checking, so
+  // plain text behind a frame becomes a length — a large one stalls the stream and
+  // loses that file's remaining results, a small one deserializes garbage and
+  // throws. `eval/run.mjs`'s progress heartbeat was the only writer of such text
+  // in this lane (`runCli` redirects `console.log`, which the heartbeat never
+  // used), and it now goes to stderr, which the runner reads as lines.
+  //
+  // Measured on a real `eval/run.test.mjs` child's captured result stream,
+  // randomized chunk boundaries, same frames in both arms: with its 931 bytes,
+  // 30/30 reproduce the exact error; with the text removed, 0/30. Sharing a runner
+  // was a proxy for load — a busy runner drains each socket later, so a frame and
+  // the text behind it coalesce into one read far more often, which is why the
+  // arms above moved without ever naming a cause.
+  //
+  // ISOLATION IS KEPT ANYWAY, and deliberately not claimed as the fix. The parser
+  // behaviour is upstream and still there, so this bounds the blast radius of any
+  // future stdout write from this file. Removing it is a separate change and wants
+  // its own measurement, not a rider on this one. What has not changed is why it is
+  // written this way: nothing is skipped, no result is dropped,
   // and the two invocations together report the SAME total one invocation reports
   // when it is not corrupted — 1556 + 55 = 1611 as measured at `7dbeb61ce`, a
   // number that moves with every test added, so it is the equality that is the

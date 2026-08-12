@@ -85,6 +85,34 @@ spec. On this surface the richest version is *the edit landed somewhere other th
 where the app said the selection was*: read `sheet.activeCell`, type, then predict
 that THAT cell holds what you typed.
 
+### The shape that has actually found defects: the ROUND TRIP
+
+On the document surface every real defect this project has filed came from one
+pattern — do a thing, undo it BY ITS OWN CONTROL, and predict the state returns to a
+reading you already took. It is ground A by construction, and it caught defects that
+broad exploration walked straight past.
+
+Undo is not available to you, so the sheet version runs through the CALCULATOR:
+
+```
+read sheet.cellValue("C1")            -> journal entry 7      (C1 is =A1+A2)
+click A1 via sheet.cellCenter, type 99, Enter
+read sheet.cellValue("C1")                                    (should have changed)
+click A1 again, type 10, Enter        (A1's seeded value)
+                    expect sheet.cellValue("C1") equals "@read:7"   ground A
+```
+
+A dependency restored to its old value must produce the old result. Vary it: a cell
+the formula does NOT reference (changing B1 must leave C1 alone), a value entered as
+text versus a number, and rewriting a cell with the value it already holds.
+
+`sheet.cellFormula("C1")` is a second round trip of its own — editing A1 must never
+change C1's formula TEXT, only its value.
+
+**Not a round trip: scroll position.** Scrolling down and back is not guaranteed to
+land on the same offset, so predicting that `sheet.cellCenter` returns its earlier
+point is a false finding waiting to happen. Scroll to reach cells, not to assert on.
+
 ## NOT your lane — defer, do not report
 
 - Anything on the document surface. You cannot reach it and must not try.

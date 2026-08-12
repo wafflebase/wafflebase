@@ -1043,13 +1043,39 @@ export async function main(argv) {
         // that lens finishes, so poll for them rather than showing a dead wait.
         const lensIds = snapshot.lenses.map((l) => l.id);
         const t0 = Date.now();
-        const tty = process.stdout.isTTY;
-        process.stdout.write(`  → ${itemId}: reviewing (${lensIds.length} lenses, ${totalSamples} samples)…${tty ? "" : "\n"}`);
+        // THE HEARTBEAT GOES TO STDERR, AND THAT IS NOT COSMETIC. `run.test.mjs`
+        // drives `main` IN-PROCESS, so under `node --test` these writes leave the
+        // TEST FILE'S OWN stdout — which is not a terminal but the runner's result
+        // channel, carrying v8-serialized frames (`0xFF 0x0F`, 4-byte big-endian
+        // length, payload) that `#processRawBuffer` parses in the parent.
+        //
+        // That parser looks for the header only at the TOP of a call. Having
+        // consumed one frame it treats whatever follows in the same read chunk as
+        // the next frame's header and length WITHOUT re-checking for the magic
+        // bytes, so plain text sitting behind a frame is read as a length: a big
+        // one stalls the stream, a small one deserializes garbage and throws
+        // `Unable to deserialize cloned data due to invalid or unsupported
+        // version` in the parent, killing every result that file had left. That is
+        // the `agent:tests` flake #772, #774 and #781 circled: captured from a real
+        // `run.test.mjs` child, its 285 frames plus these 931 bytes of progress
+        // text fail 30/30 under randomized chunk boundaries, and the same frames
+        // with the text removed fail 0/30. Whether a given run corrupts
+        // depends on where the socket splits its reads, which is why it tracked
+        // load and why #774's isolation reduced it without explaining it.
+        //
+        // stderr is the channel node's runner reads as lines and reports as
+        // `test:stderr`, so it cannot desynchronize anything. `console.log` here is
+        // safe for the same reason it always was — `runCli` redirects it — but that
+        // is a property of the caller, and stdout is not this process's to write to
+        // whenever it might be a test file. Progress on stderr is also the right
+        // answer for the plain CLI, where stdout is the part worth redirecting.
+        const tty = process.stderr.isTTY;
+        process.stderr.write(`  → ${itemId}: reviewing (${lensIds.length} lenses, ${totalSamples} samples)…${tty ? "" : "\n"}`);
         const hb = setInterval(() => {
           const done = lensIds.filter((id) => existsSync(path.join(outDir, id, "conclusion"))).length;
           const secs = Math.round((Date.now() - t0) / 1000);
           const msg = `  → ${itemId}: ${done}/${lensIds.length} lenses · ${secs}s`;
-          if (tty) process.stdout.write(`\r${msg}   `); else if (secs % 30 === 0) process.stdout.write(`${msg}\n`);
+          if (tty) process.stderr.write(`\r${msg}   `); else if (secs % 30 === 0) process.stderr.write(`${msg}\n`);
         }, tty ? 2000 : 5000);
         let ran;
         try {
@@ -1066,7 +1092,7 @@ export async function main(argv) {
           ran = await adapter.runAgent(inputs, { lensesDir: matLenses, outDir, repoDir, env, baseSha, timeoutMs: opts.panelTimeoutMs });
         } finally {
           clearInterval(hb);
-          if (tty) process.stdout.write(`\r${" ".repeat(56)}\r`);
+          if (tty) process.stderr.write(`\r${" ".repeat(56)}\r`);
         }
         const cap = adapter.captureArtifacts(ran);
         const cost = sumExecutions(cap.executionMessages ?? [], "review");
