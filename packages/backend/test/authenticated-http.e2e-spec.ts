@@ -310,4 +310,118 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       await prisma.dataSource.count({ where: { workspaceId: workspace.id } }),
     ).toBe(0);
   });
+
+  it('runs bigquery source routes end-to-end with auth and ownership checks', async () => {
+    const owner = await createUser();
+    const other = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    const credentials = JSON.stringify({
+      type: 'service_account',
+      project_id: 'my-project',
+      client_email: 'sa@my-project.iam.gserviceaccount.com',
+      private_key: 'fake-key',
+    });
+
+    const createResponse = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/bigquery`)
+      .set('Cookie', authCookie(owner))
+      .send({
+        name: 'analytics',
+        projectId: 'my-project',
+        dataset: 'analytics',
+        location: 'US',
+        credentials,
+      })
+      .expect(201);
+
+    const sourceId = createResponse.body.id as string;
+    const persisted = await prisma.bigQuerySource.findUniqueOrThrow({
+      where: { id: sourceId },
+    });
+    expect(persisted.credentials).not.toBe(credentials);
+
+    const getResponse = await request(app.getHttpServer())
+      .get(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(getResponse.body.credentials).toBe('********');
+
+    await request(app.getHttpServer())
+      .get(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(other))
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .patch(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(other))
+      .send({ name: 'renamed' })
+      .expect(403);
+
+    const updateResponse = await request(app.getHttpServer())
+      .patch(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(owner))
+      .send({ name: 'renamed' })
+      .expect(200);
+    expect(updateResponse.body.name).toBe('renamed');
+
+    const listResponse = await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/bigquery`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(listResponse.body).toHaveLength(1);
+    expect(listResponse.body[0].credentials).toBe('********');
+
+    await request(app.getHttpServer())
+      .delete(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(other))
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .delete(`/bigquery/${sourceId}`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+
+    expect(
+      await prisma.bigQuerySource.findUnique({ where: { id: sourceId } }),
+    ).toBeNull();
+  });
+
+  it('tests bigquery connection settings without persisting a source', async () => {
+    const member = await createUser();
+    const outsider = await createUser();
+    const workspace = await createWorkspace(prisma, member.id);
+
+    const payload = {
+      projectId: 'my-project',
+      credentials: JSON.stringify({
+        type: 'service_account',
+        project_id: 'my-project',
+      }),
+    };
+
+    await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/bigquery/test`)
+      .set('Cookie', authCookie(outsider))
+      .send(payload)
+      .expect(403);
+
+    // Malformed credentials are rejected by DTO validation before the probe
+    // ever runs, so this exercises the auth/DTO wiring without making a real
+    // network call to Google. Live-probe behavior (success and failure) is
+    // covered by unit tests (bigquery.service.spec.ts) with the client
+    // mocked. A real-project integration lane, gated behind
+    // RUN_BIGQUERY_INTEGRATION_TESTS per the design doc, is not implemented
+    // yet — this DB-only e2e suite intentionally never exercises live
+    // BigQuery.
+    await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/bigquery/test`)
+      .set('Cookie', authCookie(member))
+      .send({ ...payload, credentials: 'not-json' })
+      .expect(400);
+
+    // The whole point: testing writes nothing, even on a bad payload.
+    expect(
+      await prisma.bigQuerySource.count({ where: { workspaceId: workspace.id } }),
+    ).toBe(0);
+  });
 });
