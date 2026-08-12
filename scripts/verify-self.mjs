@@ -563,18 +563,17 @@ if (process.argv.includes("--print-lanes")) {
 
 mkdirSync(reportDir, { recursive: true });
 
-// STAGING FLAG, and it is temporary. This step decomposes the lanes and lands
-// the selection machinery; wiring `ci.yml`'s `changes` job to it is the next
-// one, and that step deletes this branch so `resolveChangedAreas()` is simply
-// what runs. Until then the default is every lane, so decomposing cannot
-// quietly reduce what anyone's push is checked against — and the flag still
-// makes the new path exercisable by hand:
+// In CI, `ci.yml`'s `changes` job has already decided this and passes it down in
+// `WAFFLEBASE_CHANGED_AREAS`, which `resolve()` returns verbatim — so the gates on
+// the two heavy jobs and the lane selection here cannot reach different
+// conclusions. Locally there is no such hand-off, so `resolve()` diffs against the
+// merge-base with `upstream/main` (then `origin/main`, then `main`) and every way
+// that can fail returns "run everything".
 //
-//   WAFFLEBASE_LANE_FILTER=1 pnpm verify:self
-const resolved =
-  process.env.WAFFLEBASE_LANE_FILTER === "1"
-    ? resolveChangedAreas()
-    : { full: true, packages: [], tags: [], reasons: ["lane filtering is off"] };
+// This is also the pre-push hook, so a push is checked against the areas it
+// touches rather than the whole suite. What backstops that is the `push` run on
+// `main`, which is never filtered and which the deploy waits on.
+const resolved = resolveChangedAreas();
 const selected = selectLaneNames(LANES, resolved);
 
 if (!resolved.full) {

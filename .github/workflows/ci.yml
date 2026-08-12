@@ -33,7 +33,100 @@ permissions:
   issues: write
 
 jobs:
+  # WHAT CHANGED, decided ONCE. The two heavy jobs read this job's booleans and
+  # `verify-self` reads the whole resolution as JSON, so no two jobs can disagree
+  # about what a pull request touched — which two independent computations
+  # eventually would.
+  #
+  # WHY THIS IS A JOB AND NOT `on: paths:`. A workflow filtered out at the trigger
+  # produces no check run at all. `main`'s required contexts then never report,
+  # and a merge-queue entry waits on them until the status-check timeout dequeues
+  # it. A job skipped by `if:` DOES report — as `skipped`, which GitHub counts as
+  # passing for both required checks and the queue. That difference is the whole
+  # reason this file is shaped this way; see
+  # docs/design/harness-engineering.md#path-aware-ci.
+  #
+  # `fetch-depth: 0` is load-bearing. `actions/checkout` defaults to a depth-1
+  # clone in which the base commit does not exist, so `git diff` fails — and the
+  # resolver treats that as "run everything". Getting it wrong would therefore not
+  # break CI; it would silently turn this entire mechanism into a no-op that
+  # always runs the full suite, which is far harder to notice than a failure.
+  #
+  # No `pnpm install`: the resolver imports only node builtins and reads
+  # `harness.config.json` plus each `packages/*/package.json` off the checkout.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # For the `ci-config-changed` label only, and best-effort — a fork PR's
+      # GITHUB_TOKEN is read-only, so that step cannot be allowed to fail the job.
+      pull-requests: write
+    outputs:
+      full: ${{ steps.resolve.outputs.full }}
+      heavy: ${{ steps.resolve.outputs.heavy }}
+      ci_config: ${{ steps.resolve.outputs.ci_config }}
+      areas: ${{ steps.resolve.outputs.areas }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Resolve changed areas
+        id: resolve
+        run: node ./scripts/changed-areas.mjs
+
+      - name: Explain the decision
+        # On the run, not just in a log: a reviewer approving a pull request must
+        # be able to see which checks were skipped and why without opening the
+        # Actions tab. The same reasons go onto the PR comment in `verify-self`.
+        env:
+          AREAS: ${{ steps.resolve.outputs.areas }}
+        run: |
+          node -e '
+            const a = JSON.parse(process.env.AREAS);
+            const out = [];
+            out.push("## What changed");
+            out.push("");
+            out.push(a.full
+              ? "**Full suite.** Every lane and both heavy jobs run."
+              : "**Reduced run.** Lane selection is on"
+                + (a.heavy ? " and the heavy jobs still run." : " and the heavy jobs are skipped."));
+            out.push("");
+            if (a.packages?.length) out.push(`- affected packages (incl. dependents): \`${a.packages.join("`, `")}\``);
+            if (a.tags?.length) out.push(`- areas: \`${a.tags.join("`, `")}\``);
+            for (const r of a.reasons ?? []) out.push(`- ${r}`);
+            require("node:fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out.join("\n") + "\n");
+          '
+          if [ "${{ steps.resolve.outputs.ci_config }}" = "true" ]; then
+            echo "::warning::This PR changes a file that decides how much CI runs (see harness.config.json ci.ciConfig). The full suite is forced for this PR, but review the mapping change on its own merits — it affects every later PR."
+          fi
+
+      - name: Label CI-config changes
+        # Visible half of the guard. The mechanical halves are elsewhere and do
+        # not depend on this succeeding: `ci.ciConfig` forces the full suite, and
+        # .github/CODEOWNERS requires an owner's review.
+        if: >-
+          steps.resolve.outputs.ci_config == 'true' &&
+          github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['ci-config-changed'],
+            });
+
   verify-self:
+    needs: changes
     runs-on: ubuntu-latest
     # A ceiling on a hang, not a performance budget. Without it this job inherits
     # GitHub's 360-minute default. On 2026-08-06 a regression stalled the
@@ -69,18 +162,33 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify Self-Contained Lane
+        # The resolution is passed in rather than recomputed, so this job needs no
+        # deep clone and cannot reach a different conclusion than the gates on the
+        # two heavy jobs below.
+        env:
+          WAFFLEBASE_CHANGED_AREAS: ${{ needs.changes.outputs.areas }}
         run: pnpm verify:self
 
+      # The coverage steps re-run three whole test suites, so they are gated too —
+      # otherwise an agent-only PR would skip its lanes and then spend minutes
+      # collecting coverage for packages it did not touch, which is most of what
+      # this change exists to stop. `heavy` rather than `full`: coverage is only
+      # meaningful when a workspace package changed, and that is exactly what
+      # `heavy` means.
       - name: Collect coverage (sheets)
+        if: needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/sheets exec vitest run --coverage
 
       - name: Collect coverage (cli)
+        if: needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/cli exec vitest run --coverage
 
       - name: Collect coverage (docs)
+        if: needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/docs exec vitest run --coverage
 
       - name: Collect coverage (backend)
+        if: needs.changes.outputs.heavy == 'true'
         run: pnpm --filter @wafflebase/backend test:cov
         continue-on-error: true
 
@@ -94,7 +202,11 @@ jobs:
         # CODECOV_TOKEN out of the environment of runs whose tree contains
         # not-yet-merged fork code: a `merge_group` run executes in the base repo,
         # so it is not sandboxed the way a fork's `pull_request` run is.
-        if: github.event_name != 'merge_group'
+        #
+        # Also not when the coverage steps above were gated out — there would be
+        # no lcov files to upload, and Codecov reports a partial run as a coverage
+        # drop rather than as an absence.
+        if: github.event_name != 'merge_group' && needs.changes.outputs.heavy == 'true'
         uses: codecov/codecov-action@v4
         with:
           files: >-
@@ -117,26 +229,59 @@ jobs:
       - name: Post verification summary on PR
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
+        env:
+          AREAS: ${{ needs.changes.outputs.areas }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = '.harness-reports/summary.json';
             let body = '## Verification: verify:self\n\n';
+
+            // What was NOT run, and why, before what was. A reviewer approving
+            // this PR is being asked to accept a reduced signal, so the reduction
+            // has to be the visible part rather than something they could only
+            // find by counting rows in a table.
+            const areas = JSON.parse(process.env.AREAS || '{}');
+            if (areas.full === false) {
+              body += '> **Reduced run.** ';
+              body += areas.heavy
+                ? 'Lane selection is on; `verify-browser` and `verify-integration` still ran.\n'
+                : 'Lane selection is on; `verify-browser` and `verify-integration` were skipped.\n';
+              for (const reason of areas.reasons ?? []) body += `> - ${reason}\n`;
+              body += '>\n> Add the **`full-ci`** label to force the whole suite.\n\n';
+            }
+
             if (!fs.existsSync(path)) {
               body += '> Report not generated — verify:self may have crashed before producing output.\n';
             } else {
               const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
               const icon = summary.overall === 'pass' ? '✅' : '❌';
-              body += `**Result:** ${icon} ${summary.overall.toUpperCase()} in ${(summary.totalDurationMs / 1000).toFixed(1)}s\n\n`;
+              body += `**Result:** ${icon} ${summary.overall.toUpperCase()} in ${(summary.totalDurationMs / 1000).toFixed(1)}s`;
+              if (summary.lanesFiltered > 0) {
+                body += ` — ${summary.lanesRun} of ${summary.lanesTotal} lanes run, ${summary.lanesFiltered} filtered`;
+              }
+              body += '\n\n';
               body += '| Lane | Status | Duration |\n|---|---|---|\n';
               for (const lane of summary.lanes) {
-                const s = lane.status === 'pass' ? '✅' : lane.status === 'fail' ? '❌' : '⏭️';
+                // `filtered` and `skip` are deliberately different glyphs: one was
+                // never going to run, the other never got its turn because an
+                // earlier lane failed. Rendering both as ⏭️ would hide a failure.
+                const s = lane.status === 'pass' ? '✅'
+                  : lane.status === 'fail' ? '❌'
+                  : lane.status === 'filtered' ? '⊘'
+                  : '⏭️';
                 const dur = lane.durationMs > 0 ? `${(lane.durationMs / 1000).toFixed(1)}s` : '—';
                 body += `| ${lane.lane} | ${s} ${lane.status} | ${dur} |\n`;
               }
             }
-            body += '\n---\n*⏳ verify:integration pending...*\n';
+            // A skipped verify-integration never edits this comment, so without
+            // this branch a filtered PR would claim that job was "pending" for
+            // ever. The wording below is also what the integration job's own
+            // regex looks for, so only one of the two can ever be present.
+            body += areas.heavy === false
+              ? '\n---\n*⊘ verify:integration skipped — no workspace package changed.*\n'
+              : '\n---\n*⏳ verify:integration pending...*\n';
             const marker = '<!-- harness-verification -->';
             body = marker + '\n' + body;
             const { data: comments } = await github.rest.issues.listComments({
@@ -236,7 +381,27 @@ jobs:
 
   verify-browser:
     runs-on: ubuntu-latest
-    needs: verify-self
+    needs: [changes, verify-self]
+    # Skipped, NOT absent. GitHub records a job whose `if:` is false as a check run
+    # with conclusion `skipped`, which satisfies a required status check and lets a
+    # merge-queue entry proceed. A trigger-level `paths:` filter would instead
+    # create no check at all and strand the queue.
+    #
+    # `needs.verify-self.result == 'success'` is stated rather than relied upon.
+    # A job with a custom `if:` is still gated on its `needs` succeeding unless the
+    # condition uses `always()`/`failure()`, so this is belt-and-braces — but the
+    # cost of being wrong here is running browser tests against a tree that failed
+    # its own unit tests, so it is written down instead of remembered.
+    #
+    # The label escape hatch is for any PR, not only forks: a maintainer who
+    # distrusts the mapping for one change can demand the whole suite with a click
+    # and no rebase. It cannot work on `merge_group`, whose payload carries no PR
+    # labels — the same limitation `agent-iterate-ci.yml` resolves by looking the
+    # PR up, which is not worth a job here.
+    if: >-
+      needs.verify-self.result == 'success' &&
+      (needs.changes.outputs.heavy == 'true' ||
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # Same reasoning as verify-self, same sample: max 9.3 min, p95 7.6, median
     # 6.5 across those 188 successful runs, so 20 min is ~2.2x the worst observed.
     # This job's spread is the widest of the three (median to max is +43%) because
@@ -285,7 +450,20 @@ jobs:
 
   verify-integration:
     runs-on: ubuntu-latest
-    needs: verify-self
+    needs: [changes, verify-self]
+    # Same contract as verify-browser above.
+    #
+    # Gated on `heavy`, which means ANY workspace package changed — deliberately
+    # blunter than the reverse-dependency closure that drives lane selection. This
+    # job builds core + docs + slides + sheets below and its e2e set includes
+    # `docs-cli-roundtrip`, `notes-cli-roundtrip` and `slides-pptx-import`, so a
+    # change to an engine package with no backend file in it can absolutely break
+    # it. Narrowing this to the closure is a later step, taken against observed
+    # behaviour rather than against this reasoning.
+    if: >-
+      needs.verify-self.result == 'success' &&
+      (needs.changes.outputs.heavy == 'true' ||
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # 10 rather than 20: this job is genuinely shorter — max 4.4 min, p99 3.6,
     # median 2.8 over the same 188 successful runs — and a ceiling that could
     # never bind is not a ceiling. ~2.3x the worst observed, matching the multiple
