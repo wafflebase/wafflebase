@@ -560,3 +560,64 @@ test("secrets are redacted from every path out", async () => {
   const fault = textOf(await run({ action: { type: "read", reader: "doc.text" } }));
   assert.ok(!fault.includes(key), "not in a session-fault message either");
 });
+
+test("a citable entry says how to cite itself, and an uncitable one does not", () => {
+  // WHY: ground A needs `@read:<i>`/`@input:<i>`, and the caller could only learn `<i>`
+  // by counting its own actions. Measured across three live runs, 10 of 97 predictions
+  // resolved to nothing and were discarded — ~10% of predictive work lost to arithmetic.
+  const read = renderUiObservation({
+    action: { type: "read", reader: "doc.runs" },
+    observation: { ok: true, value: [1, 2], oracles: [] },
+    atIndex: 7,
+  });
+  assert.match(read, /cite this reading as @read:7/);
+
+  assert.match(
+    renderUiObservation({
+      action: { type: "wait", reader: "doc.text" },
+      observation: { ok: true, value: "x", oracles: [] },
+      atIndex: 3,
+    }),
+    /cite this reading as @read:3/,
+    "`wait` resolves a reader too, so it is citable",
+  );
+
+  assert.match(
+    renderUiObservation({
+      action: { type: "type", text: "hello" },
+      observation: { ok: true, value: null, oracles: [] },
+      atIndex: 4,
+    }),
+    /cite this text as @input:4/,
+    "typed text is cited with the OTHER token",
+  );
+
+  // A FAILED read must not be advertised: the reference would resolve to an unusable
+  // entry, which is the same wasted prediction with a friendlier cause.
+  assert.doesNotMatch(
+    renderUiObservation({
+      action: { type: "read", reader: "doc.runs" },
+      observation: { ok: false, error: "boom", oracles: [] },
+      atIndex: 7,
+    }),
+    /@read:/,
+  );
+
+  // Neither must an action that produced no citable value.
+  for (const type of ["click", "scroll", "key", "goto"]) {
+    assert.doesNotMatch(
+      renderUiObservation({ action: { type }, observation: { ok: true, value: null, oracles: [] }, atIndex: 2 }),
+      /cite this/,
+      `${type} has nothing to cite`,
+    );
+  }
+
+  // Absent index changes nothing — the renderer is used in tests and tools without one.
+  assert.doesNotMatch(
+    renderUiObservation({
+      action: { type: "read", reader: "doc.runs" },
+      observation: { ok: true, value: 1, oracles: [] },
+    }),
+    /cite this/,
+  );
+});
