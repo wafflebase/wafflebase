@@ -17,8 +17,9 @@
 # 3. THE `agent` ENVIRONMENT STILL GATES SPEND. Protection rules DO apply to a
 #    called workflow's job (measured: a required reviewer left it in `waiting`
 #    with a pending deployment). The environment gates the JOB; it just cannot
-#    also be the secret store. Note this repo's `agent` environment currently has
-#    no protection rules configured — see the PR discussion.
+#    also be the secret store. The called workflow names it through its
+#    `environment` input, which defaults to `agent`. Note this repo's `agent`
+#    environment currently has no protection rules configured — see #784.
 #
 # The pipeline is pinned by commit SHA rather than tag, matching the convention
 # already applied to every other pipeline checkout: the pin is the only thing
@@ -30,22 +31,37 @@ name: Agent SDK Auth Smoke Test
 
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id to smoke-test (blank = auth-smoke.mjs's default)"
+        required: false
+        default: ""
 
 permissions: {}
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote in
-  # the working directory. The trusted pipeline now arrives in a scratch path that
-  # is deleted after the move, so a job that runs scripts before any repo checkout
-  # has no .git at all. GH_REPO makes gh skip the git lookup. Set at workflow level
-  # so it covers every job and every script, present and future.
+  # Kept from main rather than dropped in the conflict resolution. This shim runs
+  # no steps of its own, and the pipeline's pin job addresses gh at an explicit
+  # `repos/<owner>/<repo>/…` path rather than the `{owner}/{repo}` placeholder
+  # that needs a git remote — so nothing here needs it TODAY. It stays because the
+  # next step added to this file would need it, and its absence fails obscurely.
   GH_REPO: ${{ github.repository }}
 
 jobs:
   smoke:
     permissions:
       id-token: write # the pipeline's pin job needs the OIDC claim — see above
-    uses: wafflebase/agent-pipeline/.github/workflows/auth-smoke.yml@4c9ee18de95f873ab14f11e98004457a1decd706 # v0.2.3
+    uses: wafflebase/agent-pipeline/.github/workflows/auth-smoke.yml@1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
     with:
-      pipeline-ref: 4c9ee18de95f873ab14f11e98004457a1decd706 # v0.2.3 — asserted against the OIDC claim; must match the pin above
+      # Asserted against the OIDC claim by the pin job; must match the pin above.
+      pipeline-ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
+      # Forwarded so this stays the pre-flight for a MODEL change too, not just a
+      # credential check — "does this model id resolve on the pinned SDK, with
+      # this token". Blank falls through to the script's own default.
+      #
+      # This input arrived on main while the PR was open, and the automatic merge
+      # dropped it: it resolved the `on:` block in this branch's favour, silently
+      # discarding the dispatch input while keeping the step that read it. Restored
+      # deliberately.
+      model: ${{ inputs.model }}
     secrets: inherit # required: the token is a REPOSITORY secret — see above

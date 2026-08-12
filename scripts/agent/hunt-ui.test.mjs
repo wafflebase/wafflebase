@@ -22,6 +22,8 @@ import {
   replayPlanFor,
   replayDidRun,
   uiScopedTitle,
+  uiScopedTitles,
+  uiScopedTitleDisagreement,
   uiOverclaimed,
 } from "./hunt-ui.mjs";
 import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS, UI_VERIFIER_SCHEMA } from "./hunt-gate.mjs";
@@ -1393,4 +1395,67 @@ test("hunt-ui.mjs static-imports nothing third-party", () => {
       `static import of ${spec} — third-party imports must be lazy (await import)`,
     );
   }
+});
+
+test("uiScopedTitles: keeps every distinct scoping, so the report cannot hide one", () => {
+  // THE RUN THIS EXISTS FOR. Both verifiers confirmed the same real defect at high
+  // confidence; one appended an exclusion that was FALSE, and `scoped[0]` headlined
+  // that one while discarding the correct version.
+  const correct = "setBlockType omits notifyStyleApplied, so the control stays stale";
+  const withFalseExclusion = `${correct}; the shortcut path is unaffected`;
+  const verdicts = [
+    { verdict: "confirmed", confidence: "high", scopedTitle: withFalseExclusion },
+    { verdict: "confirmed", confidence: "high", scopedTitle: correct },
+  ];
+
+  assert.deepEqual(uiScopedTitles(verdicts), [withFalseExclusion, correct]);
+  assert.equal(uiScopedTitleDisagreement(verdicts), true);
+  // The headline is unchanged — this surfaces the alternative, it does not guess.
+  assert.equal(uiScopedTitle({ title: "hunter" }, verdicts), withFalseExclusion);
+
+  // Agreement is not disagreement, and identical prose is one title, not two.
+  const agreed = [{ scopedTitle: correct }, { scopedTitle: `  ${correct}  ` }];
+  assert.deepEqual(uiScopedTitles(agreed), [correct]);
+  assert.equal(uiScopedTitleDisagreement(agreed), false);
+
+  // Absent/blank/malformed verdicts contribute nothing rather than throwing — a
+  // verifier that errored must not manufacture a disagreement.
+  for (const junk of [null, undefined, [], [null], [{}], [{ scopedTitle: "   " }], "nope", 7]) {
+    assert.deepEqual(uiScopedTitles(junk), []);
+    assert.equal(uiScopedTitleDisagreement(junk), false);
+  }
+});
+
+test("the report shows both scopings, and says the heading is not a consensus", () => {
+  const md = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A; the shortcut path is unaffected",
+        scopedTitles: ["narrow A; the shortcut path is unaffected", "narrow B"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.match(md, /scoped this differently/i, "a disagreement must be visible in the report");
+  assert.match(md, /narrow B/, "the discarded scoping must appear");
+  assert.match(md, /not a consensus/i, "and the heading must not read as agreed");
+
+  // One scoping is the normal case and must NOT be dressed up as a disagreement.
+  const agreed = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A", scopedTitles: ["narrow A"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.doesNotMatch(agreed, /scoped this differently/i);
 });

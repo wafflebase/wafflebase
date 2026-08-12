@@ -104,13 +104,26 @@ Vary three things while doing it, because the defect that exists hid behind all 
 - **more than two** clicks, since a control can be wrong only on the third
 
 The same shape works far beyond bold: apply-then-remove a link, indent-then-outdent,
-raise-then-lower a heading level, grow-then-shrink a font size.
+raise-then-lower a heading level, grow-then-shrink a font size, apply-then-clear a
+text colour or a highlight.
+
+The colour controls are worth the detour because they are the only TWO-STEP control
+here — `Text color` opens a palette, then each swatch is its own button named
+`Select text color #1A73E8`. Every round trip run so far has used single-click
+toggles, so nothing has ever tested what a control that opens something does to the
+selection underneath it. Measured: the first run to try it found two defects there.
 
 ## NOT your lane — defer, do not report
 
 - Anything on the sheet surface. You cannot reach it and must not try.
-- How something is PAINTED — clipped text, spacing, a colour. You have no visual
-  channel; the visual regression lane owns that and already has baselines.
+- How something is PAINTED — clipped text, spacing, which pixels a colour produced.
+  You have no visual channel; the visual regression lane owns that and already has
+  baselines.
+  BUT NOT the colour a run STORES. `doc.runs` reports `color` and `backgroundColor`
+  per run, exactly as it reports `bold`, so "the toolbar stored this value on this
+  run" is as assertable as any other style and is squarely your lane. The line is
+  rendered-versus-stored, the same line that separates `doc.styleSummary` (computed)
+  from `doc.runs` (stored) — not colour-versus-everything-else.
 - Missing features, wording, performance, test coverage.
 
 ## What is NOT a finding
