@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { loadSession, saveSession } from '../config/session.js';
 import type { WorkspaceInfo } from '../config/session.js';
+import { commandPath, errorEnvelope } from '../output/formatter.js';
 
 export function formatWorkspaceList(
   workspaces: WorkspaceInfo[],
@@ -55,16 +56,25 @@ export function registerCtxCommand(program: Command): void {
   ctx
     .command('switch <name-or-id>')
     .description('Switch active workspace')
-    .action((query: string) => {
+    .action(function (this: Command, query: string) {
+      const name = commandPath(this);
       const session = loadSession();
       if (!session) {
-        console.error('Not logged in. Run `wafflebase login`.');
+        console.error(
+          errorEnvelope(
+            'UNAUTHORIZED',
+            'Not logged in. Run `wafflebase login`.',
+            name,
+          ),
+        );
         process.exit(1);
       }
 
       const ws = findWorkspace(session.workspaces, query);
       if (!ws) {
-        console.error(`Workspace not found: ${query}`);
+        console.error(
+          errorEnvelope('NOT_FOUND', `Workspace not found: ${query}`, name),
+        );
         process.exit(1);
       }
 

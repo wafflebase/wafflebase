@@ -24,9 +24,11 @@ acceptance criteria — the emitters that *forward a backend error body*
 #661 defines, so leaving them pretty-printed and unattributed would make
 "the envelope is a single line carrying `command`" false on the paths agents
 hit most. They are converted here through a shared `backendErrorEnvelope`.
-What stays deferred to #654/#655 is the *interactive prose* in `login` and
-`ctx switch` — messages written for a human setting up a session, on no
-agent-driven path.
+The two session commands, `login` and `ctx switch`, were the last holdouts
+and are converted here too: their prompts and success notices stay prose for
+the human at the terminal, but their *failures* emit the envelope like
+everything else. `login` is the first command an agent runs, so an
+unparseable failure there is the worst place to keep an exception.
 
 ## Plan
 
@@ -43,6 +45,10 @@ agent-driven path.
 - [x] Export `errorEnvelope` / `backendErrorEnvelope` and route the
       backend-body emitters through them, preserving the upstream `code` and
       extra context while never accepting a server-supplied `command`.
+- [x] Convert the `login` and `ctx switch` failure paths too: the backend
+      responses in `login` go through `backendErrorEnvelope` (keeping the
+      server's reason), the two `ctx switch` refusals through
+      `errorEnvelope`. Prompts and success notices stay prose.
 - [x] Tests: single-line assertion, `command` present per call site, absent
       when unattributable; update the two existing `toEqual` envelope
       assertions in `test/output.test.ts`.

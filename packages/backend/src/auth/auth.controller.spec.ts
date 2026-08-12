@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash, randomBytes } from 'node:crypto';
 import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
 import { AuthController } from './auth.controller';
@@ -211,6 +212,25 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
+    // The CLI's callback port is guessable, so it only redeems a code whose
+    // `state` echoes the nonce it minted. Drop the echo and any page in the
+    // user's browser could feed the terminal someone else's code.
+    it('echoes the CLI nonce back as `state`', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876, 'n0nce-x/y');
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      const target = (res.redirect as jest.Mock).mock.calls[0][0] as string;
+      expect(new URL(target).searchParams.get('state')).toBe('n0nce-x/y');
+    });
+
     it('falls back to web flow when state token is not CLI', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
@@ -320,6 +340,58 @@ describe('AuthController', () => {
       await expect(
         controller.cliExchange({ code: 'bad-code' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // The exchange is unauthenticated, so a code minted under PKCE must not
+    // be a bearer: only the CLI that holds the verifier can spend it.
+    describe('PKCE binding', () => {
+      const verifier = randomBytes(32).toString('base64url');
+      const challenge = createHash('sha256')
+        .update(verifier)
+        .digest('base64url');
+
+      beforeEach(() => {
+        (userService.user as jest.Mock).mockResolvedValue(mockUser);
+        (authService.createTokens as jest.Mock).mockReturnValue({
+          accessToken: 'at',
+          refreshToken: 'rt',
+        });
+      });
+
+      it('redeems a challenged code for the matching verifier', async () => {
+        const code = cliAuthStore.createCode(42, challenge);
+        await expect(
+          controller.cliExchange({ code, codeVerifier: verifier }),
+        ).resolves.toEqual({ accessToken: 'at', refreshToken: 'rt' });
+      });
+
+      it('refuses a challenged code presented with no verifier', async () => {
+        const code = cliAuthStore.createCode(42, challenge);
+        await expect(controller.cliExchange({ code })).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
+      it('refuses a challenged code presented with a wrong verifier', async () => {
+        const code = cliAuthStore.createCode(42, challenge);
+        await expect(
+          controller.cliExchange({
+            code,
+            codeVerifier: randomBytes(32).toString('base64url'),
+          }),
+        ).rejects.toThrow(UnauthorizedException);
+      });
+
+      it('burns a challenged code even when the verifier is wrong', async () => {
+        const code = cliAuthStore.createCode(42, challenge);
+        await expect(
+          controller.cliExchange({ code, codeVerifier: 'nope' }),
+        ).rejects.toThrow(UnauthorizedException);
+        // A failed guess must not leave the code spendable on a retry.
+        await expect(
+          controller.cliExchange({ code, codeVerifier: verifier }),
+        ).rejects.toThrow(UnauthorizedException);
+      });
     });
 
     it('rejects the same code on second use', async () => {

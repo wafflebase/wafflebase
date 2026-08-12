@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import {
   loadSession,
@@ -8,6 +9,7 @@ import {
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
+import { backendErrorEnvelope, commandPath } from '../output/formatter.js';
 
 export function registerLoginCommand(program: Command): void {
   program
@@ -16,6 +18,7 @@ export function registerLoginCommand(program: Command): void {
     .action(async function (this: Command) {
       const parentOpts = this.optsWithGlobals<{ server?: string }>();
       const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
+      const name = commandPath(this);
 
       // 1. Check existing session
       const existing = loadSession();
@@ -30,10 +33,27 @@ export function registerLoginCommand(program: Command): void {
       }
 
       // 2. Start local HTTP server
-      const { port, waitForCallback, close } = await startCallbackServer();
+      //
+      // The callback listener is on 127.0.0.1 but the port is guessable, and
+      // any page in the user's browser can navigate to it. Without a binding
+      // check the CLI would exchange whatever `code` arrived first — an
+      // attacker's code included, which silently logs the terminal into the
+      // attacker's account (RFC 8252 §8.9). Two bindings close that: the CLI
+      // mints a nonce it requires the callback to echo back as `state`, and a
+      // PKCE verifier (RFC 7636) that never leaves this process, so even a
+      // code lifted off the redirect is not redeemable without it.
+      const nonce = randomBytes(32).toString('base64url');
+      const codeVerifier = randomBytes(32).toString('base64url');
+      const codeChallenge = createHash('sha256')
+        .update(codeVerifier)
+        .digest('base64url');
+      const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
       // 3. Build OAuth URL and open browser
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+      const oauthUrl =
+        `${server}/auth/github?mode=cli&port=${port}` +
+        `&nonce=${encodeURIComponent(nonce)}` +
+        `&code_challenge=${encodeURIComponent(codeChallenge)}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
 
@@ -56,14 +76,14 @@ export function registerLoginCommand(program: Command): void {
       const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, codeVerifier }),
       });
 
       if (!exchangeRes.ok) {
-        console.error(
-          'Token exchange failed. Try again with `wafflebase login`.',
-        );
-        process.exit(1);
+        await failFromBackend(exchangeRes, name, {
+          code: 'UNAUTHORIZED',
+          message: 'Token exchange failed. Try again with `wafflebase login`.',
+        });
       }
 
       const tokens = (await exchangeRes.json()) as {
@@ -77,8 +97,10 @@ export function registerLoginCommand(program: Command): void {
       });
 
       if (!meRes.ok) {
-        console.error('Failed to fetch user info.');
-        process.exit(1);
+        await failFromBackend(meRes, name, {
+          code: 'UNAUTHORIZED',
+          message: 'Failed to fetch user info.',
+        });
       }
 
       const user = (await meRes.json()) as {
@@ -94,10 +116,10 @@ export function registerLoginCommand(program: Command): void {
       });
 
       if (!wsRes.ok) {
-        console.error(
-          `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
-        );
-        process.exit(1);
+        await failFromBackend(wsRes, name, {
+          code: 'UNAUTHORIZED',
+          message: `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+        });
       }
 
       const workspaces = (await wsRes.json()) as WorkspaceInfo[];
@@ -140,6 +162,24 @@ export function registerLoginCommand(program: Command): void {
     });
 }
 
+/**
+ * Report a backend failure as the standard one-line error envelope and exit.
+ *
+ * `login` used to print prose here. It is the first command an agent runs, so
+ * a failure it cannot parse is the worst place to break the convention
+ * (docs/design/cli.md §9); the backend's own reason is preserved when the
+ * response carries one.
+ */
+async function failFromBackend(
+  res: { json: () => Promise<unknown> },
+  command: string,
+  fallback: { code: string; message: string },
+): Promise<never> {
+  const body = await res.json().catch(() => null);
+  console.error(backendErrorEnvelope(body, fallback, command));
+  return process.exit(1);
+}
+
 function ask(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   return new Promise((resolve) => {
@@ -150,13 +190,26 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-function startCallbackServer(): Promise<{
+/** Constant-time compare of two `state` values (never leak by timing). */
+function nonceMatches(expected: string, received: string | null): boolean {
+  if (!received) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(received);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Exported for tests — the nonce gate is the only thing guarding this port. */
+export function startCallbackServer(expectedNonce: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
 }> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    // A code that arrived carrying no `state` at all is also what a backend
+    // predating the echo looks like, so remember it and say so on timeout
+    // rather than leaving the user with a bare "timed out".
+    let sawUnboundCode = false;
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
 
@@ -178,6 +231,17 @@ function startCallbackServer(): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
+        return;
+      }
+
+      // Reject (rather than resolve on) a callback that does not carry this
+      // process's nonce: a code from any other flow is not ours to redeem.
+      // The listener stays open so the genuine callback can still arrive.
+      const state = url.searchParams.get('state');
+      if (!nonceMatches(expectedNonce, state)) {
+        if (state === null) sawUnboundCode = true;
+        res.writeHead(400);
+        res.end('Invalid state');
         return;
       }
 
@@ -230,7 +294,14 @@ function startCallbackServer(): Promise<{
       if (!settled) {
         settled = true;
         callbackReject(
-          new Error('Login timed out. Try again with `wafflebase login`.'),
+          new Error(
+            sawUnboundCode
+              ? 'Login callback carried no `state`, so it could not be tied ' +
+                'to this login and was refused. The server may predate the ' +
+                'CLI loopback binding — upgrade it, or authenticate with ' +
+                '`--api-key`.'
+              : 'Login timed out. Try again with `wafflebase login`.',
+          ),
         );
       }
       srv.close();

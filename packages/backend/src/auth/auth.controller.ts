@@ -123,9 +123,15 @@ export class AuthController {
         if (port < 1024 || port > 65535) {
           throw new BadRequestException('Invalid CLI port');
         }
-        const code = this.cliAuthStore.createCode(user.id);
+        const code = this.cliAuthStore.createCode(user.id, state.codeChallenge);
+        // Echo the CLI's nonce back as `state`. Its localhost callback port
+        // is guessable, so this is what lets the CLI tell a code from its own
+        // flow apart from one an attacker pushed at that port.
+        const stateEcho = state.nonce
+          ? `&state=${encodeURIComponent(state.nonce)}`
+          : '';
         return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}`,
+          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateEcho}`,
         );
       }
 
@@ -143,11 +149,21 @@ export class AuthController {
     return res.redirect(this.configService.get('FRONTEND_URL')!);
   }
 
+  /**
+   * Redeem a CLI authorization code.
+   *
+   * Unauthenticated by necessity — the CLI has no credential yet — so the
+   * code must not be a plain bearer. A login that started with a PKCE
+   * challenge (RFC 7636) only redeems against the matching `codeVerifier`,
+   * which never left the CLI process; a leaked or intercepted code is then
+   * useless to whoever holds it. A code from a CLI that sent no challenge
+   * stays redeemable on its own, so older clients keep working.
+   */
   @Post('cli/exchange')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: CliExchangeDto) {
-    const userId = this.cliAuthStore.consumeCode(body.code);
+    const userId = this.cliAuthStore.consumeCode(body.code, body.codeVerifier);
     if (userId === undefined) {
       throw new UnauthorizedException('Invalid or expired code');
     }

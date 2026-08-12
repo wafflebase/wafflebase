@@ -331,19 +331,33 @@ The CLI uses three endpoints in addition to the standard
 GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
-- **`GET /auth/github?mode=cli&port=<port>`** — extends the existing
-  endpoint to carry CLI parameters through OAuth `state`. The backend
-  generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`.
+- **`GET /auth/github?mode=cli&port=<port>&nonce=<nonce>&code_challenge=<challenge>`**
+  — extends the existing endpoint to carry CLI parameters through OAuth
+  `state`. The backend generates an opaque state token (random 32 bytes,
+  TTL 5 minutes, in-memory map) and remembers the CLI's `nonce` and PKCE
+  `code_challenge` beside it. Both are optional (an older CLI sends
+  neither) and both are length-bounded before they are stored — the
+  nonce at 128 characters, the challenge at RFC 7636's 43–128 and the
+  base64url alphabet — since they arrive on an attacker-influenceable
+  query string and one of them is echoed into a redirect URL.
 - **`GET /auth/github/callback`** — when the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
-  TTL 60 seconds, same in-memory map), redirects to
-  `http://127.0.0.1:<port>/callback?code=<auth-code>`. `port` must be
-  `1024–65535`; the redirect host is always `127.0.0.1` (hard-coded).
-- **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
-  validates TTL, deletes it (single-use), and returns
-  `{ accessToken, refreshToken }`. No authentication required (the code
-  itself is the proof).
+  TTL 60 seconds, same in-memory map, carrying the state's
+  `code_challenge`), redirects to
+  `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<nonce>`.
+  `port` must be `1024–65535`; the redirect host is always `127.0.0.1`
+  (hard-coded). The `state` echo is what lets the CLI tell its own
+  flow's code from one pushed at its guessable callback port
+  (RFC 8252 §8.9).
+- **`POST /auth/cli/exchange`** — accepts `{ code, codeVerifier? }`,
+  looks the code up, validates TTL, deletes it (single-use), and returns
+  `{ accessToken, refreshToken }`. No authentication required — the CLI
+  has no credential yet — so the code must not be a plain bearer: a code
+  minted from a login that carried a `code_challenge` only redeems
+  against the matching PKCE verifier (S256, constant-time compare). A
+  mismatch burns the code and is reported as an ordinary
+  "invalid or expired code", so the endpoint is no oracle. A code from a
+  CLI that sent no challenge stays redeemable on its own.
 - **`POST /auth/refresh`** — body fallback added: if there is no
   `wafflebase_refresh` cookie, the controller reads
   `{ refreshToken }` from the body and returns
@@ -364,4 +378,5 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| OAuth state forgery (CSRF) | The `state` GitHub carries is an opaque random 32-byte token, minted per OAuth request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. (`StateEntry.csrf` is a second value minted alongside it that nothing reads yet — the guard above is the state token itself.) |
+| Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. |

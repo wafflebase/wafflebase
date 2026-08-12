@@ -171,15 +171,19 @@ developers; API keys are the path for CI and headless environments.
 wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
-  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
+  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
+  │     and mints a nonce + a PKCE verifier/challenge pair
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
+  │       &nonce=<nonce>&code_challenge=<S256(verifier)>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
   │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
-  ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
-  │     with { code } → receives { accessToken, refreshToken }
+  │       &state=<nonce echoed back>
+  ├─ 7. CLI checks `state` against its nonce, then calls
+  │     POST /auth/cli/exchange with { code, codeVerifier }
+  │     → receives { accessToken, refreshToken }
   ├─ 8. CLI local server serves success HTML, shuts down
   ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
   ├─ 10. CLI calls GET /workspaces (Bearer token) for workspace list
@@ -188,9 +192,33 @@ wafflebase login
 ```
 
 The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single request with a 30-second
-timeout. On timeout it prints: "Login timed out. Try again with
+/callback`, and shuts down after a single accepted request with a
+30-second timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
+
+**Loopback binding (RFC 8252 §8.9).** Binding to loopback is not by itself
+protection: the port is guessable and any page in the user's browser can
+navigate to it. Without a binding check the CLI would exchange whatever
+`code` arrived first — including one an attacker minted against their own
+account, which silently logs the terminal in as the attacker and sends
+every subsequent write to their workspace. Two independent bindings close
+that:
+
+- **Nonce echo.** The CLI mints a 32-byte nonce, sends it as `nonce=`, and
+  the backend echoes it back on the loopback redirect as `state`. A
+  callback whose `state` does not match (constant-time compare) is answered
+  `400` and the listener stays open, so a probe cannot abort a genuine
+  login that is still in flight.
+- **PKCE (RFC 7636, S256).** The verifier never leaves the CLI process;
+  only its hash goes up as `code_challenge`, rides onto the authorization
+  code, and is required at `POST /auth/cli/exchange`. So even a code lifted
+  off the redirect — from a browser history entry, a proxy, a shoulder — is
+  not redeemable by whoever holds it.
+
+Both are optional on the wire, so a new CLI still works against a server
+that predates them. When a code arrives with no `state` at all (which is
+what an older backend looks like), the CLI refuses it and the timeout
+message says so rather than reporting a bare timeout.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -1020,15 +1048,16 @@ is the agent interface. This approach has key advantages:
   either stream leaves the caller with nothing to act on. Only progress
   notices are display output; the envelope is the machine-readable
   failure signal, and stderr already survives stdout redirection.
-  Every emitter on the data path builds it through `errorEnvelope` /
+  Every emitter builds it through `errorEnvelope` /
   `backendErrorEnvelope` in `packages/cli/src/output/formatter.ts`
   (`outputError` included), so "one line, attributed" holds on the paths
   that never throw either: the import/upload/download orchestrators, the
   backend-error passthroughs on `docs`/`notes`/`slides` content and export,
-  and `schema`'s lookup miss. The exceptions are the two interactive
-  session commands, `login` and `ctx switch`, which still print prose to a
-  human at a terminal rather than an envelope to an agent (tracked in
-  #654/#655) — no agent-driven command depends on them.
+  `schema`'s lookup miss, and the two session commands `login` and
+  `ctx switch` — the prose they used to print was the first thing an agent
+  hit and the one thing it could not parse. Their *prompts* and success
+  notices stay prose: those go to a human at a terminal, and only failures
+  are the machine-readable signal.
   A backend error body keeps its `code` and any extra context — agents
   branch on it — but never its `command`: attribution is the CLI's
   statement about which command *it* ran, so a server cannot forge it. A

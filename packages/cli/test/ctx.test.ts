@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Command } from 'commander';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync, writeFileSync } from 'node:fs';
 import {
   formatWorkspaceList,
   findWorkspace,
+  registerCtxCommand,
 } from '../src/commands/ctx.js';
 import type { WorkspaceInfo } from '../src/config/session.js';
 
@@ -67,5 +72,80 @@ describe('findWorkspace', () => {
     ];
     const ws = findWorkspace(ambiguous, 'aabbccdd');
     expect(ws).toBeUndefined();
+  });
+});
+
+// `ctx switch` used to print prose here. It is on the session path an agent
+// walks before anything else, so its failures carry the same one-line,
+// `command`-attributed envelope as the data commands (docs/design/cli.md §9).
+describe('ctx switch failures', () => {
+  const sessionPath = join(tmpdir(), `wb-ctx-test-${process.pid}.json`);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.WAFFLEBASE_SESSION;
+    rmSync(sessionPath, { force: true });
+  });
+
+  /** Run `ctx switch <query>` to its `process.exit`, returning stderr. */
+  async function runSwitch(query: string): Promise<string[]> {
+    const errs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errs.push(args.map(String).join(' '));
+    });
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit');
+    }) as never);
+
+    const program = new Command();
+    program.name('wafflebase').exitOverride();
+    registerCtxCommand(program);
+
+    await expect(
+      program.parseAsync(['ctx', 'switch', query], { from: 'user' }),
+    ).rejects.toThrow('process.exit');
+    return errs;
+  }
+
+  it('reports a missing session as an UNAUTHORIZED envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+
+    const errs = await runSwitch('anything');
+
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).not.toContain('\n');
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Not logged in. Run `wafflebase login`.',
+        command: 'ctx.switch',
+      },
+    });
+  });
+
+  it('reports an unknown workspace as a NOT_FOUND envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+    writeFileSync(
+      sessionPath,
+      JSON.stringify({
+        server: 'http://localhost:3000',
+        user: { id: 1, username: 'bob', email: 'b@e.com', photo: null },
+        accessToken: 'at',
+        refreshToken: 'rt',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        activeWorkspace: workspaces[0].id,
+        workspaces,
+      }),
+    );
+
+    const errs = await runSwitch('nope');
+
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Workspace not found: nope',
+        command: 'ctx.switch',
+      },
+    });
   });
 });
