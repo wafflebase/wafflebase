@@ -185,6 +185,7 @@ export function DocsView({
     container: containerEl,
     currentUser,
     readOnly: Boolean(readOnly),
+    documentId,
     panelOpen: commentsPanelOpen,
     onPanelOpenChange: onCommentsPanelOpenChange,
   });

@@ -30,6 +30,7 @@ import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
+import { notifyCommentEvent } from "@/components/comments/notify";
 import { useDocument } from "@yorkie-js/react";
 import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
@@ -123,6 +124,7 @@ export function SheetView({
   commentJumpTarget = null,
   addPivotTab,
   workspaceId,
+  documentId,
   onToggleCommentsPanel,
 }: {
   tabId: string;
@@ -138,6 +140,11 @@ export function SheetView({
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
   workspaceId?: string;
+  /**
+   * Enables comment notification reports. Omitted (the anonymous share-link
+   * view) simply means no reports.
+   */
+  documentId?: string;
   onToggleCommentsPanel?: () => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
@@ -872,9 +879,20 @@ export function SheetView({
       }
       const store = storeRef.current;
       if (!store) throw new Error("Spreadsheet not ready");
-      await store.addThread(activeCellCommentAnchor, body, commentAuthor);
+      const thread = await store.addThread(
+        activeCellCommentAnchor,
+        body,
+        commentAuthor,
+      );
+      notifyCommentEvent({
+        event: "thread",
+        documentId,
+        actorUserId: commentAuthor.userId,
+        thread,
+        comment: thread.comments[thread.comments.length - 1],
+      });
     },
-    [activeCellCommentAnchor, commentAuthor],
+    [activeCellCommentAnchor, commentAuthor, documentId],
   );
 
   const handleCommentReply = useCallback(
@@ -882,15 +900,37 @@ export function SheetView({
       if (!commentAuthor) throw new Error("Sign in to reply");
       const store = storeRef.current;
       if (!store) throw new Error("Spreadsheet not ready");
-      await store.addReply(threadId, body, commentAuthor);
+      const comment = await store.addReply(threadId, body, commentAuthor);
+      const thread = (await store.listThreads()).find((t) => t.id === threadId);
+      if (thread) {
+        notifyCommentEvent({
+          event: "reply",
+          documentId,
+          actorUserId: commentAuthor.userId,
+          thread,
+          comment,
+        });
+      }
     },
-    [commentAuthor],
+    [commentAuthor, documentId],
   );
 
   const handleCommentResolve = useCallback(
     async (threadId: string) => {
       if (!commentAuthor) return;
-      await storeRef.current?.setThreadResolved(threadId, true, commentAuthor);
+      const store = storeRef.current;
+      await store?.setThreadResolved(threadId, true, commentAuthor);
+      const resolvedThread = (await store?.listThreads())?.find(
+        (t) => t.id === threadId,
+      );
+      if (resolvedThread) {
+        notifyCommentEvent({
+          event: "resolve",
+          documentId,
+          actorUserId: commentAuthor.userId,
+          thread: resolvedThread,
+        });
+      }
       // Only close the popover if no other unresolved threads remain on this cell.
       // The just-resolved thread may still appear in activeCellThreads at call time,
       // so we exclude it explicitly when counting remaining open threads.
@@ -901,7 +941,7 @@ export function SheetView({
         setCommentPopoverOpen(false);
       }
     },
-    [commentAuthor, activeCellThreads],
+    [commentAuthor, activeCellThreads, documentId],
   );
 
   const handleCommentEdit = useCallback(
