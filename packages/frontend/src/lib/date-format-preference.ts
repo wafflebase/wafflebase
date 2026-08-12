@@ -28,15 +28,24 @@ function isFormat(value: unknown): value is DateDisplayFormat {
 }
 
 /**
- * In-memory mirror of the preference, consulted only when `localStorage` is
- * unreadable or unwritable. It keeps a choice made in an environment without
- * storage applied for the rest of the session — it just does not survive a
- * reload.
+ * Session-only copy of the preference, set *only* when persisting it failed.
+ * It keeps a choice made in an environment without writable storage applied
+ * for the rest of the session — it just does not survive a reload.
+ *
+ * A successful write clears it back to `null` so storage stays the single
+ * source of truth: otherwise a stale mirror would outvote a key that another
+ * tab has since changed or cleared.
  */
 let memoryFormat: DateDisplayFormat | null = null;
 
 /** The stored preference, falling back to the default on absent/junk values. */
 export function getDateFormat(): DateDisplayFormat {
+  // The mirror is only non-null when the last write failed, so storage is
+  // known to be stale (it may still *read* fine and hold the previous value —
+  // `setItem` throws QuotaExceededError on its own, e.g. full storage or iOS
+  // Safari private mode, while `getItem` keeps working). Prefer the mirror
+  // there; with storage healthy it is null and this costs nothing.
+  if (memoryFormat !== null) return memoryFormat;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (isFormat(stored)) return stored;
@@ -47,21 +56,20 @@ export function getDateFormat(): DateDisplayFormat {
     // runs during render of the documents list — a throw here would blank
     // the whole list rather than lose a display preference.
   }
-  return memoryFormat ?? DEFAULT_DATE_FORMAT;
+  return DEFAULT_DATE_FORMAT;
 }
 
 /** Persist the preference and notify every subscriber in this tab. */
 export function setDateFormat(format: DateDisplayFormat): void {
-  // Set before the write so the preference still applies when storage is
-  // unavailable: `getDateFormat` reads storage first and falls back here.
-  memoryFormat = format;
   try {
     localStorage.setItem(STORAGE_KEY, format);
+    memoryFormat = null;
   } catch {
-    // Same environments as above. Throwing out of the Settings `Select`'s
-    // `onValueChange` would leave the control showing the old value with no
-    // explanation; degrading to a session-only preference is the graceful
-    // failure.
+    // Same environments as above, plus a full quota. Throwing out of the
+    // Settings `Select`'s `onValueChange` would leave the control showing the
+    // old value with no explanation; degrading to a session-only preference
+    // is the graceful failure.
+    memoryFormat = format;
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }

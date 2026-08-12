@@ -8,6 +8,10 @@ import {
 
 describe("date format preference", () => {
   beforeEach(() => {
+    // A successful write clears the module's session-only mirror, so this
+    // also resets the state a storage-failure test may have left behind —
+    // without it those tests would leak into whatever runs next.
+    setDateFormat(DEFAULT_DATE_FORMAT);
     localStorage.clear();
   });
 
@@ -73,6 +77,39 @@ describe("date format preference", () => {
       setSpy.mockRestore();
       getSpy.mockRestore();
     }
-    setDateFormat(DEFAULT_DATE_FORMAT);
+  });
+
+  it("keeps the preference when only the write fails", () => {
+    // QuotaExceededError (full storage, iOS Safari) throws from `setItem`
+    // while `getItem` keeps returning the previously stored value. Reading
+    // storage first would silently revert the user's choice.
+    setDateFormat("relative");
+    const setSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      setDateFormat("exact");
+      expect(localStorage.getItem("wafflebase-date-format")).toBe("relative");
+      expect(getDateFormat()).toBe("exact");
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
+
+  it("lets storage win again once a write succeeds", () => {
+    const setSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    setDateFormat("exact");
+    setSpy.mockRestore();
+
+    setDateFormat("relative");
+    localStorage.clear();
+    // The stale mirror must not outvote a key another tab has cleared.
+    expect(getDateFormat()).toBe(DEFAULT_DATE_FORMAT);
   });
 });

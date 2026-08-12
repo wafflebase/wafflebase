@@ -15,6 +15,30 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
+/**
+ * `localStorage` is not merely empty in Safari private mode, with blocked
+ * third-party storage, or in a sandboxed iframe — touching it throws
+ * SecurityError. This provider wraps the whole app, and the read below runs
+ * during render, so an unguarded throw would blank every route instead of
+ * losing a theme preference.
+ */
+function readStoredTheme(storageKey: string): string | null {
+  try {
+    return localStorage.getItem(storageKey);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTheme(storageKey: string, theme: Theme): void {
+  try {
+    localStorage.setItem(storageKey, theme);
+  } catch {
+    // Same environments as above, plus a full quota. The theme still applies
+    // for this session; it just does not survive a reload.
+  }
+}
+
 const initialState: ThemeProviderState = {
   theme: "system",
   resolvedTheme: "light",
@@ -38,7 +62,7 @@ export function ThemeProvider({
     const params = new URLSearchParams(window.location.search);
     const urlTheme = params.get("theme");
     if (urlTheme === "light" || urlTheme === "dark") return urlTheme;
-    return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
+    return (readStoredTheme(storageKey) as Theme) || defaultTheme;
   });
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
@@ -105,7 +129,7 @@ export function ThemeProvider({
     resolvedTheme,
     setTheme: (newTheme: Theme) => {
       if (!isIframe) {
-        localStorage.setItem(storageKey, newTheme);
+        writeStoredTheme(storageKey, newTheme);
       }
       setThemeState(newTheme);
     },
