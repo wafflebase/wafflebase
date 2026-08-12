@@ -90,6 +90,10 @@ jobs:
           # would publish that unverified tree and the gate would be theatre.
           # Null on a `release`, where `github.ref` is the tag.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          # The checkout is only a build context for `docker build`; nothing here
+          # talks back to git. (Contrast publish-ghpage.yml, whose cleanup step
+          # pushes to `gh-pages` and therefore must keep its credentials.)
+          persist-credentials: false
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3

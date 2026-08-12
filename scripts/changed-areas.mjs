@@ -352,6 +352,27 @@ const FULL = (reason) => ({
 });
 
 /**
+ * Is `value` shaped like something `selectLaneNames` and the `ci.yml` gates can
+ * safely consume?
+ *
+ * Checks the three fields whose absence is unsafe rather than merely untidy:
+ * `full` decides whether filtering happens at all, and `packages`/`tags` are
+ * dereferenced per lane. `heavy`, `ciConfig` and `reasons` are read defensively
+ * elsewhere, so a hand-off missing them degrades to "no reasons shown" rather
+ * than to a wrong selection.
+ */
+export function isResolution(value) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof value.full === "boolean" &&
+    Array.isArray(value.packages) &&
+    Array.isArray(value.tags)
+  );
+}
+
+/**
  * The whole decision, from the environment.
  *
  * `WAFFLEBASE_CHANGED_AREAS` short-circuits everything: `ci.yml`'s `changes`
@@ -362,11 +383,23 @@ const FULL = (reason) => ({
  */
 export function resolve(env = process.env, repoRoot = REPO_ROOT) {
   if (env.WAFFLEBASE_CHANGED_AREAS) {
+    let parsed;
     try {
-      return JSON.parse(env.WAFFLEBASE_CHANGED_AREAS);
+      parsed = JSON.parse(env.WAFFLEBASE_CHANGED_AREAS);
     } catch {
       return FULL("WAFFLEBASE_CHANGED_AREAS was not valid JSON");
     }
+    // Valid JSON is not the same as a valid resolution, and the difference is
+    // dangerous rather than untidy. `null`, `[]`, `7` and `{"full":false}` all
+    // parse. Returned unchecked, the last one gives `packages: undefined`, which
+    // `laneSelected` dereferences — and `{"full":false,"packages":[],"tags":[]}`
+    // is worse, because it selects ZERO lanes and reports a green run that tested
+    // nothing. Same failure the empty-string case is guarded against; only the
+    // route in differs, so it gets the same answer.
+    if (!isResolution(parsed)) {
+      return FULL("WAFFLEBASE_CHANGED_AREAS was not a resolution object");
+    }
+    return parsed;
   }
 
   if (env.GITHUB_EVENT_NAME === "push" && env.GITHUB_REF_NAME === "main") {

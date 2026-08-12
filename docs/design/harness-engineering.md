@@ -349,12 +349,19 @@ than a claim. `ci.ciConfig` adds a sixth: a PR that edits the mapping is measure
 by the full suite, so it cannot use the filter to grade its own homework.
 `.github/CODEOWNERS` is the review half of that guard.
 
-**`full` and `heavy` are trusted differently, on purpose.**
+**The resolution has three consumers, trusted differently on purpose.**
 
-| Output | Drives | Rule |
+| Field | Drives | Rule |
 | --- | --- | --- |
-| `full` | `verify:self` lane selection | reverse-dependency closure over the package manifests |
+| `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
+| `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
 | `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+
+`full` and `packages` are separate because they answer different questions —
+"is selection on?" and "select what?" — and conflating them is how a fail-safe
+turns into a no-op: a resolution with `full: false` and no usable `packages`
+selects *nothing*, which is why `resolve()` validates the shape of a handed-off
+resolution rather than trusting that it parsed.
 
 The closure is derived from each `packages/*/package.json`, so it cannot go stale
 when someone adds a dependency — the dependency *is* the mapping. The two heavy

@@ -62,13 +62,20 @@ jobs:
         # packages/backend/. Fails open — an unresolvable parent (a first commit,
         # a shallow fetch, a manual dispatch) deploys, because a missed deploy is
         # a stale public site and a redundant one costs minutes.
+        # Through `env:` rather than interpolated into the script body. Neither
+        # value is attacker-controlled today (a SHA is hex and the event name is
+        # GitHub's own), but a `${{ }}` inside a shell script is textual
+        # substitution, so the safe habit is worth more than the audit.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "${{ github.event_name }}" != "workflow_run" ]; then
+          if [ "$EVENT_NAME" != "workflow_run" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             echo "Manual dispatch — deploying."
             exit 0
           fi
-          SHA='${{ github.event.workflow_run.head_sha }}'
+          SHA="$HEAD_SHA"
           if ! git rev-parse --verify -q "$SHA^" >/dev/null; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             echo "No parent commit available — deploying."

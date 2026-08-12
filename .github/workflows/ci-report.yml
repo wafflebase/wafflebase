@@ -184,12 +184,24 @@ jobs:
             let body = `${marker}\n## Verification\n\n`;
 
             if (areas && areas.full === false) {
+              // Phrased from what the jobs ACTUALLY did, not from `areas.heavy`.
+              // The two disagree whenever the `full-ci` label overrode a reduced
+              // resolution: `heavy` is false, yet both jobs ran. Reading `heavy`
+              // here would print "were skipped" directly above a table showing
+              // them green, which is exactly the kind of quietly-wrong reporting
+              // this whole change is meant to remove.
+              const heavyRan = ['verify-browser', 'verify-integration']
+                .map(jobState)
+                .some((s) => s !== 'skipped' && s !== 'missing');
               body += '> **Reduced run.** ';
-              body += areas.heavy
+              body += heavyRan
                 ? '`verify-browser` and `verify-integration` still ran.\n'
                 : '`verify-browser` and `verify-integration` were skipped — no workspace package changed.\n';
               for (const reason of areas.reasons ?? []) body += `> - ${clean(reason)}\n`;
-              body += '>\n> Add the **`full-ci`** label and re-run to force the whole suite.\n\n';
+              if (!heavyRan) {
+                body += '>\n> Add the **`full-ci`** label and re-run to force the whole suite.\n';
+              }
+              body += '\n';
             } else if (areas && areas.ciConfig) {
               body += '> **Full suite forced.** This PR changes a file that decides how much CI '
                 + 'runs, so it is measured by everything.\n\n';

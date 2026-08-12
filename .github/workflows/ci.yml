@@ -84,6 +84,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # This job only reads history to compute a diff, so it does not need a
+          # credential left behind in `.git/config` — and this is the one job whose
+          # output every gate below trusts, so it is the last place to leave a
+          # writable token lying around.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:

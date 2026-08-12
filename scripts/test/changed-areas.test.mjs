@@ -6,12 +6,15 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  changedPaths,
   classify,
   globToRegExp,
+  isResolution,
   laneSelected,
   readCiConfig,
   readWorkspaceGraph,
@@ -236,6 +239,71 @@ test("resolve fail-safes", async (t) => {
     assert.equal(out.full, true);
   });
 
+  await t.test("isResolution accepts only a usable resolution", () => {
+    assert.equal(isResolution({ full: true, packages: [], tags: [] }), true);
+    assert.equal(isResolution({ full: false, packages: ["a"], tags: ["b"] }), true);
+    for (const bad of [
+      null,
+      undefined,
+      [],
+      7,
+      "full",
+      {},
+      { full: true, packages: [] },
+      { full: true, tags: [] },
+      { full: "true", packages: [], tags: [] },
+      { full: true, packages: {}, tags: [] },
+    ]) {
+      assert.equal(isResolution(bad), false, `${JSON.stringify(bad)} is not a resolution`);
+    }
+  });
+
+  await t.test("valid JSON of the wrong shape is a full run", () => {
+    // Parsing is not validating. Each of these parses cleanly, and each would
+    // reach `selectLaneNames`: `{"full":false}` gives `packages: undefined`,
+    // which `laneSelected` dereferences, and the last one selects ZERO lanes and
+    // reports a green run that tested nothing.
+    for (const payload of [
+      "null",
+      "[]",
+      "7",
+      '"full"',
+      "{}",
+      '{"full":false}',
+      '{"full":false,"packages":[]}',
+      '{"full":"yes","packages":[],"tags":[]}',
+    ]) {
+      const out = resolve({ WAFFLEBASE_CHANGED_AREAS: payload }, REPO_ROOT);
+      assert.equal(out.full, true, `${payload} must force a full run`);
+      assert.ok(Array.isArray(out.packages), `${payload} must yield a usable shape`);
+      assert.ok(Array.isArray(out.tags), `${payload} must yield a usable shape`);
+    }
+  });
+
+  await t.test("a well-formed hand-off is still passed through untouched", () => {
+    const areas = {
+      full: false,
+      heavy: true,
+      packages: ["notes"],
+      tags: [],
+      ciConfig: false,
+      reasons: ["ok"],
+    };
+    assert.deepEqual(
+      resolve({ WAFFLEBASE_CHANGED_AREAS: JSON.stringify(areas) }, REPO_ROOT),
+      areas,
+    );
+  });
+
+  await t.test("changedPaths returns null when the base is not a commit", () => {
+    // The "failed git diff" route. It is what makes a shallow clone safe — CI's
+    // `verify-self` job checks out at depth 1, so if the hand-off is ever missing
+    // this is the fail-safe that runs everything instead of diffing nothing.
+    assert.equal(changedPaths("0".repeat(40), REPO_ROOT), null);
+    assert.equal(changedPaths("not-a-ref-at-all", REPO_ROOT), null);
+    assert.equal(changedPaths(null, REPO_ROOT), null);
+  });
+
   await t.test("an EMPTY precomputed resolution falls through, not to {}", () => {
     // ci.yml's whole fail-safe rests on this. If the `changes` job crashes it
     // produces no `areas` output, so the env var arrives as an empty string —
@@ -337,6 +405,32 @@ test("the real repository config", async (t) => {
     assert.equal(out.full, false);
     assert.equal(out.heavy, false);
     assert.deepEqual(out.tags, ["agent"]);
+  });
+
+  await t.test("every ciConfig path is also owned in CODEOWNERS", () => {
+    // The two halves of the same guard: `ci.ciConfig` forces a full suite on a PR
+    // touching these files, CODEOWNERS requires a maintainer to look at it. An
+    // entry present in the config and missing here is a file that can quietly
+    // change every later PR's coverage with nobody required to read the diff —
+    // which is exactly how this drifted when the block was first written (only 4
+    // of 9 entries were owned).
+    const owners = readFileSync(path.join(REPO_ROOT, ".github/CODEOWNERS"), "utf8");
+    const owned = owners
+      .split("\n")
+      .filter((l) => l.trim() && !l.trim().startsWith("#"))
+      .map((l) => l.trim().split(/\s+/)[0]);
+
+    for (const glob of ci.ciConfig) {
+      // `a/b/**` is owned by the directory rule `/a/b/`; everything else maps to
+      // its own path, wildcards included (CODEOWNERS understands `*`).
+      const expected = glob.endsWith("/**")
+        ? `/${glob.slice(0, -3)}/`
+        : `/${glob}`;
+      assert.ok(
+        owned.includes(expected),
+        `ci.ciConfig lists \`${glob}\` but CODEOWNERS has no \`${expected}\` rule`,
+      );
+    }
   });
 
   await t.test("every ciConfig glob matches a file that exists", () => {
