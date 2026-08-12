@@ -30,6 +30,16 @@ permissions:
   pull-requests: write # open the draft PR + comment
   issues: write # comment back on the issue
 
+env:
+  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
+  # in the working directory. Since the pipeline moved to its own repo, the
+  # trusted checkout lands in a scratch path that is then deleted — which removed
+  # the only .git in the workspace, and every step that runs before the PR-branch
+  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
+  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
+  # this exact reason; it was the one workflow the regression did not reach.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   # Parse the "@claude <verb>" command from the comment via the shared
   # scripts/agent/command.mjs (flexible/containment matching: case-insensitive,
@@ -54,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline/command.mjs
           sparse-checkout-cone-mode: false
