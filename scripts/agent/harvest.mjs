@@ -439,7 +439,6 @@ export function classifyCodeRabbitComment(body) {
   // `@user`, 26 with `<details>`, and the 11 that open bold are all findings).
   const bold = head === null ? /^\s*\*\*(.+?)\*\*/s.exec(first) : null;
   if (head === null && bold === null) return null;
-  const title = /\*\*(.+?)\*\*/s.exec(text)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
   return {
     category: head?.category ?? "",
     vocabulary: head?.vocabulary ?? "",
@@ -448,14 +447,32 @@ export function classifyCodeRabbitComment(body) {
     effort: head?.effort ?? "",
     vintage: head?.vintage ?? "bold-title",
     lens: CR_CATEGORY_TO_LENS.get(head?.category ?? "") ?? "",
-    summary: title,
+    summary: codeRabbitTitle(body),
     detail: codeRabbitDetail(body),
   };
 }
 
-// Where a CodeRabbit body stops being prose. Verified against every inline
-// finding on #548, #594 and #639: the body is always header → bolded title →
-// prose → structured blocks, and prose never resumes after the first block.
+// Where a CodeRabbit body stops being prose, for the purpose of `codeRabbitDetail`.
+//
+// ⚠ THE ORDERING CLAIM THIS COMMENT USED TO MAKE IS FALSE, and it is left here
+// corrected rather than deleted because a later reader will otherwise re-derive it
+// from the same three pull requests. It said: "verified against every inline
+// finding on #548, #594 and #639: the body is always header → bolded title → prose
+// → structured blocks, and prose never resumes after the first block". The first
+// half holds. The last clause does not, and #548/#594/#639 could not show it
+// because all three post-date the vintage that breaks it.
+//
+// Measured over all 2061 CodeRabbit inline comments in this repository (1588 of
+// them findings), 2026-08-12: 200 of the 1588 — 12.6% — open with a `🧩 Analysis
+// chain` <details> block carrying CodeRabbit's web queries and shell transcripts,
+// and state their title and prose AFTER it. For those, `search(CR_PROSE_END)`
+// returns 0 and this function's slice is empty, so `detail` is `""` on 200
+// findings that do have prose. Both vocabularies are affected, back to #11 (2025-04).
+//
+// That is a defect in `codeRabbitDetail`, deliberately NOT fixed here: `detail`
+// feeds the text side of finding matching, so widening it moves numbers that
+// already-merged scorers have published. It is recorded so the next change to this
+// constant starts from what the data does rather than from this comment.
 const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
 
 /**
@@ -487,6 +504,52 @@ const CR_PROSE_END = /^[ \t]*(?:<details>|```|<!--)/m;
  * because the character after the first `>` is neither a space nor a line end.
  */
 const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
+
+/**
+ * Spans in which a `**…**` is MARKUP, not emphasis: fenced blocks and HTML
+ * comments. Used only to decide where a title may be mined from.
+ *
+ * This exists because the title search reads the whole body, and the whole body
+ * contains code. CodeRabbit quotes the commands it ran, and `**` is ordinary shell
+ * and regex syntax — an exclude glob spells one. So the first `**…**` in a body is
+ * not always the title; on comment 3651715274 (#549) it was `/node_modules/`,
+ * lifted out of an `rg` invocation 2129 bytes past where that comment's prose ends,
+ * and that string travelled into a human adjudication queue as the finding's
+ * summary. It scored 0.46-0.75 against six panel findings on location alone and
+ * accounted for 6 of the 23 pairs over 0.70.
+ *
+ * FENCES ONLY, and not `<details>`, which is the whole design. Truncating at the
+ * first structured block was the obvious alternative and it is strictly worse: a
+ * narrower search can only ever return LESS, so it cannot correct a wrong title,
+ * only delete it. Measured over all 2061 of this repository's CodeRabbit inline
+ * comments, truncating changed 200 of the 1588 findings and every one of the 200
+ * went from a real title to `""` — including all of the 12.6% described above
+ * `CR_PROSE_END`, whose titles sit after a `<details>` block. This rule changed 28,
+ * and every one of the 28 went from markup to a real title.
+ *
+ * Each span is matched LAZILY and removed on its own. A greedy `[\s\S]*` would run
+ * from the first fence to the last, and the ordinary shape of a CodeRabbit comment
+ * puts the title BETWEEN two of them — an analysis chain above, an AI-agents block
+ * below — so a greedy match eats exactly the string this function exists to find.
+ */
+const CR_NON_PROSE = /```[\s\S]*?```|<!--[\s\S]*?-->/g;
+
+/**
+ * CodeRabbit's one-line title: the first bolded span that is prose rather than
+ * code, or `""` when the comment states none.
+ *
+ * `""` is left absent rather than substituted. Falling back to the first sentence
+ * would manufacture a title CodeRabbit never wrote, and no consumer could then tell
+ * a manufactured one from a real one — while an absent one is checkable. Note that
+ * absent is not inert downstream: `findingKey` is `file::summary`, so every empty
+ * summary in one file collides on one key, and `findingSimilarity` scores two empty
+ * summaries at 1.00 against each other. That is a reason to avoid EMITTING `""`,
+ * not a reason to invent a value.
+ */
+export function codeRabbitTitle(body) {
+  const prose = str(body).replace(CR_BLOCKQUOTE_PREFIX, "").replace(CR_NON_PROSE, "\n");
+  return /\*\*(.+?)\*\*/s.exec(prose)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
+}
 
 /**
  * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
@@ -724,6 +787,21 @@ export function parseCodeRabbitReview(body) {
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       const span = text.slice(h.at, i + 1 < hits.length ? hits[i + 1].at : text.length);
+      // A span runs to the NEXT locator, so it carries this finding's committable
+      // suggestion and its `🤖 Prompt for AI Agents` block — both fenced, both full
+      // of `**`. The title is mined with the same code-blind rule as the inline
+      // path rather than a second one written here; the two readers of a CodeRabbit
+      // title diverging is the defect this fixes, and two copies of it would
+      // reintroduce it on the half of the population that comes through this path.
+      //
+      // 🔴 THE TITLE READS `span`, THE DETAIL READS THE DE-LOCATORED COPY, and that
+      // asymmetry is load-bearing rather than an oversight. `CR_LOCATOR`'s third
+      // group is `(.*)$` — the whole rest of the locator's line — and the 2024/2025
+      // vintages put the title ON that line (``\`17-19\`: **Add error handling**``).
+      // So stripping the locator strips the title with it: mining the title from
+      // `stated` empties 756 of this repository's 1693 review-body findings.
+      // Measured, not reasoned — it is why this line says `span`.
+      const stated = span.replace(CR_LOCATOR, "").trimStart();
       findings.push({
         tier: section.tier,
         file: h.file,
@@ -735,8 +813,8 @@ export function parseCodeRabbitReview(body) {
         effort: h.head?.effort ?? "",
         vintage: h.head?.vintage ?? "bold-title",
         lens: CR_CATEGORY_TO_LENS.get(h.head?.category ?? "") ?? "",
-        summary: /\*\*(.+?)\*\*/s.exec(span)?.[1]?.replace(/\s+/g, " ").trim() ?? "",
-        detail: codeRabbitDetail(span.replace(CR_LOCATOR, "").trimStart()),
+        summary: codeRabbitTitle(span),
+        detail: codeRabbitDetail(stated),
       });
     }
   }

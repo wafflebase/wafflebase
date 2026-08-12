@@ -23,6 +23,7 @@ import {
   parseCodeRabbitReview,
   codeRabbitReviewSections,
   codeRabbitDetail,
+  codeRabbitTitle,
   attributeToPanel,
   parsePanelComment,
   panelFindingsFromComments,
@@ -534,6 +535,88 @@ test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => 
   assert.equal(stability.lens, "");
 });
 
+// --- codeRabbitTitle: a title is prose, never code ---------------------------
+//
+// comment 3651715274 (PR #549, 2026-07-26), trimmed in the middle — the web-query
+// text and two more script blocks are cut, and the cut is marked. Nothing is
+// reordered and no line is rewritten, because the ORDER is the whole fixture: the
+// `🧩 Analysis chain` block comes FIRST, and the title comes after it.
+const CR_ANALYSIS_CHAIN_FIRST = [
+  "_🔒 Security & Privacy_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🏁 Script executed:",
+  "",
+  "```shell",
+  "#!/bin/bash",
+  "echo \"== dependency mentions ==\"",
+  "rg -n '\"markdown-it\"' -S . --glob '!**/node_modules/**' --glob '!**/dist/**'",
+  "```",
+  "",
+  "Repository: wafflebase/wafflebase",
+  "",
+  "Length of output: 3380",
+  "",
+  "</details>",
+  "",
+  "**Pin the markdown-it dependency or switch to the public `getRules()` API.**",
+  "",
+  "`packages/notes/package.json` declares `markdown-it: \"^14.1.0\"` while the notes package currently resolves `14.3.0`.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "Verify each finding against current code. Fix only still-valid issues.",
+  "```",
+  "",
+  "</details>",
+  "",
+  "<!-- cr-comment:v1:89e5b52cfcb0fcabce0e12a0 -->",
+].join("\n");
+
+test("classifyCodeRabbitComment: a `**` inside a shell command is not a title", () => {
+  // THE REGRESSION THIS EXISTS FOR. `--glob '!**/node_modules/**'` contains a
+  // bolded-looking span, and it is the FIRST one in the body — 2129 bytes before
+  // the real title in the comment this fixture came from. Unguarded, the finding's
+  // summary was the string `/node_modules/`, which then scored 0.46-0.75 against
+  // six panel findings on location alone and reached a human adjudication queue.
+  const f = classifyCodeRabbitComment(CR_ANALYSIS_CHAIN_FIRST);
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.notEqual(f.summary, "/node_modules/");
+});
+
+test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a title", () => {
+  // The other half of the same rule, and the reason the search is code-blind rather
+  // than truncated at the first structured block. 200 of this repo's 1588 inline
+  // findings (12.6%) open with a `🧩 Analysis chain` block and state their title
+  // after it; stopping at the first block would return "" for every one of them.
+  // Measured 2026-08-12 over all 2061 CodeRabbit inline comments.
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("<details>") < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.equal(codeRabbitTitle(CR_ANALYSIS_CHAIN_FIRST), "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  // And the title sits BETWEEN the two fenced blocks, which is the ordinary shape:
+  // an analysis chain above it, an AI-agents block below. Each fenced span must be
+  // removed on its own — one greedy match from the first fence to the last would
+  // swallow the title along with them.
+  const fences = [...CR_ANALYSIS_CHAIN_FIRST.matchAll(/```/g)].map((m) => m.index);
+  assert.equal(fences.length, 4, "the fixture must keep BOTH fenced blocks for that to be a real risk");
+  assert.ok(fences[1] < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
+});
+
+test("codeRabbitTitle: an HTML comment cannot supply a title, and absent stays absent", () => {
+  // `<!-- … -->` is markup for the same reason a fence is. And a body with no
+  // bolded span anywhere yields "" rather than a manufactured first sentence:
+  // `findingKey` is `file::summary`, so a fabricated title is not a neutral
+  // placeholder — it is a key nothing can distinguish from a real one.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n<!-- **not a title** -->\n\nprose"), "");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nprose with no bold at all"), "");
+  assert.equal(codeRabbitTitle(""), "");
+  for (const bad of [null, undefined, 7, {}]) assert.equal(codeRabbitTitle(bad), "");
+});
+
 // --- parseCodeRabbitReview ---------------------------------------------------
 //
 // Every fixture below is a VERBATIM slice of a real `pulls/{n}/reviews` response,
@@ -770,6 +853,90 @@ test("parseCodeRabbitReview: a tier quoted inside a GitHub alert block", () => {
   assert.equal(f.severity, "major");
   assert.equal(f.lens, "security"); // the existing category→lens map, unchanged
   assert.equal(f.summary, "Validate `commit` before using it as a path segment.");
+});
+
+// CONSTRUCTED, and labelled as such because every other RV_ fixture here is real.
+// It is the review-body shape of the inline defect: a finding whose prose states no
+// bolded title, followed by the `🤖 Prompt for AI Agents` block every finding ends
+// with. A span runs to the NEXT locator, so that block is inside it — and the
+// command it quotes contains `**`.
+const RV_NO_TITLE_FENCED_GLOB = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  "",
+  "`202-214`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "The private ruler registry is read by name here.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "rg -n 'markdown-it' -S . --glob '!**/node_modules/**'",
+  "```",
+  "",
+  "</details>",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2044318318 (PR #10, 2025-04-14). The 2025 shape, and the one that makes
+// WHICH TEXT the title is read from a real decision: the title sits ON the locator
+// line, so a reader that strips the locator strips the title with it.
+const RV_TITLE_ON_LOCATOR_LINE = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>.github/workflows/publish-ghpage.yml (1)</summary><blockquote>",
+  "",
+  "`17-19`: **Add error handling for directory change**",
+  "",
+  "The shell script should handle potential errors when changing directory.",
+  "",
+  "```diff",
+  "-          cd frontend",
+  "+          cd frontend || exit 1",
+  "```",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a title on the LOCATOR LINE survives", () => {
+  // `CR_LOCATOR`'s third group is `(.*)$` — the whole rest of the line — so the
+  // de-locatored copy that `detail` is read from has no title left in it. Reading
+  // the title from that copy instead of the raw span empties 756 of this repo's
+  // 1693 review-body findings. Caught by measurement, pinned here.
+  const { findings } = parseCodeRabbitReview(RV_TITLE_ON_LOCATOR_LINE);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].summary, "Add error handling for directory change");
+  assert.equal(findings[0].locator, "17-19");
+  // The `diff` fence must not reach the title even though it holds no `**` here —
+  // assert the shape the title came from, not just the string.
+  assert.doesNotMatch(findings[0].summary, /cd frontend/);
+});
+
+test("parseCodeRabbitReview: a fenced command never supplies a review-body title", () => {
+  // The same rule as the inline path, applied through the SAME function. Half the
+  // corpus's CodeRabbit findings arrive here (14 of 30), and this path had its own
+  // copy of the unbounded regex — so it could regress on its own.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NO_TITLE_FENCED_GLOB);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0, "the finding must still be COUNTED; only its title is in question");
+  assert.equal(findings[0].summary, "", "markup was promoted to a title");
+  assert.notEqual(findings[0].summary, "/node_modules/");
+  // The finding is still fully formed everywhere else — this changes one field.
+  assert.equal(findings[0].locator, "202-214");
+  assert.equal(findings[0].file, "packages/notes/src/view/list-empty-bullet-plugin.ts");
+  assert.equal(findings[0].severity, "nit");
+  assert.match(findings[0].detail, /private ruler registry/);
 });
 
 test("codeRabbitDetail: strips blockquote markers itself, without a de-quoting caller", () => {
