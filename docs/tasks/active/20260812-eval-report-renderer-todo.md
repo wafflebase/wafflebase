@@ -174,6 +174,41 @@ when the intersection is empty), and both counts are derived. **Mutation testing
 the fix's own test:** K=1 takes a different branch and K=3 makes a hard-coded `3` identical, so
 only a K=2 case discriminates — that case was added.
 
+**⑬–⑯ Four refinements from plan PR 14's session (#808), which round-tripped 149 real
+segmentation cells through `segmentationFigures` without editing this module.** The contract itself
+needed no change — 149/149 cells rendered, none blank, `NaN` or `undefined`, and per-cell `min_n`
+was the right call. What it found:
+
+- **⑬ §5's caption was a false statement, and this module inherited it.** It read *"on a corpus this
+  small every cell is expected to be suppressed"*. Measured: **76 of 149 cells report — 51%.** The
+  prediction is true **per pull request**, where the fattest denominator on a 7-item corpus is 4
+  items, and false **per finding**, where several buckets clear min-n on both arms. Decision 12 has
+  carried the unqualified sentence since 2026-08-06; **decision 38** is the correction, and it is
+  **decision 28 — name the unit — for the fifth time in three days.** Not our error originally, but
+  this was the last place to catch it before the report has an audience.
+- **⑭ `renderCell`'s `fmt` parameter was dead at all nine call sites**, and §5 is its first real
+  consumer: every other section formats through its own `pct`/`num` inside a template string, so
+  nothing had ever needed it. A real cell printed as `0.6944444444444444`. `num` is now passed **at
+  the call site** and the default is untouched — changing the default would reformat CodeRabbit's
+  measured `critical` zero as `0.000`, a precision this data does not have. ⚠ **The fixtures could
+  not have caught it:** the only two values they ever fed `renderCell` were `0.229` and `0`, both of
+  which `String()` renders correctly. A `25/36` fixture was added.
+- **⑮ Decision 40 — two cross-arm rows measure GitHub, not a reviewer.** CodeRabbit's localisation
+  and in-diff rates are exactly **1.000 in all 22 reporting cells**, because an inline review comment
+  is anchored to a diff line *by construction*. So *"CodeRabbit localises 100%, we localise 80%"* is
+  a fact about the comment API. #808 deliberately did not filter these out — which cells to show is
+  the report's call — so it lands here, in §6 beside the radar refusal, being the same species of
+  argument.
+- **⑯ An axis nobody can build had no cell to live in, which inverted this module's own principle.**
+  The four availability states existed per **cell** and not per **axis**, so `defect_type` — which
+  needs adjudicated labels that do not exist — appeared in the scorer's console output and vanished
+  from the published report. That is exactly the silent drop the docblocks argue against. The
+  scorer's `axes` array is now rendered, each absent axis with the scorer's own reason.
+
+**Validated against #808's real payload**, not only fixtures: 149 cells, 76 reported, 73 withheld,
+`defect_type` rendered as declared-but-uncomputed, and no long decimal, `NaN`, `undefined` or blank
+cell anywhere in a 320-line document.
+
 ## Fail directions
 
 | When | What happens | Why that is the safe direction |
@@ -208,13 +243,13 @@ only a K=2 case discriminates — that case was added.
 ## Verification
 
 - [x] `agent:tests`, **two invocations, the way the lane runs them since #774**:
-      **1733 (1732 pass · 0 fail · 1 skipped) + 55 (55 pass · 0 fail · 0 skipped)**,
+      **1737 (1736 pass · 0 fail · 1 skipped) + 55 (55 pass · 0 fail · 0 skipped)**,
       against a **freshly measured** baseline of **1696 (1695 · 0 · 1) + 55** on
-      `upstream/main` at `d327ee410`. **+37 tests, +0 failures, skip count unchanged.**
+      `upstream/main` at `d327ee410`. **+41 tests, +0 failures, skip count unchanged.**
       Both trees were extracted separately and had the same `node_modules` symlinked
       into them before either was measured.
 - [x] `eslint scripts` (lockfile-pinned `9.24.0`) — **exit 0**, on both trees.
-- [x] **44 mutations, 44 caught**, re-run against the final bytes of all four files.
+- [x] **51 mutations, 51 caught**, re-run against the final bytes of all four files.
       Two initially survived. Neither was dismissed as ineffective: one traced to the
       read/write asymmetry in ⑦, the other to the K=2 gap in ⑫. Both got the missing
       assertion.
@@ -247,6 +282,11 @@ only a K=2 case discriminates — that case was added.
 - [ ] **Not verified: atomicity under a real interruption.** The tests prove the rename
       happens (removing it goes red) and that no `.part-` debris survives a successful
       write, which is what is observable without killing a process mid-write.
+- [x] **The segmentation contract is verified against a real producer**, not only fixtures —
+      #808's payload regenerated from `reference/eval-segmentation-scorer.diff` and rendered end to
+      end. ⚠ **No segmentation score is filed in the store**: #808 writes nothing (it needs this
+      PR's `putScore` merged first), so §5 of the published report still reads *"not computed"* —
+      now with its unit.
 - [ ] **Not verified: the shape `cost-latency-v1.json` will have.** #791 is still open,
       so `costLatencyFigures` unpacks nothing beyond its identity fields and takes the
       absence path. When #791 merges the section grows; today it renders *"not

@@ -635,8 +635,17 @@ export function segmentationFigures(payload) {
     return {
       availability: "not-computed",
       reason: `no ${sectionFor("segmentation").scorer_id} score is filed — the segmentation scorer is not built`,
-      expectation: "on a corpus this small every cell is expected to be suppressed for a thin denominator, and decision 12 calls that blank grid the correct output rather than a failure",
+      // 🔴 THE UNIT, because without it this sentence is false. It said "every cell is
+      // expected to be suppressed", and plan PR 14 then measured 76 of 149 cells
+      // reporting — 51%. The prediction holds PER PULL REQUEST, where the fattest
+      // denominator is 4 items, and fails PER FINDING, where several buckets clear
+      // min-n on both arms. Decision 12 has carried the unqualified version since
+      // 2026-08-06 and this renderer inherited it; decision 38 is the correction, and
+      // it is decision 28 — name the unit — for the fifth time in three days.
+      expectation:
+        "every PER-PULL-REQUEST cell is expected to be suppressed for a thin denominator, because the fattest such denominator on a 7-item corpus is 4 items — but PER-FINDING cells are not, and several clear min-n on both arms. Decision 12's blank-grid prediction is true per PR and false per finding, so it must not be quoted without its unit",
       cells: [],
+      axes: [],
     };
   }
   const cells = (Array.isArray(payload.cells) ? payload.cells : []).map((c) => ({
@@ -645,7 +654,28 @@ export function segmentationFigures(payload) {
     // it. A cell it measured renders as measured, INCLUDING a measured zero.
     cell: c.suppressed === true ? suppressed(c.n, c.min_n) : figure(c.value, c.n, c.unit),
   }));
-  return { availability: "present", cells, min_n: payload.min_n ?? null };
+  // 🔴 AXES, NOT ONLY CELLS. An axis nobody can build has no cell to live in — the
+  // pilot's `defect_type` needs adjudicated labels that do not exist — so a renderer
+  // reading only `cells` drops it silently. That is precisely the failure this module
+  // argues against one section up: absence is only observable against a declared
+  // expectation, and the four availability states existed per cell and not per axis.
+  // The scorer declares every axis with a status and a reason; they are rendered.
+  const axes = (Array.isArray(payload.axes) ? payload.axes : []).map((a) => ({
+    id: a.id ?? "(unnamed)",
+    status: a.status ?? "unstated",
+    cell: a.status === "computed" ? null : notComputed(a.reason ?? `the scorer reported this axis as ${JSON.stringify(a.status ?? null)} and gave no reason`),
+  }));
+  return {
+    availability: "present",
+    cells,
+    axes,
+    min_n: payload.min_n ?? null,
+    min_n_source: payload.min_n_source ?? null,
+    // The split, so §5 states what the grid actually did rather than what decision 12
+    // predicted it would. These are the two cell states counted, not a new metric.
+    reported: cells.filter((c) => c.cell.availability === "present").length,
+    withheld: cells.filter((c) => c.cell.availability === "suppressed").length,
+  };
 }
 
 /** The `SECTIONS` row for a key, refusing an unknown one so a typo cannot produce a
@@ -1015,8 +1045,31 @@ function renderSegmentation(sg) {
     );
     return out;
   }
+  // WHAT THE GRID ACTUALLY DID, above it, because decision 12 predicted a blank grid
+  // and half of this one reports. The prediction was true per pull request only.
+  out.push(
+    `**${sg.reported} of ${sg.cells.length} cells report; ${sg.withheld} are withheld** for a denominator below` +
+      ` min-n${sg.min_n === null ? "" : ` = ${sg.min_n}`}${sg.min_n_source ? ` (${sg.min_n_source})` : ""}.`,
+    "A withheld cell carries the `n` that failed and no value, so it cannot be read as a measured zero.",
+    "",
+  );
+  // Axes that produced no column at all, each with the scorer's own reason. An axis
+  // nobody can build is a different fact from a bucket that came out thin, and only
+  // one of the two appears in the table below.
+  const absentAxes = sg.axes.filter((a) => a.cell);
+  if (absentAxes.length > 0) {
+    out.push("Axes declared but absent from the grid:", "", "| axis | why |", "|---|---|");
+    for (const a of absentAxes) out.push(`| \`${a.id}\` | ${renderCell(a.cell)} |`);
+    out.push("");
+  }
   out.push("| segment | figure |", "|---|---|");
-  for (const c of sg.cells) out.push(`| \`${c.segment}\` | ${renderCell(c.cell)} |`);
+  // `num` is passed HERE and the default is left alone. §5 is the first table whose
+  // values pass through `renderCell` rather than being formatted by its caller, so it
+  // is the first place the raw `String(v)` default shows — it printed a real cell as
+  // `0.6944444444444444`. Changing the default instead would reformat CodeRabbit's
+  // measured `critical` zero as `0.000`, which reads as a precision this data does not
+  // have, and would redden the test that pins a bare `0`.
+  for (const c of sg.cells) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
   out.push("");
   return out;
 }
@@ -1042,6 +1095,15 @@ function renderLimits(r) {
     "Volume is genuinely two-armed but must be severity-stratified, which a single radar axis cannot show, and",
     "overlap is an interval rather than a point. Four axes of which three are fictional would be worse than the",
     "tables above, so the tables are what this report ships.",
+    "",
+    "**Two of the cross-arm rows measure GitHub, not a reviewer.** CodeRabbit's localisation rate and",
+    "in-diff rate are exactly 1.000 in every cell that reports — every one of its findings resolves to a",
+    "file and a line inside a hunk — **because an inline review comment is anchored to a diff line by",
+    "construction.** So *\"CodeRabbit localises 100%, we localise 80%\"* is a fact about the comment API and",
+    "not about reviewer discipline: our arm can cite a path the frozen diff never touched, and theirs",
+    "cannot. Of the metrics cut by both arms, only the nit ratio compares the reviewers. Same species as",
+    "the radar above — an axis that looks comparable and is not — and the second figure in two days that",
+    "survived every check while measuring the wrong quantity.",
     "",
     "**The store's own spend total understates true spend.** `putRun` recomputes a run's totals from the",
     "envelopes *present*, and one failed attempt's envelope was deleted during the K=3 repair — so any cost",

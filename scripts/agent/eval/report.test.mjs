@@ -110,6 +110,13 @@ const RELIABILITY = {
   completeness: { verdict: "complete", reasons: [], corpus_item_count: 7 },
 };
 
+/** The full report with a segmentation section attached, so §5's own rendering can be
+ *  asserted without rebuilding the whole input at each call. */
+const withSegmentation = (built) => {
+  const r = FULL();
+  return { ...r, sections: { ...r.sections, segmentation: built } };
+};
+
 const FULL = () =>
   buildReport({
     configHash: CONFIG_HASH,
@@ -404,6 +411,98 @@ test("cost and latency is 'not computed', and its cross-arm cell is 'not measura
   // The store DOES hold each replay's cost, and the report says why it does not read
   // it rather than quietly not reading it.
   assert.match(rendered, /recomputed from the envelopes\n\*present\*/);
+});
+
+test("a segmentation value is formatted, not stringified — the fmt parameter is passed", () => {
+  // 🔴 §5 is the FIRST table whose values pass through `renderCell` rather than being
+  // formatted by its caller, so it is the first place the raw `String(v)` default
+  // shows. Plan PR 14 round-tripped 149 real cells and found this one printing
+  // `0.6944444444444444`. The fixtures could not have caught it: the only two values
+  // they fed `renderCell` were `0.229` and `0`, both of which `String()` renders
+  // correctly. This one is `25/36`, which is what a real `k/n` looks like.
+  const built = segmentationFigures({
+    min_n: 5,
+    axes: [{ id: "severity", status: "computed" }],
+    cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
+  });
+  // The cell itself still holds the full-precision value — formatting is the renderer's
+  // job, not the extractor's.
+  assert.equal(built.cells[0].cell.value, 25 / 36);
+  assert.match(renderReport(withSegmentation(built)), /\| `metric=in_diff_rate\/severity=major\/arm=panel` \| 0\.694 \(n=36 findings\) \|/);
+  assert.doesNotMatch(renderReport(withSegmentation(built)), /0\.6944444/);
+
+  // 🔴 AND THE DEFAULT IS UNCHANGED, which is the other half of the instruction: a
+  // measured zero stays a bare `0` rather than becoming `0.000`, which would read as a
+  // precision this data does not have.
+  assert.equal(renderCell(figure(0, 30, "findings")), "0 (n=30 findings)");
+});
+
+test("an axis nobody can build is rendered, not silently dropped", () => {
+  // 🔴 THIS INVERTED THIS MODULE'S OWN ARGUMENT. The four availability states existed
+  // per CELL and not per AXIS, so an axis with no cells at all — `defect_type` needs
+  // adjudicated labels that do not exist — vanished from the published report while the
+  // scorer's console output named it. That is the silent drop the design argues against.
+  const built = segmentationFigures({
+    min_n: 5,
+    axes: [
+      { id: "severity", status: "computed" },
+      { id: "defect_type", status: "not-computed", reason: "defect type is assigned at adjudication and no adjudicated labels exist, so there is nothing to cut by" },
+      { id: "window", status: "not-selected", reason: "not requested for this run" },
+    ],
+    cells: [{ segment: "metric=nit_ratio/severity=major/arm=panel", suppressed: false, value: 0.5, n: 36, unit: "findings" }],
+  });
+  // A computed axis has no absence cell — it is in the grid.
+  assert.equal(built.axes.find((a) => a.id === "severity").cell, null);
+  assert.equal(built.axes.find((a) => a.id === "defect_type").cell.availability, "not-computed");
+  const markdown = renderReport(withSegmentation(built));
+  assert.match(markdown, /Axes declared but absent from the grid:/);
+  assert.match(markdown, /\| `defect_type` \| \*\*not computed\*\* — defect type is assigned at adjudication/);
+  assert.match(markdown, /\| `window` \| \*\*not computed\*\* — not requested for this run \|/);
+  assert.doesNotMatch(markdown, /\| `severity` \| \*\*not computed/);
+  // An axis the scorer declared without a reason still renders, naming that gap.
+  const noReason = segmentationFigures({ axes: [{ id: "mystery", status: "not-computed" }], cells: [] });
+  assert.match(renderCell(noReason.axes[0].cell), /gave no reason/);
+});
+
+test("§5 states the split the grid actually produced, not the one decision 12 predicted", () => {
+  // 🔴 The caption said "every cell is expected to be suppressed". Plan PR 14 measured
+  // 76 of 149 reporting — 51%. True per PULL REQUEST, false per FINDING; decision 38.
+  const built = segmentationFigures({
+    min_n: 5,
+    min_n_source: "spec §4.1 default",
+    axes: [],
+    cells: [
+      { segment: "a", suppressed: false, value: 0.5, n: 36, unit: "findings" },
+      { segment: "b", suppressed: true, n: 4, min_n: 5 },
+      { segment: "c", suppressed: true, n: 0, min_n: 5 },
+    ],
+  });
+  assert.equal(built.reported, 1);
+  assert.equal(built.withheld, 2);
+  const markdown = renderReport(withSegmentation(built));
+  assert.match(markdown, /\*\*1 of 3 cells report; 2 are withheld\*\* for a denominator below min-n = 5 \(spec §4\.1 default\)/);
+  assert.match(markdown, /cannot be read as a measured zero/);
+
+  // And the unbuilt-scorer caption now names its unit rather than predicting a blank
+  // grid outright.
+  const absent = renderReport(FULL());
+  assert.match(absent, /every PER-PULL-REQUEST cell is expected to be suppressed/);
+  assert.match(absent, /PER-FINDING cells are not/);
+  assert.doesNotMatch(absent, /every cell is expected to be suppressed/);
+});
+
+test("§6 says which cross-arm rows measure GitHub rather than a reviewer", () => {
+  // 🔴 Decision 40. CodeRabbit's localisation and in-diff rates are exactly 1.000 in
+  // all 22 reporting cells because an inline comment is anchored to a diff line by
+  // construction — a fact about the comment API, not about reviewer discipline.
+  const markdown = renderReport(FULL());
+  assert.match(markdown, /measure GitHub, not a reviewer/);
+  assert.match(markdown, /anchored to a diff line by\nconstruction/);
+  assert.match(markdown, /only the nit ratio compares the reviewers/);
+  // It sits with the radar refusal, which is the same species of argument.
+  const radar = markdown.indexOf("asked for a radar chart");
+  const github = markdown.indexOf("measure GitHub, not a reviewer");
+  assert.ok(radar > 0 && github > radar, "the GitHub caveat belongs beside the radar refusal in §6");
 });
 
 test("a suppressed segmentation cell says what it failed, and an unbuilt one says nobody built it", () => {
