@@ -252,6 +252,31 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
     "sheet.canUndo": () => requireSheet(state).store.canUndo(),
 
     /**
+     * Every RANGE STYLE PATCH the sheet holds — where toolbar styling actually lands.
+     *
+     * The obvious reader here was a per-cell one, and it was wrong. `Sheet.setRangeStyle`
+     * appends a patch and then calls `applyStylePatchToExistingCells`, which skips any
+     * cell that does not ALREADY carry its own style:
+     *
+     *     const existing = await this.store.get(anchor);
+     *     if (!existing?.s) continue;
+     *
+     * So selecting a populated, unstyled cell and clicking Bold leaves `cell.s` null and
+     * puts the style in this list instead. Measured while building the oracle check for
+     * this: `sheet.activeCellStyle` reported `{b:true}` and a per-cell reader reported
+     * `null`, for a cell holding "Label" — the style was applied and simply was not there
+     * to read. A reader whose common case is a silent null is a trap, not a sensor.
+     *
+     * Patches are `{range, style}` and ACCUMULATE: toggling Bold on and off appends two,
+     * `{b:true}` then `{b:false}`, rather than removing the first. That is the shape a
+     * round trip should be predicted against here, and whether the growth is a defect is
+     * exactly the kind of question this reader exists to make askable.
+     */
+    "sheet.rangeStyles": () => requireSheet(state).store.getRangeStyles(),
+
+    "sheet.activeCellStyle": async () => (await requireSheet(state).spreadsheet.getActiveStyle()) ?? null,
+
+    /**
      * Viewport coordinates of a cell's centre.
      *
      * This is how a caller clicks something that only exists as pixels on a canvas:

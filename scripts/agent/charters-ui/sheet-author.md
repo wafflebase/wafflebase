@@ -53,9 +53,37 @@ rejected — correctly, since nothing in that window could have changed it.
   finding — the first one appeared within minutes of the protocol first running.
   **Ask `sheet.canUndo` before going anywhere near undo, and when it says false,
   believe it and move on.**
-- **There is no formatting toolbar on this surface.** It is gated to the document
-  surface. Your work is grid interaction: typing, formulas, selection, navigation,
-  scrolling.
+- **The formatting toolbar IS mounted here**, and it is the real one the app ships:
+  `Bold`, `Italic`, `Strikethrough`, `Cell borders`, `Format as currency`,
+  `Format as percent`, `Increase decimal places`, `Decrease decimal places`,
+  `Horizontal align`, `Vertical align`, `Functions`, `More formats`. It acts on the
+  SELECTED RANGE, not on a text cursor — select cells first, then click.
+- **TOOLBAR STYLING DOES NOT LAND ON THE CELL.** `setRangeStyle` appends a
+  `{range, style}` PATCH, and then only writes onto cells that ALREADY carry their own
+  style — so styling an ordinary cell leaves the cell itself untouched. Measured: with
+  B1 selected and holding "Label", clicking `Bold` produced an effective style of
+  `{b:true}` while the cell's own style stayed empty. Read `sheet.rangeStyles` to see
+  what a toolbar click did; a per-cell reader would report nothing and look like a
+  broken toolbar.
+- **`sheet.rangeStyles` is what the toolbar WROTE; `sheet.activeCellStyle` is what the
+  app COMPUTES** for the active cell by merging sheet → column → row → cell. They are
+  answering different questions, so a difference between them is expected and is not a
+  defect.
+- **PATCHES ACCUMULATE.** Toggling `Bold` on and then off appends `{b:true}` and then
+  `{b:false}`; it does not remove the first. So `sheet.rangeStyles` after a round trip
+  is NOT equal to the reading before it, and predicting `equals` there will fail for a
+  reason that may be entirely correct. Predict the round trip on
+  `sheet.activeCellStyle` — the computed result is what should return — and read
+  `sheet.rangeStyles` alongside it to see what the two clicks left behind.
+- **FOUR TOOLBAR BUTTONS DO NOTHING HERE, BY CONSTRUCTION.** `Insert chart`,
+  `Insert image`, `Data validation` and `Conditional formatting` open panels this
+  harness does not mount, so their handlers are absent and the click is swallowed.
+  They are not broken; they are unwired in this harness only. Predict nothing about
+  them, and do not report them.
+- **`Undo` and `Redo` are visible in that toolbar and CANNOT WORK HERE** — same
+  `MemStore` no-op as `sheet.canUndo`, one paragraph up. A visible button does not
+  change that. This is the single most likely false finding on this surface now that
+  the toolbar is mounted.
 - **`sheet.cellValue` and `sheet.cellFormula` are different questions.** The
   displayed value of a formula cell is its RESULT; the formula text is what was
   entered. Predicting one and reading the other is a mistake, not a defect.
@@ -112,6 +140,30 @@ change C1's formula TEXT, only its value.
 **Not a round trip: scroll position.** Scrolling down and back is not guaranteed to
 land on the same offset, so predicting that `sheet.cellCenter` returns its earlier
 point is a false finding waiting to happen. Scroll to reach cells, not to assert on.
+
+### And now the toolbar round trip
+
+The toolbar is new to this surface, and on the document surface EVERY defect this
+project has filed came from exactly this: read the stored style, click a control,
+click it again, and predict the style equals the first reading.
+
+```
+click B2 via sheet.cellCenter     (select a cell that HOLDS A VALUE)
+read sheet.activeCellStyle        -> journal entry 9
+click Bold                        (no prediction needed)
+click Bold        expect sheet.activeCellStyle equals "@read:9"   ground A
+```
+
+Do it on `Bold`, `Italic` and `Strikethrough`, and on a MULTI-CELL selection as well
+as a single cell — the doc-surface defects hid specifically in sub-ranges and in
+selections that spanned differently-styled runs, so the analogous shapes here are a
+range that is partly styled already, and a range spanning a row or column style.
+
+Watch for the difference between "the key is gone" and "the key is `false`". On the
+document surface that distinction WAS the defect twice over (#749, #793), and the
+computed style shows it plainly: a cell that never had bold reports no `b` at all,
+while one toggled on and off may report `b: false`. Those are different readings, and
+`equals` against your baseline will say so.
 
 ## NOT your lane — defer, do not report
 

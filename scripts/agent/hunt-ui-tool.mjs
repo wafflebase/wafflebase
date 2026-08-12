@@ -74,6 +74,8 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["sheet.activeCell", "", "the currently selected cell reference"],
     ["sheet.selectionRange", "", "the selected range, or null"],
     ["sheet.cellCenter", "(sref)", "a cell's centre point — name it as a click target's `reader` to click that cell"],
+    ["sheet.rangeStyles", "", "every range-style patch {range,style} the toolbar has appended — they ACCUMULATE, they are not replaced"],
+    ["sheet.activeCellStyle", "", "the ACTIVE cell's COMPUTED style (sheet→col→row→cell) — differing from sheet.cellStyle is EXPECTED, not a defect"],
     ["sheet.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
 });
