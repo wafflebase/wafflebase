@@ -1,9 +1,11 @@
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_DATE_FORMAT,
   getDateFormat,
   setDateFormat,
+  useDateFormat,
 } from "@/lib/date-format-preference";
 
 describe("date format preference", () => {
@@ -111,5 +113,91 @@ describe("date format preference", () => {
     localStorage.clear();
     // The stale mirror must not outvote a key another tab has cleared.
     expect(getDateFormat()).toBe(DEFAULT_DATE_FORMAT);
+  });
+});
+
+describe("useDateFormat", () => {
+  beforeEach(() => {
+    setDateFormat(DEFAULT_DATE_FORMAT);
+    localStorage.clear();
+  });
+
+  it("reads the already-stored preference on mount", () => {
+    localStorage.setItem("wafflebase-date-format", "exact");
+    const { result } = renderHook(() => useDateFormat());
+    expect(result.current).toBe("exact");
+  });
+
+  it("re-renders when another component in the tab changes it", () => {
+    // The whole point of the subscription: the Settings `Select` and the
+    // documents list are separate route trees, so a no-op `subscribe` would
+    // leave the list showing the old format until a remount.
+    const { result } = renderHook(() => useDateFormat());
+    expect(result.current).toBe("relative");
+
+    act(() => setDateFormat("exact"));
+
+    expect(result.current).toBe("exact");
+  });
+
+  it("re-renders when another tab changes it", () => {
+    const { result } = renderHook(() => useDateFormat());
+    expect(result.current).toBe("relative");
+
+    // `storage` is what a *different* tab's write delivers here; the write
+    // itself already happened over there, so only the key changes locally.
+    act(() => {
+      localStorage.setItem("wafflebase-date-format", "exact");
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "wafflebase-date-format" }),
+      );
+    });
+
+    expect(result.current).toBe("exact");
+  });
+
+  it("keeps the session-only value when storage is unwritable", () => {
+    const setSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+    try {
+      const { result } = renderHook(() => useDateFormat());
+
+      act(() => setDateFormat("exact"));
+
+      // Rendered from the in-memory mirror — nothing was persisted.
+      expect(result.current).toBe("exact");
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
+
+  it("unsubscribes both listeners on unmount", () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    try {
+      const { unmount } = renderHook(() => useDateFormat());
+      const subscribed = addSpy.mock.calls.filter(
+        ([type]) =>
+          type === "wafflebase-date-format-change" || type === "storage",
+      );
+      expect(subscribed.map(([type]) => type).sort()).toEqual([
+        "storage",
+        "wafflebase-date-format-change",
+      ]);
+
+      unmount();
+
+      // Every listener the subscription added is handed back with the *same*
+      // handler reference, so nothing accumulates across mounts.
+      for (const [type, handler] of subscribed) {
+        expect(removeSpy).toHaveBeenCalledWith(type, handler);
+      }
+    } finally {
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    }
   });
 });
