@@ -249,6 +249,47 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
   }
 });
 
+test("every workflow that runs a pipeline script sets GH_REPO", () => {
+  // REGRESSION GUARD for an outage this suite did not catch.
+  //
+  // `gh` expands `{owner}/{repo}` by shelling out to git, so it needs a git
+  // remote in the working directory. When the pipeline moved to its own repo,
+  // the trusted checkout began landing in a scratch path that is deleted after
+  // the move — which removed the only .git in the workspace. Every step running
+  // before the PR-branch checkout then failed with:
+  //
+  //   unable to expand placeholder in path: failed to run git:
+  //   fatal: not a git repository (or any of the parent directories): .git
+  //
+  // That killed the fix job, and would have killed promote too (mark-ready.mjs
+  // uses the same placeholder). It was invisible here because the scripts are
+  // fine — the missing thing was the ENVIRONMENT they run in, which no unit test
+  // observes. Hence a workflow-level assertion.
+  //
+  // Workflow level, not step level: a new step that shells out to gh is exactly
+  // how this comes back, and only a workflow-level default covers steps nobody
+  // has written yet.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let checked = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const text = readFileSync(path.join(dir, file), "utf8");
+    // Only workflows that actually invoke pipeline code can hit this.
+    if (!text.includes("scripts/agent/") && !text.includes("agent-tools/")) continue;
+    checked += 1;
+    // A workflow-level `env:` block is at column 0; a job-level one is indented.
+    const wfEnv = /^env:\n(?:[ \t]+.*\n|\n)*?[ \t]+GH_REPO:/m.test(text);
+    if (!wfEnv) offenders.push(file);
+  }
+  assert.ok(checked > 0, "expected to find workflows that invoke pipeline scripts");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these workflows run pipeline scripts without a workflow-level GH_REPO:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
 test("every agent-pipeline checkout pins an immutable commit SHA, not a tag", () => {
   // The trusted pipeline is checked out from another repository, and in this
   // phase NOTHING re-verifies that the code fetched is the code intended: the

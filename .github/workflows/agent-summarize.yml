@@ -21,6 +21,14 @@ on:
 
 permissions: {}
 
+env:
+  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote in
+  # the working directory. The trusted pipeline now arrives in a scratch path that
+  # is deleted after the move, so a job that runs scripts before any repo checkout
+  # has no .git at all. GH_REPO makes gh skip the git lookup. Set at workflow level
+  # so it covers every job and every script, present and future.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   route:
     if: >-
@@ -38,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
+          ref: 1165ea60eff49fc830691bb00d5a7c9259f9f3db # v0.3.0
           path: .pipeline-src
           sparse-checkout: packages/pipeline/command.mjs
           sparse-checkout-cone-mode: false

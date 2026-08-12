@@ -161,6 +161,45 @@ jobs:
               });
             }
 
+  # scripts/agent/ is no longer what runs — the agent workflows execute
+  # wafflebase/agent-pipeline at a pinned commit, and the copy in this repo is a
+  # leftover that still backs the `agent:tests` lane. Without this, that lane can
+  # pass against code which is not the code in production. It had already drifted
+  # on three files before this job existed.
+  #
+  # Its own job rather than a verify:self lane: it needs the pipeline repo on
+  # disk, and verify:self must keep working offline.
+  pipeline-drift:
+    name: Pipeline copy matches the pinned commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the pinned pipeline commit
+        id: pin
+        run: |
+          set -euo pipefail
+          SHA=$(grep -A3 -h 'repository: wafflebase/agent-pipeline' .github/workflows/agent-*.yml \
+                | grep -oE 'ref: [0-9a-f]{40}' | awk '{print $2}' | sort -u)
+          COUNT=$(printf '%s\n' "$SHA" | grep -c . || true)
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::The workflows pin $COUNT different pipeline commits; they must agree."
+            printf '%s\n' "$SHA"; exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: wafflebase/agent-pipeline
+          ref: ${{ steps.pin.outputs.sha }}
+          path: .pipeline-check
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - run: node scripts/verify-pipeline-drift.mjs --pipeline-dir .pipeline-check
+
   verify-browser:
     runs-on: ubuntu-latest
     needs: verify-self
