@@ -44,10 +44,20 @@ Root cause — two layers:
             `block.type === 'table'`; the table renderer sets its own
             `ctx.font` / `ctx.fillStyle`), so text inside a table needed the
             same guard explicitly
-- [x] DOCX export escapes the resolved color into `<w:color>` / `<w:shd>`
-      with the `escapeXmlAttr` already applied to `fontFamily` in the same
-      element — `InlineStyle.color` can legitimately hold an arbitrary
-      string, which unescaped is OOXML attribute injection
+- [x] DOCX export normalizes the resolved color into a valid `ST_HexColor`
+      before writing `<w:color>` / `<w:shd w:fill>` (`toDocxHexColor` in
+      `export/docx-style-map.ts`). `InlineStyle.color` and `CellStyle`
+      `backgroundColor` can legitimately hold an arbitrary string (DOCX/PPTX
+      import, HTML paste's `rgb(…)`, the legacy `''`), which emitted verbatim
+      is both OOXML attribute injection and a schema-invalid attribute. The
+      recognized CSS forms convert; anything else drops the attribute.
+      Applied to **both** sinks — the run properties and the table cell fill
+      in `export/docx-exporter.ts`, which writes the same attribute
+- [x] PPTX export adopts the same "`''` means unset" convention (`hasColor`
+      in `export/pptx/text.ts`): since there is no migration, decks keep
+      `color: ""` forever, and `<a:srgbClr val=""/>` is an invalid
+      `ST_HexColorRGB` that PowerPoint rejects. Covers run color, highlight,
+      underline fill and the bullet marker color
 - [x] Tests
       - [x] docs: `paint-layout.test.ts` — a run with `color: ''` paints the
             theme default, never the previously set `fillStyle`
@@ -60,8 +70,16 @@ Root cause — two layers:
       - [x] docs: `table-renderer.test.ts` — cell text and in-cell list
             marker with `color: ''` paint the theme default, not the
             pre-loaded selection fill
-      - [x] docs: `docx-style-map.test.ts` — hostile color / backgroundColor
-            values are escaped in the run properties XML
+      - [x] docs: `paint-layout.test.ts` — `underlineColor: ''` strokes the
+            run's text color (theme default when the run has none), and an
+            explicit `underlineColor` still wins
+      - [x] docs: `docx-style-map.test.ts` — hostile / non-hex color and
+            backgroundColor values drop the attribute; `toDocxHexColor`
+            unit cases (hex forms, `rgb()`/`rgba()`, rejects)
+      - [x] docs: `docx-exporter.test.ts` — a table cell background
+            normalizes into `<w:shd w:fill>`, a hostile one emits nothing
+      - [x] slides: `export/pptx/text.test.ts` — `''` color / background /
+            underline color emit no color children
       - [x] frontend: reset calls `applyStyle` with `color: undefined`
 
 ## Acceptance criteria (from the issue)

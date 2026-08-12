@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildRunPropertiesXml, buildParagraphPropertiesXml } from '../../src/export/docx-style-map.js';
+import {
+  buildRunPropertiesXml,
+  buildParagraphPropertiesXml,
+  toDocxHexColor,
+} from '../../src/export/docx-style-map.js';
 
 describe('buildRunPropertiesXml', () => {
   it('should generate bold tag', () => {
@@ -71,20 +75,56 @@ describe('buildRunPropertiesXml', () => {
     expect(xml).toContain('<w:color w:val="FF0000"/>');
   });
 
-  it('XML-escapes a hostile color value in the w:color attribute', () => {
+  it('drops a hostile color value instead of emitting it into w:color', () => {
     // `defaultColorResolver` passes any string through verbatim, and
     // `InlineStyle.color` really can hold a non-palette string (DOCX/PPTX
-    // import, the legacy '' reset of issue #728). Unescaped, a value
-    // carrying `"` would close the attribute and inject OOXML.
+    // import, HTML paste, the legacy '' reset of issue #728). Emitted
+    // verbatim, a value carrying `"` would close the attribute and inject
+    // OOXML; even escaped it would be an invalid ST_HexColor, so it is
+    // dropped entirely and the run inherits the document default.
     const xml = buildRunPropertiesXml({ color: 'a" w:themeColor="dark1' });
-    expect(xml).toContain('<w:color w:val="a&quot; w:themeColor=&quot;dark1"/>');
+    expect(xml).not.toContain('<w:color');
     expect(xml).not.toContain('w:themeColor="dark1"');
+    expect(xml).not.toContain('dark1');
   });
 
-  it('XML-escapes a hostile backgroundColor value in the w:shd fill attribute', () => {
+  it('drops a hostile backgroundColor value instead of emitting a w:shd fill', () => {
     const xml = buildRunPropertiesXml({ backgroundColor: 'a"/><w:b' });
-    expect(xml).toContain('w:fill="a&quot;/&gt;&lt;w:b"');
+    expect(xml).not.toContain('<w:shd');
     expect(xml).not.toContain('w:fill="a"/>');
+  });
+
+  it('drops the legacy empty-string reset color (issue #728)', () => {
+    const xml = buildRunPropertiesXml({ color: '', backgroundColor: '' });
+    expect(xml).not.toContain('<w:color');
+    expect(xml).not.toContain('<w:shd');
+  });
+});
+
+describe('toDocxHexColor', () => {
+  it('normalizes hex forms to six upper-case digits', () => {
+    expect(toDocxHexColor('#ff0000')).toBe('FF0000');
+    expect(toDocxHexColor('ff0000')).toBe('FF0000');
+    expect(toDocxHexColor('#abc')).toBe('AABBCC');
+    // #RRGGBBAA — DOCX has no per-run alpha, so the alpha byte is dropped.
+    expect(toDocxHexColor('#11223344')).toBe('112233');
+  });
+
+  it('converts the CSS rgb()/rgba() forms browsers hand back on paste', () => {
+    // `view/clipboard.ts` copies the pasted HTML's CSS straight into
+    // style.color, and every browser normalizes colors to `rgb(...)`.
+    expect(toDocxHexColor('rgb(255, 0, 0)')).toBe('FF0000');
+    expect(toDocxHexColor('rgba(0, 128, 255, 0.5)')).toBe('0080FF');
+    // Out-of-range channels clamp rather than producing >2 hex digits.
+    expect(toDocxHexColor('rgb(300, -5, 0)')).toBe('FF0000');
+  });
+
+  it('returns undefined for anything not expressible as ST_HexColor', () => {
+    expect(toDocxHexColor('')).toBeUndefined();
+    expect(toDocxHexColor(undefined)).toBeUndefined();
+    expect(toDocxHexColor('red')).toBeUndefined();
+    expect(toDocxHexColor('var(--fg)')).toBeUndefined();
+    expect(toDocxHexColor('a" w:themeColor="dark1')).toBeUndefined();
   });
 });
 

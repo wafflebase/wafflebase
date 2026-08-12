@@ -32,6 +32,49 @@ function escapeXmlAttr(value: string): string {
 }
 
 /**
+ * Normalize a color string into an OOXML `ST_HexColor` value (six hex
+ * digits, no leading `#`), or `undefined` when it cannot be expressed as
+ * one.
+ *
+ * Escaping alone is not enough for `w:color/@w:val` and `w:shd/@w:fill`:
+ * those attributes are typed `ST_HexColor`, but `InlineStyle.color` and a
+ * table cell's `backgroundColor` hold whatever string reached the model.
+ * The HTML-paste path (`view/clipboard.ts`) copies browser-normalized CSS
+ * verbatim, so `rgb(255, 0, 0)` is routine; DOCX/PPTX import and the
+ * legacy `''` reset of issue #728 add more non-hex shapes. Emitting those
+ * verbatim yields a schema-invalid document Word refuses to open, so the
+ * recognized CSS forms are converted and everything else drops the
+ * attribute (the run inherits the document default) rather than writing a
+ * broken one.
+ *
+ * Returning only `[0-9A-F]{6}` also makes these attributes injection-proof
+ * by construction — the validation subsumes `escapeXmlAttr`.
+ */
+export function toDocxHexColor(color: string | undefined): string | undefined {
+  if (!color) return undefined;
+  const v = color.trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(v)) return v.toUpperCase();
+  // #RGB shorthand — expand each nibble (CSS rule: #abc === #aabbcc).
+  if (/^[0-9a-fA-F]{3}$/.test(v)) {
+    return v.split('').map((ch) => ch + ch).join('').toUpperCase();
+  }
+  // #RRGGBBAA — DOCX has no per-run alpha, so keep the RGB and drop it.
+  if (/^[0-9a-fA-F]{8}$/.test(v)) return v.slice(0, 6).toUpperCase();
+  // Channels accept a sign so an out-of-gamut `rgb(300, -5, 0)` clamps
+  // below instead of falling through to "not a color" and dropping a
+  // background the user can see.
+  const rgb = /^rgba?\(\s*([-+\d.]+)\s*,\s*([-+\d.]+)\s*,\s*([-+\d.]+)\s*(?:,[^)]*)?\)$/i.exec(v);
+  if (rgb) {
+    const channels = [rgb[1], rgb[2], rgb[3]].map((n) =>
+      Math.max(0, Math.min(255, Math.round(Number(n)))),
+    );
+    if (channels.some((n) => Number.isNaN(n))) return undefined;
+    return channels.map((n) => n.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+  return undefined;
+}
+
+/**
  * Build <w:rPr>...</w:rPr> XML from InlineStyle.
  * Returns empty string if no properties to set.
  */
@@ -71,17 +114,17 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
   //
   // `defaultColorResolver` passes any string through untouched, and
   // `InlineStyle.color` really can hold a non-palette string (DOCX/PPTX
-  // import, the legacy `''` reset of issue #728), so escape it exactly
-  // like `fontFamily` above — otherwise a value containing `"` or `<`
-  // would break out of the attribute and inject OOXML.
-  const colorHex = defaultColorResolver(style.color);
+  // import, HTML paste, the legacy `''` reset of issue #728), so run it
+  // through `toDocxHexColor`: anything that is not expressible as an
+  // `ST_HexColor` is dropped instead of emitted verbatim, which keeps the
+  // attribute both schema-valid and injection-proof.
+  const colorHex = toDocxHexColor(defaultColorResolver(style.color));
   if (colorHex) {
-    parts.push(`<w:color w:val="${escapeXmlAttr(colorHex.replace('#', ''))}"/>`);
+    parts.push(`<w:color w:val="${colorHex}"/>`);
   }
-  const bgHex = defaultColorResolver(style.backgroundColor);
+  const bgHex = toDocxHexColor(defaultColorResolver(style.backgroundColor));
   if (bgHex) {
-    const fill = escapeXmlAttr(bgHex.replace('#', ''));
-    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`);
+    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${bgHex}"/>`);
   }
   if (style.superscript) parts.push('<w:vertAlign w:val="superscript"/>');
   if (style.subscript) parts.push('<w:vertAlign w:val="subscript"/>');

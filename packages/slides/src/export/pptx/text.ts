@@ -131,7 +131,7 @@ function markerToXml(marker: BlockMarker | undefined): string {
   const parts: string[] = [];
 
   // buClr — importer reads parseColorFromContainer(buClr, clrMap) → marker.color
-  if (marker.color != null) {
+  if (hasColor(marker.color)) {
     parts.push(
       `<a:buClr>${colorChildXml(storedColorToThemeColor(marker.color))}</a:buClr>`,
     );
@@ -167,6 +167,20 @@ function markerToXml(marker: BlockMarker | undefined): string {
  * We validate the role against `ROLE_TO_SCHEME` keys and fall back to black
  * for any unrecognised value.
  */
+/**
+ * Whether a `StoredColor` carries a color at all.
+ *
+ * The docs model uses `''` as the legacy "cleared color" marker (issue
+ * #728) and no migration rewrites it, so documents keep `color: ""`
+ * indefinitely and every consumer treats it as *unset*. Serializing it
+ * would emit `<a:srgbClr val=""/>`, which is not a valid `ST_HexColorRGB`
+ * — PowerPoint rejects the deck. Dropping the child instead inherits the
+ * placeholder / theme color, matching what the canvas painters do.
+ */
+function hasColor(c: StoredColor | undefined): c is StoredColor {
+  return c != null && c !== '';
+}
+
 function storedColorToThemeColor(c: StoredColor): ThemeColor {
   if (typeof c === 'string') return colorFromStringOrTheme(c);
   if (c.kind === 'srgb') return { kind: 'srgb', value: c.value };
@@ -260,21 +274,21 @@ function rPrXml(
   // Letter spacing → `@spc` (points → hundredths of a point; may be negative).
   if (s.letterSpacing) attrs.push(`spc="${Math.round(s.letterSpacing * 100)}"`);
   const children: string[] = [];
-  if (s.color != null) {
+  if (hasColor(s.color)) {
     children.push(
       `<a:solidFill>${colorChildXml(storedColorToThemeColor(s.color))}</a:solidFill>`,
     );
   }
   // backgroundColor → <a:highlight> — importer reads parseColorFromContainer(highlight, clrMap)
   // → style.backgroundColor. Use the same colorChildXml bridge already used for style.color.
-  if (s.backgroundColor != null) {
+  if (hasColor(s.backgroundColor)) {
     children.push(
       `<a:highlight>${colorChildXml(storedColorToThemeColor(s.backgroundColor))}</a:highlight>`,
     );
   }
   // underlineColor → <a:uFill>. Per CT_TextCharacterProperties child order,
   // uFill precedes the typeface children, so push it before <a:latin>.
-  if (s.underline && s.underlineColor != null) {
+  if (s.underline && hasColor(s.underlineColor)) {
     children.push(
       `<a:uFill><a:solidFill>${colorChildXml(storedColorToThemeColor(s.underlineColor))}</a:solidFill></a:uFill>`,
     );

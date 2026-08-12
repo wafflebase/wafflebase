@@ -207,6 +207,43 @@ describe('renderRun cleared text color (issue #728)', () => {
   });
 });
 
+function underlinedRun(
+  style: { underlineColor?: string; color?: string },
+): { run: LayoutRun; line: LayoutLine } {
+  const block = createBlock('paragraph');
+  block.inlines = [{ text: 'Hello', style: { fontSize: 11, underline: true, ...style } }];
+  const { layout } = computeLayout([block], stubMeasurer(), 600);
+  const line = layout.blocks[0].lines[0];
+  return { run: line.runs[0], line };
+}
+
+describe('renderRun cleared underline color (issue #728)', () => {
+  it('strokes an empty-string underlineColor in the run\'s text color', () => {
+    // Pre-fix this assigned '' to strokeStyle. A real canvas ignores the
+    // invalid assignment and keeps whatever the previous pass left, so
+    // the underline was painted in an unrelated color.
+    const { run, line } = underlinedRun({ underlineColor: '', color: '#ff0000' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes.length).toBe(1);
+    expect(strokes[0].color).toBe('#ff0000');
+  });
+
+  it('falls back to the theme default when the run has no color either', () => {
+    const { run, line } = underlinedRun({ underlineColor: '' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes[0].color).toBe(Theme.defaultColor);
+  });
+
+  it('still honours an explicit underlineColor', () => {
+    const { run, line } = underlinedRun({ underlineColor: '#00ff00', color: '#ff0000' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes[0].color).toBe('#00ff00');
+  });
+});
+
 describe('renderRun shared baseline', () => {
   it('places different-size runs on one common baseline', () => {
     const line = singleLine([

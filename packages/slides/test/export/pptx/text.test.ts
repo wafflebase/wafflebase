@@ -84,6 +84,28 @@ describe('textBodyToXml', () => {
     expect(back[0].inlines[0].style.underlineColor).toBeTruthy();
   });
 
+  it('treats the legacy empty-string color as unset (issue #728)', () => {
+    // Docs stores `''` as the "cleared color" marker and no migration
+    // rewrites it, so decks keep `color: ""` indefinitely. Serializing it
+    // would emit `<a:srgbClr val=""/>`, an invalid ST_HexColorRGB that
+    // PowerPoint rejects — the child must be dropped instead so the
+    // placeholder / theme color applies.
+    const xml = textBodyToXml({
+      blocks: [
+        para('X', {
+          color: '',
+          backgroundColor: '',
+          underline: true,
+          underlineColor: '',
+        }),
+      ],
+    });
+    expect(xml).not.toContain('val=""');
+    expect(xml).not.toContain('<a:solidFill>');
+    expect(xml).not.toContain('<a:highlight>');
+    expect(xml).not.toContain('<a:uFill>');
+  });
+
   it('emits dblStrike for double strikethrough and round-trips it', () => {
     const xml = textBodyToXml({
       blocks: [para('D', { strikethrough: true, strikeStyle: 'double' })],
