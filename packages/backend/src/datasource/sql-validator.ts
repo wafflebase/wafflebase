@@ -68,3 +68,12 @@ export function validateSelectQuery(sql: string): {
 
   return { valid: true };
 }
+
+/**
+ * Wraps a validated query in a row-limited subquery. The newline before the
+ * closing paren matters: without it, a query ending in a `--` line comment
+ * swallows `) AS _q LIMIT ...` into the comment and breaks the wrapper.
+ */
+export function wrapWithRowLimit(query: string, limit: number): string {
+  return `SELECT * FROM (${query}\n) AS _q LIMIT ${limit}`;
+}
