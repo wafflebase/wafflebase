@@ -3164,7 +3164,16 @@ export function writeStageDetail(lensOut, detail, env = process.env) {
     writeFileSync(path.join(lensOut, "stage-detail.json"), JSON.stringify(detail) + "\n");
     return true;
   } catch (err) {
-    console.log(`stage-detail capture failed (continuing): ${err.message}`);
+    // `console.warn`, not `console.log`, and the reason is the same one that moved
+    // `eval/run.mjs`'s heartbeat off stdout: `review-panel.test.mjs` calls this
+    // function IN-PROCESS, so under `node --test` stdout is not a terminal but the
+    // runner's result channel, carrying v8 frames the parent parses. Plain text
+    // landing behind a frame in one read chunk is taken as that frame's successor
+    // and its bytes read as a length, which either stalls the stream or throws
+    // `Unable to deserialize cloned data` and loses this file's remaining results.
+    // Measured: this line put 421 bytes on that channel per run. A degradation
+    // notice belongs on stderr regardless, which the runner reads as lines.
+    console.warn(`stage-detail capture failed (continuing): ${err.message}`);
     return false;
   }
 }
