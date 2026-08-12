@@ -136,22 +136,34 @@ jobs:
       #
       # Written via `env:` rather than interpolated into the script body, so a
       # changed path containing a quote cannot break out of the command.
+      #
+      # UNDER `runner.temp`, AND NOT A DOTTED DIRECTORY IN THE WORKSPACE. The first
+      # draft used `.ci-context/`, which `review-panel.test.mjs` rejected on sight:
+      # `upload-artifact@v4` resolves a directory path with @actions/glob, whose
+      # default excludes hidden entries — including the search ROOT — so a dotted
+      # directory uploads NOTHING and `if-no-files-found: warn` swallows it. The
+      # artifact would have existed, been empty, and left the reporter unable to
+      # find the pull request. `include-hidden-files: true` is the other fix; a
+      # non-hidden path outside the workspace is the better one, and it matches
+      # what docker-publish.yml already does with `runner.temp`/digests.
       - name: Save the resolution for the reporter
         if: github.event_name == 'pull_request'
         env:
           AREAS: ${{ steps.resolve.outputs.areas }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          CONTEXT_DIR: ${{ runner.temp }}/ci-context
         run: |
-          mkdir -p .ci-context
-          printf '%s' "$AREAS" > .ci-context/areas.json
-          printf '%s' "$PR_NUMBER" > .ci-context/pr-number
+          mkdir -p "$CONTEXT_DIR"
+          printf '%s' "$AREAS" > "$CONTEXT_DIR/areas.json"
+          printf '%s' "$PR_NUMBER" > "$CONTEXT_DIR/pr-number"
 
       - name: Upload the CI context
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ci-context
-          path: .ci-context/
+          path: ${{ runner.temp }}/ci-context/
+          if-no-files-found: error
           retention-days: 7
 
   verify-self:
