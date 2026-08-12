@@ -33,3 +33,29 @@
 /scripts/hooks/                         @wafflebase/maintainers
 /.claude/                               @wafflebase/maintainers
 /docs/design/harness-engineering.md     @wafflebase/maintainers
+
+# --- What decides how much CI a change has to pass ---------------------------
+# These paths decide which checks run, so a change to any of them can shrink
+# every later PR's coverage. `agent-*.yml` above does not match `ci.yml`, which
+# left the CI gating surface unowned until this block.
+#
+# THE LIST IS `harness.config.json`'s `ci.ciConfig`, ONE LINE PER ENTRY, and it
+# should stay that way. That list forces a full suite on any PR touching these
+# files, so a PR cannot use the filter to shrink its own run; these lines are the
+# review half of the same guard. If the two ever disagree, the config decides how
+# much CI runs while CODEOWNERS decides who has to look — so an entry present
+# there and missing here is a file that can quietly change everyone's coverage
+# with nobody required to review it.
+#
+# Both halves matter, because CODEOWNERS only blocks a merge once branch
+# protection has "Require review from Code Owners" switched on, and `ci.ciConfig`
+# only forces a full run — it cannot force a human to read the diff.
+/.github/workflows/                     @wafflebase/maintainers
+/.github/CODEOWNERS                     @wafflebase/maintainers
+/harness.config.json                    @wafflebase/maintainers
+/knip.json                              @wafflebase/maintainers
+/package.json                           @wafflebase/maintainers
+/pnpm-lock.yaml                         @wafflebase/maintainers
+/pnpm-workspace.yaml                    @wafflebase/maintainers
+/scripts/changed-areas.mjs              @wafflebase/maintainers
+/scripts/verify-*.mjs                   @wafflebase/maintainers
