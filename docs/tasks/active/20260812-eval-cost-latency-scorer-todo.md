@@ -276,7 +276,7 @@ and no ratio** — minutes need that discipline more than dollars, because they 
 poolable figures with the interval named in the field, its `n` and range beside it, and the absent
 census with its zeros — fed in as an **injected option** so this module stays hermetic and its tests
 stay fixture-only. That waits on the adapter read landing; consuming a shape that does not exist yet
-would make this PR undefensible on the day it lands, which is the rule that governs every PR here.
+would make this PR indefensible on the day it lands, which is the rule that governs every PR here.
 
 ## The numbers
 
@@ -368,12 +368,31 @@ the latency exceptions are real and specific (22 lines slower than 160).
 
 ## Verification
 
-- [x] `agent:tests` — **1772 tests (1717 + 55), 1772 pass, 0 fail, 0 skipped**,
-      against a freshly measured base at **1742 (1687 + 55) / 1742 / 0 / 0**.
-      **+30.** The base is this branch's own tip with only this PR's three files
-      removed, rather than a `main` sha: `main` moved four times during the work and
-      the branch has been brought up to it, so the tree that will exist after merge
-      is the one measured — not the older base the branch was cut from. Two invocations, because the lane runs everything except
+- [x] `agent:tests` — **1786 tests (1730 + 56)** against a base of **1756 (1700 +
+      56)**. **+30.** The base is this branch's own tip with only this PR's three
+      files removed, rather than a `main` sha: `main` moved five times during the
+      work and the branch has been brought up to it each time, so the tree measured
+      is the tree that will exist after merge.
+      - The **rest** lane is **1730 pass, 0 fail, 0 skipped**, deterministic across
+        every run.
+      - The **iso** lane (`eval/run.test.mjs` alone) reaches **56 pass, 0 fail** on
+        the committed tree *and* on the base — but it is **flaky on this machine,
+        identically on both**, so the clean run is not evidence on its own. Across
+        13 runs it produced 0–3 failures, and every failure was one of two tests
+        that snapshot `os.tmpdir()` and assert no new directory appeared: *"a failed
+        item KEEPS its raw panel output; an ok item does not"* — which
+        `01-CONVENTIONS.md` already records as pre-existing from #682 and
+        reproducing on `main` alone — and its newer sibling *"a throw inside the
+        item loop still deregisters the worktree"*, the same shape on
+        `eval-lenses-*`.
+      - **The mechanism looks like this machine rather than the code:** `eval-item-*`
+        debris in `os.tmpdir()` grew from 720 to 986 directories over this session,
+        ~13 per run, which is what a `rmSync` intermittently denied by the endpoint
+        security software would leave behind — and a cleanup that fails is exactly
+        what makes a "no new directory appeared" assertion fail. **Base and branch
+        behave the same, so this diff is not the cause; neither test is in a file it
+        touches.** 🔴 **Not fixed, deliberately** — repairing another change's flake
+        inside this diff would make it unreviewable and hide the report. Two invocations, because the lane runs everything except
       `eval/run.test.mjs` and then that file alone. Both trees extracted with `git
       archive` and given identical `node_modules`, so 0 skips on both is a
       measurement rather than an environment artefact.
@@ -409,11 +428,15 @@ the latency exceptions are real and specific (22 lines slower than 160).
 - [ ] **Not verified: CodeRabbit's amortised price**, because no list price has been
       supplied. The path is unit-tested; with no inputs it emits `null` and its
       reason, which is what it will do until someone states the subscription terms.
-- [ ] **CodeRabbit's latency was measured OUTSIDE this module** — 2.5–14.4 min over
-      the same seven pull requests, by hand, from the comment edit history described
-      in *Corrected while building* §4. **Nothing here computes it**, and no figure
-      from that measurement appears in the code. It is recorded so the declared gap
-      can say *measurable* rather than *impossible*, and so whoever wires it up
-      starts from a checked number.
+- [ ] **CodeRabbit's latency was measured OUTSIDE this module**, and the settled
+      figure is **2.6–14.4 min, median 6.8, n=7/7** over the same seven pull requests
+      — the `coderabbit-start-marker-to-first-finding` interval of §7, printed by the
+      arm's own adapter. ⟳ **The by-hand comment-edit-history method this bullet used
+      to cite, and the 2.5–14.4 it produced, are SUPERSEDED**; §4 records them as
+      history because the mechanism it proposed is wrong by 8× and a deleted wrong
+      answer gets reinvented. **Nothing here computes any of it**, and no figure from
+      it appears in the code — it is recorded so the declared gap can say *measurable*
+      rather than *impossible*, and so whoever wires it up starts from a checked
+      number rather than the superseded one.
 - [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`,
       `verify:integration`. Nothing here can affect them and CI runs them anyway.

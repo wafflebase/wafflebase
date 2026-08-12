@@ -347,7 +347,20 @@ test("an item with no frozen metadata is bucketed unknown, LABELLED, and prints 
   assert.ok(unknown.cost_usd.n > 0, "its DOLLARS are still counted — the envelope has them, only the size is missing");
   // Labelled, not merely bucketed: an unknown size makes every per-size figure
   // about less than the corpus, so it has to reach the verdict and the exit code.
-  assert.match(r.completeness.reasons.join("\n"), /pr-524: size unknown \(no frozen corpus item under this root\)/);
+  const reason = r.completeness.reasons.find((x) => x.startsWith("pr-524: size unknown"));
+  assert.match(reason, /priced, but in no size bucket, so every per-size figure excludes it/);
+  // AND IT NAMES NO CAUSE. The scorer receives sizes and cannot know why one is
+  // missing — an unreadable item, one never looked up, or a `meta.json` whose line
+  // counts would not parse are three different things to go and check. Asserting one
+  // would send a reader to the wrong one.
+  for (const cause of ["under this root", "no frozen", "unreadable", "not frozen"]) {
+    assert.equal(reason.includes(cause), false, `the unsized reason blames "${cause}", which this function cannot know: ${reason}`);
+  }
+  // ONE reason per unsized ITEM, not one per observation of it. The same item is
+  // unsized in every replicate, so without the de-duplication a K=3 run repeats the
+  // line three times and a reader counts three problems.
+  const across = costLatencyOf([oneRun()[0], anotherRun("pilot-01__k2", 1), anotherRun("pilot-01__k3", 2)], { sizes, corpusVersion: CORPUS, corpusItemIds: K1.map((x) => x.item_id) });
+  assert.equal(across.completeness.reasons.filter((x) => x.startsWith("pr-524: size unknown")).length, 1);
   assert.equal(r.completeness.verdict, "partial");
   // And it must not print `null–null`, which reads as a measurement rather than
   // as an absence.

@@ -619,16 +619,24 @@ export function costLatencyOf(runs = [], { sizes = new Map(), corpusVersion = nu
     const missing = corpusIds.filter((id) => !seen.has(id));
     if (missing.length > 0) reasons.push(`${rep.run_id}: ${missing.length} corpus item(s) never replayed (${missing.join(", ")})`);
   }
-  // AN UNKNOWN SIZE IS A LABELLED SHORTFALL, not a silent bucket. An item whose
-  // frozen input is not under this root is priced correctly — the dollars come off
-  // the envelope — but it can be placed in no size bucket, so it lands in
-  // `(unknown)` and every size-segmented statement is about less than the corpus.
+  // AN UNKNOWN SIZE IS A LABELLED SHORTFALL, not a silent bucket. Such an item is
+  // priced correctly — the dollars come off the envelope — but it can be placed in
+  // no size bucket, so it lands in `(unknown)` and every size-segmented statement is
+  // about less than the corpus.
+  //
   // Derived from the ROWS rather than from what the caller passed, so a caller that
-  // built its size map wrongly is caught by the same check as one that could not
-  // read an item: the reason this file exists is that a scorer which computes a
-  // right number over a wrong subset looks exactly like one that did not.
-  const unsized = [...new Set(replicates.flatMap((rep) => rep.items.filter((r) => r.size_bucket === null).map((r) => r.item_id)))].sort();
-  for (const id of unsized) reasons.push(`${id}: size unknown (no frozen corpus item under this root) — priced, but in no size bucket, so every per-size figure excludes it`);
+  // built its size map wrongly is caught by the same check as one that could not read
+  // an item: the reason this file exists is that a scorer which computes a right
+  // number over a wrong subset looks exactly like one that did not.
+  //
+  // AND THE MESSAGE NAMES NO CAUSE, deliberately. This function receives sizes and
+  // does not know where they came from — an absent bucket may be an item the caller
+  // could not read, an item it never looked up, or a `meta.json` whose line counts
+  // would not parse. Asserting one of those would be this project's own lesson
+  // ignored inside the guard that exists to apply it: absent has more than one cause,
+  // and a message that picks one sends a reader to check the wrong thing.
+  const unsized = [...new Set(replicates.flatMap((rep) => rep.items.flatMap((r) => (r.size_bucket === null ? [r.item_id] : []))))].sort();
+  for (const id of unsized) reasons.push(`${id}: size unknown — priced, but in no size bucket, so every per-size figure excludes it`);
   // The items priced in EVERY replicate: the only population a range may be quoted
   // over, because an item measured twice and an item measured three times have
   // ranges that are not comparable.
