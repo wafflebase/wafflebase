@@ -1001,6 +1001,10 @@ export function DocumentList({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem
+                // Same pending guard as the bulk button: copying is not
+                // idempotent, so a second click while the first is in flight
+                // would create a second copy.
+                disabled={copyDocumentsMutation.isPending}
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
                   copyDocumentsMutation.mutate({ ids: [String(doc.id)] });

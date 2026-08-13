@@ -16,9 +16,7 @@ import {
   readNoteRoot,
   writeNoteRoot,
 } from '../yorkie/note-content';
-
-/** A Yorkie root made of plain JSON — copyable as a whole-root snapshot. */
-type JsonRoot = Record<string, unknown>;
+import { JsonRoot, snapshotJsonRoot } from '../yorkie/yorkie-json';
 
 /**
  * Document types whose Yorkie root holds only plain JSON (no `Tree` / `Text`
@@ -26,6 +24,14 @@ type JsonRoot = Record<string, unknown>;
  * per-type knowledge — a root field added later is copied for free.
  */
 const JSON_ROOT_TYPES = new Set(['sheet', 'slides', 'board']);
+
+/**
+ * Document types with no CRDT content at all: their bytes are copied by
+ * `CopyObject` before `copyContent` runs, so it has nothing left to do. Listed
+ * explicitly so a *new* type reaches the throw below instead of silently
+ * producing an empty copy reported as success.
+ */
+const BLOB_TYPES = new Set(['pdf', 'image', 'file']);
 
 /**
  * Duplicate a document — the server side of "Make a copy"
@@ -106,14 +112,25 @@ export class DocumentCopyService {
       // retry to fill — a failed copy rolls back. "Make a copy" has no retry
       // affordance, so an empty document claiming to be a copy would read as
       // success and silently lose the content.
-      await this.documentService
+      const rolledBack = await this.documentService
         .deleteDocument({ id: created.id })
+        .then(() => true)
         .catch((cleanupErr) => {
           this.logger.warn(
             `failed to roll back copy ${created.id}: ${cleanupErr}`,
           );
+          return false;
         });
-      await this.discardBlob(fileId);
+      // Only discard the blob once the row that points at it is gone. A
+      // surviving row whose blob was deleted is worse than an orphaned blob:
+      // the document opens and 404s on its own bytes, and nothing sweeps it.
+      if (rolledBack) {
+        await this.discardBlob(fileId);
+      } else if (fileId) {
+        this.logger.warn(
+          `keeping blob ${fileId}: its document row ${created.id} survives`,
+        );
+      }
       throw err;
     }
 
@@ -183,7 +200,14 @@ export class DocumentCopyService {
       return;
     }
 
-    if (!JSON_ROOT_TYPES.has(type)) return;
+    if (BLOB_TYPES.has(type)) return;
+
+    if (!JSON_ROOT_TYPES.has(type)) {
+      // Every branch above is per-type knowledge, so a type nobody taught this
+      // service about would copy as an empty document and still report
+      // success. Fail loudly instead — the copy is rolled back by the caller.
+      throw new BadRequestException(`Cannot copy a ${type} document`);
+    }
 
     const prefix = yorkieDocKeyPrefix(type);
     const snapshot = await this.yorkieService.withDocument<JsonRoot, JsonRoot>(
@@ -272,41 +296,4 @@ export function reviveLongs(value: unknown): unknown {
 
 function isPlainObject(value: unknown): value is JsonRoot {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * The whole Yorkie root as detached plain JSON. `Document.toJSON()` yields the
- * root as a JSON *string* (the proxy's `toJSON` is what makes
- * `JSON.stringify(root)` double-encode), so nested string layers are unwrapped
- * — same handling as `scripts/copy-yorkie-documents.ts`, which copies
- * spreadsheet roots between Yorkie servers this way.
- *
- * That script also needs a fallback, and so does this: some documents contain
- * control characters that Yorkie's raw JSON string path does not escape
- * correctly, so `JSON.parse(doc.toJSON())` throws on them. `JSON.stringify`
- * over the root proxy still produces a valid detached snapshot, so a copy of an
- * affected document succeeds instead of failing outright.
- */
-export function snapshotJsonRoot(doc: {
-  toJSON: () => string;
-  getRoot?: () => unknown;
-}): Record<string, unknown> {
-  try {
-    return asJsonRoot(JSON.parse(doc.toJSON()));
-  } catch (err) {
-    if (typeof doc.getRoot !== 'function') throw err;
-    return asJsonRoot(JSON.parse(JSON.stringify(doc.getRoot())));
-  }
-}
-
-/** Unwrap nested JSON string layers and assert the result is an object. */
-function asJsonRoot(parsed: unknown): Record<string, unknown> {
-  let value = parsed;
-  while (typeof value === 'string') {
-    value = JSON.parse(value);
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('Yorkie document root snapshot is not an object');
-  }
-  return value as Record<string, unknown>;
 }

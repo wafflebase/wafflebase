@@ -1,5 +1,10 @@
 import { Document as YorkieDocument } from '@yorkie-js/sdk';
-import { DocumentCopyService, snapshotJsonRoot } from './document-copy.service';
+import { BadRequestException } from '@nestjs/common';
+import {
+  DocumentCopyService,
+  reviveLongs,
+  stripComments,
+} from './document-copy.service';
 import {
   DocsYorkieRoot,
   readDocsRoot,
@@ -292,43 +297,97 @@ describe('DocumentCopyService', () => {
       id: 'copy-1',
     });
   });
-});
 
-describe('snapshotJsonRoot', () => {
-  it('parses the root JSON string Yorkie hands back', () => {
-    expect(snapshotJsonRoot({ toJSON: () => '{"a":1}' })).toEqual({ a: 1 });
+  it('keeps the copied blob when the row it belongs to cannot be rolled back', async () => {
+    const { service, documentService, fileService } = makeService();
+    documentService.deleteDocument.mockRejectedValue(new Error('db down'));
+    await expect(
+      // An unknown type with a blob: the content copy refuses it *after* the
+      // blob and the row exist, which is the only way both rollbacks run.
+      service.copy(
+        {
+          ...SOURCE,
+          type: 'gizmo',
+          fileId: '11111111-2222-3333-4444-555555555555.pdf',
+        } as never,
+        42,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    // The row survived the rollback, so deleting its bytes would leave a
+    // document that opens and 404s — worse than an orphaned blob.
+    expect(fileService.delete).not.toHaveBeenCalled();
   });
 
-  it('unwraps a double-encoded root', () => {
-    expect(snapshotJsonRoot({ toJSON: () => '"{\\"a\\":1}"' })).toEqual({
+  it('reads and writes a slides root under the slides- key prefix', async () => {
+    const { service, withDocument } = makeService({
+      sourceRoot: { slides: [{ id: 's1' }] },
+    });
+    await service.copy({ ...SOURCE, type: 'slides' } as never, 42);
+    for (const call of withDocument.mock.calls) {
+      expect(call[2]).toEqual(
+        expect.objectContaining({ docKeyPrefix: 'slides-' }),
+      );
+    }
+    expect(withDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it('copies a document that sits at the workspace root', async () => {
+    const { service, documentService } = makeService();
+    await service.copy({ ...SOURCE, folderId: null } as never, 42);
+    expect(documentService.documents).toHaveBeenCalledWith({
+      where: { workspaceId: 'ws-1', folderId: null },
+    });
+    // No `folder` connect at all, rather than one connecting to null.
+    expect(documentService.createDocument).toHaveBeenCalledWith(
+      expect.not.objectContaining({ folder: expect.anything() }),
+    );
+  });
+
+  it('refuses a document type it has no copy path for', async () => {
+    const { service, documentService } = makeService();
+    // A future type would otherwise copy as an empty document and report
+    // success; the row it already created is rolled back.
+    await expect(
+      service.copy({ ...SOURCE, type: 'gizmo' } as never, 42),
+    ).rejects.toThrow(BadRequestException);
+    expect(documentService.deleteDocument).toHaveBeenCalledWith({
+      id: 'copy-1',
+    });
+  });
+});
+
+describe('stripComments', () => {
+  it('empties a root-level comments map', () => {
+    expect(stripComments({ comments: { 'th-1': {} }, a: 1 })).toEqual({
+      comments: {},
       a: 1,
     });
   });
 
-  it('rejects a root that is not an object', () => {
-    expect(() => snapshotJsonRoot({ toJSON: () => '[1,2]' })).toThrow();
+  it('leaves a root with neither comments nor sheets alone', () => {
+    expect(stripComments({ slides: [{ id: 's1' }] })).toEqual({
+      slides: [{ id: 's1' }],
+    });
+  });
+});
+
+describe('reviveLongs', () => {
+  it('re-coerces out-of-range integers inside arrays', () => {
+    expect(reviveLongs([1, 1_780_000_000_000])).toEqual([
+      1,
+      BigInt(1_780_000_000_000),
+    ]);
   });
 
-  it('falls back to the root proxy when toJSON is unparseable', () => {
-    // Yorkie's raw JSON string path does not escape some control characters,
-    // so `JSON.parse(doc.toJSON())` throws; the copy must still succeed.
-    const root = { a: 'x\u0001y' };
-    expect(
-      snapshotJsonRoot({
-        toJSON: () => '{"a":"x\u0001y"}',
-        getRoot: () => root,
-      }),
-    ).toEqual(root);
+  it('re-coerces negative out-of-range integers', () => {
+    expect(reviveLongs(-1_780_000_000_000)).toEqual(BigInt(-1_780_000_000_000));
   });
 
-  it('rethrows when neither the JSON string nor the root parses', () => {
-    expect(() =>
-      snapshotJsonRoot({
-        toJSON: () => 'not json',
-        getRoot: () => {
-          throw new Error('root unavailable');
-        },
-      }),
-    ).toThrow('root unavailable');
+  it('leaves non-integers and in-range integers as they are', () => {
+    expect(reviveLongs({ a: 1.5, b: 2147483647, c: 'x' })).toEqual({
+      a: 1.5,
+      b: 2147483647,
+      c: 'x',
+    });
   });
 });
