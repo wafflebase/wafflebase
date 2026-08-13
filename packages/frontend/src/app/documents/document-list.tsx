@@ -578,12 +578,17 @@ export function DocumentList({
       for (const id of ids) await copyDocument(id);
     },
     onSuccess: (_res, vars) => {
-      invalidateLists();
       toast.success(
-        vars.ids.length > 1 ? `${vars.ids.length} copies created` : "Copy created",
+        vars.ids.length > 1
+          ? `${vars.ids.length} copies created`
+          : "Copy created",
       );
     },
     onError: () => toast.error("Failed to copy"),
+    // Refetch on settled, not just on success: a bulk copy that fails partway
+    // has already created the copies before it, and they must appear in the
+    // list rather than wait for the next poll.
+    onSettled: () => invalidateLists(),
   });
 
   // Move documents (possibly across workspaces) and folders (within the
