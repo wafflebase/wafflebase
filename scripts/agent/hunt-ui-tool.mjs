@@ -92,6 +92,7 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
 export const UI_SHARED_READERS = Object.freeze([
   ["dom.text", "(selector)", "the visible text of the first element matching a CSS selector"],
   ["dom.count", "(selector)", "how many elements match a CSS selector"],
+  ["dom.controls", "", "every control you can click right now, as {role,name} — READ THIS FIRST, it is the list `target` takes"],
   ["dom.snapshot", "", "the accessibility tree of the page — sparse on canvas surfaces, so prefer the readers above"],
 ]);
 
