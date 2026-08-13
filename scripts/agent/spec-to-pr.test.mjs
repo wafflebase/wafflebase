@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isValidSlug, renderPrBody, commitsMissingTrailer, parseRepoFromRemoteUrl } from "./spec-to-pr.mjs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  isValidSlug,
+  renderPrBody,
+  commitsMissingTrailer,
+  parseRepoFromRemoteUrl,
+  pipelineDir,
+} from "./spec-to-pr.mjs";
 import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./vendor/pipeline/disclosure.mjs";
 
 test("isValidSlug: lowercase kebab only", () => {
@@ -70,4 +79,66 @@ test("hasDisclosureTrailer / commitsMissingTrailer", () => {
   assert.deepEqual(commitsMissingTrailer([good, good]), []);
   assert.deepEqual(commitsMissingTrailer([good, bad]), [bad]);
   assert.deepEqual(commitsMissingTrailer([]), []);
+});
+
+// --- where the pipeline lives ----------------------------------------------
+//
+// The pipeline moved to wafflebase/agent-pipeline, so `review` needs a checkout of
+// it — the lens RUBRICS are prose and are not vendored. Three branches, and the
+// difference between the last two is the whole point: a missing option degrades,
+// a wrong one does not.
+
+const PANEL = ["packages", "pipeline", "review-panel.mjs"];
+
+/** A directory shaped like a pipeline checkout, or deliberately not. */
+function fakeCheckout({ withPanel = true } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), "pipeline-dir-"));
+  if (withPanel) {
+    mkdirSync(path.join(dir, ...PANEL.slice(0, -1)), { recursive: true });
+    writeFileSync(path.join(dir, ...PANEL), "// panel\n");
+  }
+  return dir;
+}
+
+test("pipelineDir: absent means SKIP, not failure", () => {
+  // `review` is a local preview; CI reviews the branch regardless. A developer
+  // without a clone of the pipeline must not be stopped by it.
+  const errors = [];
+  assert.equal(pipelineDir({}, {}, (m) => errors.push(m)), null);
+  assert.deepEqual(errors, [], "a missing checkout must not be reported as an error");
+});
+
+test("pipelineDir: a real checkout resolves to packages/pipeline", () => {
+  const dir = fakeCheckout();
+  const errors = [];
+  assert.equal(pipelineDir({ "pipeline-dir": dir }, {}, (m) => errors.push(m)), path.join(dir, ...PANEL.slice(0, -1)));
+  assert.deepEqual(errors, []);
+});
+
+test("pipelineDir: AGENT_PIPELINE_DIR is honoured, and the flag wins", () => {
+  const viaEnv = fakeCheckout();
+  const viaFlag = fakeCheckout();
+  assert.equal(pipelineDir({}, { AGENT_PIPELINE_DIR: viaEnv }, () => {}), path.join(viaEnv, ...PANEL.slice(0, -1)));
+  assert.equal(
+    pipelineDir({ "pipeline-dir": viaFlag }, { AGENT_PIPELINE_DIR: viaEnv }, () => {}),
+    path.join(viaFlag, ...PANEL.slice(0, -1)),
+  );
+});
+
+test("pipelineDir: a path that is NOT a pipeline checkout fails loudly", () => {
+  // The distinction that matters: a typo is not the same as an absent option, and
+  // silently skipping the review would make a mistyped path look like a clean run.
+  const notAPipeline = fakeCheckout({ withPanel: false });
+  const errors = [];
+  pipelineDir({ "pipeline-dir": notAPipeline }, {}, (m) => errors.push(m));
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /is not a checkout of wafflebase\/agent-pipeline/);
+});
+
+test("pipelineDir: a non-string flag is treated as absent, not stringified", () => {
+  // `--pipeline-dir` with no value parses as boolean `true`; joining that into a
+  // path would look for a directory literally named "true".
+  const errors = [];
+  assert.equal(pipelineDir({ "pipeline-dir": true }, {}, (m) => errors.push(m)), null);
+  assert.deepEqual(errors, []);
 });

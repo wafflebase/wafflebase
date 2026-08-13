@@ -63,7 +63,7 @@ const ASSETS = [
 const VENDORED = [...FILES, ...ASSETS];
 
 /** Every vendored file, relative to the vendor root, subdirectories included. */
-function walkVendor(dir, base = "") {
+export function walkVendor(dir, base = "") {
   const out = [];
   for (const entry of readdirSync(dir)) {
     const rel = base ? `${base}/${entry}` : entry;
@@ -89,7 +89,7 @@ const die = (...lines) => { console.error(lines.join("\n")); process.exit(1); };
  * which means an unclosed side-effect import would have passed here and failed at
  * runtime instead — the same shape-matching hole fixed in the drift guard's matcher.
  */
-function assertClosed(dir, files) {
+export function assertClosed(dir, files, onMissing = die) {
   const have = new Set(files);
   const missing = [];
   for (const f of files) {
@@ -105,7 +105,7 @@ function assertClosed(dir, files) {
     }
   }
   if (missing.length) {
-    die(
+    onMissing(
       "The vendored set is not closed — these imports would not resolve:",
       ...missing.map((m) => `  ${m}`),
       "",
@@ -131,63 +131,71 @@ function pinnedCommit() {
   return [...found][0];
 }
 
-if (arg("--write")) {
-  const src = arg("--pipeline-dir");
-  if (!src || src === true) die("usage: --pipeline-dir <checkout of wafflebase/agent-pipeline> --write");
-  const from = path.join(path.resolve(src), "packages", "pipeline");
-  if (!existsSync(from)) die(`No packages/pipeline in ${src}`);
-  rmSync(VENDOR, { recursive: true, force: true });
-  mkdirSync(VENDOR, { recursive: true });
-  const files = {};
-  for (const f of VENDORED) {
-    const abs = path.join(from, f);
-    if (!existsSync(abs)) die(`The vendored list names ${f}, which is not in the pipeline repo.`);
-    mkdirSync(path.dirname(path.join(VENDOR, f)), { recursive: true });
-    copyFileSync(abs, path.join(VENDOR, f));
-    files[f] = sha256(readFileSync(abs));
+function main() {
+  if (arg("--write")) {
+    const src = arg("--pipeline-dir");
+    if (!src || src === true) die("usage: --pipeline-dir <checkout of wafflebase/agent-pipeline> --write");
+    const from = path.join(path.resolve(src), "packages", "pipeline");
+    if (!existsSync(from)) die(`No packages/pipeline in ${src}`);
+    rmSync(VENDOR, { recursive: true, force: true });
+    mkdirSync(VENDOR, { recursive: true });
+    const files = {};
+    for (const f of VENDORED) {
+      const abs = path.join(from, f);
+      if (!existsSync(abs)) die(`The vendored list names ${f}, which is not in the pipeline repo.`);
+      mkdirSync(path.dirname(path.join(VENDOR, f)), { recursive: true });
+      copyFileSync(abs, path.join(VENDOR, f));
+      files[f] = sha256(readFileSync(abs));
+    }
+    assertClosed(VENDOR, FILES);
+    writeFileSync(MANIFEST, `${JSON.stringify({
+      // Read by verify; and by a human wondering what this directory is.
+      note: "Vendored, pinned copy of wafflebase/agent-pipeline. DO NOT EDIT — regenerate with scripts/vendor-pipeline.mjs --write.",
+      repo: "wafflebase/agent-pipeline",
+      commit: pinnedCommit(),
+      files,
+    }, null, 2)}\n`);
+    console.log(`Vendored ${VENDORED.length} files (${FILES.length} modules, ${ASSETS.length} assets) at ${pinnedCommit().slice(0, 9)}.`);
+    process.exit(0);
   }
-  assertClosed(VENDOR, FILES);
-  writeFileSync(MANIFEST, `${JSON.stringify({
-    // Read by verify; and by a human wondering what this directory is.
-    note: "Vendored, pinned copy of wafflebase/agent-pipeline. DO NOT EDIT — regenerate with scripts/vendor-pipeline.mjs --write.",
-    repo: "wafflebase/agent-pipeline",
-    commit: pinnedCommit(),
-    files,
-  }, null, 2)}\n`);
-  console.log(`Vendored ${VENDORED.length} files (${FILES.length} modules, ${ASSETS.length} assets) at ${pinnedCommit().slice(0, 9)}.`);
-  process.exit(0);
+
+  // Verify. Offline: re-hash what is on disk against the manifest.
+  if (!existsSync(MANIFEST)) die(`No ${path.relative(REPO, MANIFEST)}. Run with --pipeline-dir <checkout> --write.`);
+  const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
+  const pinned = pinnedCommit();
+  const problems = [];
+
+  if (manifest.commit !== pinned) {
+    problems.push(
+      `The vendored copy is at ${String(manifest.commit).slice(0, 9)} but the workflows run ${pinned.slice(0, 9)}.`,
+      "  Re-vendor: check out the pinned commit and run --pipeline-dir <checkout> --write.",
+    );
+  }
+  const onDisk = existsSync(VENDOR) ? walkVendor(VENDOR).sort() : [];
+  const listed = Object.keys(manifest.files ?? {}).sort();
+  for (const f of listed) {
+    const abs = path.join(VENDOR, f);
+    if (!existsSync(abs)) { problems.push(`  missing: vendor/pipeline/${f}`); continue; }
+    if (sha256(readFileSync(abs)) !== manifest.files[f]) problems.push(`  EDITED: vendor/pipeline/${f}`);
+  }
+  for (const f of onDisk) if (!listed.includes(f)) problems.push(`  unlisted file present: vendor/pipeline/${f}`);
+  if (onDisk.length) assertClosed(VENDOR, onDisk.filter((f) => f.endsWith(".mjs")));
+
+  if (problems.length) {
+    die(
+      "The vendored pipeline does not match its manifest.",
+      "",
+      ...problems,
+      "",
+      "vendor/pipeline/ is a PINNED DEPENDENCY — nothing here is edited by hand.",
+      "Change the pipeline in wafflebase/agent-pipeline, tag it, bump the pin, then re-vendor.",
+    );
+  }
+  console.log(`vendor/pipeline: ${listed.length} files verified at ${pinned.slice(0, 9)}.`);
 }
 
-// Verify. Offline: re-hash what is on disk against the manifest.
-if (!existsSync(MANIFEST)) die(`No ${path.relative(REPO, MANIFEST)}. Run with --pipeline-dir <checkout> --write.`);
-const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
-const pinned = pinnedCommit();
-const problems = [];
-
-if (manifest.commit !== pinned) {
-  problems.push(
-    `The vendored copy is at ${String(manifest.commit).slice(0, 9)} but the workflows run ${pinned.slice(0, 9)}.`,
-    "  Re-vendor: check out the pinned commit and run --pipeline-dir <checkout> --write.",
-  );
+// Importable for `scripts/test/vendor-pipeline.test.mjs`: without this guard the
+// module body runs on import and exits before a single assertion.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
 }
-const onDisk = existsSync(VENDOR) ? walkVendor(VENDOR).sort() : [];
-const listed = Object.keys(manifest.files ?? {}).sort();
-for (const f of listed) {
-  const abs = path.join(VENDOR, f);
-  if (!existsSync(abs)) { problems.push(`  missing: vendor/pipeline/${f}`); continue; }
-  if (sha256(readFileSync(abs)) !== manifest.files[f]) problems.push(`  EDITED: vendor/pipeline/${f}`);
-}
-for (const f of onDisk) if (!listed.includes(f)) problems.push(`  unlisted file present: vendor/pipeline/${f}`);
-if (onDisk.length) assertClosed(VENDOR, onDisk.filter((f) => f.endsWith(".mjs")));
-
-if (problems.length) {
-  die(
-    "The vendored pipeline does not match its manifest.",
-    "",
-    ...problems,
-    "",
-    "vendor/pipeline/ is a PINNED DEPENDENCY — nothing here is edited by hand.",
-    "Change the pipeline in wafflebase/agent-pipeline, tag it, bump the pin, then re-vendor.",
-  );
-}
-console.log(`vendor/pipeline: ${listed.length} files verified at ${pinned.slice(0, 9)}.`);

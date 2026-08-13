@@ -136,7 +136,7 @@ const PIPELINE_SUBDIR = path.join("packages", "pipeline");
 const VENDOR_DIR = path.join(HERE, "vendor", "pipeline");
 
 /** A checkout of wafflebase/agent-pipeline, or null. Never guesses a location. */
-function pipelineDir(args, env = process.env) {
+export function pipelineDir(args, env = process.env, onError = fail) {
   const raw = typeof args["pipeline-dir"] === "string" ? args["pipeline-dir"] : env.AGENT_PIPELINE_DIR;
   if (!raw) return null;
   const dir = path.resolve(raw);
@@ -144,7 +144,7 @@ function pipelineDir(args, env = process.env) {
   if (existsSync(path.join(inner, "review-panel.mjs"))) return inner;
   // A path that exists but isn't a pipeline checkout is a typo, not a missing
   // option — say so rather than silently falling through to the skip path.
-  fail(`--pipeline-dir ${raw} is not a checkout of wafflebase/agent-pipeline (no ${PIPELINE_SUBDIR}/review-panel.mjs)`);
+  onError(`--pipeline-dir ${raw} is not a checkout of wafflebase/agent-pipeline (no ${PIPELINE_SUBDIR}/review-panel.mjs)`);
   return null;
 }
 

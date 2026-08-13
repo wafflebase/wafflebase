@@ -521,55 +521,50 @@ test("the two spend guards validate their own inputs, and the timeout cannot be 
 
 // --- which panel ran --------------------------------------------------------
 
-test("panel_sha is read from git, and a dirty panel is refused", () => {
-  const calls = [];
-  const git = (args) => {
-    calls.push(args.join(" "));
-    if (args.includes("rev-parse")) return ["a".repeat(40)];
-    return [""];
-  };
-  const clean = resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT, git });
-  assert.deepEqual(clean, { panelSha: "a".repeat(40), source: "git" });
-  assert.ok(calls.some((c) => c.includes("rev-parse HEAD")));
-  assert.ok(calls.some((c) => c.includes("status --porcelain")));
+test("panel_sha names the VENDORED pipeline commit, not this repo's HEAD", () => {
+  // The panel moved to wafflebase/agent-pipeline and arrives vendored, so its commit
+  // is read from VENDOR.json. Reading `git rev-parse HEAD` beside it — which is what
+  // this did while the panel was a tracked file here — would stamp wafflebase's
+  // commit on every replay: a sha that names no reviewer and moves on every push.
+  const clean = resolvePanelSha({
+    panelScript: DEFAULT_PANEL_SCRIPT,
+    readManifest: () => ({ repo: "wafflebase/agent-pipeline", commit: "a".repeat(40) }),
+  });
+  assert.deepEqual(clean, { panelSha: "a".repeat(40), source: "vendor" });
+});
 
-  // A dirty tree is not the commit it claims to be. Recording HEAD anyway is the
-  // same "asserted, not measured" failure as the hardcoded sdk_version.
+test("panel_sha refuses a manifest it cannot read or cannot believe", () => {
+  // Not a soft default: a run that cannot name its reviewer is not poolable with any
+  // other, so both failures are refusals rather than a fallback to HEAD.
   assert.throws(
-    () => resolvePanelSha({
-      panelScript: DEFAULT_PANEL_SCRIPT,
-      git: (a) => (a.includes("rev-parse") ? ["a".repeat(40)] : [" M scripts/agent/review-panel.mjs"]),
-    }),
-    /uncommitted change/,
+    () => resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT, readManifest: () => { throw new Error("ENOENT"); } }),
+    /cannot read the vendored pipeline's manifest/,
   );
-  // ...but the harness is not the reviewer, so editing the runner must not block a
-  // replay. This is the same exclusion the README tells a reader to run by hand.
-  assert.equal(
-    resolvePanelSha({
-      panelScript: DEFAULT_PANEL_SCRIPT,
-      git: (a) => (a.includes("rev-parse") ? ["b".repeat(40)] : ["?? scripts/agent/eval/run.mjs", " M scripts/agent/eval/store.mjs"]),
-    }).panelSha,
-    "b".repeat(40),
-  );
+  for (const bad of [undefined, "", "not-a-sha", "A".repeat(40), "z".repeat(40)]) {
+    assert.throws(
+      () => resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT, readManifest: () => ({ commit: bad }) }),
+      /is not a commit sha/,
+    );
+  }
+});
+
+test("the real VENDOR.json satisfies the panel_sha contract", () => {
+  // Proved against the file actually committed, not an injected stand-in: the whole
+  // mechanism rests on that manifest carrying a real pipeline commit.
+  const got = resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT });
+  assert.equal(got.source, "vendor");
+  assert.match(got.panelSha, /^[0-9a-f]{40}$/);
 });
 
 test("a panel script that is not this checkout's cannot borrow this checkout's sha", () => {
   // Replaying the stub while stamping `main`'s commit is precisely the mislabelling
   // `panel_sha` exists to prevent, so the runner insists on being told which panel
   // it is — and records that it was told (`panel_sha_source: "flag"`).
-  assert.throws(() => resolvePanelSha({ panelScript: STUB, git: () => ["a".repeat(40)] }), /Pass --panel-sha/);
+  assert.throws(() => resolvePanelSha({ panelScript: STUB }), /Pass --panel-sha/);
   assert.deepEqual(resolvePanelSha({ panelScript: STUB, override: PANEL_SHA }), { panelSha: PANEL_SHA, source: "flag" });
   for (const bad of ["abc", "A".repeat(40), "z".repeat(40), 40]) {
     assert.throws(() => resolvePanelSha({ panelScript: STUB, override: bad }), /40 lowercase hex/);
   }
-  assert.throws(
-    () => resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT, git: () => ["not-a-sha"] }),
-    /is not a commit sha/,
-  );
-  assert.throws(
-    () => resolvePanelSha({ panelScript: DEFAULT_PANEL_SCRIPT, git: () => { throw new Error("not a git repository"); } }),
-    /cannot read the panel's commit/,
-  );
 });
 
 // --- repo context -----------------------------------------------------------

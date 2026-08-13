@@ -6,15 +6,25 @@
 // pass against code that was not the code that runs, and by the time this lane was
 // first written the two had already drifted on three files, in both directions.
 //
-// That copy is now DELETED, and the two checks below are what keep it deleted:
+// That copy is now DELETED, and these checks are what keep it deleted:
 //
-//   1. no file the pipeline repo owns may reappear under scripts/agent/, and
-//   2. nothing that stayed may import by a path that used to resolve into it.
+//   1. every checkout is pinned to a full commit sha, not a mutable tag or branch;
+//   2. no file the pipeline repo owns may reappear under scripts/agent/;
+//   3. nothing that stayed may IMPORT a path that used to resolve into it;
+//   4. nor BUILD one as a string — `path.join(HERE, "lenses", …)` and friends; and
+//   5. the vendored bytes match the pinned checkout, not merely their own manifest.
 //
-// The second is the one with teeth. While the mirror existed a stray
-// `./severity.mjs` resolved, so the mistake was invisible; now it resolves nowhere,
-// and without this check it would surface as a runtime crash inside a hunt or a
-// replay, far from the commit that caused it.
+// 3 and 4 are the ones with teeth. While the mirror existed a stray `./severity.mjs`
+// resolved, so the mistake was invisible; now it resolves nowhere, and without these
+// it surfaces as a runtime crash inside a hunt or a replay, far from the commit that
+// caused it. 4 is the worse half: a path built as a string fails when it is USED, and
+// a fail-quiet reader turns it into wrong data instead of an error — `harvest.mjs`
+// swallowed exactly that and recorded an empty `panelSaw` for every PR.
+//
+// 5 exists because `scripts/vendor-pipeline.mjs` can only prove vendor/ matches
+// VENDOR.json, and both live here: a copy taken from the wrong commit, vendored with
+// a matching manifest, satisfies it. This lane holds the pinned checkout, so it is
+// the only place that can anchor those bytes to something external.
 //
 // The measurement half still needs the pipeline's own rules — its severity
 // classification, its dedupe key, its lens manifest — so it reads them from
@@ -24,7 +34,7 @@
 // Not a `verify:self` lane: it needs the pipeline repo on disk, and `verify:self`
 // must keep working offline. CI checks this out and passes `--pipeline-dir`.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -91,19 +101,71 @@ function walk(dir, base = "") {
   return out;
 }
 
-/** Every pinned agent-pipeline commit in the workflows, with where it was found. */
+/**
+ * Every pinned agent-pipeline ref in the workflows, with where it was found.
+ *
+ * Returns `{ pins, loose }`. A ref that is not a full 40-hex commit lands in `loose`
+ * rather than being dropped: this used to silently ignore anything that was not a
+ * sha, so a checkout re-pointed at `ref: main` — the mutable ref the whole pin
+ * exists to avoid — was invisible here AND satisfied "all workflows agree" as long
+ * as one sha-pinned site remained. The guard that caught that shape lived in
+ * `scripts/agent/checks.test.mjs`, which the mirror deletion removed.
+ */
 export function readPins(workflowDir) {
   const pins = new Map();
+  const loose = [];
   for (const file of readdirSync(workflowDir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
     const lines = readFileSync(path.join(workflowDir, file), "utf8").split("\n");
     lines.forEach((line, i) => {
       if (!/^\s*repository:\s*wafflebase\/agent-pipeline\s*(#.*)?$/.test(line)) return;
-      const ref = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l)) ?? "";
-      const sha = /^\s*ref:\s*([0-9a-f]{40})\b/.exec(ref)?.[1];
-      if (sha) pins.set(sha, [...(pins.get(sha) ?? []), `${file}:${i + 2}`]);
+      const refLine = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l));
+      const where = `${file}:${i + 2}`;
+      if (refLine === undefined) { loose.push(`${where} — checkout has no ref: at all`); return; }
+      const sha = /^\s*ref:\s*([0-9a-f]{40})\b/.exec(refLine)?.[1];
+      if (sha) pins.set(sha, [...(pins.get(sha) ?? []), where]);
+      else loose.push(`${where} — ${refLine.trim()}`);
     });
   }
-  return pins;
+  return { pins, loose };
+}
+
+/**
+ * Paths that NAME a deleted pipeline file without importing it.
+ *
+ * The import check cannot see these: `path.join(HERE, "lenses", "lenses.json")` is a
+ * string, resolved at runtime, and every one of them fails late — some of them
+ * quietly. `harvest.mjs` swallowed exactly this ENOENT and recorded an empty
+ * `panelSaw` for every PR, turning the miss corpus into a lie rather than an error.
+ *
+ * Anchored on `HERE`, the module's own directory, which is what makes this precise:
+ * a `path.join(work, "lenses")` into a temp dir is a materialised fixture and must
+ * not be flagged, while anything rooted at the module's own location is a reference
+ * to this repository's tree. A call whose arguments mention `vendor` is the fix.
+ */
+export function stalePipelinePaths(root, pipelineFiles) {
+  const names = new Set([...pipelineFiles].map((f) => f.split("/")[0]));
+  const bad = [];
+  const scan = (dir, base = "") => {
+    for (const entry of readdirSync(dir)) {
+      const rel = base ? `${base}/${entry}` : entry;
+      const abs = path.join(dir, entry);
+      if (statSync(abs).isDirectory()) {
+        if (entry !== "node_modules" && entry !== "vendor") scan(abs, rel);
+        continue;
+      }
+      if (!entry.endsWith(".mjs")) continue;
+      const src = readFileSync(abs, "utf8");
+      for (const m of src.matchAll(/path\.(?:join|resolve)\(\s*HERE\s*,([^)]*)\)/g)) {
+        const args = m[1];
+        if (/vendor/.test(args)) continue;
+        for (const s of args.matchAll(/["']([^"']+)["']/g)) {
+          if (names.has(s[1])) bad.push(`${rel} builds a path to ${s[1]}`);
+        }
+      }
+    }
+  };
+  scan(root);
+  return bad;
 }
 
 // The RETAINED half must read the pipeline through vendor/, never through the
@@ -175,7 +237,18 @@ function main() {
   // 1. Every workflow must pin the SAME commit. A split pin means half the
   //    pipeline runs one version and half another, which no per-file comparison
   //    would reveal.
-  const pins = readPins(path.join(REPO, ".github", "workflows"));
+  const { pins, loose } = readPins(path.join(REPO, ".github", "workflows"));
+  if (loose.length) {
+    die([
+      "These agent-pipeline checkouts are not pinned to a full commit sha:",
+      ...loose.map((l) => `  ${l}`),
+      "",
+      "A tag or branch is MUTABLE: what runs can change without any commit here, and",
+      "the vendored copy is verified against the pinned sha, so a loose ref also means",
+      "nothing anchors vendor/pipeline/ to what the workflows execute.",
+      "Pin the 40-character commit, with the tag in a trailing comment.",
+    ]);
+  }
   if (pins.size === 0) die(["No pinned agent-pipeline commit found in .github/workflows/agent-*.yml."]);
   if (pins.size > 1) {
     die([
@@ -231,8 +304,59 @@ function main() {
     ]);
   }
 
+  // 4. Paths that NAME a deleted pipeline file without importing it. The import
+  //    check above cannot see these, and they fail late — sometimes silently.
+  const stalePaths = stalePipelinePaths(ours, pipelineFiles);
+  if (stalePaths.length) {
+    die([
+      "These files build a path to something the pipeline owns, outside vendor/:",
+      ...stalePaths.map((p) => `  ${p}`),
+      "",
+      "That path no longer exists. Unlike a bad import it does not fail at load —",
+      "it fails when the code runs, and a fail-quiet reader turns it into wrong data",
+      "rather than an error. Point it at vendor/pipeline/, e.g.",
+      '`path.join(HERE, "vendor", "pipeline", "lenses", "lenses.json")`.',
+    ]);
+  }
+
+  // 5. The vendored bytes must match the PINNED CHECKOUT, not merely the manifest
+  //    committed beside them. `scripts/vendor-pipeline.mjs` re-hashes vendor/ against
+  //    VENDOR.json offline, which catches a hand-edit — but both live in this repo,
+  //    so a wrong copy vendored with a matching manifest satisfies it. This is the
+  //    external anchor, and it is what the deleted byte-comparison used to provide.
+  const vendorRoot = path.join(ours, "vendor", "pipeline");
+  const manifestPath = path.join(ours, "vendor", "VENDOR.json");
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const wrong = [], absent = [];
+    if (manifest.commit !== pinned) {
+      die([
+        `The vendored copy records ${String(manifest.commit).slice(0, 9)} but the workflows run ${pinned.slice(0, 9)}.`,
+        "Re-vendor against the pinned commit: scripts/vendor-pipeline.mjs --pipeline-dir <checkout> --write.",
+      ]);
+    }
+    for (const rel of Object.keys(manifest.files ?? {})) {
+      const mine = path.join(vendorRoot, rel);
+      const theirsFile = path.join(theirs, rel);
+      if (!existsSync(theirsFile)) { absent.push(rel); continue; }
+      if (!readFileSync(mine).equals(readFileSync(theirsFile))) wrong.push(rel);
+    }
+    if (wrong.length || absent.length) {
+      die([
+        `vendor/pipeline/ does not match wafflebase/agent-pipeline@${pinned.slice(0, 9)}:`,
+        ...wrong.map((f) => `  differs:  ${f}`),
+        ...absent.map((f) => `  not in the pinned commit at all:  ${f}`),
+        "",
+        "The manifest hashes agree with the bytes on disk, so this is not a hand-edit:",
+        "the vendored copy was taken from a different commit than the one that runs.",
+        "Re-vendor: scripts/vendor-pipeline.mjs --pipeline-dir <checkout> --write.",
+      ]);
+    }
+  }
+
   console.log(
-    `scripts/agent holds no pipeline mirror, and reads wafflebase/agent-pipeline@${pinned.slice(0, 9)} through vendor/.`,
+    `scripts/agent holds no pipeline mirror, and reads wafflebase/agent-pipeline@${pinned.slice(0, 9)} ` +
+      `through vendor/ (bytes verified against the pinned checkout).`,
   );
   process.exit(0);
 }

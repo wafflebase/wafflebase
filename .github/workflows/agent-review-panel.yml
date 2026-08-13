@@ -1644,7 +1644,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" fixing
+        # From agent-tools: this step runs AFTER the PR branch is checked out, so
+        # ./scripts/agent is the PR author's tree. agent-tools was staged from the
+        # adapted trusted copy before that checkout, which is why it exists.
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
       # can detect a fix round that pushed NO new commit. We read the remote
@@ -1894,7 +1897,7 @@ jobs:
               '' \
               'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
-            node ./scripts/agent/set-state.mjs "$PR" blocked || true
+            node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
           fi
 
       # OBSERVABILITY (Phase 1): reflect the fix outcome on the sticky
