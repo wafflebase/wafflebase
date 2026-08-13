@@ -344,7 +344,7 @@ fan them out.
 
 The redesign ships as a **single PR** by author preference. The work
 is committed in ~13 task-sized commits (one per Task in
-`docs/tasks/active/20260515-slides-toolbar-redesign-todo.md`) so the
+`docs/tasks/archive/2026/05/20260515-slides-toolbar-redesign-todo.md`) so the
 PR remains reviewable commit-by-commit even though it lands together.
 Internal commit order matches the dependency order: model fields →
 editor API surface → shared text-formatting extraction → toolbar

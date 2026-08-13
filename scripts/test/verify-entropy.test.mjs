@@ -7,6 +7,8 @@ import {
   extractFileRefs,
   buildSuffixIndex,
   refResolves,
+  listDesignDocs,
+  isAdvisory,
 } from "../verify-entropy.mjs";
 
 describe("extractFileRefs", () => {
@@ -60,6 +62,35 @@ describe("extractFileRefs", () => {
     assert.deepStrictEqual(refs, [
       { path: "src/a.ts", source: "test.md" },
     ]);
+  });
+});
+
+describe("extractFileRefs — prose that is not a path", () => {
+  const paths = (content) =>
+    extractFileRefs(content, "test.md").map((ref) => ref.path);
+
+  it("ignores an import alias", () => {
+    // `@/types/comments.ts` is a module specifier; resolving it means reading
+    // tsconfig, and the file sits under a different root than the text implies.
+    assert.deepStrictEqual(paths("See `@/types/comments.ts` for the shape."), []);
+  });
+
+  it("ignores a deliberately elided path", () => {
+    assert.deepStrictEqual(
+      paths("The store is `frontend/.../yorkie-doc-store.ts`."),
+      [],
+    );
+  });
+
+  it("ignores a bare extension naming a suffix convention", () => {
+    assert.deepStrictEqual(paths("Unit tests are `.test.ts` files."), []);
+  });
+
+  it("still extracts a normal path next to those", () => {
+    assert.deepStrictEqual(
+      paths("`@/a.ts` and `.test.ts` and `packages/docs/src/real.ts`"),
+      ["packages/docs/src/real.ts"],
+    );
   });
 });
 
@@ -210,6 +241,58 @@ describe("refResolves", () => {
     assert.equal(await refResolves(".test.ts", { bases, suffixIndex }), false);
   });
 
+  it("resolves a path whose noise segments are elided", async () => {
+    // `frontend/app/docs/docs-view.tsx` for
+    // `packages/frontend/src/app/docs/docs-view.tsx` — segments in order,
+    // `packages/` and `src/` dropped as the reader does not need them.
+    const index = buildSuffixIndex([
+      "packages/frontend/src/app/docs/docs-view.tsx",
+      "packages/slides/src/view/editor/grid-snap.ts",
+    ]);
+    assert.equal(
+      await refResolves("frontend/app/docs/docs-view.tsx", {
+        bases,
+        suffixIndex: index,
+      }),
+      true,
+    );
+    assert.equal(
+      await refResolves("slides/view/editor/grid-snap.ts", {
+        bases,
+        suffixIndex: index,
+      }),
+      true,
+    );
+  });
+
+  it("requires elided segments to stay in order", async () => {
+    const index = buildSuffixIndex([
+      "packages/frontend/src/app/docs/docs-view.tsx",
+    ]);
+    assert.equal(
+      await refResolves("docs/app/frontend/docs-view.tsx", {
+        bases,
+        suffixIndex: index,
+      }),
+      false,
+    );
+  });
+
+  it("does not let elision excuse the wrong package", async () => {
+    // The real regression this bound: `packages/docs/src/view/ruler.ts` must
+    // NOT resolve against the slides ruler. Naming the wrong package is drift.
+    const index = buildSuffixIndex([
+      "packages/slides/src/view/editor/ruler/ruler.ts",
+    ]);
+    assert.equal(
+      await refResolves("packages/docs/src/view/ruler.ts", {
+        bases,
+        suffixIndex: index,
+      }),
+      false,
+    );
+  });
+
   it("falls back to the explicit bases when no index is available", async () => {
     // git unavailable: root-relative paths still resolve, tails cannot, and
     // nothing is spuriously reported as present.
@@ -227,5 +310,85 @@ describe("refResolves", () => {
       }),
       false,
     );
+  });
+});
+
+describe("listDesignDocs", () => {
+  let root;
+
+  before(async () => {
+    root = await mkdtemp(path.join(tmpdir(), "entropy-walk-"));
+    await mkdir(path.join(root, "sheets"), { recursive: true });
+    await mkdir(path.join(root, "docs/tables"), { recursive: true });
+    await writeFile(path.join(root, "frontend.md"), "#");
+    await writeFile(path.join(root, "sheets/sheet.md"), "#");
+    await writeFile(path.join(root, "docs/docs.md"), "#");
+    await writeFile(path.join(root, "docs/tables/nested.md"), "#");
+    await writeFile(path.join(root, "not-markdown.txt"), "#");
+  });
+
+  after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("finds design docs at every depth, not just the top level", async () => {
+    // The non-recursive read this replaced saw only `frontend.md`, leaving 86
+    // of 110 design docs unchecked.
+    assert.deepStrictEqual(await listDesignDocs(root), [
+      "docs/docs.md",
+      "docs/tables/nested.md",
+      "frontend.md",
+      "sheets/sheet.md",
+    ]);
+  });
+});
+
+describe("isAdvisory", () => {
+  const advisory = [
+    { pattern: "^design-editor/", reason: "spec for an unbuilt package" },
+    {
+      doc: "slides/slides-toolbar-redesign.md",
+      ref: "mixed-controls.tsx",
+      reason: "a negative reference",
+    },
+  ];
+
+  it("downgrades every ref in a doc matched by pattern", () => {
+    assert.equal(
+      isAdvisory("design-editor/design-editor-engine.md", "anything.ts", advisory),
+      true,
+    );
+  });
+
+  it("downgrades only the named ref for a doc+ref entry", () => {
+    assert.equal(
+      isAdvisory(
+        "slides/slides-toolbar-redesign.md",
+        "mixed-controls.tsx",
+        advisory,
+      ),
+      true,
+    );
+    // The whole point of the narrow shape: the rest of that doc keeps blocking.
+    assert.equal(
+      isAdvisory(
+        "slides/slides-toolbar-redesign.md",
+        "something-that-just-broke.ts",
+        advisory,
+      ),
+      false,
+    );
+  });
+
+  it("does not match the same ref cited from a different doc", () => {
+    assert.equal(
+      isAdvisory("slides/slides-mobile.md", "mixed-controls.tsx", advisory),
+      false,
+    );
+  });
+
+  it("blocks everything when no advisory entries are configured", () => {
+    assert.equal(isAdvisory("any/doc.md", "any-ref.ts", []), false);
+    assert.equal(isAdvisory("any/doc.md", "any-ref.ts"), false);
   });
 });

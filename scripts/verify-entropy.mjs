@@ -37,7 +37,23 @@ function isFilePath(ref) {
   if (ref.startsWith("#")) {
     return false;
   }
+  // Import aliases (`@/types/comments.ts`) are module specifiers, not paths —
+  // resolving one means reading tsconfig, and the file it names is reached from
+  // a different root than the doc appears to give.
+  if (ref.startsWith("@/")) {
+    return false;
+  }
+  // Deliberately elided paths (`frontend/.../yorkie-doc-store.ts`) are prose
+  // shorthand. The author is pointing at a file without spelling out where it
+  // sits; there is nothing here to verify.
+  if (ref.includes("...")) {
+    return false;
+  }
   const clean = stripFragment(ref);
+  // A bare extension (`.test.ts`) names a suffix convention, not a file.
+  if (clean.slice(clean.lastIndexOf("/") + 1).startsWith(".")) {
+    return false;
+  }
   const dotIndex = clean.lastIndexOf(".");
   if (dotIndex === -1) {
     return false;
@@ -167,32 +183,87 @@ export async function refResolves(ref, { bases, suffixIndex }) {
   // The leading separator keeps `api/documents.ts` from matching a tracked
   // `legacy-api/documents.ts` — the tail must start at a path boundary.
   const suffix = `/${tail}`;
-  return candidates.some((file) => file === tail || file.endsWith(suffix));
-}
-
-async function runDocStaleness(designDir) {
-  const findings = [];
-  const absoluteDesignDir = path.resolve(repoRoot, designDir);
-
-  let entries;
-  try {
-    entries = await readdir(absoluteDesignDir, { withFileTypes: true });
-  } catch {
-    console.log(`${PREFIX} Could not read design directory: ${absoluteDesignDir}`);
-    return { passed: true, findings: [] };
+  if (candidates.some((file) => file === tail || file.endsWith(suffix))) {
+    return true;
   }
 
-  const mdFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".md"))
-    .map((e) => e.name);
+  // Docs also elide the segments a reader does not need:
+  // `frontend/app/docs/docs-view.tsx` for
+  // `packages/frontend/src/app/docs/docs-view.tsx`. Accept a reference whose
+  // segments appear in the tracked path in order. Order is still required, so
+  // `packages/docs/src/view/ruler.ts` does not resolve against the slides
+  // ruler — naming the wrong package stays a finding.
+  const want = tail.split("/");
+  return candidates.some((file) => {
+    let i = 0;
+    for (const segment of file.split("/")) {
+      if (segment === want[i]) {
+        i += 1;
+      }
+      if (i === want.length) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Every `.md` under the design directory, as paths relative to it. Recursive:
+ * the subsystem docs live in `sheets/`, `docs/`, `slides/`, `board/` and the
+ * rest, and a non-recursive read left 86 of 110 design docs unchecked.
+ */
+export async function listDesignDocs(dir, prefix = "") {
+  const docs = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      docs.push(relative);
+    } else if (entry.isDirectory()) {
+      docs.push(...(await listDesignDocs(path.join(dir, entry.name), relative)));
+    }
+  }
+  return docs.sort();
+}
+
+/**
+ * Whether a finding is advisory rather than blocking.
+ *
+ * Two entry shapes, both requiring a `reason`. `pattern` downgrades every
+ * finding in the design docs whose relative path it matches — for a spec whose
+ * whole subject is unbuilt. `doc` + `ref` downgrades one named reference and is
+ * the shape to prefer, because the rest of that doc keeps blocking: a doc
+ * carrying a planned-file name today still fails on real drift tomorrow.
+ */
+export function isAdvisory(docPath, refPath, advisory = []) {
+  return advisory.some((rule) => {
+    if (rule.pattern) {
+      return new RegExp(rule.pattern).test(docPath);
+    }
+    return rule.doc === docPath && rule.ref === refPath;
+  });
+}
+
+async function runDocStaleness(designDir, advisory = []) {
+  const findings = [];
+  const advisoryFindings = [];
+  const absoluteDesignDir = path.resolve(repoRoot, designDir);
+
+  let docs;
+  try {
+    docs = await listDesignDocs(absoluteDesignDir);
+  } catch {
+    console.log(`${PREFIX} Could not read design directory: ${absoluteDesignDir}`);
+    return { passed: true, findings: [], advisoryFindings: [] };
+  }
 
   const tracked = await listTrackedFiles();
   const suffixIndex = tracked ? buildSuffixIndex(tracked) : null;
 
-  for (const fileName of mdFiles) {
-    const filePath = path.join(absoluteDesignDir, fileName);
+  for (const relative of docs) {
+    const filePath = path.join(absoluteDesignDir, relative);
     const content = await readFile(filePath, "utf8");
-    const refs = extractFileRefs(content, `${designDir}/${fileName}`);
+    const refs = extractFileRefs(content, `${designDir}/${relative}`);
 
     for (const ref of refs) {
       const resolved = await refResolves(ref.path, {
@@ -200,10 +271,15 @@ async function runDocStaleness(designDir) {
         suffixIndex,
       });
 
-      if (!resolved) {
-        findings.push(
-          `Broken ref in ${ref.source}: \`${ref.path}\` matches no tracked file`,
-        );
+      if (resolved) {
+        continue;
+      }
+
+      const finding = `Broken ref in ${ref.source}: \`${ref.path}\` matches no tracked file`;
+      if (isAdvisory(relative, ref.path, advisory)) {
+        advisoryFindings.push(finding);
+      } else {
+        findings.push(finding);
       }
     }
   }
@@ -211,6 +287,7 @@ async function runDocStaleness(designDir) {
   return {
     passed: findings.length === 0,
     findings,
+    advisoryFindings,
   };
 }
 
@@ -383,12 +460,23 @@ async function main() {
   // Doc-staleness check
   if (entropyConfig.docStaleness?.enabled !== false) {
     const designDir = entropyConfig.docStaleness?.designDir || "design";
+    const advisory = entropyConfig.docStaleness?.advisory ?? [];
     console.log(`${PREFIX} Running doc-staleness check...`);
-    const stalenessResult = await runDocStaleness(designDir);
+    const stalenessResult = await runDocStaleness(designDir, advisory);
     if (stalenessResult.findings.length > 0) {
       for (const finding of stalenessResult.findings) {
         console.log(`${PREFIX}   ${finding}`);
       }
+    }
+    // Advisory findings are printed, never hidden. A suppressed count that
+    // nobody can see reads as "these docs are clean" when they are not.
+    if (stalenessResult.advisoryFindings.length > 0) {
+      for (const finding of stalenessResult.advisoryFindings) {
+        console.log(`${PREFIX}   (advisory) ${finding}`);
+      }
+      console.log(
+        `${PREFIX} Doc staleness: ${stalenessResult.advisoryFindings.length} advisory issues (non-blocking).`,
+      );
     }
     console.log(
       `${PREFIX} Doc staleness: ${stalenessResult.findings.length} issues found.`,
