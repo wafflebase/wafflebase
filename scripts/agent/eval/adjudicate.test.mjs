@@ -17,7 +17,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildFindingRecord } from "./finding-record.mjs";
@@ -484,10 +484,64 @@ test("a label file that parses but is not a label counts as unreadable, not as a
     assert.equal(read.labels.length, 0, "it is not a label");
     assert.equal(read.unreadable.length, 1, "and it is reported");
     assert.equal(read.unreadable[0].path, abs);
-    assert.match(read.unreadable[0].reason, /no finding_key and arm/);
+    assert.match(read.unreadable[0].reason, /not a finding label/);
     assert.equal(read.keys.size, 0, "so it settles nothing");
     // Which is the same answer the truncated-JSON case gets, one level in.
     assert.equal(buildQueue({ records, labelled: read.keys }).queue.length, 1);
+  }));
+
+test("RESUME TRUSTS WHAT A SCORER TRUSTS: a schema-invalid label settles nothing", () =>
+  withRoot(async (root) => {
+    // The dangerous shape is the one that looks fine: a real `finding_key` and a real
+    // `arm`, so the old field check waved it through and added a resume key — while
+    // `validateLabel` refuses it, so a scorer drops it. Resume said judged, the scorer
+    // said no label, and nothing ever asked again.
+    const records = [loaded({ file: "a.ts", summary: "the one whose label is subtly wrong" })];
+    const [bundle] = buildQueue({ records }).queue;
+    const [label] = applyJudgement({ bundle, judgement: judgement(), context: context() });
+    const [abs] = writeLabels([label], { root, itemMeta: META });
+
+    for (const [what, broken] of [
+      ["a required field is missing", { ...label, confidence: null }],
+      ["a vocabulary value is foreign", { ...label, severity: "trivial" }],
+      ["the tier contradicts who judged", { ...label, adjudication: { ...label.adjudication, mode: "model" } }],
+      ["the schema version moved", { ...label, schema_version: 2 }],
+    ]) {
+      writeFileSync(abs, JSON.stringify(broken, null, 2));
+      const read = readFindingLabels(root, CV);
+      assert.equal(read.labels.length, 0, what);
+      assert.equal(read.unreadable.length, 1, what);
+      assert.match(read.unreadable[0].reason, /the schema refuses it/, what);
+      assert.equal(read.keys.size, 0, what);
+      assert.equal(buildQueue({ records, labelled: read.keys }).queue.length, 1, `${what}: still pending`);
+      // Whatever the reader is told, they are told SOMETHING — the failure this whole
+      // test exists for was that nothing was printed at all.
+      assert.ok(read.unreadable[0].reason.length > 20, what);
+    }
+    // And the intact label still resumes, or the check above proves only that it refuses
+    // everything.
+    writeFileSync(abs, JSON.stringify(label, null, 2));
+    const ok = readFindingLabels(root, CV);
+    assert.equal(ok.labels.length, 1);
+    assert.equal(ok.unreadable.length, 0);
+    assert.equal(buildQueue({ records, labelled: ok.keys }).queue.length, 0);
+  }));
+
+test("an item label filed under findings/ is unreadable there, not a finding label", () =>
+  withRoot(async (root) => {
+    // `labels/<cv>/<item>.json` is where an item verdict belongs. One under `findings/`
+    // has no `finding_key` to resume on, so it must not be counted as one.
+    const io = scriptedIo(["n", "approve", "benign", "medium", "read the whole diff", ""]);
+    const r = await runItemSession({ itemId: "pr-605", io, write: null, context: context() });
+    const misfiled = labelPathFor({ root, corpusVersion: CV, schema: "finding-label", itemId: "pr-605", arm: "panel", findingKey: "a.ts::x" });
+    mkdirSync(path.dirname(misfiled), { recursive: true });
+    writeFileSync(misfiled, JSON.stringify(r.label, null, 2));
+
+    const read = readFindingLabels(root, CV);
+    assert.equal(read.labels.length, 0);
+    assert.equal(read.unreadable.length, 1);
+    assert.match(read.unreadable[0].reason, /not a finding label \(schema "item-label"\)/);
+    assert.equal(read.keys.size, 0);
   }));
 
 // --- WRITING -----------------------------------------------------------------
@@ -687,9 +741,29 @@ test("EVERY session must name the annotator, not only a writing one", () => {
   assert.deepEqual(resolveOptions({ ...base, annotator: "dlgpdmsly2" }).problems, []);
 });
 
+test("settings the schema would refuse are caught at STARTUP, not after the reader answers", () => {
+  // The preflight asks `buildFindingLabel`, so it covers combinations nobody enumerated
+  // here. Two of the three below were never reported — they are the same defect as
+  // `--mode model --label-source gold`, one flag over, and the point of the probe is
+  // that they did not each need finding first.
+  const base = { root: "/r", "corpus-version": CV, run: "r1" };
+  const refused = (args) => resolveOptions(args).problems.filter((p) => p.includes("cannot produce a valid label"));
+  assert.match(refused({ ...base, mode: "model", "label-source": "gold", annotator: "claude-opus-5" })[0], /requires adjudication.mode "human"/);
+  assert.match(refused({ ...base, mode: "model", annotator: "dlgpdmsly2" })[0], /not a recognised model id/);
+  assert.match(refused({ ...base, mode: "human", annotator: "claude-opus-5" })[0], /but annotators names the model id/);
+  // The legitimate pairings stay legitimate, and `--json` asks nothing so it is exempt.
+  for (const args of [{ ...base, mode: "model", annotator: "claude-opus-5" }, { ...base, annotator: "dlgpdmsly2" }, { ...base, json: true }]) {
+    assert.deepEqual(resolveOptions(args).problems, [], JSON.stringify(args));
+  }
+  // One mistake prints once: the flag-level message, not both.
+  const noAnnotator = resolveOptions(base).problems;
+  assert.equal(noAnnotator.length, 1);
+  assert.match(noAnnotator[0], /--annotator is required/);
+});
+
 test("a model read cannot claim gold, and the tiers come from the schema's own vocabulary", () => {
   const base = { root: "/r", "corpus-version": CV, run: "r1", annotator: "dlgpdmsly2" };
-  assert.equal(resolveOptions({ ...base, mode: "model" }).labelSource, "silver");
+  assert.equal(resolveOptions({ ...base, mode: "model", annotator: "claude-opus-5" }).labelSource, "silver");
   assert.equal(resolveOptions(base).labelSource, "gold");
   // `distant` is a real `LABEL_SOURCES` value and deliberately not one this CLI offers:
   // it means a label inferred with no per-item reading, and reading is all this does.
@@ -697,7 +771,12 @@ test("a model read cannot claim gold, and the tiers come from the schema's own v
   assert.ok(resolveOptions({ ...base, "label-source": "distant" }).problems.some((m) => m.includes("distant")));
   // Derived from the vocabulary rather than a second copy of it, so a tier added to the
   // schema cannot be silently rejected here.
-  for (const mode of ADJUDICATION_MODES) assert.deepEqual(resolveOptions({ ...base, mode }).problems, []);
+  // Each mode with an id that mode is allowed to name — the pair is what the schema
+  // checks, so testing a mode without one tests nothing.
+  const idFor = { human: "dlgpdmsly2", model: "claude-opus-5" };
+  for (const mode of ADJUDICATION_MODES) {
+    assert.deepEqual(resolveOptions({ ...base, mode, annotator: idFor[mode] }).problems, [], mode);
+  }
   assert.ok(resolveOptions({ ...base, mode: "committee" }).problems.some((m) => m.includes("--mode must be one of")));
 });
 

@@ -205,6 +205,16 @@ inherited from another module's internal sort — inheriting it is how the queue
 renumbering itself the day that sort is refactored. Reported as an ineffective mutation
 rather than hidden or removed.
 
+**6. The pair content hash does not escape the CodeRabbit key churn.** The handoff
+offered it as an alternative to `finding_key` for CodeRabbit labels. `inspect-maybes.mjs`'s
+`pairKey` hashes `file|line|summary` of **both** sides, so it has the same summary
+dependence — which is why the pair labels already carry `pair_key_at_801` and
+`pair_key_moved`. And a provenance key is not available either: `comment_id` is `null`
+for every review-body finding (`adapters/coderabbit.mjs:631`), which is 14 of the
+pilot's 30. So one key space is kept and the churn is made **detectable**:
+`parser_vintage` is required on a CodeRabbit label and refused as absent, exactly as
+`diff_sha256` is.
+
 **7. Four defects found in review, all fixed here.** Each was verified against the code
 before being acted on, and one of them turned out to be a different defect from the one
 first diagnosed:
@@ -230,7 +240,30 @@ first diagnosed:
   session asked every question in the queue and discarded every answer. Now required for
   any session that will ask something; `--json` is exempt because it prints and returns.
 
-**8. The test helper's cleanup ran too early, and the first diagnosis of the cost was
+**8. The preflight was a hand-copied subset of the schema, and that is now a probe.**
+Review found `--mode model --label-source gold` accepted at startup and refused per
+judgement — the same defect as the `--annotator` one above, one flag over, found the same
+way. The lesson is not the flag: **`resolveOptions` was restating rules `validateLabel`
+owns, so every rule it missed cost a reader their answers.** It now builds one throwaway
+label from the resolved settings and reports whatever `buildFindingLabel` says. That
+caught two more combinations nobody had reported — a human id under `mode: model` and a
+model id under `mode: human`, the laundering the guide §7 warns about in both directions.
+It fails closed if the schema later demands a field the probe does not carry, which is
+the right way round: loudly unusable beats quietly discarding an evening.
+
+**9. Resume now trusts exactly what a scorer trusts, and a version bump is a
+MIGRATION.** A label that parsed with a valid `finding_key` and `arm` but that
+`validateLabel` refuses was being counted as a resume key — so resume called the finding
+judged, a validating scorer dropped it, and nothing asked again. `readFindingLabels` now
+validates, shape-only. **Two boundaries are deliberate and both are written at the call
+site:** drift is *not* checked here, because a stale label is a well-formed judgement
+about a re-extracted diff — a different fact, already refused at the write path — and
+checking it here would return the whole corpus to the queue the moment it is re-frozen.
+And **a `SCHEMA_VERSION` bump is handled by migrating the stored labels, never by letting
+them refuse and fall back into the queue**: human reading is the scarcest thing this
+module spends, and a field rename is not a reason to spend it twice.
+
+**10. The test helper's cleanup ran too early, and the first diagnosis of the cost was
 wrong.** `withRoot` was synchronous, so `rmSync` fired the moment an async callback hit
 its first `await`. The obvious conclusion — that "assert nothing was written" was passing
 because the root was gone — is **false, and measuring it is what showed that**:
@@ -238,16 +271,6 @@ because the root was gone — is **false, and measuring it is what showed that**
 `existsSync` still catches it (forced a write in preview mode; the test goes red under
 both versions). The real cost is **3 leaked temp directories per run, with label files in
 them**, against 0 once it awaits.
-
-**6. The pair content hash does not escape the CodeRabbit key churn.** The handoff
-offered it as an alternative to `finding_key` for CodeRabbit labels. `inspect-maybes.mjs`'s
-`pairKey` hashes `file|line|summary` of **both** sides, so it has the same summary
-dependence — which is why the pair labels already carry `pair_key_at_801` and
-`pair_key_moved`. And a provenance key is not available either: `comment_id` is `null`
-for every review-body finding (`adapters/coderabbit.mjs:631`), which is 14 of the
-pilot's 30. So one key space is kept and the churn is made **detectable**:
-`parser_vintage` is required on a CodeRabbit label and refused as absent, exactly as
-`diff_sha256` is.
 
 ## Fail directions
 
@@ -265,6 +288,30 @@ pilot's 30. So one key space is kept and the churn is made **detectable**:
 | an unreadable label on disk | counted in `unreadable`, never treated as absent | Treating it as absent re-asks a judgement and then overwrites the only evidence of the first answer |
 | `harvest.mjs` unreadable | `harvestVintage` → `null`, and the CodeRabbit write path then refuses | A label whose parser vintage is unknown cannot be told from a current one, which is the whole point of the field |
 | no `--write` | builds every label, writes none | A tool whose first invocation writes to a data repository gets invoked once by accident |
+
+## A pre-existing defect found while measuring — reported, NOT fixed here
+
+`eval/run.test.mjs` began failing in the `iso` lane on this branch
+(*"END TO END: a throw inside the item loop still deregisters the worktree"*). It is
+**not this change's** — three measurements say so:
+
+1. **Delete every file this change adds and it still fails.** The `iso` lane loads only
+   `eval/run.test.mjs`, which imports nothing from here.
+2. **Clear `os.tmpdir()` of `eval-item-*` and it passes.** There were **1277** of them.
+3. **It is not deterministic per tree** — with a dirty tmpdir it failed on `main` as
+   readily as on this branch; with a clean one, **12/12 lane runs across both trees pass.**
+
+The mechanism: **the merged `eval/run.test.mjs` leaves 12 `eval-item-*` directories in
+`os.tmpdir()` per run**, they accumulate across every local run anyone does, and past
+some threshold a test in that file that snapshots the same directory starts failing.
+`01-CONVENTIONS.md` already flags this file's end-to-end tests as shared-state-sensitive
+and says to re-run serially before investigating; the accumulation is the same fault one
+level up, and it makes the lane fail *serially* too once the debris is deep enough.
+
+Quietly repairing it inside this PR would make the diff unreviewable and hide the report,
+so it is left alone. **Worth noting for whoever picks it up:** it is the same defect
+CodeRabbit flagged in this PR's own test helper — cleanup that does not run — and the
+comparison after fixing ours is 12 directories per run against 0.
 
 ## Explicit non-goals
 
@@ -300,19 +347,21 @@ separately with the same `node_modules` symlinked into both, each measured once.
 ```
                        rest    iso   total
 upstream/main          1700  +  56  = 1756      0 fail · 1 skip
-this branch            1768  +  56  = 1824      0 fail · 1 skip
+this branch            1771  +  56  = 1827      0 fail · 1 skip
                        ————————————————————
-                                       +68
+                                       +71
 ```
 
-  `+68` is exactly this change's test count (32 in `labels.test.mjs`, 36 in
+  `+71` is exactly this change's test count (32 in `labels.test.mjs`, 39 in
   `adjudicate.test.mjs`). The single skip is the Agent SDK case and is present in both
-  trees, so it is not an environment artefact.
+  trees, so it is not an environment artefact. Each lane was run three times per tree
+  with `os.tmpdir()` cleared beforehand — **12/12 clean** — for the reason in
+  *A pre-existing defect found while measuring* below.
 
 - [x] **`npx eslint scripts` exits 0** on both trees (`eslint@9.24.0`, the version the
       lockfile pins).
 
-- [x] **68 mutations · 67 caught by the test that NAMES the guard · 1 ineffective.**
+- [x] **73 mutations · 72 caught by the test that NAMES the guard · 1 ineffective.**
       Matched by test name rather than by the suite reddening, so a mutation caught by
       an unrelated test does not count as coverage. Four mutations were **ineffective
       rather than uncaught**, each proved before being replaced or documented — the

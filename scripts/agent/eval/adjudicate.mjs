@@ -574,16 +574,37 @@ export function readFindingLabels(root, corpusVersion, { itemId = null } = {}) {
           unreadable.push({ path: abs, reason: e.message });
           continue;
         }
-        // PARSING IS NOT THE SAME AS BEING A LABEL, and the difference used to fall
-        // between the two outputs: a file that was valid JSON but carried no
-        // `finding_key` or no `arm` was pushed into `labels` and silently left out of
-        // `keys`, so it counted as a label the caller could see while settling nothing.
-        // The bundle then came back in the queue, the reader answered it again, and the
-        // write path refused because a file already existed at that path — a dead end
-        // with no line anywhere saying why. It is the same failure the `catch` above
-        // handles, one level in, so it gets the same answer.
-        if (!(isPlainObject(parsed) && nonEmptyString(parsed.finding_key) && nonEmptyString(parsed.arm))) {
-          unreadable.push({ path: abs, reason: "parsed, but it carries no finding_key and arm — nothing can join or resume on it" });
+        // PARSING IS NOT THE SAME AS BEING A LABEL, and RESUME MUST TRUST EXACTLY WHAT A
+        // SCORER WILL. A file that parsed but would be refused by the schema used to be
+        // pushed into `labels` and counted in `keys` — so resume called the finding
+        // judged, a scorer that validates dropped it, and nothing ever asked again. The
+        // finding falls through the gap in silence, which is absence with two causes
+        // pooled into one.
+        //
+        // So the authority is `validateLabel`, not a hand-written field list: "the schema
+        // would refuse this" is a third way of being unreadable, beside "not JSON" and
+        // "not a finding label".
+        //
+        // 🔴 WITHOUT `itemMeta`, DELIBERATELY. That is the difference between a label
+        // that is MALFORMED and one that is STALE — a stale label is a well-formed
+        // judgement about a diff that has since been re-extracted, which is a different
+        // fact, is refused at the write path where the item's meta is in hand, and must
+        // not quietly return 245 findings to the queue the moment a corpus is re-frozen.
+        //
+        // 🔴 AND A `SCHEMA_VERSION` BUMP IS A MIGRATION, NEVER A RE-ADJUDICATION. A
+        // version change would make every stored label refuse here and put the entire
+        // set back in the queue — which reads like the safe answer and is not: human
+        // reading is the scarcest thing this module spends, and a field rename cannot be
+        // a reason to spend it twice. Whoever bumps the version migrates the labels on
+        // disk. Do not "fix" that by loosening this check.
+        if (!isPlainObject(parsed) || parsed.schema !== "finding-label") {
+          unreadable.push({ path: abs, reason: `parsed, but it is not a finding label (schema ${JSON.stringify(parsed?.schema)}) — only a finding label belongs under findings/` });
+          continue;
+        }
+        try {
+          validateLabel(parsed);
+        } catch (e) {
+          unreadable.push({ path: abs, reason: `parsed, but the schema refuses it: ${e.message}` });
           continue;
         }
         out.push(parsed);
@@ -845,6 +866,62 @@ const USAGE =
   "are queued together: on the pilot that is 245 judgements for 428 records, against\n" +
   "428 judgements one run at a time.";
 
+/**
+ * A label that is valid in every field the CLI does NOT control, so the probe below
+ * varies only what the flags set and any refusal is about the flags.
+ */
+const PROBE_LABEL = Object.freeze({
+  corpusVersion: "probe",
+  itemId: "pr-0",
+  arm: "panel",
+  findingKey: "probe.mjs::a claim, for a settings check that is never written",
+  isReal: true,
+  severity: "minor",
+  confidence: "medium",
+  diffSha256: `sha256:${"0".repeat(64)}`,
+});
+
+/**
+ * ASK THE SCHEMA WHETHER THESE SETTINGS CAN PRODUCE A LABEL, instead of restating its
+ * rules here and finding out which ones were missed later.
+ *
+ * `validateLabel` is the authority on what may be written, and this function is a
+ * preflight of it. Every rule the preflight does not have becomes the same failure:
+ * the session asks its whole queue, the schema refuses each judgement at the write
+ * path, `runSession` catches and prints, and the reader's answers are gone. That
+ * happened twice — `--annotator` alone, then `--mode model --label-source gold`, which
+ * is the same defect one flag over — and the second was found the same way the first
+ * was, by review rather than by the code.
+ *
+ * So the rules are not copied. A throwaway label is built from the resolved settings
+ * with `PROBE_LABEL` filling everything else, and whatever `buildFindingLabel` says is
+ * reported at startup. It costs one object, it is never written, and it covers the
+ * combinations nobody has thought of yet — including any the schema gains later.
+ *
+ * Fails CLOSED: if `labels.mjs` starts demanding a field `PROBE_LABEL` does not carry,
+ * this refuses for everyone until the probe is updated. That is the safe direction —
+ * loudly unusable beats quietly discarding an evening of judgements.
+ */
+function probeSettings({ mode, labelSource, annotators }) {
+  try {
+    buildFindingLabel({
+      ...PROBE_LABEL,
+      labelSource,
+      annotators,
+      adjudication: {
+        mode,
+        suggestion: null,
+        suggestion_outcome: "not-shown",
+        presented_fields: [...PRESENTED_FIELDS],
+        withheld_fields: [...WITHHELD_FIELDS],
+      },
+    });
+    return null;
+  } catch (e) {
+    return `these settings cannot produce a valid label — ${e.message}`;
+  }
+}
+
 /** Argument checking, exported so it is testable without a terminal. */
 export function resolveOptions(args) {
   const problems = [];
@@ -885,6 +962,15 @@ export function resolveOptions(args) {
   const limit = args.limit === undefined ? null : Number(args.limit);
   if (limit !== null && !(Number.isInteger(limit) && limit > 0)) problems.push(`--limit must be a positive integer, got ${JSON.stringify(args.limit)}`);
   if (args.arm !== undefined && !ARMS.includes(args.arm)) problems.push(`--arm must be one of ${ARMS.join(" | ")}, got ${JSON.stringify(args.arm)}`);
+  // LAST, and only on an otherwise-clean invocation. The checks above name the FLAG that
+  // is wrong, which is what a person at a terminal needs; the probe names what the
+  // SCHEMA would refuse, which is what nobody thought to check. Running it after them
+  // keeps one mistake from printing twice, and running it at all is what stops the next
+  // bad combination reaching the reader's evening instead of their startup.
+  if (problems.length === 0 && !args.json) {
+    const refusal = probeSettings({ mode, labelSource, annotators: [args.annotator] });
+    if (refusal) problems.push(refusal);
+  }
   return {
     problems,
     root: args.root,
