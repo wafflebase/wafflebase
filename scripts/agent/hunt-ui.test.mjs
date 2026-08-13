@@ -1475,3 +1475,27 @@ test("the report shows both scopings, and says the heading is not a consensus", 
   });
   assert.doesNotMatch(agreed, /scoped this differently/i);
 });
+
+test("a capability the rubric advertises is one some brief actually asks for", () => {
+  // MEASURED, and it cost a live run to learn. `sheet-author`'s rubric was updated to
+  // describe a newly mounted formatting toolbar, twelve controls by name, with a worked
+  // round-trip example — and its two brief TASKS were left untouched. The explorer did
+  // exactly what it was asked (build a table, use formulas, navigate), never clicked a
+  // control, and never called either style reader. 100 actions, 37 predictions, all
+  // held, nothing proposed. The capability was mounted, documented, and unreachable.
+  //
+  // The rubric describes the SURFACE; the task is what the explorer is told to DO. A
+  // capability named only in the rubric is a capability nothing exercises, which reads
+  // downstream as "no defects in that area" — the same silent gap the reader-list drift
+  // test exists to close, one layer up.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    if (!/formatting toolbar IS mounted/i.test(p.rubric)) continue;
+    const tasks = p.briefs.map((b) => b.task).join("\n");
+    assert.match(
+      tasks,
+      /\bbold\b|\bitalic\b|\btoolbar\b|\bformat\b/i,
+      `${p.id}'s rubric advertises a toolbar, but no brief task directs the explorer at it — ` +
+        "the controls will sit unused and the run will read as a clean surface",
+    );
+  }
+});

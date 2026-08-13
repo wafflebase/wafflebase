@@ -69,12 +69,16 @@ rejected — correctly, since nothing in that window could have changed it.
   app COMPUTES** for the active cell by merging sheet → column → row → cell. They are
   answering different questions, so a difference between them is expected and is not a
   defect.
-- **PATCHES ACCUMULATE.** Toggling `Bold` on and then off appends `{b:true}` and then
-  `{b:false}`; it does not remove the first. So `sheet.rangeStyles` after a round trip
-  is NOT equal to the reading before it, and predicting `equals` there will fail for a
-  reason that may be entirely correct. Predict the round trip on
-  `sheet.activeCellStyle` — the computed result is what should return — and read
-  `sheet.rangeStyles` alongside it to see what the two clicks left behind.
+- **PATCHES DO NOT ACCUMULATE — a clean round trip leaves NOTHING behind.** Toggling
+  `Bold` on appends a patch; toggling it off merges into that same patch and then
+  DELETES it, because `pruneRedundantDefaultStyleKeys` recognises `b:false` as
+  redundant with the default. So `sheet.rangeStyles` is `[]` before and `[]` after, and
+  predicting that it CHANGED across a round trip is a violated prediction with no
+  defect behind it. Measured: this brief said the opposite, and the first live run that
+  used the toolbar spent its only violation on that false claim.
+  This is also where the sheet surface DIFFERS from docs, where the same round trip
+  leaves an explicit `false` behind (#749, #793). Do not carry that expectation across.
+  Predict the round trip on `sheet.activeCellStyle`, which returns to its baseline.
 - **FOUR TOOLBAR BUTTONS DO NOTHING HERE, BY CONSTRUCTION.** `Insert chart`,
   `Insert image`, `Data validation` and `Conditional formatting` open panels this
   harness does not mount, so their handlers are absent and the click is swallowed.
@@ -160,10 +164,10 @@ selections that spanned differently-styled runs, so the analogous shapes here ar
 range that is partly styled already, and a range spanning a row or column style.
 
 Watch for the difference between "the key is gone" and "the key is `false`". On the
-document surface that distinction WAS the defect twice over (#749, #793), and the
-computed style shows it plainly: a cell that never had bold reports no `b` at all,
-while one toggled on and off may report `b: false`. Those are different readings, and
-`equals` against your baseline will say so.
+document surface that distinction WAS the defect twice over (#749, #793). Measured on
+THIS surface it comes out clean — the patch is pruned rather than left holding
+`b:false` — so a round trip here should return `sheet.activeCellStyle` to exactly its
+baseline. That makes any DIFFERENCE the interesting result, not the sameness.
 
 ## NOT your lane — defer, do not report
 
