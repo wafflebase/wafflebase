@@ -361,18 +361,39 @@ Consequences worth knowing:
 - Without the App configured the reporter degrades to the ambient token, which
   still works for same-repo PRs. The `changes` job's **run summary** needs no
   token at all, so it remains the copy that always survives.
-- **`ci-config-changed` tracks the current resolution in both directions.** It
-  shipped add-only, which made it monotonic: whatever set it once — a since-reverted
-  gating file, or the `base.sha...HEAD` bug above — kept it set for the pull
-  request's whole life, and a reviewer had no way to tell a stale label from a live
-  one. The reporter now removes it when `ciConfig` is false, tolerating the 404 for
-  the label not being there. It does **not** remove it when the resolution failed
-  to parse: not knowing what changed is not evidence that nothing did, and clearing
-  a truthful label is the one error here that loses information. Dropping
-  monotonicity costs one thing — `concurrency` is keyed on the triggering run, so
-  two runs for one PR do not serialise and an older one finishing last can write a
-  stale answer. Accepted: the next run corrects it, the comment body already had
-  that property, and nothing mechanical reads the label.
+- **The PR number is bound to the run before anything is written.**
+  `ci-context/pr-number` is produced by a job that ran the pull request's own code,
+  so on a fork it is attacker-chosen — and unvalidated it aims the App token at any
+  issue in the repository. The reporter now requires the named pull request's head
+  to be this run's commit (`run.head_sha`, which is the PR head, not the merge
+  commit). A re-run of a superseded commit therefore reports nothing; that is the
+  safe direction, since a stale report is worse than a missing one and the newer
+  run posts its own.
+- **`ci-config-changed` tracks the current state in both directions, and is
+  computed from data the pull request cannot write.** It shipped add-only, which
+  made it monotonic: whatever set it once — a since-reverted gating file, or the
+  `base.sha...HEAD` bug above — kept it set for life, and a reviewer could not tell
+  a stale label from a live one. Making it removable is what forced the second
+  half. `areas.ciConfig` was the obvious input and is the wrong one, twice over:
+  it comes from the fork-written artifact, so a pull request could delete its own
+  warning; and `false` is **ambiguous at the producer**, because `classify()` emits
+  it for every fail-safe resolution too (no diff base, a failed `git diff`, an
+  empty diff), so it can mean "no gating file changed" or "we never found out".
+  Only the first may clear a label. So the reporter recomputes: the file list from
+  `pulls.listFiles`, the globs from `ci.ciConfig` on the **default branch**. Both
+  are beyond the pull request's reach, which makes the label right by construction
+  rather than by trusting its subject. It holds the label — never clears it — when
+  the globs are unreadable or the file list came back truncated at the API's 3000-file
+  cap, on the same principle.
+
+  Two consequences. The workflow carries its own copy of `globToRegExp`, because it
+  deliberately checks out no code; `scripts/test/ci-workflow.test.mjs` extracts that
+  copy from the YAML and asserts it agrees with `scripts/changed-areas.mjs` over a
+  glob × path corpus, so the duplication cannot drift into disagreeing with the run
+  it describes. And dropping monotonicity costs ordering: `concurrency` is keyed on
+  the triggering run, so two runs for one pull request do not serialise and an older
+  one finishing last can write a stale answer. Accepted — the next run corrects it,
+  the comment body already had that property, and nothing mechanical reads the label.
 
 ### Path-aware CI
 
@@ -462,6 +483,24 @@ hand-off — and each is a test in `scripts/test/changed-areas.test.mjs` rather
 than a claim. `ci.ciConfig` adds a sixth: a PR that edits the mapping is measured
 by the full suite, so it cannot use the filter to grade its own homework.
 `.github/CODEOWNERS` is the review half of that guard.
+
+**The scope of "cannot grade its own homework", stated exactly.** It is a guard
+against *mistakes*, not against a hostile author. The `changes` job runs
+`scripts/changed-areas.mjs` **from the pull request's own tree**, so a PR that
+rewrites the resolver to report `full: false, heavy: false` gets the reduced run it
+asked for, and `verify-browser` / `verify-integration` report `skipped`, which
+branch protection counts as passing. `ciConfig` cannot catch that, because the code
+deciding `ciConfig` is the code under review. What remains is human: the diff shows
+the tampering, `.github/CODEOWNERS` puts a maintainer on it, and merge still needs
+an approving review.
+
+Closing it mechanically means resolving from the base branch rather than the head —
+the pattern `ci-report.yml` already uses for the label (it reads `ci.ciConfig` from
+the default branch precisely because the PR's copy is untrusted). That is a change
+to `ci.yml`'s `changes` job, not to the resolver, and is deliberately **not** part
+of the diff-base work; it is tracked as Phase 5 in
+`docs/tasks/active/20260812-path-aware-ci-todo.md`. Until then, treat a reduced run
+as evidence about an honest branch only.
 
 **Both ends of the diff come from the event payload, and that is load-bearing.**
 `resolveRefs` returns `{ base, head }`; on a `pull_request` those are

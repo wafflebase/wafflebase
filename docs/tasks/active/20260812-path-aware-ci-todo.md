@@ -212,7 +212,52 @@ route in is a tag rather than `pkgs` or `anyPkg`.** A design-editor change selec
 6 of 28 lanes (its check, entropy, and entropy's four engine builds) and still
 skips both heavy jobs.
 
+## Phase 4d: Review-panel findings on the diff-base PR ✅
+
+- [x] 4d.1 Bind `ci-context/pr-number` to the run before any write. It is written
+      by a job that ran the PR's code, so on a fork it is attacker-chosen; the App
+      token was aimable at any issue in the repository. The named PR's head must be
+      `run.head_sha`
+- [x] 4d.2 Recompute the `ci-config-changed` decision in the reporter from
+      `pulls.listFiles` + `ci.ciConfig` on the **default branch**, instead of from
+      `areas.ciConfig`. Two independent defects, one fix: the artifact is
+      fork-controlled (a PR could delete its own warning), and `ciConfig: false` is
+      ambiguous at the producer — `classify()` emits it for every fail-safe
+      resolution, so it can mean "no gating file changed" OR "we never found out"
+- [x] 4d.3 Hold the label, never clear it, when the globs are unreadable or the
+      file list hit the API's 3000-file truncation
+- [x] 4d.4 Guard the duplicated `globToRegExp` in `ci-report.yml` against drift by
+      extracting it from the YAML and comparing to the module over a glob × path
+      corpus
+- [x] 4d.5 Cover the `push` branch of `resolveRefs`. It had none: the only push
+      test asserts the push-to-`main` deploy gate, which short-circuits in
+      `resolve()` before `resolveRefs` is reached
+- [x] 4d.6 Make the "via the merge ref's first parent" subtest isolate source 1 by
+      hiding the base branch. It passed via the `baseBranchTip` fallback — neutering
+      `mergeRefBaseTip` entirely left all 61 tests green
+
+### Two findings not acted on, with reasons
+
+- **"`designEditor` omits `verify:doc-index`, a gate a design-editor-only change
+  can fail."** It cannot. `verify-doc-index.mjs` checks one direction only — every
+  directory present in `packages/` must be linked from `packages/README.md`. Nothing
+  *inside* `packages/design-editor/` can fail it; verified by deleting the whole
+  package, which still passes (the stale index row goes unnoticed, which is a
+  separate and pre-existing gap shared with `packages/documentation`). Only *adding*
+  a `packages/<name>/` can fail it, and an unknown package is unmapped ⇒ full run.
+- **"The reduced-run gate is computed by code from the PR under review."** Real, and
+  pre-existing — this diff does not touch `ci.yml`. `ciConfig` guards against
+  mistakes, not a hostile author, because the code deciding `ciConfig` is the code
+  under review. Fixing it means resolving from the base branch in the `changes`
+  job — the pattern `ci-report.yml` now uses for the label. Recorded in
+  `docs/design/harness-engineering.md` and Phase 5 below rather than folded in here.
+
 ## Phase 5: Deferred
+
+- [ ] 5.0 Run the `changes` job's resolver from the **base** branch, not the PR's
+      tree, so a reduced run is trustworthy against a hostile branch and not only
+      an honest one. See the "cannot grade its own homework" scope note in
+      `docs/design/harness-engineering.md`.
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse
       closure. v1 keeps `packages/**` ⇒ both, on purpose (see lessons).

@@ -508,9 +508,21 @@ test("resolve fail-safes", async (t) => {
         // What CI sees: HEAD at a real two-parent `refs/pull/N/merge`.
         git("checkout", "-q", "-B", "merge-ref", "main");
         git("merge", "-q", "--no-ff", "--no-edit", "feature");
-        const refs = resolveWith(payload);
-        assert.equal(refs.base, freshBase, "the merge ref's first parent is the base tip");
-        assert.deepEqual(changedPaths(refs, tmp), ["feature.txt"]);
+        // Source 1 has to be the ONLY way to the right answer here, or this
+        // subtest passes on the fallback and proves nothing about the merge ref.
+        // An earlier version left `main` in place: neutering `mergeRefBaseTip`
+        // entirely still left every test green, because `baseBranchTip` found
+        // `main` and returned the same sha. Hiding the branch is what makes the
+        // assertion below attributable.
+        git("branch", "-m", "main", "main-hidden");
+        try {
+          const refs = resolveWith(payload);
+          assert.equal(refs.base, freshBase, "the merge ref's first parent is the base tip");
+          assert.notEqual(refs.base, staleBase, "and it is not the payload's stale sha");
+          assert.deepEqual(changedPaths(refs, tmp), ["feature.txt"]);
+        } finally {
+          git("branch", "-m", "main-hidden", "main");
+        }
       });
 
       await t2.test("via the base branch ref when the merge ref fast-forwarded", () => {
@@ -635,6 +647,59 @@ test("resolve fail-safes", async (t) => {
         dir,
       );
       assert.deepEqual(refs, { base: sha("HEAD~1"), head: sha("HEAD") });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("push resolves both ends, and only falls back to HEAD", async (t2) => {
+    // The push branch had no coverage: the one existing push test asserts the
+    // push-to-`main` deploy gate, which short-circuits in `resolve()` before
+    // `resolveRefs` is ever consulted. So `head` gaining `payload.after` went in
+    // untested — on a `push` the checkout IS the pushed commit, which is why the
+    // literal "HEAD" fallback is sound here and nowhere else.
+    const dir = twoCommitRepo();
+    const sha = (rev) =>
+      execFileSync("git", ["rev-parse", rev], { cwd: dir, encoding: "utf8" }).trim();
+    const resolvePush = (payload) => {
+      const file = path.join(dir, "push-event.json");
+      writeFileSync(file, JSON.stringify(payload));
+      return resolveRefs(
+        // Not `main`: that is the deploy gate's short-circuit, not this branch.
+        { GITHUB_EVENT_NAME: "push", GITHUB_REF_NAME: "topic", GITHUB_EVENT_PATH: file },
+        dir,
+      );
+    };
+
+    try {
+      await t2.test("both ends come from the payload when both resolve", () => {
+        assert.deepEqual(resolvePush({ before: sha("HEAD~1"), after: sha("HEAD") }), {
+          base: sha("HEAD~1"),
+          head: sha("HEAD"),
+        });
+      });
+
+      await t2.test("an unresolvable after falls back to the checkout", () => {
+        // A commit the checkout does not have — a shallow fetch, say. `HEAD` is
+        // the pushed commit on this event, so the fallback is the right answer
+        // rather than a fail-safe.
+        assert.deepEqual(resolvePush({ before: sha("HEAD~1"), after: "0".repeat(40) }), {
+          base: sha("HEAD~1"),
+          head: "HEAD",
+        });
+        assert.deepEqual(resolvePush({ before: sha("HEAD~1") }), {
+          base: sha("HEAD~1"),
+          head: "HEAD",
+        });
+      });
+
+      await t2.test("a new branch and a force-push are undiffable, not guessed", () => {
+        // All-zeroes is how GitHub reports "no previous commit".
+        assert.equal(resolvePush({ before: "0".repeat(40), after: sha("HEAD") }), null);
+        assert.equal(resolvePush({ after: sha("HEAD") }), null);
+        // A `before` the checkout no longer has — the force-push shape.
+        assert.equal(resolvePush({ before: "1".repeat(40), after: sha("HEAD") }), null);
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

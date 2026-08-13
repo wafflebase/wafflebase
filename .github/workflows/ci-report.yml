@@ -46,6 +46,7 @@ on:
 permissions:
   contents: read
   actions: read # list the triggering run's jobs and download its artifacts
+  pull-requests: read # bind the artifact's PR number to this run, and list its files
 
 # Keyed on the triggering run so a re-run supersedes its own report rather than
 # racing it. Not keyed on the PR: two different runs for the same PR are two
@@ -99,10 +100,23 @@ jobs:
         with:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          # Deliberately still `issues: write` and nothing else. The reads the label
+          # needs go through the ambient token instead (see `READ_TOKEN` below):
+          # requesting a permission the App installation has not been granted makes
+          # this step FAIL, and `continue-on-error` would then quietly fall back to a
+          # read-only token — breaking every write, comments included, to gain a
+          # read the ambient token can already do.
           permission-issues: write
 
       - name: Post the verification summary
         uses: actions/github-script@v7
+        env:
+          # The reads that decide the label (`ci.ciConfig` on the default branch,
+          # the pull request's file list) need no App identity — this workflow runs
+          # in the base repository, so the ambient token already carries the
+          # read-only `permissions:` declared above. Keeping them off the App token
+          # keeps `issues: write` the only privilege it holds.
+          READ_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ steps.app-token.outputs.token || github.token }}
           script: |
@@ -132,6 +146,13 @@ jobs:
               catch { return null; }
             };
 
+            // Reads go through the ambient token, writes through `github` (the App).
+            // Falls back to `github` when the ambient token is what `github` already
+            // is, so a repository without the App configured behaves as before.
+            const reader = process.env.READ_TOKEN
+              ? require('@actions/github').getOctokit(process.env.READ_TOKEN)
+              : github;
+
             // ---- which pull request -------------------------------------------
             // `run.pull_requests` is EMPTY for a fork PR, so the number is carried
             // in the artifact. The head-SHA lookup is the fallback for a run whose
@@ -151,6 +172,30 @@ jobs:
             }
             if (!Number.isInteger(prNumber)) {
               core.warning('No pull request could be resolved for this run; nothing to report.');
+              return;
+            }
+
+            // ---- bind that number to THIS run ---------------------------------
+            // `ci-context/pr-number` was written by a job that ran the pull
+            // request's own code, so on a fork it is attacker-chosen. Unvalidated,
+            // it points the App token's writes at any issue or pull request in the
+            // repository. Requiring the named pull request's head to be the commit
+            // this run built is what confines the writes to the pull request that
+            // produced them.
+            //
+            // Consequence worth knowing: a re-run of a superseded commit reports
+            // nothing, because the pull request has moved on. That is the safe
+            // direction — a stale report is worse than a missing one, and the
+            // newer run posts its own.
+            const pr = await reader.rest.pulls
+              .get({ owner, repo, pull_number: prNumber })
+              .then((r) => r.data)
+              .catch(() => null);
+            if (!pr || pr.head.sha !== run.head_sha) {
+              core.warning(
+                `Refusing to report on #${prNumber}: its head is not this run's commit ` +
+                `(${run.head_sha.slice(0, 9)}).`,
+              );
               return;
             }
 
@@ -271,23 +316,90 @@ jobs:
             // older one finishing last can write a stale answer. Accepted, because
             // the next run corrects it, the comment body already had exactly this
             // property, and nothing mechanical reads the label.
+            // The DECISION is recomputed here instead of read from
+            // `areas.ciConfig`, for two independent reasons:
+            //
+            //  1. `areas.json` is written by a job that ran the pull request's own
+            //     code. Driving a REMOVAL from it would let a fork delete its own
+            //     warning — the one reader the label exists for is the maintainer
+            //     it would be hidden from.
+            //  2. `ciConfig: false` is ambiguous at the producer. `classify()`
+            //     emits it for every fail-safe resolution too — no diff base, a
+            //     failed `git diff`, an empty diff — so "false" can mean "no gating
+            //     file changed" OR "we never found out". Only the first may clear
+            //     the label.
+            //
+            // The file list comes from the API and the globs from the BASE branch,
+            // both beyond the pull request's reach, so the label is right by
+            // construction rather than by trusting its subject.
             const LABEL = 'ci-config-changed';
-            try {
-              if (areas && areas.ciConfig) {
-                await github.rest.issues.addLabels({
-                  owner, repo, issue_number: prNumber, labels: [LABEL],
-                });
-              } else if (areas) {
-                // Only when `areas` parsed. A missing resolution means we do not
-                // know what changed, and guessing "not a config change" would
-                // quietly clear a label that is telling the truth.
-                await github.rest.issues.removeLabel({
-                  owner, repo, issue_number: prNumber, name: LABEL,
-                }).catch((error) => {
-                  // 404 is the normal path: the label was not on the PR.
-                  if (error.status !== 404) throw error;
-                });
+
+            // Same semantics as `globToRegExp` in scripts/changed-areas.mjs: `**`
+            // crosses separators, a single `*` does not. Duplicated rather than
+            // imported because this workflow deliberately checks out no code.
+            const globToRegExp = (glob) => {
+              let out = '';
+              for (let i = 0; i < glob.length; i++) {
+                const c = glob[i];
+                if (c === '*') {
+                  if (glob[i + 1] === '*') {
+                    i++;
+                    if (glob[i + 1] === '/') { i++; out += '(?:.*/)?'; } else { out += '.*'; }
+                  } else {
+                    out += '[^/]*';
+                  }
+                } else if ('\\^$.|?+()[]{}'.includes(c)) {
+                  out += `\\${c}`;
+                } else {
+                  out += c;
+                }
               }
+              return new RegExp(`^${out}$`);
+            };
+
+            let gatingGlobs = null;
+            try {
+              const { data } = await reader.rest.repos.getContent({
+                owner, repo,
+                path: 'harness.config.json',
+                ref: context.payload.repository.default_branch,
+              });
+              const config = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+              gatingGlobs = config.ci?.ciConfig ?? null;
             } catch (error) {
-              core.warning(`Could not update the ${LABEL} label: ${error.message}`);
+              core.warning(`Could not read ci.ciConfig from the default branch: ${error.message}`);
+            }
+
+            if (!Array.isArray(gatingGlobs) || gatingGlobs.length === 0) {
+              // Not knowing the globs is not evidence that nothing matched them.
+              core.warning(`Leaving the ${LABEL} label alone: the gating globs are unreadable.`);
+            } else {
+              try {
+                const files = await reader.paginate(reader.rest.pulls.listFiles, {
+                  owner, repo, pull_number: prNumber, per_page: 100,
+                });
+                const patterns = gatingGlobs.map(globToRegExp);
+                const touchesGating = files.some((f) =>
+                  patterns.some((re) => re.test(f.filename)),
+                );
+                if (touchesGating) {
+                  await github.rest.issues.addLabels({
+                    owner, repo, issue_number: prNumber, labels: [LABEL],
+                  });
+                } else if (files.length >= 3000) {
+                  // The endpoint stops at 3000 files, so "no match" in a truncated
+                  // list is not a negative. Same rule as above: only a complete
+                  // answer may clear the label.
+                  core.warning(`Leaving the ${LABEL} label alone: the file list was truncated.`);
+                } else {
+                  await github.rest.issues.removeLabel({
+                    owner, repo, issue_number: prNumber, name: LABEL,
+                  }).catch((error) => {
+                    // 404 is the normal path: the label was not on the PR.
+                    if (error.status !== 404) throw error;
+                  });
+                }
+              } catch (error) {
+                core.warning(`Could not update the ${LABEL} label: ${error.message}`);
+              }
             }
