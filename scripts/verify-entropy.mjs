@@ -101,6 +101,75 @@ async function fileExists(filePath) {
   }
 }
 
+/**
+ * Index tracked repo paths by basename, so a ref can be matched by its tail
+ * without scanning every path for every ref.
+ */
+export function buildSuffixIndex(files) {
+  const byBasename = new Map();
+  for (const file of files) {
+    const basename = file.slice(file.lastIndexOf("/") + 1);
+    let bucket = byBasename.get(basename);
+    if (!bucket) {
+      byBasename.set(basename, (bucket = []));
+    }
+    bucket.push(file);
+  }
+  return byBasename;
+}
+
+let trackedFiles;
+async function listTrackedFiles() {
+  trackedFiles ??= spawnAsync("git", ["ls-files"], {
+    cwd: repoRoot,
+    maxBuffer: 64 * 1024 * 1024,
+  }).then(({ error, stdout }) =>
+    // No git (or no checkout) means no suffix index — resolution falls back to
+    // the explicit bases below rather than reporting every ref as broken.
+    error ? null : stdout.split("\n").filter(Boolean),
+  );
+  return trackedFiles;
+}
+
+/**
+ * Decide whether a doc's file reference still points at something real.
+ *
+ * Design docs cite paths the way a reader needs them, and three forms are all
+ * legitimate: repo-root-relative (`packages/cli/src/output/formatter.ts`),
+ * relative to the citing doc (`../cli.md`), and the package-relative tail
+ * (`src/output/formatter.ts`) — the dominant convention in this repo. Only the
+ * first two resolve against a base directory, so a tail is matched against the
+ * tracked-file index instead.
+ *
+ * A tail that matches more than one tracked file is still resolved: the check
+ * exists to catch docs pointing at files that no longer exist, not to enforce
+ * path precision. Reporting an ambiguous-but-present file as "not found" is
+ * the false positive this resolver is built to avoid.
+ */
+export async function refResolves(ref, { bases, suffixIndex }) {
+  for (const base of bases) {
+    if (await fileExists(path.resolve(base, ref))) {
+      return true;
+    }
+  }
+
+  if (!suffixIndex) {
+    return false;
+  }
+
+  // Strip a leading `./` so the tail lines up with a tracked path segment.
+  const tail = ref.replace(/^(?:\.\/)+/, "");
+  const candidates = suffixIndex.get(tail.slice(tail.lastIndexOf("/") + 1));
+  if (!candidates) {
+    return false;
+  }
+
+  // The leading separator keeps `api/documents.ts` from matching a tracked
+  // `legacy-api/documents.ts` — the tail must start at a path boundary.
+  const suffix = `/${tail}`;
+  return candidates.some((file) => file === tail || file.endsWith(suffix));
+}
+
 async function runDocStaleness(designDir) {
   const findings = [];
   const absoluteDesignDir = path.resolve(repoRoot, designDir);
@@ -117,21 +186,23 @@ async function runDocStaleness(designDir) {
     .filter((e) => e.isFile() && e.name.endsWith(".md"))
     .map((e) => e.name);
 
+  const tracked = await listTrackedFiles();
+  const suffixIndex = tracked ? buildSuffixIndex(tracked) : null;
+
   for (const fileName of mdFiles) {
     const filePath = path.join(absoluteDesignDir, fileName);
     const content = await readFile(filePath, "utf8");
     const refs = extractFileRefs(content, `${designDir}/${fileName}`);
 
     for (const ref of refs) {
-      const fromRoot = path.resolve(repoRoot, ref.path);
-      const fromDesign = path.resolve(absoluteDesignDir, ref.path);
+      const resolved = await refResolves(ref.path, {
+        bases: [repoRoot, path.dirname(filePath), absoluteDesignDir],
+        suffixIndex,
+      });
 
-      const existsFromRoot = await fileExists(fromRoot);
-      const existsFromDesign = await fileExists(fromDesign);
-
-      if (!existsFromRoot && !existsFromDesign) {
+      if (!resolved) {
         findings.push(
-          `Broken ref in ${ref.source}: \`${ref.path}\` not found`,
+          `Broken ref in ${ref.source}: \`${ref.path}\` matches no tracked file`,
         );
       }
     }
@@ -311,7 +382,7 @@ async function main() {
 
   // Doc-staleness check
   if (entropyConfig.docStaleness?.enabled !== false) {
-    const designDir = entropyConfig.docStaleness.designDir || "design";
+    const designDir = entropyConfig.docStaleness?.designDir || "design";
     console.log(`${PREFIX} Running doc-staleness check...`);
     const stalenessResult = await runDocStaleness(designDir);
     if (stalenessResult.findings.length > 0) {
