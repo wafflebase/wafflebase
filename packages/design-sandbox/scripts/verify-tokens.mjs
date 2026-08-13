@@ -120,7 +120,11 @@ async function boot() {
       /* not listening yet */
     }
     if (Date.now() > deadline) {
-      child.kill();
+      // `shutdown`, not `child.kill()`: this is the same wrapper problem the comment on
+      // `spawn` above describes, and killing only the pid would leave a vite holding
+      // `--strictPort` — which is exactly how a survivor from an earlier run made a later
+      // run report failures belonging to a process nobody was looking at.
+      shutdown(child);
       throw new Error(`dev server never answered /health:\n${log}`);
     }
     await new Promise((r) => setTimeout(r, 400));
@@ -242,18 +246,39 @@ async function main() {
       ];
       const before = await Promise.all(touched.map((rel) => fs.readFile(path.join(REPO_ROOT, rel), 'utf8')));
       const wrote = (await post('/mutate', memberAdd)).body;
-      if (check('write answers ok', wrote.ok === true, wrote.error)) {
+      const wroteOk = check('write answers ok', wrote.ok === true, wrote.error);
+      if (wroteOk) {
         // STRICTLY `true`, not "not false". The field is ABSENT when the regen gate did not
         // fire, and that is the failure worth catching: the gate matches what was written
         // against `sources()`, so a path that does not compare equal makes the emitter
         // silently never run. That exact bug — a `./` prefix matching nothing — was live in
         // `cssVariables` until review found it.
         check('regenerated tokens.css', wrote.regenerated === true, JSON.stringify(wrote));
-        const undone = (await post('/undo', {})).body;
-        check('undo answers ok', undone.ok === true, undone.error);
-        const after = await Promise.all(touched.map((rel) => fs.readFile(path.join(REPO_ROOT, rel), 'utf8')));
-        check('every file is byte-identical again', after.every((t, i) => t === before[i]));
       }
+
+      /*
+       * The undo is attempted WHATEVER the write answered, because this repository is also
+       * somebody's working tree (see the header) and the restore matters most in the case
+       * that went wrong.
+       *
+       * It is not reachable through an `ok: false` body, though — the bridge answers that
+       * only from paths that precede its write loop, so a refused mutate has touched
+       * nothing. What IS reachable is the loop throwing partway (a 500, or a dropped
+       * connection) with the first file already written. That case has no `ok` at all,
+       * which is why this sits outside the branch.
+       *
+       * `ok` is therefore only REQUIRED when the write reported success. With nothing to
+       * undo the bridge answers `409 nothing to undo`, so demanding it unconditionally
+       * would turn a correctly-refused write into a second, invented failure.
+       */
+      const undone = (await post('/undo', {})).body;
+      if (wroteOk) check('undo answers ok', undone.ok === true, undone.error);
+      else console.log(`       undo after a failed write: ${undone.error ?? 'ok'}`);
+
+      const after = await Promise.all(
+        touched.map((rel) => fs.readFile(path.join(REPO_ROOT, rel), 'utf8')),
+      );
+      check('every file is byte-identical again', after.every((t, i) => t === before[i]));
 
       /**
        * Remove the `.bak` files the write left in `packages/core` and `packages/frontend`.
@@ -267,19 +292,28 @@ async function main() {
        * fix belongs in `paths.ts`, which is not this package's file.
        */
       const strays = [];
+      const leftover = [];
       for (const rel of touched) {
         const bak = path.join(REPO_ROOT, `${rel}.bak`);
         try {
           await fs.unlink(bak);
           strays.push(`${rel}.bak`);
         } catch {
-          /* not created, or already gone */
+          // The `unlink` failing is two different outcomes, and the check below is only
+          // meaningful if they are told apart: ENOENT means no backup was ever written,
+          // anything else means one is still sitting in the tree.
+          try {
+            await fs.access(bak);
+            leftover.push(`${rel}.bak`);
+          } catch {
+            /* not created, or already gone */
+          }
         }
       }
       check(
         'the backups it wrote into the source tree were cleaned up',
-        true,
-        `removed ${strays.length}: ${strays.join(', ')}`,
+        leftover.length === 0,
+        `removed ${strays.length}: ${strays.join(', ')}; left ${leftover.join(', ')}`,
       );
       if (strays.length) {
         console.log(

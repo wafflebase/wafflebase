@@ -573,7 +573,7 @@ cap is what sets the granularity.
 | 7b | `classNameExpr` — surfacing the class-rewrite refusal (engine §5.7) | **merged** (#787) |
 | 8a | plugin host, **layout only** | **merged** (#819) |
 | 8b | the `TokenAdapter` seam | **merged** (#833) |
-| 8c | `packages/design-sandbox` — the token half | next — see below |
+| 8c | `packages/design-sandbox` — the token half | in review (#839) — see below |
 | 9 | client state (`mutate` · `history` · `anchors` · `states`) | held |
 | 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
 
@@ -629,7 +629,7 @@ So the cut follows the one that already worked for the module underneath it —
   `cssVariables` writes one file and has no emitter. Here both run for real: the
   add-member plan spans three distinct files and round-trips byte-identically
   across all of them for all four families, and `regenerate()` runs
-  `build-css.ts`. The suite is 92 tests in-package.
+  `build-css.ts`. The suite is 94 tests in-package.
 
   It also closed 8a's gate gap, at least for the token pipeline.
   `scripts/verify-tokens.mjs` boots a real dev server and drives the full chain —

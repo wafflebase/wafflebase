@@ -463,6 +463,46 @@ describe('read()', () => {
       broken.dispose();
     }
   }, 60_000);
+
+  it('names the const it could not find rather than reporting no bindings', async () => {
+    // The same argument as the case above, applied to the SOURCE reads instead of the
+    // worker. `readSemanticBindings` reports `located: false` with a reason; discarding it
+    // would render an unreadable const as "this family has no bindings" — an empty panel
+    // instead of the one sentence that says what to fix.
+    //
+    // The patch has to keep the EMITTER working to reach this guard at all, which is the
+    // interesting part: the worker evaluates the same text first, so an outright rename
+    // (`const lightt`) never gets here — it fails earlier and louder with `light is not
+    // defined`. Measured, not assumed. Indirection is the narrow gap between the two: the
+    // binding still evaluates, but `findConstObject` wants an object LITERAL and now finds
+    // an identifier.
+    const indirect = async (rel: string) => {
+      const text = await readFile(rel);
+      if (rel !== COREPATHS.semantic) return text;
+      // The alias goes BETWEEN the two object literals, not at the end of the file:
+      // `export const semantic = { light, dark }` is the last statement and evaluates at
+      // module init, so a `light` declared after it is a temporal-dead-zone error rather
+      // than the AST miss this case is about.
+      return text
+        .replace('const light: SemanticColorMap = {', 'const lightSrc: SemanticColorMap = {')
+        .replace(
+          'const dark: SemanticColorMap = {',
+          'const light: SemanticColorMap = lightSrc;\nconst dark: SemanticColorMap = {',
+        );
+    };
+    await expect(adapter.read(indirect)).rejects.toThrow(/semantic bindings not located.*light/);
+  }, 60_000);
+
+  it('refuses to read after dispose instead of spawning an orphan', async () => {
+    // `previewWorker()` is a `??=` factory, so clearing it is not enough on its own: a
+    // request arriving after the dev server closed would spawn a `tsx` child that nobody
+    // is left to dispose. Measured before the guard existed — a disposed worker leaked
+    // three processes.
+    const spent = wafflebaseCore({ root: ROOT });
+    spent.dispose();
+    await expect(spent.read(readFile)).rejects.toThrow(/token adapter disposed/);
+    expect(await spent.emit({})).toMatchObject({ ok: false, error: /disposed/ });
+  }, 60_000);
 });
 
 describe('emit()', () => {

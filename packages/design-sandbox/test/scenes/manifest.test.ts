@@ -100,9 +100,12 @@ describe('scenes.config.json', () => {
     // `useParams()` needs present in the matched route. They must describe the same path or
     // the router matches neither: registering the literal path as both is what made a page
     // read `{}` from `useParams` and silently disable every param-gated query.
+    // A scene with no `route` is skipped rather than asserted on: the dedicated case above
+    // reports that, by id, and a non-null assertion here would pre-empt it with a
+    // `TypeError` on `undefined.split` that names no scene at all.
     for (const s of scenes) {
-      if (!s.routePattern) continue;
-      const route = s.route!.split('/');
+      if (!s.routePattern || !s.route) continue;
+      const route = s.route.split('/');
       const pattern = s.routePattern.split('/');
       expect(pattern.length, `${s.id}: route and routePattern differ in depth`).toBe(route.length);
       pattern.forEach((seg, i) => {
@@ -116,7 +119,7 @@ describe('scenes.config.json', () => {
     // segment is standing in for a parameter, so the page reads that parameter and the
     // pattern is mandatory.
     for (const s of scenes) {
-      if (!/(^|\/)(ws-)?fixture(\/|$)/.test(s.route!)) continue;
+      if (!s.route || !/(^|\/)(ws-)?fixture(\/|$)/.test(s.route)) continue;
       expect(s.routePattern, `${s.id}: a fixture segment needs a routePattern`).toBeTruthy();
     }
   });

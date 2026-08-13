@@ -163,10 +163,29 @@ describe('createPreviewWorker', () => {
       });`);
     try {
       expect((await w.render(SOURCES)).light).toEqual({ '--n': '1' });
-      await new Promise((r) => setTimeout(r, 80));
-      // `--n: 1` again, not `2`: the fresh child's sequence starts over, which is the
-      // observable proof that this is a new process and not the old one.
-      expect((await w.render(SOURCES)).light).toEqual({ '--n': '1' });
+
+      /*
+       * Polled, not slept. The child calls `process.exit` 10 ms after answering, and
+       * `ensure()` only replaces it once the PARENT has observed that exit; a fixed wait
+       * bets on winning that race, and on a loaded machine the write instead lands in a
+       * dying pipe and the test fails for a reason it is not about.
+       *
+       * `--n: 1` again, not `2`, is still the whole assertion — the fresh child's sequence
+       * starts over, which is the observable proof that this is a new process. So a `2`
+       * means the old child answered and the loop simply has not waited long enough yet,
+       * and a worker that never respawned answers nothing at all: the loop then exhausts
+       * and `light` stays undefined, which is the regression this case exists to catch.
+       */
+      let light: Record<string, string> | undefined;
+      for (let i = 0; i < 100; i++) {
+        const r = await w.render(SOURCES);
+        if (r.ok && r.light?.['--n'] === '1') {
+          light = r.light;
+          break;
+        }
+        await new Promise((res) => setTimeout(res, 20));
+      }
+      expect(light, 'no fresh child ever answered').toEqual({ '--n': '1' });
     } finally {
       w.dispose();
     }

@@ -79,6 +79,20 @@ const platformCommand = (command: string): string =>
     ? `${command}.cmd`
     : command;
 
+/**
+ * `detached` on POSIX, so the whole process GROUP can be signalled.
+ *
+ * `pnpm exec tsx` is two wrappers deep: `pnpm` spawns pnpm's own entry, which spawns
+ * `tsx`, which spawns the emitter. Signalling the pid `spawn` returned reaches the
+ * OUTERMOST one only. Measured before this was added: after `dispose()`, three of the
+ * four processes were still alive two seconds later — the emitter itself had exited
+ * (its stdin closed) but the wrapper chain had not.
+ *
+ * Windows has no process groups in this sense and `detached` there opens a new console,
+ * so it stays POSIX-only; `dispose()` falls back to the plain signal.
+ */
+const DETACH = process.platform !== 'win32';
+
 export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorker {
   const timeoutMs = options.timeoutMs ?? 15_000;
 
@@ -102,6 +116,7 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
       child = spawn(platformCommand(options.command), options.args, {
         cwd: options.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: DETACH,
       }) as ChildProcessWithoutNullStreams;
     } catch {
       // `spawn` throws synchronously only for an invalid argument shape; an unfindable
@@ -215,7 +230,29 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
         resolve({ ok: false, error: 'preview worker disposed' });
       }
       w.pending.clear();
-      w.child.kill();
+
+      // Closing stdin is what actually stops the emitter: it ends the child's
+      // `readline`, which is the documented cooperative exit. Do it first so a
+      // well-behaved worker is already leaving before the signal arrives.
+      try {
+        w.child.stdin.end();
+      } catch {
+        /* already closed, or the spawn never produced a pipe */
+      }
+
+      // Then the wrappers, as a group — see `DETACH`. `pid` is undefined when the
+      // spawn itself failed, and a group that has already exited throws ESRCH; both
+      // fall back to the direct signal, which is the whole of it in those cases.
+      try {
+        if (DETACH && w.child.pid != null) process.kill(-w.child.pid, 'SIGTERM');
+        else w.child.kill();
+      } catch {
+        try {
+          w.child.kill();
+        } catch {
+          /* nothing left to kill */
+        }
+      }
     },
   };
 }

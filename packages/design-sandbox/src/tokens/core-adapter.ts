@@ -275,6 +275,16 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
   const injector = (): Promise<Injector> =>
     (injectorPromise ??= import('@wafflebase/design-editor/injector') as unknown as Promise<Injector>);
 
+  /**
+   * Disposal is tracked HERE as well as in the worker, because `previewWorker()` is a
+   * `??=` factory: clearing `worker` alone means the next `read()` or `emit()` spawns a
+   * fresh child that nobody will ever dispose. A request can arrive after the dev server
+   * closed — an in-flight `/tokens` during shutdown is the ordinary case — so refusing is
+   * the difference between an answered error and an orphaned `tsx` process.
+   */
+  let disposed = false;
+  const DISPOSED_ERROR = 'token adapter disposed';
+
   let worker: PreviewWorker | null = null;
   const previewWorker = (): PreviewWorker =>
     (worker ??= createPreviewWorker({
@@ -291,12 +301,20 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
     `${FAMILIES[family].meta.themeVarPrefix}${kebabKey}`;
   const fileOf = (family: TokenFamily) => PATHS[FAMILIES[family].sourceKey];
 
-  /** The four texts the emitter evaluates, or the first one that is missing. */
+  /**
+   * The four texts the emitter evaluates, or the first one that is missing.
+   *
+   * Keyed through `normaliseSource`, the same function `sources()` maps over. The two
+   * agree today only because these `PATHS` values happen to be normal form already; going
+   * through the normalizer is what makes that a guarantee rather than a coincidence, since
+   * the plugin compares these paths as strings and a mismatch fails every `emit()`.
+   */
   const previewSources = (files: Record<string, string>): PreviewSources | { error: string } => {
     const out = {} as PreviewSources;
     for (const key of SOURCE_KEYS) {
-      const text = files[PATHS[key]];
-      if (text == null) return { error: `no text supplied for ${PATHS[key]}` };
+      const rel = normaliseSource(PATHS[key]);
+      const text = files[rel];
+      if (text == null) return { error: `no text supplied for ${rel}` };
       out[key] = text;
     }
     return out;
@@ -336,6 +354,7 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
      * render as "this project has no tokens", which is a lie about a fixable problem.
      */
     async read(readFile: (rel: string) => Promise<string>): Promise<TokenTree> {
+      if (disposed) throw new Error(DISPOSED_ERROR);
       const [semantic, palette, radius, typography, themeCss] = await Promise.all([
         readFile(PATHS.semantic),
         readFile(PATHS.palette),
@@ -351,6 +370,21 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
       const sem = inj.readSemanticBindings(semantic);
       const pal = inj.readPaletteColors(palette);
       const theme = inj.readThemeMappings(themeCss);
+
+      /**
+       * A source read that could not find its const is a FAILURE, not an empty result.
+       *
+       * The same argument as the worker throw above, applied to the other half of `read()`:
+       * these three carry `located` and `reason`, and swallowing them turns a renamed const
+       * in `semantic.ts` into "this family has no bindings" — a lie about a fixable
+       * problem, and one the panel would render as an empty list.
+       *
+       * `theme.mappings` below is deliberately NOT in this set. A project whose stylesheet
+       * has no `@theme inline` block is valid: every token stays editable and none is
+       * reachable as a utility class, which is exactly what `cssVariables` degrades to.
+       */
+      if (!sem.located) throw new Error(`semantic bindings not located: ${sem.reason ?? 'unknown'}`);
+      if (!pal.located) throw new Error(`palette colours not located: ${pal.reason ?? 'unknown'}`);
 
       /**
        * Narrow the injector's four kinds onto the contract's three.
@@ -391,6 +425,8 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
        */
       const leavesOf = (text: string, constName: string): Record<string, string> => {
         const r = inj.readConstLeaves(text, constName);
+        // Same rule as the two reads above: a missing const is reported, not blanked.
+        if (!r.located) throw new Error(`const ${constName} not located: ${r.reason ?? 'unknown'}`);
         return Object.fromEntries((r.leaves ?? []).map((l) => [l.path.join('.'), l.value]));
       };
 
@@ -521,6 +557,9 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
      * an absent variable rather than a wrong one.
      */
     async emit(files: Record<string, string>): Promise<TokenEmitResult> {
+      // Returned rather than thrown, unlike `read()`: `emit()`'s contract is a result
+      // object, and the preview path already reports every other failure that way.
+      if (disposed) return { ok: false, error: DISPOSED_ERROR };
       const sources = previewSources(files);
       if ('error' in sources) return { ok: false, error: sources.error };
       return previewWorker().render(sources);
@@ -540,7 +579,18 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
      */
     async regenerate(): Promise<TokenRegenResult> {
       try {
-        await execFileAsync(pm, ['exec', 'tsx', 'scripts/build-css.ts'], { cwd: coreCwd });
+        await execFileAsync(pm, ['exec', 'tsx', 'scripts/build-css.ts'], {
+          cwd: coreCwd,
+          // Bounded for the same reason the preview worker bounds a render: the bridge
+          // AWAITS this during a save, so an emitter that hangs answers the client with
+          // nothing at all rather than with a failure. A cold `tsx` start is ~2 s, so
+          // this ceiling is generous by two orders of magnitude and only ever fires on a
+          // genuinely stuck child.
+          timeout: 120_000,
+          // Node's default is 1 MB, and exceeding it rejects with ENOBUFS — which this
+          // catch would report as "regeneration failed" even though the CSS was written.
+          maxBuffer: 8 * 1024 * 1024,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // First line only: `execFile`'s message carries the whole command line and the
@@ -554,6 +604,9 @@ export function wafflebaseCore(options: WafflebaseCoreOptions): WafflebaseCoreAd
     },
 
     dispose() {
+      // Set BEFORE tearing the worker down, so a request arriving during shutdown is
+      // refused rather than racing the `??=` factory into a fresh child process.
+      disposed = true;
       worker?.dispose();
       worker = null;
     },
