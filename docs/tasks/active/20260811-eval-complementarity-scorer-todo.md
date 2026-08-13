@@ -444,3 +444,18 @@ None is fixed here; all are edits to merged files this change has no other reaso
 - [ ] **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
       `verify:integration`, `build`. This diff is `scripts/agent/**` and a task doc; nothing
       here can affect them, and CI runs them on the PR regardless.
+
+---
+
+## Follow-up (2026-08-13): the band now reads adjudicated pairs
+
+The section above states the overlap as a band because `groupFindings` never merges a `maybe`,
+and notes that resolving one "needs a curator or the designed-and-unbuilt L3, and both are
+somebody else's PR". The curator's verdicts now exist in the eval store, and
+`eval/pair-labels.mjs` is the record definition plus the resolver that reads them. Every count
+in this document is unchanged: the labelled band lives in new payload fields beside the
+unlabelled ones, because `report.mjs` renders from these.
+
+**See `20260813-pair-label-consumer-todo.md`** — including a defect it found in the ceiling
+described above (`jaccard_upper_bound` can exceed 1 when several CodeRabbit-only classes point
+at one panel class) and deliberately did not fix.

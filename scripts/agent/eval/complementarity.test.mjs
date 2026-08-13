@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFindingRecord } from "./finding-record.mjs";
 import { CLAIMS, TRIAGE_SCORE, VIEWS, complementarityOf, runIdsFrom, windowCensusOf, assertComparableWindow } from "./complementarity.mjs";
+import { pairLabelKey } from "./pair-labels.mjs";
 
 // --- fixtures ---------------------------------------------------------------
 //
@@ -513,4 +514,175 @@ test("runIdsFrom: --run-id is repeatable, because parseArgs keeps only the last 
   assert.deepEqual(runIdsFrom(["node", "s.mjs", "--run-id", "--json"]), []);
   assert.deepEqual(runIdsFrom(["node", "s.mjs"]), []);
   assert.deepEqual(runIdsFrom(undefined), []);
+});
+
+// --- adjudicated pairs: what a label may and may not move -------------------
+//
+// The band is what this whole module reports, so the tests that matter most are the
+// ones that pin which END of it a verdict is allowed to move. A ceiling that drops is
+// what everybody wants from a label store — which is exactly why an off-by-one here
+// would look like success.
+
+/** One item, three defects: one both arms agree on, and two same-file pairs the
+ *  matcher leaves undecided. Baseline band `1/5 = 20%` .. `3/3 = 100%`. */
+const LABELLABLE = () => {
+  const shared = { file: "a.ts", summary: DEFECT_A_PANEL };
+  const sharedCr = { file: "a.ts", summary: DEFECT_A_CODERABBIT };
+  const undecidedPanel = { file: "b.ts", summary: DEFECT_B };
+  const undecidedCr = { file: "b.ts", summary: "unrelated remark about naming" };
+  const otherPanel = { file: "c.ts", summary: DEFECT_C };
+  const otherCr = { file: "c.ts", summary: "a third distinct note" };
+  return {
+    records: [panel(shared), coderabbit(sharedCr), panel(undecidedPanel), coderabbit(undecidedCr), panel(otherPanel), coderabbit(otherCr)],
+    // The key is computed from the FINDINGS, independently of the scorer's own
+    // pairing. If `complementarity.mjs` ever keyed a pair differently — a swapped
+    // argument order, a different normalisation — the label below would match nothing
+    // and this test would fail, which is the only way to check a key across two
+    // programs without testing one against its own output.
+    keyB: pairLabelKey({ ...undecidedPanel, line: null }, { ...undecidedCr, line: null }),
+    keyC: pairLabelKey({ ...otherPanel, line: null }, { ...otherCr, line: null }),
+  };
+};
+
+const DIFF_SHA = `sha256:${"1".repeat(64)}`;
+const goldLabel = (key, verdict) => ({
+  schema: "pair-label",
+  schema_version: 1,
+  pair_key: key,
+  pair_key_at_801: null,
+  pair_key_moved: false,
+  corpus_version: "cv-1",
+  run_id: "run-1",
+  item_id: "pr-1",
+  verdict,
+  label_source: "gold",
+  annotators: ["someone"],
+  confidence: null,
+  confidence_absent_reason: "the worksheet format has no confidence field",
+  diff_sha256: DIFF_SHA,
+});
+const store = (labels) => ({ present: true, dir: "/store/labels/cv-1/pairs", labels, unreadable: [], invalid: [] });
+const LABEL_OPTS = { diffShaOf: () => DIFF_SHA, runId: "run-1" };
+
+test("complementarityOf: a PARTIAL label set moves the FLOOR and NOT the ceiling", () => {
+  // THE CHECK THIS PR EXISTS TO PASS, end to end. One of the two undecided pairs is
+  // adjudicated `same`; the other is untouched. The resolved class leaves the union
+  // AND joins `both`, so the floor rises — while the ceiling's numerator gains
+  // exactly what its denominator loses and the value does not budge.
+  const { records, keyB } = LABELLABLE();
+  const before = complementarityOf(records, { coverage: COVER_1 });
+  assert.equal(before.overlap.jaccard, 1 / 5);
+  assert.equal(before.unresolved.jaccard_upper_bound, 1);
+
+  const after = complementarityOf(records, { coverage: COVER_1, pairLabels: store([goldLabel(keyB, "same")]), ...LABEL_OPTS });
+  const band = after.labels.headline.band;
+  assert.equal(after.labels.availability, "resolved");
+  assert.equal(after.labels.tier, "gold");
+  assert.equal(after.labels.headline.labels.applied, 1, "the label matched a live pair — the key agrees across the two modules");
+  assert.equal(after.labels.headline.resolution.coderabbit_only_resolved_same, 1);
+  assert.equal(band.after.jaccard, 2 / 4, "floor: 1/5 → 2/4");
+  assert.equal(band.floor_moved, true);
+  assert.equal(band.before.jaccard_upper_bound, band.after.jaccard_upper_bound, "THE CEILING MUST NOT MOVE on a partial label set");
+  assert.equal(band.ceiling_moved, false);
+  assert.ok(!after.stats.concerns.some((c) => /CEILING moved/.test(c)), "and no concern claims it did");
+});
+
+test("complementarityOf: the pre-existing band fields keep their meaning when labels exist", () => {
+  // ADAPTERS WIDEN, NEVER NARROW. `report.mjs` renders `overlap.jaccard` and
+  // `unresolved.jaccard_upper_bound` as the band; both must still be the UNLABELLED
+  // numbers, or a consumer that has never heard of a label silently starts printing a
+  // different statistic.
+  const { records, keyB } = LABELLABLE();
+  const before = complementarityOf(records, { coverage: COVER_1 });
+  const after = complementarityOf(records, { coverage: COVER_1, pairLabels: store([goldLabel(keyB, "same")]), ...LABEL_OPTS });
+  assert.deepEqual(after.overlap, before.overlap, "every count in `overlap` is label-blind");
+  assert.equal(after.unresolved.jaccard_upper_bound, before.unresolved.jaccard_upper_bound);
+  assert.equal(after.unresolved.coderabbit_classes_with_a_panel_candidate, before.unresolved.coderabbit_classes_with_a_panel_candidate);
+  assert.equal(after.unresolved.saturated, before.unresolved.saturated);
+  assert.deepEqual(after.byArm, before.byArm);
+  // The labelled band lives in NEW fields, beside them.
+  assert.notEqual(after.labels.headline.band.after.jaccard, after.overlap.jaccard);
+});
+
+test("complementarityOf: a scoring run with no label input says so, rather than reading as unlabelled-and-adjudicated", () => {
+  const { records } = LABELLABLE();
+  const r = complementarityOf(records, { coverage: COVER_1 });
+  assert.equal(r.labels.availability, "not-supplied");
+  assert.equal(r.labels.headline, null, "there is no band to report, and no zeroed one pretending to be it");
+  assert.equal(r.labels.census.n, 0);
+  // An EMPTY store is a different fact from an absent one, and both differ from
+  // "labels exist and resolved nothing here".
+  const empty = complementarityOf(records, { coverage: COVER_1, pairLabels: { present: false, dir: null, labels: [], unreadable: [], invalid: [] }, ...LABEL_OPTS });
+  assert.equal(empty.labels.availability, "no-store");
+  const unmatched = complementarityOf(records, { coverage: COVER_1, pairLabels: store([goldLabel("ffffffffffff", "same")]), ...LABEL_OPTS });
+  assert.equal(unmatched.labels.availability, "none-matched");
+  assert.equal(unmatched.labels.headline.labels.unmatched.length, 1, "and the label is listed, not dropped");
+});
+
+test("complementarityOf: every undecided pair carries the key its label would be filed under", () => {
+  // The queue is a work list, and a curator works from `labels/<cv>/pairs/<key>.json`.
+  // Printing the key beside the pair is what makes the queue adjudicable without a
+  // second tool to compute it — and the class ids answer a different question, so both
+  // are reported.
+  const { records, keyB, keyC } = LABELLABLE();
+  const r = complementarityOf(records, { coverage: COVER_1 });
+  assert.deepEqual(r.unresolved.pairs.map((p) => p.pair_key).sort(), [keyB, keyC].sort());
+  for (const p of r.unresolved.pairs) {
+    assert.match(p.pair_key, /^[0-9a-f]{12}$/);
+    assert.equal(p.groups.length, 2, "the pre-existing field is untouched");
+    // The two sides are named, and named the right way round: the class the label
+    // resolves is the CodeRabbit one.
+    const crClass = r.classes.find((c) => c.id === p.coderabbit_class);
+    const panelClass = r.classes.find((c) => c.id === p.panel_class);
+    assert.ok(crClass.coderabbit_claims > 0 && crClass.panel_claims === 0);
+    assert.ok(panelClass.panel_claims > 0 && panelClass.coderabbit_claims === 0);
+  }
+});
+
+test("complementarityOf: a stale label refuses the whole scoring run", () => {
+  // The drift guard, through the scorer. A label adjudicated against a diff the
+  // corpus no longer holds is refused rather than skipped, because a band computed
+  // over the rest would mix two diffs with nothing in the output saying so.
+  const { records, keyB } = LABELLABLE();
+  assert.throws(
+    () => complementarityOf(records, { coverage: COVER_1, pairLabels: store([goldLabel(keyB, "same")]), diffShaOf: () => `sha256:${"9".repeat(64)}`, runId: "run-1" }),
+    /adjudicated against a diff this corpus no longer holds/,
+  );
+  // And a label store handed over as a bare array is refused too: a list cannot say
+  // whether the store exists or what in it was unreadable.
+  assert.throws(() => complementarityOf(records, { coverage: COVER_1, pairLabels: [goldLabel(keyB, "same")], ...LABEL_OPTS }), /must be the object readPairLabels/);
+});
+
+test("complementarityOf: `insufficient-basis` leaves the pair undecided, so neither bound moves", () => {
+  // Three verdicts, three behaviours — asserted here as well as in the unit tests,
+  // because this is the value whose mishandling would move the CEILING. Both pairs are
+  // adjudicated and neither is DECIDED, so a full label set over this replicate must
+  // leave the band exactly where an empty one does.
+  const { records, keyB, keyC } = LABELLABLE();
+  const r = complementarityOf(records, {
+    coverage: COVER_1,
+    pairLabels: store([goldLabel(keyB, "insufficient-basis"), goldLabel(keyC, "insufficient-basis")]),
+    ...LABEL_OPTS,
+  });
+  assert.equal(r.labels.headline.labels.applied, 2, "both were read");
+  assert.equal(r.labels.availability, "resolved-nothing", "and neither resolved anything");
+  assert.equal(r.labels.headline.resolution.coderabbit_only_finished_apart, 0, "insufficient-basis finishes nothing");
+  assert.equal(r.labels.headline.resolution.coderabbit_only_still_undecided, 2);
+  assert.equal(r.labels.headline.band.floor_moved, false);
+  assert.equal(r.labels.headline.band.ceiling_moved, false);
+  assert.deepEqual(r.labels.headline.band.after, r.labels.headline.band.before);
+
+  // The contrast: `different` on a class whose ONLY pair it is finishes that class,
+  // which is the one movement that lowers the ceiling. Asserted beside the case above
+  // so the difference between the two verdicts is visible in one place.
+  const mixed = complementarityOf(records, {
+    coverage: COVER_1,
+    pairLabels: store([goldLabel(keyB, "insufficient-basis"), goldLabel(keyC, "different")]),
+    ...LABEL_OPTS,
+  });
+  assert.equal(mixed.labels.headline.resolution.coderabbit_only_finished_apart, 1);
+  assert.equal(mixed.labels.headline.resolution.coderabbit_only_still_undecided, 1, "the insufficient-basis class is still in the pool");
+  assert.equal(mixed.labels.headline.band.floor_moved, false, "deciding a pair apart never raises the floor");
+  assert.equal(mixed.labels.headline.band.ceiling_moved, true);
+  assert.match(mixed.stats.concerns.join("\n"), /label-resolved CEILING moved/, "a ceiling that moves is called out, because it is what everyone wants to see");
 });
