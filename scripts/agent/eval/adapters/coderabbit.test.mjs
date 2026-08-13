@@ -21,13 +21,19 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { KNOWN } from "../../severity.mjs";
+import { KNOWN } from "../../vendor/pipeline/severity.mjs";
 import { buildItemMeta } from "../extract-corpus.mjs";
 import { EvalStore } from "../store.mjs";
 import { ARM_ONLY_FIELDS, gatingCensus, validateFindingRecord } from "../finding-record.mjs";
 import {
+  LATENCY_ABSENT,
+  MARKER_TRIGGER,
+  PUSH_PROXY_INTERVAL,
+  SELF_TIMED_INTERVAL,
   SEVERITY_BASIS,
+  START_MARKERS,
   TIER_SEVERITY,
+  TRIGGERS,
   UNSTATED_SEVERITY,
   WINDOW,
   WINDOW_BASIS,
@@ -35,11 +41,17 @@ import {
   codeRabbitItemId,
   codeRabbitRecords,
   corpusRecords,
+  endOfReview,
   fetchCodeRabbitPr,
   inlineFinding,
+  latencyAbsentLine,
+  latencyCensus,
+  latencyLine,
+  latencyOf,
   placeInWindow,
   reviewBodyFindings,
   severityOf,
+  startMarkerOf,
 } from "./coderabbit.mjs";
 
 const BOT = { login: "coderabbitai[bot]" };
@@ -144,6 +156,96 @@ const CR_REPLY = {
   user: BOT,
   body: "`@hackerwins` Thanks for confirming — that resolves the MD040 warning.\n",
 };
+
+// --- the timing fixtures, all four verbatim from the pilot's own API ---------
+
+// issue comment 4951256707 (PR #471, 2026-07-12) — CodeRabbit's per-PR STATUS
+// comment, created 3.0 min before the finding above and edited 15 min after it.
+// Truncated after the two HTML markers, which is all this module reads.
+const CR_STATUS_COMMENT = {
+  id: 4951256707,
+  created_at: "2026-07-12T12:56:36Z",
+  // The last edit, 11.9 min after the review landed. Pinned to keep the reason
+  // `updated_at` is unusable in front of anyone editing this file.
+  updated_at: "2026-07-12T13:11:31Z",
+  user: BOT,
+  body:
+    "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n" +
+    "<!-- review_stack_entry_start -->\n\n[![Review Change Stack](https://storage.googleapis.com/…)\n",
+};
+
+// issue comment 5081900269 (PR #549, 2026-07-26) — the THIRD `@coderabbitai review`
+// ack on that pull request, in full. One such comment per invocation, 434 bytes.
+// pr-549 is the item that reads 183.7 min from the push and 7.8 min from here.
+const CR_ACK_549 = {
+  id: 5081900269,
+  created_at: "2026-07-26T03:58:37Z",
+  updated_at: "2026-07-26T04:06:29Z",
+  user: BOT,
+  body:
+    "<!-- This is an auto-generated reply by CodeRabbit -->\n" +
+    "<!-- CodeRabbit review command invocation: ad4e5877-5865-4d87-bb77-c7fc6336234f -->\n" +
+    "`@hackerwins` I’ll review the changes in `#549`.\n\n<details>\n<summary>✅ Action performed</summary>\n\n" +
+    "Review finished.\n\n> Note: CodeRabbit is an incremental review system and does not re-review already " +
+    "reviewed commits. This command is applicable only when automatic reviews are paused.\n\n</details>",
+};
+
+// issue comment 5144046908 (PR #605, 2026-07-31) — the SECOND ack on that pull
+// request, in full. pr-605 is the dangerous one: its push-anchored figure is a
+// perfectly ordinary 9.8 min, and it is still measuring the wrong interval.
+const CR_ACK_605 = {
+  id: 5144046908,
+  created_at: "2026-07-31T14:36:36Z",
+  updated_at: "2026-07-31T14:44:14Z",
+  user: BOT,
+  body:
+    "<!-- This is an auto-generated reply by CodeRabbit -->\n" +
+    "<!-- CodeRabbit review command invocation: 88166826-7c9b-4441-b504-df8e8fc3657c -->\n" +
+    "`@hackerwins`: I will review the changes in `#605`.\n\n<details>\n<summary>✅ Action performed</summary>\n\n" +
+    "Review finished.\n\n> Note: CodeRabbit is an incremental review system and does not re-review already " +
+    "reviewed commits. This command is applicable only when automatic reviews are paused.\n\n</details>",
+};
+
+// comment 3691216778 (PR #605, 2026-07-31) — a three-field finding on pr-605's frozen
+// commit, posted 7.6 min after the ack above. Truncated at the end.
+const CR_ON_DEMAND_FINDING = {
+  id: 3691216778,
+  path: "docs/tasks/active/20260730-notes-native-undo-todo.md",
+  line: 74,
+  original_line: 74,
+  start_line: 64,
+  original_start_line: 64,
+  commit_id: "1c3ce8e82bf55665337e9315909909c6c67a29d7",
+  original_commit_id: "1c3ce8e82bf55665337e9315909909c6c67a29d7",
+  pull_request_review_id: 4829504855,
+  created_at: "2026-07-31T14:44:10Z",
+  html_url: "https://github.com/wafflebase/wafflebase/pull/605#discussion_r3691216778",
+  user: BOT,
+  body:
+    "_📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_\n\n" +
+    "**Check off completed migration tasks before archiving.**\n\n" +
+    "The implementation and companion lessons document are present, but every task remains unchecked. " +
+    "Mark completed items as `[x]`. Keep this document under `docs/tasks/active/` until merge, then " +
+    "archive it with `pnpm tasks:archive`.\n",
+};
+
+// The three `verify-*` check runs on pr-471's frozen commit, verbatim, with the two
+// fields this module reads. `verify-self` starts 11 s BEFORE CodeRabbit's own marker,
+// which is why the two intervals differ by 0.2 min on that item.
+const CHECK_RUNS_471 = [
+  { id: 86652254076, name: "verify-self (22.x)", started_at: "2026-07-12T12:56:25Z", completed_at: "2026-07-12T13:03:43Z" },
+  { id: 86652855498, name: "verify-integration (22.x)", started_at: "2026-07-12T13:03:45Z", completed_at: "2026-07-12T13:06:06Z" },
+  { id: 86652855496, name: "verify-browser (22.x)", started_at: "2026-07-12T13:03:45Z", completed_at: "2026-07-12T13:06:32Z" },
+];
+
+// The first three of the FOURTEEN check runs on pr-605's frozen commit, ordered as
+// the API returns them rather than by time — `min` is the rule under test, and a
+// fixture that arrives pre-sorted cannot fail when the rule stops sorting.
+const CHECK_RUNS_605 = [
+  { id: 91186275828, name: "verify-browser (22.x)", started_at: "2026-07-31T14:42:19Z", completed_at: "2026-07-31T14:47:09Z" },
+  { id: 91184372032, name: "verify-self (22.x)", started_at: "2026-07-31T14:34:20Z", completed_at: "2026-07-31T14:42:17Z" },
+  { id: 91186275771, name: "verify-integration (22.x)", started_at: "2026-07-31T14:42:27Z", completed_at: "2026-07-31T14:45:25Z" },
+];
 
 // --- review bodies, one per tier --------------------------------------------
 
@@ -910,6 +1012,329 @@ test("an unrecognised review section is reported rather than read as 'no finding
   assert.deepEqual(out.declared.unrecognised, [{ review_id: "9", title: "🆕 Some brand new tier", declared: 3 }]);
 });
 
+// --- latency ------------------------------------------------------------------
+
+/** The pr-471 item, records and both timing reads, as the fetch would hand it over. */
+const lat471 = (over = {}) =>
+  latencyOf(one({ reviewCommit: CR_THREE_FIELD.original_commit_id, commits: commits(CR_THREE_FIELD.original_commit_id), comments: [CR_THREE_FIELD], reviews: [] }), {
+    issueComments: [CR_STATUS_COMMENT],
+    checkRuns: CHECK_RUNS_471,
+    ...over,
+  });
+
+test("latencyOf: both intervals on a real pilot item, to the second", () => {
+  const l = lat471();
+  // 12:56:36 → 12:59:36. CodeRabbit's own clock, and the figure to prefer.
+  assert.equal(l.self_timed.ms, 180_000);
+  assert.equal(l.self_timed.started_at, "2026-07-12T12:56:36Z");
+  assert.equal(l.self_timed.marker, "status-comment");
+  assert.equal(l.self_timed.interval, SELF_TIMED_INTERVAL);
+  assert.equal(l.self_timed.poolable, true);
+  // 12:56:25 → 12:59:36, off `verify-self`, which is 11 s earlier than the marker.
+  // The proxy therefore reads LONGER here — as it must, since it includes the seconds
+  // CodeRabbit spent noticing the push.
+  assert.equal(l.push_proxy.ms, 191_000);
+  assert.equal(l.push_proxy.started_at, "2026-07-12T12:56:25Z");
+  assert.equal(l.push_proxy.interval, PUSH_PROXY_INTERVAL);
+  assert.equal(l.push_proxy.check_runs, 3);
+  assert.equal(l.push_proxy.poolable, true);
+  // An automatic review: nothing asked for it, so the push is what it answered.
+  assert.equal(l.trigger, "automatic");
+  assert.equal(l.ended_at, CR_THREE_FIELD.created_at);
+  assert.equal(l.ended_source, "inline-comment");
+  assert.equal(l.absent, null);
+  // `updated_at` is 13:11:31 — 11.9 min after the review. If the start ever came off
+  // it, this item would read 15.0 min instead of 3.0.
+  assert.notEqual(l.self_timed.ms, Date.parse(CR_STATUS_COMMENT.updated_at) - Date.parse(CR_THREE_FIELD.created_at));
+});
+
+test("latencyOf: an ON-DEMAND review is timed from the ack, and the push proxy is not poolable", () => {
+  const l = latencyOf(
+    codeRabbitRecords({
+      pr: 605,
+      reviewCommit: CR_ON_DEMAND_FINDING.commit_id,
+      commits: commits(CR_ON_DEMAND_FINDING.commit_id),
+      comments: [CR_ON_DEMAND_FINDING],
+      reviews: [],
+    }),
+    // BOTH acks, in the order the endpoint returns them: 13:20:17 for the first
+    // invocation and 14:36:36 for the second. Only the second one started this review.
+    { issueComments: [{ ...CR_ACK_605, id: 5143912253, created_at: "2026-07-31T13:20:17Z", updated_at: "2026-07-31T13:20:22Z" }, CR_ACK_605], checkRuns: CHECK_RUNS_605 },
+  );
+  assert.equal(l.trigger, "on-demand");
+  // 14:36:36 → 14:44:10 = 7.6 min. Squarely inside the range of the five automatic
+  // items (2.6–14.4), which is the point: this was never a slow review.
+  assert.equal(l.self_timed.ms, 454_000);
+  assert.equal(l.self_timed.marker, "review-command-invocation");
+  assert.equal(l.self_timed.poolable, true);
+  // 14:34:20 → 14:44:10 = 9.8 min, and it is REPORTED — dropping it silently is how
+  // an unexplained figure ends up quoted in one document and deleted from the next.
+  assert.equal(l.push_proxy.ms, 590_000);
+  // …but not poolable, and THIS is the case the guard exists for: 9.8 min is an
+  // entirely plausible push→review latency, so nothing about the number itself says
+  // it is measuring a human's timing rather than CodeRabbit's.
+  assert.equal(l.push_proxy.poolable, false);
+});
+
+test("latencyOf: pr-549's 183.7 min is a human's delay, not a review", () => {
+  // The real instants from PR #549, with the record shape this function reads: the
+  // frozen commit's earliest check run at 01:02:46, three `@coderabbitai review`
+  // asks, and one finding at 04:06:25 — 7.8 min after CodeRabbit took the third ask.
+  const item = {
+    population_state: "present",
+    records: [{ coderabbit: { window: "in-window", posted_at: "2026-07-26T04:06:25Z", source: "inline-comment" } }],
+  };
+  const l = latencyOf(item, {
+    issueComments: [
+      { ...CR_ACK_549, id: 5075436781, created_at: "2026-07-25T10:37:46Z" },
+      { ...CR_ACK_549, id: 5080611192, created_at: "2026-07-25T23:29:49Z" },
+      CR_ACK_549,
+    ],
+    checkRuns: [{ name: "verify-self (22.x)", started_at: "2026-07-26T01:02:46Z" }],
+  });
+  assert.equal(l.self_timed.ms, 468_000); // 7.8 min
+  assert.equal(l.push_proxy.ms, 11_019_000); // 183.7 min — 23.5× the same review
+  assert.equal(l.push_proxy.poolable, false);
+  assert.equal(l.trigger, "on-demand");
+  // The whole finding, as one assertion: the two bases disagree by a factor of 23 on
+  // the same review, and only one of them is timing the review.
+  assert.ok(l.push_proxy.ms / l.self_timed.ms > 20);
+});
+
+test("startMarkerOf: the LATEST marker before the finding wins", () => {
+  const before = Date.parse("2026-07-26T04:06:25Z");
+  const asks = [
+    { ...CR_ACK_549, created_at: "2026-07-25T10:37:46Z" },
+    CR_ACK_549,
+    { ...CR_ACK_549, created_at: "2026-07-25T23:29:49Z" },
+  ];
+  // Unsorted input, and the first element is the earliest — a rule that took the
+  // first match, or the first in the array, would read 1048.6 min here.
+  assert.equal(startMarkerOf(asks, { before }).started_at, "2026-07-26T03:58:37Z");
+  // A marker AFTER the finding is not a start. pr-549's status comment was created at
+  // 10:37:49 and the fourth ask, had there been one, could not have caused this review.
+  assert.equal(startMarkerOf([{ ...CR_ACK_549, created_at: "2026-07-26T04:10:00Z" }], { before }).absent, "no-start-marker");
+  // Same second is not "before" either: a zero-length review is not a measurement.
+  assert.equal(startMarkerOf([{ ...CR_ACK_549, created_at: "2026-07-26T04:06:25Z" }], { before }).absent, "no-start-marker");
+});
+
+test("startMarkerOf: a human cannot move the other arm's clock", () => {
+  // The markers are public strings in public comment bodies. Anyone may paste one.
+  const forged = { id: 1, created_at: "2026-07-26T04:06:00Z", user: { login: "hackerwins" }, body: CR_ACK_549.body };
+  assert.equal(startMarkerOf([forged], { before: Date.parse("2026-07-26T04:06:25Z") }).absent, "no-start-marker");
+  // …and `coderabbitai-x`, which anyone can register, is not `coderabbitai[bot]`.
+  const lookalike = { ...forged, user: { login: "coderabbitai-x" } };
+  assert.equal(startMarkerOf([lookalike], { before: Date.parse("2026-07-26T04:06:25Z") }).absent, "no-start-marker");
+  assert.equal(startMarkerOf([{ ...forged, user: BOT }], { before: Date.parse("2026-07-26T04:06:25Z") }).marker, "review-command-invocation");
+});
+
+test("startMarkerOf and MARKER_TRIGGER are one vocabulary, stated twice", () => {
+  // Every marker maps to a declared trigger, and every trigger a marker can produce
+  // is in TRIGGERS. The pair is what stops a third marker arriving with no trigger.
+  assert.deepEqual(Object.keys(START_MARKERS), Object.keys(MARKER_TRIGGER));
+  for (const [marker, trigger] of Object.entries(MARKER_TRIGGER)) {
+    assert.ok(TRIGGERS.includes(trigger), `${marker} → ${trigger} is not in TRIGGERS`);
+    const got = startMarkerOf([{ id: 1, created_at: "2026-01-01T00:00:00Z", user: BOT, body: START_MARKERS[marker] }], { before: Date.parse("2026-01-02T00:00:00Z") });
+    assert.equal(got.marker, marker);
+    assert.equal(got.trigger, trigger);
+  }
+});
+
+test("latencyOf: every absent flavour, and not one of them is a zero", () => {
+  const inWindow = (over = {}) => ({ population_state: "present", records: [{ coderabbit: { window: "in-window", posted_at: "2026-07-12T12:59:36Z", source: "inline-comment", ...over } }] });
+  const ok = { issueComments: [CR_STATUS_COMMENT], checkRuns: CHECK_RUNS_471 };
+  const cases = {
+    // The six that end the interval, so BOTH figures go with them.
+    "findings-unavailable": [{ population_state: "absent", records: [] }, ok],
+    "no-finding": [{ population_state: "present", records: [] }, ok],
+    "no-review-commit": [{ population_state: "present", records: [{ coderabbit: { window: "no-window" } }] }, ok],
+    "finding-unplaceable": [{ population_state: "present", records: [{ coderabbit: { window: "unplaceable" } }] }, ok],
+    "no-in-window-finding": [{ population_state: "present", records: [{ coderabbit: { window: "after-window" } }] }, ok],
+    "posted-at-absent": [inWindow({ posted_at: null }), ok],
+    // The per-interval ones, which cost one figure and leave the other standing.
+    "issue-comments-unavailable": [inWindow(), { ...ok, issueComments: null }],
+    "no-start-marker": [inWindow(), { ...ok, issueComments: [] }],
+    "check-runs-unavailable": [inWindow(), { ...ok, checkRuns: null }],
+    "no-check-run": [inWindow(), { ...ok, checkRuns: [] }],
+    "check-run-start-absent": [inWindow(), { ...ok, checkRuns: [{ name: "verify-self (22.x)", started_at: null }] }],
+    // CodeRabbit posting before a QUEUED check run starts. Not broken, and not a
+    // negative duration either.
+    "start-after-finding": [inWindow(), { ...ok, checkRuns: [{ name: "verify-self (22.x)", started_at: "2026-07-12T13:30:00Z" }] }],
+  };
+  const seen = new Set();
+  for (const [flavour, [item, reads]] of Object.entries(cases)) {
+    const l = latencyOf(item, reads);
+    const hit = [l.self_timed, l.push_proxy].filter((s) => s.absent === flavour);
+    assert.ok(hit.length > 0, `${flavour} was not reported by either interval`);
+    for (const s of hit) {
+      // The whole point of the vocabulary: never 0, never a number.
+      assert.equal(s.ms, null, `${flavour} produced a duration`);
+      assert.equal(s.poolable, false, `${flavour} is poolable`);
+    }
+    seen.add(flavour);
+  }
+  // The list and the reachable set are one fact: a flavour nothing can produce is
+  // decoration, and one this table cannot produce is untested.
+  assert.deepEqual([...LATENCY_ABSENT].sort(), [...seen].sort());
+});
+
+test("endOfReview: the EARLIEST in-window finding ends the interval, from either half", () => {
+  const rec = (posted_at, source) => ({ coderabbit: { window: "in-window", posted_at, source } });
+  const ends = (...records) => {
+    const e = endOfReview({ population_state: "present", records });
+    // …and through the consumer, so the pair cannot agree here and differ there.
+    const l = latencyOf({ population_state: "present", records }, { issueComments: [CR_ACK_549], checkRuns: [] });
+    assert.deepEqual([l.ended_at, l.ended_source], [e.ended_at, e.ended_source]);
+    return [e.ended_at, e.ended_source];
+  };
+  // Both halves of CodeRabbit's output are candidates, and the earliest wins whichever
+  // half it came from — measured on the pilot, the review's `submitted_at` follows its
+  // own first inline comment by 1–2 s on 7 of 7 items, so this order is what decides
+  // which of the two the figure is built from.
+  assert.deepEqual(ends(rec("2026-07-26T04:10:00Z", "review-body"), rec("2026-07-26T04:06:25Z", "inline-comment")), ["2026-07-26T04:06:25Z", "inline-comment"]);
+  // …and the other way round, so the answer is the timestamp rather than the source:
+  // an item where CodeRabbit wrote ONLY a review body still has an end.
+  assert.deepEqual(ends(rec("2026-07-26T04:10:00Z", "inline-comment"), rec("2026-07-26T04:06:25Z", "review-body")), ["2026-07-26T04:06:25Z", "review-body"]);
+  assert.deepEqual(ends(rec("2026-07-26T04:06:25Z", "review-body")), ["2026-07-26T04:06:25Z", "review-body"]);
+});
+
+test("endOfReview: an unplaceable finding beside a later one is unplaceable, not 'later'", () => {
+  // A reachable mix, unlike the others: a force-push can leave some findings on a
+  // commit no longer on the pull request while others sit after the frozen one. The
+  // two stories are different — one is OUR failure to place, the other is CodeRabbit
+  // reviewing code our panel never saw — and the unactionable one must not absorb it.
+  const l = latencyOf(
+    { population_state: "present", records: [{ coderabbit: { window: "after-window" } }, { coderabbit: { window: "unplaceable" } }] },
+    { issueComments: [CR_STATUS_COMMENT], checkRuns: CHECK_RUNS_471 },
+  );
+  assert.equal(l.self_timed.absent, "finding-unplaceable");
+  assert.equal(l.push_proxy.absent, "finding-unplaceable");
+});
+
+test("latencyOf: the end's absence wins over the start's, on both intervals", () => {
+  // No frozen window AND no timing reads at all. Reporting `issue-comments-unavailable`
+  // here would file our own scoping decision as a gap in CodeRabbit's output.
+  const l = latencyOf({ population_state: "present", records: [{ coderabbit: { window: "no-window" } }] }, { issueComments: null, checkRuns: null });
+  assert.equal(l.self_timed.absent, "no-review-commit");
+  assert.equal(l.push_proxy.absent, "no-review-commit");
+  assert.equal(l.trigger, "unknown");
+});
+
+test("latencyCensus: every declared absence is printed, including the zeros", () => {
+  const census = latencyCensus([{ latency: lat471() }, { latency: latencyOf({ population_state: "present", records: [] }, {}) }]);
+  assert.equal(census.n, 2);
+  assert.equal(census.ended, 1);
+  assert.deepEqual(census.triggers, { automatic: 1, "on-demand": 0, unknown: 1 });
+  assert.equal(census.self_timed.measured, 1);
+  assert.equal(census.push_proxy.poolable, 1);
+  // Every flavour has a row on both intervals, whether or not it fired. `no-check-run`
+  // is the one that has never occurred on real data — all seven pilot items carry
+  // check runs — which makes it exactly the row whose absence nobody would notice.
+  for (const key of ["self_timed", "push_proxy"]) {
+    assert.deepEqual(Object.keys(census[key].absent).sort(), [...LATENCY_ABSENT].sort());
+    assert.equal(census[key].absent["no-check-run"], 0);
+    assert.equal(census[key].absent["no-finding"], 1);
+  }
+});
+
+test("latencyAbsentLine: the declared zeros, AND a flavour nobody declared", () => {
+  const census = latencyCensus([{ latency: latencyOf({ population_state: "present", records: [] }, {}) }]);
+  const line = latencyAbsentLine(census.self_timed.absent);
+  // Every declared flavour, at its count, in declared order — so the rows are
+  // comparable between runs and `no-check-run=0` is visible on a run where it never
+  // happened.
+  assert.equal(line, LATENCY_ABSENT.map((f) => `${f}=${f === "no-finding" ? 1 : 0}`).join(" "));
+  // …and the bucket `latencyCensus` opens for an absence nobody declared. Printing
+  // only the declared list would count it and then hide it, which is the failure the
+  // census exists to prevent.
+  assert.match(latencyAbsentLine({ ...census.self_timed.absent, "some-new-absence": 3 }), /UNRECOGNISED some-new-absence=3$/);
+  assert.equal(latencyAbsentLine(null), LATENCY_ABSENT.map((f) => `${f}=0`).join(" "));
+});
+
+test("latencyLine: the interval and its caveat are on the same line as the number", () => {
+  const line = latencyLine(lat471());
+  assert.match(line, /self-timed 3\.0m/);
+  assert.match(line, /push-proxy 3\.2m \(3 check run\(s\), UNDERSTATES/);
+  assert.match(line, /trigger automatic/);
+  // The on-demand warning, and NOT POOLABLE beside the figure it disqualifies.
+  const onDemand = latencyLine(latencyOf({ population_state: "present", records: [{ coderabbit: { window: "in-window", posted_at: "2026-07-26T04:06:25Z", source: "inline-comment" } }] }, { issueComments: [CR_ACK_549], checkRuns: [{ started_at: "2026-07-26T01:02:46Z" }] }));
+  assert.match(onDemand, /push-proxy 183\.7m NOT POOLABLE/);
+  assert.match(onDemand, /ON-DEMAND: the push proxy measures a human's delay in asking/);
+});
+
+test("fetchCodeRabbitPr: the timing reads use the endpoint contract each one needs", () => {
+  const calls = [];
+  const out = fetchCodeRabbitPr(471, {
+    reviewCommit: "42d17c8d81b9fa0bac6be942d06c3e1e455b1a94",
+    api: (argv) => {
+      calls.push(argv);
+      // The check-runs endpoint returns an OBJECT PER PAGE, which is why it is read
+      // through `commitCheckRuns` and its `--slurp`: plain `--paginate` concatenates
+      // those objects into text that is not valid JSON.
+      if (argv.some((a) => String(a).includes("/check-runs"))) return [{ total_count: 3, check_runs: CHECK_RUNS_471 }];
+      if (argv.some((a) => String(a).includes("/issues/471/comments"))) return [CR_STATUS_COMMENT];
+      return [];
+    },
+    log: () => {},
+  });
+  assert.deepEqual(out.issueComments, [CR_STATUS_COMMENT]);
+  assert.deepEqual(out.checkRuns, CHECK_RUNS_471);
+  const argvFor = (needle) => calls.find((c) => c.some((a) => String(a).includes(needle)));
+  // Issue comments are a BARE ARRAY endpoint: `--paginate`, no `--slurp`. A missing
+  // `--paginate` reads one page of 100 and silently loses the marker on a busy PR.
+  assert.ok(argvFor("/issues/471/comments").includes("--paginate"));
+  assert.ok(!argvFor("/issues/471/comments").includes("--slurp"));
+  // Check runs are the object-wrapped one: both flags.
+  assert.ok(argvFor("/check-runs").includes("--paginate"));
+  assert.ok(argvFor("/check-runs").includes("--slurp"));
+  // And the review comments the interval ENDS on are still paginated, which is what
+  // stops a short list reading as "CodeRabbit said nothing here".
+  assert.ok(argvFor("/pulls/471/comments").includes("--paginate"));
+});
+
+test("fetchCodeRabbitPr: no frozen commit means no check-runs call, and an absent proxy", () => {
+  const calls = [];
+  const out = fetchCodeRabbitPr(471, { api: (argv) => (calls.push(argv), []), log: () => {} });
+  // `null`, never `[]`: "nobody asked for a window" is not "that commit has no runs".
+  assert.equal(out.checkRuns, null);
+  assert.equal(calls.filter((c) => c.some((a) => String(a).includes("/check-runs"))).length, 0);
+});
+
+test("fetchCodeRabbitPr: a failed timing read is absent, and REFUSES on an unexpandable repo", () => {
+  const logged = [];
+  const out = fetchCodeRabbitPr(471, {
+    reviewCommit: "42d17c8d81b9fa0bac6be942d06c3e1e455b1a94",
+    api: (argv) => {
+      if (String(argv.join(" ")).includes("/check-runs")) throw new Error("HTTP 502");
+      return [];
+    },
+    log: (m) => logged.push(m),
+  });
+  assert.equal(out.checkRuns, null);
+  assert.match(logged.join("\n"), /could not read check runs \(HTTP 502\); the push-time proxy is absent, not zero/);
+
+  // THE FOOTGUN, AS AN ASSERTION. Verbatim from `gh` 2026-08-12, run from a directory
+  // with no git repository and no GH_REPO set. Every call in this file would fail the
+  // same way, and each one degrading to `absent` yields a complete, plausible,
+  // entirely empty result — previously measured as 0 CodeRabbit records across a whole
+  // corpus version. #790 fixed the CI half by setting a workflow-level GH_REPO; no
+  // workflow assertion can see a local invocation, which is where this CLI runs.
+  const unexpandable = () => {
+    throw new Error("unable to expand placeholder in path: failed to run git: fatal: not a git repository (or any of the parent directories): .git");
+  };
+  assert.throws(() => fetchCodeRabbitPr(471, { api: unexpandable, log: () => {} }), /could not expand \{owner\}\/\{repo\}.*Set GH_REPO=wafflebase\/wafflebase/s);
+  // The same refusal on the timing read, not only on the first call.
+  assert.throws(
+    () =>
+      fetchCodeRabbitPr(471, {
+        reviewCommit: "42d17c8d81b9fa0bac6be942d06c3e1e455b1a94",
+        api: (argv) => (String(argv.join(" ")).includes("/check-runs") ? unexpandable() : []),
+        log: () => {},
+      }),
+    /could not expand \{owner\}\/\{repo\}/,
+  );
+});
+
 // --- end to end, over the frozen pilot corpus -------------------------------
 
 test("END TO END: a real corpus item through a real EvalStore, no network", () => {
@@ -923,8 +1348,10 @@ test("END TO END: a real corpus item through a real EvalStore, no network", () =
     // The API is INJECTED, so this drives the real store and the real mapping and
     // still needs no token, no network and no money.
     const api = (argv) => {
-      const ep = argv[argv.length - 1];
-      if (ep.includes("/commits")) return commits("42d17c8d81b9fa0bac6be942d06c3e1e455b1a94", "e8e729031dae38a8ea612f5305729d2f78bd69d5");
+      const ep = argv.find((a) => String(a).startsWith("repos/")) ?? argv[argv.length - 1];
+      if (ep.includes("/check-runs")) return [{ total_count: 3, check_runs: CHECK_RUNS_471 }];
+      if (ep.includes("/issues/471/comments")) return [CR_STATUS_COMMENT];
+      if (ep.includes("/pulls/471/commits")) return commits("42d17c8d81b9fa0bac6be942d06c3e1e455b1a94", "e8e729031dae38a8ea612f5305729d2f78bd69d5");
       if (ep.includes("/reviews")) return [RV_NITPICK_STATED];
       return [CR_THREE_FIELD, CR_REPLY];
     };
@@ -938,6 +1365,16 @@ test("END TO END: a real corpus item through a real EvalStore, no network", () =
     assert.equal(perItem[0].records[0].item_id, "pr-471");
     assert.equal(perItem[0].dropped.length, 1);
     for (const r of perItem[0].records) validateFindingRecord(r);
+    // The latency rides on the ITEM, off the same records — and the finding that ends
+    // the interval is in-window on `original_commit_id` ALONE: its `commit_id` is
+    // `e8e72903…`, a later commit. Take the current field first and this item has no
+    // in-window finding, so the timing reads would be discarded as `no-in-window-finding`
+    // while both endpoints answered perfectly.
+    assert.equal(perItem[0].records[0].coderabbit.at_commit, CR_THREE_FIELD.original_commit_id);
+    assert.notEqual(CR_THREE_FIELD.commit_id, "42d17c8d81b9fa0bac6be942d06c3e1e455b1a94");
+    assert.equal(perItem[0].latency.self_timed.ms, 180_000);
+    assert.equal(perItem[0].latency.push_proxy.ms, 191_000);
+    assert.equal(perItem[0].latency.trigger, "automatic");
     assert.throws(() => corpusRecords(store, "nope", { api }), /does not exist under this root/);
   } finally {
     rmSync(root, { recursive: true, force: true });

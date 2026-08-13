@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { Client as PgClient } from 'pg';
 import yorkie, { Client, SyncMode } from '@yorkie-js/sdk';
+import { snapshotJsonRoot } from '../src/yorkie/yorkie-json';
 
 type CliOptions = {
   databaseUrl: string;
@@ -14,134 +15,6 @@ type CliOptions = {
 };
 
 type YorkieRoot = Record<string, unknown>;
-
-function escapeControlCharsInJson(input: string): string {
-  let output = '';
-  let inString = false;
-  let escaped = false;
-
-  for (const char of input) {
-    if (!inString) {
-      output += char;
-      if (char === '"') {
-        inString = true;
-      }
-      continue;
-    }
-
-    if (escaped) {
-      output += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      output += char;
-      escaped = true;
-      continue;
-    }
-
-    if (char === '"') {
-      output += char;
-      inString = false;
-      continue;
-    }
-
-    const code = char.charCodeAt(0);
-    if (code < 0x20) {
-      switch (char) {
-        case '\b':
-          output += '\\b';
-          break;
-        case '\f':
-          output += '\\f';
-          break;
-        case '\n':
-          output += '\\n';
-          break;
-        case '\r':
-          output += '\\r';
-          break;
-        case '\t':
-          output += '\\t';
-          break;
-        default:
-          output += `\\u${code.toString(16).padStart(4, '0')}`;
-          break;
-      }
-      continue;
-    }
-
-    output += char;
-  }
-
-  return output;
-}
-
-function parseJsonSnapshot(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    if (
-      !(error instanceof SyntaxError) ||
-      !error.message.includes('control character')
-    ) {
-      throw error;
-    }
-
-    return JSON.parse(escapeControlCharsInJson(value));
-  }
-}
-
-function normalizeSnapshot(value: unknown): YorkieRoot {
-  let current = value;
-
-  while (typeof current === 'string') {
-    current = parseJsonSnapshot(current);
-  }
-
-  if (typeof current !== 'object' || current === null || Array.isArray(current)) {
-    throw new Error('Yorkie document root snapshot is not an object');
-  }
-
-  return current as YorkieRoot;
-}
-
-function detachYorkieValue(value: unknown): unknown {
-  if (typeof value === 'function' || typeof value === 'symbol') {
-    return undefined;
-  }
-
-  if (typeof value === 'bigint') {
-    const asNumber = Number(value);
-    return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
-  }
-
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => detachYorkieValue(item));
-  }
-
-  if (typeof value !== 'object') {
-    return value;
-  }
-
-  const entries = Object.entries(value as Record<string, unknown>);
-  return Object.fromEntries(
-    entries.flatMap(([key, child]) => {
-      const detached = detachYorkieValue(child);
-      return detached === undefined ? [] : [[key, detached]];
-    }),
-  );
-}
 
 function usage(): string {
   return `Usage:
@@ -311,21 +184,9 @@ async function copyDocument(
   await targetClient.attach(targetDoc, { syncMode: SyncMode.Manual });
 
   try {
-    let snapshot: YorkieRoot;
-    try {
-      snapshot = normalizeSnapshot(JSON.parse(sourceDoc.toJSON()));
-    } catch {
-      try {
-        // Some documents contain control characters that Yorkie's raw JSON
-        // string path does not escape correctly, but JSON.stringify(root)
-        // still produces a valid detached snapshot for most cases.
-        snapshot = normalizeSnapshot(
-          JSON.parse(JSON.stringify(sourceDoc.getRoot())),
-        );
-      } catch {
-        snapshot = normalizeSnapshot(detachYorkieValue(sourceDoc.getRoot()));
-      }
-    }
+    // Three-tier snapshot (toJSON -> stringify(root) -> proxy walk), shared
+    // with the backend's "Make a copy" service.
+    const snapshot = snapshotJsonRoot(sourceDoc) as YorkieRoot;
 
     targetDoc.update((root) => {
       replaceRoot(root as YorkieRoot, snapshot);

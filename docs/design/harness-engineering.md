@@ -196,7 +196,45 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: 27 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+| `pnpm verify:doc-index` | Index-coverage gate — every package, design doc and top-level script is reachable from its README |
+| `pnpm verify:self` | Runner: 28 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+
+`verify:entropy` and `verify:doc-index` are complements over the same prose and
+must not be folded together. Entropy walks *links → disk*: for each reference in
+`docs/design/**/*.md` it checks the target still exists, which catches a file
+that moved or was deleted. Doc-index walks *disk → index*: it catches a file
+that was added and never indexed, which nothing points at and which therefore
+leaves no broken reference to find. That second direction is why
+`packages/README.md` was missing four of eleven packages while every link in it
+still resolved.
+
+Entropy reads every design doc, at any depth. It used to read only the top
+level, which meant 24 of 110 — the convention it enforces was contradicted 886
+times in the subdirectories it never opened. It resolves a reference the way a
+reader does: against the repository root, the citing document's own directory,
+the design directory, and finally the tail of a tracked path, so the
+package-relative and elided forms the docs actually use resolve instead of being
+reported as missing.
+
+What it cannot do is tell drift from a doc naming a file on purpose to record
+that the file does *not* exist — "a mixed selection renders no per-type section,
+so there is no `mixed-controls.tsx`" is accurate prose, not a stale link. Those
+carry an `entropy.docStaleness.advisory` entry in `harness.config.json`, each
+with a reason, printed on every run and never counted toward failure. Prefer the
+`doc` + `ref` shape over `pattern`: it downgrades one named reference and leaves
+the rest of that doc blocking, so a doc carrying a planned-file name today still
+fails on real drift tomorrow.
+
+Entropy still reads no README outside the design tree, so doc-index drops any
+link resolving to a nonexistent path before counting it as coverage, which is
+the only dead-link check the package and script indexes get.
+
+Coverage is top-level by design. A directory counts as covered once its index
+names it — `scripts/agent/` alone holds over a hundred files, and a gate
+demanding a row per file produces an index nobody maintains. The same rule lets
+one umbrella row cover a subtree: `docs/design/README.md` links `docs/tables/`
+once, and an ancestor-directory link covers the per-feature docs beneath it, so
+no exception list has to be kept in the gate.
 
 **Lanes are a graph, not a list.** Each lane declares what it is *about*
 (`pkgs` / `tags` / `anyPkg`) and what it needs *built* (`needs`), and selection
@@ -332,9 +370,39 @@ Yorkie to run tests that cannot reach `scripts/agent/`. Two layers fix that.
 **Why it is a job and not a trigger.** A workflow filtered out by `on: paths:`
 produces **no check run at all**. `main`'s required contexts then never report,
 and a merge-queue entry waits on them until its status-check timeout dequeues it.
-A job whose `if:` is false **is** recorded — as `skipped`, which GitHub counts as
-passing for both required checks and the queue. Everything below follows from
-that asymmetry.
+A job that runs reports under a name the queue recognises.
+
+**And why the gate is on the steps, not on the job.** The obvious version — give
+the heavy jobs a job-level `if:` and let GitHub record them as `skipped`, which
+does satisfy a required check — is wrong, and #803 shipped it before a real
+merge-queue entry proved it. **A job with a `strategy.matrix` that is skipped by
+its own `if:` never expands the matrix**, so it files its check run under the bare
+job name. Measured on the `merge_group` SHA for #799:
+
+```
+verify-self (22.x)      success     ← ran, so the matrix expanded
+verify-browser          skipped     ← BARE NAME
+verify-integration      skipped     ← BARE NAME
+```
+
+`main` requires `verify-browser (22.x)` and `verify-integration (22.x)`. Neither
+name existed on that SHA, so the entry sat on *"Expected — Waiting for status to
+be reported"* and would have been dequeued at the status-check timeout — the exact
+failure the job-level filter was chosen to avoid, reached by a different route:
+not a missing check *run*, a missing check *name*. MAINTAINING.md's warning that
+"required check names must keep matching" is about renaming a job; skipping a
+matrix job renames it too.
+
+So `verify-browser` and `verify-integration` always run and always expand, and
+every step inside them carries the gate. When there is nothing to test they no-op
+and report success in seconds — the semantics the skip was reaching for, under a
+name that exists. `scripts/test/ci-workflow.test.mjs` fails if either job regains
+a job-level `if:` referencing the filter decision, or if a step loses its gate.
+
+A matrix job *may* still carry an `if:` that can only be false when the run is
+already doomed: `needs.verify-self.result == 'success'` is fine, because a failed
+`verify-self (22.x)` reports the failure and the entry is dequeued rather than
+stranded.
 
 **The mapping is an allow-list.** `harness.config.json`'s `ci.inert` lists the
 only paths permitted to shrink a run; a changed path matching nothing forces the

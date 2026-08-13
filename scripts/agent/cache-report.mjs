@@ -38,8 +38,8 @@ import {
   sampleCountFor,
   cacheCoreClasses,
   splitLensDiff,
-} from "./review-panel.mjs";
-import { TOKEN_WEIGHTS } from "./metrics.mjs";
+} from "./vendor/pipeline/review-panel.mjs";
+import { TOKEN_WEIGHTS } from "./vendor/pipeline/metrics.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

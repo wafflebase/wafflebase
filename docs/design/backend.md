@@ -174,6 +174,14 @@ allowed to delete or move it (`DocumentController.resolveDocManager`).
 - Move (`{ workspaceId }`) — manager only (owner or author); the caller must
   also be a member of the destination workspace. `403` otherwise.
 
+**`POST /documents/:id/copy`**
+- Duplicates the document into the same workspace and folder as
+  `<title> (copy)`, owned by the caller — see
+  [document-copy.md](document-copy.md).
+- Requires workspace membership only, **not** the manager gate: copying neither
+  modifies, moves, nor destroys the source. This is the one document action
+  where the two gates diverge.
+
 **`DELETE /documents/:id`**
 - Deletes the document if the caller is its manager (workspace owner or author).
 - Throws `ForbiddenException` (403) for a non-manager member. Best-effort blob

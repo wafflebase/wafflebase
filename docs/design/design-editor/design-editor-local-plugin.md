@@ -108,6 +108,14 @@ Every file on `feat/design-system` falls into exactly one of three populations.
 `src/scenes/fixtures/**`, `data/mock-metadata.ts`, `scenes.config.json`,
 `src/scenes/providers.tsx`.
 
+> **`packages/design-sandbox` does not exist yet** — not on `main`, and not on
+> `feat/design-system` either. Every "moves to `design-sandbox`" in this document
+> is a destination that PR **8c** creates, so until it lands, population C has
+> nowhere to go: the plugin PRs *delete* those couplings and wafflebase's own
+> scenes stop rendering in the interval. That is the cost of the boundary being
+> structural, and it is the reason 8c is scheduled rather than assumed — the
+> dogfood is also the only proof the split holds.
+
 **Target layout**
 
 ```text
@@ -183,11 +191,16 @@ interface TokenAdapter {
 }
 ```
 
-Two implementations:
+Two implementations — **one of which does not exist yet:**
 
 - **`cssVariables` (default, ships in the package)** — one stylesheet, `:root` /
   `.dark` blocks, `@theme inline`. `plan()` returns a single write. Covers the
-  shadcn population.
+  shadcn population. **This is net-new code.** Nothing on `feat/design-system`
+  reads or writes a single-stylesheet token layer; the prototype has only the
+  four-file pipeline below. So the default adapter — the one every consumer
+  outside wafflebase gets — is the only part of the token half with no reference
+  implementation to diff against, and the only part whose first version cannot be
+  verified by comparing it to the prototype's behaviour.
 - **`wafflebaseCore` (lives in `design-sandbox`)** — the existing four-file
   pipeline, the `build-css.ts` worker, and the three-point `token-add`. It stays
   exactly as built; it just stops being the assumption.
@@ -236,37 +249,86 @@ the product does not work and the configuration surface has to be redesigned
 ### 6. The couplings that must become configuration
 
 Population B, enumerated. Line numbers are as of `feat/design-system`; the paths
-are given under the post-rename package name.
+are given under the post-rename package name. The `PR` column is the split
+[§8](#8-rollout) settles on.
 
-| Coupling | Where | Becomes |
-| --- | --- | --- |
-| `REPO_ROOT = path.resolve(__dirname, "../..")` | `vite.config.ts:15` | `options.root`, defaulting to Vite's `config.root` |
-| `utilShimPath` / `assertShimPath` | `vite.config.ts:36-37` | drop — mirrors a frontend-specific plugin |
-| `TOKENS_CSS = packages/core/dist/tokens.css` | `vite.config.ts:188` | `TokenAdapter.emit()` |
-| `FRONTEND_SRC` + the `@` alias | `vite.config.ts:350` | consumer's own Vite `resolve.alias`; the plugin must stop adding its own |
-| `packages/{sheets,docs,slides,notes}/src` aliases | `vite.config.ts:624-627` | move to `design-sandbox` |
-| `WATCHED_RE = /^packages\/(frontend\/src\/\|core\/…)/` | `vite.config.ts:912` | `TokenAdapter.sources()` + the scene manifest's files |
-| `BUILD_CSS_FILE` / `THEME_CSS_FILE` | `vite.config.ts:1124,1132` | `TokenAdapter.plan()` |
-| `isTokenSourcePath()` regex on `packages/core/**` | `vite.config.ts:1342` | `TokenAdapter.sources()` |
-| `SEMANTIC_FILE` / `PALETTE_FILE` / `RADIUS_FILE` / `TYPOGRAPHY_FILE` | `src/sandbox/edits.ts:116-119` | server-supplied token metadata — **these are wafflebase paths compiled into client code** |
-| `@import "../../frontend/src/index.css"` + `@source "../../frontend/src"` | `src/sandbox.css` | shell CSS prebuilt and self-contained; the *frame* keeps using the host's stylesheet |
-| `@/components/theme-provider`, `@/app/Layout` | `src/scenes/providers.tsx:40-42` | `options.providers` |
-| `react`, `react-dom`, `@wafflebase/core` as `dependencies` | `package.json` | React → `peerDependencies`; core → gone from the published package |
+**This table was re-verified against the source before PR 8 was scoped, and the
+first revision of it was wrong in two ways** — two rows named one construct and
+pointed at another, and five couplings were missing entirely. Both kinds of error
+are the same failure the package split exists to catch: §2 says a boundary that
+depends on inspection will be missed by inspection, and this enumeration *is* the
+inspection. Corrections are marked ⚠.
 
-Two of these are behaviour changes, not renames:
+| Coupling | Where | Becomes | PR |
+| --- | --- | --- | --- |
+| `REPO_ROOT = path.resolve(__dirname, "../..")` | `vite.config.ts:15` — **50 use sites** | `options.root`, defaulting to Vite's `config.root` | 8a |
+| `utilShimPath` / `assertShimPath` | `vite.config.ts:36-37`, aliased at `2481-2482` | drop — a frontend-specific antlr4ts shim | 8a |
+| ⚠ `antlr4tsAssertShim()`, `yorkieOffline()` + `YORKIE_OFFLINE_SHIM` | `vite.config.ts:51,75,119` | population C — the plugin stops shipping them | 8a drops · 8c re-homes |
+| `FRONTEND_SRC` | `vite.config.ts:350`, used at `364` | the scene manifest's own root | 8a |
+| ⚠ the `@` alias → `../frontend/src` | **`vite.config.ts:2441`**, not `350` — a *separate* site, resolved from `__dirname` rather than `REPO_ROOT` | consumer's own `resolve.alias`; the plugin must stop adding one | 8a |
+| ⚠ `ENGINE_SRC_ROOTS` — the frame-propagation boundary | **`vite.config.ts:624-627`**. The previous revision listed this range under "aliases", which it is not | `options.opaqueRoots`: a generic "resolve once, never re-query per frame" list | 8a |
+| ⚠ `@wafflebase/{sheets,docs,notes,slides}` aliases | **`vite.config.ts:2483-2486`** | move to `design-sandbox` | 8a drops · 8c re-homes |
+| ⚠ app libs aliased into `packages/frontend/node_modules` | `vite.config.ts:2527-2535` | `design-sandbox` — "one copy of React Router" is the consumer's problem to solve in their own config | 8a drops · 8c re-homes |
+| ⚠ `optimizeDeps.include` — the app's own dependencies | `vite.config.ts:2387-2436` | consumer's own config | 8a drops |
+| ⚠ `define`: `process.env`, `__APP_VERSION__` / `rootVersion()`, `VITE_BACKEND_API_URL` → `SCENE_API_ORIGIN` | `vite.config.ts:2330-2341,2378-2386` | consumer's own config; the scene API stub becomes an option | 8a |
+| ⚠ `plugins: [… react(), tailwindcss() …]` | `vite.config.ts:2356-2365` | the plugin adds **neither** — the host already has both | 8a |
+| ⚠ two HTML entries + the package's own Vite root | `vite.config.ts:2366-2377` | prebuilt shell served by `configureServer` — see below | 8a |
+| `@import "../../frontend/src/index.css"` + `@source "../../frontend/src"` | `src/sandbox.css` | shell CSS prebuilt and self-contained; the *frame* keeps using the host's stylesheet | 8a |
+| the safelist file the shell CSS imports | `vite.config.ts:213-250,2308` | virtual `@source` injected into the host's stylesheet — see below | 8a |
+| ⚠ `ALLOWED_EXT = .json .css .ts .tsx` — the write allowlist | `vite.config.ts:892` | add `.js`/`.jsx`. Found while porting 8a, and it is not cosmetic: the frame propagates `.js`/`.jsx`, the stamper stamps `.jsx`, `parse()` reads either as TSX — and then the write is refused at the last step, so a JavaScript consumer watches the editor locate the node, preview the diff, and refuse to save. `.mjs` stays out (no JSX convention, and it is where this package's own engine modules live) | 8a |
+| ⚠ `stripFrameQuery` rebuilds the query with `URLSearchParams` | `vite.config.ts:576-583` | split on `&` and filter. `URLSearchParams` is lossy for Vite's VALUELESS flags — `new URLSearchParams('import').toString()` is `'import='`, and Vite matches those flags by pattern on the raw id, so the added byte un-sets the flag (measured: `/(\?\|&)import(&\|$)/` matches `?import`, not `?import=`). Latent in the prototype because every call site split the result on `?` and used only the file half | 8a |
+| `@/components/theme-provider`, `@/app/Layout` | `src/scenes/providers.tsx:40-42` | `options.providers` | 8a option · 8c impl |
+| `TOKENS_CSS = packages/core/dist/tokens.css` | `vite.config.ts:188`, used at `768,1899` | `TokenAdapter.emit()` | 8b |
+| `WATCHED_RE = /^packages\/(frontend\/src\/\|core\/…)/` | `vite.config.ts:912` | `TokenAdapter.sources()` + the scene manifest's files | 8b |
+| `BUILD_CSS_FILE` / `THEME_CSS_FILE` | `vite.config.ts:1124,1132` | `TokenAdapter.plan()` | 8b |
+| `isTokenSourcePath()` regex on `packages/core/**` | `vite.config.ts:1342` | `TokenAdapter.sources()` | 8b |
+| `SEMANTIC_FILE` / `PALETTE_FILE` / `RADIUS_FILE` / `TYPOGRAPHY_FILE`, and the `FAMILY` map keyed on them | `vite.config.ts:1126-1129,1141-1187` | `TokenAdapter.plan()` / `read()` | 8b iface · 8c impl |
+| the same four paths again, **compiled into client code** | `src/sandbox/edits.ts:116-119` | server-supplied token metadata | 8b |
+| `regenerateTokensCss` + the `build-css.ts` preview worker | `vite.config.ts:799-812,823-890` | `TokenAdapter.emit()`, running the project's real emitter | 8b iface · 8c impl |
+| `react`, `react-dom`, `@wafflebase/core` as `dependencies` | `package.json` | React → `peerDependencies`; core → gone from the published package | 8a React · 8c core |
 
-- **Serving the shell.** Today the package *is* a Vite app with its own root,
-  its own Tailwind and two HTML entries. As a plugin it must serve `index.html`
-  and `scene.html` from **prebuilt** assets via `configureServer` middleware, so
-  the consumer's Tailwind and React never process the shell. The `?wbFrame=`
-  machinery survives unchanged, because it is already implemented as a plugin
-  rather than as config.
+Four of these are behaviour changes, not renames:
+
+- **Serving the shell.** Today the package *is* a Vite app: its own root, its own
+  `react()` and `tailwindcss()` in the `plugins` array, and two HTML entries. As a
+  plugin it must serve `index.html` and `scene.html` from **prebuilt** assets via
+  `configureServer` middleware, so the consumer's Tailwind and React never process
+  the shell. The `?wbFrame=` machinery survives unchanged, because it is already
+  implemented as a plugin rather than as config.
 - **The Tailwind safelist.** `candidates.ts` registers runtime-composed classes
   by appending `@source inline(...)` to a generated file that `sandbox.css`
   imports (engine §7.7, recipe §2.10). In a consumer project those candidates
   must reach the **host's** Tailwind graph, which means the plugin injects a
   virtual `@source` into the host's stylesheet — and no-ops entirely when the
   host is not Tailwind v4.
+- **`ENGINE_SRC_ROOTS` becomes a capability, not a move.** It is not an alias
+  list: it marks trees that are resolved and served but never re-queried per frame
+  side, because doing so doubles every canvas scene mount for byte-identical
+  content. Every consumer with a large non-JSX subtree wants that; only the four
+  wafflebase paths are ours. So the *option* is generic (`opaqueRoots`) and only
+  its value moves to `design-sandbox`.
+- **`cssVariables` is new code, not a port.** [§4](#4-the-tokenadapter-seam--the-central-constraint)
+  presents two adapters as if both existed; only `wafflebaseCore` does. The
+  prototype has no single-stylesheet implementation anywhere, so the default —
+  the one that covers the entire shadcn population — has to be **written**, and it
+  is the one implementation with no reference behaviour to diff against.
+
+**Where the seam actually falls.** The natural reading of this table is that the
+plugin host is `vite.config.ts` and the `TokenAdapter` is `edits.ts`. It is not:
+seven of the token rows are *inside* `vite.config.ts`, and they are threaded
+through the same machinery the host PR must port —
+
+| site | what the token pipeline does there |
+| --- | --- |
+| `mutationBridge` `1798-1803`, `1899` | the observe/watch list *is* the four token files + the theme CSS + `TOKENS_CSS` |
+| `mutationBridge` `1909-1915`, `2000-2015` | two endpoints read all four files; `/preview-tokens` diffs `renderTokenVars(patched)` against base |
+| `filesForIntent` `1354` | a token intent's file set is `FAMILY[…].file + BUILD_CSS_FILE + THEME_CSS_FILE` |
+| `applyIntentToCache` `1465-1467` | the three-point write |
+| `restoreTransaction` `1564-1565`, commit `2084`, `2263` | `isTokenSourcePath` gates the CSS regen |
+
+`edits.ts:116-119` is only the **client's duplicate** of the four paths — the
+smaller, downstream half. So a file-shaped cut leaves the whole token pipeline in
+the host PR, which is why [§8](#8-rollout) cuts by *pipeline* instead.
 
 ### 7. What this replaces
 
@@ -294,26 +356,89 @@ every dependency they have.
 ### 8. Rollout
 
 The existing 24k-line `feat/design-system` branch lands as a series of PRs, each
-held under ~1,500–2,000 lines. That cap is what sets the granularity: the
-engine's four server modules plus their tests do not fit in one PR, so each gets
-its own.
+held under ~1,500–2,000 lines of *total diff* — tests included, which for the
+engine modules dominated: the prototype ships zero tests, and every one was
+written fresh at a measured 3.2× (#718) to 4.8× (#738) multiplier on source. That
+cap is what sets the granularity.
 
-| PR | Contents | State under the pivot |
+**The engine is complete and merged.**
+
+| PR | Contents | State |
 | --- | --- | --- |
-| 1 | These docs | — |
+| 1 | These docs | **merged** (#701) |
 | 2 | Shared-code changes + package scaffolding | **merged** (#717) |
-| 3 | `jsx-nodes.mjs` + tests | open (#718) — published API |
-| 4 | `stamp.mjs` + tests | open (#738) — published API |
-| 5 | `extract.mjs` + tests | next |
-| 6–7 | `inject.mjs` + tests (~2,800 lines, splits in two) | published API, writes to consumer disks |
-| — | *generalization refactor (§6)* | rewrites the below |
-| 8+ | plugin host, client state, shell UI, scenes, canvas | **held** until after §6 |
+| 3 | `jsx-nodes.mjs` + tests | **merged** (#718) — published API |
+| 4 | `stamp.mjs` + tests | **merged** (#738) — published API |
+| 5 | `extract.mjs` + tests | **merged** (#758) |
+| 6 | `inject.mjs` layout half + tests | **merged** (#776) — writes to consumer disks |
+| 7 | `inject.mjs` token half + tests | **merged** (#777) — completes the mutator |
+| 7b | `classNameExpr` — surfacing the class-rewrite refusal (engine §5.7) | **merged** (#787) |
+| 8a | plugin host, **layout only** | next — see below |
+| 8b | the `TokenAdapter` seam | after 8a |
+| 8c | `packages/design-sandbox` | after 8b |
+| 9 | client state (`mutate` · `history` · `anchors` · `states`) | held |
+| 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
 
-PRs 2–7 are the files the generalization work depends on and will not edit, so
-review and MVP work proceed in parallel. `vite.config.ts` and `edits.ts` are
-deliberately *not* reviewed in their current form: every repo-absolute constant
-in them is scheduled for rewrite, and reviewing 2,538 lines of soon-to-be-deleted
+PRs 2–7b are the files the generalization work depends on and does not edit, so
+review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
+deliberately *not* reviewed in their current form: every repo-absolute constant in
+them is scheduled for rewrite, and reviewing 2,538 lines of soon-to-be-deleted
 path handling spends reviewer budget on nothing.
+
+#### PR 8 splits in three, by pipeline — not by file
+
+The obvious cut is one PR per file: the host is `vite.config.ts`, the adapter is
+`edits.ts`. [§6](#6-the-couplings-that-must-become-configuration) shows why that
+fails — the token pipeline's server half is *inside* `vite.config.ts`, threaded
+through `mutationBridge`, `filesForIntent`, `applyIntentToCache` and
+`restoreTransaction`. A file-shaped 8a therefore carries the entire token pipeline
+and still weighs ~2,500 lines, which buys none of what splitting is for, and its
+halves fail the same way rather than differently.
+
+So the cut follows the one that already worked for the module underneath it —
+`inject.mjs` shipped as a layout half (#776) then a token half (#777):
+
+- **8a — the plugin host, layout only.** `src/plugin/`: the `designEditor()`
+  factory, `options.root` threaded through all 50 `REPO_ROOT` sites, the shell
+  served from prebuilt assets by `configureServer`, the scene registry and
+  manifest, the `?wbFrame=` frame machinery and stamping, the safelist as a
+  virtual `@source`, `resolveSafe` + backups, transactions, and the **layout**
+  endpoints. It *declares* `TokenAdapter` as a type and ships **no
+  implementation**; a token intent or token endpoint answers "no token adapter
+  configured". That refusal is not a placeholder — §3 already promises it as the
+  steady state for any project outside the support matrix, where "the token panels
+  degrade to empty rather than writing garbage".
+- **8b — the token seam.** `src/tokens/`: the `TokenAdapter` interface's default
+  `cssVariables` implementation (**new code** — see §4), the token endpoints and
+  families routed through it, and `edits.ts`'s four compiled-in paths replaced by
+  server-supplied metadata.
+- **8c — `packages/design-sandbox`.** The private package that finally gives
+  population C a destination: the `wafflebaseCore` adapter, `yorkieOffline`,
+  `antlr4tsAssertShim`, the aliases, `providers.tsx`, `scenes.config.json`. It is
+  last because it consumes both halves, and because the scene files it needs are
+  themselves PR 10–12 material — so it may land minimally (adapter + providers)
+  and grow.
+
+**8a's intermediate is green, and that was checked rather than assumed.**
+`vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,
+`@vitejs/plugin-react` and `@tailwindcss/vite` — and the package has no client code
+at all yet, so nothing consumes what 8a does not provide. The package gate is
+`typecheck` + `test`, both satisfiable standalone. 8a adds `vite` and friends as
+dev/peer dependencies; none is `@wafflebase/*`, so the boundary's mechanical test
+still holds. What 8a cannot do is serve a *working* editor — the shell UI is PRs
+10–12 — but that is already true of this ordering and is not introduced by the
+split.
+
+**Verification for 8a: the smoke scripts port as-is.** The prototype verifies the
+bridge with scripts against a live dev server, not unit tests —
+`verify-bridge.mjs` (18.9 KB), `smoke-scene.ts` (13.1), `smoke-canvas.ts` (12.1),
+`smoke-layout.ts` (6.8) — so the engine modules' 3.2–4.8× test multiplier does not
+transfer to plugin code. They move across unchanged in kind and stay out of
+`verify:fast` / `verify:self`. **The cost is explicit: the plugin host lands with
+no automated gate**, and a regression in it is caught by hand or not at all. That
+is accepted to keep 8a reviewable, and it is the argument for a fixture-project
+integration lane later — which would prove the pivot's central claim (that the
+plugin works in a *foreign* project) and is worth its own PR.
 
 **Stacking.** PRs 3 and 4 are stacked, because `stamp.mjs` imports
 `jsx-nodes.mjs`. An earlier revision of this section required them to be
@@ -331,7 +456,8 @@ and 6–7 branch from `main` as siblings and review in parallel.
 
 Because the repo squash-merges, **order matters**: merging a later PR in a stack
 first folds the earlier one into it under the wrong title and leaves it open with
-an empty diff.
+an empty diff. 8a → 8b → 8c *is* a stack — 8b fills a seam 8a declares, and 8c
+implements an interface 8b defines — so all three are strictly ordered.
 
 ---
 

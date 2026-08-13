@@ -69,11 +69,14 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["doc.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
   sheet: Object.freeze([
-    ["sheet.cellValue", "(sref)", 'the displayed value of a cell, e.g. sheet.cellValue("B2")'],
+    ["sheet.cellValue", "(sref)", "a cell's STORED value, BEFORE any number format — percent/decimals do not change it"],
+    ["sheet.activeCellDisplay", "", "what the ACTIVE cell reads as on screen: its stored value WITH its number format applied"],
     ["sheet.cellFormula", "(sref)", "the formula text of a cell, or null when it holds a literal"],
     ["sheet.activeCell", "", "the currently selected cell reference"],
     ["sheet.selectionRange", "", "the selected range, or null"],
     ["sheet.cellCenter", "(sref)", "a cell's centre point — name it as a click target's `reader` to click that cell"],
+    ["sheet.rangeStyles", "", "every range-style patch {range,style} the toolbar has appended — they ACCUMULATE, they are not replaced"],
+    ["sheet.activeCellStyle", "", "the ACTIVE cell's COMPUTED style (sheet→col→row→cell) — differing from sheet.rangeStyles is EXPECTED, not a defect"],
     ["sheet.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
 });

@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   extractAnchor, anchorIsEmpty, compareAnchors, linesOverlap,
-  matchFindings, tokenOverlap, bestMatch, groupFindings, LINKAGE,
+  matchFindings, tokenOverlap, crossArmTokenOverlap, bestMatch, groupFindings, LINKAGE, CROSS_ARM_SIMILARITY,
 } from "./finding-match.mjs";
-import { findingSimilarity } from "./rounds.mjs";
-import { findingKey } from "./finding-key.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY } from "./vendor/pipeline/rounds.mjs";
+import { findingKey } from "./vendor/pipeline/finding-key.mjs";
 // The REAL record builder, not a hand-written fixture of its shape. `lensOf`'s
 // default exists to read `record.panel.lens`, and a test that asserted against
 // this file's own idea of a record would be a round trip through one author's
@@ -265,6 +265,129 @@ test("matchFindings: missing operand → no, never a throw", () => {
 test("tokenOverlap: containment over the smaller summary; empty → 0", () => {
   assert.equal(tokenOverlap("blank skip breaks minmax aggregation", "blank skip breaks minmax aggregation"), 1);
   assert.equal(tokenOverlap("", "anything here"), 0);
+  // The property the name claims, which this test did NOT assert before: the
+  // denominator is the SMALLER set, so the longer wording's extra specifics cost
+  // nothing. 3 shared, 3 tokens against 9 → 3/3. That is upstream's deliberate
+  // choice for one reviewer restating itself, and it is unchanged by this PR.
+  assert.equal(tokenOverlap("alpha beta gamma", "alpha beta gamma delta epsilon zeta theta iota kappa"), 1);
+});
+
+test("crossArmTokenOverlap: DICE — the denominator is BOTH summaries", () => {
+  // The same operands as the row above score 6/12 here. Two different reviewers
+  // are not one reviewer restating itself, so a long text covering a short one is
+  // the arithmetic of shared vocabulary rather than evidence of agreement.
+  const short = "alpha beta gamma";
+  const long = "alpha beta gamma delta epsilon zeta theta iota kappa";
+  assert.equal(summaryTokens(short).length, 3);
+  assert.equal(summaryTokens(long).length, 9);
+  assert.equal(crossArmTokenOverlap(short, long), 0.5);
+  assert.equal(tokenOverlap(short, long), 1); // and the two DISAGREE, by design
+  assert.equal(crossArmTokenOverlap("blank skip breaks minmax aggregation", "blank skip breaks minmax aggregation"), 1);
+  assert.equal(crossArmTokenOverlap("", "anything here"), 0);
+});
+
+test("crossArmTokenOverlap: padding one side with unrelated words LOWERS the score", () => {
+  // With the numerator fixed, containment is CONSTANT in the length of the longer
+  // operand — 1.00 for every row below — so a long summary clears the bar on any
+  // file whose vocabulary it happens to cover. `harvest.mjs` compares CodeRabbit
+  // prose (median 32 significant tokens) against panel summaries (median 14), so
+  // this is the shape of its real input rather than a constructed one.
+  const a = "alpha beta gamma";
+  const near = crossArmTokenOverlap(a, "alpha beta gamma delta");
+  const far = crossArmTokenOverlap(a, "alpha beta gamma delta epsilon zeta theta iota kappa lambda sigma");
+  assert.ok(near > far, `padding must reduce agreement, got near ${near} far ${far}`);
+  assert.ok(far > 0, "and must not collapse to zero — the shared tokens are still shared");
+  assert.equal(tokenOverlap(a, "alpha beta gamma delta"), tokenOverlap(a, "alpha beta gamma delta epsilon zeta theta iota kappa lambda sigma"));
+});
+
+test("crossArmTokenOverlap: the MIN_SHARED_TOKENS floor still applies under Dice", () => {
+  // 2 shared across two 3-token summaries is Dice 4/6 = 0.67 — far over the bar
+  // and meaningless. Changing the denominator does not retire the floor.
+  assert.equal(crossArmTokenOverlap("alpha beta gamma", "alpha beta delta"), 0);
+  assert.equal(crossArmTokenOverlap("alpha beta gamma", "alpha beta gamma"), 1);
+});
+
+test("L2 metric is selected by ARM, not by run: same-arm keeps containment @ 0.3", () => {
+  // The population `reliability.mjs` scores — one reviewer, two replicates. It is
+  // cross-SOURCE (a defect can surface under a different lens on another try) but
+  // it is not cross-ARM, and containment is what it was calibrated for. 3 shared
+  // of 3 and 9 → containment 1.00 (match), Dice 0.50 (under the cross-arm bar's
+  // sibling but scored on a different scale). If this pair ever routes cross-arm,
+  // every reliability figure moves.
+  const a = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(matchFindings(a, b, { crossSource: true, sameArm: true }).verdict, "match");
+  assert.match(matchFindings(a, b, { crossSource: true, sameArm: true }).reason, /tokens 1\.00/);
+  // and the same pair, cross-arm, scores on the Dice scale instead
+  assert.match(matchFindings(a, b, { crossSource: true }).reason, /tokens 0\.50/);
+});
+
+test("🔴 a pair carrying NO arm or run must route CROSS-ARM, never same-arm", () => {
+  // THE TRAP THIS ASSERTION EXISTS FOR. `harvest.mjs` compares through
+  // `attributeToPanel`, whose `neutral()` helper carries only lens/file/summary/
+  // evidence — no `arm`, no `run`. Any implementation that infers same-arm from
+  // `a.arm === b.arm` evaluates `undefined === undefined`, gets `true`, and hands
+  // the one production cross-arm caller the containment metric. Nothing throws,
+  // every other test stays green, and the change's entire measured effect
+  // disappears. So: field-less pairs get Dice.
+  const a = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(a.arm, undefined);
+  assert.equal(b.arm, undefined);
+  // Dice would be 0.50; containment would be 1.00. Reading the reason is what
+  // distinguishes them, because both clear their own bar and both say `match`.
+  assert.match(matchFindings(a, b, { crossSource: true }).reason, /tokens 0\.50/);
+  assert.doesNotMatch(matchFindings(a, b, { crossSource: true }).reason, /tokens 1\.00/);
+
+  // AND `gateFor` must make the same choice, which needs a pair whose VERDICT
+  // differs between the two metrics — an earlier version of this test asserted
+  // only `stats.gate.defaulted > 0`, which is true under either routing, and a
+  // mutation flipping the unreadable-arm case to same-arm survived the whole
+  // suite. 3 shared tokens, 3 against 25: containment 3/3 = 1.00 (merge), Dice
+  // 6/28 = 0.214, under the bar (two classes).
+  const wide = "delta epsilon zeta theta iota kappa lambda omicron sigma tau upsilon phi chi psi omega mercury venus mars jupiter saturn neptune uranus";
+  const p = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "", item: "pr-1" };
+  const q = { lens: "", file: "a.ts", summary: `alpha beta gamma ${wide}`, evidence: "", item: "pr-1" };
+  assert.equal(summaryTokens(q.summary).length, 25);
+  assert.equal(tokenOverlap(p.summary, q.summary), 1); // containment would merge
+  assert.ok(crossArmTokenOverlap(p.summary, q.summary) < CROSS_ARM_SIMILARITY); // Dice does not
+  const { groups, stats } = groupFindings([p, q], { armOf: () => null, runOf: () => null, crossSource: true });
+  assert.ok(stats.gate.defaulted > 0, "an unreadable arm must be counted as defaulted");
+  assert.equal(groups.length, 2, "an unreadable arm must be scored cross-arm, so this pair must NOT merge");
+});
+
+test("the cross-arm bar BINDS from both sides — 0.214 is a maybe, 0.231 is a match", () => {
+  // Pins the constant by its consequences rather than by restating its value,
+  // which is the one assertion shape that would pass whatever the number became.
+  // Loosening to 0.20 promotes the first pair; tightening to 0.25 demotes the
+  // second and costs one of the six known cross-arm matches on the pilot corpus.
+  assert.ok(CROSS_ARM_SIMILARITY < DEFAULT_SIMILARITY);
+  const shared = "alpha beta gamma";
+  const aOnly = "delta epsilon zeta theta iota kappa omega sigma tau upsilon";
+  const bOnly = "phi chi psi omicron lambda rho mercury venus mars jupiter";
+
+  const lo1 = { lens: "", file: "a.ts", summary: `${shared} ${aOnly}`, evidence: "" };
+  const lo2 = { lens: "", file: "a.ts", summary: `${shared} ${bOnly} saturn neptune`, evidence: "" };
+  const tLo = crossArmTokenOverlap(lo1.summary, lo2.summary); // 6/28
+  assert.ok(tLo > 0.21 && tLo < CROSS_ARM_SIMILARITY, `expected ~0.214 under the bar, got ${tLo}`);
+  assert.equal(matchFindings(lo1, lo2, { crossSource: true }).verdict, "maybe");
+
+  const hi2 = { lens: "", file: "a.ts", summary: `${shared} ${bOnly}`, evidence: "" };
+  const tHi = crossArmTokenOverlap(lo1.summary, hi2.summary); // 6/26
+  assert.ok(tHi >= CROSS_ARM_SIMILARITY && tHi < 0.24, `expected ~0.231 over the bar, got ${tHi}`);
+  assert.equal(matchFindings(lo1, hi2, { crossSource: true }).verdict, "match");
+});
+
+test("the SAME-RUN path keeps findingSimilarity's containment — this change does not reach it", () => {
+  // Upstream's reasoning still holds within one run, and it is the same reasoning
+  // that keeps `tokenOverlap` on the same-arm L2 path: one reviewer restates one
+  // defect at different levels of detail, and containment refuses to penalise the
+  // longer wording for its extra specifics.
+  const a = { lens: "correctness", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "correctness", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(findingSimilarity(a, b), 1);
+  assert.equal(crossArmTokenOverlap(a.summary, b.summary), 0.5);
+  assert.equal(matchFindings(a, b).verdict, "match");
 });
 
 test("bestMatch: each CANDIDATE is judged on its OWN anchor, not the needle's", () => {

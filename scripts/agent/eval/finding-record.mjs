@@ -30,9 +30,9 @@
 // Swapping similarity in here would make our own numbers quietly stop matching
 // the panel's, with nothing anywhere looking wrong.
 
-import { BLOCKING, KNOWN, normalizeSeverity } from "../severity.mjs";
-import { findingLocation } from "../novelty.mjs";
-import { findingKey } from "../finding-key.mjs";
+import { BLOCKING, KNOWN, normalizeSeverity } from "../vendor/pipeline/severity.mjs";
+import { findingLocation } from "../vendor/pipeline/novelty.mjs";
+import { findingKey } from "../vendor/pipeline/finding-key.mjs";
 
 /**
  * Bumped when a field changes meaning, never when one is added — every reader

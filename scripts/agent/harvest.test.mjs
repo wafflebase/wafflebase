@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
+import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./vendor/pipeline/severity.mjs";
 import {
   SCHEMA,
   LABELS,
@@ -23,6 +23,8 @@ import {
   parseCodeRabbitReview,
   codeRabbitReviewSections,
   codeRabbitDetail,
+  codeRabbitTitle,
+  unrecognisedDetailsLabels,
   attributeToPanel,
   parsePanelComment,
   panelFindingsFromComments,
@@ -35,8 +37,8 @@ import {
   harvestPr,
   listCandidatePrs,
 } from "./harvest.mjs";
-import { HANDOFF_MARKER } from "./disclosure.mjs";
-import { ORIGINS } from "./novelty.mjs";
+import { HANDOFF_MARKER } from "./vendor/pipeline/disclosure.mjs";
+import { ORIGINS } from "./vendor/pipeline/novelty.mjs";
 
 const NAMES = ["agent-review-correctness", "agent-review-test-adequacy"];
 
@@ -534,6 +536,273 @@ test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => 
   assert.equal(stability.lens, "");
 });
 
+// --- codeRabbitTitle: a title is prose, never code ---------------------------
+//
+// comment 3651715274 (PR #549, 2026-07-26), trimmed in the middle — the web-query
+// text and two more script blocks are cut, and the cut is marked. Nothing is
+// reordered and no line is rewritten, because the ORDER is the whole fixture: the
+// `🧩 Analysis chain` block comes FIRST, and the title comes after it.
+const CR_ANALYSIS_CHAIN_FIRST = [
+  "_🔒 Security & Privacy_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🏁 Script executed:",
+  "",
+  "```shell",
+  "#!/bin/bash",
+  "echo \"== dependency mentions ==\"",
+  "rg -n '\"markdown-it\"' -S . --glob '!**/node_modules/**' --glob '!**/dist/**'",
+  "```",
+  "",
+  "Repository: wafflebase/wafflebase",
+  "",
+  "Length of output: 3380",
+  "",
+  "</details>",
+  "",
+  "**Pin the markdown-it dependency or switch to the public `getRules()` API.**",
+  "",
+  "`packages/notes/package.json` declares `markdown-it: \"^14.1.0\"` while the notes package currently resolves `14.3.0`.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "Verify each finding against current code. Fix only still-valid issues.",
+  "```",
+  "",
+  "</details>",
+  "",
+  "<!-- cr-comment:v1:89e5b52cfcb0fcabce0e12a0 -->",
+].join("\n");
+
+test("classifyCodeRabbitComment: a `**` inside a shell command is not a title", () => {
+  // THE REGRESSION THIS EXISTS FOR. `--glob '!**/node_modules/**'` contains a
+  // bolded-looking span, and it is the FIRST one in the body — 2129 bytes before
+  // the real title in the comment this fixture came from. Unguarded, the finding's
+  // summary was the string `/node_modules/`, which then scored 0.46-0.75 against
+  // six panel findings on location alone and reached a human adjudication queue.
+  const f = classifyCodeRabbitComment(CR_ANALYSIS_CHAIN_FIRST);
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.notEqual(f.summary, "/node_modules/");
+});
+
+test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a title", () => {
+  // The other half of the same rule, and the reason the search is code-blind rather
+  // than truncated at the first structured block. 200 of this repo's 1588 inline
+  // findings (12.6%) open with a `🧩 Analysis chain` block and state their title
+  // after it; stopping at the first block would return "" for every one of them.
+  // Measured 2026-08-12 over all 2061 CodeRabbit inline comments.
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("<details>") < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.equal(codeRabbitTitle(CR_ANALYSIS_CHAIN_FIRST), "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  // And the title sits BETWEEN the two fenced blocks, which is the ordinary shape:
+  // an analysis chain above it, an AI-agents block below. Each fenced span must be
+  // removed on its own — one greedy match from the first fence to the last would
+  // swallow the title along with them.
+  const fences = [...CR_ANALYSIS_CHAIN_FIRST.matchAll(/```/g)].map((m) => m.index);
+  assert.equal(fences.length, 4, "the fixture must keep BOTH fenced blocks for that to be a real risk");
+  assert.ok(fences[1] < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
+});
+
+// comment 2884648659 (PR #21, 2026-03), trimmed at the end only. Its `💡 Result:`
+// narrative is UNFENCED prose inside the analysis chain, and it opens with three
+// bolded spans before the finding's real title appears below the block.
+const CR_UNFENCED_BOLD_IN_CHAIN = [
+  "_⚠️ Potential issue_ | _🟠 Major_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🌐 Web query:",
+  "",
+  "`React 19 Strict Mode useState functional updater multiple invocations`",
+  "",
+  "💡 Result:",
+  "",
+  "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled in development**, React may **invoke your `useState` functional updater more than once** (often twice).",
+  "",
+  "</details>",
+  "",
+  "**Avoid side effects inside the `setDefinition` updater callback.**",
+  "",
+  "The updater runs twice under Strict Mode.",
+].join("\n");
+
+test("codeRabbitTitle: UNFENCED bold inside an analysis chain is not a title either", () => {
+  // Raised in review on #801, and it was right. Skipping fenced code alone is not
+  // enough — the `💡 Result:` narrative is LLM prose, not code, and uses bold freely.
+  // On this body the fence-only rule returned `React 19`. Measured over all 2061
+  // inline comments it returned 16 titles that disagree with the prose, of which
+  // `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are web-answer
+  // fragments. The fix is that the title now reads the SAME machinery-stripped region
+  // `codeRabbitDetail` does, so the two cannot disagree about what is prose.
+  assert.equal(
+    codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN),
+    "Avoid side effects inside the `setDefinition` updater callback.",
+  );
+  assert.notEqual(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN), "React 19");
+  // The title and the detail must agree on what counts as prose. That is the
+  // invariant; the two readers disagreeing is the whole defect this file keeps fixing.
+  const detail = codeRabbitDetail(CR_UNFENCED_BOLD_IN_CHAIN);
+  assert.ok(detail.includes(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN)), "the title is not inside the detail");
+  assert.doesNotMatch(detail, /React 19|StrictMode/, "the web answer reached the compared text");
+});
+
+test("codeRabbitTitle: a title is never SPLICED across a removed span", () => {
+  // Raised in review on #801. Every removed span becomes a newline, so a `/s`-flagged
+  // bold match joins an unclosed `**` above a fence to a stray `**` below it and
+  // returns a string that appears in no line of the comment. That is worse than
+  // returning markup, because it reads like prose. The single-line match makes it
+  // unrepresentable rather than unlikely.
+  const spliced = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold to start but never close it",
+    "",
+    "```sh",
+    "code",
+    "```",
+    "",
+    "and then** later text",
+    "",
+    "**The real title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(spliced), "The real title.");
+  assert.notEqual(codeRabbitTitle(spliced), "bold to start but never close it and then");
+  // The same join happens where a `<details>` block was dissolved, not just a fence.
+  const acrossBlock = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold that never closes",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "x",
+    "",
+    "</details>",
+    "",
+    "and then** more",
+    "",
+    "**The actual title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(acrossBlock), "The actual title.");
+});
+
+test("codeRabbitTitle: a tilde run cannot close a backtick fence", () => {
+  // A nit in the same review, and correct: `` \1[`~]* `` accepted ```` ```~~~ ```` as
+  // a closer. CommonMark requires the closer to use the opener's character, and a rule
+  // that says otherwise is a rule that will be believed.
+  // The discriminating shape is a closer that STARTS with the opener's delimiter and
+  // then carries the other one. `~~~` alone never closed a backtick fence, in either
+  // spelling, so a fixture using that cannot tell the two apart — the first version of
+  // this test did, and the mutation survived it.
+  const mixed = ["_h_ | _🟠 Major_", "", "```sh", "x **not a title** y", "```~~~", "", "**The real title.**"].join("\n");
+  // Per CommonMark that is not a closing fence, so the block runs to the end and
+  // EVERYTHING after it is code. `""` is the honest answer; accepting the mixed run
+  // would return "The real title." by luck, and rejecting it without consuming to the
+  // end would return `not a title` — markup, which is the outcome this file exists to
+  // prevent. All three differ, which is what makes this worth asserting.
+  assert.equal(codeRabbitTitle(mixed), "");
+  assert.notEqual(codeRabbitTitle(mixed), "not a title");
+  // Each delimiter closes its own kind, and a title ABOVE an unclosed fence survives.
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n```sh\nx **not a title** y\n```\n\n**Backticks.**"), "Backticks.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n~~~sh\nx **not a title** y\n~~~\n\n**Tildes.**"), "Tildes.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n**Above it.**\n\n```sh\nunclosed **x**"), "Above it.");
+});
+
+test("codeRabbitTitle: CRLF bodies behave exactly as LF ones", () => {
+  // Also raised in review, on the reasoning that a multiline `$` matches only before
+  // `\n`. In JavaScript it matches before any LineTerminator, and CR is one, so the
+  // closing-fence branch works unchanged — asserted here rather than argued, and
+  // pinned so a future rewrite of the fence pattern cannot quietly break it.
+  const lf = CR_UNFENCED_BOLD_IN_CHAIN;
+  assert.equal(codeRabbitTitle(lf.replace(/\n/g, "\r\n")), codeRabbitTitle(lf));
+  const fenced = "_h_ | _🟠 Major_\n\n````markdown\n```sh\nrg --glob '!**/node_modules/**'\n```\n````\n\n**Real title.**";
+  assert.equal(codeRabbitTitle(fenced.replace(/\n/g, "\r\n")), "Real title.");
+  assert.equal(codeRabbitDetail(fenced.replace(/\n/g, "\r\n")), codeRabbitDetail(fenced));
+});
+
+test("codeRabbitTitle: a fence is closed by ITS OWN length, not by a shorter inner one", () => {
+  // Raised in review on #801. A four-backtick fence may legally contain a
+  // three-backtick one — that is the reason to open with four, to quote markdown
+  // inside markdown — and 35 of this repo's 2061 CodeRabbit inline comments do it.
+  // Closing on a fixed ``` would end the span at the INNER run and hand the rest of
+  // the block back to the title search as prose, which is the defect this whole
+  // function exists to prevent.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "````markdown",
+    "```sh",
+    "rg --glob '!**/node_modules/**'",
+    "```",
+    "````",
+    "",
+    "**Add a language tag to the fenced block.**",
+    "",
+    "prose",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(body), "Add a language tag to the fenced block.");
+  assert.notEqual(codeRabbitTitle(body), "/node_modules/");
+});
+
+test("codeRabbitTitle: tilde fences count as code too, at any delimiter length", () => {
+  // Pure widening — CommonMark allows `~~~` and CodeRabbit has emitted none here yet
+  // (0 of 2061 inline comments, 0 of 614 review bodies). Kept because the failure
+  // mode if it ever does is markup becoming a finding's summary, and because the two
+  // delimiters cannot be mixed: a `~~~` run must not close a ``` fence.
+  const tilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~sh\nrg --glob '!**/dist/**'\n~~~\n\n**Quote the glob.**\n\nprose";
+  assert.equal(codeRabbitTitle(tilde), "Quote the glob.");
+  const longTilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~~\n~~~\n**not a title**\n~~~\n~~~~\n\n**The real title.**\n\nprose";
+  assert.equal(codeRabbitTitle(longTilde), "The real title.");
+  // A fence opened with backticks is NOT closed by tildes, so it never closes — and an
+  // unclosed fence runs to the end, which means the bold below it is inside code. `""`
+  // rather than `Still parses.`, and this assertion was written the other way round in
+  // the first review round: it pinned the old "an unclosed fence strips nothing"
+  // behaviour and went red when that changed, which is what it was for.
+  const mixed = "_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\n~~~\n\n**Still parses.**";
+  assert.equal(codeRabbitTitle(mixed), "");
+});
+
+test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
+  // This is the test that bounds the fix. The fence rule is anchored to line start,
+  // which leaves inline code spans unstripped — and the tempting next step is to
+  // strip those too. It must not happen: a real title routinely quotes a symbol, and
+  // removing inline spans before the bold search deletes the identifier out of the
+  // middle of the title. The title below is verbatim from comment 3651715274.
+  const f = classifyCodeRabbitComment(
+    "_🔒 Security & Privacy_ | _🟡 Minor_\n\n**Pin the markdown-it dependency or switch to the public `getRules()` API.**\n\nprose",
+  );
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.match(f.summary, /`getRules\(\)`/, "the backticked identifier was stripped out of the title");
+});
+
+test("codeRabbitTitle: an UNCLOSED fence swallows what follows, not what precedes", () => {
+  // Per CommonMark an unclosed fence means everything after it is code, and that is what
+  // the rule now does. The consequence that matters: a title ABOVE such a fence is
+  // outside the span and survives, while a `**` below it is code and is not a title.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed **not this**");
+  assert.equal(f.summary, "A real title.");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\nunclosed **not this**"), "");
+  // And an inline code span is not a fence: it must not be treated as a block.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nsee `x` then **The title.**"), "The title.");
+});
+
+test("codeRabbitTitle: an HTML comment cannot supply a title, and absent stays absent", () => {
+  // `<!-- … -->` is markup for the same reason a fence is. And a body with no
+  // bolded span anywhere yields "" rather than a manufactured first sentence:
+  // `findingKey` is `file::summary`, so a fabricated title is not a neutral
+  // placeholder — it is a key nothing can distinguish from a real one.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n<!-- **not a title** -->\n\nprose"), "");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nprose with no bold at all"), "");
+  assert.equal(codeRabbitTitle(""), "");
+  for (const bad of [null, undefined, 7, {}]) assert.equal(codeRabbitTitle(bad), "");
+});
+
 // --- parseCodeRabbitReview ---------------------------------------------------
 //
 // Every fixture below is a VERBATIM slice of a real `pulls/{n}/reviews` response,
@@ -770,6 +1039,90 @@ test("parseCodeRabbitReview: a tier quoted inside a GitHub alert block", () => {
   assert.equal(f.severity, "major");
   assert.equal(f.lens, "security"); // the existing category→lens map, unchanged
   assert.equal(f.summary, "Validate `commit` before using it as a path segment.");
+});
+
+// CONSTRUCTED, and labelled as such because every other RV_ fixture here is real.
+// It is the review-body shape of the inline defect: a finding whose prose states no
+// bolded title, followed by the `🤖 Prompt for AI Agents` block every finding ends
+// with. A span runs to the NEXT locator, so that block is inside it — and the
+// command it quotes contains `**`.
+const RV_NO_TITLE_FENCED_GLOB = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  "",
+  "`202-214`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "The private ruler registry is read by name here.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "rg -n 'markdown-it' -S . --glob '!**/node_modules/**'",
+  "```",
+  "",
+  "</details>",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2044318318 (PR #10, 2025-04-14). The 2025 shape, and the one that makes
+// WHICH TEXT the title is read from a real decision: the title sits ON the locator
+// line, so a reader that strips the locator strips the title with it.
+const RV_TITLE_ON_LOCATOR_LINE = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>.github/workflows/publish-ghpage.yml (1)</summary><blockquote>",
+  "",
+  "`17-19`: **Add error handling for directory change**",
+  "",
+  "The shell script should handle potential errors when changing directory.",
+  "",
+  "```diff",
+  "-          cd frontend",
+  "+          cd frontend || exit 1",
+  "```",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a title on the LOCATOR LINE survives", () => {
+  // `CR_LOCATOR`'s third group is `(.*)$` — the whole rest of the line — so the
+  // de-locatored copy that `detail` is read from has no title left in it. Reading
+  // the title from that copy instead of the raw span empties 756 of this repo's
+  // 1693 review-body findings. Caught by measurement, pinned here.
+  const { findings } = parseCodeRabbitReview(RV_TITLE_ON_LOCATOR_LINE);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].summary, "Add error handling for directory change");
+  assert.equal(findings[0].locator, "17-19");
+  // The `diff` fence must not reach the title even though it holds no `**` here —
+  // assert the shape the title came from, not just the string.
+  assert.doesNotMatch(findings[0].summary, /cd frontend/);
+});
+
+test("parseCodeRabbitReview: a fenced command never supplies a review-body title", () => {
+  // The same rule as the inline path, applied through the SAME function. Half the
+  // corpus's CodeRabbit findings arrive here (14 of 30), and this path had its own
+  // copy of the unbounded regex — so it could regress on its own.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NO_TITLE_FENCED_GLOB);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0, "the finding must still be COUNTED; only its title is in question");
+  assert.equal(findings[0].summary, "", "markup was promoted to a title");
+  assert.notEqual(findings[0].summary, "/node_modules/");
+  // The finding is still fully formed everywhere else — this changes one field.
+  assert.equal(findings[0].locator, "202-214");
+  assert.equal(findings[0].file, "packages/notes/src/view/list-empty-bullet-plugin.ts");
+  assert.equal(findings[0].severity, "nit");
+  assert.match(findings[0].detail, /private ruler registry/);
 });
 
 test("codeRabbitDetail: strips blockquote markers itself, without a de-quoting caller", () => {
@@ -1188,6 +1541,158 @@ test("codeRabbitDetail: title + prose, stopping at the first structured block", 
   // it would contribute `code`, `fix`, `issues`, `validate` to every pair.
   assert.doesNotMatch(detail, /Verify each finding/);
   assert.doesNotMatch(detail, /Functional Correctness/); // the header line is dropped
+});
+
+test("codeRabbitDetail: prose BELOW an analysis-chain block is the detail, not empty", () => {
+  // THE DEFECT THIS EXISTS FOR. `<details>` is a container, not a terminator. On the
+  // `🧩 Analysis chain` vintage the block comes FIRST and the finding's title and prose
+  // come after it, so cutting at the first `<details>` kept only the header line — and
+  // the header-drop then removed that, leaving `""`. Two individually-correct steps
+  // composing to nothing, on 200 of this repo's 1588 inline findings (12.6%), all the
+  // way back to #11 (2025-04). The boundary landed on `<details>` in 200 of 200 cases,
+  // at a median offset of 54 bytes: the length of a header line.
+  const detail = codeRabbitDetail(CR_ANALYSIS_CHAIN_FIRST);
+  assert.notEqual(detail, "", "the prose below the analysis chain was dropped");
+  assert.match(detail, /Pin the markdown-it dependency/);
+  assert.match(detail, /lockfile-relative upgrade|currently resolves/);
+  // The machinery it sits between must still be absent, which is the whole reason
+  // `codeRabbitDetail` has a boundary at all.
+  assert.doesNotMatch(detail, /Verify each finding/, "AI-agents boilerplate leaked in");
+  assert.doesNotMatch(detail, /rg -n|node_modules/, "the analysis chain's shell transcript leaked in");
+  assert.doesNotMatch(detail, /Security & Privacy/, "the header line survived");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "structural tags survived");
+});
+
+test("codeRabbitDetail: a non-machinery block is UNWRAPPED, not deleted", () => {
+  // The 2025 `💡 Verification agent` vintage puts the finding's own title and prose
+  // INSIDE the block. Deleting every `<details>` empties 11 of this repo's 1693
+  // review-body findings for that reason, so anything not on the machinery denylist
+  // keeps its content and loses only its tags.
+  const body = [
+    "_💡 Verification agent_",
+    "",
+    "<details>",
+    "<summary>✅ Verification successful</summary>",
+    "",
+    "**Verify theme context compatibility.**",
+    "",
+    "The destructured `theme` property assumes a particular shape.",
+    "",
+    "</details>",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Verify theme context compatibility/);
+  assert.match(detail, /destructured `theme` property/);
+  assert.doesNotMatch(detail, /Verification successful/, "the block's label is not prose");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/);
+});
+
+test("codeRabbitDetail: NESTED blocks dissolve innermost-first, leaving no stray tag", () => {
+  // A lazy `<details>[\s\S]*?</details>` stops at the first CLOSING tag, which on
+  // CodeRabbit's nested review bodies cuts mid-structure and leaves an orphan behind.
+  //
+  // The title and prose sit BELOW the nested block deliberately. With them above it,
+  // one pass is indistinguishable from the loop: the undissolved outer `<details>`
+  // becomes the boundary and the detail comes out right for the wrong reason. Below it,
+  // a single pass leaves that outer tag standing, `CR_PROSE_END` cuts at it, and the
+  // detail is `""` — which is exactly the defect this whole change is about, so the
+  // fixture has to be able to express it.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "<details>",
+    "<summary>Proposed fix</summary>",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "inner machinery",
+    "",
+    "</details>",
+    "",
+    "</details>",
+    "",
+    "**The title.**",
+    "",
+    "prose below the nested block",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /The title\./);
+  assert.match(detail, /prose below the nested block/);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "a nested tag survived the dissolve");
+  assert.doesNotMatch(detail, /inner machinery/, "the nested machinery block was unwrapped instead of dropped");
+});
+
+test("codeRabbitDetail: the dissolve TERMINATES on deep nesting and on unpaired tags", () => {
+  // The loop runs until a pass changes nothing, so its termination rests on every pass
+  // strictly reducing the tag count. Worth a test rather than an argument: a malformed
+  // mutation of this loop hung the suite hard enough that `--test-timeout` could not
+  // fire, because a tight loop never yields the event loop.
+  const deep = `${"<details><summary>Proposed fix</summary>".repeat(60)}core${"</details>".repeat(60)}`;
+  const detail = codeRabbitDetail(`_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n${deep}`);
+  assert.match(detail, /Title\./);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "60 levels did not fully dissolve");
+  // Unpaired in both directions, and neither spins.
+  assert.equal(typeof codeRabbitDetail("<details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("</details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("<details><details></details>"), "string");
+});
+
+test("codeRabbitDetail: an orphaned CLOSING tag ends the prose", () => {
+  // A review-body span is sliced between two locators out of nested
+  // `<details><blockquote>`, so it routinely ends on closers belonging to an element
+  // that opened before it. Without treating those as boundaries, 735 of 1693
+  // review-body findings carried a `</details>` into the compared text.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n</blockquote></details>");
+  assert.equal(detail, "**Title.** prose");
+});
+
+test("codeRabbitDetail: an UNBALANCED opening block still terminates the prose", () => {
+  // The fail-safe direction. A block that cannot be paired means the body is not the
+  // shape this function understands, so it stops early and yields LESS text rather than
+  // swallowing a structured block whole.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\nVerify each finding against current code.");
+  assert.equal(detail, "**Title.** prose");
+  assert.doesNotMatch(detail, /Verify each finding/);
+});
+
+test("unrecognisedDetailsLabels: counts CONTENT labels and ignores machinery and structure", () => {
+  // `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes without
+  // notice — four header vintages and two category vocabularies have already turned
+  // over — so it fails OPEN: a new machinery block is unwrapped into `detail` rather
+  // than dropped. This makes that countable instead of invisible, which is the lesson
+  // this area keeps re-learning.
+  const bodies = [
+    "<details><summary>🤖 Prompt for AI Agents</summary>x</details>",
+    // The SECOND phrasing of that same block, which a review body uses. The narrower
+    // `Prompt for AI Agents` pattern missed it, and this function is what found that —
+    // it was the first thing it reported. Hence the `🤖 Prompt for` prefix.
+    "<details><summary>🤖 Prompt for all review comments with AI agents</summary>x</details>",
+    // The review-body walkthrough's own machinery, one of each per review.
+    "<details><summary>⚙️ Run configuration</summary>x</details>",
+    "<details><summary>📥 Commits</summary>x</details>",
+    "<details><summary>ℹ️ Review info</summary>x</details>",
+    "<details><summary>🪄 Autofix (Beta)</summary>x</details>",
+    "<details><summary>📝 Committable suggestion</summary>x</details>",
+    "<details><summary>🪛 markdownlint-cli2 (0.23.2)</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>🦄 Brand New Block Type</summary>x</details>",
+    // Review-body STRUCTURE: a tier section and a file sub-section, both declaring a
+    // count. Neither is a finding's block and counting them buries the signal.
+    "<details><summary>🧹 Nitpick comments (2)</summary><blockquote>",
+    "<details><summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  ];
+  const got = unrecognisedDetailsLabels(bodies);
+  assert.deepEqual(got, [
+    { label: "Proposed fix", n: 2 },
+    { label: "🦄 Brand New Block Type", n: 1 },
+  ]);
+  // A single body is accepted as well as a list, so a caller need not wrap it.
+  assert.deepEqual(unrecognisedDetailsLabels("<details><summary>Suggested fix</summary>x</details>"), [
+    { label: "Suggested fix", n: 1 },
+  ]);
+  assert.deepEqual(unrecognisedDetailsLabels([]), []);
 });
 
 /** A panel check-run whose findings are `findings`. */

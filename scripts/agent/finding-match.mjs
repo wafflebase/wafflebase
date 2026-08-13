@@ -54,8 +54,8 @@
 // linkage is COMPLETE, never single — see `groupFindings`.
 
 import { createHash } from "node:crypto";
-import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "./rounds.mjs";
-import { findingKey } from "./finding-key.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "./vendor/pipeline/rounds.mjs";
+import { findingKey } from "./vendor/pipeline/finding-key.mjs";
 
 // Code-ish words that appear inside backticks but identify nothing.
 const SYMBOL_STOP = new Set([
@@ -199,6 +199,33 @@ export function compareAnchors(a, b) {
 const trim = (s) => String(s ?? "").trim();
 const res = (verdict, score, method, reason, extra = {}) => ({ verdict, score, method, reason, ...extra });
 
+/**
+ * The token bar for CROSS-ARM pairs, which is the only population
+ * `crossArmTokenOverlap` scores. Separate from `DEFAULT_SIMILARITY` because the
+ * two functions no longer compute the same quantity: carrying 0.3 onto the Dice
+ * scale would silently tighten cross-arm matching rather than leaving it alone.
+ *
+ * Dice rescales by `2·min/(|a|+|b|)`, so the faithful translation of 0.3 depends
+ * on operand shape — and the two cross-arm callers sit close together:
+ *
+ *   complementarity.mjs   panel 14 vs CR title 7    factor 0.67    0.30 -> 0.20
+ *   harvest.mjs           panel 14 vs CR prose 32   factor 0.61    0.30 -> 0.18
+ *
+ * 0.22 is the value in that region which holds the title-shaped caller EXACTLY
+ * (2 false matches and 6 of 6 true, the same as containment @ 0.30) while taking
+ * the prose-shaped caller's gain. It sits above the 0.231 cliff where the
+ * title-shaped caller starts losing true matches, with margin.
+ *
+ * ⚠ IT IS NOT CALIBRATED IN THE SENSE `DEFAULT_SIMILARITY` IS. That one had four
+ * hand-read rephrasings of one defect behind it. This one was chosen against a
+ * strong negative set (3608 known non-matches) and a positive set of SIX that the
+ * metric being replaced selected. Calibrating it properly needs adjudicated pairs.
+ *
+ * Same-arm pairs never reach this constant — they keep `DEFAULT_SIMILARITY`, so
+ * `reliability.mjs` is byte-for-byte unaffected by this file's change.
+ */
+export const CROSS_ARM_SIMILARITY = 0.22;
+
 /** Do the two findings tie to a location at all? Exact same file = 1; a file named
  *  in the other's evidence, or a basename tie across different depths = 0.6; else
  *  0. An empty `file` on either side scores 0 — absent, not equal. */
@@ -217,11 +244,20 @@ function locationScore(a, b, anA, anB) {
 /**
  * Decide whether two findings describe the same defect.
  *
- * `opts.crossSource` (default false) selects the gate. Within one panel run both
+ * `opts.crossSource` (default false) selects the GATE. Within one panel run both
  * operands are panel-shaped and the absolute (lens, file) gate is right, so L0/L1
  * apply. Across sources it is wrong — CodeRabbit has no lens, and two reviewers
  * can blame different files for one defect — so L2's soft gate applies instead.
- * `opts.threshold` overrides the token bar.
+ *
+ * `opts.sameArm` (default false) selects the METRIC, and it is a different
+ * question from the gate: two replicates of the panel are cross-SOURCE (a defect
+ * can surface under another lens on another try) but they are still one reviewer
+ * restating itself, which is the population containment was calibrated for. So
+ * L2 pairs score with `tokenOverlap` when `sameArm` and `crossArmTokenOverlap`
+ * otherwise. **Absent defaults to cross-arm** — see `matchAnchored` for why that
+ * direction is the only safe one.
+ *
+ * `opts.threshold` overrides the token bar on either path.
  *
  * Verdicts: `match` (confident), `maybe` (plausible — emit, flagged for a human),
  * `no`. Conservative by construction: ambiguity yields `maybe`.
@@ -248,7 +284,23 @@ export function matchFindings(a, b, opts = {}) {
  */
 function matchAnchored(a, b, anA, anB, opts = {}) {
   const crossSource = opts.crossSource === true;
-  const threshold = opts.threshold ?? DEFAULT_SIMILARITY;
+  // 🔴 ABSENT MEANS CROSS-ARM, and this default is load-bearing rather than tidy.
+  //
+  // It is read from `opts`, never off the findings. `harvest.mjs` compares through
+  // `attributeToPanel`, whose `neutral()` helper carries only lens/file/summary/
+  // evidence — no `arm`, no `run`. Inferring "same arm" from `a.arm === b.arm`
+  // there would compare `undefined === undefined`, get `true`, hand the panel-vs-
+  // CodeRabbit comparison the same-arm metric, and delete this change's entire
+  // effect at its only production caller. Nothing would fail; the numbers would
+  // just quietly go back. So absent provenance falls to cross-arm, which is the
+  // stricter of the two and the one that cannot silently restore the old
+  // behaviour. `gateFor` makes the same choice for the same reason.
+  const sameArm = opts.sameArm === true;
+  // Two metrics, two bars, selected by ARM rather than by run. See `tokenOverlap`
+  // (one reviewer restating itself) and `crossArmTokenOverlap` (two reviewers).
+  // An explicit `opts.threshold` still overrides either — a caller passing a
+  // number means that number.
+  const threshold = opts.threshold ?? (crossSource && !sameArm ? CROSS_ARM_SIMILARITY : DEFAULT_SIMILARITY);
 
   const cmp = compareAnchors(anA, anB);
 
@@ -283,7 +335,10 @@ function matchAnchored(a, b, anA, anB, opts = {}) {
 
   // ---- cross-source path: L2 soft location gate ----------------------------
   const loc = locationScore(a, b, anA, anB);
-  const tokens = tokenOverlap(a.summary, b.summary);
+  // THE GATE STRUCTURE IS IDENTICAL FOR BOTH; only the metric and its bar differ.
+  // That is what keeps `reliability.mjs` — whose pairs are same-arm across
+  // replicates — reproducing its published figures exactly.
+  const tokens = sameArm ? tokenOverlap(a.summary, b.summary) : crossArmTokenOverlap(a.summary, b.summary);
   // Reported strength of the pair. `symbolOverlap` may raise the SCORE, but it may
   // not decide the verdict — see the match condition below.
   const content = Math.max(tokens, cmp.symbolOverlap ?? 0);
@@ -322,6 +377,15 @@ function matchAnchored(a, b, anA, anB, opts = {}) {
  * Token containment between two free-text summaries, with no (lens, file) gate —
  * the part of `findingSimilarity` that survives a cross-source comparison.
  *
+ * ONE ARM RESTATING ITSELF. Containment divides by the SMALLER token set, and
+ * upstream's reason for that is specific: "the panel restates one defect at
+ * different levels of detail, and Jaccard penalises the extra specifics in the
+ * longer wording, which is precisely the wrong behaviour here." That is an
+ * argument about ONE REVIEWER wording the same defect twice — which is exactly
+ * the same-arm population, whether the two wordings come from one run or from two
+ * replicates. It is NOT an argument about two different reviewers; see
+ * `crossArmTokenOverlap` for why, and `gateFor` for which pair gets which.
+ *
  * `MIN_SHARED_TOKENS` is imported rather than dropped, and that matters here more
  * than it does upstream. The constant encodes `findingSimilarity`'s calibration
  * note — real same-defect pairs share 7-17 tokens, real different-defect pairs at
@@ -339,6 +403,61 @@ export function tokenOverlap(s1, s2) {
   for (const t of ta) if (B.has(t)) shared++;
   if (shared < MIN_SHARED_TOKENS) return 0;
   return shared / Math.min(ta.length, tb.length);
+}
+
+/**
+ * The same question across TWO DIFFERENT REVIEWERS, where containment's rationale
+ * does not hold and its arithmetic actively misleads.
+ *
+ * DICE, because containment is BLIND TO THE LONGER OPERAND. With the numerator
+ * fixed, `shared / min(|a|, |b|)` does not move as the other side grows:
+ *
+ *   |a| = 6, 3 shared     |b| = 6    |b| = 12   |b| = 24   |b| = 48
+ *   containment              0.50       0.50       0.50       0.50   <- blind
+ *   dice                     0.50       0.33       0.20       0.11
+ *
+ * Between two reviewers there is no "one of them restated itself at more length",
+ * so a long text covering a short one is not evidence of agreement — it is the
+ * arithmetic of covering a file's shared vocabulary. Both live cross-arm callers
+ * are asymmetric, in OPPOSITE directions, and containment divides by whichever
+ * side happens to be shorter in each:
+ *
+ *   harvest.mjs           panel summary 14 tokens vs CodeRabbit PROSE 32
+ *   complementarity.mjs   panel summary 14 tokens vs CodeRabbit TITLE 7
+ *
+ * ⚠ The prose side is easy to miss by reading `attributeToPanel` alone: its
+ * `neutral()` helper reads `f.summary`, but `harvest.mjs`'s call site has already
+ * put `finding.detail` INTO that field ("Prose for the token comparison, the whole
+ * body for the anchor layer"). The field is named `summary` and holds the prose.
+ *
+ * WHY IT IS WORTH CHANGING. `harvest.mjs` uses the verdict to decide when one
+ * reviewer's finding restates another's, and a match SUPPRESSES the candidate — a
+ * false one deletes a real finding from the corpus with no later pass able to
+ * recover it, while a false non-match files a duplicate a curator strikes out in
+ * one line. Measured over 3608 pairs drawn from DIFFERENT pull requests, so every
+ * pair is a known non-match, plus the 6 pairs the incumbent metric calls `match`:
+ *
+ *                                       false matches   true matches kept
+ *   TITLE  containment @ 0.30 (before)      2/3608             6/6
+ *   TITLE  dice        @ 0.22 (after)       2/3608             6/6
+ *   PROSE  containment @ 0.30 (before)     16/3608             4/6
+ *   PROSE  dice        @ 0.22 (after)       1/3608             3/6
+ *
+ * ⚠ The right-hand column is 6 pairs deep and CIRCULAR — those 6 were selected by
+ * containment. It shows recall is not silently destroyed; it is not a recall
+ * measurement, and no labelled positive set exists for this comparison.
+ *
+ * The floor is kept for the same reason as above: two shared tokens across two
+ * three-token summaries is Dice 0.67, over any bar here and meaningless.
+ */
+export function crossArmTokenOverlap(s1, s2) {
+  const ta = summaryTokens(s1); const tb = summaryTokens(s2);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  const B = new Set(tb);
+  let shared = 0;
+  for (const t of ta) if (B.has(t)) shared++;
+  if (shared < MIN_SHARED_TOKENS) return 0;
+  return (2 * shared) / (ta.length + tb.length);
 }
 
 /**
@@ -536,9 +655,19 @@ function defectClassId(item, digests) {
  * have, and only the second kind is unrecoverable.
  */
 function gateFor(x, y, fallbackCrossSource) {
-  if (x.arm === null || y.arm === null) return { crossSource: fallbackCrossSource, derived: false };
-  const sameRun = x.arm === LENSED_ARM && y.arm === LENSED_ARM && x.run !== null && x.run === y.run;
-  return { crossSource: !sameRun, derived: true };
+  // Unreadable provenance ⇒ CROSS-ARM as well as the fallback gate. Absent must
+  // never read as "the same arm": that is the direction which silently restores
+  // containment on a panel-vs-CodeRabbit pair, and `matchAnchored` makes the same
+  // choice for the same reason.
+  if (x.arm === null || y.arm === null) return { crossSource: fallbackCrossSource, sameArm: false, derived: false };
+  // THREE CASES, NAMED. Same arm and same run is L0's population. Same arm across
+  // runs is a replicate of ONE reviewer — L2's gate, but containment's metric,
+  // because "one reviewer restated itself at more length" is exactly what
+  // containment refuses to penalise. Different arms is two reviewers, where that
+  // rationale does not apply at all.
+  const sameArm = x.arm === y.arm;
+  const sameRun = sameArm && x.arm === LENSED_ARM && x.run !== null && x.run === y.run;
+  return { crossSource: !sameRun, sameArm, derived: true };
 }
 
 /**
@@ -700,6 +829,7 @@ export function groupFindings(findings, opts = {}) {
         const gate = gateFor(nodes[i], nodes[j], fallbackCrossSource);
         let result = matchAnchored(nodes[i].operand, nodes[j].operand, nodes[i].anchor, nodes[j].anchor, {
           crossSource: gate.crossSource,
+          sameArm: gate.sameArm,
           threshold: opts.threshold,
         });
         // G0 — THE ONE PLACE GROUPING IS STRICTER THAN `matchFindings`, deliberately.

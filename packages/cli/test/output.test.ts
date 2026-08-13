@@ -394,6 +394,109 @@ describe('runCli entrypoint', () => {
     expect(process.exitCode).toBe(0);
   });
 
+  // Regression guard for #654. Commander exits during parsing, before any
+  // action handler runs, so its own failures used to print bare prose
+  // ("error: missing required argument 'doc-id'") and skip the documented
+  // envelope entirely — the one error an agent driver is most likely to hit
+  // was the one it could not parse. These drive the entrypoint with the
+  // issue's four reproductions and assert both halves: the envelope is on
+  // stderr, and commander's prose is not.
+  describe('commander parse failures', () => {
+    let writtenOut: string[];
+    let writtenErr: string[];
+
+    beforeEach(() => {
+      writtenOut = [];
+      writtenErr = [];
+    });
+
+    async function runArgv(...argv: string[]): Promise<void> {
+      const program = buildProgram();
+      // Children share the root's output-configuration object by reference,
+      // so this captures every stream write the whole tree makes.
+      program.configureOutput({
+        writeOut: (s) => void writtenOut.push(s),
+        writeErr: (s) => void writtenErr.push(s),
+      });
+      await runCli(program, ['node', 'wafflebase', ...argv]);
+    }
+
+    function envelope(): { error: { code: string; message: string } } {
+      expect(stderrSpy).toHaveBeenCalledOnce();
+      return JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+        error: { code: string; message: string };
+      };
+    }
+
+    it('envelopes a missing required argument', async () => {
+      await runArgv('docs', 'content');
+
+      const body = envelope();
+      expect(body.error.code).toBe('USAGE');
+      expect(body.error.message).toBe("missing required argument 'doc-id'");
+      expect(process.exitCode).toBe(1);
+      // Commander's own prose must not reach stderr alongside the envelope.
+      expect(writtenErr).toEqual([]);
+      expect(writtenOut).toEqual([]);
+    });
+
+    it('envelopes an unknown option', async () => {
+      await runArgv('docs', 'content', '--bogus-flag');
+
+      const body = envelope();
+      expect(body.error.code).toBe('USAGE');
+      expect(body.error.message).toContain("unknown option '--bogus-flag'");
+      expect(process.exitCode).toBe(1);
+      expect(writtenErr).toEqual([]);
+    });
+
+    it('envelopes an unknown command', async () => {
+      await runArgv('sheets', 'get');
+
+      const body = envelope();
+      expect(body.error.code).toBe('USAGE');
+      expect(body.error.message).toContain("unknown command 'get'");
+      expect(process.exitCode).toBe(1);
+      expect(writtenErr).toEqual([]);
+    });
+
+    it('envelopes a missing argument on a binary-output command', async () => {
+      await runArgv('docs', 'export');
+
+      const body = envelope();
+      expect(body.error.code).toBe('USAGE');
+      expect(body.error.message).toBe("missing required argument 'doc-id'");
+      expect(process.exitCode).toBe(1);
+    });
+
+    // `--version`/`--help` exit through the same CommanderError path. They
+    // have already written their body, so enveloping them would report
+    // `wafflebase --help` as a USAGE failure.
+    it('leaves --version as stdout output with exit 0', async () => {
+      await runArgv('--version');
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+      expect(writtenOut.join('')).toMatch(/\d+\.\d+\.\d+/);
+      expect(process.exitCode).toBe(0);
+    });
+
+    it('leaves --help as stdout output with exit 0', async () => {
+      await runArgv('--help');
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+      expect(writtenOut.join('')).toContain('Usage: wafflebase');
+      expect(process.exitCode).toBe(0);
+    });
+
+    it('keeps bare `wafflebase` printing usage to stderr with exit 1', async () => {
+      await runArgv();
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+      expect(writtenErr.join('')).toContain('Usage: wafflebase');
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
   it('wires every namespace onto the default program', () => {
     const names = buildProgram().commands.map((c) => c.name());
     expect(names).toEqual(

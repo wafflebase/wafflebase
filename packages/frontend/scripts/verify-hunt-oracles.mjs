@@ -28,6 +28,7 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.HUNT_ORACLES_PORT || 4178);
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
 const HOST_TESTID = "hunt-harness-host";
+const TOOLBAR_TESTID = "hunt-harness-toolbar";
 
 /** How long silence must hold before a negative control counts as quiet. */
 const QUIET_WINDOW_MS = 250;
@@ -243,6 +244,13 @@ const READER_EXPECTATIONS = [
     v === null || v === undefined ? null : `a literal cell must have no formula, got ${JSON.stringify(v)}`],
   ["sheet", "sheet.activeCell", [], (v) => (typeof v === "string" && /^[A-Z]+\d+$/.test(v) ? null : "expected a cell ref")],
   ["sheet", "sheet.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+  // A1 carries no style in the seed, so `null` is the right answer and an OBJECT would
+  // mean the reader had started resolving inherited values — which is the other
+  // reader's job, and the confusion this pair is named to avoid.
+  ["sheet", "sheet.rangeStyles", [], (v) => (Array.isArray(v) ? null : "expected an array of range-style patches")],
+  ["sheet", "sheet.activeCellDisplay", [], (v) => (typeof v === "string" || v === null ? null : "expected a display string or null")],
+  ["sheet", "sheet.activeCellStyle", [], (v) =>
+    v === null || (v && typeof v === "object" && !Array.isArray(v)) ? null : "expected a style object or null"],
   ["sheet", "sheet.cellCenter", ["B2"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
@@ -464,6 +472,184 @@ async function checkUndoCapability(page, baseUrl) {
   const sheetCanUndo = await page.evaluate(() => window.__WB_HUNT__.read("sheet.canUndo"));
   if (typeof sheetCanUndo !== "boolean") problems.push(`sheet.canUndo must answer with a boolean, got ${JSON.stringify(sheetCanUndo)}`);
   else console.log(`[verify:hunt-oracles] sheet.canUndo reports ${sheetCanUndo} (MemStore has no history — informational)`);
+
+  return problems;
+}
+
+/**
+ * The sheet toolbar, end to end: does a control reach the STORED style?
+ *
+ * The sheet surface ran without chrome until the toolbar was mounted, and every defect
+ * this hunter has filed came from a toolbar control. So the question this answers is
+ * not "is Bold correct" — it is whether the loop exists at all: a real control, acting
+ * on a real selection, landing in a place a reader can see.
+ *
+ * It asserts on `sheet.rangeStyles` — the patch list the toolbar actually appends to —
+ * rather than on any per-cell style. The first version of this check asserted the
+ * latter and FAILED against a working toolbar: `applyStylePatchToExistingCells` skips
+ * any cell that does not already carry its own style, so styling the populated,
+ * unstyled B1 left `cell.s` null while the effective style correctly read `{b:true}`.
+ * That measurement is why the per-cell reader was dropped before it shipped.
+ *
+ * DELIBERATELY NOT ASSERTED: what the second Bold click leaves behind.
+ * `toggleRangeStyle` computes `!effective[prop]` and writes it, so bold-off stores
+ * `b: false` rather than deleting the key. Whether that is a defect is a real question
+ * — an explicit `false` is how a cell overrides a `true` inherited from a row or column
+ * style — and pinning either answer here would either bless a defect or fail the lane
+ * over one. That judgement belongs to the panel; this lane's job is to prove the
+ * evidence is reachable.
+ */
+async function checkSheetToolbar(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  const toolbar = await page.locator(`[data-testid="${TOOLBAR_TESTID}"]`).count();
+  if (toolbar === 0) {
+    problems.push("no toolbar is mounted on the sheet surface — the controls the hunter needs are absent");
+    return problems;
+  }
+
+  // Select a cell through the reader the hunter itself must use, so a broken targeting
+  // path fails here rather than as a mysterious empty run.
+  // B1, NOT an empty cell. `setRangeStyle` appends a range patch and then "only
+  // touch[es] already-populated cells", so styling an EMPTY cell leaves `cell.s` null
+  // for ever. Measured here: the first version of this check clicked Bold on B2, which
+  // the seed never populates, and read back `null` — correct behaviour that looks
+  // exactly like a broken toolbar.
+  const centre = await readReader(page, "sheet.cellCenter", ["B1"]);
+  if (!centre.ok || !Number.isFinite(centre.value?.x)) {
+    problems.push(`sheet.cellCenter did not yield a clickable point for B1: ${JSON.stringify(centre.value ?? centre.error)}`);
+    return problems;
+  }
+  // Select somewhere ELSE first, so "the selection is B1" cannot be true by default.
+  // Without this the whole check passes vacuously when the click misses: Bold would
+  // style whatever happened to be selected, a patch would still appear, and every
+  // assertion below would hold while proving nothing about B1.
+  const away = await readReader(page, "sheet.cellCenter", ["A3"]);
+  if (away.ok && Number.isFinite(away.value?.x)) {
+    await page.mouse.click(away.value.x, away.value.y);
+  }
+  const parked = (await readReader(page, "sheet.activeCell", [])).value;
+  if (parked === "B1") {
+    problems.push("could not park the selection away from B1, so a missed click would be indistinguishable from a hit");
+    return problems;
+  }
+
+  await page.mouse.click(centre.value.x, centre.value.y);
+
+  const landed = (await readReader(page, "sheet.activeCell", [])).value;
+  if (landed !== "B1") {
+    problems.push(`clicking B1's centre selected ${JSON.stringify(landed)} instead — the cell-targeting path the hunter depends on is broken`);
+    return problems;
+  }
+
+  const before = (await readReader(page, "sheet.rangeStyles", [])).value;
+  const beforeCount = Array.isArray(before) ? before.length : -1;
+  if (beforeCount !== 0) {
+    problems.push(`the seed should carry no range styles, so an applied one is unambiguous — got ${JSON.stringify(before)?.slice(0, 120)}`);
+    return problems;
+  }
+
+  await page.getByRole("button", { name: "Bold" }).click();
+
+  let after = null;
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    after = (await readReader(page, "sheet.rangeStyles", [])).value;
+    if ((Array.isArray(after) ? after.length : 0) > 0 || Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
+  const applied = Array.isArray(after) ? after : [];
+  if (applied.length === 0) {
+    problems.push(
+      `clicking Bold appended no range style — got ${JSON.stringify(after)}. ` +
+        "Either the toolbar is not wired to this spreadsheet instance (harness fault), the selection " +
+        "never landed on B1 (harness fault), or setRangeStyle regressed (product fault).",
+    );
+  } else if (!applied.some((p) => p?.style?.b === true)) {
+    problems.push(`a range style was appended but none of them is bold: ${JSON.stringify(applied).slice(0, 200)}`);
+  }
+
+  // The computed reader must ALSO see it. A patch that exists but does not reach the
+  // cascade would mean the two readers are not describing one surface.
+  const computed = (await readReader(page, "sheet.activeCellStyle", [])).value;
+  if (computed?.b !== true) {
+    problems.push(`sheet.activeCellStyle should report the applied bold on the active cell, got ${JSON.stringify(computed)}`);
+  }
+
+  // AND BACK AGAIN. The brief tells the explorer what a round trip leaves behind, and
+  // that sentence was WRONG in its first version — it claimed patches accumulate, so
+  // the first live run that used the toolbar spent its only violated prediction on a
+  // claim I had written without checking the compaction path. `addRangeStylePatch`
+  // merges a repeat toggle into the tail patch and then DELETES it when
+  // `pruneRedundantDefaultStyleKeys` finds the result redundant with the default.
+  //
+  // Pinned here so the brief's fact is a checked one. It is also where this surface
+  // DIFFERS from docs, where the same round trip leaves an explicit `false` behind
+  // (#749, #793) — if sheets ever grows that residue, this fails rather than the brief
+  // quietly going stale again.
+  await page.getByRole("button", { name: "Bold" }).click();
+  let cleared = null;
+  const rtDeadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    cleared = (await readReader(page, "sheet.rangeStyles", [])).value;
+    if ((Array.isArray(cleared) ? cleared.length : 1) === 0 || Date.now() >= rtDeadline) break;
+    await page.waitForTimeout(25);
+  }
+  if ((Array.isArray(cleared) ? cleared.length : -1) !== 0) {
+    problems.push(
+      `toggling Bold off should prune the patch, leaving no range styles — got ${JSON.stringify(cleared)?.slice(0, 160)}. ` +
+        "If this is now residue rather than a clean round trip, sheet-author.md says the opposite and must be corrected with it.",
+    );
+  }
+  const restored = (await readReader(page, "sheet.activeCellStyle", [])).value;
+  if (restored?.b === true) {
+    problems.push(`the second Bold click left the cell still bold: ${JSON.stringify(restored)}`);
+  }
+
+  // NUMBER FORMAT: the stored value must NOT move and the display MUST.
+  //
+  // This encodes a false finding a live run actually proposed. It clicked
+  // `Increase decimal places`, watched `sheet.activeCellStyle` record the format, saw
+  // `sheet.cellValue` stay byte-identical, and concluded on four grounded predictions
+  // that "number formats never reach the displayed value". The app was right: formats
+  // are applied by `formatValue` at paint time, and the reader it checked was
+  // advertised as "the displayed value" while returning the stored one.
+  //
+  // Both halves are asserted, because each alone is satisfiable by a broken reader: a
+  // display that never changes looks identical to a format that never applied, and a
+  // stored value that DID change would mean formatting had corrupted the data.
+  const numCentre = await readReader(page, "sheet.cellCenter", ["A1"]);
+  if (numCentre.ok && Number.isFinite(numCentre.value?.x)) {
+    await page.mouse.click(numCentre.value.x, numCentre.value.y);
+    const storedBefore = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+    const shownBefore = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+
+    await page.getByRole("button", { name: "Increase decimal places" }).click();
+    let shownAfter = null;
+    const nfDeadline = Date.now() + FIRE_DEADLINE_MS;
+    for (;;) {
+      shownAfter = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+      if (shownAfter !== shownBefore || Date.now() >= nfDeadline) break;
+      await page.waitForTimeout(25);
+    }
+    const storedAfter = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+
+    if (shownAfter === shownBefore) {
+      problems.push(
+        `Increase decimal places did not change what A1 displays (${JSON.stringify(shownBefore)}) — ` +
+          "either the reader does not apply the format or the control did not reach the style",
+      );
+    }
+    if (storedAfter !== storedBefore) {
+      problems.push(
+        `a number format changed the STORED value of A1: ${JSON.stringify(storedBefore)} -> ${JSON.stringify(storedAfter)}. ` +
+          "Formatting is a paint-time concern and must not rewrite the cell.",
+      );
+    }
+  }
 
   return problems;
 }
@@ -936,6 +1122,11 @@ try {
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
+    }
+    const sheetToolbarProblems = await checkSheetToolbar(page, baseUrl);
+    for (const p of sheetToolbarProblems) failures.push(`sheet toolbar: ${p}`);
+    if (sheetToolbarProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a sheet toolbar click appends a range style the readers can see");
     }
     const colorProblems = await checkRunColor(page, baseUrl);
     for (const p of colorProblems) failures.push(`run colour: ${p}`);
