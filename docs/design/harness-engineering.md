@@ -196,7 +196,28 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
+| `pnpm verify:self` | Runner: 27 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+
+**Lanes are a graph, not a list.** Each lane declares what it is *about*
+(`pkgs` / `tags` / `anyPkg`) and what it needs *built* (`needs`), and selection
+takes the transitive closure over `needs` — `frontend:test` resolves
+`@wafflebase/core` through that package's `exports` to a gitignored `dist/`, so
+selecting it without `core:build` would run a broken suite rather than a smaller
+one. `needs` edges must point backwards in the array; `laneOrderViolations`
+refuses to start otherwise, because the selection closure cannot catch a forward
+edge and the resulting failure surfaces inside an unrelated package.
+
+The edges were established per package rather than assumed: no engine package has
+tsconfig `paths` (so sheets/docs/slides/board/cli resolve through `dist/`); the
+frontend aliases the five engines to `src/` in `packages/frontend/vite.config.ts` and does *not*
+alias core (so its lanes need only `core:build`); the backend's jest
+`moduleNameMapper` maps every workspace import, core included, to `src/` (so
+`backend:test` needs no build, while `backend:build` does); and `notes` and
+`design-editor` declare no workspace dependency at all.
+
+`pnpm verify:fast` is unchanged and remains the `pre-commit` gate. `verify:self`
+no longer shells out to it — the duplicated `pnpm core build` in that chain is
+why.
 
 **Branch-integrity gate.** `verify:self` records `HEAD` before the lanes and
 re-reads it after each one. A lane that moves `HEAD`, or leaves it unreadable,
@@ -235,16 +256,219 @@ reached a public PR as a diff appearing to delete every file in the repo.
 
 ### CI Contract
 
-- `verify-self` job runs first (no external services).
+- `changes` job runs first and decides what the change can affect (see
+  [Path-aware CI](#path-aware-ci)). Every gate reads its outputs.
+- `verify-self` job depends on `changes` (no external services).
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
+- `pipeline-drift` job is independent and never path-gated: it checks
+  `scripts/agent/` against the pinned `wafflebase/agent-pipeline` commit. It is
+  the correctness gate on the very directory path filtering makes cheapest to
+  change, and it costs seconds, so it always runs. (It is advisory rather than
+  blocking while the mirror exists — see #798.)
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
-- On PRs, CI automatically posts a verification summary comment with per-lane
-  results for both `verify:self` and `verify:integration`.
+- **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
+  a pull request happens in `.github/workflows/ci-report.yml`; see
+  [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
+- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
+  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
+  detail, and applies `ci-config-changed` when the mapping was touched.
 - CI triggers on `push` to `main`, `pull_request` targeting `main`, and
   `merge_group` (see below).
+
+### Reporting onto a fork PR
+
+`.github/workflows/ci.yml` used to post its own verification comment, and **it never worked for how
+this project actually receives contributions.** A fork's `pull_request` run gets a
+read-only `GITHUB_TOKEN` and no secrets, so `createComment` failed silently; the
+step's `continue-on-error` is why nobody noticed. Every merged PR from #789 to
+#798 came from a fork and not one received the comment.
+
+It cannot be fixed by adding a token to `.github/workflows/ci.yml`, for two independent reasons:
+
+1. **Secrets are withheld from a fork's `pull_request` run**, so
+   `secrets.AGENT_APP_ID` would be empty on exactly the PRs that need it. The
+   `CODECOV_TOKEN` note in `verify-self` records the same constraint.
+2. Even if it were populated, `verify-self` runs `pnpm verify:self` — arbitrary
+   build and test code from the PR's tree. A write-capable token in that
+   environment is a token the PR author can exfiltrate.
+
+So the writes moved to a `workflow_run`-triggered reporter, which runs in the base
+repository with access to secrets and runs *its own* copy from the default branch
+rather than the PR's. This is the same reasoning `.github/workflows/agent-summarize.yml` and
+`.github/workflows/agent-review-on-demand.yml` apply from `issue_comment`, and it reuses their App:
+`actions/create-github-app-token` with `AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY`,
+scoped to `issues: write` (which covers both PR comments and PR labels).
+
+**The invariant that makes the token safe:** the reporter performs no checkout of
+pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
+It reads two artifacts as *data* and calls the API. Adding a checkout of
+`head_sha` or a build step there would hand the token to the fork.
+
+Consequences worth knowing:
+
+- The resolution and the PR number travel in a `ci-context` artifact, because
+  `github.event.workflow_run.pull_requests` is **empty for a fork PR** — it is
+  populated only for same-repo branches, the one case that never needed this.
+- Artifact contents are attacker-controlled (lane names come from the PR's own
+  `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
+  into markdown, never executed, but are still collapsed for `|`, backticks,
+  angle brackets and newlines so a crafted name cannot forge table rows or
+  smuggle HTML, and length-capped so it cannot flood the comment.
+- Heavy-job outcomes are read from the run's job list rather than a second
+  artifact, so *skipped* is distinguishable from *never wrote a file*. That is
+  also what collapses the old two-phase "⏳ pending…" comment into one.
+- Without the App configured the reporter degrades to the ambient token, which
+  still works for same-repo PRs. The `changes` job's **run summary** needs no
+  token at all, so it remains the copy that always survives.
+
+### Path-aware CI
+
+An agent-only PR used to build a Playwright image and provision Postgres and
+Yorkie to run tests that cannot reach `scripts/agent/`. Two layers fix that.
+
+**Why it is a job and not a trigger.** A workflow filtered out by `on: paths:`
+produces **no check run at all**. `main`'s required contexts then never report,
+and a merge-queue entry waits on them until its status-check timeout dequeues it.
+A job that runs reports under a name the queue recognises.
+
+**And why the gate is on the steps, not on the job.** The obvious version — give
+the heavy jobs a job-level `if:` and let GitHub record them as `skipped`, which
+does satisfy a required check — is wrong, and #803 shipped it before a real
+merge-queue entry proved it. **A job with a `strategy.matrix` that is skipped by
+its own `if:` never expands the matrix**, so it files its check run under the bare
+job name. Measured on the `merge_group` SHA for #799:
+
+```
+verify-self (22.x)      success     ← ran, so the matrix expanded
+verify-browser          skipped     ← BARE NAME
+verify-integration      skipped     ← BARE NAME
+```
+
+`main` requires `verify-browser (22.x)` and `verify-integration (22.x)`. Neither
+name existed on that SHA, so the entry sat on *"Expected — Waiting for status to
+be reported"* and would have been dequeued at the status-check timeout — the exact
+failure the job-level filter was chosen to avoid, reached by a different route:
+not a missing check *run*, a missing check *name*. MAINTAINING.md's warning that
+"required check names must keep matching" is about renaming a job; skipping a
+matrix job renames it too.
+
+So `verify-browser` and `verify-integration` always run and always expand, and
+every step inside them carries the gate. When there is nothing to test they no-op
+and report success in seconds — the semantics the skip was reaching for, under a
+name that exists. `scripts/test/ci-workflow.test.mjs` fails if either job regains
+a job-level `if:` referencing the filter decision, or if a step loses its gate.
+
+A matrix job *may* still carry an `if:` that can only be false when the run is
+already doomed: `needs.verify-self.result == 'success'` is fine, because a failed
+`verify-self (22.x)` reports the failure and the entry is dequeued rather than
+stranded.
+
+**The mapping is an allow-list.** `harness.config.json`'s `ci.inert` lists the
+only paths permitted to shrink a run; a changed path matching nothing forces the
+full suite. A new package, a new top-level directory, or a file nobody classified
+is therefore covered by default, with no catch-all rule to remember. Never invert
+this into a list of paths that *do* trigger things.
+
+**Five unrelated failures all mean "run everything"** — no diff base, an
+unreadable event payload, a failed `git diff`, an empty diff, a corrupt
+hand-off — and each is a test in `scripts/test/changed-areas.test.mjs` rather
+than a claim. `ci.ciConfig` adds a sixth: a PR that edits the mapping is measured
+by the full suite, so it cannot use the filter to grade its own homework.
+`.github/CODEOWNERS` is the review half of that guard.
+
+**The resolution has three consumers, trusted differently on purpose.**
+
+| Field | Drives | Rule |
+| --- | --- | --- |
+| `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
+| `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
+| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+
+`full` and `packages` are separate because they answer different questions —
+"is selection on?" and "select what?" — and conflating them is how a fail-safe
+turns into a no-op: a resolution with `full: false` and no usable `packages`
+selects *nothing*, which is why `resolve()` validates the shape of a handed-off
+resolution rather than trusting that it parsed.
+
+The closure is derived from each `packages/*/package.json`, so it cannot go stale
+when someone adds a dependency — the dependency *is* the mapping. The two heavy
+jobs get the blunter rule because `verify-integration` builds core + docs +
+slides + sheets and its e2e set includes `docs-cli-roundtrip`,
+`notes-cli-roundtrip` and `slides-pptx-import`: an engine-package change with no
+backend file in it can break that job. Narrowing them to the closure is deferred
+until the mechanism has been observed working.
+
+**A reduced run must not hide that it was reduced.** The `changes` job writes its
+decision and reasons to the run summary — the copy that needs no token and
+therefore always survives — and `.github/workflows/ci-report.yml` leads the PR
+comment with the same reasons and names the `full-ci` label that overrides them.
+Filtered lanes render as `⊘` and skipped-after-failure as `⏭️`, because collapsing
+the two would let a real failure read as a deliberate omission.
+
+**`filtered` is a distinct lane status, not a reuse of `skip`.**
+`scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
+this never got its turn". It cannot be taught the difference *here*, because the
+copy in this repository is not what runs — the agent workflows execute
+`wafflebase/agent-pipeline` at a pinned commit, and this mirror only backs the
+`agent:tests` lane. An unrecognised status is merely absent from that tool's
+counts; a reused one would have made it state something untrue about every
+filtered lane. Teaching the pipeline repo to render `filtered` is an outstanding
+follow-up.
+
+`overall` is `some(fail)`, not `every(pass)`: the two were equivalent only while
+`skip` could not appear without a `fail` ahead of it, which is exactly what
+`filtered` breaks.
+
+**`full-ci`** on any PR forces every gated job — one click, no rebase, and not
+fork-specific. It cannot work on `merge_group`, whose payload carries no PR
+labels.
+
+### Deploy gate
+
+`.github/workflows/publish-ghpage.yml` (wafflebase.io) and `.github/workflows/docker-publish.yml` (`:latest`) used to
+trigger on `push: main` as separate workflows with no `needs:`. They **raced**
+ci.yml rather than waiting for it, so nothing anywhere enforced "full CI before
+deploy" and a red `main` published anyway. Both now trigger on
+`workflow_run: [CI] completed` restricted to `main`.
+
+What makes the gate meaningful rather than ceremonial:
+
+- **`push` to `main` is never path-filtered.** `scripts/changed-areas.mjs` short-circuits
+  that event to `full: true`. A filtered main run would make the gate theatre.
+- **Both check out `github.event.workflow_run.head_sha`, not the branch.** A
+  `workflow_run` starts after its trigger finished, so `main` may already have
+  advanced to a commit whose CI has not reported.
+- **Four `if:` clauses, none redundant** — `conclusion == 'success'`,
+  `event == 'push'` (CI also runs on `pull_request` and `merge_group`, and a
+  queue commit need never reach `main`), `head_branch == 'main'`, and
+  `head_repository == github.repository`. The last two matter more than they
+  look: `workflow_run.branches` filters on the *triggering run's head branch*,
+  and a fork's default branch is usually also called `main`, so a fork PR opened
+  from its own `main` would otherwise satisfy the trigger filter.
+- **Chain depth is unchanged.** GitHub allows three levels of `workflow_run`
+  chaining and `.github/workflows/ci.yml` → `.github/workflows/agent-review-panel.yml` → `.github/workflows/capture-collect.yml`
+  already uses all three with no headroom. These are **siblings** at level 2, not
+  new links. Nothing may be inserted between CI and them.
+- **`concurrency` with `cancel-in-progress` answers "deploy every few PRs?"**
+  without a policy: a burst of merges queues several deploys, all but the newest
+  are cancelled, and one deploy publishes the newest CI-verified tree. Safe
+  because both deploys are additive and self-reconciling. `docker-publish`'s
+  group is keyed so a `release` publish can never be cancelled by a later merge.
+- **`packages/documentation` is now built by a lane.** Nothing built it before;
+  `.github/workflows/publish-ghpage.yml` builds it via `pnpm build:all`, so a broken docs site
+  failed the *deployment*. That is survivable only while the deploy is
+  unconditional.
+- **`paths-ignore` had to be reimplemented in a step.** `workflow_run` supports no
+  path filter, and dropping `.github/workflows/publish-ghpage.yml`'s `packages/backend/**` ignore
+  would shorten the window in which a client holding a cached `index.html` can
+  still fetch its assets (only `KEEP_COUNT=3` deployments are retained).
+
+The cost, stated plainly: a production deploy now lands roughly a full-CI run
+after merge instead of immediately. That replaces a race in which a red `main`
+published.
 
 ### Merge queue
 

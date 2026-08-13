@@ -71,10 +71,26 @@ test("each rubric injects its OWN surface's constraints and not the other's", ()
   // no-ops. A whole ground-A finding was built on not knowing that.
   assert.match(byId["doc-writer"].rubric, /CLEAR THE SELECTION/i, "doc rubric must warn that undo/redo clears the selection");
 
-  // And the constraints must NOT bleed across: an explorer told about a toolbar it
-  // cannot reach wastes budget discovering that.
-  assert.doesNotMatch(byId["sheet-author"].rubric, /formatting toolbar is mounted/);
-  assert.match(byId["sheet-author"].rubric, /no formatting toolbar/i);
+  // The sheet surface HAS a toolbar now, and this assertion used to pin the opposite.
+  // It was right when written and became wrong the moment the toolbar was mounted —
+  // which is the failure mode worth naming, because it has now happened twice: a brief
+  // that told the doc explorer colour was out of bounds outlived the reader that made
+  // colour observable, and the capability sat unused until someone noticed. A rubric
+  // stating a surface fact is a claim with an expiry date, and this is its test.
+  assert.match(byId["sheet-author"].rubric, /formatting toolbar IS mounted/i, "sheet rubric must say the toolbar is there");
+  assert.doesNotMatch(byId["sheet-author"].rubric, /no formatting toolbar/i, "and must not still deny it");
+
+  // The two traps the mount CREATES. Both are buttons that render and do nothing, which
+  // is the exact shape that produced this persona's only previous finding — a confident,
+  // reproducible, false one.
+  assert.match(byId["sheet-author"].rubric, /DO NOTHING HERE/i, "sheet rubric must name the unwired panel buttons");
+  assert.match(byId["sheet-author"].rubric, /Undo` and `Redo` are visible/i, "and that visible undo still cannot work");
+
+  // The reader pair, and which side of it a prediction belongs on. Getting this wrong
+  // is how `doc.styleSummary` invited false findings for months.
+  assert.match(byId["sheet-author"].rubric, /sheet\.rangeStyles/, "sheet rubric must name the reader the toolbar writes to");
+  assert.match(byId["sheet-author"].rubric, /DOES NOT LAND ON THE CELL/i, "and warn that styling misses the cell itself");
+  assert.match(byId["sheet-author"].rubric, /ACCUMULATE/, "and that patches accumulate, so a round trip is not `equals` on them");
 });
 
 test("every persona's codeScope and docsScope name paths that EXIST", () => {

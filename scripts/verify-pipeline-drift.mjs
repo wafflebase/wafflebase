@@ -46,6 +46,11 @@ const STAYS = [
   /^lint-config\.test\.mjs$/, // tests repo-root eslint.config.mjs
   /^read-review-verdict\./, // dead; deleted from the pipeline, not yet from here
   /^node_modules\//,
+  // vendor/ is a PINNED DEPENDENCY, not a mirror, and it has its own verifier
+  // (scripts/vendor-pipeline.mjs) which re-hashes every file against a manifest.
+  // Comparing it here too would report the same files twice and, worse, imply a
+  // human should reconcile them by hand.
+  /^vendor\//,
   // Central-repo-only test data: golden contract fixtures frozen from live
   // runs. They pin wire formats for the pipeline's own suite and have no
   // reason to exist in a consumer.

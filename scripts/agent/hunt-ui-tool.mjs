@@ -74,6 +74,8 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["sheet.activeCell", "", "the currently selected cell reference"],
     ["sheet.selectionRange", "", "the selected range, or null"],
     ["sheet.cellCenter", "(sref)", "a cell's centre point — name it as a click target's `reader` to click that cell"],
+    ["sheet.rangeStyles", "", "every range-style patch {range,style} the toolbar has appended — they ACCUMULATE, they are not replaced"],
+    ["sheet.activeCellStyle", "", "the ACTIVE cell's COMPUTED style (sheet→col→row→cell) — differing from sheet.rangeStyles is EXPECTED, not a defect"],
     ["sheet.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
 });
@@ -226,7 +228,7 @@ function forDisplay(value) {
  * measured value invites re-describing a violated prediction as some weaker claim that
  * happens to fit, which is the rationalisation this whole design forbids.
  */
-export function renderUiObservation({ action, observation, prediction = null }) {
+export function renderUiObservation({ action, observation, prediction = null, atIndex = null }) {
   const oracles = Array.isArray(observation?.oracles) ? observation.oracles : [];
   const lines = [];
   lines.push(
@@ -235,6 +237,26 @@ export function renderUiObservation({ action, observation, prediction = null }) 
 
   if ((action.type === "read" || action.type === "wait") && observation.ok) {
     lines.push(`${action.reader} => ${forDisplay(observation.value)}`);
+  }
+
+  // THE TOKEN THAT CITES THIS ENTRY, next to the value it names.
+  //
+  // Ground A requires `value` to be `@read:<i>` or `@input:<i>`, and the caller had no
+  // way to learn `<i>` except by counting its own actions since the session began. It
+  // miscounts: across three live runs, 10 of 97 predictions resolved to nothing and were
+  // discarded as unevaluable — ~10% of all predictive work paid for and thrown away, on
+  // arithmetic rather than on anything about the app.
+  //
+  // Emitted only for entries that CAN be cited, and only on success. Offering
+  // `@read:<i>` for a failed read, or for a click, would trade a miscount for a
+  // reference that resolves to an unusable entry — the same waste with a friendlier
+  // cause. `@input:` names typed text, which is why a `type` gets the other token.
+  if (Number.isInteger(atIndex) && observation.ok) {
+    if (action.type === "read" || action.type === "wait") {
+      lines.push(`cite this reading as @read:${atIndex}`);
+    } else if (action.type === "type") {
+      lines.push(`cite this text as @input:${atIndex}`);
+    }
   }
 
   if (prediction) {
@@ -358,7 +380,7 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
     journal.push(entry);
     const atIndex = journal.length - 1;
 
-    if (!action.expect) return say(safe(renderUiObservation({ action, observation })));
+    if (!action.expect) return say(safe(renderUiObservation({ action, observation, atIndex })));
 
     // 6. ASSESS. `atIndex` is this action's own index, so a prediction cannot cite
     //    itself as its own baseline — `not-equals @read:<own index>` is otherwise a
@@ -373,7 +395,7 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
     entry.prediction = prediction;
 
     // 7. REDACT on the way out. Public repo; every output boundary is guarded.
-    return say(safe(renderUiObservation({ action, observation, prediction })));
+    return say(safe(renderUiObservation({ action, observation, prediction, atIndex })));
   };
 }
 
