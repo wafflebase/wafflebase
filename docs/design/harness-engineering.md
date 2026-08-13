@@ -361,6 +361,39 @@ Consequences worth knowing:
 - Without the App configured the reporter degrades to the ambient token, which
   still works for same-repo PRs. The `changes` job's **run summary** needs no
   token at all, so it remains the copy that always survives.
+- **The PR number is bound to the run before anything is written.**
+  `ci-context/pr-number` is produced by a job that ran the pull request's own code,
+  so on a fork it is attacker-chosen — and unvalidated it aims the App token at any
+  issue in the repository. The reporter now requires the named pull request's head
+  to be this run's commit (`run.head_sha`, which is the PR head, not the merge
+  commit). A re-run of a superseded commit therefore reports nothing; that is the
+  safe direction, since a stale report is worse than a missing one and the newer
+  run posts its own.
+- **`ci-config-changed` tracks the current state in both directions, and is
+  computed from data the pull request cannot write.** It shipped add-only, which
+  made it monotonic: whatever set it once — a since-reverted gating file, or the
+  `base.sha...HEAD` bug above — kept it set for life, and a reviewer could not tell
+  a stale label from a live one. Making it removable is what forced the second
+  half. `areas.ciConfig` was the obvious input and is the wrong one, twice over:
+  it comes from the fork-written artifact, so a pull request could delete its own
+  warning; and `false` is **ambiguous at the producer**, because `classify()` emits
+  it for every fail-safe resolution too (no diff base, a failed `git diff`, an
+  empty diff), so it can mean "no gating file changed" or "we never found out".
+  Only the first may clear a label. So the reporter recomputes: the file list from
+  `pulls.listFiles`, the globs from `ci.ciConfig` on the **default branch**. Both
+  are beyond the pull request's reach, which makes the label right by construction
+  rather than by trusting its subject. It holds the label — never clears it — when
+  the globs are unreadable or the file list came back truncated at the API's 3000-file
+  cap, on the same principle.
+
+  Two consequences. The workflow carries its own copy of `globToRegExp`, because it
+  deliberately checks out no code; `scripts/test/ci-workflow.test.mjs` extracts that
+  copy from the YAML and asserts it agrees with `scripts/changed-areas.mjs` over a
+  glob × path corpus, so the duplication cannot drift into disagreeing with the run
+  it describes. And dropping monotonicity costs ordering: `concurrency` is keyed on
+  the triggering run, so two runs for one pull request do not serialise and an older
+  one finishing last can write a stale answer. Accepted — the next run corrects it,
+  the comment body already had that property, and nothing mechanical reads the label.
 
 ### Path-aware CI
 
@@ -410,12 +443,132 @@ full suite. A new package, a new top-level directory, or a file nobody classifie
 is therefore covered by default, with no catch-all rule to remember. Never invert
 this into a list of paths that *do* trigger things.
 
+**Two workspace packages are inert, and listing one takes a second edit.**
+`packages/documentation` (the VitePress site) and `packages/design-editor` (the
+dev-only Vite plugin) are leaves: no manifest in the workspace depends on either,
+and `packages/frontend/vite.config.ts` does not register the plugin, so neither
+can reach the engines, the frontend, or the heavy jobs.
+
+The second edit is the trap. An inert match **short-circuits** the `packages/`
+classification in `classify`, so an inert package never enters `changedPkgs`,
+never enters the reverse closure, and never appears in `packages` — which means a
+lane selecting on `pkgs` alone becomes **unreachable**, and so does `anyPkg`.
+Left there, the entry would make the package skippable *and* untested, which is
+strictly worse than not listing it: the lane still exists, still looks like
+coverage, and never runs. So each inert package's entry carries a tag its lanes
+also claim, and `scripts/test/verify-self-lanes.test.mjs` asserts that every tag
+in `ci.inert` is claimed by some lane.
+
+**How many lanes have to claim the tag is a per-package question**, and the
+answer differs for these two:
+
+| Package | In `knip.json`? | Tag claimed by |
+| --- | --- | --- |
+| `documentation` | no | `documentation:build` |
+| `design-editor` | **yes** (added by #819) | `design-editor:check` **and** `verify:entropy` |
+
+`design-editor` needs the second claimant because knip analyses it, so its
+dead-code pass is a gate a change there can genuinely fail — and `anyPkg`, which
+is how `verify:entropy` normally gets selected, cannot see an inert package. With
+only `design-editor:check` claiming the tag, dead code added under
+`packages/design-editor/` would pass its PR and first fail on `main`'s push run.
+That cost the four engine builds in entropy's `needs`; a design-editor change
+selects 6 of 28 lanes and still skips both heavy jobs. The general rule when
+listing a package inert: **enumerate every gate that can currently fail on it,
+and check each one's route in is a tag rather than `pkgs` or `anyPkg`.**
+
 **Five unrelated failures all mean "run everything"** — no diff base, an
 unreadable event payload, a failed `git diff`, an empty diff, a corrupt
 hand-off — and each is a test in `scripts/test/changed-areas.test.mjs` rather
 than a claim. `ci.ciConfig` adds a sixth: a PR that edits the mapping is measured
 by the full suite, so it cannot use the filter to grade its own homework.
 `.github/CODEOWNERS` is the review half of that guard.
+
+**The scope of "cannot grade its own homework", stated exactly.** It is a guard
+against *mistakes*, not against a hostile author. The `changes` job runs
+`scripts/changed-areas.mjs` **from the pull request's own tree**, so a PR that
+rewrites the resolver to report `full: false, heavy: false` gets the reduced run it
+asked for, and `verify-browser` / `verify-integration` report `skipped`, which
+branch protection counts as passing. `ciConfig` cannot catch that, because the code
+deciding `ciConfig` is the code under review. What remains is human: the diff shows
+the tampering, `.github/CODEOWNERS` puts a maintainer on it, and merge still needs
+an approving review.
+
+Closing it mechanically means resolving from the base branch rather than the head —
+the pattern `ci-report.yml` already uses for the label (it reads `ci.ciConfig` from
+the default branch precisely because the PR's copy is untrusted). That is a change
+to `ci.yml`'s `changes` job, not to the resolver, and is deliberately **not** part
+of the diff-base work; it is tracked as Phase 5 in
+`docs/tasks/active/20260812-path-aware-ci-todo.md`. Until then, treat a reduced run
+as evidence about an honest branch only.
+
+**Both ends of the diff come from the event payload, and that is load-bearing.**
+`resolveRefs` returns `{ base, head }`; on a `pull_request` those are
+`base.sha` and `head.sha`, never the checked-out `HEAD`. `actions/checkout`
+leaves `HEAD` at the **merge commit** for that event, and diffing a merge commit
+against `base.sha` does not describe the pull request — `merge-base(base.sha,
+merge_commit)` is `base.sha` itself whenever the merge already contains it, so
+the three-dot form collapses to two-dot and sweeps in whatever the merge brought
+along. Measured on #805, whose real change is five inert files:
+
+```
+base.sha ... merge_commit   ->  75 files, 18 of them ciConfig   (full run)
+base.sha ... head.sha       ->   5 files,  0 ciConfig           (correct)
+base.sha ..  head.sha       ->  15 files,  1 ciConfig           (full run)
+```
+
+#805 therefore ran the whole suite. That is the safe direction and it is useless:
+**any branch behind its base inherits its base's recent history as "changed"**,
+and in an active repository that is most branches — so the filter was quietly
+doing nothing for them while looking like it worked. The dot count matters too,
+in the opposite direction: two-dot compares the trees, so commits the base has
+and the head lacks read as changes belonging to the pull request. Three-dot
+against the payload's `head.sha` is the only form that is right on both counts,
+and both are pinned by tests.
+
+**`base.sha` is not the base branch's tip, and is resolved last for that reason.**
+GitHub stamps it when the pull request is created or synchronized and then leaves
+it alone, while `refs/pull/N/merge` is rebuilt against the base's *current* tip. So
+the two ends drift apart on their own, without anyone touching the branch, and the
+gap grows with every merge to `main`. #817 is the clean demonstration, because it
+ran twice without changing:
+
+```
+02:08  head 8de60d6fd   full=false heavy=false ciConfig=false   agent, docsProse
+04:48  head 637226ef1   full=true  heavy=true  ciConfig=true    "a CI gating file changed"
+```
+
+Four commits reached `main` in between. Nothing in #817's own five files changed;
+`base.sha...merge_commit` grew to 39 files, three of them `ciConfig`
+(`package.json`, `scripts/verify-self.mjs`, `scripts/verify-doc-index.mjs`) — all
+of them #821's, none of them #817's. The visible cost was a false
+`ci-config-changed` label on a pull request that never touched CI config, which is
+exactly the kind of alarm that trains reviewers to ignore the alarm.
+
+Three-dot absorbs a stale base only while the branch is **behind** it: the fork
+point is still the fork point. It stops absorbing anything the moment the branch
+goes **ahead** — a rebase, a force-push, or the **Update branch** button — because
+`head` then contains those commits, `merge-base(stale_base, head)` collapses to
+`stale_base`, and the base branch's history is charged to the pull request again.
+Measured on a rebase over two unrelated `main` commits:
+
+```
+stale base.sha ... rebased head  ->  feature.txt, harness.config.json, other.txt
+real base tip  ... rebased head  ->  feature.txt
+```
+
+That is the pre-merge state of nearly every pull request, so `resolveRefs` takes
+the base from the first of three sources to resolve:
+
+| Order | Source | Why it can be trusted / why it is not first |
+| --- | --- | --- |
+| 1 | `refs/pull/N/merge`'s **first parent** | The base tip GitHub merged against, as fresh as the run. Absent when the merge ref fast-forwarded — which is exactly what a rebased branch allows, hence source 2 |
+| 2 | `origin/<base.ref>` | Independent of the merge ref's shape |
+| 3 | `payload.base.sha` | **Last.** The only one that can be stale; reaching it over-reports, which merely costs a full run |
+
+Source 1 is only trusted when the merge commit's *second* parent is the payload's
+`head.sha` — that signature is what makes the first parent the base tip rather than
+some unrelated merge the branch happens to end on.
 
 **The resolution has three consumers, trusted differently on purpose.**
 

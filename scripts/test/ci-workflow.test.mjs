@@ -142,3 +142,78 @@ test("ci.yml job structure", async (t) => {
     }
   });
 });
+
+test("ci-report.yml's inlined glob matcher cannot drift", async (t) => {
+  // `ci-report.yml` decides the `ci-config-changed` label itself, from the API's
+  // file list and the base branch's `ci.ciConfig`, rather than from the
+  // fork-written artifact. To do that it needs glob matching, and it deliberately
+  // checks out no code — so it carries its own copy of `globToRegExp`.
+  //
+  // A copy is the right call there and the wrong thing to leave unguarded: if it
+  // drifts from the real one, the label starts disagreeing with the run it
+  // describes, silently and in whichever direction the divergence falls. So the
+  // copy is extracted from the workflow and compared against the module.
+  const source = readFileSync(
+    path.join(REPO_ROOT, ".github/workflows/ci-report.yml"),
+    "utf8",
+  );
+  const open = source.indexOf("const globToRegExp = (glob) => {");
+  assert.ok(open > 0, "ci-report.yml no longer inlines globToRegExp — delete this test or fix the label path");
+  const close = source.indexOf("};", source.indexOf("return new RegExp", open)) + 2;
+  const inlined = source.slice(open, close).replace(/^ +/gm, "");
+
+  const copy = new Function(`${inlined}; return globToRegExp;`)();
+  const { globToRegExp: real } = await import("../changed-areas.mjs");
+
+  const globs = [
+    ...JSON.parse(readFileSync(path.join(REPO_ROOT, "harness.config.json"), "utf8")).ci.ciConfig,
+    "docs/**",
+    "*.md",
+    "**/*.ts",
+    "packages/design-editor/**",
+    "a.b+c(d)",
+  ];
+  const paths = [
+    "harness.config.json",
+    "a/harness.config.json",
+    "harnessXconfig.json",
+    "scripts/changed-areas.mjs",
+    "scripts/verify-self.mjs",
+    "scripts/verify-.mjs",
+    "scripts/agent/verify-x.mjs",
+    "scripts/test/changed-areas.test.mjs",
+    ".github/workflows/ci.yml",
+    ".github/workflows/a/b/c.yml",
+    ".github/CODEOWNERS",
+    "package.json",
+    "packages/frontend/package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "knip.json",
+    "README.md",
+    "packages/README.md",
+    "docs/design/README.md",
+    "packages/design-editor/src/plugin/index.ts",
+    "a.b+c(d)",
+  ];
+
+  await t.test("agrees with scripts/changed-areas.mjs on every pair", () => {
+    for (const glob of globs) {
+      for (const file of paths) {
+        assert.equal(
+          copy(glob).test(file),
+          real(glob).test(file),
+          `divergence: glob ${JSON.stringify(glob)} against ${file}`,
+        );
+      }
+    }
+  });
+
+  await t.test("the pairs actually exercise both branches", () => {
+    // A vacuous comparison would pass the subtest above while proving nothing, so
+    // assert the corpus contains at least one match and one non-match.
+    const results = globs.flatMap((g) => paths.map((f) => real(g).test(f)));
+    assert.ok(results.some(Boolean), "no glob matched anything");
+    assert.ok(results.some((r) => !r), "every glob matched everything");
+  });
+});

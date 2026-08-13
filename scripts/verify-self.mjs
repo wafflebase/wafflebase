@@ -291,6 +291,11 @@ const LANES = [
     name: "design-editor:check",
     cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
     pkgs: ["design-editor"],
+    // `pkgs` alone would never select this lane: harness.config.json lists
+    // packages/design-editor/** as inert, and an inert match short-circuits the
+    // packages/ classification, so the package never reaches `packages`. The tag
+    // is what keeps the lane reachable — same shape as documentation:build.
+    tags: ["designEditor"],
   },
   {
     name: "board:check",
@@ -357,7 +362,13 @@ const LANES = [
     name: "verify:entropy",
     cmd: "pnpm verify:entropy",
     anyPkg: true,
-    tags: ["docsProse"],
+    // `designEditor` is here because `anyPkg` cannot reach it. An inert package
+    // never lands in `packages`, so the one gate a design-editor change CAN fail
+    // — knip's dead-code pass, which analyses packages/design-editor since #819
+    // added it to knip.json's `workspaces` — would otherwise be skipped on the PR
+    // and first fail on main's push run. It costs the four engine builds in
+    // `needs`; the heavy jobs and the frontend/backend suites still skip.
+    tags: ["docsProse", "designEditor"],
     needs: ["core:build", "sheets:build", "docs:build", "slides:build"],
   },
 ];
