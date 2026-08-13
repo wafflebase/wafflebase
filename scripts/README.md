@@ -16,6 +16,7 @@ individual gates they (or CI, or a package script) invoke.
 | `verify-self.mjs` | `pnpm verify:self` | The lane runner and the `pre-push` hook. Owns the lane graph (builds, typechecks, tests, per-package checks), writes `.harness-reports/`. |
 | `verify-ci.mjs` | `pnpm verify:ci` | The runner for lanes that need services — browser and integration. |
 | `changed-areas.mjs` | — | Resolves which lanes a change can possibly affect. One resolver, two consumers: `verify-self.mjs` and `ci.yml`'s `changes` job, so they can never disagree. |
+| `failure-summary.mjs` | — | Turns a failed lane's output into the one line `.harness-reports/<lane>.json` and the CI job summary show. Parses TAP and `node --test`'s spec reporter before falling back to a scan, so the summary names the test that failed rather than the first line containing the word "error". Separate from `verify-self.mjs` because importing that module runs the suite. |
 | `verify-browser-lanes.mjs` | — | Browser lane for `verify-ci.mjs`; degrades to a skip when Playwright is unavailable. |
 | `verify-frontend-chunks.mjs` | `pnpm verify:frontend:chunks` | Enforces the frontend chunk-count and per-chunk KB budgets from `harness.config.json`. |
 | `verify-dts-entries.mjs` | `pnpm verify:dts` | Asserts each engine package's published type entry actually resolves. Consumers set `skipLibCheck`, so a holey `dist/` would otherwise degrade to `any` silently. |
