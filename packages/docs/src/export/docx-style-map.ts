@@ -108,6 +108,18 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
 }
 
 /**
+ * `BlockStyle.alignment` → OOXML `ST_Jc` token. A closed map, so an
+ * unrecognized value falls back to the paragraph default instead of being
+ * interpolated into the `w:val` attribute.
+ */
+const DOCX_ALIGNMENTS: Record<string, string> = {
+  left: 'left',
+  center: 'center',
+  right: 'right',
+  justify: 'both',
+};
+
+/**
  * Build <w:pPr>...</w:pPr> XML from BlockStyle.
  */
 export function buildParagraphPropertiesXml(
@@ -120,7 +132,13 @@ export function buildParagraphPropertiesXml(
     parts.push(`<w:pStyle w:val="Heading${headingLevel}"/>`);
   }
 
-  const align = style.alignment === 'justify' ? 'both' : style.alignment;
+  // `BlockStyle.alignment` is typed, but the value reaching an exporter is
+  // whatever string was persisted into the CRDT (DOCX/PPTX import, the
+  // content PUT API, an older schema), so it is untrusted at this sink the
+  // same way colors are. Resolve it through a closed lookup — mirroring the
+  // PPTX exporter's `ALGN[...] ?? 'l'` — so `<w:jc w:val>` can only ever
+  // carry an `ST_Jc` token and never an attacker-chosen fragment.
+  const align = DOCX_ALIGNMENTS[style.alignment as string] ?? 'left';
   if (align !== 'left') {
     parts.push(`<w:jc w:val="${align}"/>`);
   }

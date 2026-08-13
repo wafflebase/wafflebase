@@ -2026,6 +2026,25 @@ describe('YorkieDocStore', () => {
       expect(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor).toBe(undefined);
       expect(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor).toBe(undefined);
     });
+
+    // Issue #728: "No fill" clears the key by passing it as `undefined`.
+    // styleByPath only merges, so the removal has to reach the Tree node
+    // itself — read it back through a fresh store to bypass the cache.
+    it('should clear the fill in the CRDT when backgroundColor is undefined', () => {
+      const tableBlock = createTableBlock(1, 1);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, {
+        backgroundColor: '#ff0000',
+        verticalAlign: 'middle',
+      });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: undefined });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.style.backgroundColor).toBe(undefined);
+      // Untouched keys survive the removal.
+      expect(cell.style.verticalAlign).toBe('middle');
+    });
   });
 
   describe('applyCellSpan', () => {

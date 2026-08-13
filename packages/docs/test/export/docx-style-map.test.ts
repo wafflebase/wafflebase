@@ -145,4 +145,15 @@ describe('buildParagraphPropertiesXml', () => {
     const xml = buildParagraphPropertiesXml({ alignment: 'justify', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 });
     expect(xml).toContain('<w:jc w:val="both"/>');
   });
+
+  it('drops an alignment that is not an ST_Jc token instead of interpolating it', () => {
+    // `alignment` is typed, but the value reaching the exporter is whatever
+    // was persisted into the CRDT (import, the content PUT API), so a
+    // hostile string must not reach the `w:val` attribute.
+    const xml = buildParagraphPropertiesXml({
+      alignment: 'center"/><w:jc w:val="right' as never,
+      lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
+    });
+    expect(xml).not.toContain('<w:jc');
+  });
 });

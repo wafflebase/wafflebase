@@ -20,3 +20,19 @@ start with `#`, `StoredColor` role/srgb forms are objects).
 key into a `removeStyleByPath` call. An empty string bypasses that machinery
 entirely and is stored as a real attribute. Toolbar "Reset" controls should
 pass `undefined`, never `""`.
+
+The corollary found in review: the cell path had only *half* that machinery.
+`serializeCellStyle` dropped falsy keys but `applyCellStyle` had no removal
+list, so the table "No fill" reset could never clear a fill at all. When a
+store grows a second style surface, the clear path has to be duplicated with
+it — `removedCellStyleAttrs` now mirrors `removedInlineStyleAttrs`.
+
+## Normalizing at a sink covers every writer; validating at one API does not
+
+Colors reach the OOXML exporters from import, HTML paste and the content PUT
+API, so the fix belongs at the sink (`toRgbHexColor` → attribute dropped when
+unexpressible). Review found the sibling attribute in the same function,
+`<w:jc w:val>`, still interpolating `style.alignment` raw. The rule that falls
+out: an OOXML attribute takes a *value-typed* string only through a converter
+that can fail closed (a closed lookup or a normalizer returning `undefined`);
+escaping is for free-text attributes like `w:ascii` where any value is legal.

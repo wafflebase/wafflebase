@@ -202,6 +202,21 @@ describe('resolveStoredColor', () => {
     expect(seen).toEqual([undefined]);
   });
 
+  it('normalizes the wrapped { kind: srgb, value: "" } form the same way', () => {
+    // A theme-aware resolver (slides) only takes its "no color set" branch
+    // for `undefined`, so this shape has to be collapsed BEFORE the call —
+    // otherwise a cleared run on a dark deck falls back to the docs default
+    // instead of the theme text color.
+    const seen: Array<unknown> = [];
+    const themeAware = (c: unknown) => {
+      seen.push(c);
+      return c == null ? '#ffffff' : 'x';
+    };
+    expect(resolveStoredColor(themeAware as never, { kind: 'srgb', value: '' }))
+      .toBe('#ffffff');
+    expect(seen).toEqual([undefined]);
+  });
+
   it('drops an empty string the resolver itself returns', () => {
     expect(resolveStoredColor(() => '', '#ff0000')).toBeUndefined();
   });

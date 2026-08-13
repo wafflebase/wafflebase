@@ -481,6 +481,38 @@ describe('ApiV1DocsContentController', () => {
         );
       });
 
+      it('rejects a block style whose alignment is not a known value', async () => {
+        // `style.alignment` is persisted verbatim and read back out into an
+        // OOXML `<w:jc w:val>` attribute by the DOCX exporter, so an
+        // arbitrary string must never enter the document.
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: { alignment: 'center"/><w:jc w:val="right' },
+                inlines: [],
+              },
+            ],
+          },
+          /blocks\[0\].*'style\.alignment'/,
+        );
+      });
+
+      it('accepts a block style with no alignment at all', async () => {
+        // The field is optional — validation only constrains its value.
+        // Getting as far as the metadata lookup is what proves it passed.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          controller.putContent('ws-1', 'd1', {
+            blocks: [{ id: 'b1', type: 'paragraph', style: {}, inlines: [] }],
+          } as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
       it('skips Yorkie work entirely when validation fails', async () => {
         await expectReject(
           { blocks: [{ id: 'b1', type: 'paragraph', style: {} }] },

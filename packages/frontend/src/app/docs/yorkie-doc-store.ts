@@ -245,6 +245,21 @@ function serializeCellStyle(cell: TableCell): Record<string, string> {
   return attrs;
 }
 
+/**
+ * Cell-style counterpart of `removedInlineStyleAttrs`: the Yorkie attribute
+ * names to hand `removeStyleByPath` when the caller cleared a key by
+ * passing it explicitly as `undefined` (e.g. the cell "No fill" reset).
+ * `serializeCellStyle` drops those keys, and `styleByPath` only merges, so
+ * without this the previous value stays on the Tree node.
+ */
+function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
+  const keys = [
+    'backgroundColor', 'verticalAlign', 'padding',
+    'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
+  ] as const;
+  return keys.filter((key) => key in style && style[key] === undefined);
+}
+
 function parseBorderStyle(value: string): BorderStyle | undefined {
   const parts = value.split(',');
   if (parts.length !== 3) return undefined;
@@ -2415,6 +2430,11 @@ export class YorkieDocStore implements DocStore {
 
     // Build serialized attributes for the cell node
     const attrs = serializeCellStyle({ ...cell, style: merged });
+    // `styleByPath` only merges, so a key cleared by passing it explicitly
+    // as `undefined` (the "No fill" reset of issue #728) is dropped by
+    // `serializeCellStyle` and the stale attribute survives on the node.
+    // Remove those keys the same way the inline-style path does.
+    const removeAttrs = removedCellStyleAttrs(style);
 
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
@@ -2423,7 +2443,13 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
+      const cellPath = [...tablePath, rowIndex, colIndex];
+      tree.styleByPath(cellPath, attrs);
+      if (removeAttrs.length > 0) {
+        const endPath = [...cellPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(cellPath, endPath, removeAttrs);
+      }
     });
 
     // Update cache after Yorkie update succeeds

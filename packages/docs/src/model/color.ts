@@ -30,12 +30,14 @@ export function defaultColorResolver(c: StoredColor | undefined): string | undef
  * The empty string is normalized on BOTH sides of the resolver, and both
  * halves matter:
  *
- * - **Before** — `''` is collapsed to `undefined` so a theme-aware
- *   resolver (slides' `makeColorResolver`) takes its "no color set"
- *   branch and returns the deck theme's text color, exactly as it does
+ * - **Before** — an empty color is collapsed to `undefined` so a
+ *   theme-aware resolver (slides' `makeColorResolver`) takes its "no color
+ *   set" branch and returns the deck theme's text color, exactly as it does
  *   for a run that was never colored. Normalizing only afterwards would
  *   send a cleared run to the docs default color, painting near-black
- *   text on a dark deck.
+ *   text on a dark deck. Both spellings of "empty" count: the bare `''`
+ *   and the wrapped `{ kind: 'srgb', value: '' }` a theme-color migration
+ *   or PPTX import can produce.
  * - **After** — a resolver can still hand back an empty string (a custom
  *   resolver, or an `{ kind: 'srgb', value: '' }` shape), and
  *   `ctx.fillStyle = ''` is an invalid assignment the canvas IGNORES,
@@ -46,7 +48,18 @@ export function resolveStoredColor(
   resolve: ColorResolver,
   c: StoredColor | undefined,
 ): string | undefined {
-  return resolve(c === '' ? undefined : c) || undefined;
+  return resolve(isEmptyStoredColor(c) ? undefined : c) || undefined;
+}
+
+/**
+ * Whether a `StoredColor` carries no color at all — the legacy `''` reset
+ * of issue #728 in either of its two shapes (bare string, or wrapped as an
+ * `srgb` theme color by the color migration / PPTX import path).
+ */
+function isEmptyStoredColor(c: StoredColor | undefined): boolean {
+  if (c === undefined) return false;
+  if (typeof c === 'string') return c.trim() === '';
+  return c.kind === 'srgb' && c.value.trim() === '';
 }
 
 /**

@@ -251,6 +251,33 @@ function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
   }
 }
 
+const BLOCK_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
+
+/**
+ * Validate the *values* a block style carries, not just its shape. The
+ * writer persists `style.alignment` verbatim into the CRDT, and the DOCX
+ * exporter reads it back out into an OOXML attribute, so an arbitrary
+ * string accepted here would travel all the way to `word/document.xml`.
+ * The exporters clamp it at their own sinks too (docs `DOCX_ALIGNMENTS`,
+ * slides `ALGN`); rejecting it at the API keeps the garbage out of the
+ * document in the first place, and gives the caller a 400 rather than a
+ * silently rewritten style.
+ */
+function assertValidBlockStyle(
+  style: Record<string, unknown>,
+  path: string,
+): void {
+  if (
+    style.alignment !== undefined &&
+    (typeof style.alignment !== 'string' ||
+      !BLOCK_ALIGNMENTS.has(style.alignment))
+  ) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: 'style.alignment' must be one of left, center, right, justify`,
+    );
+  }
+}
+
 function assertValidBlock(block: unknown, path: string): void {
   if (!block || typeof block !== 'object') {
     throw new BadRequestException(`Invalid block at ${path}: not an object`);
@@ -265,6 +292,7 @@ function assertValidBlock(block: unknown, path: string): void {
   if (!b.style || typeof b.style !== 'object') {
     throw new BadRequestException(`Invalid block at ${path}: 'style' must be an object`);
   }
+  assertValidBlockStyle(b.style as Record<string, unknown>, path);
   if (b.type === 'table') {
     const td = b.tableData as Record<string, unknown> | undefined;
     if (!td || typeof td !== 'object') {
