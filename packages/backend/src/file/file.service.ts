@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
   PutObjectCommand,
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   CreateBucketCommand,
@@ -118,6 +119,39 @@ export class FileService implements OnModuleInit {
       }),
     );
     return { id, size: file.length, mimeType: contentType };
+  }
+
+  /**
+   * Duplicate a stored blob under a fresh id, returning that id. Used by
+   * "Make a copy" so a duplicated pdf/image/file document owns its own object
+   * and survives the source document (and its blob) being deleted.
+   *
+   * Server-side `CopyObject`: the bytes never pass through this process, so a
+   * 50 MB blob costs no backend memory. The new id keeps the source's
+   * extension, which is what the serving rule in `file-response.util.ts` and
+   * `assertFileIdAllowed` key off — a copy must stay the same document type.
+   * No size check: these bytes already passed the cap on upload.
+   *
+   * `CopySource` is `<bucket>/<key>` with each path *segment* URL-encoded and
+   * the separators left literal, per the `x-amz-copy-source` contract. Encoding
+   * the whole string instead would turn the bucket/key separator (and any
+   * separator inside a configured storage prefix) into `%2F` and the reference
+   * would not resolve.
+   */
+  async copy(id: string): Promise<string> {
+    const ext = safeExtension(id);
+    const newId = ext ? `${randomUUID()}.${ext}` : randomUUID();
+    await this.s3.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: this.storageKey(newId),
+        CopySource: `${this.bucket}/${this.storageKey(id)}`
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/'),
+      }),
+    );
+    return newId;
   }
 
   async getObject(

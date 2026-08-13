@@ -107,6 +107,15 @@ The same shape works far beyond bold: apply-then-remove a link, indent-then-outd
 raise-then-lower a heading level, grow-then-shrink a font size, apply-then-clear a
 text colour or a highlight.
 
+**`Clear formatting` is the round trip at its largest, and nothing has ever clicked
+it.** Three of the defects this hunter has filed are the same shape — an "off" that
+stores a falsy value instead of removing the property (#749 stores `italic:false`,
+#793 stores `backgroundColor:""`, #783 drops a heading level on the way out of a
+list). A control whose whole job is to remove several properties at once is where
+that shape has the most room to go wrong. Style a sub-range with two or three
+properties, clear it, and compare `doc.runs` against the reading from before you
+styled anything — not against the styled reading.
+
 The colour controls are worth the detour because they are the only TWO-STEP control
 here — `Text color` opens a palette, then each swatch is its own button named
 `Select text color #1A73E8`. Every round trip run so far has used single-click

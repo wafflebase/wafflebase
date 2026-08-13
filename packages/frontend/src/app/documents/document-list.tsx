@@ -30,6 +30,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronsUpDown,
+  Copy,
   Download,
   File as FileIcon,
   FileText,
@@ -115,6 +116,8 @@ import {
   matchesTypes,
 } from "./document-list-utils";
 import {
+  BulkCopyError,
+  copyDocuments,
   createDocument,
   deleteDocuments,
   moveDocuments,
@@ -565,6 +568,36 @@ export function DocumentList({
     },
   });
 
+  // Duplicate documents. Each copy is an independent server-side operation
+  // (`POST /documents/:id/copy`), so unlike bulk move/delete there is no
+  // atomic endpoint to hit — they run sequentially, the same shape as bulk
+  // Download. The copies land beside their sources and the list refetches; we
+  // deliberately do NOT navigate, because a bulk copy has no single document
+  // to open. Ungated by `canManage`: copying never touches the source.
+  const copyDocumentsMutation = useMutation({
+    mutationFn: async ({ ids }: { ids: string[] }) => await copyDocuments(ids),
+    onSuccess: (_res, vars) => {
+      toast.success(
+        vars.ids.length > 1
+          ? `${vars.ids.length} copies created`
+          : "Copy created",
+      );
+    },
+    // A bulk copy that fails part-way has already created the copies before
+    // the failure; say so rather than reporting a flat failure for work that
+    // partly succeeded.
+    onError: (err) =>
+      toast.error(
+        err instanceof BulkCopyError && err.copied.length > 0
+          ? `Copied ${err.copied.length}, then failed`
+          : "Failed to copy",
+      ),
+    // Refetch on settled, not just on success: a bulk copy that fails partway
+    // has already created the copies before it, and they must appear in the
+    // list rather than wait for the next poll.
+    onSettled: () => invalidateLists(),
+  });
+
   // Move documents (possibly across workspaces) and folders (within the
   // current workspace only) in one confirm.
   const moveItemsMutation = useMutation({
@@ -967,6 +1000,19 @@ export function DocumentList({
                 <Pencil className="mr-2 h-4 w-4" />
                 Rename
               </DropdownMenuItem>
+              <DropdownMenuItem
+                // Same pending guard as the bulk button: copying is not
+                // idempotent, so a second click while the first is in flight
+                // would create a second copy.
+                disabled={copyDocumentsMutation.isPending}
+                onClick={(e: MouseEvent<HTMLElement>) => {
+                  e.stopPropagation();
+                  copyDocumentsMutation.mutate({ ids: [String(doc.id)] });
+                }}
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                Make a copy
+              </DropdownMenuItem>
               {doc.canManage && (
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
@@ -1173,6 +1219,20 @@ export function DocumentList({
                 <Button variant="outline" onClick={handleBulkDownload}>
                   <Download className="mr-1 h-4 w-4" />
                   Download
+                </Button>
+              )}
+              {/* Documents only — copying a folder tree is a different
+                  feature, so a folder in the selection is ignored. */}
+              {selectedDocIds.length > 0 && (
+                <Button
+                  variant="outline"
+                  disabled={copyDocumentsMutation.isPending}
+                  onClick={() =>
+                    copyDocumentsMutation.mutate({ ids: selectedDocIds })
+                  }
+                >
+                  <Copy className="mr-1 h-4 w-4" />
+                  Make a copy
                 </Button>
               )}
               <Button

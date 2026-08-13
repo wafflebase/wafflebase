@@ -11,6 +11,15 @@
   "devDependencies": {
     "@types/node": "^22.14.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "vite": "^6.4.2"
+  },
+  "peerDependencies": {
+    "vite": "^6.0.0 || ^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": false
+    }
   }
 }

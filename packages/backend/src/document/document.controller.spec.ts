@@ -10,9 +10,11 @@ const req = { user: { id: '1' } } as never;
 describe('DocumentController.createDocument fileId gating', () => {
   function makeController(createDocument: jest.Mock) {
     const documentService = { createDocument };
+    const copyService = { copy: jest.fn() };
     const workspaceService = { assertMember: jest.fn().mockResolvedValue({}) };
     return new DocumentController(
       documentService as never,
+      copyService as never,
       workspaceService as never,
       { getSummaries: jest.fn() } as never,
       { getObject: jest.fn() } as never,
@@ -104,12 +106,14 @@ describe('DocumentController.createDocument fileId gating', () => {
 describe('DocumentController.createInWorkspace blob metadata forwarding', () => {
   function makeWorkspaceController(createDocument: jest.Mock) {
     const documentService = { createDocument };
+    const copyService = { copy: jest.fn() };
     const workspaceService = {
       assertMember: jest.fn().mockResolvedValue({}),
       resolveId: jest.fn((id: string) => Promise.resolve(id)),
     };
     return new DocumentController(
       documentService as never,
+      copyService as never,
       workspaceService as never,
       { getSummaries: jest.fn() } as never,
       { getObject: jest.fn() } as never,
@@ -167,6 +171,7 @@ describe('DocumentController delete/move/rename permissions', () => {
     updateDocument: jest.Mock;
     listDocumentsWithAuthor: jest.Mock;
   };
+  let copyService: { copy: jest.Mock };
   let workspaceService: {
     assertMember: jest.Mock;
     findMembershipsByUser: jest.Mock;
@@ -185,6 +190,7 @@ describe('DocumentController delete/move/rename permissions', () => {
       updateDocument: jest.fn().mockResolvedValue({ id: 'doc-1' }),
       listDocumentsWithAuthor: jest.fn(),
     };
+    copyService = { copy: jest.fn() };
     workspaceService = {
       // Default: caller is a plain member. Individual tests override the role.
       assertMember: jest.fn().mockResolvedValue({ role: 'member' }),
@@ -193,6 +199,7 @@ describe('DocumentController delete/move/rename permissions', () => {
     };
     controller = new DocumentController(
       documentService as never,
+      copyService as never,
       workspaceService as never,
       { getEditors: jest.fn().mockResolvedValue(new Map()) } as never,
       { delete: jest.fn().mockResolvedValue(undefined) } as never,
@@ -311,6 +318,7 @@ describe('DocumentController.moveDocuments', () => {
       deleteDocuments: jest.fn(async () => 0),
       deleteDocument: jest.fn(),
     };
+    const copyService = { copy: jest.fn() };
     const workspaceService = {
       assertMember: jest.fn(async () => ({
         role: overrides.memberRole ?? 'owner',
@@ -319,6 +327,7 @@ describe('DocumentController.moveDocuments', () => {
     const folderService = { assertSameWorkspace: jest.fn(async () => undefined) };
     const controller = new DocumentController(
       documentService as never,
+      copyService as never,
       workspaceService as never,
       {} as never,
       { delete: jest.fn() } as never,
@@ -399,6 +408,7 @@ describe('DocumentController.deleteDocuments', () => {
       deleteDocuments: jest.fn(async () => Object.keys(docs).length),
       deleteDocument: jest.fn(),
     };
+    const copyService = { copy: jest.fn() };
     const workspaceService = {
       assertMember: jest.fn(async () => ({
         role: overrides.memberRole ?? 'owner',
@@ -407,6 +417,7 @@ describe('DocumentController.deleteDocuments', () => {
     const fileService = { delete: jest.fn(async () => undefined) };
     const controller = new DocumentController(
       documentService as never,
+      copyService as never,
       workspaceService as never,
       {} as never,
       fileService as never,
@@ -441,5 +452,54 @@ describe('DocumentController.deleteDocuments', () => {
       controller.deleteDocuments(reqAs(1), { ids: ['a', 'b'] } as never),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(documentService.deleteDocuments).not.toHaveBeenCalled();
+  });
+});
+
+describe('DocumentController.copyDocument', () => {
+  function makeCopyController(doc: unknown, role = 'member') {
+    const documentService = { document: jest.fn(async () => doc) };
+    const copyService = {
+      copy: jest.fn(async () => ({ id: 'copy-1', title: 'Report (copy)' })),
+    };
+    const workspaceService = {
+      assertMember: jest.fn(async () => ({ role })),
+    };
+    const controller = new DocumentController(
+      documentService as never,
+      copyService as never,
+      workspaceService as never,
+      {} as never,
+      { delete: jest.fn() } as never,
+      { assertSameWorkspace: jest.fn() } as never,
+    );
+    return { controller, documentService, copyService, workspaceService };
+  }
+
+  it('404s an unknown document', async () => {
+    const { controller, copyService } = makeCopyController(null);
+    await expect(
+      controller.copyDocument(reqAs(MEMBER), 'nope'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(copyService.copy).not.toHaveBeenCalled();
+  });
+
+  // The whole point of the copy gate: a plain member who owns nothing may
+  // still duplicate a document they can read, because the source is untouched.
+  it('lets a plain member copy a document they do not own', async () => {
+    const source = {
+      id: 'doc-1',
+      title: 'Report',
+      workspaceId: WS,
+      authorID: AUTHOR,
+    };
+    const { controller, copyService, workspaceService } = makeCopyController(
+      source,
+    );
+    await expect(
+      controller.copyDocument(reqAs(MEMBER), 'doc-1'),
+    ).resolves.toMatchObject({ id: 'copy-1' });
+    expect(workspaceService.assertMember).toHaveBeenCalledWith(WS, MEMBER);
+    // The copier — not the source's author — owns the copy.
+    expect(copyService.copy).toHaveBeenCalledWith(source, MEMBER);
   });
 });
