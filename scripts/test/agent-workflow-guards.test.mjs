@@ -90,20 +90,36 @@ test("no agent workflow checks the pipeline out to a MUTABLE ref", () => {
   }
 });
 
-test("no step runs pipeline code out of a PR-controlled workspace", () => {
-  // The trusted-code property, as a test — and it has to be ORDER-AWARE, which is
-  // the whole difficulty. `./scripts/agent/X.mjs` is trusted or not depending on what
-  // the workspace held when that step ran:
+test("every pipeline script runs from a path something actually populated", () => {
+  // ORDER-AWARE, and aware of ALL THREE destinations. This is the check that keeps
+  // catching things, and each time it missed something it was because it modelled
+  // fewer states than the workflows use. There are three adapter targets in play —
+  // `scripts/agent`, `.trusted/scripts/agent`, `.trusted-agent/scripts/agent` — and
+  // a first version that understood only the first left 19 invocations unexamined.
   //
-  //   * after `mv .pipeline-src/packages/pipeline scripts/agent` -> the pinned copy
-  //   * after `checkout` of the PR's head_branch                 -> the PR AUTHOR'S copy
+  // What moves a path in and out of "holds the pinned copy":
   //
-  // The `fix` job in agent-review-panel.yml legitimately does both, in that order,
-  // and stages `$RUNNER_TEMP/agent-tools` before the PR checkout precisely so later
-  // steps have a trusted source. Two steps still used the workspace path after that
-  // point; a file-scoped check either misses them or condemns the 23 correct sites
-  // beside them, so this walks each job in order and tracks the state.
-  const untrusted = [];
+  //   mv .pipeline-src/packages/pipeline <dest>   populates <dest>
+  //   cp -R <src> <dest>                          populates <dest> (staging)
+  //   rm -rf <dest>                               empties it
+  //   actions/checkout of the WORKSPACE           empties every workspace path,
+  //                                               because checkout runs git clean;
+  //                                               $RUNNER_TEMP survives, which is
+  //                                               exactly why agent-tools lives there
+  //
+  // A file that still EXISTS under scripts/agent is measurement — `classify.mjs`,
+  // the hunters — and the workspace is its home, so reading it there is correct. One
+  // that does not exist can only be arriving from an adapter, and then which path it
+  // is read from is the entire question. Keying on absence keeps this offline: no
+  // need for the pipeline repo's file list.
+  const problems = [];
+  // `${{ runner.temp }}` and `$RUNNER_TEMP` name the same directory; a staging step
+  // writes one spelling and the steps that use it write the other, so they have to
+  // be folded together or the staged copy looks unpopulated.
+  const norm = (p) =>
+    path.posix.normalize(
+      p.replace(/\$\{\{\s*runner\.temp\s*\}\}/g, "<TMP>").replace(/\$\{?RUNNER_TEMP\}?/g, "<TMP>"),
+    );
   for (const f of agentWorkflows) {
     const lines = readFileSync(path.join(WORKFLOWS, f), "utf8").split("\n");
     const jobsAt = lines.findIndex((l) => l === "jobs:");
@@ -111,28 +127,51 @@ test("no step runs pipeline code out of a PR-controlled workspace", () => {
     const starts = lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
     for (let k = 0; k < starts.length; k++) {
       const [from, to] = [starts[k], starts[k + 1] ?? lines.length];
-      let state = "none";
+      let populated = new Set();
       for (let i = from; i < to; i++) {
         const line = lines[i];
-        if (line.includes("mv .pipeline-src/packages/pipeline scripts/agent")) state = "trusted";
-        else if (/ref:\s*\$\{\{[^}]*head_(branch|sha)/.test(line)) state = "pr";
+        const mv = /mv\s+\.pipeline-src\/packages\/pipeline\s+(\S+)/.exec(line);
+        if (mv) populated.add(norm(mv.group ? mv.group(1) : mv[1]));
+        // The destination may be quoted AND contain spaces — `"${{ runner.temp }}/…"`
+        // is the common spelling, and a character class that stops at whitespace
+        // captures `${{` instead, which reads as "nothing was staged".
+        const cp = /cp -R\s+\S+\s+(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(line);
+        if (cp) populated.add(norm(cp[1] ?? cp[2] ?? cp[3]));
+        const rm = /rm -rf\s+([^\s;&|]+)/.exec(line);
+        if (rm) {
+          const t = norm(rm[1]);
+          populated = new Set([...populated].filter((p) => p !== t && !p.startsWith(`${t}/`)));
+        }
+        if (/^\s*- uses: actions\/checkout@/.test(line)) {
+          const ahead = lines.slice(i + 1, i + 9).join("\n");
+          if (!ahead.includes("wafflebase/agent-pipeline") && !ahead.includes("clean: false")) {
+            // Only paths OUTSIDE the workspace survive. `<TMP>` is the normalised
+            // RUNNER_TEMP — testing for a literal `$` here silently discarded it,
+            // since normalisation had already replaced the sigil.
+            populated = new Set([...populated].filter((p) => p.startsWith("<TMP>")));
+          }
+        }
         if (line.trim().startsWith("#")) continue;
-        const m = /\bnode\s+"?\.?\/?scripts\/agent\/([\w.-]+\.mjs)/.exec(line);
-        if (!m || line.includes("vendor/pipeline")) continue;
-        // A file that EXISTS under scripts/agent is measurement — `classify.mjs`,
-        // the hunters — and the workspace is its home, so reading it there is right.
-        // One that does not exist can only be arriving from the adapter, and then
-        // the workspace state is the whole question. This keeps the rule offline:
-        // no need for the pipeline's file list, just the absence of the file.
-        if (existsSync(path.join(REPO, "scripts", "agent", m[1]))) continue;
-        if (state !== "trusted") untrusted.push(`${f}:${i + 1} (${state}) ${m[1]}`);
+        // ANY directory, not only ones ending in scripts/agent: the staged copy at
+        // $RUNNER_TEMP/agent-tools is the trusted source most post-checkout steps
+        // use, and a version of this check that only matched `scripts/agent/` never
+        // noticed when the step that stages it was removed.
+        const inv = /\bnode\s+["']?([.\w/${}()\s-]*?\/)([\w.-]+\.mjs)/.exec(line);
+        if (!inv || line.includes("vendor/pipeline")) continue;
+        const [, dir, file] = inv;
+        if (existsSync(path.join(REPO, "scripts", "agent", file))) continue;
+        if (existsSync(path.join(REPO, dir.replace(/\/$/, ""), file))) continue; // a real tracked path
+        const dest = norm(dir.replace(/\/$/, ""));
+        if (!populated.has(dest)) {
+          problems.push(`${f}:${i + 1} reads ${dir}${file} but nothing populated ${dest} there`);
+        }
       }
     }
   }
   assert.deepEqual(
-    untrusted,
+    problems,
     [],
-    `these run pipeline code from a workspace the PR author controls — use ` +
-      `$RUNNER_TEMP/agent-tools/, staged from the adapted copy before the PR checkout:\n${untrusted.join("\n")}`,
+    `these read pipeline code from a path no adapter filled — or one a checkout ` +
+      `wiped. Stage to $RUNNER_TEMP/agent-tools before any workspace checkout:\n${problems.join("\n")}`,
   );
 });
