@@ -97,9 +97,4 @@ export class TestBigQueryConnectionDto {
   @IsJSON()
   @Length(1, 65_536)
   credentials: string;
-
-  @IsOptional()
-  @IsInt()
-  @IsPositive()
-  maximumBytesBilled?: number;
 }

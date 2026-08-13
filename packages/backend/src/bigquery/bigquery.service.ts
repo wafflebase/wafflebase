@@ -132,7 +132,7 @@ export class BigQueryService {
     workspaceId: string,
     dto: CreateBigQuerySourceDto,
   ) {
-    return this.prisma.bigQuerySource.create({
+    const source = await this.prisma.bigQuerySource.create({
       data: {
         name: dto.name,
         projectId: dto.projectId,
@@ -144,6 +144,7 @@ export class BigQueryService {
         workspaceId,
       },
     });
+    return this.toApiShape(source);
   }
 
   async findAllByWorkspace(workspaceId: string) {
@@ -183,10 +184,11 @@ export class BigQueryService {
     if (dto.maximumBytesBilled !== undefined)
       data.maximumBytesBilled = toBillingCeiling(dto.maximumBytesBilled);
 
-    return this.prisma.bigQuerySource.update({
+    const updated = await this.prisma.bigQuerySource.update({
       where: { id },
       data,
     });
+    return this.toApiShape(updated);
   }
 
   async remove(id: string) {
@@ -196,7 +198,8 @@ export class BigQueryService {
     if (!source) {
       throw new NotFoundException('BigQuerySource not found');
     }
-    return this.prisma.bigQuerySource.delete({ where: { id } });
+    const deleted = await this.prisma.bigQuerySource.delete({ where: { id } });
+    return this.toApiShape(deleted);
   }
 
   async testConnection(id: string) {
@@ -230,8 +233,8 @@ export class BigQueryService {
   private async probe(
     config: ConnectionConfig,
   ): Promise<{ success: boolean; error?: string }> {
-    const client = this.createClient(config);
     try {
+      const client = this.createClient(config);
       await client.createQueryJob({ query: 'SELECT 1', dryRun: true });
       return { success: true };
     } catch (error) {
@@ -252,8 +255,8 @@ export class BigQueryService {
       throw new NotFoundException('BigQuerySource not found');
     }
 
-    const client = this.createClient(this.toConnectionConfig(source));
     try {
+      const client = this.createClient(this.toConnectionConfig(source));
       const wrappedQuery = wrapWithRowLimit(dto.query, MAX_ROWS + 1);
       const startTime = Date.now();
       const [job] = await client.createQueryJob({

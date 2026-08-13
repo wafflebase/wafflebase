@@ -147,4 +147,13 @@ describe('TestBigQueryConnectionDto', () => {
       await errorsFor(TestBigQueryConnectionDto, withoutCredentials),
     ).not.toHaveLength(0);
   });
+
+  it('rejects maximumBytesBilled, which testConfig() never applies to a dry run', async () => {
+    expect(
+      await errorsFor(TestBigQueryConnectionDto, {
+        ...valid,
+        maximumBytesBilled: 5_000_000_000,
+      }),
+    ).not.toHaveLength(0);
+  });
 });

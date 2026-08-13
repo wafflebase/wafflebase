@@ -331,8 +331,16 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
         dataset: 'analytics',
         location: 'US',
         credentials,
+        // Regression for the create() response: with a ceiling set, Prisma
+        // returns `maximumBytesBilled` as a `bigint`, which used to reach
+        // this response un-masked/un-converted and crash `JSON.stringify`
+        // ("Do not know how to serialize a BigInt").
+        maximumBytesBilled: 5_000_000_000,
       })
       .expect(201);
+
+    expect(createResponse.body.credentials).toBe('********');
+    expect(createResponse.body.maximumBytesBilled).toBe(5_000_000_000);
 
     const sourceId = createResponse.body.id as string;
     const persisted = await prisma.bigQuerySource.findUniqueOrThrow({
@@ -363,6 +371,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       .send({ name: 'renamed' })
       .expect(200);
     expect(updateResponse.body.name).toBe('renamed');
+    expect(updateResponse.body.credentials).toBe('********');
 
     const listResponse = await request(app.getHttpServer())
       .get(`/workspaces/${workspace.id}/bigquery`)
@@ -384,10 +393,11 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       .set('Cookie', authCookie(other))
       .expect(403);
 
-    await request(app.getHttpServer())
+    const deleteResponse = await request(app.getHttpServer())
       .delete(`/bigquery/${sourceId}`)
       .set('Cookie', authCookie(owner))
       .expect(200);
+    expect(deleteResponse.body.credentials).toBe('********');
 
     expect(
       await prisma.bigQuerySource.findUnique({ where: { id: sourceId } }),

@@ -58,9 +58,11 @@ describe('BigQueryService', () => {
   });
 
   it('encrypts credentials and converts maximumBytesBilled to BigInt when creating', async () => {
-    prisma.bigQuerySource.create.mockResolvedValue({ id: 'bq-1' });
+    prisma.bigQuerySource.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: 'bq-1', ...data }),
+    );
 
-    await service.create(7, 'ws-1', {
+    const result = await service.create(7, 'ws-1', {
       name: 'analytics',
       projectId: 'my-project',
       dataset: 'analytics',
@@ -76,6 +78,16 @@ describe('BigQueryService', () => {
     expect(createArg.data.credentials).not.toBe(CREDENTIALS_JSON);
     expect((createArg.data.credentials as string).split(':')).toHaveLength(3);
     expect(createArg.data.maximumBytesBilled).toBe(5_000_000_000n);
+
+    // Regression: create() used to return the raw Prisma row. That leaked
+    // the encrypted ciphertext in the response and, whenever a ceiling was
+    // set, handed the controller a `bigint` that crashes `JSON.stringify`
+    // (`TypeError: Do not know how to serialize a BigInt`) when Nest
+    // serializes the HTTP response.
+    expect(result.credentials).toBe('********');
+    expect(result.maximumBytesBilled).toBe(5_000_000_000);
+    expect(typeof result.maximumBytesBilled).toBe('number');
+    expect(() => JSON.stringify(result)).not.toThrow();
   });
 
   it('creates without an optional maximumBytesBilled ceiling', async () => {
@@ -116,6 +128,28 @@ describe('BigQueryService', () => {
 
     const updateArg = prisma.bigQuerySource.update.mock.calls[0][0];
     expect(updateArg.data.maximumBytesBilled).toBeNull();
+  });
+
+  it('masks credentials and converts maximumBytesBilled back to a Number when updating', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      maximumBytesBilled: null,
+    });
+    prisma.bigQuerySource.update.mockResolvedValue({
+      id: 'bq-1',
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: 5_000_000_000n,
+    });
+
+    // Regression: update() used to return the raw Prisma row (see the
+    // create() regression above) — same ciphertext leak and BigInt crash.
+    const result = await service.update('bq-1', {
+      maximumBytesBilled: 5_000_000_000,
+    });
+
+    expect(result.credentials).toBe('********');
+    expect(result.maximumBytesBilled).toBe(5_000_000_000);
+    expect(() => JSON.stringify(result)).not.toThrow();
   });
 
   it('leaves the maximumBytesBilled ceiling untouched when update omits it', async () => {
@@ -172,6 +206,23 @@ describe('BigQueryService', () => {
 
     const [result] = await service.findAllByWorkspace('ws-1');
     expect(result.maximumBytesBilled).toBeNull();
+  });
+
+  it('masks credentials and converts maximumBytesBilled back to a Number when removing', async () => {
+    prisma.bigQuerySource.findUnique.mockResolvedValue({ id: 'bq-1' });
+    prisma.bigQuerySource.delete.mockResolvedValue({
+      id: 'bq-1',
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: 5_000_000_000n,
+    });
+
+    // Regression: remove() used to return the raw deleted Prisma row —
+    // same ciphertext leak and BigInt crash as create()/update() above.
+    const result = await service.remove('bq-1');
+
+    expect(result.credentials).toBe('********');
+    expect(result.maximumBytesBilled).toBe(5_000_000_000);
+    expect(() => JSON.stringify(result)).not.toThrow();
   });
 
   it('throws not found when the source does not exist', async () => {
@@ -294,6 +345,32 @@ describe('BigQueryService', () => {
     expect(result).toEqual({
       success: false,
       error: 'Access Denied: Project my-project',
+    });
+  });
+
+  it('reports a client-construction failure as a probe failure, not an uncaught throw', async () => {
+    // Regression: `createClient()` used to run outside the try/catch in
+    // probe(), so a bad service-account key (malformed JSON from a
+    // corrupted stored credential, or a rejected `google-auth-library`
+    // shape) bypassed `describeConnectionError` and threw straight out of
+    // the method instead of coming back as `{ success: false, error }`.
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockImplementation(() => {
+        throw new Error('Unexpected token in JSON');
+      });
+
+    const result = await service.testConfig({
+      projectId: 'my-project',
+      credentials: CREDENTIALS_JSON,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Unexpected token in JSON',
     });
   });
 
@@ -480,5 +557,32 @@ describe('BigQueryService', () => {
     ).rejects.toMatchObject({
       message: 'Syntax error: Unexpected keyword FROM',
     });
+  });
+
+  it('converts a client-construction failure into a BadRequestException, not an uncaught throw', async () => {
+    // Regression: same as the probe() case above, but for executeQuery() —
+    // `createClient()` used to run before the try/catch, so it bypassed
+    // the BadRequestException translation on a bad stored credential.
+    prisma.bigQuerySource.findUnique.mockResolvedValue({
+      id: 'bq-1',
+      projectId: 'my-project',
+      dataset: null,
+      location: null,
+      credentials: encrypt(CREDENTIALS_JSON),
+      maximumBytesBilled: null,
+    });
+
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockImplementation(() => {
+        throw new Error('Unexpected token in JSON');
+      });
+
+    await expect(
+      service.executeQuery('bq-1', { query: 'SELECT 1' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
