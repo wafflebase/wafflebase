@@ -20,29 +20,20 @@ import path from 'node:path';
 /**
  * The token pipeline, as the plugin sees it.
  *
- * DECLARED HERE, IMPLEMENTED IN 8b. The interface lands in the host PR because
- * the layout half already has to *mention* it — `filesForIntent` needs to know
- * whether a token intent has anywhere to go — but no implementation ships yet.
- * With `tokens` absent, every token intent and token endpoint is refused with a
- * note, which is not a placeholder: §3 makes that the permanent behaviour for any
- * project outside the support matrix, where "the token panels degrade to empty
- * rather than writing garbage".
+ * DECLARED IN 8a, TYPED AND IMPLEMENTED IN 8b. The interface now lives in
+ * `src/tokens/adapter.ts` with real payload types in place of the `unknown`s this file
+ * carried, and is re-exported here so `designEditor({ tokens })` keeps naming its option's
+ * type from one place. `src/tokens/` deliberately imports nothing from `src/plugin/`, so
+ * an adapter — including wafflebase's own in 8c — is written against the contract rather
+ * than against the bridge's request shape.
  *
- * The methods are documented in `design-editor-local-plugin.md` §4 and are
- * deliberately not implemented here — see that section for why `plan()` returns a
- * LIST (wafflebase's own pipeline needs a coordinated three-point write, and a
- * single-file return type would have made that inexpressible).
+ * With `tokens` still absent, every token intent and token endpoint is refused with a
+ * note, unchanged from 8a: §3 makes that the permanent behaviour for any project outside
+ * the support matrix, where "the token panels degrade to empty rather than writing
+ * garbage".
  */
-export interface TokenAdapter {
-  /** Files whose change invalidates token state. Replaces the `WATCHED_RE` regex. */
-  sources(): string[];
-  /** Read the token tree the editor renders and binds against. */
-  read(readFile: (rel: string) => Promise<string>): Promise<unknown>;
-  /** Turn one token edit into the file writes it implies — one file, or four. */
-  plan(edit: unknown): unknown[];
-  /** Emit the CSS the preview applies, by running the project's REAL emitter. */
-  emit(files: Record<string, string>): Promise<unknown>;
-}
+import type { TokenAdapter } from '../tokens/adapter';
+export type { TokenAdapter };
 
 export interface DesignEditorOptions {
   /**
