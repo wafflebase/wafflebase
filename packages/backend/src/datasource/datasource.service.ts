@@ -6,7 +6,7 @@ import {
 import { Client, types } from 'pg';
 import { PrismaService } from 'src/database/prisma.service';
 import { encrypt, decrypt } from './crypto.util';
-import { validateSelectQuery } from './sql-validator';
+import { validateSelectQuery, wrapWithRowLimit } from './sql-validator';
 import {
   CreateDataSourceDto,
   UpdateDataSourceDto,
@@ -208,8 +208,7 @@ export class DataSourceService {
       await client.query(`SET DateStyle = 'ISO'`);
       await client.query(`SET lc_monetary = 'C'`);
 
-      // Wrap with LIMIT to enforce max rows
-      const wrappedQuery = `SELECT * FROM (${dto.query}) AS _q LIMIT ${MAX_ROWS + 1}`;
+      const wrappedQuery = wrapWithRowLimit(dto.query, MAX_ROWS + 1);
       const startTime = Date.now();
       const result = await client.query(wrappedQuery);
       const executionTime = Date.now() - startTime;

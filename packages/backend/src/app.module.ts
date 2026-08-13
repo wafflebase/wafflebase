@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { DocumentModule } from './document/document.module';
 import { ShareLinkModule } from './share-link/share-link.module';
 import { DataSourceModule } from './datasource/datasource.module';
+import { BigQueryModule } from './bigquery/bigquery.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { ApiKeyModule } from './api-key/api-key.module';
 import { YorkieModule } from './yorkie/yorkie.module';
@@ -102,6 +103,7 @@ import { NotificationModule } from './notification/notification.module';
     DocumentModule,
     ShareLinkModule,
     DataSourceModule,
+    BigQueryModule,
     WorkspaceModule,
     ApiKeyModule,
     YorkieModule,
