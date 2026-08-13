@@ -49,9 +49,11 @@ import { KNOWN } from "../severity.mjs";
 import { ARMS, validateFindingRecord } from "./finding-record.mjs";
 import { groupFindings } from "../finding-match.mjs";
 import {
+  ADJUDICATION_MODES,
   BLINDED_FROM_ADJUDICATION,
   CONFIDENCE,
   LABELS_DIR,
+  LABEL_SOURCES,
   STRATA,
   VERDICT_LABELS,
   armKeyOf,
@@ -402,11 +404,26 @@ export function renderCard(payload, { index = null, total = null } = {}) {
  * verbatim. It does NOT parse hunks or renumber anything: a diff reader that
  * reconstructs is a diff reader that can be wrong about what the reviewer saw, and
  * here the reader IS the human.
+ *
+ * THE HEADER'S PATHS ARE COMPARED WHOLE, not searched for. The first version asked
+ * whether the header line `includes(file)`, and a substring test over a path is wrong in
+ * the direction that matters here: asking for `a.ts` matched `diff --git a/data.ts
+ * b/data.ts`, so the reader would be shown a DIFFERENT FILE'S code and judge a claim
+ * against it. Both sides are compared so a rename still resolves.
+ *
+ * Fails to `null` rather than guessing. A header git C-quoted (`diff --git "a/na\303\257ve.ts" …`,
+ * which `extract-corpus.mjs` documents for non-ASCII paths) will not match, and the
+ * caller then tells the reader to open `diff.patch` directly — the safe direction, since
+ * the failure to avoid is showing the wrong file rather than showing none.
  */
 export function fileDiffSection(diffText, file) {
   if (!nonEmptyString(diffText) || !nonEmptyString(file)) return null;
   const sections = String(diffText).split(/^(?=diff --git )/m);
-  const hit = sections.filter((s) => s.startsWith("diff --git") && s.split("\n", 1)[0].includes(file));
+  const hit = sections.filter((s) => {
+    const header = s.split("\n", 1)[0];
+    const m = /^diff --git a\/(.+) b\/(.+)$/.exec(header);
+    return m !== null && (m[1] === file || m[2] === file);
+  });
   return hit.length ? hit.join("") : null;
 }
 
@@ -550,18 +567,36 @@ export function readFindingLabels(root, corpusVersion, { itemId = null } = {}) {
       const dir = path.join(itemDir, armDir);
       for (const file of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
         const abs = path.join(dir, file);
+        let parsed;
         try {
-          out.push(JSON.parse(readFileSync(abs, "utf8")));
+          parsed = JSON.parse(readFileSync(abs, "utf8"));
         } catch (e) {
           unreadable.push({ path: abs, reason: e.message });
+          continue;
         }
+        // PARSING IS NOT THE SAME AS BEING A LABEL, and the difference used to fall
+        // between the two outputs: a file that was valid JSON but carried no
+        // `finding_key` or no `arm` was pushed into `labels` and silently left out of
+        // `keys`, so it counted as a label the caller could see while settling nothing.
+        // The bundle then came back in the queue, the reader answered it again, and the
+        // write path refused because a file already existed at that path — a dead end
+        // with no line anywhere saying why. It is the same failure the `catch` above
+        // handles, one level in, so it gets the same answer.
+        if (!(isPlainObject(parsed) && nonEmptyString(parsed.finding_key) && nonEmptyString(parsed.arm))) {
+          unreadable.push({ path: abs, reason: "parsed, but it carries no finding_key and arm — nothing can join or resume on it" });
+          continue;
+        }
+        out.push(parsed);
       }
     }
   }
   return {
     labels: out,
     unreadable,
-    keys: new Set(out.filter((l) => isPlainObject(l) && nonEmptyString(l.finding_key) && nonEmptyString(l.arm)).map((l) => armKeyOf(l.arm, l.finding_key))),
+    // Only from accepted labels, and read off the label's own `arm` rather than its
+    // directory: the field is what a scorer joins on, so it is what resume must agree
+    // with.
+    keys: new Set(out.map((l) => armKeyOf(l.arm, l.finding_key))),
   };
 }
 
@@ -718,14 +753,29 @@ export async function runItemSession({ itemId, io, write = null, context } = {})
     const more = await ask(io, `add a true defect? (y/n) [${trueDefects.length} so far] `);
     if (!more.toLowerCase().startsWith("y")) break;
     const file = await ask(io, "  file: ");
-    const range = await ask(io, "  line range (start-end, blank for none): ");
+    // RE-ASKED UNTIL IT PARSES, because the alternative is silent. `12` or `40..52` or
+    // `40 - 52 ` matches nothing, and the first version filed every one of them as
+    // `line_range: null` — indistinguishable from the blank answer that means "this
+    // defect is not line-localizable", which guide §4.2 treats as a real and different
+    // statement. The annotator would have typed a location and had it dropped, with
+    // nothing printed.
+    let lineRange = null;
+    for (;;) {
+      const range = (await ask(io, "  line range (start-end, blank for none): ")).trim();
+      if (range === "") break;
+      const m = /^(\d+)\s*-\s*(\d+)$/.exec(range);
+      if (m && Number(m[1]) >= 1 && Number(m[2]) >= Number(m[1])) {
+        lineRange = [Number(m[1]), Number(m[2])];
+        break;
+      }
+      io.print(`  ? ${JSON.stringify(range)} is not a line range — write it as start-end in the diff's new-file numbers (e.g. 40-52), or leave it blank if the defect is not line-localizable`);
+    }
     const severity = await askEnum(io, "  severity", KNOWN);
     const kind = await ask(io, "  kind: ");
     const description = await ask(io, "  what is wrong, and why is it a defect: ");
-    const m = /^(\d+)\s*-\s*(\d+)$/.exec(range);
     trueDefects.push({
       file: file === "" ? null : file,
-      line_range: m ? [Number(m[1]), Number(m[2])] : null,
+      line_range: lineRange,
       severity,
       kind: kind === "" ? null : kind,
       description,
@@ -806,14 +856,25 @@ export function resolveOptions(args) {
   if (Object.hasOwn(REFUSED_ORDERS, order)) problems.push(`--order ${order} is refused: ${REFUSED_ORDERS[order]}`);
   else if (!ORDERS.includes(order)) problems.push(`--order must be one of ${ORDERS.join(" | ")}, got ${JSON.stringify(order)}`);
   const mode = args.mode ?? "human";
-  if (!["human", "model"].includes(mode)) problems.push(`--mode must be human or model, got ${JSON.stringify(mode)}`);
+  if (!ADJUDICATION_MODES.includes(mode)) problems.push(`--mode must be one of ${ADJUDICATION_MODES.join(" | ")}, got ${JSON.stringify(mode)}`);
   // gold is the tier the IAA ceiling is computed over, so it follows the mode rather
   // than a flag default: a human read is gold, a model read cannot be.
   const labelSource = args["label-source"] ?? (mode === "human" ? "gold" : "silver");
-  if (!["gold", "silver"].includes(labelSource)) {
-    problems.push(`--label-source must be gold or silver, got ${JSON.stringify(labelSource)} — "distant" labels come from a natural experiment, not from reading, so this CLI cannot produce one`);
+  // The subset this CLI can produce, derived from the schema's vocabulary rather than
+  // written out again: `distant` means a label inferred from a natural experiment with
+  // no per-item reading, and reading is the only thing this tool does.
+  const CLI_LABEL_SOURCES = LABEL_SOURCES.filter((s) => s !== "distant");
+  if (!CLI_LABEL_SOURCES.includes(labelSource)) {
+    problems.push(`--label-source must be one of ${CLI_LABEL_SOURCES.join(" | ")}, got ${JSON.stringify(labelSource)} — "distant" labels come from a natural experiment, not from reading, so this CLI cannot produce one`);
   }
-  if (args.write && !nonEmptyString(args.annotator)) {
+  // REQUIRED FOR EVERY SESSION, not only for a writing one. `--write` is absent by
+  // default, so the common first invocation is a preview — and a preview with no
+  // annotator built its labels with `annotators: []`, which `validateLabel` refuses. The
+  // refusal is caught per judgement and printed, so the session asked every question in
+  // the queue and then discarded every answer. A reader could have spent an evening on
+  // 245 of them before noticing. `--json` is exempt because it prints the queue and
+  // returns without asking anything.
+  if (!args.json && !nonEmptyString(args.annotator)) {
     problems.push("--annotator is required to write — a label nobody is attributed to cannot be weighed against a second annotator, and the guide's rule is to attribute the REAL adjudicator");
   }
   // Comma-separated, because `--run a --run b` silently keeps only the last one:

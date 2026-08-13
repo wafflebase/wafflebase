@@ -205,6 +205,40 @@ inherited from another module's internal sort — inheriting it is how the queue
 renumbering itself the day that sort is refactored. Reported as an ineffective mutation
 rather than hidden or removed.
 
+**7. Four defects found in review, all fixed here.** Each was verified against the code
+before being acted on, and one of them turned out to be a different defect from the one
+first diagnosed:
+
+- **`fileDiffSection` matched a path by substring**, so asking for `a.ts` returned the
+  section for `data.ts`. For this tool that is not cosmetic — it shows the reader code
+  the claim is not about, and the whole point of the `d` command is reading the right
+  code. Both header paths are now compared whole, which also makes a rename resolve from
+  either side; a C-quoted header no longer matches and falls back to "open `diff.patch`",
+  the safe direction.
+- **A mistyped line range was silently dropped.** `12`, `40..52` and `52-40` all failed
+  the pattern and were filed as `line_range: null` — the same record a *blank* answer
+  produces, and guide §4.2 treats "not line-localizable" as a real statement. So a typed
+  location became an affirmative claim that there wasn't one. Now re-asked until it
+  parses, with the reversed range refused too.
+- **A label file that parsed but carried no `finding_key`/`arm`** was counted in `labels`
+  and left out of `keys`: it settled nothing, so the bundle returned, the reader answered
+  it again, and the write path then refused because a file already existed there — a dead
+  end with no line saying why. It now joins the truncated-JSON case in `unreadable`.
+- **`--annotator` was required only with `--write`.** But `--write` is off by default, so
+  the ordinary first invocation is a preview, and a preview with no annotator built
+  `annotators: []` — which `validateLabel` refuses per judgement, caught and printed. The
+  session asked every question in the queue and discarded every answer. Now required for
+  any session that will ask something; `--json` is exempt because it prints and returns.
+
+**8. The test helper's cleanup ran too early, and the first diagnosis of the cost was
+wrong.** `withRoot` was synchronous, so `rmSync` fired the moment an async callback hit
+its first `await`. The obvious conclusion — that "assert nothing was written" was passing
+because the root was gone — is **false, and measuring it is what showed that**:
+`writeFileAtomic` calls `mkdirSync(recursive)`, so a stray write recreates the tree and
+`existsSync` still catches it (forced a write in preview mode; the test goes red under
+both versions). The real cost is **3 leaked temp directories per run, with label files in
+them**, against 0 once it awaits.
+
 **6. The pair content hash does not escape the CodeRabbit key churn.** The handoff
 offered it as an alternative to `finding_key` for CodeRabbit labels. `inspect-maybes.mjs`'s
 `pairKey` hashes `file|line|summary` of **both** sides, so it has the same summary
@@ -266,22 +300,25 @@ separately with the same `node_modules` symlinked into both, each measured once.
 ```
                        rest    iso   total
 upstream/main          1700  +  56  = 1756      0 fail · 1 skip
-this branch            1765  +  56  = 1821      0 fail · 1 skip
+this branch            1768  +  56  = 1824      0 fail · 1 skip
                        ————————————————————
-                                       +65
+                                       +68
 ```
 
-  `+65` is exactly this change's test count (32 in `labels.test.mjs`, 33 in
+  `+68` is exactly this change's test count (32 in `labels.test.mjs`, 36 in
   `adjudicate.test.mjs`). The single skip is the Agent SDK case and is present in both
   trees, so it is not an environment artefact.
 
 - [x] **`npx eslint scripts` exits 0** on both trees (`eslint@9.24.0`, the version the
       lockfile pins).
 
-- [x] **62 mutations · 61 caught by the test that NAMES the guard · 1 ineffective.**
+- [x] **68 mutations · 67 caught by the test that NAMES the guard · 1 ineffective.**
       Matched by test name rather than by the suite reddening, so a mutation caught by
-      an unrelated test does not count as coverage. Three mutations were **ineffective
-      rather than uncaught**, each proved before being replaced or documented:
+      an unrelated test does not count as coverage. Four mutations were **ineffective
+      rather than uncaught**, each proved before being replaced or documented — the
+      fourth was `sections.filter(() => true)`, an identity transform and therefore no
+      mutation at all, replaced by one that returns every section regardless of the file
+      asked for:
 
   | | Mutation | Why it changed no behaviour |
   |---|---|---|
@@ -304,9 +341,11 @@ order coverage · preview — nothing will be written
   completely separate path, which is the check that the blinded projection did not
   change what the matcher sees.
 
-- [x] **The test suite writes nothing to the real store.** Every filesystem test runs
-      inside a fresh `mkdtempSync` root and removes it; the only path outside it that
-      any test reads is `harvest.mjs`, for its content hash.
+- [x] **The test suite writes nothing to the real store, and leaves nothing behind.**
+      Every filesystem test runs inside a fresh `mkdtempSync` root and removes it; the
+      only path outside it that any test reads is `harvest.mjs`, for its content hash.
+      Counted directly after a run: **0 `eval-adjudicate-test-*` directories left in
+      `os.tmpdir()`**, against 3 before the helper awaited.
 
 - [ ] **Not verified: the atomic-write property.** `writeFileAtomic` writes to a
       `.part-<pid>` file and renames, so a destination is only ever absent or complete.

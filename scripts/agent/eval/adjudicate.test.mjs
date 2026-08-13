@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildFindingRecord } from "./finding-record.mjs";
 import { BLINDED_FROM_ADJUDICATION, LABELS_DIR, armKeyOf, labelPathFor, validateLabel } from "./labels.mjs";
+import { ADJUDICATION_MODES, LABEL_SOURCES } from "./labels.mjs";
 import {
   CARD_FIELDS,
   MATCHER_OPERAND_FIELDS,
@@ -105,10 +106,26 @@ function scriptedIo(answers) {
   };
 }
 
-const withRoot = (fn) => {
+/**
+ * A fresh throwaway root, removed afterwards — and it AWAITS, which the first version
+ * did not.
+ *
+ * `return fn(root)` inside a synchronous `try/finally` runs `rmSync` the moment an async
+ * callback reaches its first `await`, so cleanup happened while the test body was still
+ * running. **Measured rather than assumed, because the first guess at the consequence was
+ * wrong:** the assertions were NOT weakened — `writeFileAtomic` calls
+ * `mkdirSync(recursive)`, so anything written afterwards recreates the tree and an
+ * `existsSync` check still catches it (verified by forcing a write in preview mode and
+ * watching the test go red under both versions). What it actually cost is **3 leaked
+ * temp directories per run, with label files in them**, recreated after the `rmSync`
+ * that was supposed to remove them; awaiting leaks 0. This repository already has a test
+ * that fails when another module leaves `eval-item-*` behind in `os.tmpdir()`, so the
+ * leak is the kind of debris that is somebody's flake later.
+ */
+const withRoot = async (fn) => {
   const root = mkdtempSync(path.join(tmpdir(), "eval-adjudicate-test-"));
   try {
-    return fn(root);
+    return await fn(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -450,6 +467,29 @@ test("an unreadable label is counted, never read as an unjudged finding", () =>
     assert.match(read.unreadable[0].reason, /JSON/i);
   }));
 
+test("a label file that parses but is not a label counts as unreadable, not as a label", () =>
+  withRoot(async (root) => {
+    // It used to land in `labels` and be left out of `keys`, so it looked like a label
+    // that settled nothing: the bundle came back, the reader answered it again, and the
+    // write path then refused because a file already existed there — a dead end with no
+    // line saying why.
+    const records = [loaded({ file: "a.ts", summary: "the one whose label got mangled" })];
+    const [bundle] = buildQueue({ records }).queue;
+    const [label] = applyJudgement({ bundle, judgement: judgement(), context: context() });
+    const [abs] = writeLabels([label], { root, itemMeta: META });
+    // Valid JSON, no `finding_key`, no `arm` — a hand edit, or a future writer's bug.
+    writeFileSync(abs, JSON.stringify({ note: "I meant to put a label here" }, null, 2));
+
+    const read = readFindingLabels(root, CV);
+    assert.equal(read.labels.length, 0, "it is not a label");
+    assert.equal(read.unreadable.length, 1, "and it is reported");
+    assert.equal(read.unreadable[0].path, abs);
+    assert.match(read.unreadable[0].reason, /no finding_key and arm/);
+    assert.equal(read.keys.size, 0, "so it settles nothing");
+    // Which is the same answer the truncated-JSON case gets, one level in.
+    assert.equal(buildQueue({ records, labelled: read.keys }).queue.length, 1);
+  }));
+
 // --- WRITING -----------------------------------------------------------------
 
 test("nothing is written without being told to write", () =>
@@ -546,6 +586,16 @@ test("the diff is shown on request, for the file under judgement only", async ()
   assert.equal(fileDiffSection(diff, "nothing.ts"), null);
   assert.equal(fileDiffSection(null, "a.ts"), null);
 
+  // A SUBSTRING TEST OVER A PATH SHOWS THE WRONG FILE, which for this tool means judging
+  // a claim against code it is not about. `a.ts` is a substring of `data.ts`.
+  const near = ["diff --git a/data.ts b/data.ts", "@@ -1 +1 @@", "+const notMine = 1;"].join("\n");
+  assert.equal(fileDiffSection(near, "a.ts"), null, "a.ts must not match data.ts");
+  assert.ok(fileDiffSection(near, "data.ts").includes("notMine"));
+  // Both sides are compared, so a rename still resolves from either path.
+  const renamed = ["diff --git a/old/name.ts b/new/name.ts", "similarity index 98%", "@@ -1 +1 @@", "+moved"].join("\n");
+  for (const side of ["old/name.ts", "new/name.ts"]) assert.ok(fileDiffSection(renamed, side).includes("moved"), side);
+  assert.equal(fileDiffSection(renamed, "name.ts"), null, "a bare basename is not either path");
+
   const { queue } = buildQueue({ records: [loaded()] });
   const io = scriptedIo(["d", "y", "minor", "", "medium", "read editor.ts:132", "", ""]);
   await runSession({ queue, io, write: null, context: context({ diffFor: () => diff }) });
@@ -579,6 +629,28 @@ test("an item verdict is typed in, and true_defects can name a defect no reviewe
     assert.doesNotThrow(() => validateLabel(JSON.parse(readFileSync(r.written[0], "utf8")), { itemMeta: META.get("pr-605") }));
   }));
 
+test("a mistyped line range is re-asked, and a blank one still means 'not line-localizable'", () =>
+  withRoot(async (root) => {
+    // The two answers were indistinguishable: anything that did not match the pattern
+    // was filed as `line_range: null`, which is the same record a blank answer produces
+    // — and guide §4.2 treats "not line-localizable" as a real statement, so a dropped
+    // location silently becomes one.
+    const io = scriptedIo([
+      "y", "a.ts", "12", "40..52", "52-40", "40-52", "major", "correctness", "a real blocking defect",
+      "y", "b.ts", "", "major", "correctness", "a missing test, which has no single line",
+      "n",
+      "block", "known-defect", "correctness", "medium", "read both files", "",
+    ]);
+    const r = await runItemSession({ itemId: "pr-605", io, write: (l) => writeLabels(l, { root, itemMeta: META }), context: context() });
+    assert.deepEqual(r.label.true_defects[0].line_range, [40, 52], "the typos were re-asked, not accepted");
+    assert.equal(r.label.true_defects[1].line_range, null, "blank still means none");
+    // Each rejection said what was wrong, including the reversed range.
+    const complaints = io.printed.filter((p) => p.includes("is not a line range"));
+    assert.equal(complaints.length, 3);
+    assert.ok(complaints.some((p) => p.includes('"52-40"')), "end before start is refused too");
+    assert.equal(io.remaining(), 0);
+  }));
+
 test("an item verdict that contradicts its own defect set is refused, and nothing is written", () =>
   withRoot(async (root) => {
     // `approve` beside a major defect. Guide §3 calls it a contradiction; V3 would
@@ -598,14 +670,35 @@ test("--root is required and has no default, and so is the corpus version", () =
   assert.ok(p.some((m) => m.includes("--root is required and has no default")));
   assert.ok(p.some((m) => m.includes("--corpus-version is required")));
   assert.ok(p.some((m) => m.includes("one of --records or --run is required")));
-  assert.deepEqual(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1" }).problems, []);
+  assert.deepEqual(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1", annotator: "dlgpdmsly2" }).problems, []);
 });
 
-test("writing requires naming the annotator, and a model read cannot claim gold", () => {
-  assert.ok(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1", write: true }).problems.some((m) => m.includes("--annotator is required to write")));
-  assert.equal(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1", mode: "model" }).labelSource, "silver");
-  assert.equal(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1" }).labelSource, "gold");
-  assert.ok(resolveOptions({ root: "/r", "corpus-version": CV, run: "r1", "label-source": "distant" }).problems.some((m) => m.includes("distant")));
+test("EVERY session must name the annotator, not only a writing one", () => {
+  // `--write` is absent by default, so the common first invocation is a preview — and a
+  // preview with no annotator built `annotators: []`, which the schema refuses. The
+  // refusal is caught per judgement and printed, so the session asked every question in
+  // the queue and discarded every answer. Requiring it up front costs one flag.
+  const base = { root: "/r", "corpus-version": CV, run: "r1" };
+  for (const args of [base, { ...base, write: true }]) {
+    assert.ok(resolveOptions(args).problems.some((m) => m.includes("--annotator is required")), JSON.stringify(args));
+  }
+  // `--json` prints the queue and returns without asking anything, so it is exempt.
+  assert.deepEqual(resolveOptions({ ...base, json: true }).problems, []);
+  assert.deepEqual(resolveOptions({ ...base, annotator: "dlgpdmsly2" }).problems, []);
+});
+
+test("a model read cannot claim gold, and the tiers come from the schema's own vocabulary", () => {
+  const base = { root: "/r", "corpus-version": CV, run: "r1", annotator: "dlgpdmsly2" };
+  assert.equal(resolveOptions({ ...base, mode: "model" }).labelSource, "silver");
+  assert.equal(resolveOptions(base).labelSource, "gold");
+  // `distant` is a real `LABEL_SOURCES` value and deliberately not one this CLI offers:
+  // it means a label inferred with no per-item reading, and reading is all this does.
+  assert.ok(LABEL_SOURCES.includes("distant"));
+  assert.ok(resolveOptions({ ...base, "label-source": "distant" }).problems.some((m) => m.includes("distant")));
+  // Derived from the vocabulary rather than a second copy of it, so a tier added to the
+  // schema cannot be silently rejected here.
+  for (const mode of ADJUDICATION_MODES) assert.deepEqual(resolveOptions({ ...base, mode }).problems, []);
+  assert.ok(resolveOptions({ ...base, mode: "committee" }).problems.some((m) => m.includes("--mode must be one of")));
 });
 
 test("every replicate belongs in one invocation, so --run takes a list", () => {
