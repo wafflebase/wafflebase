@@ -68,8 +68,16 @@ const LOG_LEVEL = /\b(WARN|WARNING|INFO|DEBUG|TRACE|NOTICE)\b/;
 const SPEC_FAIL = /^\s*✖ (.+?) \(\d+(?:\.\d+)?m?s\)\s*$/;
 /** An indented `AssertionError: …` / `TypeError: …` under a spec failure. */
 const SPEC_DETAIL = /^\s+([A-Za-z]*Error\b.*)$/;
-/** Unchanged from the original, plus U+2716 which it was missing. */
-const LOOSE = /\b(FAIL|ERROR|error|Error|✗|✘|✖|FAILED)\b/;
+/**
+ * The last-resort scan. The word markers keep their boundaries so `error` does
+ * not match inside `terror`; the tick marks CANNOT have them, because `\b` is a
+ * transition between a word and a non-word character and `✗` is not a word
+ * character — so `/\b✗\b/` never matches a line that STARTS with one, which is
+ * every line a reporter draws them on. The original had `✗` and `✘` inside the
+ * boundaries and they were therefore dead: a vitest failure line fell through to
+ * the last line of the lane's output instead, usually `ELIFECYCLE`.
+ */
+const LOOSE = /\b(FAIL|ERROR|error|Error|FAILED)\b|[✗✘✖]/;
 
 const clean = (s) => s.trim().slice(0, MAX);
 

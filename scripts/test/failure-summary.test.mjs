@@ -102,11 +102,28 @@ test("non-TAP: a WARN line is never the reason a lane failed", () => {
   assert.match(got, /doc staleness FAILED/);
 });
 
-test("non-TAP: the loose scan is otherwise unchanged", () => {
-  // The fallback is deliberately still a heuristic — this pins that fixing the
-  // TAP case did not quietly alter what every other lane reports.
-  const vitest = ["> vitest run", "some ordinary progress output", "✗ src/thing.test.ts > does a thing"].join("\n");
+test("non-TAP: the loose scan FINDS a tick-marked failure, rather than falling through to it", () => {
+  // The trailing lines matter. With the failure line last, this assertion passes
+  // whether the scan matched it or the last-line fallback returned it — and the
+  // original pattern spelled the marks as `\b✗\b`, which cannot match a line that
+  // starts with one, so it was the fallback. A non-matching footer after the
+  // failure is what tells the two apart.
+  const vitest = [
+    "> vitest run",
+    "some ordinary progress output",
+    "✗ src/thing.test.ts > does a thing",
+    "Duration 1.20s",
+    " ELIFECYCLE  Command failed with exit code 1.",
+  ].join("\n");
   assert.equal(extractFailureSummary(vitest), "✗ src/thing.test.ts > does a thing");
+});
+
+test("non-TAP: the word markers keep their boundaries", () => {
+  // Splitting the alternation must not drop `\b` from the words: `error` inside
+  // `terrorism` is not a failure, and the marks are the only part that has to
+  // match unbounded.
+  const prose = ["a line about terrorism and errors of judgement", "FAILED: the actual one", "trailing noise"].join("\n");
+  assert.equal(extractFailureSummary(prose), "FAILED: the actual one");
 });
 
 test("no match at all falls back to the last line, and empty input to null", () => {
