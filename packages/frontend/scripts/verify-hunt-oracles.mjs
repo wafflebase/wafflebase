@@ -248,6 +248,7 @@ const READER_EXPECTATIONS = [
   // mean the reader had started resolving inherited values — which is the other
   // reader's job, and the confusion this pair is named to avoid.
   ["sheet", "sheet.rangeStyles", [], (v) => (Array.isArray(v) ? null : "expected an array of range-style patches")],
+  ["sheet", "sheet.activeCellDisplay", [], (v) => (typeof v === "string" || v === null ? null : "expected a display string or null")],
   ["sheet", "sheet.activeCellStyle", [], (v) =>
     v === null || (v && typeof v === "object" && !Array.isArray(v)) ? null : "expected a style object or null"],
   ["sheet", "sheet.cellCenter", ["B2"], (v) =>
@@ -606,6 +607,48 @@ async function checkSheetToolbar(page, baseUrl) {
   const restored = (await readReader(page, "sheet.activeCellStyle", [])).value;
   if (restored?.b === true) {
     problems.push(`the second Bold click left the cell still bold: ${JSON.stringify(restored)}`);
+  }
+
+  // NUMBER FORMAT: the stored value must NOT move and the display MUST.
+  //
+  // This encodes a false finding a live run actually proposed. It clicked
+  // `Increase decimal places`, watched `sheet.activeCellStyle` record the format, saw
+  // `sheet.cellValue` stay byte-identical, and concluded on four grounded predictions
+  // that "number formats never reach the displayed value". The app was right: formats
+  // are applied by `formatValue` at paint time, and the reader it checked was
+  // advertised as "the displayed value" while returning the stored one.
+  //
+  // Both halves are asserted, because each alone is satisfiable by a broken reader: a
+  // display that never changes looks identical to a format that never applied, and a
+  // stored value that DID change would mean formatting had corrupted the data.
+  const numCentre = await readReader(page, "sheet.cellCenter", ["A1"]);
+  if (numCentre.ok && Number.isFinite(numCentre.value?.x)) {
+    await page.mouse.click(numCentre.value.x, numCentre.value.y);
+    const storedBefore = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+    const shownBefore = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+
+    await page.getByRole("button", { name: "Increase decimal places" }).click();
+    let shownAfter = null;
+    const nfDeadline = Date.now() + FIRE_DEADLINE_MS;
+    for (;;) {
+      shownAfter = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+      if (shownAfter !== shownBefore || Date.now() >= nfDeadline) break;
+      await page.waitForTimeout(25);
+    }
+    const storedAfter = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+
+    if (shownAfter === shownBefore) {
+      problems.push(
+        `Increase decimal places did not change what A1 displays (${JSON.stringify(shownBefore)}) — ` +
+          "either the reader does not apply the format or the control did not reach the style",
+      );
+    }
+    if (storedAfter !== storedBefore) {
+      problems.push(
+        `a number format changed the STORED value of A1: ${JSON.stringify(storedBefore)} -> ${JSON.stringify(storedAfter)}. ` +
+          "Formatting is a paint-time concern and must not rewrite the cell.",
+      );
+    }
   }
 
   return problems;
