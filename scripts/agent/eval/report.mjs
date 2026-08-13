@@ -138,6 +138,29 @@ export const SELF_REVIEW_ITEMS = Object.freeze({
 });
 
 /**
+ * The only corpus items where BOTH arms ran in production on the same commit from
+ * the same trigger — the one genuinely comparable latency pair that exists, and it is
+ * n=2.
+ *
+ * LISTED RATHER THAN DERIVED, for the same reason `SELF_REVIEW_ITEMS` is and with the
+ * same intersection guard: no score payload carries it. It is a fact about which
+ * commits happen to hold `agent-review-*` check runs, and our arm's replayed
+ * `duration_ms` is not it — the replay times a process, these times are wall clock
+ * from `workflow_run: CI (requested)`, the same event CodeRabbit's second anchor uses.
+ *
+ * 🔴 IT LIVES IN THE LIMITS AND NEVER IN §4, and the direction is why. Our replay
+ * median reads 9.3 min against CodeRabbit's 6.8, which is close enough to look like a
+ * fair fight; in production on these two commits ours took 18.7 and 19.0 against 8.0
+ * and 8.6, about **2.2x LONGER**. So §4's figures understate us by roughly that
+ * factor, and printing this pair as a headline would swap one misleading number for
+ * another at n=2. It is a stated limit on §4's minutes, not a result.
+ */
+export const PRODUCTION_LATENCY_PAIR = Object.freeze({
+  "pr-549": { panel_min: 18.7, coderabbit_min: 8.0 },
+  "pr-605": { panel_min: 19.0, coderabbit_min: 8.6 },
+});
+
+/**
  * WHY A FIGURE IS NOT ON THE PAGE, and there are three answers rather than one.
  *
  *   present         a real measurement. Carries its value, its `n` and its unit —
@@ -576,44 +599,167 @@ export function reliabilityFigures(payload) {
 }
 
 /**
- * Cost and latency — `not-computed` today, and the section exists so that it can say
- * so.
+ * Cost and latency, from one `cost-latency-v1` payload.
  *
- * #791 is OPEN, not merged, so nothing has ever written `cost-latency-v1.json`. The
- * temptation this section resists is reading `run.json`'s `totals` instead: the
- * numbers are right there and they are `$92.93` for the pilot. Two reasons not to.
- * A run total is not a scored figure — it has no per-item distribution, no size
- * bucket and no `n` — and `putRun` recomputes totals from the envelopes PRESENT, so
- * a failed attempt whose envelope was deleted during the K=3 repair leaves no trace
- * in it. Printing a store total as this report's cost figure would publish a number
- * that is known to understate true spend, with nothing on the page saying so. The
- * standing caveat is in `renderLimits` instead, where it belongs.
+ * 🔴 THE CROSS-ARM CELL IS `not-measurable` PERMANENTLY, AND THAT IS A RESULT RATHER
+ * THAN A GAP. It is the one cell in this report whose absence will never be filled by
+ * running something, and the section is built so that a reader cannot construct the
+ * missing number themselves:
  *
- * 🔴 AND THERE IS NO RATIO HERE EVEN WHEN #791 LANDS. CodeRabbit is a flat
- * subscription with no per-review price, so cost has no cross-arm denominator; and
- * latency is computable for both but not comparable — ours is a replay PROCESS time,
- * theirs is production end-to-end, and the bias runs in our favour.
+ *   COST     CodeRabbit is a flat subscription. There is no per-review price to put
+ *            opposite our metered one — not a small number, not an unknown number,
+ *            no such quantity — so the two live under different keys with different
+ *            units and the scorer names its own basis on each.
+ *   LATENCY  both arms have a number and they measure different things. Ours times a
+ *            panel PROCESS on an offline replay of a historical commit, starting
+ *            after the lane materialised a worktree, queueing for nothing. Theirs
+ *            times a production reviewer end to end. The direction of that bias is
+ *            measured and it is NOT the one this project assumed for years: on the
+ *            two pilot commits where our panel also ran in production, from the same
+ *            trigger, ours took about 2.2x LONGER. So publishing our replay median
+ *            beside theirs would understate us by roughly that factor, and it is the
+ *            n=2 production pair — in the limits, with its `n` — that says so.
+ *
+ * So the two arms are rendered as two blocks that share no table and no axis, each
+ * figure naming the interval it was measured over. `renderCostLatency` is where that
+ * is enforced; this function's job is to hand it cells that cannot be lined up.
+ *
+ * WHAT IT STILL WILL NOT DO: read `run.json`'s `totals`. The numbers are right there
+ * and they are `$92.93` for the pilot. `putRun` recomputes them from the envelopes
+ * PRESENT, so a failed attempt whose envelope was deleted during the K=3 repair
+ * leaves no trace — and the scorer's own `totals_caveat` says so, which is why this
+ * section renders the scorer's spend figures WITH that caveat attached rather than a
+ * store total with nothing on the page to qualify it.
+ *
+ * ⟳ SCHEMA 1 PAYLOADS STILL RENDER. `coderabbit.latency` was `{wall_ms: null}` before
+ * the arm's timing read was wired in, and a store may hold one. That path takes the
+ * `not-computed` branch with the payload's own reason rather than throwing, because a
+ * renderer that crashed on last week's score file would make re-rendering an old
+ * comparison impossible — which is the one thing this report's purity buys.
  */
 export function costLatencyFigures(payload) {
+  const crossArm = notMeasurable(
+    "PERMANENTLY, and this is a result rather than a gap. Cost: CodeRabbit is a flat subscription, so there is no per-review price to divide by — not an unknown one, no such quantity. Latency: both arms have a figure and they time different things, ours a panel process on an offline replay that queued for nothing and theirs a production reviewer end to end. The one genuinely comparable pair is in the limits below, it has n=2, and it does not flatter us",
+  );
   if (!payload) {
     return {
       availability: "not-computed",
-      reason: `no ${sectionFor("cost_latency").scorer_id} score is filed — the cost/latency scorer is not merged, so nobody has computed it`,
-      cross_arm: notMeasurable(
-        "CodeRabbit is a flat subscription with no per-review price, so cost has no cross-arm denominator; and latency is computable for both arms but not comparable — ours is replay process time, theirs is production end-to-end, and the bias runs in our favour",
-      ),
+      reason: `no ${sectionFor("cost_latency").scorer_id} score is filed for this comparability key — nobody ran the cost/latency scorer against this store`,
+      cross_arm: crossArm,
     };
   }
+  const panel = payload.panel ?? {};
+  const cr = payload.coderabbit ?? {};
+  const gapFor = (metric) => (Array.isArray(payload.declared_gaps) ? payload.declared_gaps : []).find((g) => g.metric === metric) ?? null;
+  const series = (s) => (s && Number.isFinite(s.n) && s.n > 0 ? s : null);
+
+  // A `seriesOf` result as a cell, or the reason there is none. The `n` on the cell
+  // is the series' own — never the corpus size, never the replicate count — because
+  // this payload carries three different denominators for the same corpus (3
+  // replicates, 7 items, 21 observations) and decision 33 is that the figure says
+  // which one it is.
+  const seriesCell = (s, unit, absent) => (series(s) ? figure(s, s.n, unit) : absent);
+
+  const wall = series(panel.review_wall_ms);
+  const latency = cr.latency ?? {};
+  const selfTimed = latency.self_timed ?? null;
+  const pushProxy = latency.push_proxy ?? null;
+  // The interval NAMES come off the payload, never from a constant here. A renderer
+  // holding its own copy of "coderabbit-start-marker-to-first-finding" would keep
+  // captioning the figure with it after the scorer changed which instant it starts
+  // from — the caption and the number must fail together or not at all.
+  const intervalOf = (span, what) => (typeof span?.interval === "string" && span.interval.trim() !== "" ? span.interval : refuse(`${what} carries no interval name, so its minutes cannot be captioned`));
+
   return {
     availability: "present",
     reviewer: payload.reviewer ?? null,
     completeness: payload.completeness ?? null,
-    // Deliberately not unpacked further. This PR cannot render fields whose shape is
-    // still in review on #791; when it merges, the section grows here and the
-    // absence path above stops being taken.
-    payload_keys: Object.keys(payload).sort(),
-    cross_arm: notMeasurable("no per-review price for CodeRabbit, and the two latencies are not comparable — see #791"),
+    schema_version: payload.schema_version ?? null,
+    panel: {
+      // Three denominators, three cells, each naming its own. `replicate_spend_usd`
+      // counts REPLICATES and the two below count OBSERVATIONS; quoting one at the
+      // other's `n` is decision 33's failure in both directions.
+      spend: seriesCell(panel.replicate_spend_usd, "replicates, each a whole run's stored envelopes", notComputed("the cost score carries no per-replicate spend series")),
+      cost_per_review: seriesCell(panel.review_cost_usd, "observations — one item in one replicate", notComputed("the cost score carries no pooled per-review cost series")),
+      wall: wall
+        ? figure(wall, wall.n, `observations, interval \`${panel.latency_interval ?? "unnamed"}\``)
+        : notComputed("the cost score carries no pooled wall-clock series"),
+      interval: panel.latency_interval ?? null,
+      // A MEASURED ZERO IS `present`, and this is the cell that proves it. The census
+      // counts envelopes whose duration has no provenance; on the pilot it is 0 of
+      // 21, and 0 here means "we looked and every replay was timed" — a different
+      // fact from "nobody counted", which is what a blank would say.
+      untimed: untimedCell(panel.duration_source),
+      // Per replicate, because the fit is per replicate and a withheld one must say
+      // what it failed. `suppressed` needs BOTH numbers from the payload — the
+      // scorer owns `min_n` (#791's `MIN_FIT_ITEMS`) and a default here would caption
+      // its refusal with a threshold it no longer uses.
+      fits: (Array.isArray(panel.replicates) ? panel.replicates : []).map((rep) => ({
+        run_id: rep.run_id ?? null,
+        cell: fitCell(rep.cost_vs_size),
+      })),
+      by_size_bucket: Array.isArray(panel.by_size_bucket) ? panel.by_size_bucket : [],
+    },
+    coderabbit: {
+      // STRUCTURAL, not missing: there is no per-review price for a flat
+      // subscription, so running anything for longer produces no number.
+      cost: cr.cost?.amortised_usd_per_pr === null || cr.cost?.amortised_usd_per_pr === undefined
+        ? notMeasurable(cr.cost?.reason ?? "the cost score does not say why CodeRabbit has no per-review price")
+        : figure(cr.cost.amortised_usd_per_pr, 1, "amortised USD per pull request, from a list price and a monthly volume supplied by the caller"),
+      // NOBODY MEASURED IT, when nobody did — distinct from the cost cell above,
+      // because this one a re-run closes and that one it does not.
+      latency: series(selfTimed?.ms)
+        ? figure(selfTimed.ms, selfTimed.n, `items, interval \`${intervalOf(selfTimed, "the self-timed latency")}\``)
+        : notComputed(latency.reason ?? gapFor("coderabbit_latency_ms")?.reason ?? "the cost score carries no CodeRabbit latency and gives no reason"),
+      latency_secondary: series(pushProxy?.ms)
+        ? figure(pushProxy.ms, pushProxy.n, `items, interval \`${intervalOf(pushProxy, "the push-proxy latency")}\``)
+        : null,
+      self_timed: selfTimed,
+      push_proxy: pushProxy,
+      triggers: latency.triggers ?? null,
+      requested: latency.requested === true,
+    },
+    // STILL A GAP AFTER THE LATENCY LANDED, and rendering it with its reason is the
+    // deliverable rather than a shortfall: it needs adjudicated labels, and none
+    // exist. The reason is the scorer's own words, so the report cannot drift from
+    // what the scorer refused to compute.
+    cost_per_real_finding: notComputed(
+      gapFor("cost_per_real_finding")?.reason ?? "the cost score neither computed cost per real finding nor declared why not",
+    ),
+    cost_per_real_finding_unblocked_by: gapFor("cost_per_real_finding")?.unblocked_by ?? null,
+    declared_gaps: Array.isArray(payload.declared_gaps) ? payload.declared_gaps : [],
+    cross_arm: crossArm,
   };
+}
+
+/**
+ * Replays whose duration has no provenance — a MEASURED ZERO on the pilot.
+ *
+ * `duration_source` has three values and only one of them is a measurement, so this
+ * counts the other two. Zero of 21 is a fact about the store: every replay carries a
+ * timing file. The state that would be wrong here is a blank, because "no replay was
+ * untimed" and "nobody checked whether any replay was untimed" are the same empty
+ * cell and different facts — which is the whole argument of this module.
+ */
+function untimedCell(census) {
+  if (!census || !Number.isFinite(census.n) || !census.counts) {
+    return notComputed("the cost score carries no duration_source census, so whether every replay was timed is unknown");
+  }
+  const untimed = Object.entries(census.counts).filter(([source]) => source !== "review-timing.json").reduce((a, [, n]) => a + (Number.isFinite(n) ? n : 0), 0);
+  const unrecognised = Object.values(census.unrecognised ?? {}).reduce((a, n) => a + (Number.isFinite(n) ? n : 0), 0);
+  return figure(untimed + unrecognised, census.n, "envelopes");
+}
+
+/** One replicate's cost-vs-size fit: measured, or WITHHELD with both numbers that
+ *  decided it. The threshold is the scorer's — read, never defaulted. */
+function fitCell(fit) {
+  if (!fit || !Number.isFinite(fit.n)) return notComputed("the cost score carries no cost-vs-size fit for this replicate");
+  if (Number.isFinite(fit.intercept_usd)) return figure(fit, fit.n, "items priced in this replicate");
+  // A fit refused for too few points is MEASURED AND WITHHELD, which is the fourth
+  // state and the only one that carries the `n` it wanted beside the `n` it had.
+  // A fit refused for any other reason (no spread in x) is not a thin denominator.
+  if (Number.isFinite(fit.min_n) && fit.n < fit.min_n) return suppressed(fit.n, fit.min_n);
+  return notMeasurable(fit.reason ?? "the cost score refused this fit and gave no reason");
 }
 
 /**
@@ -737,6 +883,18 @@ const pctValues = (s) => (s && s.n > 0 ? `${s.values.map((v) => pct(v)).join(" �
  *  Never a single aggregate over three draws — see `armRatio`. */
 const ratioRange = (s) => (s && s.n > 0 ? (s.min === s.max ? `${num(s.min, 1)}×` : `${num(s.min, 1)}×–${num(s.max, 1)}×`) : "n/a");
 const band = (b) => `[${pct(b.low)}, ${pct(b.high)}]`;
+const usd = (v) => (Number.isFinite(v) ? `$${v.toFixed(2)}` : "n/a");
+/**
+ * Minutes, and the UNIT IS IN THE STRING rather than in the column header.
+ *
+ * §4 is the one section where two arms print the same physical quantity measured over
+ * different intervals, so a bare number lifted out of its row is the failure to guard
+ * against. `9.3 min` survives being quoted; `9.3` does not.
+ */
+const minutes = (ms) => (Number.isFinite(ms) ? `${(ms / 60000).toFixed(1)} min` : "n/a");
+/** A `seriesOf` result as its values are not available — only its five-number summary
+ *  is stored — so the range is what gets printed, never the mean alone. */
+const usdValues = (s) => (s && s.n > 0 ? `${usd(s.median)} (${usd(s.min)}–${usd(s.max)})` : "n/a");
 
 /**
  * The whole report as markdown. Pure and exported, so what a reader sees is testable
@@ -938,8 +1096,21 @@ function renderComplementarity(c) {
       "ceiling means the matcher cannot currently separate *\"CodeRabbit caught something we missed\"* from *\"we said",
       "the same thing in different words\"*, and that is a property of the two arms rather than a threshold to tune.",
       "",
-      `The queue is ${worst.maybe_links} undecided pairs, of which **${worst.strong_maybe_links} score ≥ ${worst.triage_threshold}** — so adjudicating this costs tens of`,
-      "pairs rather than hundreds. **Until those labels exist, this row must not be read as a point estimate.**",
+      `The queue is ${worst.maybe_links} undecided pairs on \`${worst.label}\`, of which **${worst.strong_maybe_links} score ≥ ${worst.triage_threshold}**. Those two`,
+      "numbers buy different ends of the band, and the cheap one buys the end that is already tight:",
+      "",
+      `- **The floor** rises when a pair is labelled \`same\`, one pair at a time. The ${worst.strong_maybe_links} strong candidates are where`,
+      "  the cheap gains are, and they are the reason a first pass is worth running at all.",
+      `- **The ceiling** only falls when a CodeRabbit finding has EVERY one of its pairs decided \`different\` — until`,
+      `  the last one is settled the finding could still turn out shared, so its ceiling contribution does not move.`,
+      `  ${worst.coderabbit_with_candidate} of this replicate's findings carry an undecided panel candidate, and the pairs attached to them are`,
+      `  bounded only by the ${worst.maybe_links}-pair queue itself.`,
+      "",
+      "🔴 **So the honest cost is hundreds of decisions, not tens** — the two bounds have different budgets and only",
+      "the floor's is small. The exact ceiling budget is smaller than the whole queue, because pairs owned by a",
+      "finding that is already shared cannot move either bound; that deduction needs a per-finding pair count this",
+      "scorer does not emit, so it is not stated here as a number.",
+      "**Until those labels exist, this row must not be read as a point estimate.**",
       "",
     );
   }
@@ -1009,7 +1180,22 @@ function renderReliability(rl) {
   return out;
 }
 
-/** §4 — cost and latency. Absent, in the flavour that says nobody measured it. */
+/**
+ * §4 — cost and latency, as TWO BLOCKS THAT SHARE NO TABLE.
+ *
+ * 🔴 THE LAYOUT IS THE ARGUMENT HERE, more than in any other section. Both arms carry
+ * minutes and both carry money, and every instinct a reader brings is one this data
+ * cannot support: they want a cost per review to compare (there is no per-review
+ * price for a flat subscription) and they want a latency ratio (the two clocks time
+ * different things, and the honest version says we are the slower one). Put the two
+ * latencies in one table and the reader does the division themselves — so they are
+ * never in one table, never on one axis, and every figure carries the name of the
+ * interval it was measured over rather than the word "latency" alone.
+ *
+ * `renderCell` does the rest: each of the four availability states gets its own
+ * sentence, and the cross-arm cell says `not measurable` PERMANENTLY, which is a
+ * result and not a hole waiting on a scorer.
+ */
 function renderCostLatency(cl) {
   const out = ["## 4. Cost and latency", ""];
   if (cl.availability !== "present") {
@@ -1026,8 +1212,89 @@ function renderCostLatency(cl) {
     );
     return out;
   }
-  out.push(`Cross-arm: ${renderCell(cl.cross_arm)}`, "");
-  return out;
+  const p = cl.panel;
+  const c = cl.coderabbit;
+  out.push(
+    "**The two arms are in two blocks, with two units and no shared axis, and this section computes no ratio",
+    "between them.** That is not caution about thin data: on cost there is no second number to divide by, and on",
+    "latency the two figures time different things — read the cross-arm row at the end of this section before",
+    "quoting either against the other.",
+    "",
+    "### Our panel",
+    "",
+    "| what | measured | unit |",
+    "|---|---|---|",
+    `| spend per replicate | ${renderValue(p.spend, (s) => `**${usdValues(s)}**`)} | ${unitOf(p.spend)} |`,
+    `| cost per review | ${renderValue(p.cost_per_review, (s) => `**${usd(s.median)}** (${usd(s.min)}–${usd(s.max)})`)} | ${unitOf(p.cost_per_review)} |`,
+    `| wall clock per review | ${renderValue(p.wall, (s) => `**${minutes(s.median)}** (${minutes(s.min)}–${minutes(s.max)})`)} | ${unitOf(p.wall)} |`,
+    // The measured zero, rendered as a measurement. `0 (n=21 envelopes)` and a blank
+    // cell are the same width on the page and opposite in meaning.
+    // `0 of 21`, never a bare `0`. `renderValue` drops the `(n= unit)` suffix because
+    // the unit has its own column, which leaves the denominator to the caller — and
+    // this is the one row where the denominator IS the finding: 0 of 21 says every
+    // replay was timed, while `0` alone says nothing about how many were looked at.
+    `| replays with no wall clock | ${renderValue(p.untimed, (v) => `**${v}** of ${p.untimed.n}`)} | ${unitOf(p.untimed)} |`,
+    "",
+  );
+  if (p.fits.length > 0) {
+    out.push(
+      "Cost against size, per replicate — a fixed per-item floor plus a marginal rate, because the average cost",
+      "per line inverts on this corpus (the biggest item is the cheapest per line) and is therefore not printed:",
+      "",
+      "| replicate | fit |",
+      "|---|---|",
+    );
+    for (const f of p.fits) {
+      out.push(
+        `| \`${f.run_id ?? "(unnamed)"}\` | ${renderValue(f.cell, (fit) => `${usd(fit.intercept_usd)} per item + ${usd(fit.slope_usd_per_1000_lines)} per 1000 lines — ${pct(fit.fixed_share)} of the replicate is the per-item floor`)} |`,
+      );
+    }
+    out.push("");
+  }
+  out.push(
+    "### CodeRabbit",
+    "",
+    "**A different kind of number in both rows, and the units say which.** Neither belongs in the table above.",
+    "",
+    "| what | measured | unit |",
+    "|---|---|---|",
+    `| latency | ${renderValue(c.latency, (s) => `**${minutes(s.median)}** (${minutes(s.min)}–${minutes(s.max)})`)} | ${unitOf(c.latency)} |`,
+  );
+  if (c.latency_secondary) {
+    out.push(
+      `| latency, second anchor | ${renderValue(c.latency_secondary, (s) => `${minutes(s.median)} (${minutes(s.min)}–${minutes(s.max)})`)} | ${unitOf(c.latency_secondary)} |`,
+    );
+  }
+  out.push(`| cost per review | ${renderCell(c.cost)} | — |`, "");
+  if (c.latency.availability === "present" && c.triggers) {
+    // WHY the second anchor pools fewer items, on the page. Its exclusions are a
+    // decision the adapter READ from CodeRabbit's own marker, not an outlier rule:
+    // one on-demand item reads 183.7 min from the push and 7.8 from the review's own
+    // start, and a second reads an entirely ordinary 9.8 — so magnitude cannot sort
+    // them and the trigger has to be read.
+    out.push(
+      `The two anchors agree on the ${c.triggers.automatic} automatically-triggered item(s) and are pooled separately because of the`,
+      `${c.triggers["on-demand"]} on-demand one(s): where a human asked for the review, the second anchor times the human's delay in`,
+      "asking rather than the review. The first anchor is CodeRabbit's own clock and survives both.",
+      "",
+    );
+  }
+  out.push(
+    "### Cross-arm",
+    "",
+    // `renderCell` already emits its own bold marker on every absence, so nothing
+    // here wraps it in a second pair — an earlier draft did and rendered `****not
+    // measurable**` , which markdown collapses into a literal asterisk.
+    `Cost per review, and latency, between the arms: ${renderCell(cl.cross_arm)}`,
+    "",
+    `Cost per real finding: ${renderCell(cl.cost_per_real_finding)}`,
+    cl.cost_per_real_finding_unblocked_by ? ["", `Unblocked by: ${cl.cost_per_real_finding_unblocked_by}.`] : [],
+    "",
+    "That last one is the figure a budget holder actually wants, and it is the one absence in this section that a",
+    "re-run would close — the others are properties of the two arms rather than of this pipeline.",
+    "",
+  );
+  return out.flat().filter((line, i, all) => line !== "" || all[i - 1] !== "");
 }
 
 /** §5 — segmentation. Absent today; blank by design when it lands. */
@@ -1111,6 +1378,7 @@ function renderLimits(r) {
     "rather than corrected anywhere, because the evidence for it is outside the store by construction.",
     "",
   ];
+  out.push(...renderLatencyLimit(r));
   if (s.complementarity.availability === "present" && s.complementarity.all_saturated) {
     out.push(
       "**The overlap ceiling is saturated, so the unique-catch counts are upper bounds on nothing.** They count",
@@ -1132,6 +1400,44 @@ function renderLimits(r) {
     "",
   );
   return out;
+}
+
+/**
+ * §4's minutes, bounded in the direction that does not flatter us — and only for the
+ * items this report actually renders.
+ *
+ * Intersected rather than asserted, exactly like the self-review caveat: the pair is a
+ * fact about two specific commits, so a report over a corpus that does not contain
+ * them must not claim it. When they are absent the limit still gets a sentence,
+ * because "we could not bound this" and "we did not think to" are the distinction this
+ * whole module is built around.
+ */
+function renderLatencyLimit(r) {
+  const s = r.sections.cost_latency;
+  // Nothing to bound if no latency figure was rendered.
+  if (s.availability !== "present" || s.coderabbit.latency.availability !== "present") return [];
+  const items = r.corpus_item_ids.filter((id) => PRODUCTION_LATENCY_PAIR[id]);
+  if (items.length === 0) {
+    return [
+      "**§4's latency figures have no production pair to bound them on this corpus.** Our arm's number is a replay",
+      "process's time and CodeRabbit's is production end to end; the only way to bound the gap between those two",
+      "kinds of number is a commit where both arms ran in production, and this corpus contains none. The direction",
+      "of the bias is therefore unmeasured here rather than absent.",
+      "",
+    ];
+  }
+  const pairs = items.map((id) => PRODUCTION_LATENCY_PAIR[id]);
+  return [
+    `**🔴 §4's latency understates our panel, and here is the measurement that says so — n=${items.length}.** ` +
+      `${items.map((id) => `\`${id}\``).join(" and ")} carry`,
+    "`agent-review-*` check runs on the frozen commit itself, so on those two the panel ran **in production**, from",
+    "the same `workflow_run: CI (requested)` trigger CodeRabbit's second anchor uses. Both arms' clocks start",
+    `together there: ours **${pairs.map((p) => p.panel_min.toFixed(1)).join(" and ")} min**, theirs **${pairs.map((p) => p.coderabbit_min.toFixed(1)).join(" and ")} min** — about **2.2x longer**, the opposite`,
+    "direction from §4's replay figures. So §4's minutes are not a tie, and they are not a win; they are a",
+    `different interval. **n=${items.length}** is far too thin for a claim, which is exactly why this is a stated limit on §4`,
+    "rather than a row inside it.",
+    "",
+  ];
 }
 
 // --- CLI ---------------------------------------------------------------------
