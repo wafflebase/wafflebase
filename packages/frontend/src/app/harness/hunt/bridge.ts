@@ -20,7 +20,7 @@
 // need to change something, that is an action, not a reader.
 
 import type { Block, EditorAPI, InlineStyle, StoredColor } from "@wafflebase/docs";
-import { parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
+import { formatValue, parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
 
@@ -225,6 +225,20 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
     "doc.canUndo": () => requireDoc(state).editor.getStore().canUndo(),
 
     // --- sheets -----------------------------------------------------------
+    /**
+     * The value a cell STORES — `cell.v`, before any number format is applied.
+     *
+     * NOT the string on screen, despite what this reader was called for its first year.
+     * Number formats live in the style (`nf`/`dp`/`cu`) and are applied at PAINT time by
+     * `formatValue`, so `Increase decimal places` and `Format as percent` correctly leave
+     * `cell.v` byte-identical. Measured: a live run clicked those controls, watched
+     * `sheet.activeCellStyle` go `null -> {dp:1,nf:"number"} -> {nf:"number",dp:3}` while
+     * this reader stayed `"100"`, and proposed "number formats never reach the displayed
+     * value" on four grounded predictions. The app was right and the reader's own
+     * description had promised the wrong thing.
+     *
+     * `sheet.activeCellDisplay` is the one that answers "what does it say on screen".
+     */
     "sheet.cellValue": async (args) => {
       const sref = asString(args, 0, "sheet.cellValue");
       const cell = await requireSheet(state).store.get(parseRef(sref));
@@ -272,6 +286,39 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
      * round trip should be predicted against here, and whether the growth is a defect is
      * exactly the kind of question this reader exists to make askable.
      */
+    /**
+     * What the active cell READS AS ON SCREEN — `cell.v` with its number format applied.
+     *
+     * Composed rather than borrowed: `Sheet.toDisplayString` does exactly this but lives
+     * on the `Sheet`, and `Spreadsheet` exposes no accessor for it. Every piece needed is
+     * already public — `getActiveCell`, `getActiveStyle`, and `formatValue` from the
+     * package — so this needs no product change to serve a harness.
+     *
+     * ACTIVE CELL ONLY, for the same reason `sheet.activeCellStyle` is: the effective
+     * style of an arbitrary ref is not reachable from here, and a per-ref version would
+     * need a new public method on the engine.
+     *
+     * Without this, an entire toolbar section — `Format as percent`, `Format as
+     * currency`, `Increase`/`Decrease decimal places`, `More formats` — was reachable and
+     * unobservable, which is worse than unreachable: the explorer clicks the controls,
+     * sees the STORED value correctly not move, and proposes a defect that is not there.
+     */
+    "sheet.activeCellDisplay": async () => {
+      const { spreadsheet, store } = requireSheet(state);
+      const active = spreadsheet.getActiveCell();
+      if (!active) return null;
+      const cell = await store.get(active);
+      // Empty cells answer `""`, mirroring `Sheet.toDisplayString`'s own guard rather
+      // than inventing a second convention: the product shows nothing for an empty
+      // cell, and a reader that said `null` here would make "empty" and "no active
+      // cell" the same reading. Without this, `formatValue(undefined, ...)` returns
+      // `undefined`, which `isUnusableValue` treats as unevaluable for ever — caught
+      // by the registry check on the seed's empty B2.
+      if (!cell || !cell.v) return "";
+      const style = await spreadsheet.getActiveStyle();
+      return formatValue(cell.v, style?.nf, style?.dp, { currency: style?.cu });
+    },
+
     "sheet.rangeStyles": () => requireSheet(state).store.getRangeStyles(),
 
     "sheet.activeCellStyle": async () => (await requireSheet(state).spreadsheet.getActiveStyle()) ?? null,

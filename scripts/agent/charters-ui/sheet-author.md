@@ -88,9 +88,17 @@ rejected — correctly, since nothing in that window could have changed it.
   `MemStore` no-op as `sheet.canUndo`, one paragraph up. A visible button does not
   change that. This is the single most likely false finding on this surface now that
   the toolbar is mounted.
-- **`sheet.cellValue` and `sheet.cellFormula` are different questions.** The
-  displayed value of a formula cell is its RESULT; the formula text is what was
-  entered. Predicting one and reading the other is a mistake, not a defect.
+- **`sheet.cellValue` and `sheet.cellFormula` are different questions.** The stored
+  value of a formula cell is its RESULT; the formula text is what was entered.
+  Predicting one and reading the other is a mistake, not a defect.
+- **NUMBER FORMATS DO NOT CHANGE `sheet.cellValue`, AND THAT IS NOT A DEFECT.**
+  `nf`/`dp`/`cu` live in the style and are applied at PAINT time, so `Format as
+  percent` and `Increase decimal places` correctly leave the stored value untouched.
+  Measured: a live run clicked those controls, watched `sheet.activeCellStyle` record
+  `{nf:"number",dp:3}`, saw `sheet.cellValue` stay "100", and proposed "number formats
+  never reach the displayed value" on four grounded predictions. The app was right.
+  **`sheet.activeCellDisplay` is the reader that answers "what does it say on screen"** —
+  predict number formatting against THAT, and expect `sheet.cellValue` to hold still.
 - **Click a cell through `sheet.cellCenter`**, naming it as a click target's
   `reader`. There is no coordinate targeting and no CSS selector; a canvas click
   resolves through that named reader or not at all.
