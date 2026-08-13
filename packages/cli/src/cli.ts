@@ -1,4 +1,4 @@
-import type { Command } from 'commander';
+import { CommanderError, type Command } from 'commander';
 import { createProgram } from './commands/root.js';
 import { registerDocsCommand } from './commands/docs.js';
 import { registerSheetsCommand } from './commands/sheets.js';
@@ -33,6 +33,26 @@ export function buildProgram(): Command {
 }
 
 /**
+ * Commander codes for `--help`, `--version`, and bare `wafflebase`. These
+ * reach the catch below as a `CommanderError` like any parse failure, but
+ * they have already written their body to the stream and are output rather
+ * than errors — enveloping them would report `--help` as `USAGE: (outputHelp)`.
+ */
+const HELP_CODES = new Set([
+  'commander.help',
+  'commander.helpDisplayed',
+  'commander.version',
+]);
+
+/**
+ * A commander parse failure, carrying the one code agents branch on for
+ * "you called me wrong" — distinct from the runtime codes commands throw.
+ */
+class UsageError extends Error {
+  readonly code = 'USAGE';
+}
+
+/**
  * Run the CLI: parse `argv` and emit the error envelope for anything a
  * command did not handle itself.
  *
@@ -55,6 +75,18 @@ export async function runCli(
   try {
     await program.parseAsync(argv as string[] | undefined);
   } catch (e: unknown) {
+    if (e instanceof CommanderError) {
+      if (HELP_CODES.has(e.code)) {
+        // Help text is on the stream already; only the exit code is left to
+        // carry (bare `wafflebase` prints usage to stderr and exits 1).
+        if (e.exitCode !== 0) process.exitCode = e.exitCode;
+        return;
+      }
+      // Commander prefixes its parse messages with `error: `, which the
+      // envelope's own structure already conveys.
+      outputError(new UsageError(e.message.replace(/^error: /, '')));
+      return;
+    }
     outputError(e);
   }
 }
