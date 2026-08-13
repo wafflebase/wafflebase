@@ -60,7 +60,28 @@ export function domControls(page) {
         .map((id) => document.getElementById(id)?.textContent ?? "")
         .join(" ")
         .trim();
-      const name = (labelledBy || el.getAttribute("aria-label") || el.textContent || "")
+      // CONTENT IS JOINED AT ELEMENT BOUNDARIES, not concatenated. The accessible-name
+      // computation appends a space between the contents of adjacent elements, and
+      // `textContent` does not — so a menu item rendered as
+      //
+      //     <span>Heading 2</span><span>⌘+⌥2</span>
+      //
+      // has `textContent` "Heading 2⌘+⌥2" and an accessible name "Heading 2 ⌘+⌥2".
+      // Measured, and it cost real money: a run copied the concatenated form out of this
+      // list, `getByRole` could not match it, two clicks failed, and the explorer
+      // proposed "the Text style dropdown opens into an unusable state" — a false
+      // candidate this reader manufactured, which then spent two verifier sessions
+      // (~$3.41, ~10 minutes) being refuted. Items with no shortcut are a single element
+      // and matched fine, which is why the base-page check never saw it.
+      const fromContent = () => {
+        const parts = [];
+        for (const node of el.childNodes) {
+          const text = (node.textContent ?? "").trim();
+          if (text !== "") parts.push(text);
+        }
+        return parts.join(" ");
+      };
+      const name = (labelledBy || el.getAttribute("aria-label") || fromContent() || "")
         .trim()
         .replace(/\s+/g, " ");
       if (name === "") continue;

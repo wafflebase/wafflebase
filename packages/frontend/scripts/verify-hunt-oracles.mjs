@@ -723,6 +723,37 @@ async function checkControlInventory(page, baseUrl) {
     }
   }
 
+  // MENU ITEMS, WHICH THE BASE PAGE NEVER SHOWS.
+  //
+  // This check used to inspect only the controls present on load, and menu items exist
+  // only while a menu is OPEN — so the one place the name computation was wrong went
+  // unmeasured. A run then copied `Heading 2⌘+⌥2` out of the inventory (the accessible
+  // name is `Heading 2 ⌘+⌥2`; `textContent` concatenates adjacent spans without a
+  // space), clicked it twice, failed twice, and proposed a defect that did not exist.
+  //
+  // Opening the menu is the only way this class is reachable, so the check opens one.
+  await page.getByRole("button", { name: "Text style" }).click();
+  await page.waitForTimeout(250);
+  const inMenu = await domControls(page);
+  const menuItems = inMenu.filter((c) => c.role.startsWith("menuitem"));
+  if (menuItems.length === 0) {
+    problems.push("opening the Text style menu surfaced no menu items — this check can no longer see the case it exists for");
+  }
+  const badMenuNames = [];
+  for (const c of menuItems) {
+    if ((await page.getByRole(c.role, { name: c.name, exact: true }).count()) === 0) {
+      badMenuNames.push(`${c.role}/${c.name}`);
+    }
+  }
+  if (badMenuNames.length > 0) {
+    problems.push(
+      `dom.controls named MENU items getByRole cannot find: ${badMenuNames.slice(0, 4).join(", ")}. ` +
+        "A shortcut rendered in its own element concatenates into the name unless content is joined at element boundaries.",
+    );
+  }
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+
   // THE EXCLUSIONS, ASSERTED AGAINST PLANTED CONTROLS.
   //
   // The first version of this checked whether any control the page HAPPENED to disable
