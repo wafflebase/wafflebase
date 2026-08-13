@@ -563,7 +563,7 @@ The library is delivered incrementally:
 
 Gap analysis vs PowerPoint / Google Slides (which presets these phases
 close) is tracked in
-`docs/tasks/active/20260620-slides-shape-gaps-todo.md`. The catalog is at
+`docs/tasks/archive/2026/06/20260620-slides-shape-gaps-todo.md`. The catalog is at
 **Google Slides parity** today; P3.5/P5 close the PowerPoint-side
 extensions (explosions, waves, high-point stars, double brackets, full
 flowchart set) and the user-drawable freeform tool — the one reference-product

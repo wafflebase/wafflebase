@@ -369,7 +369,7 @@ historical rollout record.
 
 | Phase | Scope | Verification |
 | --- | --- | --- |
-| P1. Extract shared core | Move tick / unit code from `packages/docs/src/view/ruler.ts` into `view/ruler/tick-renderer.ts` and `view/ruler/unit.ts`. `pxPerUnit` becomes a parameter. Docs behavior unchanged. | `pnpm verify:fast`, docs ruler visual smoke |
+| P1. Extract shared core | Move tick / unit code from `packages/docs/src/view/ruler/index.ts` into `view/ruler/tick-renderer.ts` and `view/ruler/unit.ts`. `pxPerUnit` becomes a parameter. Docs behavior unchanged. | `pnpm verify:fast`, docs ruler visual smoke |
 | P2. Slides ruler display | `SlidesRuler` controller, H/V canvases, corner DOM, zoom + scroll + unit rendering. No guide code yet. | `pnpm verify:fast`, browser smoke at zoom 0.5 / 1 / 2 |
 | P3. Guides data + render | `Guide` type, store API, `MemSlidesStore` + Yorkie schema + lazy init. Guides paint into the overlay layer. No interactions. | Unit tests for store CRUD, integration test for Mem vs Yorkie equivalence and concurrent add/remove convergence |
 | P4. Guide interactions | Ruler drag-out, guide drag/move/delete, local guide preview, ruler markers, context menu. Peer-preview broadcast of the in-flight drag is deferred (see "Presence"); only committed guides sync. | Interaction tests (drag sequences), two-user committed-guide convergence test |
