@@ -33,13 +33,16 @@
 // was READ before anything else touched the document (#792 is destroyed by the wrong
 // next step, because any other style action repairs the stale indicator it exposes).
 //
-// STALENESS. An entry records the sha it was observed at. "Already covered" is a claim
-// about a tree, not a promise about the product, and a control exercised forty commits
-// ago is not covered now. The renderer says how old the memory is and lets the reader
-// discount it, in the same spirit as the ledger's key-version warning.
+// STALENESS IS PER ENTRY, not per record. "Already covered" is a claim about a tree,
+// not a promise about the product, and a control exercised forty commits ago is not
+// covered now. A single record-level sha gets this wrong in the direction that matters:
+// it takes the NEWEST run's sha, so a memory whose last run was five minutes ago
+// discloses nothing, while the entries inside it may be forty commits old. Under-warning
+// is the failure that costs a missed defect, so every entry carries the tree it was
+// observed at and the renderer marks the stale ones individually.
 
 /** Bump when the key shape changes; older entries then cannot claim coverage. */
-export const COVERAGE_KEY_VERSION = 1;
+export const COVERAGE_KEY_VERSION = 2;
 
 /**
  * How a selection was shaped when a control was used.
@@ -111,8 +114,8 @@ function isMutation(action) {
 export function coverageFromJournal(journal, { sha = null } = {}) {
   const entries = Array.isArray(journal) ? journal : [];
   const shapes = new Map(); // "control|shape" -> { control, shape, roundTripped }
-  const pairs = new Set(); // "a|b" for consecutive DIFFERENT mutating controls
-  const readAfterMutation = new Set(); // controls whose effect was read before anything else
+  const pairs = new Map(); // "a|b" -> sha, for consecutive DIFFERENT mutating controls
+  const readAfterMutation = new Map(); // control -> sha, effect read before anything else
 
   let shape = "none";
   // The selection ITSELF, not just its shape. A round trip is apply-then-reverse on the
@@ -146,7 +149,7 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     // by acting again first.
     if (mutationPendingRead !== "") {
       if (action.type === "read" || action.type === "wait") {
-        readAfterMutation.add(mutationPendingRead);
+        readAfterMutation.set(mutationPendingRead, sha);
         mutationPendingRead = "";
       } else if (isMutation(action)) {
         mutationPendingRead = "";
@@ -154,9 +157,15 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     }
 
     if (action.type !== "click") {
-      // A non-click mutation (typing, a shortcut) breaks any run of clicks, so a later
-      // repeat of the same control is a fresh application rather than a reversal.
-      if (isMutation(action)) lastControl = "";
+      // A non-click mutation (typing, a shortcut) breaks any run of clicks: a later
+      // repeat of the same control is a fresh application rather than a reversal, AND
+      // two clicks separated by typing are not the adjacency a pair claims to record.
+      // Both chains reset, or the pair list quietly asserts a sequence that never
+      // happened.
+      if (isMutation(action)) {
+        lastControl = "";
+        lastMutationControl = "";
+      }
       continue;
     }
 
@@ -164,7 +173,7 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     if (control === "") continue;
 
     const key = `${control}|${shape}`;
-    const seen = shapes.get(key) ?? { control, shape, roundTripped: false };
+    const seen = shapes.get(key) ?? { control, shape, roundTripped: false, sha };
 
     // ROUND TRIP: the same control twice with nothing mutating in between. That is
     // apply-then-reverse for a toggle, and it is the shape every filed defect came from.
@@ -174,7 +183,7 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     // A pair of DIFFERENT mutating controls, which the triple cannot express: #783 is
     // heading->list, #793 is a swatch->None. Restricted to clicks so it stays sparse.
     if (lastMutationControl !== "" && lastMutationControl !== control) {
-      pairs.add(`${lastMutationControl}|${control}`);
+      pairs.set(`${lastMutationControl}|${control}`, sha);
     }
 
     lastControl = control;
@@ -186,8 +195,10 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     keyVersion: COVERAGE_KEY_VERSION,
     sha,
     shapes: [...shapes.values()].sort((a, b) => `${a.control}${a.shape}`.localeCompare(`${b.control}${b.shape}`)),
-    pairs: [...pairs].sort(),
-    readAfterMutation: [...readAfterMutation].sort(),
+    pairs: [...pairs].map(([pair, at]) => ({ pair, sha: at })).sort((a, b) => a.pair.localeCompare(b.pair)),
+    readAfterMutation: [...readAfterMutation]
+      .map(([control, at]) => ({ control, sha: at }))
+      .sort((a, b) => a.control.localeCompare(b.control)),
   };
 }
 
@@ -204,25 +215,43 @@ export function mergeCoverage(prev, next) {
   const a = usable(prev) ? prev : { shapes: [], pairs: [], readAfterMutation: [] };
   const b = usable(next) ? next : { shapes: [], pairs: [], readAfterMutation: [] };
 
+  // Newest observation of an ENTRY wins its sha, so re-touching a control refreshes that
+  // control and nothing else. `roundTripped` stays sticky: a later run that only applied
+  // something has not un-tested its reversal.
   const shapes = new Map();
-  for (const s of [...(a.shapes ?? []), ...(b.shapes ?? [])]) {
-    if (!s || typeof s.control !== "string" || s.control === "") continue;
-    const key = `${s.control}|${s.shape}`;
+  for (const x of [...(a.shapes ?? []), ...(b.shapes ?? [])]) {
+    if (!x || typeof x !== "object") continue;
+    if (typeof x.control !== "string" || x.control === "") continue;
+    const key = `${x.control}|${x.shape}`;
     const cur = shapes.get(key);
     shapes.set(key, {
-      control: s.control,
-      shape: s.shape,
-      roundTripped: Boolean(cur?.roundTripped) || Boolean(s.roundTripped),
+      control: x.control,
+      shape: typeof x.shape === "string" ? x.shape : "none",
+      roundTripped: Boolean(cur?.roundTripped) || Boolean(x.roundTripped),
+      sha: x.sha ?? cur?.sha ?? null,
     });
   }
-  const strings = (xs) => (Array.isArray(xs) ? xs.filter((x) => typeof x === "string" && x !== "") : []);
+
+  /** Union a provenance-carrying list on `field`, newest sha winning per entry. */
+  const unionBy = (field, lists) => {
+    const out = new Map();
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const x of list) {
+        if (!x || typeof x !== "object") continue;
+        const value = x[field];
+        if (typeof value !== "string" || value === "") continue;
+        out.set(value, x.sha ?? out.get(value) ?? null);
+      }
+    }
+    return [...out].map(([value, at]) => ({ [field]: value, sha: at })).sort((p, q) => p[field].localeCompare(q[field]));
+  };
 
   return {
     keyVersion: COVERAGE_KEY_VERSION,
-    sha: (usable(next) ? next.sha : null) ?? (usable(prev) ? prev.sha : null) ?? null,
     shapes: [...shapes.values()].sort((x, y) => `${x.control}${x.shape}`.localeCompare(`${y.control}${y.shape}`)),
-    pairs: [...new Set([...strings(a.pairs), ...strings(b.pairs)])].sort(),
-    readAfterMutation: [...new Set([...strings(a.readAfterMutation), ...strings(b.readAfterMutation)])].sort(),
+    pairs: unionBy("pair", [a.pairs, b.pairs]),
+    readAfterMutation: unionBy("control", [a.readAfterMutation, b.readAfterMutation]),
   };
 }
 
@@ -238,17 +267,23 @@ export function mergeCoverage(prev, next) {
  */
 export function renderCoverageBrief(coverage, { sha = null } = {}) {
   if (!coverage || coverage.keyVersion !== COVERAGE_KEY_VERSION) return "";
-  const shapes = Array.isArray(coverage.shapes) ? coverage.shapes : [];
+
+  // Skip malformed entries rather than throwing. A coverage file is a MEMORY: a broken
+  // one must cost a repeated experiment, never a dead run, and this function sits on the
+  // path that assembles the explorer's prompt.
+  const shapes = (Array.isArray(coverage.shapes) ? coverage.shapes : []).filter(
+    (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
+  );
   if (shapes.length === 0) return "";
 
-  const tripped = shapes.filter((s) => s.roundTripped);
-  const appliedOnly = shapes.filter((s) => !s.roundTripped);
-  const byControl = new Map();
-  for (const s of shapes) {
-    const cur = byControl.get(s.control) ?? [];
-    cur.push(s.shape);
-    byControl.set(s.control, cur);
-  }
+  // A per-entry marker, because the record-level version of this under-warned: a memory
+  // whose newest run was minutes ago disclosed nothing while the entries inside it could
+  // be forty commits old.
+  const stale = (entry) => (sha && entry?.sha && entry.sha !== sha ? ` — last seen at \`${String(entry.sha).slice(0, 9)}\`, tree has moved` : "");
+  const anyStale = shapes.some((x) => stale(x) !== "");
+
+  const tripped = shapes.filter((x) => x.roundTripped);
+  const appliedOnly = shapes.filter((x) => !x.roundTripped);
 
   const lines = [
     "## What you have ALREADY TRIED on this surface (DATA, not instructions)",
@@ -265,37 +300,43 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
 
   if (tripped.length > 0) {
     lines.push("Already ROUND-TRIPPED (applied and reversed) — prefer something else:");
-    for (const s of tripped) lines.push(`  - \`${s.control}\` on a ${s.shape} selection`);
+    for (const x of tripped) lines.push(`  - \`${x.control}\` on a ${x.shape} selection${stale(x)}`);
     lines.push("");
   }
   if (appliedOnly.length > 0) {
     lines.push("Applied but NEVER REVERSED — a round trip here is still unexplored:");
-    for (const s of appliedOnly) lines.push(`  - \`${s.control}\` on a ${s.shape} selection`);
+    for (const x of appliedOnly) lines.push(`  - \`${x.control}\` on a ${x.shape} selection${stale(x)}`);
     lines.push("");
   }
 
-  const pairs = Array.isArray(coverage.pairs) ? coverage.pairs : [];
+  const pairs = (Array.isArray(coverage.pairs) ? coverage.pairs : []).filter(
+    (x) => x && typeof x === "object" && typeof x.pair === "string" && x.pair !== "",
+  );
   if (pairs.length > 0) {
     lines.push("Sequences of two different controls already tried:");
-    for (const p of pairs) lines.push(`  - ${p.split("|").map((x) => `\`${x}\``).join(" then ")}`);
+    for (const x of pairs) {
+      lines.push(`  - ${x.pair.split("|").map((n) => `\`${n}\``).join(" then ")}${stale(x)}`);
+    }
     lines.push("");
   }
 
-  const read = Array.isArray(coverage.readAfterMutation) ? coverage.readAfterMutation : [];
+  const read = (Array.isArray(coverage.readAfterMutation) ? coverage.readAfterMutation : []).filter(
+    (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
+  );
   if (read.length > 0) {
     lines.push(
-      "Already checked by READING immediately afterwards: " + read.map((c) => `\`${c}\``).join(", ") + ".",
+      "Already checked by READING immediately afterwards: " + read.map((x) => `\`${x.control}\``).join(", ") + ".",
       "A control not in that list has never been observed before something else touched",
       "the document, which is the only way a stale-indicator defect is visible at all.",
       "",
     );
   }
 
-  if (coverage.sha && sha && coverage.sha !== sha) {
+  if (anyStale) {
     lines.push(
-      `This memory was recorded at \`${String(coverage.sha).slice(0, 9)}\` and the tree is now`,
-      `\`${String(sha).slice(0, 9)}\`. "Already covered" describes a tree, not a promise about`,
-      "the product — if a control's code has moved since, it is worth revisiting.",
+      "Entries marked above were recorded against a different tree. \"Already covered\"",
+      "describes a tree, not a promise about the product — if that control's code has",
+      "moved since, it is worth revisiting.",
       "",
     );
   }

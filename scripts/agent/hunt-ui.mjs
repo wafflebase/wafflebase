@@ -1149,7 +1149,16 @@ async function cmdRun(args) {
   if (existsSync(coverageFile)) {
     try {
       const parsed = JSON.parse(readFileSync(coverageFile, "utf8"));
-      if (parsed && typeof parsed === "object") priorCoverage = parsed;
+      if (parsed && typeof parsed === "object") {
+        // NORMALISE, do not trust. `mergeCoverage` already drops entries that are not
+        // usable and refuses a record whose key version has moved, so running each
+        // persona's record through it turns "a file someone edited by hand" into either
+        // valid coverage or empty coverage — never a malformed object reaching the
+        // renderer, which sits on the path that assembles the explorer's prompt.
+        for (const [id, record] of Object.entries(parsed)) {
+          priorCoverage[id] = mergeCoverage(null, record);
+        }
+      }
     } catch {
       console.error(`hunt-ui: WARNING — ${coverageFile} is unreadable; this run explores as if nothing had been tried`);
     }
@@ -1659,6 +1668,14 @@ export async function runHunt({
         " so fabricated findings cannot suppress a real one later",
     );
     ledgerAdds.length = 0;
+  }
+  // SEPARATE from the ledger branch above, which only fires when the seeded run produced
+  // ledger entries. A seeded run that proposed nothing still CLICKED things, and letting
+  // that claim coverage would suppress those controls for the next real run — on the
+  // strength of a session driven against a fabricated fault. `cmdRun` also refuses to
+  // write coverage for a seeded run, but `runHunt` is exported and the invariant is its
+  // own to keep.
+  if (fault) {
     for (const k of Object.keys(coverageAdds)) delete coverageAdds[k];
   }
 
