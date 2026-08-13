@@ -59,7 +59,7 @@ job, `permissions: {}` at the top with four job-level *read* scopes, and a commi
 stages by explicit path, checks the staged set back against that list, reports an empty diff
 as success, and stops before the commit on a dry run.
 
-**`scripts/agent/eval/score-all.test.mjs`** — 38 tests, all of them about a refusal or a
+**`scripts/agent/eval/score-all.test.mjs`** — 40 tests, all of them about a refusal or a
 coupling.
 
 ### The judgement call: a committed script, not inline workflow steps
@@ -81,8 +81,9 @@ tests went red at once on one cause. Every absence here arrives as `null` — a 
 was not sent, a payload field a scorer left empty — and `Number.isFinite(Number(null))` is
 `true`. The consequences were one misleading refusal message, one reset time printed as
 `1970-01-01`, and one silent hole exactly where it mattered most: `assertCapability`
-accepted `coderabbit.latency.wall_ms: null` from a scorer that *had* been passed the flag,
-which is precisely the rename case the capability system exists to catch. Now `isNumber`
+accepted an empty CodeRabbit latency (then `coderabbit.latency.wall_ms: null`; #827 has
+since replaced that field — see below) from a scorer that *had* been passed the flag, which
+is precisely the rename case the capability system exists to catch. Now `isNumber`
 requires `typeof value === "number"`, and a mutation restoring the coercing form reddens
 six tests.
 
@@ -166,22 +167,61 @@ for. What is true is that §4 renders **no latency figure in either state**:
 `payload_keys`, saying so in a comment ("this PR cannot render fields whose shape is still
 in review"). Filling §4 in belongs to the renderer, not here.
 
-The flag does not exist yet either: `cost-latency.mjs` on `main` accepts
-`--coderabbit-usd-per-month` and `--coderabbit-prs-per-month` and nothing else, and its
-payload declares `coderabbit_latency_ms` as a gap.
-
 **So the assertion was built where the data actually is, and in both directions:**
 
-- **unconditional today** — the `cost-latency-v1` payload must carry the panel's latency:
+- **unconditional** — the `cost-latency-v1` payload must carry the panel's latency:
   `panel.per_item[].wall_ms.n >= 1` for every item, and a `duration_source` census counting
   at least one timed envelope. Shape and presence, never a value.
 - **auto-arming** — the flag is probed out of `cost-latency.mjs`'s own usage. Present, it is
   passed and the payload must then carry a CodeRabbit latency. Absent, the payload must
-  still *declare the gap*. A rename lands in the second branch, where deleting the gap on
-  the theory that the metric is now measured is a refusal.
+  still *declare the gap*.
 
-The lane prints `coderabbit-latency=declared-gap` on every run today, and a test pins that
-state so it goes red the day the flag lands rather than staying quietly wrong.
+### ⟳ The flag landed mid-review, and the interlock fired exactly as designed
+
+`--coderabbit-latency` did not exist when this branch was first pushed. **#827 merged as
+`bb07acd` while the PR was open, and this lane's own test for the absent state went red on
+CI** — with a message naming what to change. That is the whole reason the state was pinned
+rather than tolerated: a version that accepted either answer would have kept reporting
+`declared-gap` after the gap was filled, and nobody would have noticed.
+
+**What the red test also caught, and no expectation-tolerant version would have: the payload
+SHAPE moved with it.** `coderabbit.latency.wall_ms` is gone. Measured on `bb07acd`, with and
+without the flag:
+
+| | `requested` | `measured` | `self_timed.ms` | `declared_gaps` |
+|---|---|---|---|---|
+| with the flag | `true` | `true` | `{n: 7, median: 409000}` | `cost_per_real_finding` |
+| without | `false` | `false` | `{n: 0, median: null}` | `cost_per_real_finding`, **`coderabbit_latency_ms`** |
+
+Two consequences, both improvements:
+
+1. **The accessor had to be updated or the lane would have refused every pass** — with
+   "measured over an absent value", which is the correct failure direction for the wrong
+   reason. It now reads `self_timed.ms.median`, and **not** `push_proxy`: the self-timed
+   interval is the one #791's declared gap named, and it is measured on 7 items where the
+   proxy manages 5. A test asserts the accessor does not return the proxy's figure.
+2. **The scorer now states `requested` and `measured` separately, which is a better detector
+   than any value check.** `requested: false` on a pass that passed the flag *is* "`parseArgs`
+   accepted an unknown flag and dropped it" — the rename case, said by the payload instead of
+   inferred from an empty figure. So the supported branch now has **three** refusals with
+   three different causes: never asked, asked and the read failed (quoting the scorer's own
+   reason), and measured-over-absent.
+
+The gap is still declared **iff** the flag was not passed, so both branches stay honest.
+
+The lane now prints, on a live pass:
+
+```
+capabilities coderabbit-latency=measured [coderabbit-start-marker-to-first-finding, n=7]
+```
+
+**The interval name and its `n` travel with the figure** — decision 28 — because this payload
+holds two latencies over different numbers of items, and `state: "measured"` alone would be a
+figure with no unit.
+
+**§4 still renders no latency figure.** `costLatencyFigures` is unchanged on `bb07acd`; the
+renderer PR has not merged. So the half of the brief that asked for a rendered-§4 assertion
+remains not implementable here.
 
 ## Fail directions
 
@@ -220,7 +260,8 @@ state so it goes red the day the flag lands rather than staying quietly wrong.
 
 ## Verification
 
-Base `ba944f301403cc11d3b636e7466013805e5df062` (`main`, #826). Both trees extracted with
+Base `bb07acdc` (`main`, #827) — **re-measured after #827 merged mid-review**; the first
+push was measured against `ba944f3` (#826) at 1924 → 1962. Both trees extracted with
 `git archive`, with the **same** `scripts/agent/node_modules` and root `node_modules`
 symlinked into each, then measured once each — so a skip delta cannot be an environment
 artefact.
@@ -229,15 +270,20 @@ artefact.
 
   | | rest | iso (`eval/run.test.mjs`) | total | fail | skip |
   |---|---|---|---|---|---|
-  | base `ba944f3` | 1868 | 56 | **1924** | 0 | 0 |
-  | this branch | 1906 | 56 | **1962** | 0 | 0 |
+  | base `bb07acd` | 1954 | 56 | **2010** | 0 | 0 |
+  | this branch | 1994 | 56 | **2050** | 0 | 0 |
 
-  **+38, which is exactly this PR's new tests.** The 0 skips on both are the SDK and a
+  **+40, which is exactly this PR's new tests.** (CI's earlier run reported 1992 in the rest
+  invocation against the same base — that was this file at 38 tests, before the two added for
+  #827's three-state capability check. 1994 − 2.) The 0 skips on both are the SDK and a
   root `eslint` being present; a tree without them reports 6.
 - [x] `eslint scripts` (the lockfile-pinned 9.24.0) — **exit 0 on both trees**.
 - [x] `eval/run.test.mjs` also came back **56/56 on the shared `os.tmpdir()`**, so the
       known flakiness did not appear today and both numbers agree.
-- [x] **51 mutations, 51 caught by the specifically-named test, 0 survived.** Each mutation
+- [x] **55 mutations, 55 caught by the specifically-named test, 0 survived.** Four were added
+      for #827's shape: the rename case (`requested: false`), a failed read
+      (`measured: false`), an accessor pointed at `push_proxy` instead of `self_timed`, and
+      the interval dropped from the reported state. Each mutation
       names the one test that must redden, so a mutation caught by some other test is
       reported as a failure of the harness rather than a success.
 - [x] **The six steps run end to end against a COPY of the store**, from a fresh shallow

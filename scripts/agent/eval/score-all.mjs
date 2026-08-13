@@ -148,19 +148,45 @@ export const RATE_LIMIT_SIGNATURE = /rate limit|HTTP 429|HTTP 403/i;
  *                 an absence nobody declared, which is why the obligation is not "do
  *                 nothing".
  *
- * MEASURED on `main` at ba944f3 (2026-08-13): `cost-latency.mjs` has no
- * `--coderabbit-latency` and its payload declares `coderabbit_latency_ms` as a gap, so
- * the unsupported branch is the live one and the lane says so on every run.
+ * ⟳ THE FLAG LANDED MID-REVIEW, in #827, and the interlock did its job: this lane's own
+ * test for the absent state went red on CI the day it merged, with a message saying what
+ * to change. What that revealed is that the payload SHAPE moved too, so the accessors
+ * below are #827's rather than the pre-merge ones — `coderabbit.latency.wall_ms` is gone
+ * and `self_timed`/`push_proxy` replace it, each with its own interval name and `n`.
+ *
+ * MEASURED on `main` at bb07acd, with and without the flag:
+ *
+ *   with     requested true  · measured true  · self_timed.ms {n: 7, median: 409000}
+ *            declared_gaps: cost_per_real_finding
+ *   without  requested false · measured false · self_timed.ms {n: 0, median: null}
+ *            declared_gaps: cost_per_real_finding, coderabbit_latency_ms
+ *
+ * So the scorer declares the gap **iff** the flag was not passed, which keeps both
+ * branches below honest, and it states `requested` and `measured` SEPARATELY. That second
+ * pair is a better detector than any value check: `requested: false` on a pass that
+ * passed the flag is precisely "`parseArgs` accepted an unknown flag and dropped it",
+ * which is the rename case, said by the payload itself instead of inferred from an empty
+ * figure.
  */
 export const CAPABILITIES = Object.freeze([
   {
     id: "coderabbit-latency",
     step: "cost_latency",
     flag: "--coderabbit-latency",
-    // The payload field the flag fills, and the gap the scorer declares when it cannot.
-    // Both are read from the payload rather than from a version number, because a tree
-    // is the only thing that can answer which state it is in.
-    field: (payload) => payload?.coderabbit?.latency?.wall_ms,
+    // Read from the payload rather than from a version number, because a tree is the only
+    // thing that can answer which state it is in.
+    //
+    // `self_timed` and NOT `push_proxy`, deliberately: the self-timed interval is the one
+    // #791's declared gap named, it is measured on 7 of 7 items where the proxy manages 5,
+    // and the proxy's own field name says it is a proxy. The interval NAME travels with the
+    // figure into the summary — decision 28, because "latency" alone is two different
+    // measurements here.
+    requested: (payload) => payload?.coderabbit?.latency?.requested === true,
+    measured: (payload) => payload?.coderabbit?.latency?.measured === true,
+    field: (payload) => payload?.coderabbit?.latency?.self_timed?.ms?.median,
+    n: (payload) => payload?.coderabbit?.latency?.self_timed?.ms?.n ?? null,
+    interval: (payload) => payload?.coderabbit?.latency?.self_timed?.interval ?? null,
+    reason: (payload) => String(payload?.coderabbit?.latency?.reason ?? "").slice(0, 200),
     gap_metric: "coderabbit_latency_ms",
     // A NOUN PHRASE, because it is interpolated mid-sentence in three messages. The
     // first version was a two-clause sentence and produced "so CodeRabbit's own review
@@ -372,14 +398,39 @@ export function probeCapability(cap, usageText) {
 export function assertCapability(cap, { supported, payload }) {
   const value = cap.field(payload);
   if (supported) {
-    if (!isNumber(value)) {
+    // THREE distinct failures, and they are worth separating because they have three
+    // different causes and only the payload can tell them apart.
+    //
+    // `requested: false` after the lane passed the flag is the RENAME case, stated rather
+    // than inferred: `parseArgs` accepts any `--flag value` pair and drops the ones it does
+    // not know, so a renamed flag leaves the scorer never asked. This is the check the
+    // pre-#827 version had to fake by testing for an empty figure.
+    if (!cap.requested(payload)) {
       refuse(
-        `${cap.flag} is a flag ${cap.step} accepts and the lane passed it, but the payload it produced still carries no ` +
-          `value for it (got ${JSON.stringify(value ?? null)}). Either the flag was renamed and something else now fills ` +
-          `this field, or it stopped working — both file a payload that is missing ${cap.why}`,
+        `the lane passed ${cap.flag} and ${cap.step}'s payload reports requested=false — so the flag was accepted and ` +
+          `IGNORED. parseArgs drops flags it does not know, which means it has been renamed and this pass asked for ` +
+          `nothing; ${cap.why} is missing and the payload does not say so. Update CAPABILITIES to the new flag name`,
       );
     }
-    return { id: cap.id, state: "measured" };
+    // Asked for and NOT obtained. A real failure of the read — no timing records, an
+    // endpoint that did not answer — and the scorer explains itself, so the reason travels
+    // into the refusal instead of being looked up afterwards.
+    if (!cap.measured(payload)) {
+      refuse(
+        `${cap.step} was asked for ${cap.why} and could not measure it: ${cap.reason(payload) || "the payload gives no reason"}. ` +
+          `A payload that requested a figure and did not get one is not the same as one that never asked, and neither is a zero`,
+      );
+    }
+    if (!isNumber(value)) {
+      refuse(
+        `${cap.step} reports ${cap.why} as measured, and the figure itself is ${JSON.stringify(value ?? null)} — ` +
+          `measured=true over an absent value is the worst of the three states, because every reader downstream trusts the flag`,
+      );
+    }
+    // The INTERVAL travels with the figure. "latency" names two different measurements in
+    // this payload (a self-timed interval and a check-run proxy) and they differ in `n`,
+    // so a summary line saying only "measured" would be decision 28 all over again.
+    return { id: cap.id, state: "measured", interval: cap.interval(payload), n: cap.n(payload) };
   }
   const gaps = Array.isArray(payload?.declared_gaps) ? payload.declared_gaps : [];
   const gap = gaps.find((g) => g?.metric === cap.gap_metric);
@@ -587,7 +638,13 @@ export async function scoreAll({
 
 /** The one-screen version, for a job log and for a human. */
 export function summarise(result) {
-  const caps = result.capabilities.map((c) => `${c.id}=${c.state}`).join(" · ") || "none";
+  // The interval and its `n` ride along when there is one. A line reading
+  // `coderabbit-latency=measured` would be a figure with no unit and no denominator, and
+  // this payload holds two different latencies measured over different numbers of items.
+  const caps =
+    result.capabilities
+      .map((c) => `${c.id}=${c.state}${c.interval ? ` [${c.interval}${isNumber(c.n) ? `, n=${c.n}` : ""}]` : ""}`)
+      .join(" · ") || "none";
   return [
     `scored ${result.corpus_version} @ ${result.config_hash}`,
     `  replicates   ${result.run_ids.join(" · ")}`,

@@ -104,8 +104,15 @@ function mentionsFlag(text, flag) {
   return new RegExp(`${flag}(?![A-Za-z0-9-])`).test(text);
 }
 
-/** A `cost-latency-v1` payload cut down to the fields this driver asserts on. */
-function costLatencyPayload({ wallN = 3, timed = 21, latency = null, gaps = ["coderabbit_latency_ms"] } = {}) {
+/**
+ * A `cost-latency-v1` payload cut down to the fields this driver asserts on.
+ *
+ * ⟳ The `coderabbit.latency` half is #827's shape, not the pre-merge one. Both figures are
+ * REAL, from a live run on `main` at bb07acd over the pilot at K=3: the self-timed median
+ * is 409000 ms over n=7, the push proxy 402000 over n=5. The two differing `n` values are
+ * the reason the interval name travels with the figure.
+ */
+function costLatencyPayload({ wallN = 3, timed = 21, requested = false, measured = false, median = null, n = 0, gaps = ["coderabbit_latency_ms"], reason = "no timing records" } = {}) {
   return {
     scorer_id: "cost-latency-v1",
     panel: {
@@ -115,10 +122,22 @@ function costLatencyPayload({ wallN = 3, timed = 21, latency = null, gaps = ["co
       ],
       duration_source: { n: timed, counts: { "review-timing.json": timed, absent: 0, "not-run": 0 } },
     },
-    coderabbit: { latency: { wall_ms: latency, reason: "declared" } },
+    coderabbit: {
+      latency: {
+        requested,
+        measured,
+        n_items: measured ? 7 : 0,
+        self_timed: { interval: "coderabbit-start-marker-to-first-finding", ms: { n, median }, n, n_measured: n },
+        push_proxy: { interval: "earliest-check-run-start-to-first-finding", ms: { n: 5, median: 402000 }, n: 5 },
+        reason,
+      },
+    },
     declared_gaps: gaps.map((metric) => ({ metric, value: null, reason: `${metric} is measurable and not from anything this scorer reads` })),
   };
 }
+
+/** The measured state, as a live run produces it. */
+const MEASURED = { requested: true, measured: true, median: 409000, n: 7, gaps: ["cost_per_real_finding"] };
 
 // --- the vocabulary is borrowed ---------------------------------------------
 
@@ -395,20 +414,57 @@ test("probeCapability reads the scorer's OWN usage rather than a version number"
   assert.equal(probeCapability(cap, ""), false);
 });
 
-test("a supported capability flag that produced NOTHING is a refusal, not a shrug", () => {
-  // 🔴 The rename case, one level in. `parseArgs` drops flags it does not know, so a
-  // scorer that renamed this flag would accept the old one, ignore it, and file a payload
-  // with an empty half — byte-for-byte what a lane that never asked would file.
+test("a supported flag the scorer IGNORED is the rename case, and the payload says so", () => {
+  // 🔴 `parseArgs` accepts any `--flag value` pair and drops the ones it does not know, so a
+  // renamed flag leaves the scorer never asked — and files a payload byte-for-byte
+  // identical to one from a lane that never asked. #827 states `requested` separately,
+  // which turns that inference into a fact the payload reports.
   const cap = CAPABILITIES[0];
   assert.throws(
-    () => assertCapability(cap, { supported: true, payload: costLatencyPayload({ latency: null }) }),
+    () => assertCapability(cap, { supported: true, payload: costLatencyPayload({ requested: false }) }),
     (e) => {
       assert.match(e.message, /--coderabbit-latency/);
-      assert.match(e.message, /renamed|stopped working/);
+      assert.match(e.message, /accepted and\s+IGNORED|requested=false/);
+      assert.match(e.message, /renamed/);
       return true;
     },
   );
-  assert.deepEqual(assertCapability(cap, { supported: true, payload: costLatencyPayload({ latency: 408000 }) }), { id: cap.id, state: "measured" });
+});
+
+test("asked-for-and-not-measured is a DIFFERENT refusal, and it quotes the scorer's reason", () => {
+  // Three states, three causes, and pooling them would be lesson 6: "never asked",
+  // "asked and the read failed" and "asked, measured, no figure" are not one absence.
+  const cap = CAPABILITIES[0];
+  assert.throws(
+    () => assertCapability(cap, { supported: true, payload: costLatencyPayload({ requested: true, measured: false, reason: "no timing records for any item" }) }),
+    (e) => {
+      assert.match(e.message, /no timing records for any item/, "the scorer's own reason must reach the refusal");
+      assert.match(e.message, /never asked/);
+      return true;
+    },
+  );
+  // measured=true over an absent figure is the worst state: every reader downstream
+  // trusts the flag.
+  assert.throws(
+    () => assertCapability(cap, { supported: true, payload: costLatencyPayload({ ...MEASURED, median: null }) }),
+    /measured=true over an absent value/,
+  );
+});
+
+test("the measured state carries the INTERVAL and its n, not just the word measured", () => {
+  // Decision 28. This payload holds two latencies — a self-timed interval over n=7 and a
+  // check-run proxy over n=5 — so `state: "measured"` alone is a figure with no unit.
+  const cap = CAPABILITIES[0];
+  assert.deepEqual(assertCapability(cap, { supported: true, payload: costLatencyPayload(MEASURED) }), {
+    id: cap.id,
+    state: "measured",
+    interval: "coderabbit-start-marker-to-first-finding",
+    n: 7,
+  });
+  // The SELF-TIMED interval, not the proxy: it is the one #791's declared gap named and it
+  // is measured on more items. Reading the proxy would silently swap the measurement.
+  assert.notEqual(cap.field(costLatencyPayload(MEASURED)), 402000, "the accessor must not read push_proxy");
+  assert.equal(cap.field(costLatencyPayload(MEASURED)), 409000);
 });
 
 test("an unsupported capability must still be a DECLARED gap, or the lane refuses", () => {
@@ -418,6 +474,7 @@ test("an unsupported capability must still be a DECLARED gap, or the lane refuse
   // rename that also deletes the gap, on the theory that the metric is now measured.
   const cap = CAPABILITIES[0];
   const ok = assertCapability(cap, { supported: false, payload: costLatencyPayload({ gaps: ["coderabbit_latency_ms"] }) });
+  assert.equal(ok.id, cap.id);
   assert.equal(ok.state, "declared-gap");
   assert.match(ok.reason, /measurable/);
   assert.throws(
@@ -434,8 +491,13 @@ test("the capability's field and gap metric are BOTH names the live scorer uses"
   const cap = CAPABILITIES[0];
   const text = source("cost-latency.mjs");
   assert.ok(text.includes(cap.gap_metric), `cost-latency.mjs never mentions ${cap.gap_metric}`);
-  assert.equal(cap.field(costLatencyPayload({ latency: 123 })), 123, "the accessor must read the field it documents");
+  assert.equal(cap.field(costLatencyPayload({ ...MEASURED, median: 123 })), 123, "the accessor must read the field it documents");
   assert.equal(cap.field({}), undefined);
+  // Every accessor tolerates a payload that has none of this, because a scorer whose shape
+  // moved again must produce a refusal rather than a TypeError.
+  for (const key of ["requested", "measured", "n", "interval", "reason"]) {
+    assert.doesNotThrow(() => cap[key]({}), `cap.${key} must not throw on an empty payload`);
+  }
   assert.equal(CAPABILITIES.every((c) => STEPS.some((s) => s.key === c.step)), true, "every capability must belong to a step that runs");
 });
 
@@ -464,18 +526,26 @@ test("assertPanelLatency refuses a payload whose latency figure has been emptied
 });
 
 test("the live tree's capability state is what the lane reports it to be", () => {
-  // ⟳ MEASURED on `main` at ba944f3 (2026-08-13): `cost-latency.mjs` does NOT accept
-  // `--coderabbit-latency` — the flag belongs to a PR that is still open — and its
-  // payload declares `coderabbit_latency_ms` as a gap instead. So the unsupported branch
-  // is the live one, and this test is the thing that will notice when that changes: it
-  // goes red the day the flag lands, and the fix is to delete the `false` below.
+  // ⟳ FLIPPED 2026-08-13, and the flip is the interlock working. This test asserted that
+  // `cost-latency.mjs` did NOT accept the flag, which was true at ba944f3 — and it went red
+  // on CI the day #827 merged, with a message naming what to change. That is the whole
+  // point of pinning a state rather than tolerating either: the alternative is a lane that
+  // keeps reporting "declared gap" after the gap is filled and nobody notices.
+  //
+  // What the red test also caught, which no expectation-tolerant version would have: the
+  // payload SHAPE moved. `coderabbit.latency.wall_ms` is gone, replaced by
+  // `self_timed`/`push_proxy`, so the accessor needed updating too — and the lane would
+  // otherwise have refused every pass with "measured over an absent value".
   const cap = CAPABILITIES[0];
   const usage = source("cost-latency.mjs");
-  assert.equal(
+  assert.ok(
     usage.includes(cap.flag),
-    false,
-    `cost-latency.mjs now accepts ${cap.flag}. That is the interlock landing, not a defect: the lane already passes the flag when it is there, so flip this expectation and check the CI log says "measured" rather than "declared-gap"`,
+    `cost-latency.mjs no longer accepts ${cap.flag}. If it was renamed, update CAPABILITIES and this expectation together; the lane's own refusal for the rename case is the requested=false branch`,
   );
+  // And the shape the accessors read is the shape that file writes.
+  for (const name of ["self_timed", "requested", "measured", cap.gap_metric]) {
+    assert.ok(usage.includes(name), `cost-latency.mjs never mentions ${name}, which this capability reads`);
+  }
 });
 
 // --- the orchestrator's cheap refusals --------------------------------------
