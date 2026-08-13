@@ -60,7 +60,8 @@ that gate intentionally diverges.
 
 ### Naming
 
-`copyTitle()` (`document/document-copy-title.util.ts`) resolves the name
+`copyTitle()` (`packages/backend/src/document/document-copy-title.util.ts`)
+resolves the name
 against the titles already present in the destination workspace **and folder**:
 
 | Existing                              | Result             |
@@ -84,7 +85,7 @@ been attached to by anyone, so the last-write-wins contract that
 
 | Type                      | How the content is copied                                                                                        |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `sheet`, `slides`, `board` | Whole-root JSON snapshot: `JSON.parse(source.toJSON())`, then every key assigned onto the new root. These roots hold plain JSON (no `Tree`/`Text`), so this copies all tabs / slides / elements — and any field added later — with no per-type knowledge. Same technique as `scripts/copy-yorkie-documents.ts`. |
+| `sheet`, `slides`, `board` | Whole-root JSON snapshot: `JSON.parse(source.toJSON())`, then every key assigned onto the new root. These roots hold plain JSON (no `Tree`/`Text`), so this copies all tabs / slides / elements — and any field added later — with no per-type knowledge. Same technique as `packages/backend/scripts/copy-yorkie-documents.ts`. |
 | `doc`                     | `readDocsRoot()` → `writeDocsRoot()`. The body is a Yorkie `Tree`, which serializes to JSON but cannot be written back by assignment, so the copy goes through the existing docs serializer (the one the CLI content endpoints use). |
 | `note`                    | `readNoteRoot()` → `writeNoteRoot()`. Same reason: the body is a single Yorkie `Text`.                             |
 | `pdf`, `image`, `file`    | S3 `CopyObject` into a fresh object key (`FileService.copy`). Server-side copy — the bytes never enter the backend process. `fileSize` / `mimeType` are carried over from the source row: they describe the same bytes. The new document references the new key, so deleting the source (which deletes its blob) cannot break the copy. |
@@ -114,7 +115,8 @@ retry affordance in the UI, so it rolls back instead.
 
 ### Frontend
 
-`copyDocument(id)` in `api/documents.ts`. In `document-list.tsx`:
+`copyDocument(id)` in `packages/frontend/src/api/documents.ts`. In
+`packages/frontend/src/app/documents/document-list.tsx`:
 
 - Row menu: **Make a copy** between *Rename* and *Move to…*, shown for every
   document regardless of `canManage`.
