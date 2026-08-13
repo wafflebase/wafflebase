@@ -163,7 +163,9 @@ describe('FileService.copy', () => {
     expect(args).toMatchObject({
       Bucket: 'wafflebase-files',
       Key: newId,
-      CopySource: encodeURIComponent(`wafflebase-files/${'aaaaaaaa-1111.pdf'}`),
+      // Literal, not `encodeURIComponent(...)`: the separator between bucket
+      // and key must survive as a real "/" or the reference does not resolve.
+      CopySource: 'wafflebase-files/aaaaaaaa-1111.pdf',
     });
   });
 
@@ -179,7 +181,7 @@ describe('FileService.copy', () => {
     const args = (CopyObjectCommand as unknown as jest.Mock).mock.calls.at(-1)![0];
     expect(args.Key).toBe(`wafflebase/${newId}`);
     expect(args.CopySource).toBe(
-      encodeURIComponent('wafflebase-files/wafflebase/aaaaaaaa-1111.png'),
+      'wafflebase-files/wafflebase/aaaaaaaa-1111.png',
     );
   });
 });

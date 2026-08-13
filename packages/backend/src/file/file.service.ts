@@ -132,8 +132,11 @@ export class FileService implements OnModuleInit {
    * `assertFileIdAllowed` key off — a copy must stay the same document type.
    * No size check: these bytes already passed the cap on upload.
    *
-   * `CopySource` is URL-encoded per the S3 API contract (both S3 and MinIO
-   * decode it), so a configured storage prefix cannot corrupt the reference.
+   * `CopySource` is `<bucket>/<key>` with each path *segment* URL-encoded and
+   * the separators left literal, per the `x-amz-copy-source` contract. Encoding
+   * the whole string instead would turn the bucket/key separator (and any
+   * separator inside a configured storage prefix) into `%2F` and the reference
+   * would not resolve.
    */
   async copy(id: string): Promise<string> {
     const ext = safeExtension(id);
@@ -142,7 +145,10 @@ export class FileService implements OnModuleInit {
       new CopyObjectCommand({
         Bucket: this.bucket,
         Key: this.storageKey(newId),
-        CopySource: encodeURIComponent(`${this.bucket}/${this.storageKey(id)}`),
+        CopySource: `${this.bucket}/${this.storageKey(id)}`
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/'),
       }),
     );
     return newId;
