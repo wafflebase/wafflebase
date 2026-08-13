@@ -548,6 +548,44 @@ Styling uses Tailwind CSS v4 with custom CSS variables in OKLch color space
 defined in `packages/frontend/src/index.css`. UI components are Radix UI primitives styled with
 Tailwind (shadcn/ui pattern).
 
+### Browser-Persisted Preferences
+
+Display preferences that need no server round-trip live in `localStorage` and
+are read through a `useSyncExternalStore` hook rather than a React context —
+the same pattern `packages/frontend/src/app/documents/use-upload-queue.ts` uses.
+The theme above is the oldest instance; **date display format**
+(`packages/frontend/src/lib/date-format-preference.ts`) is the second.
+
+| Preference   | Storage key              | Values                  | Default    |
+| ------------ | ------------------------ | ----------------------- | ---------- |
+| Theme        | `vite-ui-theme`          | `light`/`dark`/`system`  | `system`   |
+| Date format  | `wafflebase-date-format` | `relative`/`exact`      | `relative` |
+
+The date-format module is the reference shape for adding another one:
+
+- `getDateFormat()` is the `useSyncExternalStore` **snapshot**, so it runs
+  during render and must never throw; an unrecognized or absent stored value
+  falls back to the default.
+- `setDateFormat()` persists and then dispatches a custom
+  `wafflebase-date-format-change` event on `window`. This is required because
+  `storage` only fires in *other* tabs — the Settings page and the documents
+  list are separate route trees in the *same* tab, so without it they drift.
+- `subscribe()` listens to both that custom event and `storage`, which is what
+  makes the preference consistent across components and across tabs.
+- Storage access is guarded on **both** sides. Touching `localStorage` throws
+  SecurityError in Safari private mode, with blocked third-party storage, and
+  in sandboxed iframes; `setItem` alone throws QuotaExceededError when storage
+  is full. A failed write falls back to a session-only in-memory mirror (the
+  choice applies now, but does not survive a reload) which a later successful
+  write clears, so storage stays the single source of truth and a stale mirror
+  can never outvote a key another tab has changed. A failed read falls back to
+  the default. `ThemeProvider` applies the same two guards
+  (`readStoredTheme`/`writeStoredTheme`) — before that it could throw out of
+  render and blank every route.
+
+Anything that must follow the user across devices belongs in the backend
+instead (`user-doc-styles/` is the precedent), not here.
+
 ## Risks and Mitigation
 
 **React 19 StrictMode double-mount** — `SheetView` uses a `didMount` ref to
