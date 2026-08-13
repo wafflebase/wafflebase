@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   PutObjectCommand,
+  CopyObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -18,6 +19,7 @@ jest.mock('@aws-sdk/client-s3', () => {
   return {
     S3Client: jest.fn().mockImplementation(() => ({ send: mockSend })),
     PutObjectCommand: jest.fn(),
+    CopyObjectCommand: jest.fn(),
     DeleteObjectCommand: jest.fn(),
     GetObjectCommand: jest.fn(),
     CreateBucketCommand: jest.fn(),
@@ -148,5 +150,36 @@ describe('FileService storage prefix', () => {
     const svc = makeService('/');
     const { id } = await svc.upload(Buffer.from('x'), 'text/plain', 'a.txt');
     expect(lastKey(PutObjectCommand)).toBe(id);
+  });
+});
+
+describe('FileService.copy', () => {
+  it('copies to a fresh id that keeps the source extension', async () => {
+    const svc = makeService();
+    const newId = await svc.copy('aaaaaaaa-1111.pdf');
+    expect(newId).toMatch(/\.pdf$/);
+    expect(newId).not.toBe('aaaaaaaa-1111.pdf');
+    const args = (CopyObjectCommand as unknown as jest.Mock).mock.calls.at(-1)![0];
+    expect(args).toMatchObject({
+      Bucket: 'wafflebase-files',
+      Key: newId,
+      CopySource: encodeURIComponent(`wafflebase-files/${'aaaaaaaa-1111.pdf'}`),
+    });
+  });
+
+  it('copies an extension-less blob', async () => {
+    const svc = makeService();
+    const newId = await svc.copy('aaaaaaaa-1111');
+    expect(newId).not.toContain('.');
+  });
+
+  it('applies the storage prefix to both source and destination', async () => {
+    const svc = makeService('wafflebase');
+    const newId = await svc.copy('aaaaaaaa-1111.png');
+    const args = (CopyObjectCommand as unknown as jest.Mock).mock.calls.at(-1)![0];
+    expect(args.Key).toBe(`wafflebase/${newId}`);
+    expect(args.CopySource).toBe(
+      encodeURIComponent('wafflebase-files/wafflebase/aaaaaaaa-1111.png'),
+    );
   });
 });

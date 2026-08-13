@@ -30,6 +30,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronsUpDown,
+  Copy,
   Download,
   File as FileIcon,
   FileText,
@@ -115,6 +116,7 @@ import {
   matchesTypes,
 } from "./document-list-utils";
 import {
+  copyDocument,
   createDocument,
   deleteDocuments,
   moveDocuments,
@@ -565,6 +567,25 @@ export function DocumentList({
     },
   });
 
+  // Duplicate documents. Each copy is an independent server-side operation
+  // (`POST /documents/:id/copy`), so unlike bulk move/delete there is no
+  // atomic endpoint to hit — they run sequentially, the same shape as bulk
+  // Download. The copies land beside their sources and the list refetches; we
+  // deliberately do NOT navigate, because a bulk copy has no single document
+  // to open. Ungated by `canManage`: copying never touches the source.
+  const copyDocumentsMutation = useMutation({
+    mutationFn: async ({ ids }: { ids: string[] }) => {
+      for (const id of ids) await copyDocument(id);
+    },
+    onSuccess: (_res, vars) => {
+      invalidateLists();
+      toast.success(
+        vars.ids.length > 1 ? `${vars.ids.length} copies created` : "Copy created",
+      );
+    },
+    onError: () => toast.error("Failed to copy"),
+  });
+
   // Move documents (possibly across workspaces) and folders (within the
   // current workspace only) in one confirm.
   const moveItemsMutation = useMutation({
@@ -967,6 +988,15 @@ export function DocumentList({
                 <Pencil className="mr-2 h-4 w-4" />
                 Rename
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e: MouseEvent<HTMLElement>) => {
+                  e.stopPropagation();
+                  copyDocumentsMutation.mutate({ ids: [String(doc.id)] });
+                }}
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                Make a copy
+              </DropdownMenuItem>
               {doc.canManage && (
                 <DropdownMenuItem
                   onClick={(e: MouseEvent<HTMLElement>) => {
@@ -1173,6 +1203,20 @@ export function DocumentList({
                 <Button variant="outline" onClick={handleBulkDownload}>
                   <Download className="mr-1 h-4 w-4" />
                   Download
+                </Button>
+              )}
+              {/* Documents only — copying a folder tree is a different
+                  feature, so a folder in the selection is ignored. */}
+              {selectedDocIds.length > 0 && (
+                <Button
+                  variant="outline"
+                  disabled={copyDocumentsMutation.isPending}
+                  onClick={() =>
+                    copyDocumentsMutation.mutate({ ids: selectedDocIds })
+                  }
+                >
+                  <Copy className="mr-1 h-4 w-4" />
+                  Make a copy
                 </Button>
               )}
               <Button
