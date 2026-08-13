@@ -59,8 +59,8 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../severity.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { KNOWN } from "../vendor/pipeline/severity.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 import { repeated, spread } from "./reliability.mjs";
 import { SCORE_SCOPES, byConfigSegment } from "./store.mjs";
 

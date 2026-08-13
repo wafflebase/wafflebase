@@ -345,23 +345,14 @@ jobs:
       # vendor/ is verified OFFLINE against its manifest — no network, no second
       # checkout. It is the check that survives once the mirror is deleted.
       - run: node scripts/vendor-pipeline.mjs
-      - id: drift
-        continue-on-error: true
-        run: node scripts/verify-pipeline-drift.mjs --pipeline-dir .pipeline-check
-      # Surface it as a WARNING rather than an error, so the PR's checks read
-      # "worth a look" instead of "broken". The step above carries the detail.
-      - if: steps.drift.outcome == 'failure'
-        run: |
-          echo "::warning::scripts/agent has drifted from the pipeline commit the workflows run. This copy does not execute — see the step above for which files and how to resolve. Advisory while scripts/agent still exists."
-          {
-            echo "### ⚠️ Pipeline copy has drifted"
-            echo
-            echo "\`scripts/agent/\` no longer executes — the workflows run a pinned commit of"
-            echo "\`wafflebase/agent-pipeline\`. A change here is invisible in production."
-            echo
-            echo "Advisory for now: enforcing it would tax every pipeline change with a second"
-            echo "landing. See the \`Pipeline copy matches the pinned commit\` step for the files."
-          } >> "$GITHUB_STEP_SUMMARY"
+      # BLOCKING again, now that the mirror is gone. It was made advisory in #798
+      # because enforcement then meant taxing every pipeline change with a second
+      # landing — a tag and a pin bump on another repo — and #797 got caught by
+      # exactly that on day one. There is nothing left to drift: what this asserts
+      # now is that the mirror has not grown back, and that nothing imports a path
+      # that no longer resolves. Both are cheap to satisfy and expensive to miss,
+      # because the failure they prevent is a crash inside a hunt or a replay.
+      - run: node scripts/verify-pipeline-drift.mjs --pipeline-dir .pipeline-check
 
   verify-browser:
     runs-on: ubuntu-latest

@@ -24,7 +24,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { mirrorImports } from "../verify-pipeline-drift.mjs";
+import { mirrorImports, reappearedMirrorFiles } from "../verify-pipeline-drift.mjs";
 
 // Stands in for the 34 files the pipeline repo owns. `lens_v2.mjs` is deliberately
 // shaped so the original `[a-z-]+` pattern could not have matched it.
@@ -130,6 +130,51 @@ test("skips node_modules and vendor trees", () => {
     "vendor/pipeline/rounds.mjs": 'import x from "./severity.mjs";\n',
   });
   assert.deepEqual(bad, []);
+});
+
+// ---------------------------------------------------------------------------
+// The mirror must stay deleted. This replaced the byte-comparison, which had
+// nothing left to compare once F2 removed the copy.
+// ---------------------------------------------------------------------------
+
+/** Build a throwaway tree and ask which files the pipeline repo owns. */
+function reappeared(files, owned) {
+  const root = mkdtempSync(path.join(tmpdir(), "drift-grow-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return reappearedMirrorFiles(root, new Set(owned));
+}
+
+test("reports a pipeline file that has come back", () => {
+  assert.deepEqual(reappeared({ "severity.mjs": "" }, ["severity.mjs"]), ["severity.mjs"]);
+});
+
+test("does NOT report the vendored copy", () => {
+  // The trap: vendor/pipeline/ holds those same files by design, and reporting them
+  // would tell people to delete the thing they are supposed to use.
+  //
+  // Two independent things prevent it — `vendor/` is in STAYS so `walk` never
+  // descends, and the comparison is by full relative path so `vendor/pipeline/x.mjs`
+  // would not equal `x.mjs` anyway. Mutation-tested: this fails only when BOTH are
+  // removed, so read it as pinning the property, not either mechanism.
+  assert.deepEqual(reappeared({ "vendor/pipeline/severity.mjs": "" }, ["severity.mjs"]), []);
+});
+
+test("does NOT report measurement files", () => {
+  assert.deepEqual(
+    reappeared({ "harvest.mjs": "", "eval/run.mjs": "", "hunt-gate.mjs": "" }, ["harvest.mjs", "eval/run.mjs"]),
+    [],
+  );
+});
+
+test("does NOT report package.json, which outlived the mirror", () => {
+  // It declares what the RETAINED half needs — the hunters `await import` the SDK
+  // and eval/run.test.mjs reads the pinned version out of it — so it stays and is
+  // free to diverge from the pipeline's own manifest.
+  assert.deepEqual(reappeared({ "package.json": "{}" }, ["package.json"]), []);
 });
 
 test("fires after the mirror is deleted", () => {

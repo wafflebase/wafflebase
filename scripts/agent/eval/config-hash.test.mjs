@@ -38,8 +38,8 @@ import { FILE_CLASSES, sampleCountFor, sliceDiffByFile, diffForLens } from "../v
 import { assertEffort, EFFORT_LEVELS } from "../vendor/pipeline/ask.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LENSES_JSON = path.join(HERE, "..", "lenses", "lenses.json");
-const REVIEW_PANEL = path.join(HERE, "..", "review-panel.mjs");
+const LENSES_JSON = path.join(HERE, "..", "vendor", "pipeline", "lenses", "lenses.json");
+const REVIEW_PANEL = path.join(HERE, "..", "vendor", "pipeline", "review-panel.mjs");
 
 // Shaped like a real lens (see scripts/agent/lenses/lenses.json) so the pairs below
 // differ in exactly one field and nothing else.

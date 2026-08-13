@@ -747,7 +747,9 @@ export function resolveRunOptions(argv, { readFile } = {}) {
     configId,
     runId: args["run-id"] ?? `${nowIso().replace(/[:.]/g, "-")}__${configId}`,
     items: args.items === undefined ? null : String(args.items).split(",").map((s) => s.trim()).filter(Boolean),
-    lensesDir: path.resolve(args["lenses-dir"] ?? path.join(HERE, "..", "lenses")),
+    // Vendored: the rubrics moved to wafflebase/agent-pipeline with the rest of the
+    // pipeline, and `vendor/pipeline/lenses/` is the pinned, sha256-verified copy.
+    lensesDir: path.resolve(args["lenses-dir"] ?? path.join(HERE, "..", "vendor", "pipeline", "lenses")),
     sdkVersion: args["sdk-version"] ?? pinnedSdkVersion(readFile ? { readFile } : {}),
     panelScript: path.resolve(args["panel-script"] ?? DEFAULT_PANEL_SCRIPT),
     panelShaOverride: args["panel-sha"] ?? null,

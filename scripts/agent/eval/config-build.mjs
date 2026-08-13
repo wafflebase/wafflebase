@@ -267,7 +267,10 @@ export function materializeLenses(snapshot, destDir) {
 export function resolveCliOptions(argv, { readFile } = {}) {
   const args = parseArgs(argv);
   return {
-    lensesDir: args["lenses-dir"] ?? path.join(HERE, "..", "lenses"),
+    // The panel's own rubrics, which now arrive vendored: the pipeline lives in
+    // wafflebase/agent-pipeline, and `vendor/pipeline/lenses/` is a pinned,
+    // sha256-verified copy of them rather than a second maintained set.
+    lensesDir: args["lenses-dir"] ?? path.join(HERE, "..", "vendor", "pipeline", "lenses"),
     out: args.out,
     configId: args["config-id"] ?? "baseline",
     sdkVersion: args["sdk-version"] ?? pinnedSdkVersion(readFile ? { readFile } : {}),

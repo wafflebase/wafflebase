@@ -1,20 +1,25 @@
-// Fail when this repo's copy of the pipeline differs from the commit its
-// workflows actually run.
+// Keep the pipeline OUT of this repo, and keep what stays pointed at vendor/.
 //
-// WHY THIS EXISTS. `scripts/agent/` is no longer what executes. The workflows
-// check the pipeline out of `wafflebase/agent-pipeline` at a pinned commit, and
-// the copy here is a leftover that still backs the `agent:tests` lane. So the
-// tests can pass against code that is not the code that runs — which is not a
-// theoretical gap: by the time this lane was written the two had already drifted
-// on three files, in both directions at once.
+// WHY THIS EXISTS. `scripts/agent/` used to hold a full copy of the pipeline that
+// did not execute — the workflows check the pipeline out of
+// `wafflebase/agent-pipeline` at a pinned commit. So the `agent:tests` lane could
+// pass against code that was not the code that runs, and by the time this lane was
+// first written the two had already drifted on three files, in both directions.
 //
-// DIRECTION MATTERS, and this deliberately does not guess. A difference means
-// one of two very different things:
-//   * upstream moved and the pipeline repo has not been synced yet, or
-//   * someone edited the copy here, which does not affect what runs at all.
-// Both are reported as drift; neither is auto-resolved. A tool that "fixed"
-// this by copying one side over the other would, half the time, silently throw
-// away the change it was meant to protect.
+// That copy is now DELETED, and the two checks below are what keep it deleted:
+//
+//   1. no file the pipeline repo owns may reappear under scripts/agent/, and
+//   2. nothing that stayed may import by a path that used to resolve into it.
+//
+// The second is the one with teeth. While the mirror existed a stray
+// `./severity.mjs` resolved, so the mistake was invisible; now it resolves nowhere,
+// and without this check it would surface as a runtime crash inside a hunt or a
+// replay, far from the commit that caused it.
+//
+// The measurement half still needs the pipeline's own rules — its severity
+// classification, its dedupe key, its lens manifest — so it reads them from
+// `scripts/agent/vendor/pipeline/`, a pinned sha256-verified copy maintained by
+// `scripts/vendor-pipeline.mjs`. Nobody edits that directory.
 //
 // Not a `verify:self` lane: it needs the pipeline repo on disk, and `verify:self`
 // must keep working offline. CI checks this out and passes `--pipeline-dir`.
@@ -62,7 +67,12 @@ const STAYS = [
   // runs. They pin wire formats for the pipeline's own suite and have no
   // reason to exist in a consumer.
   /^__fixtures__\//,
-  /^package-lock\.json$/, // regenerated locally; compared via package.json only
+  /^package-lock\.json$/,
+  // `package.json` outlived the mirror on purpose. It declares what the RETAINED
+  // half needs — the hunters `await import` the Agent SDK, and `eval/run.test.mjs`
+  // reads the pinned SDK version straight out of it — so it is measurement's
+  // manifest now, free to diverge from the pipeline's own.
+  /^package\.json$/,
 ];
 
 const staysBehind = (rel) => STAYS.some((re) => re.test(rel));
@@ -105,6 +115,17 @@ export function readPins(workflowDir) {
 // from `root`, so this keeps working after F2 deletes the mirror — which is the case
 // it exists for. Only files that STAY are scanned: the mirror importing its own
 // siblings is correct, and is byte-compared against the pinned commit instead.
+/**
+ * Files under `root` that the pipeline repo owns — i.e. the mirror growing back.
+ *
+ * `vendor/` and every measurement path are in STAYS, so the vendored copy does not
+ * count as a reappearance: it is a pinned dependency with its own verifier, and
+ * reporting it here would tell people to delete the thing they are supposed to use.
+ */
+export function reappearedMirrorFiles(root, pipelineFiles) {
+  return walk(root).filter((f) => pipelineFiles.has(f)).sort();
+}
+
 export function mirrorImports(root, mirrorModules) {
   const bad = [];
   const scan = (dir, base = "") => {
@@ -166,56 +187,54 @@ function main() {
   }
   const [pinned] = [...pins.keys()];
 
-  // 2. Compare the file sets and contents.
-  const oursFiles = new Set(walk(ours));
-  const theirFiles = new Set(walk(theirs).filter((f) => !staysBehind(f)));
-  const differ = [], onlyHere = [], onlyThere = [];
-
-  for (const rel of [...oursFiles].sort()) {
-    if (!theirFiles.has(rel)) { onlyHere.push(rel); continue; }
-    const a = readFileSync(path.join(ours, rel));
-    const b = readFileSync(path.join(theirs, rel));
-    if (!a.equals(b)) differ.push(rel);
-  }
-  for (const rel of [...theirFiles].sort()) if (!oursFiles.has(rel)) onlyThere.push(rel);
-
-  // Checked here because this file is where the mirror/retained split is defined.
-  const badImports = mirrorImports(ours, new Set(theirFiles));
-  if (badImports.length) {
+  // 2. The mirror must stay deleted. Anything here that the pipeline repo owns is a
+  //    NEW mirror forming — the same failure the byte-comparison used to catch,
+  //    stated in the form that survives the deletion. The exclusion-list design
+  //    still does the work: a file nobody added to STAYS is a pipeline file by
+  //    default, which is the safe direction.
+  const pipelineFiles = new Set(walk(theirs).filter((f) => !staysBehind(f)));
+  const reappeared = reappearedMirrorFiles(ours, pipelineFiles);
+  if (reappeared.length) {
     die([
-      "These files import the MIRROR rather than vendor/pipeline/:",
-      ...badImports.map((b) => `  ${b}`),
+      "The pipeline mirror is growing back in scripts/agent/:",
+      ...reappeared.map((f) => `  ${f}`),
       "",
-      "The mirror does not run and is going away. Import through vendor/pipeline/ —",
-      "`./vendor/pipeline/severity.mjs`, or `../vendor/pipeline/…` from a subdirectory.",
-      "The leading `./` is REQUIRED: a bare `vendor/…` is a package specifier to Node,",
-      "and fails with \"Cannot find package 'vendor'\" only at runtime.",
+      "These files belong to wafflebase/agent-pipeline and do NOT run from here. The",
+      "workflows execute the pinned commit, so a copy in this repo is invisible in",
+      "production while looking authoritative to anyone reading it.",
+      "",
+      "  * you need to change pipeline behaviour -> land it in wafflebase/agent-pipeline,",
+      "                                             tag, then bump the pin here",
+      "  * you need to READ pipeline code        -> import it from vendor/pipeline/,",
+      "                                             or add it to that vendored set",
+      "  * the file is really measurement        -> add it to STAYS in this script",
     ]);
   }
 
-  if (!differ.length && !onlyHere.length && !onlyThere.length) {
-    console.log(`scripts/agent matches wafflebase/agent-pipeline@${pinned.slice(0, 9)} (${oursFiles.size} files).`);
-    process.exit(0);
+  // 3. The retained half must read the pipeline through vendor/, never by a path
+  //    that used to resolve into the mirror. Now the primary check: with the mirror
+  //    gone these no longer resolve at all, so this converts a runtime crash inside
+  //    a hunt or a replay into a CI failure on the commit that introduced it.
+  const badImports = mirrorImports(ours, pipelineFiles);
+  if (badImports.length) {
+    die([
+      "These files import the DELETED mirror rather than vendor/pipeline/:",
+      ...badImports.map((b) => `  ${b}`),
+      "",
+      "Import through vendor/pipeline/ — `./vendor/pipeline/severity.mjs`, or",
+      "`../vendor/pipeline/…` from a subdirectory. The leading `./` is REQUIRED: a",
+      "bare `vendor/…` is a package specifier to Node, and fails with",
+      "\"Cannot find package 'vendor'\" only at runtime.",
+      "",
+      "If the module you need is not vendored yet, add it to FILES in",
+      "scripts/vendor-pipeline.mjs and re-run --write.",
+    ]);
   }
 
-  die([
-    `scripts/agent has DRIFTED from the pipeline commit these workflows run (${pinned.slice(0, 9)}).`,
-    "",
-    ...(differ.length ? ["Different content:", ...differ.map((f) => `  ${f}`), ""] : []),
-    ...(onlyHere.length ? ["Only in this repo (never runs — either port it upstream or delete it):",
-      ...onlyHere.map((f) => `  ${f}`), ""] : []),
-    ...(onlyThere.length ? ["Only in the pipeline repo (this copy is stale):",
-      ...onlyThere.map((f) => `  ${f}`), ""] : []),
-    "This copy does NOT run. The workflows execute the pinned commit above, so a",
-    "change here is invisible in production and the `agent:tests` lane is testing",
-    "something other than what runs.",
-    "",
-    "Resolve by deciding which side is ahead — this lane will not guess:",
-    "  * you changed the pipeline    -> land it in wafflebase/agent-pipeline, tag,",
-    "                                   then bump the pin in .github/workflows/",
-    "  * upstream moved              -> sync the pipeline repo and bump the pin",
-    "  * the file is measurement     -> add it to STAYS in this script",
-  ]);
+  console.log(
+    `scripts/agent holds no pipeline mirror, and reads wafflebase/agent-pipeline@${pinned.slice(0, 9)} through vendor/.`,
+  );
+  process.exit(0);
 }
 
 // Importable for `scripts/test/verify-pipeline-drift.test.mjs`: without this guard

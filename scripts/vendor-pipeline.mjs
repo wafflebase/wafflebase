@@ -22,7 +22,7 @@
 //   node scripts/vendor-pipeline.mjs                                     # verify (offline)
 
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,12 +35,44 @@ const MANIFEST = path.join(REPO, "scripts", "agent", "vendor", "VENDOR.json");
 // computed, so a reviewer can see the surface — but `assertClosed` below proves
 // the list is COMPLETE, so an upstream file gaining an import fails loudly here
 // instead of at runtime in a hunt or a replay.
+// `set-state.mjs` and `session-job-summary.mjs` are here for a second reason: two
+// steps in `agent-implement.yml`'s `implement` job invoke them, and that job has no
+// adapter — it checks out THIS repo, so those paths resolved out of the mirror. With
+// the mirror gone they resolve out of vendor/ instead, which is byte-verified and
+// needs no network. Both bring their own deps (`guard-verdict`, `metrics`) which
+// were already here, so the closure did not widen.
 const FILES = [
   "ask.mjs", "capture-meta.mjs", "citation.mjs", "command.mjs", "disclosure.mjs",
   "finding-key.mjs", "fix-report.mjs", "gh-checks.mjs", "git-env.mjs", "guard-verdict.mjs",
   "metrics.mjs", "novelty.mjs", "prior-findings.mjs", "rebuttal.mjs", "review-panel.mjs",
-  "review-state.mjs", "rounds.mjs", "severity.mjs",
+  "review-state.mjs", "rounds.mjs", "session-job-summary.mjs", "set-state.mjs", "severity.mjs",
 ];
+
+// Non-code assets the measurement half needs BYTE-EXACTLY rather than merely
+// semantically. `eval/config-hash.mjs` hashes the lens manifest precisely so its
+// numbers provably match the panel's, and `config-build.mjs` / `cache-report.mjs`
+// build their manifests from the real rubrics — a paraphrased copy would defeat the
+// hash it exists to compute. Listed separately from FILES because `assertClosed`
+// reasons about imports, and prose has none.
+const ASSETS = [
+  "lenses/lenses.json",
+  "lenses/blast-radius.md", "lenses/correctness.md", "lenses/design-fit.md",
+  "lenses/docs.md", "lenses/security.md", "lenses/test-adequacy.md",
+];
+
+const VENDORED = [...FILES, ...ASSETS];
+
+/** Every vendored file, relative to the vendor root, subdirectories included. */
+function walkVendor(dir, base = "") {
+  const out = [];
+  for (const entry of readdirSync(dir)) {
+    const rel = base ? `${base}/${entry}` : entry;
+    const abs = path.join(dir, entry);
+    if (statSync(abs).isDirectory()) out.push(...walkVendor(abs, rel));
+    else out.push(rel);
+  }
+  return out;
+}
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const arg = (name) => {
@@ -49,15 +81,22 @@ const arg = (name) => {
 };
 const die = (...lines) => { console.error(lines.join("\n")); process.exit(1); };
 
-/** Every relative import inside the vendored set must resolve inside it. */
+/**
+ * Every relative import inside the vendored set must resolve inside it.
+ *
+ * The pattern matches `from "x"`, `import("x")` AND a side-effect `import "x"`, in
+ * either quote style. It used to understand only double-quoted `from`/`import()`,
+ * which means an unclosed side-effect import would have passed here and failed at
+ * runtime instead — the same shape-matching hole fixed in the drift guard's matcher.
+ */
 function assertClosed(dir, files) {
   const have = new Set(files);
   const missing = [];
   for (const f of files) {
     const src = readFileSync(path.join(dir, f), "utf8");
-    for (const m of src.matchAll(/(?:from|import\()\s*"(\.{1,2}\/[A-Za-z0-9._/-]+\.mjs)"/g)) {
-      const target = path.basename(m[1]);
-      if (!have.has(target)) missing.push(`${f} imports ${m[1]}`);
+    for (const m of src.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*(["'])(\.{1,2}\/[A-Za-z0-9._/-]+\.mjs)\1/g)) {
+      const target = path.basename(m[2]);
+      if (!have.has(target)) missing.push(`${f} imports ${m[2]}`);
     }
   }
   if (missing.length) {
@@ -95,9 +134,10 @@ if (arg("--write")) {
   rmSync(VENDOR, { recursive: true, force: true });
   mkdirSync(VENDOR, { recursive: true });
   const files = {};
-  for (const f of FILES) {
+  for (const f of VENDORED) {
     const abs = path.join(from, f);
-    if (!existsSync(abs)) die(`FILES lists ${f}, which is not in the pipeline repo.`);
+    if (!existsSync(abs)) die(`The vendored list names ${f}, which is not in the pipeline repo.`);
+    mkdirSync(path.dirname(path.join(VENDOR, f)), { recursive: true });
     copyFileSync(abs, path.join(VENDOR, f));
     files[f] = sha256(readFileSync(abs));
   }
@@ -109,7 +149,7 @@ if (arg("--write")) {
     commit: pinnedCommit(),
     files,
   }, null, 2)}\n`);
-  console.log(`Vendored ${FILES.length} files at ${pinnedCommit().slice(0, 9)}.`);
+  console.log(`Vendored ${VENDORED.length} files (${FILES.length} modules, ${ASSETS.length} assets) at ${pinnedCommit().slice(0, 9)}.`);
   process.exit(0);
 }
 
@@ -125,7 +165,7 @@ if (manifest.commit !== pinned) {
     "  Re-vendor: check out the pinned commit and run --pipeline-dir <checkout> --write.",
   );
 }
-const onDisk = existsSync(VENDOR) ? readdirSync(VENDOR).filter((f) => f.endsWith(".mjs")).sort() : [];
+const onDisk = existsSync(VENDOR) ? walkVendor(VENDOR).sort() : [];
 const listed = Object.keys(manifest.files ?? {}).sort();
 for (const f of listed) {
   const abs = path.join(VENDOR, f);
@@ -133,7 +173,7 @@ for (const f of listed) {
   if (sha256(readFileSync(abs)) !== manifest.files[f]) problems.push(`  EDITED: vendor/pipeline/${f}`);
 }
 for (const f of onDisk) if (!listed.includes(f)) problems.push(`  unlisted file present: vendor/pipeline/${f}`);
-if (onDisk.length) assertClosed(VENDOR, onDisk);
+if (onDisk.length) assertClosed(VENDOR, onDisk.filter((f) => f.endsWith(".mjs")));
 
 if (problems.length) {
   die(

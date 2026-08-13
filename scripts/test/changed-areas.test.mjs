@@ -109,7 +109,7 @@ test("reverseClosure", async (t) => {
 
 test("classify", async (t) => {
   await t.test("an inert-only change runs neither heavy job", () => {
-    const out = classify(["scripts/agent/checks.mjs"], CI, GRAPH);
+    const out = classify(["scripts/agent/harvest.mjs"], CI, GRAPH);
     assert.equal(out.full, false);
     assert.equal(out.heavy, false);
     assert.deepEqual(out.tags, ["agent"]);
@@ -118,7 +118,7 @@ test("classify", async (t) => {
 
   await t.test("two inert areas union their tags", () => {
     const out = classify(
-      ["scripts/agent/checks.mjs", "docs/design/README.md", ".claude/settings.json"],
+      ["scripts/agent/harvest.mjs", "docs/design/README.md", ".claude/settings.json"],
       CI,
       GRAPH,
     );
@@ -149,7 +149,7 @@ test("classify", async (t) => {
 
   await t.test("one unmapped path among inert ones still forces a full run", () => {
     const out = classify(
-      ["scripts/agent/checks.mjs", "docker-compose.yaml"],
+      ["scripts/agent/harvest.mjs", "docker-compose.yaml"],
       CI,
       GRAPH,
     );
@@ -166,7 +166,7 @@ test("classify", async (t) => {
     // The anti-self-grading rule: a PR that edits the mapping cannot use the
     // mapping to shrink its own run.
     const out = classify(
-      ["scripts/agent/checks.mjs", ".github/workflows/ci.yml"],
+      ["scripts/agent/harvest.mjs", ".github/workflows/ci.yml"],
       CI,
       GRAPH,
     );
@@ -398,7 +398,7 @@ test("the real repository config", async (t) => {
 
   await t.test("an agent-only change runs no heavy job", () => {
     const out = classify(
-      ["scripts/agent/review-panel.mjs", "scripts/agent/checks.test.mjs"],
+      ["scripts/agent/hunt-gate.mjs", "scripts/agent/harvest.test.mjs"],
       ci,
       graph,
     );

@@ -47,7 +47,7 @@ import { routeFinding } from "../vendor/pipeline/review-panel.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUB = path.join(HERE, "adapters", "stub-panel.mjs");
-const LENSES = path.join(HERE, "..", "lenses");
+const LENSES = path.join(HERE, "..", "vendor", "pipeline", "lenses");
 const PANEL_SHA = "0".repeat(39) + "1";
 const SHA40 = /^[0-9a-f]{40}$/;
 
