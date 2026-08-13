@@ -181,9 +181,7 @@ draft from merged PRs — review and edit before publishing if needed.
 
 ### Merge queue
 
-Not enabled yet. `ci.yml` already carries the `merge_group` trigger the queue
-needs, so turning it on is a settings change with no code change. Rationale,
-CI-side contract, and residual risks:
+Enabled. Rationale, CI-side contract, and residual risks:
 [`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
 
 **What it buys.** `main`'s required checks currently prove a PR is green against
@@ -223,17 +221,21 @@ manual rebase.
 the manual "rebase, wait for CI, merge" path. Leaving the `merge_group` trigger
 in `ci.yml` costs nothing while the queue is off, since the event never fires.
 
-Two things to know before flipping it:
+Two things to know:
 
 - Required check names must keep matching. Renaming a `ci.yml` job (or its Node
   matrix value) without updating the required-check list strands every queued PR
-  until the status-check timeout expires.
+  until the status-check timeout expires. **Skipping a matrix job renames it too**:
+  a job with a `strategy.matrix` skipped by its own `if:` never expands the matrix,
+  so it reports as `verify-browser` rather than `verify-browser (22.x)` and the
+  required context never arrives. This is why the path filter gates the heavy jobs'
+  *steps* rather than the jobs; `scripts/test/ci-workflow.test.mjs` fails if that is
+  reverted.
 - A `merge_group` run executes PR code in this repository, not in a fork's
-  sandbox, so that code runs alongside a `GITHUB_TOKEN` holding `ci.yml`'s
-  workflow-level `pull-requests: write` / `issues: write` and alongside any secret
+  sandbox, so that code runs alongside the ambient `GITHUB_TOKEN` and any secret
   the workflow references (only `CODECOV_TOKEN`, and its step is skipped in queue
   context). Not every repository secret — only what the workflow references.
   Queueing requires write access, so it is the trust boundary that already governs
-  merging, but review now lands before *queueing*, not before merging. Narrowing
-  those workflow-level permissions to per-job least privilege is the obvious
-  hardening follow-up.
+  merging, but review now lands before *queueing*, not before merging. `ci.yml`'s
+  workflow-level permissions are `contents: read`; every write to a pull request
+  happens in `.github/workflows/ci-report.yml`, which runs no PR code.
