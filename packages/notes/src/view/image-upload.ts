@@ -1,4 +1,9 @@
-import { StateEffect, StateField, type EditorState } from '@codemirror/state';
+import {
+  StateEffect,
+  StateField,
+  type EditorState,
+  type Transaction,
+} from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -56,6 +61,21 @@ const addGhost = StateEffect.define<{ id: number; pos: number; label: string }>(
 const removeGhost = StateEffect.define<number>();
 
 /**
+ * Whether this transaction throws the whole document away — which is how
+ * `noteSync` applies a `replace` remote change (a Yorkie snapshot resync), as
+ * one change spanning the entire old document.
+ */
+function replacesWholeDoc(tr: Transaction): boolean {
+  const oldLength = tr.startState.doc.length;
+  if (oldLength === 0) return false;
+  let whole = false;
+  tr.changes.iterChanges((fromA, toA) => {
+    if (fromA === 0 && toA === oldLength) whole = true;
+  });
+  return whole;
+}
+
+/**
  * The in-flight placeholders. `set.map(tr.changes)` is what makes the feature
  * correct under collaboration: every transaction — the user's own typing and a
  * peer's remote edit alike — moves the pending insertion point, so an image
@@ -66,7 +86,12 @@ const ghostField = StateField.define<DecorationSet>({
     return Decoration.none;
   },
   update(set, tr) {
-    set = set.map(tr.changes);
+    // A whole-document replacement is the one change mapping cannot survive:
+    // every anchor lives inside the deleted range, so CodeMirror collapses
+    // them all to position 0 and the finished image would land at the top of
+    // the note. Drop the anchors instead — the insert then falls back to the
+    // caret, which is at least where the user is looking.
+    set = replacesWholeDoc(tr) ? Decoration.none : set.map(tr.changes);
     for (const effect of tr.effects) {
       if (effect.is(addGhost)) {
         const { id, pos, label } = effect.value;
@@ -135,36 +160,56 @@ function altFromFilename(name: string): string {
   return name.replace(/\.[^./\\]+$/, '') || 'image';
 }
 
-async function uploadAndInsert(
+/**
+ * Show a placeholder and start the request immediately; return the step that
+ * turns the finished upload into text. Separating the two is what lets a batch
+ * upload concurrently but insert in order.
+ */
+function beginUpload(
   view: EditorView,
   file: File,
   pos: number,
   upload: UploadImage,
-): Promise<void> {
+): () => Promise<void> {
   const id = nextGhostId++;
   view.dispatch({
     effects: addGhost.of({ id, pos, label: file.name || 'image' }),
   });
 
-  let url: string | null = null;
-  try {
-    url = await upload(file);
-  } catch (err) {
+  const failed = (err: unknown): null => {
     console.error('Image upload failed', err);
+    return null;
+  };
+  // Called synchronously so every request in a batch is in flight before the
+  // first one is awaited; only the inserts are serialized.
+  let request: Promise<string | null>;
+  try {
+    request = Promise.resolve(upload(file)).catch(failed);
+  } catch (err) {
+    request = Promise.resolve(failed(err));
   }
 
-  if (!liveViews.has(view)) return;
-  const at = ghostPosition(view, id);
-  view.dispatch({ effects: removeGhost.of(id) });
-  if (url == null || at === null) return;
-
-  insertImage(view, url, altFromFilename(file.name), at);
+  return async () => {
+    const url = await request;
+    // The editor can be torn down mid-upload (navigating away); dispatching
+    // into a destroyed view throws.
+    if (!liveViews.has(view)) return;
+    const at = ghostPosition(view, id);
+    view.dispatch({ effects: removeGhost.of(id) });
+    if (url == null) return;
+    // A null position means the anchor was destroyed by a whole-document
+    // replacement; `insertImage` then falls back to the caret.
+    insertImage(view, url, altFromFilename(file.name), at ?? undefined);
+  };
 }
 
 /**
  * Start an upload per file, each with its own placeholder anchored at `pos`.
- * Uploads run concurrently and each inserts as it completes; the placeholders
- * keep the insertion points apart, so completion order does not scramble them.
+ *
+ * Every request starts at once, but the inserts are committed strictly in file
+ * order: the placeholders all share one anchor, so letting each insert as it
+ * completes would reorder a batch by network speed — paste three screenshots
+ * and get them back shuffled.
  */
 export function startImageUploads(
   view: EditorView,
@@ -172,9 +217,10 @@ export function startImageUploads(
   pos: number,
   upload: UploadImage,
 ): void {
-  for (const file of files) {
-    void uploadAndInsert(view, file, pos, upload);
-  }
+  const commits = files.map((file) => beginUpload(view, file, pos, upload));
+  void (async () => {
+    for (const commit of commits) await commit();
+  })();
 }
 
 /** The image files in a clipboard or drag payload, in order. */

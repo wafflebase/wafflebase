@@ -53,7 +53,7 @@ its weaknesses fixed:
 - [x] `docs/design/notes/notes.md` — replace the deferred P2 image-upload line
       with the shipped design
 - [x] `pnpm verify:fast` green
-- [ ] Self review over the branch diff
+- [x] Self review over the branch diff — 3 findings, all fixed (see Review)
 - [ ] Manual smoke in `pnpm dev` (paste, drop, toolbar, failure, undo)
 
 ## Out of scope

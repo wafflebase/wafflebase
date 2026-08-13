@@ -13,7 +13,7 @@ import {
   readKeymap,
   writeKeymap,
 } from "./notes-settings";
-import { fetchMe } from "@/api/auth";
+import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
@@ -141,6 +141,9 @@ function NotesLayout({ documentId }: { documentId: string }) {
         const { url } = await uploadImageFile(file, workspaceId);
         return url;
       } catch (err) {
+        // An expired session is already redirecting to login; a failure toast
+        // on the way out is noise, not information.
+        if (isAuthExpiredError(err)) return null;
         console.error("Note image upload failed", err);
         toast.error(
           err instanceof Error

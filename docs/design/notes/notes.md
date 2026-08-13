@@ -251,7 +251,7 @@ board already share, through the frontend's existing
 `uploadImageFile(file, workspaceId)`. The preview needed nothing either —
 `markdown-it`'s image rule already renders the result.
 
-The design departs from CodePair's `imageUploader.ts` in three places, each
+The design departs from CodePair's `imageUploader.ts` in several places, each
 because the naive version misbehaves in a collaborative markdown editor:
 
 - **The in-flight placeholder is view-local, not text.** A note's body is one
@@ -262,7 +262,17 @@ because the naive version misbehaves in a collaborative markdown editor:
   transaction — the user's own typing *and* a peer's remote edit — moves the
   pending insertion point, so an image that finishes uploading seconds later
   still lands where it was dropped. CodePair reads the selection *after* the
-  await, so typing during an upload drops the image mid-word.
+  await, so typing during an upload drops the image mid-word. The one change
+  mapping cannot survive is a whole-document replacement — how `noteSync`
+  applies a `replace` remote change, i.e. a Yorkie snapshot resync — because
+  every anchor lives inside the deleted range and would collapse to position
+  0. Those anchors are dropped instead, and the insert falls back to the
+  caret rather than dumping the image at the top of the note.
+- **A batch inserts in file order, not completion order.** Every request in a
+  paste or drop starts at once, but the inserts are committed in sequence:
+  the placeholders share one anchor, so letting each insert as it resolves
+  would reorder the batch by network speed — paste three screenshots, get
+  them back shuffled.
 - **A drop inserts at the drop coordinates** (`view.posAtCoords`), not at the
   caret. Dropping a file on a paragraph and watching the image appear
   elsewhere is the most confusing part of the naive implementation.

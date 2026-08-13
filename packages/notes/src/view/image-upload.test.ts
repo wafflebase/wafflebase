@@ -192,17 +192,56 @@ describe('note image upload', () => {
     expect(view.state.doc.toString()).toBe('text typed!');
   });
 
-  it('inserts several pasted images in order', async () => {
-    const upload = vi
-      .fn<UploadImage>()
-      .mockImplementation(async (file) => `/img/${file.name}`);
-    const view = mount('', 0, upload);
+  it('inserts several pasted images in file order, not completion order', async () => {
+    // The second upload finishes first — the ordinary case with files of
+    // different sizes. Inserting as each completes would swap them, because
+    // both placeholders share one anchor.
+    const gates = new Map<string, ReturnType<typeof deferred<string | null>>>();
+    const view = mount('', 0, (file) => {
+      const gate = deferred<string | null>();
+      gates.set(file.name, gate);
+      return gate.promise;
+    });
 
     firePaste(view, [imageFile('one.png'), imageFile('two.png')]);
-    await vi.waitFor(() => expect(pendingImageUploads(view.state)).toBe(0));
+    expect(pendingImageUploads(view.state)).toBe(2);
 
+    gates.get('two.png')!.resolve('/img/two.png');
+    await Promise.resolve();
+    // Nothing may land yet: the first image has not been committed.
+    expect(view.state.doc.toString()).toBe('');
+
+    gates.get('one.png')!.resolve('/img/one.png');
+    await vi.waitFor(() => expect(pendingImageUploads(view.state)).toBe(0));
     expect(view.state.doc.toString()).toBe(
       '![one](/img/one.png)\n![two](/img/two.png)\n',
+    );
+  });
+
+  it('falls back to the caret when a resync replaces the whole document', async () => {
+    const gate = deferred<string | null>();
+    const view = mount('original text', 13, () => gate.promise);
+
+    firePaste(view, [imageFile('snap.png')]);
+
+    // What noteSync dispatches for a `replace` remote change (a Yorkie
+    // snapshot resync): one change spanning the entire old document. Every
+    // anchor inside it would otherwise collapse to position 0, dropping the
+    // image at the top of the note.
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: 'resynced body' },
+      selection: EditorSelection.cursor(8),
+    });
+
+    // The placeholder is already gone (its anchor died with the old
+    // document), so wait on the insert itself rather than on the count.
+    expect(pendingImageUploads(view.state)).toBe(0);
+
+    gate.resolve('/img/snap.png');
+    await vi.waitFor(() =>
+      expect(view.state.doc.toString()).toBe(
+        'resynced\n![snap](/img/snap.png)\n body',
+      ),
     );
   });
 
