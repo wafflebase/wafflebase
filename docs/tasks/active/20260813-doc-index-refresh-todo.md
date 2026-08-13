@@ -85,4 +85,34 @@ entropy and doc-index gates are complements.
   drift, swept in because the generator is all-or-nothing.
 - The root `README.md` still duplicates the package list in
   `packages/README.md`. Both are now gated against the same source of truth for
-  packages; the root file keeps its own list because it is the entry point.
+  packages — `packages/*` holding a manifest — so neither copy can rot on its
+  own; the root file keeps its own list because it is the entry point.
+
+## Review round 2 — code review findings
+
+A `general-purpose` reviewer over the full branch diff found four issues worth
+acting on. All are fixed; the suite grew from 23 to 30 tests.
+
+- **Three ways to be green without coverage** (the reviewer confirmed each in a
+  temp tree): a self-referential `[x](./)` link resolved to the index's own
+  directory and covered every entry beneath it; `isLinkedInto`'s string-prefix
+  test accepted a link to a path that does not exist; and `mentions` scanned
+  fenced code blocks. Fixed by refusing to climb to or above the index's own
+  directory, dropping links whose target does not exist, and sharing one
+  `unfenced()` helper between both matchers.
+- **The root README list was ungated** while this doc claimed otherwise. Both
+  package indexes are now checked in one loop.
+- **The word-boundary comment described an impossible case.** Verified: `.mjs`
+  terminates `verify-integration.mjs`, so it is not a substring of
+  `verify-integration-docker.mjs`, and the test passed against a naive
+  `includes`. The real case is directories — `test` inside
+  `run-browser-tests-docker.sh` — and the test now fails without the guard.
+- Doc accuracy: `harness-engineering.md` overstated entropy's reach (it reads
+  top-level `docs/design/*.md` only), a lane-selection test title went stale,
+  and `packages/README.md` omitted core's `/tokens.css` subpath.
+
+**Not fixed, with reasons.** Reference-style (`[x]: path`) and angle-bracket
+link destinations are still uncounted — no index here uses them and the failure
+is a loud false positive, not a silent pass. Symlinked `packages/*` directories
+are skipped by `withFileTypes`; no such symlink exists and handling it would add
+untested path logic for a case nobody has.

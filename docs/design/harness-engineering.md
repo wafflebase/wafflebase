@@ -201,11 +201,17 @@ Hook scripts live in `scripts/hooks/`.
 
 `verify:entropy` and `verify:doc-index` are complements over the same prose and
 must not be folded together. Entropy walks *links → disk*: for each reference in
-a design doc it checks the target still exists, which catches a file that moved
-or was deleted. Doc-index walks *disk → index*: it catches a file that was added
-and never indexed, which nothing points at and which therefore leaves no broken
-reference to find. That second direction is why `packages/README.md` was missing
-four of eleven packages while every link in it still resolved.
+a **top-level** `docs/design/*.md` it checks the target still exists, which
+catches a file that moved or was deleted. Doc-index walks *disk → index*: it
+catches a file that was added and never indexed, which nothing points at and
+which therefore leaves no broken reference to find. That second direction is why
+`packages/README.md` was missing four of eleven packages while every link in it
+still resolved.
+
+Neither reaches everything. Entropy does not descend into `docs/design/sheets/`
+and the other subdirectories, and it reads no README outside that tree — so
+doc-index drops any link resolving to a nonexistent path before counting it as
+coverage, which is the only dead-link check the package and script indexes get.
 
 Coverage is top-level by design. A directory counts as covered once its index
 names it — `scripts/agent/` alone holds over a hundred files, and a gate

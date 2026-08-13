@@ -24,25 +24,46 @@ import { fileURLToPath } from "node:url";
 const PREFIX = "[verify:doc-index]";
 
 /**
+ * The lines of a markdown document that are not inside a fenced code block.
+ *
+ * An index that shows an example row inside a fence is documenting its own
+ * format, and counting that as coverage would let a document satisfy this gate
+ * by describing itself — a fenced `ls scripts/` dump would name every entry
+ * without introducing any of them. Both fence syntaxes are recognized, and a
+ * fence only ever closes with its own character, so a ``` inside a ~~~ block
+ * does not end it.
+ */
+function unfenced(content) {
+  const lines = [];
+  let fence = null;
+  for (const line of content.split("\n")) {
+    const opener = /^\s*(```|~~~)/.exec(line);
+    if (opener) {
+      if (fence === null) fence = opener[1];
+      else if (fence === opener[1]) fence = null;
+      continue;
+    }
+    if (fence === null) lines.push(line);
+  }
+  return lines;
+}
+
+/**
  * The link targets in a markdown document, as written.
  *
- * Fenced code blocks are skipped: an index that shows an example row inside a
- * fence is documenting its own format, and counting that as coverage would let
- * a document satisfy this gate by describing itself. External links and bare
- * anchors are dropped — neither can point at a path in this repository.
+ * Inline links only. Reference definitions (`[x]: path`) and angle-bracket
+ * destinations are not counted — no index here uses them, and the failure mode
+ * is a loud false positive on an honest document rather than a silent pass.
+ * External links and bare anchors are dropped: neither can point at a path in
+ * this repository.
  */
 export function linkedTargets(content) {
   const targets = new Set();
-  let inFence = false;
 
-  for (const line of content.split("\n")) {
-    if (line.trimStart().startsWith("```")) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-
-    for (const match of line.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+  for (const line of unfenced(content)) {
+    // `(?<!!)` drops image embeds: `![alt](shot.png)` is not a claim that the
+    // directory holding `shot.png` has been introduced to the reader.
+    for (const match of line.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
       const target = match[1].split("#")[0];
       if (!target) continue;
       if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue; // http:, mailto:, …
@@ -62,18 +83,27 @@ function resolveTarget(target, indexDir, root) {
 }
 
 /**
- * Is `entry` linked from the index, directly or through an ancestor directory?
+ * Is `entry` linked from the index, directly or through a deeper ancestor
+ * directory?
  *
  * The ancestor rule is what lets one umbrella row cover a subtree —
  * `docs/design/README.md` links `docs/tables/` once and the per-feature docs
  * beneath it are covered. The alternative was an exception list in this file,
  * which would rot the moment someone reorganized the directory it names.
  */
-function isCovered(entry, links) {
+function isCovered(entry, links, indexDir) {
   if (links.has(entry)) return true;
   const parts = entry.split("/");
   for (let i = 1; i < parts.length; i++) {
     const ancestor = parts.slice(0, i).join("/");
+    // Only a directory STRICTLY DEEPER than the index's own may cover a
+    // subtree. Without this, one self-referential link — `[all docs](./)`,
+    // resolving to the index's own directory — is an ancestor of every entry
+    // and takes the whole check green with zero real coverage. That failure is
+    // silent and permanent, in the one gate whose entire job is noticing
+    // silence, so the loop refuses to climb that high rather than trusting
+    // nobody will write it.
+    if (ancestor === indexDir || indexDir.startsWith(`${ancestor}/`)) continue;
     if (links.has(ancestor) || links.has(`${ancestor}/`)) return true;
   }
   return false;
@@ -97,13 +127,21 @@ function readIndex(root, indexPath) {
   const abs = path.resolve(root, indexPath);
   if (!existsSync(abs)) return null;
   const content = readFileSync(abs, "utf8");
-  const indexDir = path.dirname(indexPath);
+  const indexDir = path.dirname(indexPath).split(path.sep).join("/");
   const links = new Set();
   for (const target of linkedTargets(content)) {
     const rel = resolveTarget(target, indexDir, root);
-    if (rel !== null) links.add(rel);
+    if (rel === null) continue;
+    // A link that resolves to nothing grants no coverage. `isLinkedInto` is a
+    // string-prefix test, so without this `[board](board/TYPO.md)` introduces
+    // `packages/board` as far as the gate can tell. Nothing else dead-link
+    // checks these two indexes either — `verify-entropy.mjs` reads only
+    // top-level `docs/design/*.md` — so a typo'd row would otherwise be
+    // invisible in both directions at once.
+    if (!existsSync(path.resolve(root, rel))) continue;
+    links.add(rel);
   }
-  return { content, links };
+  return { content: unfenced(content).join("\n"), links };
 }
 
 function listDir(root, rel) {
@@ -132,10 +170,14 @@ function markdownFiles(root, dir, out = []) {
  * Does the scripts index name `entry`?
  *
  * A mention, not a link — that index is a table of names, and requiring links
- * would mean linking a `.mjs` file from markdown for no reader's benefit. The
- * boundary assertion is load-bearing: a plain `includes` would let
- * `verify-integration-docker.mjs` satisfy `verify-integration.mjs`, silently
- * exempting whichever name is a prefix of another.
+ * would mean linking a `.mjs` file from markdown for no reader's benefit.
+ *
+ * The boundary assertion is load-bearing, and the case is DIRECTORIES, which
+ * are matched without an extension to fall back on: `"test"` occurs inside
+ * `run-browser-tests-docker.sh`, so under a plain `includes` that one row would
+ * exempt `scripts/test/` in this very repository — likewise `agent` inside
+ * `agent-pipeline`. File names are not at risk the same way (`.mjs` terminates
+ * them), which is why this reads as a rule about directories.
  */
 function mentions(content, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -151,19 +193,30 @@ function mentions(content, name) {
 export function collectFindings(root) {
   const findings = [];
 
-  // Packages. A directory is a package when it has a manifest; that also skips
+  // Packages, against BOTH indexes that list them. The root README duplicates
+  // `packages/README.md`'s list on purpose — it is the repository's entry point
+  // and wants a list of its own — and a duplicated list that only one gate
+  // watches is a regression generator: the unwatched copy becomes the only one
+  // that can rot silently, which is the exact failure this file exists to
+  // prevent.
+  //
+  // A directory is a package when it has a manifest; that also skips
   // `node_modules` and stray build output without naming either.
-  const packagesIndex = readIndex(root, "packages/README.md");
-  if (!packagesIndex) {
-    findings.push("packages/README.md is missing");
-  } else {
-    for (const entry of listDir(root, "packages")) {
-      if (!entry.isDirectory()) continue;
-      const rel = `packages/${entry.name}`;
-      if (!existsSync(path.resolve(root, rel, "package.json"))) continue;
-      if (!isLinkedInto(rel, packagesIndex.links)) {
+  const packageDirs = listDir(root, "packages")
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `packages/${entry.name}`)
+    .filter((rel) => existsSync(path.resolve(root, rel, "package.json")));
+
+  for (const indexPath of ["packages/README.md", "README.md"]) {
+    const index = readIndex(root, indexPath);
+    if (!index) {
+      findings.push(`${indexPath} is missing`);
+      continue;
+    }
+    for (const rel of packageDirs) {
+      if (!isLinkedInto(rel, index.links)) {
         findings.push(
-          `packages/README.md does not link ${rel} (add a row, or link the directory)`,
+          `${indexPath} does not link ${rel} (add a row, or link the directory)`,
         );
       }
     }
@@ -176,7 +229,7 @@ export function collectFindings(root) {
   } else {
     for (const file of markdownFiles(root, "docs/design")) {
       if (file === "docs/design/README.md") continue;
-      if (!isCovered(file, designIndex.links)) {
+      if (!isCovered(file, designIndex.links, "docs/design")) {
         findings.push(
           `docs/design/README.md does not link ${file} (add a row, or link its directory)`,
         );

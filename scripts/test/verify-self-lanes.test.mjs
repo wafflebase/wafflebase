@@ -96,9 +96,10 @@ test("selection against the real lane graph", async (t) => {
     assert.deepEqual([...selected].sort(), ["agent:tests", "lint:scripts"]);
   });
 
-  await t.test("a docs-prose change runs only the entropy lane and its builds", () => {
+  await t.test("a docs-prose change runs the prose lanes and entropy's builds", () => {
     const selected = select({ full: false, packages: [], tags: ["docsProse"] });
     assert.ok(selected.has("verify:entropy"));
+    assert.ok(selected.has("verify:doc-index"));
     // Pulled in by `needs`, not by a tag — entropy wants every dist present.
     assert.ok(selected.has("core:build"));
     assert.ok(selected.has("slides:build"));

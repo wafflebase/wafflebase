@@ -48,9 +48,44 @@ base fixture — the tree that is supposed to pass everything — failed, which 
 what surfaced it immediately. A fixture that must produce zero findings is worth
 more than any single negative case.
 
-## The `scripts/` index needed a word-boundary match
+## A comment that documents an impossible case protects nothing
 
-`verify-integration.mjs` is a prefix of `verify-integration-docker.mjs`, so a
-plain `includes` would have exempted the shorter name whenever the longer one
-was documented. The gate matches on `(?<![\w.-])name(?![\w.-])` and a test case
-pins it.
+The word-boundary match in `mentions` shipped with a comment claiming a plain
+`includes` would let `verify-integration-docker.mjs` satisfy
+`verify-integration.mjs`. It would not — the `.mjs` terminates the shorter name,
+so it is not a substring of the longer one. Code review caught it, and the test
+"pinning" the behavior passed identically against a naive `includes`.
+
+The guard *is* load-bearing, for a case nobody had written down: directories are
+matched without an extension, and `test` occurs inside
+`run-browser-tests-docker.sh` — that one row would have exempted `scripts/test/`
+in this repository. The test now uses that case and fails without the boundary.
+
+**Rule:** a test whose scenario cannot occur is not a test. When writing one to
+pin a guard, delete the guard and confirm the test goes red first.
+
+## A coverage gate must be audited for ways to be green
+
+Review found three, all silent:
+
+- a self-referential link (`[all docs](./)`) resolved to the index's own
+  directory, an ancestor of every entry, taking the whole design-doc check green
+  with zero coverage;
+- `isLinkedInto` is a string-prefix test, so `[board](board/TYPO.md)` granted
+  coverage to a package via a path that does not exist — and nothing else
+  dead-link checks `packages/README.md`;
+- `mentions` scanned fenced code blocks, so a fenced `ls scripts/` dump named
+  every entry without introducing any.
+
+Each was a way to pass without being covered, in the one gate whose whole thesis
+is that coverage is about an index's *silences*.
+
+**Rule:** after writing a gate, spend a pass attacking it — "how would I make
+this green without doing the work?" — and turn each answer into a test.
+
+## A duplicated list needs both copies gated
+
+The root `README.md` duplicates `packages/README.md`'s package list on purpose.
+The first version gated only one of them, and the task doc asserted both were
+covered. That leaves the unwatched copy as the only one that can rot silently —
+regenerating the exact failure the gate was built for, one file over.

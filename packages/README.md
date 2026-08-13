@@ -16,7 +16,7 @@ Monorepo packages for Wafflebase.
 
 | Package | Description |
 |---------|-------------|
-| [`core`](core/README.md) | Cross-engine primitives, exposed through subpaths only (`@wafflebase/core/tokens`, `/geometry`, `/url`). No root entry point. |
+| [`core`](core/README.md) | Cross-engine primitives, exposed through subpaths only (`@wafflebase/core/tokens`, `/tokens.css`, `/geometry`, `/url`). No root entry point. |
 
 ## Apps & services
 
