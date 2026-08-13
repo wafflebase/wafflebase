@@ -287,36 +287,33 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-  # scripts/agent/ is no longer what runs — the agent workflows execute
-  # wafflebase/agent-pipeline at a pinned commit, and the copy in this repo is a
-  # leftover that still backs the `agent:tests` lane. Without this, that lane can
-  # pass against code which is not the code in production. It had already drifted
-  # on three files before this job existed.
+  # The pipeline is not in this repo — the agent workflows execute
+  # wafflebase/agent-pipeline at a pinned commit. The mirror that used to sit in
+  # `scripts/agent/` was deleted; what stays is the measurement half (the hunters,
+  # harvest, eval/), which reads the pipeline through the pinned, sha256-verified
+  # `scripts/agent/vendor/pipeline/`.
+  #
+  # This job keeps it that way: no pipeline file may reappear here, and nothing
+  # that stayed may import a path that no longer resolves.
   #
   # Its own job rather than a verify:self lane: it needs the pipeline repo on
   # disk, and verify:self must keep working offline.
   pipeline-drift:
+    # NOTE: the check-run name is deliberately unchanged. Renaming it would file a
+    # new context and strand any branch-protection rule still requiring this one —
+    # the same failure mode documented at length on verify-browser below.
     name: Pipeline copy matches the pinned commit
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # ADVISORY DURING THE TRANSITION, not because the check is unreliable — it is
-    # green on main and it has only ever fired on real drift. Blocking was the
-    # wrong trade for right now.
+    # BLOCKING. It was advisory (#798) because enforcement then meant landing every
+    # pipeline change TWICE — once in wafflebase/agent-pipeline with a tag, then
+    # again here as a mirror update plus a pin bump — and #797, a fix for the flake
+    # reddening main, hit that tax the day the check landed. Taxing an unrelated bug
+    # fix to enforce a rule about a copy that does not run was the wrong way round.
     #
-    # While `scripts/agent/` still exists, satisfying this check means landing a
-    # pipeline change TWICE: once in wafflebase/agent-pipeline with a tag, then
-    # again here as a mirror update plus a pin bump. #797 — a fix for the flake
-    # that has been reddening main — hit that tax the day the check landed, having
-    # been opened before the rule existed. Taxing an unrelated bug fix to enforce
-    # a rule about a copy that does not run is the wrong way round.
-    #
-    # It goes back to blocking when the tax disappears, which is when
-    # `scripts/agent/` is deleted outright. That cannot happen yet: 20+ files that
-    # STAY here import the moved ones (harvest.mjs alone imports 8), so the
-    # measurement half, the hunters and verify-self.mjs all break until the shared
-    # kernel is carved out and vendored. Until then, drift is a warning a human
-    # reads — and the warning names exactly which files and what to do.
-    continue-on-error: true
+    # That tax died with the mirror. Both remaining assertions are satisfied by
+    # doing nothing, and the failure they prevent is a crash inside a hunt or a
+    # replay, far from the commit that caused it.
     permissions:
       contents: read
     steps:

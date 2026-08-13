@@ -95,7 +95,12 @@ function assertClosed(dir, files) {
   for (const f of files) {
     const src = readFileSync(path.join(dir, f), "utf8");
     for (const m of src.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*(["'])(\.{1,2}\/[A-Za-z0-9._/-]+\.mjs)\1/g)) {
-      const target = path.basename(m[2]);
+      // RESOLVED against the importing file, not reduced to a basename. Taking the
+      // basename would let `./lenses/b.mjs` be satisfied by a root `b.mjs` — the
+      // same collapse the drift guard's matcher was fixed for. No nested module is
+      // vendored today, so this is latent; a shape that only works while the set
+      // stays flat is exactly what stops holding the moment someone adds one.
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[2]));
       if (!have.has(target)) missing.push(`${f} imports ${m[2]}`);
     }
   }

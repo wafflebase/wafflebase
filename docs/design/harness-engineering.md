@@ -30,10 +30,15 @@ hunting, and the panel feedback corpus all live in the `.github/workflows/`
 > longer has a copy in this repo; the workflows check it out at a pinned commit.
 > This document cites those files as **`agent-pipeline:<file>`** — e.g.
 > `agent-pipeline:review-panel.mjs` is that repo's `packages/pipeline/` copy of it.
-> Paths still written as `scripts/agent/…` are the MEASUREMENT half, which
-> stays here: the hunters, `scripts/agent/harvest.mjs`, and `scripts/agent/eval/`.
-> The subset measurement needs to import is vendored, pinned and sha256-verified,
-> under `scripts/agent/vendor/pipeline/` — read it, never edit it.
+>
+> Paths still written as `scripts/agent/…` are what STAYS here, and that is two
+> different things: the **measurement** half — the hunters, `scripts/agent/harvest.mjs`,
+> `scripts/agent/eval/` — and the **local front door**, `scripts/agent/spec-to-pr.mjs`,
+> which is a developer's command rather than part of the cloud loop.
+>
+> Both read the pipeline through `scripts/agent/vendor/pipeline/`: a pinned,
+> sha256-verified subset — read it, never edit it. Editing it fails
+> `scripts/vendor-pipeline.mjs`; changes belong upstream, followed by a re-vendor.
 >
 > Historical sections below describe the system as built, when these files were
 > local. The behaviour they record is unchanged; only the location moved.
@@ -315,11 +320,12 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- `pipeline-drift` job is independent and never path-gated: it checks
-  `scripts/agent/` against the pinned `wafflebase/agent-pipeline` commit. It is
-  the correctness gate on the very directory path filtering makes cheapest to
-  change, and it costs seconds, so it always runs. (It is advisory rather than
-  blocking while the mirror exists — see #798.)
+- `pipeline-drift` job is independent and never path-gated: it asserts that no
+  file owned by `wafflebase/agent-pipeline` has reappeared under `scripts/agent/`,
+  and that nothing retained there imports a path the deleted mirror used to
+  provide. It is the correctness gate on the very directory path filtering makes
+  cheapest to change, and it costs seconds, so it always runs. (Advisory while the
+  mirror existed — #798 — and **blocking** again since the mirror was deleted.)
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
@@ -463,10 +469,10 @@ the two would let a real failure read as a deliberate omission.
 
 **`filtered` is a distinct lane status, not a reuse of `skip`.**
 `agent-pipeline:summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
-this never got its turn". It cannot be taught the difference *here*, because the
-copy in this repository is not what runs — the agent workflows execute
-`wafflebase/agent-pipeline` at a pinned commit, and this mirror only backs the
-`agent:tests` lane. An unrecognised status is merely absent from that tool's
+this never got its turn". It cannot be taught the difference *here*, because that
+module does not live in this repository at all — the agent workflows execute
+`wafflebase/agent-pipeline` at a pinned commit, and it is not part of the vendored
+subset the measurement half reads. An unrecognised status is merely absent from that tool's
 counts; a reused one would have made it state something untrue about every
 filtered lane. Teaching the pipeline repo to render `filtered` is an outstanding
 follow-up.
