@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
+import { domControls } from "./hunt-ui-dom.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -232,6 +233,7 @@ const READER_EXPECTATIONS = [
     v && typeof v === "object" && !Array.isArray(v) ? null : "expected a style-summary object"],
   ["doc", "doc.linkCount", [], (v) => (Number.isInteger(v) && v >= 0 ? null : "expected a non-negative integer")],
   ["doc", "doc.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+
 
   // --- sheet surface, against seedGrid(): A1=10 A2=20 A3=30 B1=Label C1==A1+A2 ---
   ["sheet", "sheet.cellValue", ["A1"], (v) => (String(v) === "10" ? null : "expected the seeded A1 value 10")],
@@ -648,6 +650,110 @@ async function checkSheetToolbar(page, baseUrl) {
         `a number format changed the STORED value of A1: ${JSON.stringify(storedBefore)} -> ${JSON.stringify(storedAfter)}. ` +
           "Formatting is a paint-time concern and must not rewrite the cell.",
       );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The control inventory is USABLE, not merely present.
+ *
+ * `dom.controls` exists to end name-guessing and to give the coverage memory a
+ * denominator, and both of those fail the same way: a name that reads plausibly and
+ * cannot actually be clicked. So this does not check the shape of the list — it takes
+ * names OUT of it and clicks them, which is the only claim that matters.
+ *
+ * It also pins the two exclusions, because each is a way the list would mislead. A
+ * DISABLED control offered to the explorer costs a wasted action and looks like a
+ * defect; a zero-size one cannot be hit at all.
+ */
+async function checkControlInventory(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  // The REAL implementation, imported — `dom.*` readers live in the driver and never
+  // reach the bridge, so `readReader` cannot see them. Importing rather than repeating
+  // the query is the point: a copy would drift and the check would pass for the wrong
+  // reason.
+  let controls;
+  try {
+    controls = await domControls(page);
+  } catch (err) {
+    problems.push(`dom.controls threw: ${String(err?.message ?? err).slice(0, 140)}`);
+    return problems;
+  }
+  if (!Array.isArray(controls)) {
+    problems.push(`dom.controls did not answer with a list: ${JSON.stringify(controls)?.slice(0, 140)}`);
+    return problems;
+  }
+  if (controls.length < 5) {
+    problems.push(`dom.controls found only ${controls.length} controls on a surface with a toolbar mounted`);
+    return problems;
+  }
+
+  // EVERY name it offers must resolve. One unclickable entry is enough to send a run
+  // at a dead target and read the failure as a defect.
+  const unreachable = [];
+  for (const c of controls.slice(0, 12)) {
+    const n = await page.getByRole(c.role, { name: c.name, exact: true }).count();
+    if (n === 0) unreachable.push(`${c.role}/${c.name}`);
+  }
+  if (unreachable.length > 0) {
+    problems.push(`dom.controls named controls that getByRole cannot find: ${unreachable.join(", ")}`);
+  }
+
+  // And a name taken from the list must actually be clickable, since that is the whole
+  // contract: this is the list `target` takes.
+  const bold = controls.find((c) => c.name === "Bold");
+  if (!bold) {
+    problems.push("dom.controls did not include Bold, which the doc toolbar mounts");
+  } else {
+    await page.keyboard.type("zz");
+    await page.keyboard.press("Shift+ArrowLeft");
+    await page.getByRole(bold.role, { name: bold.name, exact: true }).click();
+    const runs = (await readReader(page, "doc.runs", [])).value;
+    if (!Array.isArray(runs) || !runs.some((r) => r?.bold === true)) {
+      problems.push("clicking the control the inventory named did not bold anything — the list is not the list `target` takes");
+    }
+  }
+
+  // THE EXCLUSIONS, ASSERTED AGAINST PLANTED CONTROLS.
+  //
+  // The first version of this checked whether any control the page HAPPENED to disable
+  // showed up, and the doc surface disables none — so it could not fail. Measured:
+  // deleting the disabled check from the reader left the lane green. An assertion that
+  // cannot fail is decoration, so the states are planted rather than hoped for.
+  await page.evaluate(() => {
+    const mk = (label, mutate) => {
+      const b = document.createElement("button");
+      b.setAttribute("aria-label", label);
+      b.textContent = label;
+      mutate(b);
+      document.body.appendChild(b);
+    };
+    mk("zz-probe-disabled", (b) => b.setAttribute("disabled", ""));
+    mk("zz-probe-aria-disabled", (b) => b.setAttribute("aria-disabled", "true"));
+    mk("zz-probe-zero-size", (b) => {
+      b.style.width = "0px";
+      b.style.height = "0px";
+      b.style.padding = "0";
+      b.style.border = "0";
+      b.style.overflow = "hidden";
+    });
+    mk("zz-probe-visible", () => {});
+  });
+
+  const withProbes = await domControls(page);
+  const names = new Set(withProbes.map((c) => c.name));
+  if (!names.has("zz-probe-visible")) {
+    problems.push("a planted, enabled, visible control was NOT listed — the reader is missing real controls");
+  }
+  for (const excluded of ["zz-probe-disabled", "zz-probe-aria-disabled", "zz-probe-zero-size"]) {
+    if (names.has(excluded)) {
+      problems.push(`dom.controls offered ${excluded}, which the explorer cannot usefully click`);
     }
   }
 
@@ -1127,6 +1233,11 @@ try {
     for (const p of sheetToolbarProblems) failures.push(`sheet toolbar: ${p}`);
     if (sheetToolbarProblems.length === 0) {
       console.log("[verify:hunt-oracles] a sheet toolbar click appends a range style the readers can see");
+    }
+    const inventoryProblems = await checkControlInventory(page, baseUrl);
+    for (const p of inventoryProblems) failures.push(`control inventory: ${p}`);
+    if (inventoryProblems.length === 0) {
+      console.log("[verify:hunt-oracles] dom.controls names controls that can actually be clicked");
     }
     const colorProblems = await checkRunColor(page, baseUrl);
     for (const p of colorProblems) failures.push(`run colour: ${p}`);
