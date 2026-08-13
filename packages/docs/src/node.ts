@@ -80,6 +80,20 @@ export {
   getCellText,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
+
+// Yorkie Tree attribute codec for block style. `model/crdt-attrs.js` is pure
+// data-model code (it imports only `model/types.js`), so it is safe under the
+// Node entry — the backend's `docs-tree.ts` reads and writes the docs CRDT
+// through it, which is what keeps its encoding identical to the editor's.
+export {
+  BLOCK_ALIGNMENTS,
+  BLOCK_STYLE_NUMERIC_FIELDS,
+  isBlockAlignment,
+  serializeBlockStyleAttrs,
+  parseBlockStyleAttrs,
+  serializeMarginFromEdgeAttrs,
+  parseMarginFromEdgeAttr,
+} from './model/crdt-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,

@@ -181,6 +181,32 @@ describe('docs-tree', () => {
     }
   });
 
+  it('reads an alignment the renderer does not know as the default', () => {
+    // The PUT validator rejects an alignment outside the allowlist, so the
+    // reader must never hand one back either — otherwise a GET → edit → PUT
+    // round-trip of a legacy document would 400 on a value the caller never
+    // touched.
+    doc.update((root) => {
+      root.content = new Tree({
+        type: 'doc',
+        children: [
+          {
+            type: 'block',
+            attributes: {
+              id: 'b1',
+              type: 'paragraph',
+              alignment: 'undefined',
+            },
+            children: [],
+          },
+        ],
+      });
+    });
+
+    const style = readDocsRoot(doc.getRoot()).blocks[0].style;
+    expect(style.alignment).toBe(DEFAULT_BLOCK_STYLE.alignment);
+  });
+
   it('omits an absent header marginFromEdge instead of writing "undefined"', () => {
     const withHeader = {
       blocks: [],

@@ -37,6 +37,10 @@ import {
   applyMergeBlocks,
   blockStyleId,
   materializeBlockSpacing,
+  serializeBlockStyleAttrs,
+  parseBlockStyleAttrs,
+  serializeMarginFromEdgeAttrs,
+  parseMarginFromEdgeAttr,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -203,58 +207,19 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   return style;
 }
 
-const BLOCK_STYLE_NUMERIC_FIELDS = [
-  'lineHeight',
-  'marginTop',
-  'marginBottom',
-  'textIndent',
-  'marginLeft',
-] as const;
-
-/**
- * `BlockStyle` is a full shape in the model but a *partial* on the wire: the
- * v1 content PUT API accepts `style: {}`, and older documents predate fields
- * added since. Writing an absent field unconditionally would persist
- * `alignment: undefined` and the literal string `"undefined"` for every
- * number, which `parseBlockStyle` reads back as `NaN` and the layout engine
- * turns into an unrenderable block. So each attribute is emitted only when it
- * carries a value the reader can invert; anything omitted falls back to
- * `DEFAULT_BLOCK_STYLE` on read, which is what an unspecified field means.
- *
- * Kept byte-identical in behavior with the backend's copy in
- * `packages/backend/src/yorkie/docs-tree.ts` — both encode the same Yorkie
- * Tree attributes, so a divergence would make one writer's output
- * unreadable by the other's reader.
- */
-function serializeBlockStyle(style: Partial<BlockStyle>): Record<string, string> {
-  const attrs: Record<string, string> = {};
-  if (typeof style?.alignment === 'string') attrs.alignment = style.alignment;
-  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
-    const value = Number(style?.[field]);
-    if (style?.[field] !== undefined && Number.isFinite(value)) {
-      attrs[field] = String(value);
-    }
-  }
-  return attrs;
-}
-
-function parseBlockStyle(attrs: Record<string, string> | undefined): BlockStyle {
-  if (!attrs) return { ...DEFAULT_BLOCK_STYLE };
-  const partial: Partial<BlockStyle> = {};
-  if (typeof attrs.alignment === 'string')
-    partial.alignment = attrs.alignment as BlockStyle['alignment'];
-  // A non-finite attribute (a hand-edited CRDT, or a document written by the
-  // pre-guard serializer above, which stored the literal string "undefined")
-  // reads as the default rather than poisoning the layout with NaN —
-  // `normalizeBlockStyle` is a bare spread and would keep whatever it is
-  // handed.
-  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
-    if (!(field in attrs)) continue;
-    const value = Number(attrs[field]);
-    if (Number.isFinite(value)) partial[field] = value;
-  }
-  return normalizeBlockStyle(partial);
-}
+// Block-level style — and the header/footer `marginFromEdge` alongside it — is
+// encoded by the shared codec in `@wafflebase/docs` (`model/crdt-attrs.ts`)
+// rather than a local copy: the backend's `docs-tree.ts` (v1 content REST
+// endpoint) writes the same Yorkie Tree attributes, and a divergence between
+// the two encodings would make one writer's output unreadable by the other's
+// reader. See that module for the partial-on-the-wire contract — absent fields
+// are omitted rather than written as the literal string `"undefined"`, and a
+// non-finite number or unknown alignment reads back as the block default
+// instead of poisoning the layout with `NaN`.
+const serializeBlockStyle = serializeBlockStyleAttrs;
+const parseBlockStyle = parseBlockStyleAttrs;
+const serializeMarginFromEdge = serializeMarginFromEdgeAttrs;
+const parseMarginFromEdge = parseMarginFromEdgeAttr;
 
 // ---------------------------------------------------------------------------
 // Cell style serialization
@@ -277,7 +242,7 @@ function serializeCellStyle(cell: TableCell): Record<string, string> {
 
 /**
  * Cell-style counterpart of `removedInlineStyleAttrs`: the Yorkie attribute
- * names to hand `removeStyleByPath` when the caller cleared a key by
+ * names to hand `removeNodeStyle` when the caller cleared a key by
  * passing it explicitly as `undefined` (e.g. the cell "No fill" reset).
  * `serializeCellStyle` drops those keys, and `styleByPath` only merges, so
  * without this the previous value stays on the Tree node.
@@ -291,26 +256,27 @@ function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
 }
 
 /**
- * Remove attributes from the cell node at `cellPath` — and from nothing
- * inside it.
+ * Remove attributes from the element node at `path` — and from nothing inside
+ * it.
  *
- * `removeStyleByPath(cellPath, cellPath+1, …)` looks node-scoped but is not:
- * that path range spans the cell's whole subtree, and Yorkie applies the
- * removal to every element node in it. Clearing `backgroundColor` that way
- * would also strip the text highlight of every inline in the cell and the
- * fill of every nested-table cell (the block-level `removeStyleByPath` calls
- * elsewhere in this file get away with it only because keys like `listKind`
- * exist on no descendant). Yorkie has no single-node removal, so use the
- * index range covering the cell's opening tag alone: a child node starts
+ * `removeStyleByPath(path, path+1, …)` looks node-scoped but is not: that path
+ * range spans the node's whole subtree, and Yorkie applies the removal to
+ * every element node in it. Clearing a cell's `backgroundColor` that way would
+ * also strip the text highlight of every inline in the cell and the fill of
+ * every nested-table cell; clearing a block's `listKind` would strip it from
+ * every list-item block nested in a table cell inside it. Yorkie has no
+ * single-node removal (`Tree.removeStyle` takes an index range —
+ * `@yorkie-js/sdk` `Tree.removeStyle(fromIdx, toIdx, attrs)`), so use the
+ * index range covering the node's opening tag alone: a child node starts
  * exactly at `idx + 1`, a zero-width overlap the range walk excludes.
  */
-function removeCellNodeStyle(
+function removeNodeStyle(
   tree: YorkieDocsRoot['content'],
-  cellPath: number[],
+  path: number[],
   attrsToRemove: string[],
 ): void {
   if (attrsToRemove.length === 0) return;
-  const from = tree.pathToIndex(cellPath);
+  const from = tree.pathToIndex(path);
   tree.removeStyle(from, from + 1, attrsToRemove);
 }
 
@@ -523,13 +489,13 @@ function treeToDocument(root: TreeNode): Document {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.header = {
         blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
-        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'footer') {
       const attrs = (child as ElementNode).attributes ?? {};
       doc.footer = {
         blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
-        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'block') {
       doc.blocks.push(treeNodeToBlock(child));
@@ -725,7 +691,7 @@ export class YorkieDocStore implements DocStore {
       if (header) {
         const node: ElementNode = {
           type: 'header',
-          attributes: { marginFromEdge: String(header.marginFromEdge) },
+          attributes: serializeMarginFromEdge(header.marginFromEdge),
           children: header.blocks.map(buildBlockNode),
         };
         if (hadHeader) {
@@ -766,7 +732,7 @@ export class YorkieDocStore implements DocStore {
       if (footer) {
         const node: ElementNode = {
           type: 'footer',
-          attributes: { marginFromEdge: String(footer.marginFromEdge) },
+          attributes: serializeMarginFromEdge(footer.marginFromEdge),
           children: footer.blocks.map(buildBlockNode),
         };
         if (hadFooter) {
@@ -1486,12 +1452,11 @@ export class YorkieDocStore implements DocStore {
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath(blockPath, attrs);
 
-      // Remove stale type-specific attributes from previous block type
-      if (toRemove.length > 0) {
-        const endPath = [...blockPath];
-        endPath[endPath.length - 1] += 1;
-        tree.removeStyleByPath(blockPath, endPath, toRemove);
-      }
+      // Remove stale type-specific attributes from previous block type.
+      // Node-scoped: a path range spans this block's whole subtree, so on a
+      // table block it would also strip `listKind`/`listLevel`/`headingLevel`
+      // from every block nested in its cells.
+      removeNodeStyle(tree, blockPath, toRemove);
 
       // For HR/page-break, clear all inlines
       if (type === 'horizontal-rule' || type === 'page-break') {
@@ -2499,7 +2464,7 @@ export class YorkieDocStore implements DocStore {
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const cellPath = [...tablePath, rowIndex, colIndex];
       tree.styleByPath(cellPath, attrs);
-      removeCellNodeStyle(tree, cellPath, removeAttrs);
+      removeNodeStyle(tree, cellPath, removeAttrs);
     });
 
     // Update cache after Yorkie update succeeds
@@ -2549,7 +2514,7 @@ export class YorkieDocStore implements DocStore {
       }
       // Node-scoped: a path range would drop `colSpan`/`rowSpan` from every
       // nested-table cell inside this one too.
-      removeCellNodeStyle(tree, cellPath, attrsToRemove);
+      removeNodeStyle(tree, cellPath, attrsToRemove);
     });
 
     // Update cache after Yorkie update succeeds
@@ -2721,7 +2686,7 @@ export class YorkieDocStore implements DocStore {
         if (document.header) {
           children.push({
             type: 'header',
-            attributes: { marginFromEdge: String(document.header.marginFromEdge) },
+            attributes: serializeMarginFromEdge(document.header.marginFromEdge),
             children: document.header.blocks.map(buildBlockNode),
           });
         }
@@ -2729,7 +2694,7 @@ export class YorkieDocStore implements DocStore {
         if (document.footer) {
           children.push({
             type: 'footer',
-            attributes: { marginFromEdge: String(document.footer.marginFromEdge) },
+            attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
             children: document.footer.blocks.map(buildBlockNode),
           });
         }

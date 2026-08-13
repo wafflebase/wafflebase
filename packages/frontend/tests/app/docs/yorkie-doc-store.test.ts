@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, createTableBlock, createTableCell } from '@wafflebase/docs';
-import type { Block, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell } from '@wafflebase/docs';
+import type { Block, HeaderFooter, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
   return {
@@ -2124,6 +2124,49 @@ describe('YorkieDocStore', () => {
         if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
       }
     });
+
+    // The renderer that lays out and paints the header runs on *this* copy of
+    // the codec, so the NaN guard has to hold here and not just on the
+    // backend's reader: `Number('undefined')` as a page offset paints nothing.
+    it('should read a legacy poisoned header marginFromEdge as the default', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        root.content = new yorkie.Tree({
+          type: 'doc',
+          children: [
+            { type: 'header', attributes: { marginFromEdge: 'undefined' }, children: [] },
+            {
+              type: 'block',
+              attributes: { id: 'b1', type: 'paragraph' },
+              children: [
+                { type: 'inline', attributes: {}, children: [{ type: 'text', value: 'x' }] },
+              ],
+            },
+            { type: 'footer', attributes: { marginFromEdge: 'NaN' }, children: [] },
+          ],
+        });
+      });
+
+      const read = new YorkieDocStore(doc).getDocument();
+      expect(read.header!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+      expect(read.footer!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+    });
+
+    it('should omit an absent header marginFromEdge instead of writing "undefined"', () => {
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [makeBlock('head')] } as unknown as HeaderFooter,
+      });
+
+      // An empty attribute map reads back as `undefined`, which is exactly
+      // the point: nothing was persisted for the absent field.
+      const headerAttrs = (doc.getRoot().content.getRootTreeNode().children[0]
+        .attributes ?? {}) as Record<string, string>;
+      expect(headerAttrs).not.toHaveProperty('marginFromEdge');
+      expect(
+        new YorkieDocStore(doc).getDocument().header!.marginFromEdge,
+      ).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+    });
   });
 
   describe('applyCellSpan', () => {
@@ -2186,12 +2229,16 @@ describe('YorkieDocStore', () => {
       nested.tableData!.rows[0].cells[0].colSpan = 2;
       outer.tableData!.rows[0].cells[0].blocks = [nested];
       store.setDocument({ blocks: [outer] });
+      store.applyCellStyle(outer.id, 0, 0, { backgroundColor: '#ff0000' });
       store.applyCellSpan(outer.id, 0, 0, { colSpan: 2 });
       store.applyCellSpan(outer.id, 0, 0, { colSpan: 1 });
 
       const fresh = new YorkieDocStore(doc).getDocument();
       const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
       expect(cell.colSpan).toBe(undefined);
+      // The index-scoped removal takes out the named attributes only — the
+      // cell's other style attributes, and every node inside it, survive.
+      expect(cell.style.backgroundColor).toBe('#ff0000');
       expect(cell.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(2);
     });
 

@@ -26,13 +26,13 @@ import {
   type TreeNode,
 } from '@yorkie-js/sdk';
 import {
-  DEFAULT_BLOCK_STYLE,
-  DEFAULT_HEADER_MARGIN_FROM_EDGE,
-  normalizeBlockStyle,
+  parseBlockStyleAttrs,
+  parseMarginFromEdgeAttr,
+  serializeBlockStyleAttrs,
+  serializeMarginFromEdgeAttrs,
 } from '@wafflebase/docs';
 import type {
   DocsBlock,
-  DocsBlockStyle,
   DocsDocument,
   DocsInline,
   DocsPageSetup,
@@ -136,57 +136,14 @@ function parseInlineStyle(
   return style;
 }
 
-const BLOCK_STYLE_NUMERIC_FIELDS = [
-  'lineHeight',
-  'marginTop',
-  'marginBottom',
-  'textIndent',
-  'marginLeft',
-] as const;
-
-/**
- * `BlockStyle` is a full shape in the model but a *partial* on the wire: the
- * content PUT API accepts `style: {}`, and older documents predate fields
- * added since. Writing those absent fields unconditionally would persist
- * `alignment: undefined` and the literal string `"undefined"` for every
- * number, which `parseBlockStyle` then reads back as `NaN` and the layout
- * engine turns into an unrenderable block. So each attribute is emitted only
- * when it carries a value the reader can invert: a string alignment, and a
- * finite number for the geometry. Anything omitted falls back to
- * `DEFAULT_BLOCK_STYLE` on read, which is what an unspecified field means.
- */
-function serializeBlockStyle(
-  style: DocsBlock['style'] | undefined,
-): Record<string, string> {
-  const attrs: Record<string, string> = {};
-  if (typeof style?.alignment === 'string') attrs.alignment = style.alignment;
-  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
-    const value = Number(style?.[field]);
-    if (style?.[field] !== undefined && Number.isFinite(value)) {
-      attrs[field] = String(value);
-    }
-  }
-  return attrs;
-}
-
-function parseBlockStyle(
-  attrs: Record<string, string> | undefined,
-): DocsBlockStyle {
-  if (!attrs) return { ...DEFAULT_BLOCK_STYLE };
-  const partial: Partial<DocsBlockStyle> = {};
-  if (typeof attrs.alignment === 'string')
-    partial.alignment = attrs.alignment as DocsBlockStyle['alignment'];
-  // A non-finite attribute (a hand-edited CRDT, a document written before
-  // the serializer above) reads as the default rather than poisoning the
-  // layout with NaN — `normalizeBlockStyle` is a bare spread and would keep
-  // whatever it is handed.
-  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
-    if (!(field in attrs)) continue;
-    const value = Number(attrs[field]);
-    if (Number.isFinite(value)) partial[field] = value;
-  }
-  return normalizeBlockStyle(partial);
-}
+// Block-level style is encoded by the shared codec in `@wafflebase/docs`
+// (`model/crdt-attrs.ts`) rather than a copy here: the editor's
+// `YorkieDocStore` writes the same Tree attributes, and a divergence between
+// the two encodings would make one writer's output unreadable by the other's
+// reader. See that module for the partial-on-the-wire contract (absent fields
+// are omitted, non-finite numbers and unknown alignments are dropped).
+const serializeBlockStyle = serializeBlockStyleAttrs;
+const parseBlockStyle = parseBlockStyleAttrs;
 
 function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
   const attrs: Record<string, string> = {};
@@ -308,20 +265,9 @@ function buildRowNode(row: DocsTableRow): ElementNode {
   };
 }
 
-/**
- * Same contract as `serializeBlockStyle`: `marginFromEdge` is optional on the
- * wire (`{ header: { blocks: [] } }` is a valid PUT body), and writing it
- * unconditionally would persist the literal string `"undefined"` that the
- * reader below turns into `NaN` — an unrenderable header offset. Omit it
- * instead so the read falls back to `DEFAULT_HEADER_MARGIN_FROM_EDGE`.
- */
-function serializeMarginFromEdge(
-  marginFromEdge: number | undefined,
-): Record<string, string> {
-  const value = Number(marginFromEdge);
-  if (marginFromEdge === undefined || !Number.isFinite(value)) return {};
-  return { marginFromEdge: String(value) };
-}
+// `marginFromEdge` follows the same partial-on-the-wire contract as block
+// style, and is encoded by the same shared codec for the same reason.
+const serializeMarginFromEdge = serializeMarginFromEdgeAttrs;
 
 function buildTreeChildren(document: DocsDocument): ElementNode[] {
   const children: ElementNode[] = [];
@@ -345,17 +291,7 @@ function buildTreeChildren(document: DocsDocument): ElementNode[] {
   return children;
 }
 
-/**
- * Invert `serializeMarginFromEdge`. A non-finite attribute (a legacy document
- * written before the guard above, a hand-edited CRDT) reads as the default
- * rather than poisoning the header layout with `NaN`.
- */
-function parseMarginFromEdge(value: string | undefined): number {
-  const parsed = Number(value);
-  return value !== undefined && Number.isFinite(parsed)
-    ? parsed
-    : DEFAULT_HEADER_MARGIN_FROM_EDGE;
-}
+const parseMarginFromEdge = parseMarginFromEdgeAttr;
 
 // ---------------------------------------------------------------------------
 // ElementNode → Document

@@ -219,9 +219,40 @@ PUT    /api/v1/workspaces/:wid/documents/:did/content   Replace Document JSON
 
 `GET` returns the `Document` root from Yorkie (block tree, page setup,
 header/footer, inline metadata included as-is). `PUT` replaces the
-Yorkie root with the body JSON. Both reject when the document
-`type !== 'doc'` with HTTP 409 and a message pointing to the matching
-sheets command.
+Yorkie root with the body JSON. Both reject a spreadsheet document with
+HTTP 409 and a message pointing to the matching sheets command (the same
+routes also serve `slides` and `note` documents, dispatching on the
+persisted type).
+
+**`PUT` validation contract.** The writers dereference much of the payload
+unconditionally, so a malformed body would otherwise surface as an HTTP 500
+from inside Yorkie *after* a partial write. `PUT` therefore validates the body
+up front and answers `400` with the offending path (`blocks[3].inlines[0]`,
+`slides[1].elements[2].data`, …) on the first problem it finds. Beyond the
+structural checks (`blocks` / `inlines` / `tableData.rows[].cells[].blocks`
+must be arrays; a block needs a non-empty `id`, a `type` and a `style` object;
+an inline needs a string `text` and a `style` object; a table cell needs a
+`style` object) it validates the *values* a block style carries:
+
+- `style.alignment`, when present, must be one of `left`, `center`, `right`,
+  `justify`.
+- `style.lineHeight` / `marginTop` / `marginBottom` / `textIndent` /
+  `marginLeft`, when present, must be **finite numbers** — not numeric
+  strings, not `null`.
+- `header` / `footer`, when present, must be objects with a `blocks` array
+  (walked with the same block validator) and a finite `marginFromEdge`.
+- On a slides body the same block-style value checks are applied to the docs
+  `Block`s inside every text body — text elements, shape text, table cells and
+  group children — since those are the same shape reaching the same layout
+  engine. The structural block checks are *not* applied there: slide text
+  bodies are stored verbatim as JSON with no attribute codec to normalize them
+  on read, so requiring fields older decks may lack would break a
+  `GET` → edit → `PUT` round-trip.
+
+`GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
+Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values
+the validator rejects, so a legacy document holding an unknown alignment or a
+`NaN` margin is returned already normalized to the block defaults.
 
 Markdown / text / PDF / DOCX serialization is **not** done by the
 backend. The CLI imports `@wafflebase/docs` and runs it locally; this

@@ -33,6 +33,12 @@ import type {
   SlidesDocument,
 } from '../../yorkie/yorkie.types';
 
+import {
+  BLOCK_ALIGNMENTS,
+  BLOCK_STYLE_NUMERIC_FIELDS,
+  isBlockAlignment,
+} from '@wafflebase/docs';
+
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 
 const DOC_KEY_PREFIX = YORKIE_DOC_KEY_PREFIXES.doc;
@@ -286,16 +292,6 @@ function assertValidHeaderFooter(region: unknown, path: string): void {
   }
 }
 
-const BLOCK_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
-
-const BLOCK_STYLE_NUMERIC_FIELDS = [
-  'lineHeight',
-  'marginTop',
-  'marginBottom',
-  'textIndent',
-  'marginLeft',
-] as const;
-
 /**
  * Validate the *values* a block style carries, not just its shape. Every
  * field is optional (`style: {}` is a valid partial the reader fills from
@@ -305,7 +301,15 @@ const BLOCK_STYLE_NUMERIC_FIELDS = [
  * drops what it cannot express and the exporters clamp at their own sinks, so
  * this is defence in depth — its job is to hand the caller a 400 instead of
  * silently rewriting their style. Reached for body, header, footer and
- * table-cell blocks alike, since `assertValidBlock` recurses into cells.
+ * table-cell blocks alike, since `assertValidBlock` recurses into cells — and
+ * for the block styles inside slide text bodies, which are the same
+ * `BlockStyle` shape reaching the same layout engine (see
+ * `assertValidTextBodyBlocks`).
+ *
+ * The alignment allowlist is the same set the CRDT codec
+ * (`@wafflebase/docs` `model/crdt-attrs.ts`) will emit and read back, so a
+ * `GET` → edit → `PUT` round-trip of a docs document can never hit this 400:
+ * the reader drops anything outside the set before the caller ever sees it.
  */
 function assertValidBlockStyle(
   style: Record<string, unknown>,
@@ -314,14 +318,14 @@ function assertValidBlockStyle(
   if (
     style.alignment !== undefined &&
     (typeof style.alignment !== 'string' ||
-      !BLOCK_ALIGNMENTS.has(style.alignment))
+      !isBlockAlignment(style.alignment))
   ) {
     throw new BadRequestException(
-      `Invalid block at ${path}: 'style.alignment' must be one of left, center, right, justify`,
+      `Invalid block at ${path}: 'style.alignment' must be one of ${BLOCK_ALIGNMENTS.join(', ')}`,
     );
   }
   for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
-    const value = style[field];
+    const value = style[field as string];
     if (
       value !== undefined &&
       (typeof value !== 'number' || !Number.isFinite(value))
@@ -516,5 +520,104 @@ function assertValidElement(element: unknown, path: string): void {
     throw new BadRequestException(
       `Invalid element at ${path}: 'frame' must be an object`,
     );
+  }
+  // Slide text lives in docs `Block`s — the *same* shape the docs arm
+  // validates above, read back by `packages/slides` through the same
+  // `normalizeBlockStyle` (a bare spread) and laid out by the same docs
+  // layout engine. `writeSlidesRoot` stores them as plain JSON verbatim, so
+  // without this walk the slides arm of this endpoint is a hole through which
+  // a `NaN` margin or an alignment no renderer knows reaches the deck.
+  const data = e.data as Record<string, unknown> | undefined;
+  if (!data || typeof data !== 'object') return;
+  if (e.type === 'text') {
+    assertValidTextBodyBlocks(data, `${path}.data`);
+  } else if (e.type === 'shape') {
+    // A shape's inline text body is lazily created, so it is often absent.
+    if (data.text !== undefined && data.text !== null) {
+      assertValidTextBody(data.text, `${path}.data.text`);
+    }
+  } else if (e.type === 'table') {
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    for (let r = 0; r < rows.length; r++) {
+      const cells = (rows[r] as { cells?: unknown })?.cells;
+      if (!Array.isArray(cells)) continue;
+      for (let c = 0; c < cells.length; c++) {
+        const body = (cells[c] as { body?: unknown })?.body;
+        if (body === undefined || body === null) continue;
+        assertValidTextBody(body, `${path}.data.rows[${r}].cells[${c}].body`);
+      }
+    }
+  } else if (e.type === 'group') {
+    const children = Array.isArray(data.children) ? data.children : [];
+    for (let i = 0; i < children.length; i++) {
+      assertValidElement(children[i], `${path}.data.children[${i}]`);
+    }
+  }
+}
+
+function assertValidTextBody(body: unknown, path: string): void {
+  if (!body || typeof body !== 'object') {
+    throw new BadRequestException(
+      `Invalid element at ${path}: text body must be an object`,
+    );
+  }
+  assertValidTextBodyBlocks(body as Record<string, unknown>, path);
+}
+
+/**
+ * Validate the block *styles* inside a slide text body.
+ *
+ * Deliberately narrower than the docs arm's `assertValidBlock`: slide text
+ * bodies are persisted verbatim as JSON (there is no attribute codec to
+ * normalize them on read), so requiring fields the docs writer dereferences —
+ * `id`, `inlines`, a present `style` — would 400 a `GET` → edit → `PUT`
+ * round-trip of any deck whose stored blocks predate them. What it does check
+ * is every value that would otherwise reach the layout engine unusable: a
+ * `style` that is not an object, and the alignment/geometry values inside it.
+ */
+function assertValidTextBodyBlocks(
+  body: Record<string, unknown>,
+  path: string,
+): void {
+  const blocks = body.blocks;
+  if (blocks === undefined || blocks === null) return;
+  if (!Array.isArray(blocks)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'blocks' must be an array`,
+    );
+  }
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i] as Record<string, unknown> | null;
+    if (!block || typeof block !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.blocks[${i}]: not an object`,
+      );
+    }
+    if (block.style !== undefined && block.style !== null) {
+      if (typeof block.style !== 'object') {
+        throw new BadRequestException(
+          `Invalid block at ${path}.blocks[${i}]: 'style' must be an object`,
+        );
+      }
+      assertValidBlockStyle(
+        block.style as Record<string, unknown>,
+        `${path}.blocks[${i}]`,
+      );
+    }
+    // A docs table block inside a slide text body holds blocks of its own.
+    const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
+    if (!Array.isArray(rows)) continue;
+    for (let r = 0; r < rows.length; r++) {
+      const cells = (rows[r] as { cells?: unknown })?.cells;
+      if (!Array.isArray(cells)) continue;
+      for (let c = 0; c < cells.length; c++) {
+        const cell = cells[c] as Record<string, unknown> | null;
+        if (!cell || typeof cell !== 'object') continue;
+        assertValidTextBodyBlocks(
+          cell,
+          `${path}.blocks[${i}].tableData.rows[${r}].cells[${c}]`,
+        );
+      }
+    }
   }
 }

@@ -84,3 +84,20 @@ kept writing `String(undefined)`.
 
 Takeaway: when a fix lands in a serializer, grep the attribute names — not the
 function name — for the other end of the wire.
+
+The round after *that* took the takeaway one step further: hardening the copies
+in pairs is a discipline nobody can hold across a repo, so the codec stopped
+being duplicated. `serializeBlockStyleAttrs` / `parseBlockStyleAttrs` /
+`serializeMarginFromEdgeAttrs` / `parseMarginFromEdgeAttr` now live in
+`@wafflebase/docs` (`model/crdt-attrs.ts`) and both writers import them. The
+module is pure data-model code with no DOM or Yorkie dependency, which is what
+lets the NestJS backend and the browser store share it — the "cannot import
+React/browser code from a NestJS process" reason the duplication existed for
+never applied to the attribute math itself.
+
+Making the reader normalize (drop an alignment outside the allowlist, drop a
+non-finite number) also turned out to be what keeps the API's stricter `PUT`
+validation safe: the write side rejects exactly the values the read side
+refuses to hand back, so `GET` → edit → `PUT` of a legacy document cannot 400
+on a value the caller never touched. A validator stricter than its own reader
+is a round-trip break waiting to happen.

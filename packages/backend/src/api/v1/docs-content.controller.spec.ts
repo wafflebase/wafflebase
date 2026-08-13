@@ -724,6 +724,168 @@ describe('ApiV1DocsContentController', () => {
           /slides\[0\]\.elements\[0\].*'frame'/,
         );
       });
+
+      // Slide text bodies hold docs `Block`s — the same shape (and the same
+      // layout engine) the docs arm validates — persisted verbatim as JSON.
+      // Validating only the docs arm would leave this endpoint accepting
+      // through `slides` exactly what it rejects through `blocks`.
+      function withTextElement(data: unknown): unknown {
+        return withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [{ id: 'e1', type: 'text', frame: {}, data }],
+              notes: [],
+            },
+          ] as unknown as [],
+        });
+      }
+
+      it('rejects an out-of-range alignment inside a text element', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [{ id: 'b1', type: 'paragraph', style: { alignment: 'middle' }, inlines: [] }],
+          }),
+          /elements\[0\]\.data\.blocks\[0\].*'style\.alignment'/,
+        );
+      });
+
+      it('rejects a non-finite margin inside a text element', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [{ id: 'b1', type: 'paragraph', style: { marginTop: 'lots' }, inlines: [] }],
+          }),
+          /elements\[0\]\.data\.blocks\[0\].*'style\.marginTop'/,
+        );
+      });
+
+      it('rejects a bad block style inside shape text', async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  {
+                    id: 'e1',
+                    type: 'shape',
+                    frame: {},
+                    data: {
+                      text: {
+                        blocks: [
+                          { id: 'b1', type: 'paragraph', style: { lineHeight: null }, inlines: [] },
+                        ],
+                      },
+                    },
+                  },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /elements\[0\]\.data\.text\.blocks\[0\].*'style\.lineHeight'/,
+        );
+      });
+
+      it('rejects a bad block style inside a table cell body', async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  {
+                    id: 'e1',
+                    type: 'table',
+                    frame: {},
+                    data: {
+                      columnWidths: [100],
+                      rows: [
+                        {
+                          cells: [
+                            {
+                              body: {
+                                blocks: [
+                                  { id: 'b1', type: 'paragraph', style: { textIndent: 'x' }, inlines: [] },
+                                ],
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /rows\[0\]\.cells\[0\]\.body\.blocks\[0\].*'style\.textIndent'/,
+        );
+      });
+
+      it('rejects a bad block style inside a group child', async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  {
+                    id: 'g1',
+                    type: 'group',
+                    frame: {},
+                    data: {
+                      children: [
+                        {
+                          id: 'e1',
+                          type: 'text',
+                          frame: {},
+                          data: {
+                            blocks: [
+                              { id: 'b1', type: 'paragraph', style: { alignment: 'top' }, inlines: [] },
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /children\[0\]\.data\.blocks\[0\].*'style\.alignment'/,
+        );
+      });
+
+      it('accepts a slide text block that omits id/inlines', async () => {
+        // Slide text bodies are stored verbatim with no attribute codec to
+        // normalize them on read, so the structural block requirements of
+        // the docs arm must NOT apply here — a legacy deck has to survive a
+        // GET → edit → PUT round-trip. Reaching the metadata lookup proves
+        // validation passed.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          controller.putContent(
+            'ws-1',
+            'd1',
+            withTextElement({
+              blocks: [{ type: 'paragraph', style: { alignment: 'center' } }],
+            }) as never,
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
     });
   });
 });
