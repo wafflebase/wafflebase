@@ -65,13 +65,20 @@ tools for handling large datasets.
 - [packages/sheets/](packages/sheets/README.md) — Core spreadsheet engine (data model, formulas, Canvas rendering)
 - [packages/docs/](packages/docs/README.md) — Canvas-based document editor (rich text, inline formatting)
 - [packages/slides/](packages/slides/README.md) — Presentation engine (free-position elements, themes/layouts, Canvas + DOM overlay)
+- [packages/notes/](packages/notes/README.md) — Markdown note engine (CodeMirror source editor, live preview)
+- [packages/board/](packages/board/README.md) — Infinite-canvas engine (boundless pan/zoom over the Slides scene engine)
+- [packages/core/](packages/core/README.md) — Shared foundation, subpath exports only (tokens, geometry, url)
 - [packages/frontend/](packages/frontend/README.md) — React web app (pages, components, hooks)
 - [packages/backend/](packages/backend/README.md) — NestJS API server (auth, documents, data sources)
 - [packages/cli/](packages/cli/README.md) — Command-line interface for the Wafflebase API ([skills](packages/cli/skills/SKILL.md))
 - [packages/documentation/](packages/documentation/README.md) — VitePress documentation site (wafflebase.io/docs)
+- [packages/design-editor/](packages/design-editor/README.md) — Dev-only Vite plugin that edits a project's JSX and design tokens in place
 
-The frontend depends on `@wafflebase/sheets`, `@wafflebase/docs`, and
-`@wafflebase/slides` as workspace dependencies.
+Per-package detail lives in [packages/README.md](packages/README.md). The
+frontend depends on all five engines — `@wafflebase/sheets`, `@wafflebase/docs`,
+`@wafflebase/slides`, `@wafflebase/notes`, `@wafflebase/board` — plus
+`@wafflebase/core` as workspace dependencies. Among the engines, `slides` builds
+on `docs` and `board` builds on `slides`; `notes` stands alone.
 
 ## Getting Started
 

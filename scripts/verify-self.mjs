@@ -183,6 +183,20 @@ const LANES = [
   // first. Kept first here for the same reason: it is seconds long and catches
   // the class of mistake that would otherwise be found after a nine-minute build.
   { name: "lint:scripts", cmd: "pnpm lint:scripts", tags: ["agent"] },
+  // Index coverage — every package, design doc and top-level script is
+  // reachable from the README that introduces it. The complement of
+  // `verify:entropy`'s dead-link pass, which walks links → disk and so cannot
+  // see a file that was ADDED and never indexed (nothing points at it, so there
+  // is no broken reference to find). `anyPkg` because a new package is exactly
+  // the case it exists for; `docsProse` because a new design doc is the other.
+  // Reads markdown and builds nothing, so it declares no `needs` and sits with
+  // the other sub-second gates rather than after the builds.
+  {
+    name: "verify:doc-index",
+    cmd: "pnpm verify:doc-index",
+    anyPkg: true,
+    tags: ["docsProse"],
+  },
   // Import-boundary rules. Neither arch config sets `parserOptions.project`, so
   // both are pure syntactic lints and need no `dist/` — which is why they sit
   // above the builds rather than after them.

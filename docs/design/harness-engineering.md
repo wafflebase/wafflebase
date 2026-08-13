@@ -196,7 +196,29 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: 27 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+| `pnpm verify:doc-index` | Index-coverage gate — every package, design doc and top-level script is reachable from its README |
+| `pnpm verify:self` | Runner: 28 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+
+`verify:entropy` and `verify:doc-index` are complements over the same prose and
+must not be folded together. Entropy walks *links → disk*: for each reference in
+a **top-level** `docs/design/*.md` it checks the target still exists, which
+catches a file that moved or was deleted. Doc-index walks *disk → index*: it
+catches a file that was added and never indexed, which nothing points at and
+which therefore leaves no broken reference to find. That second direction is why
+`packages/README.md` was missing four of eleven packages while every link in it
+still resolved.
+
+Neither reaches everything. Entropy does not descend into `docs/design/sheets/`
+and the other subdirectories, and it reads no README outside that tree — so
+doc-index drops any link resolving to a nonexistent path before counting it as
+coverage, which is the only dead-link check the package and script indexes get.
+
+Coverage is top-level by design. A directory counts as covered once its index
+names it — `scripts/agent/` alone holds over a hundred files, and a gate
+demanding a row per file produces an index nobody maintains. The same rule lets
+one umbrella row cover a subtree: `docs/design/README.md` links `docs/tables/`
+once, and an ancestor-directory link covers the per-feature docs beneath it, so
+no exception list has to be kept in the gate.
 
 **Lanes are a graph, not a list.** Each lane declares what it is *about*
 (`pkgs` / `tags` / `anyPkg`) and what it needs *built* (`needs`), and selection
