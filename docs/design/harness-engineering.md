@@ -332,9 +332,39 @@ Yorkie to run tests that cannot reach `scripts/agent/`. Two layers fix that.
 **Why it is a job and not a trigger.** A workflow filtered out by `on: paths:`
 produces **no check run at all**. `main`'s required contexts then never report,
 and a merge-queue entry waits on them until its status-check timeout dequeues it.
-A job whose `if:` is false **is** recorded — as `skipped`, which GitHub counts as
-passing for both required checks and the queue. Everything below follows from
-that asymmetry.
+A job that runs reports under a name the queue recognises.
+
+**And why the gate is on the steps, not on the job.** The obvious version — give
+the heavy jobs a job-level `if:` and let GitHub record them as `skipped`, which
+does satisfy a required check — is wrong, and #803 shipped it before a real
+merge-queue entry proved it. **A job with a `strategy.matrix` that is skipped by
+its own `if:` never expands the matrix**, so it files its check run under the bare
+job name. Measured on the `merge_group` SHA for #799:
+
+```
+verify-self (22.x)      success     ← ran, so the matrix expanded
+verify-browser          skipped     ← BARE NAME
+verify-integration      skipped     ← BARE NAME
+```
+
+`main` requires `verify-browser (22.x)` and `verify-integration (22.x)`. Neither
+name existed on that SHA, so the entry sat on *"Expected — Waiting for status to
+be reported"* and would have been dequeued at the status-check timeout — the exact
+failure the job-level filter was chosen to avoid, reached by a different route:
+not a missing check *run*, a missing check *name*. MAINTAINING.md's warning that
+"required check names must keep matching" is about renaming a job; skipping a
+matrix job renames it too.
+
+So `verify-browser` and `verify-integration` always run and always expand, and
+every step inside them carries the gate. When there is nothing to test they no-op
+and report success in seconds — the semantics the skip was reaching for, under a
+name that exists. `scripts/test/ci-workflow.test.mjs` fails if either job regains
+a job-level `if:` referencing the filter decision, or if a step loses its gate.
+
+A matrix job *may* still carry an `if:` that can only be false when the run is
+already doomed: `needs.verify-self.result == 'success'` is fine, because a failed
+`verify-self (22.x)` reports the failure and the entry is dequeued rather than
+stranded.
 
 **The mapping is an allow-list.** `harness.config.json`'s `ci.inert` lists the
 only paths permitted to shrink a run; a changed path matching nothing forces the
