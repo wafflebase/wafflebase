@@ -5,7 +5,7 @@ import {
   walkSceneNodes,
   type Analysis,
   type SceneNodeMeta,
-} from '../src/types';
+} from '../src/types.ts';
 
 /**
  * `sceneNodeAt` is the CLIENT half of the index-path addressing that

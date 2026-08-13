@@ -39,12 +39,13 @@
       },
       {
         "paths": [
-          "packages/design-editor/**"
+          "packages/design-editor/**",
+          "packages/design-sandbox/**"
         ],
         "tags": [
           "designEditor"
         ],
-        "reason": "The dev-only design-system editor Vite plugin. A leaf package: no package.json in the workspace depends on @wafflebase/design-editor and packages/frontend's vite.config.ts does not register the plugin, so nothing it does can change what verify-browser renders or what verify-integration serves — it is `private: true` and never enters a production bundle. Unlike packages/documentation it IS analysed by knip (#819 added it to knip.json's `workspaces`), so the `designEditor` tag is claimed by two lanes, not one: `design-editor:check` (tsc --noEmit + vitest) and `verify:entropy`, which carries the dead-code gate that a change here can genuinely fail. Skipping entropy would have hidden dead code until main's push run. An inert entry whose tag no lane claims is strictly worse than not listing the path at all, so check the claimants when editing this."
+        "reason": "The dev-only design-system editor Vite plugin, and wafflebase's own instance of it. Both are leaf packages: packages/frontend's vite.config.ts registers neither, so nothing they do can change what verify-browser renders or what verify-integration serves — both are `private: true` and neither enters a production bundle. NOTE, changed by the PR that added design-sandbox: it is no longer true that nothing in the workspace depends on @wafflebase/design-editor — design-sandbox does, which is the dogfood that proves the package boundary holds. That edge is inert-to-inert and does not reach the frontend, so the conclusion is unchanged, but the old wording read as evidence rather than as a claim about leaves. Both are analysed by knip (design-editor since #819), so the `designEditor` tag is claimed by three lanes: `design-editor:check`, `design-sandbox:check` (both tsc --noEmit + vitest) and `verify:entropy`, which carries the dead-code gate a change here can genuinely fail. Skipping entropy would have hidden dead code until main's push run. Both check lanes are tagged, because design-sandbox consumes design-editor's source directly: a change to either can break the other's typecheck. An inert entry whose tag no lane claims is strictly worse than not listing the path at all, so check the claimants when editing this."
       }
     ],
     "ciConfigReason": "The gating surface itself. A change to any of these forces a full run, so a PR can never use the filter to grade its own homework — the reduced-run decision is always made by the version of the mapping already on main. It also drives the loud `ci-config-changed` label and job-summary warning, because CODEOWNERS only binds when branch protection has 'Require review from Code Owners' switched on.",
@@ -106,7 +107,7 @@
       "advisory": [
         {
           "pattern": "^design-editor/",
-          "reason": "The design-editor docs specify an engine and a sandbox package that are mostly unwritten. `packages/design-editor` exists but holds only the server-side core (`src/types.ts` plus `src/server/{extract,inject,stamp,jsx-nodes}.mjs`); `packages/design-sandbox` does not exist at all. So these 95 references name files the spec intends to create — a spec for unbuilt work is not a stale doc, and failing on it would repeat the false positive this check was fixed for. Narrow this to `doc` + `ref` entries as the package fills in, and drop it once the refs resolve."
+          "reason": "The design-editor docs specify an editor UI that is still unwritten. `packages/design-editor` now holds the server core (`src/server/{extract,inject,stamp,jsx-nodes}.mjs`), the plugin host (`src/plugin/**`) and the token seam (`src/tokens/**`); `packages/design-sandbox` now exists and holds the `@wafflebase/core` token adapter, the scene manifest and the live-server smoke script. What is still spec-only is the shell UI and the scene runtime — `src/editor/**`, `src/scenes/**`, `providers.tsx`, the fixtures and the canvas shims — which PRs 10-12 create. So the remaining references name files the spec intends to create, and a spec for unbuilt work is not a stale doc; failing on it would repeat the false positive this check was fixed for. Narrow this to `doc` + `ref` entries as the UI fills in, and drop it once the refs resolve."
         },
         {
           "doc": "slides/slides-image-crop.md",

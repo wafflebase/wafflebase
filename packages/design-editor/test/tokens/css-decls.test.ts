@@ -22,7 +22,7 @@ import {
   selectorList,
   setDecl,
   topLevelBlocks,
-} from '../../src/tokens/css-decls';
+} from '../../src/tokens/css-decls.ts';
 
 const SHADCN = `@import "tailwindcss";
 @custom-variant dark (&:is(.dark *));

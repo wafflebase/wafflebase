@@ -14,10 +14,10 @@
  * asks the adapter rather than matching a pattern.
  */
 
-import type { MutateRequest } from './protocol';
-import type { PathGuard } from './paths';
-import type { TokenAdapter, TokenEdit, TokenFamily, TokenWrite } from '../tokens/adapter';
-import { camelToKebab, normaliseSource } from '../tokens/adapter';
+import type { MutateRequest } from './protocol.ts';
+import type { PathGuard } from './paths.ts';
+import type { TokenAdapter, TokenEdit, TokenFamily, TokenWrite } from '../tokens/adapter.ts';
+import { camelToKebab, normaliseSource } from '../tokens/adapter.ts';
 
 /**
  * Wire kinds that address a token rather than a JSX node.

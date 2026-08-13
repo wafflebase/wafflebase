@@ -6,8 +6,8 @@ import {
   frameOf,
   stripFrameQuery,
   withFrameQuery,
-} from '../../src/plugin/frame';
-import { layoutFileOf, planFiles } from '../../src/plugin/protocol';
+} from '../../src/plugin/frame.ts';
+import { layoutFileOf, planFiles } from '../../src/plugin/protocol.ts';
 
 /**
  * The frame query is how one dev server holds two versions of one module. These

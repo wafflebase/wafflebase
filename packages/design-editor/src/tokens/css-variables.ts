@@ -27,8 +27,8 @@ import {
   removeDecl,
   setDecl,
   type CssEditResult,
-} from './css-decls';
-import { normaliseSource } from './adapter';
+} from './css-decls.ts';
+import { normaliseSource } from './adapter.ts';
 import type {
   TokenAdapter,
   TokenEdit,
@@ -37,7 +37,7 @@ import type {
   TokenFamilyMeta,
   TokenTree,
   TokenWrite,
-} from './adapter';
+} from './adapter.ts';
 
 export interface CssVariablesOptions {
   /**

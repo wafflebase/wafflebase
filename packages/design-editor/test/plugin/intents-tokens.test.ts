@@ -13,14 +13,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { composeIntents, computeIntent, filesForIntent, labelOf } from '../../src/plugin/intents';
-import type { IntentContext, Injector } from '../../src/plugin/intents';
-import { createPathGuard } from '../../src/plugin/paths';
-import { createTracker } from '../../src/plugin/tracked';
-import { cssVariables } from '../../src/tokens/css-variables';
-import { declMap, readDecls } from '../../src/tokens/css-decls';
-import type { MutateRequest } from '../../src/plugin/protocol';
-import type { TokenAdapter } from '../../src/tokens/adapter';
+import { composeIntents, computeIntent, filesForIntent, labelOf } from '../../src/plugin/intents.ts';
+import type { IntentContext, Injector } from '../../src/plugin/intents.ts';
+import { createPathGuard } from '../../src/plugin/paths.ts';
+import { createTracker } from '../../src/plugin/tracked.ts';
+import { cssVariables } from '../../src/tokens/css-variables.ts';
+import { declMap, readDecls } from '../../src/tokens/css-decls.ts';
+import type { MutateRequest } from '../../src/plugin/protocol.ts';
+import type { TokenAdapter } from '../../src/tokens/adapter.ts';
 
 const SHEET = 'src/index.css';
 

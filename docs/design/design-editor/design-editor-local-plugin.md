@@ -108,13 +108,23 @@ Every file on `feat/design-system` falls into exactly one of three populations.
 `src/scenes/fixtures/**`, `data/mock-metadata.ts`, `scenes.config.json`,
 `src/scenes/providers.tsx`.
 
-> **`packages/design-sandbox` does not exist yet** — not on `main`, and not on
-> `feat/design-system` either. Every "moves to `design-sandbox`" in this document
-> is a destination that PR **8c** creates, so until it lands, population C has
-> nowhere to go: the plugin PRs *delete* those couplings and wafflebase's own
-> scenes stop rendering in the interval. That is the cost of the boundary being
-> structural, and it is the reason 8c is scheduled rather than assumed — the
-> dogfood is also the only proof the split holds.
+> **`packages/design-sandbox` exists as of 8c**, with the token half of
+> population C in it. Before that it was a destination this document named and
+> nothing occupied, and the plugin PRs *deleted* those couplings, so wafflebase's
+> own scenes stopped rendering in the interval. That was the cost of the boundary
+> being structural, and it is why 8c was scheduled rather than assumed — the
+> dogfood is also the only proof the split holds, and it earned its keep
+> immediately: see the ⚠ note at the end of [§6](#6-the-couplings-that-must-become-configuration).
+>
+> The scene half of population C — `providers.tsx`, `fixtures/**`, `canvas/**`,
+> `mock-metadata.ts` — is still homeless, deliberately. Every one of those is
+> loaded by the scene runtime (`scene-entry.tsx`, `SceneHost`), which PRs 10–12
+> build, so moving them in 8c would have landed ~1,000 lines that nothing can
+> execute and whose comments describe files that do not exist.
+> `mock-metadata.ts` (908 lines) is not moving at all: the `/metadata` endpoint
+> replaced it, and Phase 3 made that structural rather than cosmetic — a client
+> holding a pre-write tree fails on every following sibling after a
+> `layout-insert`.
 
 **Target layout**
 
@@ -129,12 +139,26 @@ packages/
 │   │   └── tokens/                 # TokenAdapter interface + cssVariables impl
 │   └── scene.html, index.html      # prebuilt and served as static assets
 └── design-sandbox/                 # private: true — wafflebase's instance
-    ├── scenes.config.json
-    ├── src/providers.tsx
-    ├── src/fixtures/**
-    ├── src/canvas/**               # yorkie-offline shim + seeds + engine probes
-    └── src/tokens/core-adapter.ts  # the @wafflebase/core four-file pipeline
+    ├── scenes.config.json          # 8c
+    ├── vite.config.ts              # 8c — the consumer config
+    ├── scripts/verify-tokens.mjs   # 8c — live-server smoke
+    ├── src/tokens/core-adapter.ts  # 8c — the @wafflebase/core four-file pipeline
+    ├── src/tokens/preview-worker.ts# 8c — the warm tsx child
+    ├── src/providers.tsx           # 10–12
+    ├── src/fixtures/**             # 10–12
+    └── src/canvas/**               # 10–12: yorkie-offline shim + seeds
 ```
+
+⚠ **The package needed an entry point, and that is what the first consumer is
+for.** `design-editor` shipped in 8a with no `main` and no `exports`, so
+`import { designEditor } from '@wafflebase/design-editor'` could not resolve at
+all. Nothing noticed, because the package's own tests use relative paths. Two
+further findings followed from fixing it, both recorded in that package's README:
+its relative imports need explicit `.ts` extensions for Node's type stripping to
+load them from a Vite config, and `--configLoader runner` — which looks like the
+alternative — closes the module runner after the config loads, so every deferred
+dynamic import fails at request time, *including the plugin's own*. Publishing
+needs a real `dist/`, built with a bundler rather than a bare `tsc` emit.
 
 **The one-way dependency, restated.** Engine §1 stated the rule under the
 package's former name — "nothing ever imports `design-sdk`" (**historical**;
@@ -238,9 +262,50 @@ Two implementations:
   the one part of the token half with no reference implementation to diff
   against, and its tests are therefore its specification rather than a
   regression net.
-- **`wafflebaseCore` (lives in `design-sandbox`)** — the existing four-file
-  pipeline, the `build-css.ts` worker, and the three-point `token-add`. It stays
-  exactly as built; it just stops being the assumption.
+- **`wafflebaseCore` (lives in `design-sandbox` — shipped in 8c)** — the existing
+  four-file pipeline, the `build-css.ts` worker, and the three-point `token-add`.
+  It stops being the assumption. It did *not* stay exactly as built: see the two ⚠
+  notes at the end of [§6](#6-the-couplings-that-must-become-configuration) for the
+  emitter-expression bug and the `constName` authority the port corrected.
+
+⚠ **A fifth shortfall, found in 8c: `TokenTree` had nowhere to report a token's
+SOURCE form.** It carried `vars` (what the emitter produced), `utilities` and
+`families`, and for a stylesheet pipeline that is the whole story — the declaration
+*is* the value, which is why `cssVariables` never needed more. Wafflebase's
+pipeline breaks that identity twice, and both matter:
+
+- a value may be an **expression**. `--primary`'s source is `palette.syrup`, and
+  `vars` reports the resolved `#B8651A`, so "is this bound to the palette or written
+  inline" is unanswerable from it — which is exactly the question that decides
+  whether the editor offers *rebind* or *edit the value*. It is why `set-value`
+  carries `valueKind: 'expression'` at all, and without the field a client can
+  accept such an edit and never know what to send.
+- **not every member is emitted.** `radius` has `base`/`sm`/`md`/`lg`/`xl` and only
+  `base` reaches `--radius`; the rest are derived in the app's `@theme` block. Four
+  of five have no `vars` entry, and reading their current value from
+  `getComputedStyle` instead is what made a freshly saved value look unsaved.
+
+So `TokenTree.bindings` is additive and optional. Its `kind` is **three** values,
+not two: a first draft collapsed everything non-literal into `ref`, and probing
+`semantic.ts` showed 47 literals, 13 palette references and 2 of a third thing —
+`` sidebarAccent: `rgba(${palette.butterRgb}, 0.30)` `` — where the swatch is an
+*ingredient*. Reported as `ref`, a rebind picker would replace the expression and
+silently drop the alpha. The contract is therefore the one PR 7b settled for
+`className` / `classNameExpr`: an expression that cannot be safely rewritten is
+shown read-only rather than offered as editable or hidden as absent.
+
+The field is marked **provisional**. Its shape is the prototype's `/introspect`
+response — the measured requirement rather than a guess — but the panels that
+consume it arrive in PRs 10–12, and the first real consumer has corrected every
+other shape in this contract.
+
+⚠ **One shortfall considered and rejected: the adapter cannot learn `root`.**
+`wafflebaseCore` needs an absolute path to spawn its two child processes, and
+`TokenAdapter` has no initialisation hook, so `designEditor({ root })` and
+`wafflebaseCore({ root })` are told the same value twice. Adding a lifecycle method
+to the contract for the sake of one argument is the worse trade, and an adapter
+that legitimately reads a different tree than the one being served is expressible
+this way and would not be if the root were injected.
 
 ⚠ **"Net-new" overstated it by about half.** `inject.mjs`'s `readThemeMappings` /
 `insertThemeMapping` / `removeThemeMapping` operate on CSS **text**, not on a
@@ -393,6 +458,30 @@ through the same machinery the host PR must port —
 smaller, downstream half. So a file-shaped cut leaves the whole token pipeline in
 the host PR, which is why [§8](#8-rollout) cuts by *pipeline* instead.
 
+⚠ **Which 8c rows actually landed, and why the rest waited.** 8c took the
+*pipeline* rows — `FAMILY`, `regenerateTokensCss`, the `build-css.ts` preview
+worker, `@wafflebase/core` leaving the published package — plus
+`scenes.config.json`, `opaqueRoots`' value, and the consumer `vite.config.ts` that
+demonstrates the whole table. It did **not** take the alias/shim group: the `@` and
+`@wafflebase/*` aliases, the app-libs aliases into
+`packages/frontend/node_modules`, `optimizeDeps.include`, the `define` globals, the
+antlr4ts `util`/`assert` shims, `yorkieOffline()`, and `react()` /
+`tailwindcss()`.
+
+Every one of those justifies itself by a **scene** — "the DOM documents scene
+reaches the engines transitively", "`providers.tsx` imports `MemoryRouter`",
+"`yorkie-offline.tsx` needs an escape specifier" — and the scene runtime is PRs
+10–12. Porting them in 8c would have landed config that no test and no dev server
+exercises, whose comments assert things about files that do not exist. They land
+with the code that needs them, where the reasoning can be checked rather than
+inherited. `opaqueRoots` is the exception because it is the row this table uses to
+illustrate its own goal: a generic option whose *value* alone is ours, and inert
+without scenes either way.
+
+`react()` / `tailwindcss()` also carried a measurable cost:
+`@vitejs/plugin-react`'s babel tree moved 39 lines of `pnpm-lock.yaml` for a PR
+whose subject is a token adapter. "Port it now, use it later" is not free.
+
 ⚠ **One coupling this enumeration missed, found in 8b.** For the value kinds
 (`token-value` / `token-rebind` / `palette-value`) the prototype took the target
 file from the **client**: `filesForIntent:1354` falls through to `intent.file` when
@@ -409,6 +498,35 @@ any `.ts`/`.tsx`/`.css` file under the root would have `applyTokenValue` run aga
 it. In 8b a token intent's `file` field is ignored outright: the adapter is
 authoritative, and every file it names is re-checked through the guard, because an
 adapter is consumer code too.
+
+⚠ **8c extended that to `constName`, and found a silent preview bug.** The same
+"the client chose it" shape survived in one more field: `applyTokenValue` needs a
+const name, and `semantic.ts` is `export const semantic = { light, dark }` built
+from two separate top-level consts, so the prototype took `light` / `dark` from the
+request. `wafflebaseCore` derives it from `edit.theme` instead, and the client's
+`constName` is ignored — the same rule, now with nothing left outside it.
+
+The bug was in the other half of the same table. The prototype's `FAMILY` wrote
+emitter expressions as `` radius.${camel} `` and `` typography.${camel} ``. Both
+compile and both produce a correct `tokens.css`, because `build-css.ts` imports all
+four token objects at module level — so nothing fails loudly. But the emitters also
+receive them as a `src` parameter, and *that* is what `preview-tokens.mts`
+evaluates: `src` is the patched text, the module import is the file on disk.
+Measured, patching `radius.base` to `9rem`, `['--radius', src.radius.base]`
+previews `9rem` while a bare `radius.base` previews the on-disk `0.3rem` — and for
+a token that does not exist on disk yet, `undefined`. The preview silently stops
+agreeing with what a save writes, which is the one property that worker exists to
+guarantee. The correct prefix comes from each emitter's own body (`m.` for
+`semanticBlock`, `palette.` for `paletteBlock`'s destructure, `src.radius.` /
+`src.typography.` for `rootOnlyBlock`), not from the token's name; the prototype
+was right for two of four, by luck of the destructuring.
+
+⚠ **A live risk got fresh evidence.** The Risks section below prescribes moving
+`.bak` backups into `node_modules/.cache/wafflebase-design-editor/`. That is still
+unimplemented — `PathGuard.backup` writes `${file}.bak` beside the source — and
+8c's `verify-tokens.mjs --write` demonstrated it by littering three untracked files
+into `packages/core` and `packages/frontend` on every run. The script cleans up
+after itself; the fix belongs in `paths.ts` and is not the sandbox's to make.
 
 ### 7. What this replaces
 
@@ -454,8 +572,8 @@ cap is what sets the granularity.
 | 7 | `inject.mjs` token half + tests | **merged** (#777) — completes the mutator |
 | 7b | `classNameExpr` — surfacing the class-rewrite refusal (engine §5.7) | **merged** (#787) |
 | 8a | plugin host, **layout only** | **merged** (#819) |
-| 8b | the `TokenAdapter` seam | next — see below |
-| 8c | `packages/design-sandbox` | after 8b |
+| 8b | the `TokenAdapter` seam | **merged** (#833) |
+| 8c | `packages/design-sandbox` — the token half | next — see below |
 | 9 | client state (`mutate` · `history` · `anchors` · `states`) | held |
 | 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
 
@@ -496,12 +614,31 @@ So the cut follows the one that already worked for the module underneath it —
   CSS-regen gate asking `sources()` instead of matching a `packages/core/**`
   regex. ⚠ `edits.ts`'s compiled-in paths are served but not yet *consumed* —
   there is no client code to de-hardcode until PR 9; see the row in §6.
-- **8c — `packages/design-sandbox`.** The private package that finally gives
-  population C a destination: the `wafflebaseCore` adapter, `yorkieOffline`,
-  `antlr4tsAssertShim`, the aliases, `providers.tsx`, `scenes.config.json`. It is
-  last because it consumes both halves, and because the scene files it needs are
-  themselves PR 10–12 material — so it may land minimally (adapter + providers)
-  and grow.
+- **8c — `packages/design-sandbox`, the token half.** The private package that
+  finally gives population C a destination. It is last because it consumes both
+  halves, and it did land minimally as this section predicted — though not along
+  the line predicted. The guess was "adapter + providers"; what shipped is the
+  adapter, the preview worker, `scenes.config.json`, `opaqueRoots`' value, the
+  consumer `vite.config.ts`, and a live-server smoke script. `providers.tsx` did
+  **not** ship, because it is loaded by a scene runtime that does not exist yet —
+  the split is by *what has a consumer*, not by file. See the ⚠ note in
+  [§6](#6-the-couplings-that-must-become-configuration).
+
+  **8c is where the token half stopped being verified through fakes.** 8b could
+  only reach `regenerate()` and multi-file plans through a fake adapter, because
+  `cssVariables` writes one file and has no emitter. Here both run for real: the
+  add-member plan spans three distinct files and round-trips byte-identically
+  across all of them for all four families, and `regenerate()` runs
+  `build-css.ts`. The suite is 92 tests in-package.
+
+  It also closed 8a's gate gap, at least for the token pipeline.
+  `scripts/verify-tokens.mjs` boots a real dev server and drives the full chain —
+  Vite config load → plugin → `wafflebaseCore` → injector → warm `tsx` worker →
+  real emitter — for **32 checks**, including a `--write` mode that saves, undoes
+  and asserts the tree came back byte-identical. That is the first automated
+  statement that the two halves *meet*: the unit suites on either side would not
+  notice them failing to. It stays out of `verify:fast` / `verify:self` on the same
+  grounds as the prototype's smoke scripts.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,
@@ -549,10 +686,13 @@ finding the input that reaches it (a one-line `:root { --a: 1px; }`, where the
 removal's walk-back would otherwise delete the selector) rather than by noting the
 gap.
 
-What 8b still cannot verify is `wafflebaseCore`: it does not exist until 8c, so
-`regenerate()` and multi-FILE plans are exercised only through fakes. The one
-implementation that shells out to a real emitter arrives with the package that
-owns it.
+What 8b could not verify is `wafflebaseCore`: it did not exist until 8c, so
+`regenerate()` and multi-FILE plans were exercised only through fakes. **8c closed
+that**, and the fakes turned out to have hidden nothing about the plugin — but the
+real implementation did surface two defects in the pipeline they stood in for (the
+emitter-expression preview divergence and `constName` authority, both in §6) plus a
+missing field in the contract itself (§4). A fake proves the plugin handles the
+shape; only the real pipeline proves the shape is right.
 
 **Stacking.** PRs 3 and 4 are stacked, because `stamp.mjs` imports
 `jsx-nodes.mjs`. An earlier revision of this section required them to be

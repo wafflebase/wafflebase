@@ -17,7 +17,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FrameSide } from './protocol';
+import type { FrameSide } from './protocol.ts';
 
 export interface SceneConfig {
   id: string;

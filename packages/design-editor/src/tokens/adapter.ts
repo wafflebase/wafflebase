@@ -80,6 +80,88 @@ export interface TokenTree {
   utilities: string[];
   /** Per-family authoring metadata. Replaces the client's compiled-in copy. */
   families: TokenFamilyMeta[];
+  /**
+   * How each token's value is written in SOURCE, for a pipeline that has a source layer.
+   *
+   * ADDED IN 8c, BY 8c — the shortfall building `wafflebaseCore` exposed, the same way
+   * 8b found four in 8a's sketch. `vars` is what the emitter *produced*, and for a
+   * stylesheet pipeline that is the whole story: `cssVariables` reads the declaration and
+   * the declaration is the value, which is why nothing needed this before.
+   *
+   * Wafflebase's pipeline breaks that identity in two ways, and both are load-bearing:
+   *
+   *   - a token's value may be an EXPRESSION (`palette.syrup`, or a computed
+   *     `` `rgba(${palette.butterRgb}, 0.30)` ``). `vars` shows the resolved colour, so
+   *     "is this bound to the palette or written inline" is unanswerable from it — and
+   *     that question is precisely what decides whether the editor offers "rebind" or
+   *     "edit the value". It is the reason `set-value` carries `valueKind: 'expression'`
+   *     at all, and without this field a client can accept such an edit and never know
+   *     what to send.
+   *   - not every member is emitted. `radius` has `base`/`sm`/`md`/`lg`/`xl` and only
+   *     `base` reaches `--radius`; the rest are derived in the app's `@theme` block. So
+   *     four of the five have no entry in `vars`, and reading their current value from
+   *     `getComputedStyle` instead is what made a freshly saved value look unsaved.
+   *
+   * OPTIONAL, and PROVISIONAL. Optional because a pipeline whose storage *is* its output
+   * has nothing to add here. Provisional because its shape is taken from the prototype's
+   * `/introspect` response — the measured requirement rather than a guess — but the
+   * panels that consume it arrive in PRs 10-12, and the first real consumer is what has
+   * corrected every other shape in this contract.
+   */
+  bindings?: TokenBindings;
+}
+
+/**
+ * One token's value as it is written in source.
+ *
+ * THREE kinds, not two, and the third is why: a first draft of this collapsed everything
+ * non-literal into `ref`, and probing wafflebase's own `semantic.ts` showed that loses a
+ * distinction that changes what the editor may offer. Its 62 bindings are 47 `literal`,
+ * 13 palette references, and 2 of a third thing —
+ * `` sidebarAccent: `rgba(${palette.butterRgb}, 0.30)` `` — where the palette swatch is an
+ * INGREDIENT rather than the value. Reported as `ref`, a rebind picker would replace the
+ * whole expression and silently drop the alpha.
+ *
+ * So the contract is the one PR 7b settled for `className` / `classNameExpr`: an
+ * expression that cannot be safely rewritten is shown, read-only, rather than being
+ * offered as editable or hidden as absent.
+ */
+export interface TokenBinding {
+  /**
+   * - `literal` — a plain value; editable in place.
+   * - `ref` — names another token; rebindable, and `value` is the expression to write.
+   * - `expression` — anything else. **Locked**: display it, do not offer an edit.
+   */
+  kind: 'literal' | 'ref' | 'expression';
+  /** The value, the reference, or the expression text — as authored, for display. */
+  value: string;
+}
+
+/** An expression a `set-value` with `valueKind: 'expression'` may name. */
+export interface TokenRef {
+  /** The expression to write, e.g. `palette.syrup`. */
+  ref: string;
+  /** Path within its own const, for grouping in the picker. */
+  path: string[];
+  /** The literal it currently resolves to, for the swatch. */
+  value: string;
+  /** Whether that literal is a colour — a rebind picker shows only these. */
+  isColor: boolean;
+}
+
+export interface TokenBindings {
+  /**
+   * Per theme, per camel key. A family with no per-theme split reports under `light`.
+   */
+  themed: Record<'light' | 'dark', Record<string, TokenBinding>>;
+  /** What a rebind may point at. Empty where the pipeline has no reference layer. */
+  refs: TokenRef[];
+  /**
+   * `path.join('.')` → authored value, per family, for members `vars` does not carry.
+   *
+   * Partial: only families whose source members are not all emitted need an entry.
+   */
+  leaves?: Partial<Record<TokenFamily, Record<string, string>>>;
 }
 
 /**

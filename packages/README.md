@@ -32,5 +32,6 @@ Monorepo packages for Wafflebase.
 | Package | Description |
 |---------|-------------|
 | [`design-editor`](design-editor/README.md) | Dev-only Vite plugin — renders a project's real routes and writes edits back into its JSX and token source. Never shipped to production. |
+| [`design-sandbox`](design-sandbox/README.md) | Wafflebase's own instance of that editor — the `@wafflebase/core` token adapter and the consumer Vite config. `private: true`, never published. |
 
 See the root [README](../README.md) for project overview and [`docs/design/`](../docs/design/README.md) for architecture documents.

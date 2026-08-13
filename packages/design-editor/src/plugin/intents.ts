@@ -15,11 +15,11 @@
  */
 
 import fs from 'node:fs';
-import { layoutFileOf, type MutateRequest } from './protocol';
-import type { PathGuard } from './paths';
-import type { Tracker } from './tracked';
-import type { TokenAdapter } from './options';
-import { applyTokenPlan, planTokenIntent, TOKEN_KINDS } from './tokens';
+import { layoutFileOf, type MutateRequest } from './protocol.ts';
+import type { PathGuard } from './paths.ts';
+import type { Tracker } from './tracked.ts';
+import type { TokenAdapter } from './options.ts';
+import { applyTokenPlan, planTokenIntent, TOKEN_KINDS } from './tokens.ts';
 
 /** The subset of `inject.mjs` this module calls. Loaded dynamically by the host. */
 export interface Injector {
