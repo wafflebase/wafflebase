@@ -97,4 +97,26 @@ describe("ThemeProvider storage guards", () => {
 
     expect(screen.getByTestId("probe").textContent).toBe("dark");
   });
+
+  it("ignores a junk stored value instead of applying it as a class", () => {
+    // The key is shared with the whole origin, so it can hold anything. A
+    // value with a space throws InvalidCharacterError out of classList.add,
+    // which would blank every route.
+    localStorage.setItem("vite-ui-theme", "not a theme");
+
+    expect(() => mount()).not.toThrow();
+
+    expect(screen.getByTestId("probe").textContent).toBe("system");
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+  });
+
+  it("ignores an empty stored value", () => {
+    // classList.add("") throws SyntaxError, so the empty string needs the same
+    // rejection as any other unrecognized value.
+    localStorage.setItem("vite-ui-theme", "");
+
+    expect(() => mount()).not.toThrow();
+
+    expect(screen.getByTestId("probe").textContent).toBe("system");
+  });
 });

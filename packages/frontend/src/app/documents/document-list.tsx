@@ -237,7 +237,7 @@ function SortableHeader<TData>({
  * time is always the tooltip, so the exact timestamp stays reachable in either
  * format — and a missing or unparseable value renders an em dash in both.
  */
-function DateCell({ value }: { value: string | undefined }) {
+export function DateCell({ value }: { value: string | undefined }) {
   const format = useDateFormat();
   return (
     <div className="text-right font-medium" title={formatFullDateTime(value)}>

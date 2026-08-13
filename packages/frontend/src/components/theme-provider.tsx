@@ -15,16 +15,27 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
+function isTheme(value: unknown): value is Theme {
+  return value === "dark" || value === "light" || value === "system";
+}
+
 /**
  * `localStorage` is not merely empty in Safari private mode, with blocked
  * third-party storage, or in a sandboxed iframe — touching it throws
  * SecurityError. This provider wraps the whole app, and the read below runs
  * during render, so an unguarded throw would blank every route instead of
  * losing a theme preference.
+ *
+ * The value is validated rather than cast: the key is shared with older builds,
+ * extensions, and anything else on the origin, and an arbitrary string reaches
+ * `classList.add(theme)` below — which throws `InvalidCharacterError` on an
+ * empty or whitespace-containing token, again blanking every route. Anything
+ * unrecognized is treated as absent.
  */
-function readStoredTheme(storageKey: string): string | null {
+function readStoredTheme(storageKey: string): Theme | null {
   try {
-    return localStorage.getItem(storageKey);
+    const stored = localStorage.getItem(storageKey);
+    return isTheme(stored) ? stored : null;
   } catch {
     return null;
   }
@@ -62,7 +73,7 @@ export function ThemeProvider({
     const params = new URLSearchParams(window.location.search);
     const urlTheme = params.get("theme");
     if (urlTheme === "light" || urlTheme === "dark") return urlTheme;
-    return (readStoredTheme(storageKey) as Theme) || defaultTheme;
+    return readStoredTheme(storageKey) ?? defaultTheme;
   });
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
