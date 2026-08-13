@@ -30,6 +30,10 @@
       "entry": ["src/index.ts", "src/node.ts", "src/**/*.test.ts", "demo.ts"],
       "project": ["src/**/*.ts"]
     },
+    "packages/design-editor": {
+      "entry": ["src/plugin/index.ts", "test/**/*.test.{ts,mts,mjs}"],
+      "project": ["src/**/*.{ts,mts,mjs}", "test/**/*.{ts,mts,mjs}"]
+    },
     "packages/core": {
       "entry": [
         "src/geometry/index.ts",
