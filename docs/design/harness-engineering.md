@@ -201,17 +201,33 @@ Hook scripts live in `scripts/hooks/`.
 
 `verify:entropy` and `verify:doc-index` are complements over the same prose and
 must not be folded together. Entropy walks *links → disk*: for each reference in
-a **top-level** `docs/design/*.md` it checks the target still exists, which
-catches a file that moved or was deleted. Doc-index walks *disk → index*: it
-catches a file that was added and never indexed, which nothing points at and
-which therefore leaves no broken reference to find. That second direction is why
+`docs/design/**/*.md` it checks the target still exists, which catches a file
+that moved or was deleted. Doc-index walks *disk → index*: it catches a file
+that was added and never indexed, which nothing points at and which therefore
+leaves no broken reference to find. That second direction is why
 `packages/README.md` was missing four of eleven packages while every link in it
 still resolved.
 
-Neither reaches everything. Entropy does not descend into `docs/design/sheets/`
-and the other subdirectories, and it reads no README outside that tree — so
-doc-index drops any link resolving to a nonexistent path before counting it as
-coverage, which is the only dead-link check the package and script indexes get.
+Entropy reads every design doc, at any depth. It used to read only the top
+level, which meant 24 of 110 — the convention it enforces was contradicted 886
+times in the subdirectories it never opened. It resolves a reference the way a
+reader does: against the repository root, the citing document's own directory,
+the design directory, and finally the tail of a tracked path, so the
+package-relative and elided forms the docs actually use resolve instead of being
+reported as missing.
+
+What it cannot do is tell drift from a doc naming a file on purpose to record
+that the file does *not* exist — "a mixed selection renders no per-type section,
+so there is no `mixed-controls.tsx`" is accurate prose, not a stale link. Those
+carry an `entropy.docStaleness.advisory` entry in `harness.config.json`, each
+with a reason, printed on every run and never counted toward failure. Prefer the
+`doc` + `ref` shape over `pattern`: it downgrades one named reference and leaves
+the rest of that doc blocking, so a doc carrying a planned-file name today still
+fails on real drift tomorrow.
+
+Entropy still reads no README outside the design tree, so doc-index drops any
+link resolving to a nonexistent path before counting it as coverage, which is
+the only dead-link check the package and script indexes get.
 
 Coverage is top-level by design. A directory counts as covered once its index
 names it — `scripts/agent/` alone holds over a hundred files, and a gate

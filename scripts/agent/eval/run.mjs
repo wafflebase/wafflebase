@@ -60,17 +60,17 @@
 
 import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { repoScopedEnv } from "../git-env.mjs";
+import { repoScopedEnv } from "../vendor/pipeline/git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore } from "./store.mjs";
 import { buildConfig, materializeLenses, pinnedSdkVersion } from "./config-build.mjs";
 import { reviewerAdapter, GATE_STATES } from "./adapters/reviewer.mjs";
-import { sumExecutions } from "../metrics.mjs";
-import { sampleCountFor } from "../review-panel.mjs";
-import { baseResolves } from "../novelty.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { sumExecutions } from "../vendor/pipeline/metrics.mjs";
+import { sampleCountFor } from "../vendor/pipeline/review-panel.mjs";
+import { baseResolves } from "../vendor/pipeline/novelty.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SHA40 = /^[0-9a-f]{40}$/;

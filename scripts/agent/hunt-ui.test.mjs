@@ -1499,3 +1499,29 @@ test("a capability the rubric advertises is one some brief actually asks for", (
     );
   }
 });
+
+test("a seeded run records NO coverage, even when it proposed nothing", async () => {
+  // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+  // surface against a FABRICATED fault, and letting it claim a control was explored
+  // would suppress that control for the next real run.
+  //
+  // The narrow version of this check would gate on the ledger being non-empty, which is
+  // how the bug got in: a seeded run that proposed nothing still CLICKED things, so it
+  // skipped the reset and returned coverage anyway. `cmdRun` refuses to write coverage
+  // for a seeded run regardless, but `runHunt` is exported and the invariant is its own.
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      out: { candidates: [], summary: "nothing proposed" },
+      journal: [{ action: { type: "click", target: { name: "Bold" } }, ok: true }],
+      actionCount: 1,
+      refusals: [],
+    }),
+  });
+
+  const clean = await runHunt({ ...deps, fault: null });
+  assert.ok(Object.keys(clean.coverageAdds).length > 0, "a clean run that clicked something DOES record coverage");
+
+  const seeded = await runHunt({ ...deps, fault: "drop-second-char" });
+  assert.equal(seeded.stats.proposed, 0, "this run proposes nothing, so the ledger stays empty");
+  assert.deepEqual(seeded.coverageAdds, {}, "and coverage must still be discarded");
+});

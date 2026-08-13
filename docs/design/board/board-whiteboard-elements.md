@@ -78,7 +78,7 @@ packages/frontend/src/app/board/     (all SP2 code lives here + board pkg)
   ├─ board-detail.tsx       pass workspaceId down to BoardView
   ├─ board-image.ts   NEW   makeBoardImageUpload(workspaceId) upload adapter
   ├─ sticky.ts        NEW   sticky color palette + buildStickyInit(color, center)
-  ├─ board-minimap.tsx NEW  view-local overview overlay + viewport-rect drag
+  ├─ board-minimap.ts NEW  view-local overview overlay + viewport-rect drag
   └─ minimap-geometry.ts NEW  pure world↔minimap mapping + fitted transform
 
 packages/board/src/view/viewport.ts  (reused; may gain a setViewport helper)
@@ -184,7 +184,7 @@ on-screen rather than at world origin.
 
 ### Minimap (view-local)
 
-`board-minimap.tsx` renders a small fixed overlay (bottom-right, e.g.
+`board-minimap.ts` renders a small fixed overlay (bottom-right, e.g.
 200×150 px) containing a downscaled snapshot of the whole scene plus the current
 viewport rectangle.
 

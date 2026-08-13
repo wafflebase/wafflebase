@@ -225,7 +225,7 @@ function buildSafetyOf(bin, cfg) {
  * actually ran.
  */
 async function explore(charter, { repo, context, sessionLog, bin, safetyOf, runId }) {
-  const { askStructured, withRetry } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("./vendor/pipeline/ask.mjs");
   const budgetCfg = charter.probeBudget ?? {};
 
   const prompt = [
@@ -322,7 +322,7 @@ async function explore(charter, { repo, context, sessionLog, bin, safetyOf, runI
 // --- verification -----------------------------------------------------------
 
 async function verify(candidate, charter, { repo, context, sessionLog, index }) {
-  const { askStructured, withRetry } = await import("./ask.mjs");
+  const { askStructured, withRetry } = await import("./vendor/pipeline/ask.mjs");
   const claimed = candidate.claimed;
   const prompt = [
     "A hunter proposed the defect below, and a trusted runner ALREADY REPRODUCED it",

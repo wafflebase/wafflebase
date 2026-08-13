@@ -34,8 +34,8 @@ import {
   COSMETIC_CONFIG_FIELDS,
   COSMETIC_LENS_FIELDS,
 } from "./config-hash.mjs";
-import { FILE_CLASSES, sampleCountFor, sliceDiffByFile, diffForLens } from "../review-panel.mjs";
-import { assertEffort, EFFORT_LEVELS } from "../ask.mjs";
+import { FILE_CLASSES, sampleCountFor, sliceDiffByFile, diffForLens } from "../vendor/pipeline/review-panel.mjs";
+import { assertEffort, EFFORT_LEVELS } from "../vendor/pipeline/ask.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LENSES_JSON = path.join(HERE, "..", "lenses", "lenses.json");

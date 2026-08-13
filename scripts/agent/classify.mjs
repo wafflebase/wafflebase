@@ -15,7 +15,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { gh, ghJson, resolvePrByIssue, listAllComments } from "./metrics.mjs";
+import { gh, ghJson, resolvePrByIssue, listAllComments } from "./vendor/pipeline/metrics.mjs";
 
 const CLASS_PREFIX = "<!-- agent-class ";
 const API = "https://api.anthropic.com/v1/messages";

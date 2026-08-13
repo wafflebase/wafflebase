@@ -48,8 +48,8 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scopeSize } from "../metrics.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { scopeSize } from "../vendor/pipeline/metrics.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 import { ITEM_STATUSES } from "./store.mjs";
 // One definition of "median" and "the distribution of a per-item series" across
 // the scorers, rather than a second one here. Two tables of the same run that
