@@ -13,7 +13,7 @@ the last 80 CI runs, 64 actually ran the job:
 **All 11 failures are the same one**, and it is not a regression in any of the
 branches that hit it:
 
-```
+```text
 [verify:visual:browser] desktop/all-sections: required webfonts never became usable: JetBrains Mono (unloaded/error)
 [page-console] Failed to load resource: the server responded with a status of 404 ()
 ```
@@ -56,10 +56,10 @@ context and serve committed fixtures:
   of the run, alongside the existing webfont-failure report, with the command
   to re-record. A miss is therefore loud and deterministic instead of a
   coin-flip against Google.
-- **Record (`RECORD_GOOGLE_FONT_CACHE=true`, run on demand).** Requests go to
-  the network and every response is written into the fixture directory. Run it
-  when `index.html`'s `css2` query changes or a scenario starts painting a new
-  family.
+- **Record (`RECORD_GOOGLE_FONT_CACHE=true`, run on demand, Docker only).**
+  Requests go to the network and every response is written into the fixture
+  directory. Run it when `index.html`'s `css2` query changes or a scenario
+  starts painting a new family.
 
 The recorded bytes are the same bytes Google serves today, so **no baseline
 needs re-recording** — this is the property that makes the change cheap.
@@ -104,7 +104,7 @@ Verification, in order of what it proves:
 | `test:visual:browser:docker:record` | recorded 4 responses |
 | `test:visual:browser:docker` (network up) | **All 220 profile targets matched** |
 | same lane, `--add-host fonts.googleapis.com:0.0.0.0 --add-host fonts.gstatic.com:0.0.0.0` | **All 220 profile targets matched**, exit 0 |
-| `vitest tests/visual/google-font-cache.test.ts` | 7 passed |
+| `vitest tests/visual/google-font-cache.test.ts` | 11 passed |
 | `pnpm verify:fast` | pass |
 
 The third row is the point: the lane now passes with Google Fonts
@@ -131,6 +131,69 @@ Two bugs came out of self-review rather than testing:
   fixtures.
 
 Both are covered by tests.
+
+### Review round (CodeRabbit, PR #823)
+
+Six findings, all taken. Two were real defects in the record path that the
+tests had not reached:
+
+- **Stale index entries survived a re-record.** `save()` wrote every entry
+  it had loaded, including ones the pass never fetched, and computed the
+  prune's `referenced` set from that — so the orphan cleanup was inert in
+  the one case it was written for. A family leaving `index.html` leaves the
+  new `css2`, so its `woff2` is never requested, so it kept both its index
+  entry and its body forever. `save()` now drops anything the pass did not
+  fetch. The original prune test passed because it only ever seeded a loose
+  file, never an *indexed* one.
+- **A rejected `route.fetch()` escaped the handler.** A DNS or connection
+  failure (as opposed to Google answering 404) rejected out of the route
+  handler and would have taken the pass down on an unhandled rejection
+  instead of naming the unreachable URL. Now caught and reported like any
+  other record failure; `recordFailures` carries a `reason` string
+  (`HTTP 404` or the error message) rather than a numeric `status`.
+- **The host `test:visual:browser:record` alias was a trap** — this task's
+  own findings say a host recording can hold a `css2` CI never requests.
+  Removed; `:docker:record` is the only advertised way in. The raw env var
+  still works for anyone debugging.
+- **`run-browser-tests-docker.sh` does not pass `--user`,** so the design
+  doc's "runs with host UID/GID to preserve file ownership" was false, and
+  newly load-bearing now that a mode writes to the mounted tree. Corrected
+  rather than "fixed": adding `--user` would break the wrapper's root-owned
+  named `node_modules` volumes, which is why CI (no such volumes) can pass
+  it and this cannot. The Linux caveat is documented where a recorder will
+  hit it.
+
+Also taken: a `text` language on a fenced block, and the offline proof in
+the lessons file quoted only the `googleapis` `--add-host` when the run used
+both — the `gstatic` one is the load-bearing half, since the `woff2` fetches
+are what failed in CI.
+
+### The re-record that failed, and what it proved
+
+Re-running `visual:record` to verify the `save()` fix hit the flake itself:
+
+```text
+[verify:visual:browser] Google Fonts requests failed; nothing was recorded for them:
+- HTTP 404 https://fonts.gstatic.com/s/fraunces/v38/6NUh8FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0K7iN7iQcIfJD58ngB1dU3gg7S2nfgRYIcUByTCf7T.woff2
+```
+
+Google served a **different** `css2` body than the committed one — a
+different Fraunces face URL (`6NUh8…`, not the committed `6NU78…`) — and
+that URL 404s. Confirmed independently with `curl` and a Chrome UA. Minutes
+later the same command got the original `css2` back and recorded four
+byte-identical responses.
+
+So the CI failures were never a flaky *connection*: upstream intermittently
+serves a stylesheet pointing at a `woff2` that does not exist. Nothing on
+the client could have recovered that, which retires the last hope that the
+font-waiting code was fixable. It is also why pinning the fixtures is worth
+more than the version drift it costs.
+
+It exposed one more defect, fixed here: record wrote each body to disk as it
+arrived, so that failed pass left a **new** `css2` on disk under an **old**
+index that no longer described it — a corrupt cache produced by a run that
+reported failure. Bodies are now buffered and written only in `save()`, so a
+failed record leaves the directory untouched.
 
 ## Known limitations
 

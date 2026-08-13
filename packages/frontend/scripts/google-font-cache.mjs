@@ -158,22 +158,38 @@ export async function loadGoogleFontCache({ dir, record }) {
       return route.abort();
     }
 
-    const response = await route.fetch();
+    let response;
+    try {
+      response = await route.fetch();
+    } catch (error) {
+      // A rejection here is the network being down, not Google saying no —
+      // and letting it escape would crash the pass on an unhandled rejection
+      // instead of reporting which URL could not be reached.
+      failedThisRun.add(url);
+      recordFailures.push({
+        url,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return route.abort();
+    }
     const status = response.status();
     if (status !== 200) {
       // Never bake a bad response into the fixtures: recording a 404 would
       // turn today's flake into tomorrow's permanent failure.
       failedThisRun.add(url);
-      recordFailures.push({ url, status });
+      recordFailures.push({ url, reason: `HTTP ${status}` });
       return route.fulfill({ response });
     }
     const body = await response.body();
     const contentType = (
       response.headers()["content-type"] || "application/octet-stream"
     ).split(";")[0];
+    // Buffered, not written: nothing touches the fixture directory until
+    // `save()`, so a pass that dies partway through — Google 404ing one
+    // `woff2` of the three, say — leaves the working cache exactly as it
+    // was rather than a mix of new bodies and an old index that no longer
+    // describes them.
     const file = fileNameFor(url, contentType);
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, file), body);
     entries.set(url, { file, contentType });
     bodies.set(url, body);
     fetchedThisRun.add(url);
@@ -205,15 +221,27 @@ export async function loadGoogleFontCache({ dir, record }) {
     },
 
     /**
-     * Writes the index and prunes bodies no longer referenced, so a
-     * re-record after an `index.html` font change leaves no orphans behind.
-     * Record mode only.
+     * Writes every body the pass buffered plus the index, then prunes what
+     * the new index does not reference, so a re-record after an
+     * `index.html` font change leaves no orphans behind. Record mode only,
+     * and reached only once the pass has succeeded.
      */
     async save() {
+      // The pass is the definition of the cache, so anything it did not
+      // fetch is dropped. Loading the old index and keeping whatever went
+      // unrequested would defeat the prune in exactly the case it is for: a
+      // family leaving `index.html` is a family whose `woff2` URL the new
+      // `css2` no longer names, so it is never requested, so it would have
+      // survived in the index and kept its body alive forever.
+      for (const url of entries.keys()) {
+        if (!fetchedThisRun.has(url)) entries.delete(url);
+      }
       await mkdir(dir, { recursive: true });
       const sorted = {};
       for (const url of [...entries.keys()].sort()) {
-        sorted[url] = entries.get(url);
+        const entry = entries.get(url);
+        sorted[url] = entry;
+        await writeFile(path.join(dir, entry.file), bodies.get(url));
       }
       await writeFile(
         path.join(dir, INDEX_FILE),

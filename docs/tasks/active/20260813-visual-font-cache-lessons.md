@@ -41,10 +41,33 @@ covered the prune and passed, because the test only ever put font bodies in
 the directory. Adding documentation to a directory some code enumerates is
 worth treating as a change to that code's input.
 
+## Exercising the maintenance path found what the tests could not
+
+Re-running `visual:record` to confirm a fix caught the flake live: Google
+served a `css2` naming a Fraunces `woff2` that 404s (confirmed with `curl`),
+then served the working one again minutes later. Two things fell out of one
+accidental run — the failure was upstream serving a broken *stylesheet*, not
+a flaky connection, so no client-side waiting could ever have fixed it; and
+the record path wrote bodies as they arrived, so that failed pass left a new
+`css2` under an old index. A run that reports failure should leave nothing
+behind. Write-at-the-end, not write-as-you-go.
+
 ## Verify the negative case, not just the positive one
 
 `verify-browser:docker` passing proves the cache is *usable*, not that it is
 *used* — the network was up, so a broken interception would still have gone
-green. Re-running with `--add-host fonts.googleapis.com:0.0.0.0` is what
-actually proves the claim. For any change whose value is "X is no longer
-needed", the test to run is the one with X removed.
+green. Re-running with both hosts blackholed is what actually proves the
+claim:
+
+```bash
+docker run --rm -v "$PWD:/workspace" \
+  --add-host fonts.googleapis.com:0.0.0.0 \
+  --add-host fonts.gstatic.com:0.0.0.0 \
+  ...
+```
+
+Both, not one: the stylesheet and the font binaries come from different
+hosts, and blocking only `googleapis` would leave the `woff2` fetches — the
+requests that actually failed in CI — still going out. For any change whose
+value is "X is no longer needed", the test to run is the one with X removed,
+and "X" has to mean all of it.

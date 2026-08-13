@@ -23,9 +23,18 @@ In Docker, because the `css2` response varies by User-Agent and CI's Chromium
 is the one that has to be able to parse it. Recording refetches everything
 rather than honouring what is already here — the `css2` URL does not change
 when Google ships a new font version, so trusting the stored copy would make
-a refresh a silent no-op. It also prunes bodies the new index no longer
-references, so a family that leaves `index.html` leaves here too. No git diff
-after a record means upstream has not changed.
+a refresh a silent no-op. The index it writes holds *only* what that pass
+fetched, so a family that leaves `index.html` leaves here too — index entry
+and body both. No git diff after a record means upstream has not changed.
+
+Nothing is written until the whole pass has succeeded, so a record that dies
+partway through — Google 404ing one `woff2`, which does happen — leaves this
+directory untouched rather than half-updated. Re-run it.
+
+There is no host (non-Docker) record command on purpose. On a Linux host the
+wrapper writes these files as root — `docker run` there gets no `--user`
+mapping; `sudo chown` them back before committing (Docker Desktop on macOS
+already maps ownership for you).
 
 ## Licensing
 

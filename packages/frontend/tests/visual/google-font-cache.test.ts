@@ -217,7 +217,7 @@ describe("google font cache — record", () => {
     await ctx.handler(route);
 
     expect(cache.recorded).toBe(0);
-    expect(cache.recordFailures).toEqual([{ url: WOFF2_URL, status: 404 }]);
+    expect(cache.recordFailures).toEqual([{ url: WOFF2_URL, reason: "HTTP 404" }]);
     expect(cache.size).toBe(0);
     // The page still gets the real response, so the capture fails the way it
     // would have without the cache — the record pass reports and exits.
@@ -229,6 +229,77 @@ describe("google font cache — record", () => {
     expect(retry.fetch).not.toHaveBeenCalled();
     expect(retry.abort).toHaveBeenCalledOnce();
     expect(cache.recordFailures).toHaveLength(1);
+  });
+
+  it("writes nothing until the pass succeeds", async () => {
+    const dir = await tempCacheDir();
+    await writeFile(path.join(dir, "index.json"), JSON.stringify({ entries: {} }));
+
+    const cache = await loadGoogleFontCache({ dir, record: true });
+    const ctx = fakeContext();
+    await cache.install(ctx.context);
+
+    await ctx.handler(fakeRoute(CSS_URL, fakeResponse({ contentType: "text/css" })));
+    await ctx.handler(fakeRoute(WOFF2_URL, fakeResponse({ status: 404 })));
+
+    // The 404 aborts the pass before `save()`, and a half-updated directory
+    // — new bodies under an index that no longer describes them — is worse
+    // than no update at all.
+    expect(await readdir(dir)).toEqual(["index.json"]);
+    expect(JSON.parse(await readFile(path.join(dir, "index.json"), "utf8"))).toEqual({
+      entries: {},
+    });
+  });
+
+  it("reports a rejected fetch instead of crashing the pass", async () => {
+    const dir = await tempCacheDir();
+    const cache = await loadGoogleFontCache({ dir, record: true });
+    const ctx = fakeContext();
+    await cache.install(ctx.context);
+
+    const route = fakeRoute(WOFF2_URL);
+    route.fetch = vi.fn(async () => {
+      throw new Error("net::ERR_NAME_NOT_RESOLVED");
+    });
+
+    // Resolves: an escaping rejection would take the whole record pass down
+    // with a stack trace instead of naming the URL that could not be reached.
+    await expect(ctx.handler(route)).resolves.toBeUndefined();
+    expect(route.abort).toHaveBeenCalledOnce();
+    expect(cache.recordFailures).toEqual([
+      { url: WOFF2_URL, reason: "net::ERR_NAME_NOT_RESOLVED" },
+    ]);
+    expect(cache.recorded).toBe(0);
+  });
+
+  it("drops an indexed URL the refreshed pass never requested", async () => {
+    const dir = await tempCacheDir();
+    await writeFile(path.join(dir, "departed.woff2"), "a family that left index.html");
+    await writeFile(
+      path.join(dir, "index.json"),
+      JSON.stringify({
+        entries: {
+          "https://fonts.gstatic.com/s/departed/v1/x.woff2": {
+            file: "departed.woff2",
+            contentType: "font/woff2",
+          },
+        },
+      }),
+    );
+
+    const cache = await loadGoogleFontCache({ dir, record: true });
+    const ctx = fakeContext();
+    await cache.install(ctx.context);
+    await ctx.handler(fakeRoute(CSS_URL, fakeResponse({ contentType: "text/css" })));
+    await cache.save();
+
+    // A family leaving index.html leaves the new css2, so its woff2 is never
+    // requested — which is exactly why "keep what we did not refetch" would
+    // have kept it alive in the index, and the prune with it.
+    const index = JSON.parse(await readFile(path.join(dir, "index.json"), "utf8"));
+    expect(Object.keys(index.entries)).toEqual([CSS_URL]);
+    expect(await readdir(dir)).not.toContain("departed.woff2");
+    expect(cache.size).toBe(1);
   });
 
   it("prunes bodies the refreshed index no longer references", async () => {

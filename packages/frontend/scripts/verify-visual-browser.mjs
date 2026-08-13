@@ -18,8 +18,10 @@ const updateBaseline = process.env.UPDATE_VISUAL_BROWSER_BASELINE === "true";
 // Refreshes `tests/visual/fonts/` from the network instead of replaying it.
 // On demand only — see google-font-cache.mjs.
 const recordFontCache = process.env.RECORD_GOOGLE_FONT_CACHE === "true";
-const RECORD_FONTS_COMMAND =
-  "pnpm frontend test:visual:browser:record (or :docker:record)";
+// Deliberately the Docker command and only the Docker command: the `css2`
+// response varies by User-Agent, so a host recording can hold a stylesheet
+// CI's Chromium never asks for.
+const RECORD_FONTS_COMMAND = "pnpm frontend test:visual:browser:docker:record";
 const captureProfiles = [
   {
     id: "desktop",
@@ -714,10 +716,10 @@ const capturedById = await captureScreenshots(playwright, fontCache);
 if (recordFontCache) {
   if (fontCache.recordFailures.length > 0) {
     console.error(
-      "[verify:visual:browser] Google Fonts refused these requests; nothing was recorded for them:",
+      "[verify:visual:browser] Google Fonts requests failed; nothing was recorded for them:",
     );
-    for (const { url, status } of fontCache.recordFailures) {
-      console.error(`- ${status} ${url}`);
+    for (const { url, reason } of fontCache.recordFailures) {
+      console.error(`- ${reason} ${url}`);
     }
     console.error(
       "[verify:visual:browser] Re-run the record pass — a partial cache would fail every later run.",

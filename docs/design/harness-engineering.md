@@ -686,7 +686,14 @@ Phase 23 delivered:
   included). Version tag matches `packages/frontend/package.json`.
 - `scripts/run-browser-tests-docker.sh` wrapper with modes: `visual`,
   `visual:update`, `visual:record`, `interaction`, `all`. Validates Playwright
-  version match, runs with host UID/GID to preserve file ownership.
+  version match. It does *not* pass `--user`, so on a Linux host the modes
+  that write to the mounted tree (`visual:update`, `visual:record`) produce
+  root-owned files — the Playwright image runs as root, and the named
+  `node_modules` volumes the wrapper relies on are root-owned too, which is
+  why a host UID/GID mapping cannot simply be added here. Docker Desktop maps
+  ownership back to the invoking user, so macOS does not see it. CI's own
+  `docker run` in `.github/workflows/ci.yml` does pass `--user`, and writes
+  nothing.
 - `scripts/verify-browser-lanes.mjs` skips Chromium existence check when
   `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
 - `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
