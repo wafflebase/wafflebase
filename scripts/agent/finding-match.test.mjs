@@ -4,8 +4,8 @@ import {
   extractAnchor, anchorIsEmpty, compareAnchors, linesOverlap,
   matchFindings, tokenOverlap, bestMatch, groupFindings, LINKAGE,
 } from "./finding-match.mjs";
-import { findingSimilarity } from "./rounds.mjs";
-import { findingKey } from "./finding-key.mjs";
+import { findingSimilarity } from "./vendor/pipeline/rounds.mjs";
+import { findingKey } from "./vendor/pipeline/finding-key.mjs";
 // The REAL record builder, not a hand-written fixture of its shape. `lensOf`'s
 // default exists to read `record.panel.lens`, and a test that asserted against
 // this file's own idea of a record would be a round trip through one author's

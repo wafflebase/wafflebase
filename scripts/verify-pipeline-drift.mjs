@@ -131,6 +131,43 @@ for (const rel of [...oursFiles].sort()) {
 }
 for (const rel of [...theirFiles].sort()) if (!oursFiles.has(rel)) onlyThere.push(rel);
 
+// The RETAINED half must read the pipeline through vendor/, never through the
+// mirror. While the mirror still exists a stray `./severity.mjs` RESOLVES, so the
+// mistake is invisible until the mirror is deleted — at which point it surfaces as
+// a runtime crash inside a hunt or a replay. Checked here because this file is
+// where the mirror/retained split is already defined.
+//
+// Only files that STAY are checked. The mirror importing its own siblings is
+// correct and must not change: it is byte-compared against the pinned commit.
+const mirrorModules = new Set(theirFiles);
+const badImports = [];
+const scan = (dir, base = "") => {
+  for (const entry of readdirSync(dir)) {
+    const rel = base ? `${base}/${entry}` : entry;
+    const abs = path.join(dir, entry);
+    if (statSync(abs).isDirectory()) { if (entry !== "node_modules" && entry !== "vendor") scan(abs, rel); continue; }
+    if (!entry.endsWith(".mjs")) continue;
+    if (!base && mirrorModules.has(entry)) continue;      // a mirror file: exempt
+    if (!base && mirrorModules.has(entry.replace(/\.test\.mjs$/, ".mjs"))) continue; // its test
+    for (const m of readFileSync(abs, "utf8").matchAll(/(?:from|import\()\s*"(\.{1,2}\/(?:\.\.\/)*)([a-z-]+)\.mjs"/g)) {
+      if (m[1].includes("vendor")) continue;
+      if (mirrorModules.has(`${m[2]}.mjs`)) badImports.push(`${rel} imports ${m[1]}${m[2]}.mjs`);
+    }
+  }
+};
+scan(ours);
+if (badImports.length) {
+  die([
+    "These files import the MIRROR rather than vendor/pipeline/:",
+    ...badImports.map((b) => `  ${b}`),
+    "",
+    "The mirror does not run and is going away. Import through vendor/pipeline/ —",
+    "`./vendor/pipeline/severity.mjs`, or `../vendor/pipeline/…` from a subdirectory.",
+    "The leading `./` is REQUIRED: a bare `vendor/…` is a package specifier to Node,",
+    "and fails with \"Cannot find package 'vendor'\" only at runtime.",
+  ]);
+}
+
 if (!differ.length && !onlyHere.length && !onlyThere.length) {
   console.log(`scripts/agent matches wafflebase/agent-pipeline@${pinned.slice(0, 9)} (${oursFiles.size} files).`);
   process.exit(0);

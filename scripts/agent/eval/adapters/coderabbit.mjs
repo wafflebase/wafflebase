@@ -34,9 +34,9 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../../severity.mjs";
+import { KNOWN } from "../../vendor/pipeline/severity.mjs";
 import { CODERABBIT_LOGINS, classifyCodeRabbitComment, commitIndex, parseCodeRabbitReview } from "../../harvest.mjs";
-import { gh, parseArgs } from "../../gh-checks.mjs";
+import { gh, parseArgs } from "../../vendor/pipeline/gh-checks.mjs";
 import { ARM_ONLY_FIELDS, POPULATIONS, buildFindingRecord, gatingCensus, validateFindingRecord } from "../finding-record.mjs";
 
 const refuse = (msg) => {

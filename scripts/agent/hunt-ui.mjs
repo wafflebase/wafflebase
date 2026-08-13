@@ -431,7 +431,7 @@ export async function exploreUi(
     createServerImpl = createUiServer,
   } = {},
 ) {
-  const { askStructured, withRetry } = askImpl ?? (await import("./ask.mjs"));
+  const { askStructured, withRetry } = askImpl ?? (await import("./vendor/pipeline/ask.mjs"));
   const budgetCfg = persona.actionBudget ?? {};
   const maxActions = budgetCfg.maxActions ?? 80;
 
@@ -547,7 +547,7 @@ export async function exploreUi(
  * measures the wrong thing.
  */
 export async function verifyUi(candidate, persona, { repo, context, sessionLog, index, askImpl = null } = {}) {
-  const { askStructured, withRetry } = askImpl ?? (await import("./ask.mjs"));
+  const { askStructured, withRetry } = askImpl ?? (await import("./vendor/pipeline/ask.mjs"));
   const claimed = candidate.claimed;
   const prompt = [
     "A hunter proposed the defect below while driving the real UI, and a trusted",

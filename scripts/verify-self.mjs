@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readHeadSha } from "./agent/git-env.mjs";
+import { readHeadSha } from "./agent/vendor/pipeline/git-env.mjs";
 import {
   laneOrderViolations,
   resolve as resolveChangedAreas,
