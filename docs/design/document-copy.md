@@ -33,6 +33,13 @@ experimentation risky.
 - **Collaboration state.** Comments, share links, presence, and analytics are
   deliberately not carried over: a copy is a new document, and a share link
   minted for the source must not silently grant access to the duplicate.
+  Share links, presence and analytics live outside the copied content, so this
+  falls out for free; sheet comment threads do not — they live *inside* the
+  Yorkie root at `sheets[<tabId>].comments` (`Worksheet.comments`), so the
+  whole-root snapshot arm empties those maps explicitly before writing
+  (`stripComments`). The maps are emptied rather than deleted, because
+  `createWorksheet` seeds `comments: {}` so that concurrent first comments
+  merge instead of LWW-clobbering each other.
 - **Copying elsewhere.** The copy always lands beside its source. Moving it is
   Move's job, and Move is already manager-gated.
 - **REST v1 / CLI copy.** Not exposed there; the web list is the only caller.

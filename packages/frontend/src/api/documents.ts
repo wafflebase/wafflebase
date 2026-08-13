@@ -118,6 +118,35 @@ export async function copyDocument(id: string): Promise<Document> {
 }
 
 /**
+ * Copies many documents. There is no atomic bulk endpoint — each copy is an
+ * independent server-side operation — so these run **sequentially**, and a
+ * failure part-way leaves the copies made before it in place. The rejection
+ * carries those ids so the caller can still surface (and refetch) them rather
+ * than reporting a flat failure for work that partly succeeded.
+ */
+export class BulkCopyError extends Error {
+  constructor(
+    readonly copied: Document[],
+    readonly cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : "Failed to copy documents");
+    this.name = "BulkCopyError";
+  }
+}
+
+export async function copyDocuments(ids: string[]): Promise<Document[]> {
+  const copied: Document[] = [];
+  for (const id of ids) {
+    try {
+      copied.push(await copyDocument(id));
+    } catch (err) {
+      throw new BulkCopyError(copied, err);
+    }
+  }
+  return copied;
+}
+
+/**
  * Deletes document.
  */
 export async function deleteDocument(id: string): Promise<void> {

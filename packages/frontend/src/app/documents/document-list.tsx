@@ -116,7 +116,8 @@ import {
   matchesTypes,
 } from "./document-list-utils";
 import {
-  copyDocument,
+  BulkCopyError,
+  copyDocuments,
   createDocument,
   deleteDocuments,
   moveDocuments,
@@ -574,9 +575,7 @@ export function DocumentList({
   // deliberately do NOT navigate, because a bulk copy has no single document
   // to open. Ungated by `canManage`: copying never touches the source.
   const copyDocumentsMutation = useMutation({
-    mutationFn: async ({ ids }: { ids: string[] }) => {
-      for (const id of ids) await copyDocument(id);
-    },
+    mutationFn: async ({ ids }: { ids: string[] }) => await copyDocuments(ids),
     onSuccess: (_res, vars) => {
       toast.success(
         vars.ids.length > 1
@@ -584,7 +583,15 @@ export function DocumentList({
           : "Copy created",
       );
     },
-    onError: () => toast.error("Failed to copy"),
+    // A bulk copy that fails part-way has already created the copies before
+    // the failure; say so rather than reporting a flat failure for work that
+    // partly succeeded.
+    onError: (err) =>
+      toast.error(
+        err instanceof BulkCopyError && err.copied.length > 0
+          ? `Copied ${err.copied.length}, then failed`
+          : "Failed to copy",
+      ),
     // Refetch on settled, not just on success: a bulk copy that fails partway
     // has already created the copies before it, and they must appear in the
     // list rather than wait for the next poll.

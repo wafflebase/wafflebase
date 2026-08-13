@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Document as DocumentModel } from '@prisma/client';
 import { DocumentService } from './document.service';
 import { copyTitle } from './document-copy-title.util';
 import { FileService } from '../file/file.service';
+import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 import { YorkieService } from '../yorkie/yorkie.service';
 import { yorkieDocKeyPrefix } from '../yorkie/yorkie-doc-key';
 import {
@@ -60,6 +61,15 @@ export class DocumentCopyService {
 
     // Order matters: everything that can fail without leaving a trace runs
     // first, and each later step rolls back what the earlier ones created.
+    //
+    // The stored id is re-validated before it reaches S3, exactly as every
+    // other blob path does (document-file.controller.ts, api/v1/files.controller.ts,
+    // document.controller.ts). `CopyObject` is a storage *sink* keyed by this
+    // value, so a row whose `fileId` was ever written to something other than
+    // a `<uuid>[.ext]` blob id must not be laundered into a fresh, servable id.
+    if (source.fileId && !VALID_FILE_ID_PATTERN.test(source.fileId)) {
+      throw new BadRequestException('Document has an invalid file reference');
+    }
     const fileId = source.fileId
       ? await this.fileService.copy(source.fileId)
       : undefined;
@@ -185,12 +195,13 @@ export class DocumentCopyService {
     // write, and the copy's editor seeds it on first open exactly as it would
     // for a brand-new document.
     if (Object.keys(snapshot).length === 0) return;
+    const content = stripComments(snapshot);
     await this.yorkieService.withDocument<void, JsonRoot>(
       targetId,
       (doc) => {
         doc.update((root) => {
-          for (const [key, value] of Object.entries(snapshot)) {
-            (root as JsonRoot)[key] = value;
+          for (const [key, value] of Object.entries(content)) {
+            (root as JsonRoot)[key] = reviveLongs(value);
           }
         });
       },
@@ -200,16 +211,97 @@ export class DocumentCopyService {
 }
 
 /**
+ * Drop comment threads from a whole-root snapshot. The copy is a new document,
+ * so it carries no comments (docs/design/document-copy.md) — the `doc` arm gets
+ * this for free because `readDocsRoot` never reads them, but the JSON arm
+ * copies every root key verbatim and spreadsheet threads live *inside* the root
+ * at `sheets[tabId].comments` (`Worksheet.comments` in
+ * packages/sheets/src/model/workbook/worksheet-document.ts).
+ *
+ * The map is emptied rather than deleted: `createWorksheet` seeds `comments: {}`
+ * deliberately so concurrent first comments merge instead of one LWW-clobbering
+ * the other, and a copy must start with that same shared container.
+ */
+export function stripComments(snapshot: JsonRoot): JsonRoot {
+  const out: JsonRoot = { ...snapshot };
+  if (isPlainObject(out.comments)) out.comments = {};
+  if (!isPlainObject(out.sheets)) return out;
+  const sheets: JsonRoot = {};
+  for (const [tabId, worksheet] of Object.entries(out.sheets)) {
+    sheets[tabId] =
+      isPlainObject(worksheet) && isPlainObject(worksheet.comments)
+        ? { ...worksheet, comments: {} }
+        : worksheet;
+  }
+  out.sheets = sheets;
+  return out;
+}
+
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+/**
+ * Re-coerce out-of-32-bit-range integers to `bigint` before they are written
+ * back into a Yorkie root.
+ *
+ * Yorkie 0.7.x classifies every integer-valued JS number as a 32-bit Integer,
+ * so a value the source stored as a Long — any epoch-millisecond timestamp —
+ * would be truncated to its low 32 bits when the snapshot (plain JSON numbers,
+ * straight out of `JSON.parse`) is assigned onto the copy. This is the same
+ * boundary conversion the frontend does when writing timestamps
+ * (`toYorkieMs` in packages/frontend/src/app/spreadsheet/yorkie-worksheet-comments.ts).
+ */
+export function reviveLongs(value: unknown): unknown {
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    (value > INT32_MAX || value < INT32_MIN)
+  ) {
+    return BigInt(value) as unknown as number;
+  }
+  if (Array.isArray(value)) return value.map(reviveLongs);
+  if (isPlainObject(value)) {
+    const out: JsonRoot = {};
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = reviveLongs(child);
+    }
+    return out;
+  }
+  return value;
+}
+
+function isPlainObject(value: unknown): value is JsonRoot {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
  * The whole Yorkie root as detached plain JSON. `Document.toJSON()` yields the
  * root as a JSON *string* (the proxy's `toJSON` is what makes
  * `JSON.stringify(root)` double-encode), so nested string layers are unwrapped
  * — same handling as `scripts/copy-yorkie-documents.ts`, which copies
  * spreadsheet roots between Yorkie servers this way.
+ *
+ * That script also needs a fallback, and so does this: some documents contain
+ * control characters that Yorkie's raw JSON string path does not escape
+ * correctly, so `JSON.parse(doc.toJSON())` throws on them. `JSON.stringify`
+ * over the root proxy still produces a valid detached snapshot, so a copy of an
+ * affected document succeeds instead of failing outright.
  */
 export function snapshotJsonRoot(doc: {
   toJSON: () => string;
+  getRoot?: () => unknown;
 }): Record<string, unknown> {
-  let value: unknown = JSON.parse(doc.toJSON());
+  try {
+    return asJsonRoot(JSON.parse(doc.toJSON()));
+  } catch (err) {
+    if (typeof doc.getRoot !== 'function') throw err;
+    return asJsonRoot(JSON.parse(JSON.stringify(doc.getRoot())));
+  }
+}
+
+/** Unwrap nested JSON string layers and assert the result is an object. */
+function asJsonRoot(parsed: unknown): Record<string, unknown> {
+  let value = parsed;
   while (typeof value === 'string') {
     value = JSON.parse(value);
   }
