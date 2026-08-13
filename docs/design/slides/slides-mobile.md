@@ -247,7 +247,7 @@ tablets and stylus input get supported as a side-effect.
 | Long-press system callout (iOS) | The callout is NOT a `contextmenu` event — `oncontextmenu` is a no-op against it. The kill is CSS: `-webkit-touch-callout: none` + `user-select: none` on the canvas-host. (Right-click `oncontextmenu` is still suppressed for desktop edit mode.) |
 
 The spike (Task 0, done) validated this list. Findings live in
-[lessons](../../tasks/active/20260517-slides-mobile-edit-lessons.md):
+[lessons](../../tasks/archive/2026/05/20260517-slides-mobile-edit-lessons.md):
 selection / double-tap-text / blank-tap-clear work out of the box;
 drag and long-press-callout were both blocked by the items above.
 Gate decision: option (B), proceed with the Pointer Events migration as

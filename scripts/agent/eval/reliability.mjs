@@ -71,11 +71,11 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../severity.mjs";
+import { KNOWN } from "../vendor/pipeline/severity.mjs";
 import { LINKAGE, groupFindings } from "../finding-match.mjs";
 import { POPULATIONS } from "./finding-record.mjs";
 import { proportion } from "./volume-mix.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 
 const refuse = (msg) => {
   throw new Error(`reliability: ${msg}`);

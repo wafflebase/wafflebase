@@ -33,11 +33,11 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../severity.mjs";
+import { KNOWN } from "../vendor/pipeline/severity.mjs";
 import { changedFilesFromDiff } from "./extract-corpus.mjs";
 import { GATING_BASIS, POPULATIONS, gatingCensus } from "./finding-record.mjs";
 import { SEVERITY_BASIS, WINDOW } from "./adapters/coderabbit.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 
 const refuse = (msg) => {
   throw new Error(`volume & mix: ${msg}`);

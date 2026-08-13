@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
+import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./vendor/pipeline/severity.mjs";
 import {
   SCHEMA,
   LABELS,
@@ -37,8 +37,8 @@ import {
   harvestPr,
   listCandidatePrs,
 } from "./harvest.mjs";
-import { HANDOFF_MARKER } from "./disclosure.mjs";
-import { ORIGINS } from "./novelty.mjs";
+import { HANDOFF_MARKER } from "./vendor/pipeline/disclosure.mjs";
+import { ORIGINS } from "./vendor/pipeline/novelty.mjs";
 
 const NAMES = ["agent-review-correctness", "agent-review-test-adequacy"];
 

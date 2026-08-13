@@ -21,7 +21,7 @@
 // `agent:tests` lane where `scripts/agent/node_modules` is absent.
 
 import { execFileSync } from "node:child_process";
-import { repoScopedEnv } from "./git-env.mjs";
+import { repoScopedEnv } from "./vendor/pipeline/git-env.mjs";
 
 /**
  * The commit under test, or `"unknown"`.

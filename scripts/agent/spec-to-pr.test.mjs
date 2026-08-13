@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isValidSlug, renderPrBody, commitsMissingTrailer, parseRepoFromRemoteUrl } from "./spec-to-pr.mjs";
-import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
+import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./vendor/pipeline/disclosure.mjs";
 
 test("isValidSlug: lowercase kebab only", () => {
   assert.ok(isValidSlug("add-csv-import"));

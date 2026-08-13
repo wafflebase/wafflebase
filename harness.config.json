@@ -3,23 +3,38 @@
     "inertReason": "Which changed paths are allowed to shrink a CI run. This list is an ALLOW-LIST and the default is the full suite: a changed path matching nothing here forces `verify-browser` + `verify-integration` to run and every `verify:self` lane to run. That direction is the whole safety property — a new package, a new top-level directory, or a file nobody classified is covered by default, and no catch-all rule has to be remembered. Adding an entry is the only way to make anything skippable, which is why this file is code-owned (.github/CODEOWNERS) and why touching it lands in `ciConfig` below and forces a full run on its own PR. Never invert this into a list of paths that DO trigger things.",
     "inert": [
       {
-        "paths": ["scripts/agent/**"],
-        "tags": ["agent"],
+        "paths": [
+          "scripts/agent/**"
+        ],
+        "tags": [
+          "agent"
+        ],
         "reason": "The agent-pipeline copy. Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports it (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it). The `pipeline-drift` job stays ungated and still checks this directory against the pinned wafflebase/agent-pipeline commit."
       },
       {
-        "paths": ["docs/**", "*.md"],
-        "tags": ["docsProse"],
+        "paths": [
+          "docs/**",
+          "*.md"
+        ],
+        "tags": [
+          "docsProse"
+        ],
         "reason": "Prose. Maps to the entropy lane rather than to nothing because entropy.docStaleness.designDir below is `docs/design`, so a design-doc edit genuinely can fail that gate. Root-level `*.md` only — the single `*` does not cross a separator, so packages/README.md is deliberately NOT matched and falls through to a full run."
       },
       {
-        "paths": [".claude/**"],
+        "paths": [
+          ".claude/**"
+        ],
         "tags": [],
         "reason": "Agent-facing instructions. Read by Claude Code, executed by no lane. Empty tags means a .claude-only PR runs no verify:self lane at all."
       },
       {
-        "paths": ["packages/documentation/**"],
-        "tags": ["documentation"],
+        "paths": [
+          "packages/documentation/**"
+        ],
+        "tags": [
+          "documentation"
+        ],
         "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is the one packages/ entry that is genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy."
       }
     ],
@@ -77,7 +92,109 @@
     },
     "docStaleness": {
       "enabled": true,
-      "designDir": "docs/design"
+      "designDir": "docs/design",
+      "advisoryReason": "Two shapes, both requiring a `reason`. `pattern` downgrades every finding in the design docs whose relative path it matches — for a spec whose whole subject is unbuilt. `doc` + `ref` downgrades one named reference and is the shape to prefer, because the rest of that doc keeps blocking: a doc carrying a planned-file name today still fails on real drift tomorrow. Nothing here is silent — every advisory finding is printed on every run, prefixed `(advisory)`. These are not refs anyone forgot to fix: a design doc that names a file in order to say it does NOT exist (\"there is no `mixed-controls.tsx`\") is doing its job, and rewriting it to satisfy the checker would delete accurate documentation.",
+      "advisory": [
+        {
+          "pattern": "^design-editor/",
+          "reason": "The design-editor docs specify an engine and a sandbox package that are mostly unwritten. `packages/design-editor` exists but holds only the server-side core (`src/types.ts` plus `src/server/{extract,inject,stamp,jsx-nodes}.mjs`); `packages/design-sandbox` does not exist at all. So these 95 references name files the spec intends to create — a spec for unbuilt work is not a stale doc, and failing on it would repeat the false positive this check was fixed for. Narrow this to `doc` + `ref` entries as the package fills in, and drop it once the refs resolve."
+        },
+        {
+          "doc": "slides/slides-image-crop.md",
+          "ref": "interactions/crop.ts",
+          "reason": "A negative reference. The doc says the crop session lives in `view/editor/editor.ts` and explicitly *not* in a separate `interactions/crop.ts` — the file is named in order to record that it was not created."
+        },
+        {
+          "doc": "slides/slides-toolbar-redesign.md",
+          "ref": "mixed-controls.tsx",
+          "reason": "A negative reference: \"a mixed selection renders no per-type section, so there is no `mixed-controls.tsx`.\""
+        },
+        {
+          "doc": "slides/slides-toolbar-redesign.md",
+          "ref": "alignment-dropdown.tsx",
+          "reason": "A negative reference — alignment is folded into the Arrange dropdown rather than getting its own component."
+        },
+        {
+          "doc": "slides/slides-toolbar-redesign.md",
+          "ref": "text-size-stepper.tsx",
+          "reason": "Planned shared component from the redesign proposal; the shipped toolbar reused the existing text-formatting group instead."
+        },
+        {
+          "doc": "slides/slides-toolbar-redesign.md",
+          "ref": "view/editor/text-bridge.ts",
+          "reason": "Planned module from the redesign proposal, never split out of the editor."
+        },
+        {
+          "doc": "slides/slides-toolbar-redesign.md",
+          "ref": "slides-toolbar-tier1.md",
+          "reason": "A design doc that was folded into this one rather than written separately, per the `docs/design/README.md` rule on filing by validity."
+        },
+        {
+          "doc": "slides/slides-mobile.md",
+          "ref": "mobile-text-format-sheet.tsx",
+          "reason": "Superseded plan name, and the doc says so: the shipped `mobile-toolbar.tsx` \"replaced the planned `mobile-text-format-sheet.tsx`\". The old name is the reason that sentence is legible."
+        },
+        {
+          "doc": "slides/slides-mobile.md",
+          "ref": "mobile-slide-ops-fab.tsx",
+          "reason": "Superseded plan name from the same sentence — the standalone FAB was folded into the mobile toolbar."
+        },
+        {
+          "doc": "slides/slides-themes-layouts-import.md",
+          "ref": "model/migration.test.ts",
+          "reason": "Named in the doc's test plan, not its file inventory. The suite shipped under different names."
+        },
+        {
+          "doc": "slides/slides-themes-layouts-import.md",
+          "ref": "theme-apply.yorkie.test.ts",
+          "reason": "Test-plan name, as above."
+        },
+        {
+          "doc": "slides/slides-themes-layouts-import.md",
+          "ref": "pptx-import.test.ts",
+          "reason": "Test-plan name, as above; the shipped suites are `packages/cli/test/slides-pptx-import.test.ts` and `packages/backend/test/slides-pptx-import.e2e-spec.ts`."
+        },
+        {
+          "doc": "slides/slides.md",
+          "ref": "slides-cli-roundtrip.e2e-spec.ts",
+          "reason": "Test-plan name. The docs and notes round-trip specs exist; the slides one was never added."
+        },
+        {
+          "doc": "sheets/comments.md",
+          "ref": "packages/frontend/src/app/spreadsheet/__tests__/comments.test.ts",
+          "reason": "Test-plan path. Frontend tests live under `packages/frontend/tests/`, not a co-located `__tests__/`."
+        },
+        {
+          "doc": "sheets/comments.md",
+          "ref": "packages/frontend/visual/comments.spec.ts",
+          "reason": "Test-plan path, as above."
+        },
+        {
+          "doc": "docs/docs-pdf-export.md",
+          "ref": "multi-page.json",
+          "reason": "A fixture named in the test plan that was never committed."
+        },
+        {
+          "doc": "docs/docs-ime-composing-underline.md",
+          "ref": "docs-ime-undo-history.md",
+          "reason": "A follow-up design doc this one points at; not written yet."
+        },
+        {
+          "doc": "slides/slides-native-undo.md",
+          "ref": "00_log/incidents/2026/2026-06-20-yorkie-document-oom-node-cascade.md",
+          "reason": "An incident log outside this repository. No resolver can reach it, and the citation is still the right thing for the doc to carry."
+        },
+        {
+          "doc": "slides/slides-connectors.md",
+          "ref": "connection-points-overlay.ts",
+          "reason": "Named in the PR1 file plan. The shipped code puts connection sites in `packages/slides/src/view/canvas/connection-sites/` and paints them from `view/editor/overlay.ts`, so this file was never created under this name."
+        },
+        {
+          "doc": "harness-engineering.md",
+          "ref": "mixed-controls.tsx",
+          "reason": "The lane documentation quotes `slides/slides-toolbar-redesign.md` to illustrate why this advisory list exists, so the doc explaining the mechanism needs the mechanism. Self-demonstrating rather than circular: the quoted file is absent for the reason the quote gives."
+        }
+      ]
     },
     "dependencyFreshness": {
       "enabled": true,

@@ -432,6 +432,8 @@ caching and mutations.
 | `moveDocuments(ids, target)` | PATCH | `/documents/move` |
 | `deleteDocument(id)` | DELETE | `/documents/:id` |
 | `deleteDocuments(ids)` | POST | `/documents/delete` |
+| `copyDocument(id)` | POST | `/documents/:id/copy` |
+| `copyDocuments(ids)` | POST | `/documents/:id/copy` (one per id, sequential) |
 
 **Document list** uses TanStack Table with sorting, filtering, and pagination.
 Row click navigates to the type-specific detail route via `getDocumentPath()`.
