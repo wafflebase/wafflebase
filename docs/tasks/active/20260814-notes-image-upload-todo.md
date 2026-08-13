@@ -68,4 +68,44 @@ its weaknesses fixed:
 
 ## Review
 
-_(filled in after implementation)_
+Two commits on `notes-image-upload`:
+
+1. `b5f2fa4d4` — the feature as designed above.
+2. `761729bb4` — three fixes from the branch self-review.
+
+### What the self-review caught
+
+- **A batch inserted in completion order, not file order.** All placeholders
+  in one paste share an anchor, so the first upload to return inserted there
+  and pushed the rest past it: paste three screenshots on a jittery network,
+  get them back shuffled. Requests still all start at once; only the inserts
+  are serialized. The original ordering test passed *vacuously* — its mock
+  resolved in call order, so the out-of-order case was never exercised. The
+  replacement resolves the second upload first and fails against the old code.
+- **A Yorkie snapshot resync put the image at the top of the note.**
+  `noteSync` applies a `replace` remote change as one change spanning the
+  whole document; every anchor lives inside that deleted range, so CodeMirror
+  collapses them all to position 0. Anchors are now dropped on a whole-document
+  replacement and the insert falls back to the caret.
+- **A failed upload toasted over an expiring session.** `isAuthExpiredError`
+  is the established guard (added to board/slides in #619, now in ~15
+  handlers) and was missing from the new handler.
+
+Both engine fixes were verified by reverting them and confirming the new tests
+fail — they are real regression tests, not restatements of the code.
+
+### Known limitations
+
+- **No image upload behind an editable share link.** A read-only mount never
+  receives an `uploadImage`, and neither does the share view, because an
+  anonymous share-link editor cannot authenticate to the workspace image
+  endpoint. Paste and drop fall through to normal text handling there rather
+  than failing loudly.
+- **A stalled first upload holds back the rest of its batch.** Ordering is
+  enforced by committing in sequence, so a hung request leaves the later
+  images' placeholders on screen until it settles. Visible and honest, but a
+  per-item timeout would be better.
+- **No engine-level test of the store/undo integration.** `image-upload.test.ts`
+  mounts the extension standalone, without `noteStoreFacet`/`noteSync`. The
+  one-undo-unit claim rests on `insertImage` dispatching a single `input`
+  transaction plus `note-sync.test.ts`'s existing coverage of that shape.
