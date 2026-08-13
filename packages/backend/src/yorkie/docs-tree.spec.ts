@@ -1,4 +1,8 @@
-import yorkie, { Document as YorkieDocument } from '@yorkie-js/sdk';
+import yorkie, { Document as YorkieDocument, Tree } from '@yorkie-js/sdk';
+import {
+  DEFAULT_BLOCK_STYLE,
+  DEFAULT_HEADER_MARGIN_FROM_EDGE,
+} from '@wafflebase/docs';
 import {
   DocsYorkieRoot,
   readDocsRoot,
@@ -121,6 +125,100 @@ describe('docs-tree', () => {
       );
     }
     expect(JSON.stringify(style)).not.toContain('undefined');
+    // The write side must not persist the poison in the first place: the
+    // attributes are simply absent, not present-with-"undefined".
+    const attrs = (
+      doc.getRoot().content!.getRootTreeNode() as {
+        children: Array<{ attributes: Record<string, string> }>;
+      }
+    ).children[0].attributes;
+    expect(attrs).not.toHaveProperty('lineHeight');
+    expect(attrs).not.toHaveProperty('alignment');
+  });
+
+  it('reads a legacy poisoned block style as the block defaults', () => {
+    // Documents written before the serializer guard above stored the literal
+    // string "undefined" for every absent field. `Number('undefined')` is
+    // NaN and `normalizeBlockStyle` is a bare spread, so without the read
+    // guard that NaN would reach the layout engine.
+    doc.update((root) => {
+      root.content = new Tree({
+        type: 'doc',
+        children: [
+          {
+            type: 'block',
+            attributes: {
+              id: 'b1',
+              type: 'paragraph',
+              lineHeight: 'undefined',
+              marginTop: 'undefined',
+              marginBottom: 'not-a-number',
+              textIndent: 'Infinity',
+              marginLeft: '',
+            },
+            children: [
+              {
+                type: 'inline',
+                attributes: {},
+                children: [{ type: 'text', value: 'x' }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    const style = readDocsRoot(doc.getRoot()).blocks[0].style;
+
+    expect(style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+    expect(style.marginTop).toBe(DEFAULT_BLOCK_STYLE.marginTop);
+    expect(style.marginBottom).toBe(DEFAULT_BLOCK_STYLE.marginBottom);
+    expect(style.textIndent).toBe(DEFAULT_BLOCK_STYLE.textIndent);
+    // `Number('')` is 0, not NaN — a finite value the reader keeps.
+    expect(style.marginLeft).toBe(0);
+    for (const value of Object.values(style)) {
+      if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
+    }
+  });
+
+  it('omits an absent header marginFromEdge instead of writing "undefined"', () => {
+    const withHeader = {
+      blocks: [],
+      header: {
+        blocks: [
+          {
+            id: 'h1',
+            type: 'paragraph',
+            inlines: [{ text: 'h', style: {} }],
+            style: {},
+          },
+        ],
+      },
+    } as unknown as DocsDocument;
+
+    doc.update((root) => writeDocsRoot(root, withHeader));
+    const result = readDocsRoot(doc.getRoot());
+
+    expect(result.header!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+    expect(Number.isFinite(result.header!.marginFromEdge)).toBe(true);
+  });
+
+  it('reads a legacy poisoned header marginFromEdge as the default', () => {
+    doc.update((root) => {
+      root.content = new Tree({
+        type: 'doc',
+        children: [
+          {
+            type: 'header',
+            attributes: { marginFromEdge: 'undefined' },
+            children: [],
+          },
+        ],
+      });
+    });
+
+    const result = readDocsRoot(doc.getRoot());
+    expect(result.header!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
   });
 
   it('round-trips a table cell border whose color contains commas', () => {

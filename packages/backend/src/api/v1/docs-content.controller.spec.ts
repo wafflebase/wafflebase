@@ -495,6 +495,113 @@ describe('ApiV1DocsContentController', () => {
         ).rejects.toBeInstanceOf(NotFoundException);
       });
 
+      it('rejects an out-of-range alignment', async () => {
+        // `style.alignment` is persisted verbatim into the CRDT and read
+        // back out into an OOXML attribute by the DOCX exporter.
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: { alignment: 'center"/><w:jc w:val="right' },
+                inlines: [],
+              },
+            ],
+          },
+          /blocks\[0\].*'style\.alignment'/,
+        );
+      });
+
+      it('rejects a non-finite block style number', async () => {
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: { marginTop: 'lots' },
+                inlines: [],
+              },
+            ],
+          },
+          /blocks\[0\].*'style\.marginTop'/,
+        );
+      });
+
+      it('rejects a malformed inline', async () => {
+        await expectReject(
+          {
+            blocks: [
+              { id: 'b1', type: 'paragraph', style: {}, inlines: [{ text: 5 }] },
+            ],
+          },
+          /blocks\[0\]\.inlines\[0\].*'text'/,
+        );
+      });
+
+      it('rejects a table cell without a style', async () => {
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'table',
+                style: {},
+                tableData: {
+                  columnWidths: [100],
+                  rows: [{ cells: [{ blocks: [] }] }],
+                },
+              },
+            ],
+          },
+          /blocks\[0\]\.tableData\.rows\[0\]\.cells\[0\].*'style'/,
+        );
+      });
+
+      // `writeDocsRoot` persists header/footer blocks through the same
+      // `buildBlockNode`, so validating only `body.blocks` would let the
+      // exact value rejected above through the very same endpoint.
+      it('rejects a malformed block inside the header', async () => {
+        await expectReject(
+          {
+            blocks: [],
+            header: {
+              marginFromEdge: 40,
+              blocks: [
+                {
+                  id: 'h1',
+                  type: 'paragraph',
+                  style: { alignment: 'center"/><w:jc w:val="right' },
+                  inlines: [],
+                },
+              ],
+            },
+          },
+          /header\.blocks\[0\].*'style\.alignment'/,
+        );
+      });
+
+      it('rejects a malformed block inside the footer', async () => {
+        await expectReject(
+          {
+            blocks: [],
+            footer: {
+              marginFromEdge: 40,
+              blocks: [{ type: 'paragraph', style: {}, inlines: [] }],
+            },
+          },
+          /footer\.blocks\[0\].*'id'/,
+        );
+      });
+
+      it('rejects a non-finite header marginFromEdge', async () => {
+        await expectReject(
+          { blocks: [], header: { marginFromEdge: 'top', blocks: [] } },
+          /'header\.marginFromEdge'/,
+        );
+      });
+
       it('skips Yorkie work entirely when validation fails', async () => {
         await expectReject(
           { blocks: [{ id: 'b1', type: 'paragraph', style: {} }] },

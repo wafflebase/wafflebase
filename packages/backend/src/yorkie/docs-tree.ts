@@ -308,12 +308,27 @@ function buildRowNode(row: DocsTableRow): ElementNode {
   };
 }
 
+/**
+ * Same contract as `serializeBlockStyle`: `marginFromEdge` is optional on the
+ * wire (`{ header: { blocks: [] } }` is a valid PUT body), and writing it
+ * unconditionally would persist the literal string `"undefined"` that the
+ * reader below turns into `NaN` — an unrenderable header offset. Omit it
+ * instead so the read falls back to `DEFAULT_HEADER_MARGIN_FROM_EDGE`.
+ */
+function serializeMarginFromEdge(
+  marginFromEdge: number | undefined,
+): Record<string, string> {
+  const value = Number(marginFromEdge);
+  if (marginFromEdge === undefined || !Number.isFinite(value)) return {};
+  return { marginFromEdge: String(value) };
+}
+
 function buildTreeChildren(document: DocsDocument): ElementNode[] {
   const children: ElementNode[] = [];
   if (document.header) {
     children.push({
       type: 'header',
-      attributes: { marginFromEdge: String(document.header.marginFromEdge) },
+      attributes: serializeMarginFromEdge(document.header.marginFromEdge),
       children: document.header.blocks.map(buildBlockNode),
     });
   }
@@ -323,11 +338,23 @@ function buildTreeChildren(document: DocsDocument): ElementNode[] {
   if (document.footer) {
     children.push({
       type: 'footer',
-      attributes: { marginFromEdge: String(document.footer.marginFromEdge) },
+      attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
       children: document.footer.blocks.map(buildBlockNode),
     });
   }
   return children;
+}
+
+/**
+ * Invert `serializeMarginFromEdge`. A non-finite attribute (a legacy document
+ * written before the guard above, a hand-edited CRDT) reads as the default
+ * rather than poisoning the header layout with `NaN`.
+ */
+function parseMarginFromEdge(value: string | undefined): number {
+  const parsed = Number(value);
+  return value !== undefined && Number.isFinite(parsed)
+    ? parsed
+    : DEFAULT_HEADER_MARGIN_FROM_EDGE;
 }
 
 // ---------------------------------------------------------------------------
@@ -461,18 +488,14 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
       const attrs = (header.attributes ?? {}) as Record<string, string>;
       doc.header = {
         blocks: (header.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: attrs.marginFromEdge
-          ? Number(attrs.marginFromEdge)
-          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'footer') {
       const footer = child as ElementNode;
       const attrs = (footer.attributes ?? {}) as Record<string, string>;
       doc.footer = {
         blocks: (footer.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: attrs.marginFromEdge
-          ? Number(attrs.marginFromEdge)
-          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'block') {
       doc.blocks.push(treeNodeToBlock(child));

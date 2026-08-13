@@ -249,6 +249,88 @@ function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
   for (let i = 0; i < blocks.length; i++) {
     assertValidBlock(blocks[i], `blocks[${i}]`);
   }
+  // `writeDocsRoot` persists `header.blocks` / `footer.blocks` through the
+  // very same `buildBlockNode`, so a payload that smuggles a malformed block
+  // (or an out-of-range alignment) into a header would otherwise bypass every
+  // check above and surface as a 500 from inside Yorkie. Validate both
+  // regions with the same walker, and their `marginFromEdge` too — the writer
+  // reads it verbatim.
+  assertValidHeaderFooter((body as { header?: unknown }).header, 'header');
+  assertValidHeaderFooter((body as { footer?: unknown }).footer, 'footer');
+}
+
+function assertValidHeaderFooter(region: unknown, path: string): void {
+  if (region === undefined || region === null) return;
+  if (typeof region !== 'object') {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}' must be an object`,
+    );
+  }
+  const r = region as Record<string, unknown>;
+  if (!Array.isArray(r.blocks)) {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}.blocks' must be an array`,
+    );
+  }
+  if (
+    r.marginFromEdge !== undefined &&
+    (typeof r.marginFromEdge !== 'number' ||
+      !Number.isFinite(r.marginFromEdge))
+  ) {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}.marginFromEdge' must be a finite number`,
+    );
+  }
+  for (let i = 0; i < r.blocks.length; i++) {
+    assertValidBlock(r.blocks[i], `${path}.blocks[${i}]`);
+  }
+}
+
+const BLOCK_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
+
+const BLOCK_STYLE_NUMERIC_FIELDS = [
+  'lineHeight',
+  'marginTop',
+  'marginBottom',
+  'textIndent',
+  'marginLeft',
+] as const;
+
+/**
+ * Validate the *values* a block style carries, not just its shape. Every
+ * field is optional (`style: {}` is a valid partial the reader fills from
+ * `DEFAULT_BLOCK_STYLE`), but a present field has to be something the writer
+ * can express: `alignment` reaches an OOXML attribute via the DOCX exporter,
+ * and the geometry fields reach the layout engine as numbers. The writer
+ * drops what it cannot express and the exporters clamp at their own sinks, so
+ * this is defence in depth — its job is to hand the caller a 400 instead of
+ * silently rewriting their style. Reached for body, header, footer and
+ * table-cell blocks alike, since `assertValidBlock` recurses into cells.
+ */
+function assertValidBlockStyle(
+  style: Record<string, unknown>,
+  path: string,
+): void {
+  if (
+    style.alignment !== undefined &&
+    (typeof style.alignment !== 'string' ||
+      !BLOCK_ALIGNMENTS.has(style.alignment))
+  ) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: 'style.alignment' must be one of left, center, right, justify`,
+    );
+  }
+  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
+    const value = style[field];
+    if (
+      value !== undefined &&
+      (typeof value !== 'number' || !Number.isFinite(value))
+    ) {
+      throw new BadRequestException(
+        `Invalid block at ${path}: 'style.${field}' must be a finite number`,
+      );
+    }
+  }
 }
 
 function assertValidBlock(block: unknown, path: string): void {
@@ -262,15 +344,10 @@ function assertValidBlock(block: unknown, path: string): void {
   if (typeof b.type !== 'string') {
     throw new BadRequestException(`Invalid block at ${path}: 'type' must be a string`);
   }
-  // Shape only. Style *values* are not constrained here: a block style is a
-  // partial the writer normalizes (`serializeBlockStyle` drops what it cannot
-  // express, `parseBlockStyle` falls back to the block defaults), and every
-  // OOXML sink resolves `alignment` through its own closed lookup, so an
-  // unknown value can only ever degrade to the default — never reach a
-  // document attribute.
   if (!b.style || typeof b.style !== 'object') {
     throw new BadRequestException(`Invalid block at ${path}: 'style' must be an object`);
   }
+  assertValidBlockStyle(b.style as Record<string, unknown>, path);
   if (b.type === 'table') {
     const td = b.tableData as Record<string, unknown> | undefined;
     if (!td || typeof td !== 'object') {
@@ -290,7 +367,7 @@ function assertValidBlock(block: unknown, path: string): void {
         );
       }
       for (let c = 0; c < row.cells.length; c++) {
-        const cell = row.cells[c] as { blocks?: unknown };
+        const cell = row.cells[c] as { blocks?: unknown; style?: unknown };
         if (!cell || !Array.isArray(cell.blocks)) {
           throw new BadRequestException(
             `Invalid block at ${path}.tableData.rows[${r}].cells[${c}]: 'blocks' must be an array`,
@@ -302,12 +379,42 @@ function assertValidBlock(block: unknown, path: string): void {
             `${path}.tableData.rows[${r}].cells[${c}].blocks[${cb}]`,
           );
         }
+        // `serializeCellStyle` dereferences `cell.style` unconditionally, so
+        // a cell without one is a 500 from inside the writer rather than a
+        // 400 here. Checked after the nested blocks so the innermost problem
+        // is still the one reported.
+        if (!cell.style || typeof cell.style !== 'object') {
+          throw new BadRequestException(
+            `Invalid block at ${path}.tableData.rows[${r}].cells[${c}]: 'style' must be an object`,
+          );
+        }
       }
     }
     return;
   }
   if (!Array.isArray(b.inlines)) {
     throw new BadRequestException(`Invalid block at ${path}: 'inlines' must be an array`);
+  }
+  // `buildInlineNode` reads `inline.text.length` and `serializeInlineStyle`
+  // reads every key off `inline.style`, both unconditionally — an element
+  // missing either turns a malformed PUT into a 500 from inside the writer.
+  for (let i = 0; i < b.inlines.length; i++) {
+    const inline = b.inlines[i] as { text?: unknown; style?: unknown } | null;
+    if (!inline || typeof inline !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: not an object`,
+      );
+    }
+    if (typeof inline.text !== 'string') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'text' must be a string`,
+      );
+    }
+    if (!inline.style || typeof inline.style !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
+      );
+    }
   }
 }
 

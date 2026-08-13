@@ -109,6 +109,23 @@ describe('color', () => {
       .toBe('<a:srgbClr val="000000"/>');
   });
 
+  it('coerces the modifier attributes instead of interpolating them raw', () => {
+    // `ST_Percentage` is a number. The model holds whatever import or the
+    // content PUT API stored, so a non-numeric modifier is dropped (the base
+    // color still renders) rather than smuggled into the attribute — the hex
+    // `val` is normalized, so these are the only other attributes here.
+    const xml = colorChildXml({
+      kind: 'role',
+      role: 'accent1',
+      lumMod: '50000"/><a:alpha val="0' as unknown as number,
+      alpha: 25000,
+    });
+    expect(xml).not.toContain('lumMod');
+    expect(xml).toBe('<a:schemeClr val="accent1"><a:alpha val="25000"/></a:schemeClr>');
+    expect(colorChildXml({ kind: 'srgb', value: '#FF0000', alpha: NaN as number }))
+      .toBe('<a:srgbClr val="FF0000"/>');
+  });
+
   it('normalizes the CSS forms the model can hold', () => {
     // Slide text boxes are edited by the docs TextEditor, so HTML paste
     // stores browser-normalized CSS; import/older schemas add shorthand.

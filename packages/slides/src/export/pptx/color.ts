@@ -20,13 +20,30 @@ export function colorFromStringOrTheme(c: ThemeColor | string): ThemeColor {
   return typeof c === 'string' ? { kind: 'srgb', value: c } : c;
 }
 
+/**
+ * A color modifier (`<a:lumMod>`, `<a:tint>`, `<a:alpha>`, …) carries
+ * `ST_Percentage` — a number, never free text. The model holds whatever the
+ * importer or the content PUT API stored, so coerce here rather than escape:
+ * a non-numeric value has no valid rendering, and dropping the modifier
+ * leaves the base color intact. This is what keeps the attributes in this
+ * file injection-free now that the hex `val` is normalized instead of
+ * escaped — every attribute this function emits is either `[0-9A-F]{6}`, a
+ * closed `ROLE_TO_SCHEME` value, or a finite number.
+ */
+function modifierXml(tag: string, value: number | undefined): string {
+  if (value === undefined) return '';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return `<a:${tag} val="${n}"/>`;
+}
+
 export function colorChildXml(c: ThemeColor): string {
   const mods: string[] = [];
-  if ('lumMod' in c && c.lumMod !== undefined) mods.push(`<a:lumMod val="${c.lumMod}"/>`);
-  if ('lumOff' in c && c.lumOff !== undefined) mods.push(`<a:lumOff val="${c.lumOff}"/>`);
-  if ('tint' in c && c.tint !== undefined) mods.push(`<a:tint val="${c.tint}"/>`);
-  if ('shade' in c && c.shade !== undefined) mods.push(`<a:shade val="${c.shade}"/>`);
-  if (c.alpha !== undefined) mods.push(`<a:alpha val="${c.alpha}"/>`);
+  if ('lumMod' in c) mods.push(modifierXml('lumMod', c.lumMod));
+  if ('lumOff' in c) mods.push(modifierXml('lumOff', c.lumOff));
+  if ('tint' in c) mods.push(modifierXml('tint', c.tint));
+  if ('shade' in c) mods.push(modifierXml('shade', c.shade));
+  mods.push(modifierXml('alpha', c.alpha));
   const inner = mods.join('');
   if (c.kind === 'role') {
     const val = ROLE_TO_SCHEME[c.role];

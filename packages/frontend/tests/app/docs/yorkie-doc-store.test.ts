@@ -2066,6 +2066,66 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  // The backend (`packages/backend/src/yorkie/docs-tree.ts`) encodes the same
+  // Yorkie Tree attributes with its own copy of this codec, so the two must
+  // agree on what a partial/absent field looks like on the wire.
+  describe('block style codec', () => {
+    it('should omit absent style fields instead of writing "undefined"', () => {
+      const block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'x', style: {} }],
+        style: {},
+      } as unknown as Block;
+      store.setDocument({ blocks: [block] });
+
+      const attrs = doc.getRoot().content.getRootTreeNode().children[0]
+        .attributes as Record<string, string>;
+      expect(attrs).not.toHaveProperty('lineHeight');
+      expect(attrs).not.toHaveProperty('alignment');
+
+      const style = new YorkieDocStore(doc).getDocument().blocks[0].style;
+      expect(style).toEqual(DEFAULT_BLOCK_STYLE);
+    });
+
+    it('should read a legacy poisoned style as the block defaults', () => {
+      // Documents written by the pre-guard serializer hold the literal
+      // string "undefined"; `Number(...)` of that is NaN and
+      // `normalizeBlockStyle` is a bare spread, so the read has to guard.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        root.content = new yorkie.Tree({
+          type: 'doc',
+          children: [
+            {
+              type: 'block',
+              attributes: {
+                id: 'b1',
+                type: 'paragraph',
+                lineHeight: 'undefined',
+                marginTop: 'undefined',
+                marginBottom: 'not-a-number',
+                textIndent: 'Infinity',
+              },
+              children: [
+                { type: 'inline', attributes: {}, children: [{ type: 'text', value: 'x' }] },
+              ],
+            },
+          ],
+        });
+      });
+
+      const style = new YorkieDocStore(doc).getDocument().blocks[0].style;
+      expect(style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      expect(style.marginTop).toBe(DEFAULT_BLOCK_STYLE.marginTop);
+      expect(style.marginBottom).toBe(DEFAULT_BLOCK_STYLE.marginBottom);
+      expect(style.textIndent).toBe(DEFAULT_BLOCK_STYLE.textIndent);
+      for (const value of Object.values(style)) {
+        if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
+      }
+    });
+  });
+
   describe('applyCellSpan', () => {
     it('should set colSpan on a cell', () => {
       const tableBlock = createTableBlock(2, 3);
@@ -2113,6 +2173,26 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 1 });
       const doc = store.getDocument();
       expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(undefined);
+    });
+
+    // The span removal is index-scoped to the cell's opening tag rather than
+    // a path range, because a path range spans the cell's whole subtree and
+    // Yorkie would strip `colSpan` from every nested-table cell inside it.
+    // Read back through a fresh store so the assertion sees the CRDT itself
+    // and not the write-through cache.
+    it('should clear colSpan in the CRDT without touching nested cells', () => {
+      const outer = createTableBlock(1, 1);
+      const nested = createTableBlock(1, 1);
+      nested.tableData!.rows[0].cells[0].colSpan = 2;
+      outer.tableData!.rows[0].cells[0].blocks = [nested];
+      store.setDocument({ blocks: [outer] });
+      store.applyCellSpan(outer.id, 0, 0, { colSpan: 2 });
+      store.applyCellSpan(outer.id, 0, 0, { colSpan: 1 });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.colSpan).toBe(undefined);
+      expect(cell.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(2);
     });
 
     it('should set colSpan=0 for covered cells', () => {

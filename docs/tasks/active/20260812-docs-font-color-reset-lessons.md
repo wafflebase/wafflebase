@@ -63,3 +63,24 @@ Two follow-ups from the next review round sharpen this:
   where the guarantee lives — and the writer was made to normalize instead of
   trusting a partial style (`style: {}` used to persist the literal string
   `"undefined"` and read back as `NaN` geometry).
+
+The round after that reversed the reversal, and the reason is the useful part:
+the allowlist was not wrong, its *coverage* was. Restoring it while making
+`assertValidBlock` the single walker every region goes through — body blocks,
+header blocks, footer blocks and table-cell blocks alike — costs one call site
+and makes the advertised guarantee true. The lesson is not "validate at the
+sink instead of the API" but "a validator that walks only one of the writer's
+inputs is worse than none, because it reads as coverage."
+
+## Duplicated codecs have to be hardened in pairs
+
+`serializeBlockStyle`/`parseBlockStyle` exist twice — in
+`packages/backend/src/yorkie/docs-tree.ts` and in
+`packages/frontend/src/app/docs/yorkie-doc-store.ts` — and they encode the
+*same* Yorkie Tree attributes. Hardening only the backend copy left the editor
+still reading a poisoned document as `NaN` and still able to write the poison
+itself. Same for `marginFromEdge`, which sat two functions below the fix and
+kept writing `String(undefined)`.
+
+Takeaway: when a fix lands in a serializer, grep the attribute names — not the
+function name — for the other end of the wire.
