@@ -1,6 +1,6 @@
 ---
 title: document-copy
-target-version: 0.2.0
+target-version: 0.7.0
 ---
 
 # Make a Copy — Document Duplication
@@ -20,7 +20,12 @@ experimentation risky.
 ### Goals
 
 - One action duplicates a document of **any** type with its full content.
-- The copy is independent: deleting the source leaves it intact.
+- The copy is independent: deleting the source leaves it intact. This covers
+  the document's own storage — its Yorkie root and, for a blob document, its
+  object. Images *embedded inside* a sheet/slides/board root are referenced by
+  URL, so the copy points at the same uploaded image as the source; those
+  objects are workspace-scoped and are not deleted with a document, so the copy
+  still renders.
 - The copy is a new document — new author, new timestamps, no inherited
   collaboration state.
 - Anyone who can **read** the document can copy it.
@@ -97,6 +102,28 @@ been attached to by anyone, so the last-write-wins contract that
 | `note`                    | `readNoteRoot()` → `writeNoteRoot()`. Same reason: the body is a single Yorkie `Text`.                             |
 | `pdf`, `image`, `file`    | S3 `CopyObject` into a fresh object key (`FileService.copy`). Server-side copy — the bytes never enter the backend process. `fileSize` / `mimeType` are carried over from the source row: they describe the same bytes. The new document references the new key, so deleting the source (which deletes its blob) cannot break the copy. |
 
+Two non-obvious details keep the whole-root snapshot faithful, both shared with
+`packages/backend/scripts/copy-yorkie-documents.ts` through
+`packages/backend/src/yorkie/yorkie-json.ts`:
+
+- **Snapshot fallbacks.** `snapshotJsonRoot` tries `doc.toJSON()`, then
+  `JSON.stringify(root)`, then a manual proxy walk. The CRDT's raw JSON string
+  path does not escape every control character, so the first two go through a
+  parser that repairs those, and the third produces no JSON at all. A document
+  holding such a character must copy, not 500.
+- **Long re-coercion.** Yorkie 0.7.x classifies an integer-valued JS number as
+  a 32-bit Integer, and the snapshot comes back from `JSON.parse` as plain
+  numbers. Assigning a timestamp straight back would truncate it to its low 32
+  bits and decode as 1970, so `reviveLongs` re-coerces out-of-int32 integers to
+  `bigint` — the same boundary conversion the frontend's `toYorkieMs` does.
+
+The blob arm has one of its own: `CopySource` is `<bucket>/<key>` with each
+path *segment* URL-encoded and the separators left literal, per the
+`x-amz-copy-source` contract. It also needs `fast-xml-parser` ≥ 5.7.2 — the
+AWS SDK registers a `#xD` entity that 5.7.0/5.7.1 reject, which makes every
+S3 response with an XML body (`CopyObject` among them) fail to deserialize.
+The repo's security override floor is set accordingly.
+
 Because the `doc` arm reuses `readDocsRoot`/`writeDocsRoot`, it inherits their
 documented limitations (legacy header/footer shapes are not migrated; inline
 images are opaque attribute strings). That is the same fidelity the CLI's
@@ -118,7 +145,12 @@ Order matters, because a partially-created copy is worse than none:
 
 Step 4's rollback is the one place this differs from the import queue, which
 deliberately leaves an empty document behind for a retry to fill. A copy has no
-retry affordance in the UI, so it rolls back instead.
+retry affordance in the UI, so it rolls back instead. The blob is discarded
+only once its row is actually gone: a surviving row whose object was deleted
+opens and 404s on its own bytes, which is worse than an orphaned object.
+
+A type with no arm above is a `400`, not a silent no-op — otherwise a document
+type added later would copy as an empty document and report success.
 
 ### Frontend
 

@@ -28,6 +28,22 @@ document, from the document row menu and the bulk action bar.
 - [x] Frontend `copyDocument()` API + row menu item + bulk bar button.
 - [x] Unit tests: title util, copy service, controller endpoint.
 
+## Review follow-ups (human intervention after the agent panel paged)
+
+- [x] Share the snapshot normalizer with `scripts/copy-yorkie-documents.ts`
+      (`yorkie/yorkie-json.ts`): control-character repair + proxy-walk fallback,
+      which the copy service's own fallback re-parsed its way back into.
+- [x] `CopySource` encoded per path segment, not wholesale.
+- [x] Raise the `fast-xml-parser` override floor to 5.7.2 — 5.7.0/5.7.1 reject
+      the AWS SDK's `#xD` entity, which broke every `CopyObject`.
+- [x] Discard the copied blob only when its row was actually rolled back.
+- [x] Refuse an unknown document type instead of copying it as empty.
+- [x] Pending-guard the row menu's *Make a copy*.
+- [x] `test/document-copy-attached.e2e-spec.ts` — JSON-root arm against a real
+      Yorkie server (control character, Long timestamp, comment stripping).
+- [x] Endpoint tables in `packages/backend/README.md`, `docs/design/backend.md`,
+      `docs/design/frontend.md`.
+
 ## Out of scope
 
 - REST v1 / CLI copy endpoint.

@@ -29,8 +29,29 @@
   never modifies the source. That is the one document action that intentionally
   diverges from the move/delete gate.
 
-## Not verified locally
+## What running it for real turned up
 
-Yorkie-attached and DB-backed behavior (the real copy of a live `doc`/`note`
-document, and the S3 `CopyObject` against MinIO) was left to CI's
-`verify-integration` lane; only the unit-level specs ran locally.
+The first pass left the Yorkie-attached and MinIO paths to CI. Both were then
+exercised locally, and each one found something the mocked tests could not:
+
+- **`CopyObject` did not work at all** — not because of the command arguments,
+  but because `@aws-sdk/xml-builder` registers a `#xD` XML entity that
+  `fast-xml-parser` 5.7.0/5.7.1 reject, so *any* S3 response with an XML body
+  failed to deserialize. Uploads and downloads never noticed (no XML body),
+  which is why this sat undetected until a feature needed `CopyObject`. Fixed
+  by raising the repo's security override floor to 5.7.2, where upstream fixed
+  the regression. **Lesson: a mocked S3 client asserts your arguments, never
+  the round trip. Run the real thing once.**
+- **The snapshot fallback chain was untestable as written** — the unit test's
+  fake root was a plain object with no `toJSON`, so it never reproduced the
+  proxy semantics the fallback exists for, and the fallback re-parsed the same
+  broken string it was falling back *from*. The repair and proxy-walk tiers now
+  live in `yorkie/yorkie-json.ts`, shared with
+  `packages/backend/scripts/copy-yorkie-documents.ts` (which already had them), and
+  `test/document-copy-attached.e2e-spec.ts` runs the JSON arm against a real
+  Yorkie server on both ends. **Lesson: when a fake has to omit the very
+  property under test, that is the signal to reach for an attached test.**
+
+`CopySource` is now encoded per path segment rather than wholesale. MinIO
+accepts both forms (it unescapes `%2F`), so this is contract correctness, not
+an observed failure.
