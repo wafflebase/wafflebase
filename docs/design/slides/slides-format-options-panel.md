@@ -58,7 +58,7 @@ work for the properties covered above.
   programmatically only; the dedicated crop UI is a separate spec.
 - **Mobile**. Desktop-only (≥768px). Mobile keeps the existing
   bottom-sheet format controls described in
-  [`slides-mobile-edit.md`](./slides-mobile-edit.md).
+  [`slides-mobile.md`](./slides-mobile.md).
 - **Read-only / sharing mode**. The panel and its toolbar toggle are
   hidden entirely, mirroring how `ThemePanel` behaves today.
 - **Position-from-center mode**. Google Slides exposes a "Position
