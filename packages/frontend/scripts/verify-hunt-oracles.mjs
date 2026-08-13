@@ -578,6 +578,36 @@ async function checkSheetToolbar(page, baseUrl) {
     problems.push(`sheet.activeCellStyle should report the applied bold on the active cell, got ${JSON.stringify(computed)}`);
   }
 
+  // AND BACK AGAIN. The brief tells the explorer what a round trip leaves behind, and
+  // that sentence was WRONG in its first version — it claimed patches accumulate, so
+  // the first live run that used the toolbar spent its only violated prediction on a
+  // claim I had written without checking the compaction path. `addRangeStylePatch`
+  // merges a repeat toggle into the tail patch and then DELETES it when
+  // `pruneRedundantDefaultStyleKeys` finds the result redundant with the default.
+  //
+  // Pinned here so the brief's fact is a checked one. It is also where this surface
+  // DIFFERS from docs, where the same round trip leaves an explicit `false` behind
+  // (#749, #793) — if sheets ever grows that residue, this fails rather than the brief
+  // quietly going stale again.
+  await page.getByRole("button", { name: "Bold" }).click();
+  let cleared = null;
+  const rtDeadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    cleared = (await readReader(page, "sheet.rangeStyles", [])).value;
+    if ((Array.isArray(cleared) ? cleared.length : 1) === 0 || Date.now() >= rtDeadline) break;
+    await page.waitForTimeout(25);
+  }
+  if ((Array.isArray(cleared) ? cleared.length : -1) !== 0) {
+    problems.push(
+      `toggling Bold off should prune the patch, leaving no range styles — got ${JSON.stringify(cleared)?.slice(0, 160)}. ` +
+        "If this is now residue rather than a clean round trip, sheet-author.md says the opposite and must be corrected with it.",
+    );
+  }
+  const restored = (await readReader(page, "sheet.activeCellStyle", [])).value;
+  if (restored?.b === true) {
+    problems.push(`the second Bold click left the cell still bold: ${JSON.stringify(restored)}`);
+  }
+
   return problems;
 }
 
