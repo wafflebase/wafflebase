@@ -258,12 +258,36 @@ jobs:
             // depend on it: `ci.ciConfig` forces the full suite and
             // .github/CODEOWNERS requires an owner's review. So a failure here is
             // a warning, not a red X.
-            if (areas && areas.ciConfig) {
-              try {
+            //
+            // The label tracks the CURRENT resolution in both directions. Adding
+            // it without ever removing it made it monotonic: a PR that dropped a
+            // gating file after one run, or was mislabelled by a resolver bug,
+            // wore the label for the rest of its life and the reviewer had no way
+            // to tell a stale label from a real one. A label nobody can trust to
+            // be current is worse than no label.
+            //
+            // The cost of dropping monotonicity: `concurrency` above is keyed on
+            // the triggering run, so two runs for one PR do not serialise and an
+            // older one finishing last can write a stale answer. Accepted, because
+            // the next run corrects it, the comment body already had exactly this
+            // property, and nothing mechanical reads the label.
+            const LABEL = 'ci-config-changed';
+            try {
+              if (areas && areas.ciConfig) {
                 await github.rest.issues.addLabels({
-                  owner, repo, issue_number: prNumber, labels: ['ci-config-changed'],
+                  owner, repo, issue_number: prNumber, labels: [LABEL],
                 });
-              } catch (error) {
-                core.warning(`Could not apply the ci-config-changed label: ${error.message}`);
+              } else if (areas) {
+                // Only when `areas` parsed. A missing resolution means we do not
+                // know what changed, and guessing "not a config change" would
+                // quietly clear a label that is telling the truth.
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number: prNumber, name: LABEL,
+                }).catch((error) => {
+                  // 404 is the normal path: the label was not on the PR.
+                  if (error.status !== 404) throw error;
+                });
               }
+            } catch (error) {
+              core.warning(`Could not update the ${LABEL} label: ${error.message}`);
             }

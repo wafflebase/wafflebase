@@ -35,7 +35,16 @@
         "tags": [
           "documentation"
         ],
-        "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is the one packages/ entry that is genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy."
+        "reason": "The VitePress docs site. A workspace package, but a leaf one: nothing imports @wafflebase/documentation, so it cannot reach the engines, the frontend, or the browser/integration jobs. It is called out explicitly because it is one of the two packages/ entries that are genuinely inert, and because publish-ghpage.yml builds it at deploy time — the `documentation:build` lane exists so a broken docs build fails CI rather than the deploy."
+      },
+      {
+        "paths": [
+          "packages/design-editor/**"
+        ],
+        "tags": [
+          "designEditor"
+        ],
+        "reason": "The dev-only design-system editor Vite plugin. A leaf package: no package.json in the workspace depends on @wafflebase/design-editor and packages/frontend's vite.config.ts does not register the plugin, so nothing it does can change what verify-browser renders or what verify-integration serves — it is `private: true` and never enters a production bundle. Unlike packages/documentation it IS analysed by knip (#819 added it to knip.json's `workspaces`), so the `designEditor` tag is claimed by two lanes, not one: `design-editor:check` (tsc --noEmit + vitest) and `verify:entropy`, which carries the dead-code gate that a change here can genuinely fail. Skipping entropy would have hidden dead code until main's push run. An inert entry whose tag no lane claims is strictly worse than not listing the path at all, so check the claimants when editing this."
       }
     ],
     "ciConfigReason": "The gating surface itself. A change to any of these forces a full run, so a PR can never use the filter to grade its own homework — the reduced-run decision is always made by the version of the mapping already on main. It also drives the loud `ci-config-changed` label and job-summary warning, because CODEOWNERS only binds when branch protection has 'Require review from Code Owners' switched on.",

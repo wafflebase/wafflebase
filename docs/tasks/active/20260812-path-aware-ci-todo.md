@@ -135,6 +135,83 @@ workflow file is taken from the default branch, not the PR. **Invariant:** the
 reporter checks out no PR code and runs no `pnpm`. Adding either would hand the
 token to the fork.
 
+## Phase 4c: The filter was mostly inert, and the label lied about it ✅
+
+Found by asking why #805 — five files, all of them inert — ran the whole suite.
+The filter had been shipping the safe answer for the wrong reason, on most PRs.
+
+- [x] 4c.1 Take **both** ends of the diff from the event payload.
+      `resolveBase` → `resolveRefs`, returning `{ base, head }`; `changedPaths`
+      takes that object so passing `repoRoot` where `head` belongs cannot compile
+      into a silent default
+- [x] 4c.2 Keep the diff three-dot. Measured, not reasoned: two-dot is *also*
+      wrong (15 files on #805 vs 5), because commits the base has and the head
+      lacks read as changes belonging to the PR
+- [x] 4c.3 Make `ci-config-changed` track the current resolution in both
+      directions — it shipped add-only, so anything that set it once kept it set
+- [x] 4c.3b Resolve the base from the freshest of three sources, `payload.base.sha`
+      LAST. Removing the label is worthless if the re-resolution is still wrong,
+      and it was: a rebase / force-push / "Update branch" puts the branch AHEAD of
+      the stale `base.sha`, which is the one case three-dot cannot absorb
+- [x] 4c.4 List `packages/design-editor/**` inert, with a `designEditor` tag its
+      lanes claim, and a test asserting every `ci.inert` tag is claimed by some
+      lane
+
+### Two ends, two independent kinds of drift
+
+`actions/checkout` leaves `HEAD` at the **merge commit** for `pull_request`, and
+`merge-base(base.sha, merge_commit)` is `base.sha` itself whenever the merge
+already contains it — so three-dot collapses to two-dot and sweeps in whatever the
+merge brought along. On top of that, `payload.base.sha` is *not* the base branch's
+tip: GitHub records it at PR creation/sync while `refs/pull/N/merge` is rebuilt
+against the base's current tip, so **the two ends drift apart with nobody touching
+the branch**. #817 ran twice without changing and flipped:
+
+```
+02:08  head 8de60d6fd   full=false heavy=false ciConfig=false   agent, docsProse
+04:48  head 637226ef1   full=true  heavy=true  ciConfig=true    "gating file changed"
+```
+
+The three `ciConfig` files it "changed" were all #821's. **Both bugs failed toward
+running more CI**, which is why nine merged PRs never surfaced them: the cost was
+a filter that quietly did nothing for any branch behind its base — most branches —
+plus a false label on PRs that never touched CI config.
+
+**Removing the label would have been worthless without 4c.3b.** The question that
+found it: does pressing "Update branch" or rebasing actually clear the label? The
+re-run happens (both are `synchronize`, and `ci.yml`'s `pull_request:` trigger has
+no `types:`, so it defaults to `[opened, synchronize, reopened]`) — but the
+re-resolution was still wrong. Three-dot absorbs a stale base only while the branch
+is BEHIND it; a rebase puts the branch AHEAD, `merge-base(stale_base, head)`
+collapses to `stale_base`, and the label gets re-applied from `main`'s own commits.
+So the base is now taken from the merge ref's first parent, else
+`origin/<base.ref>`, else `base.sha`. The fast-forward case is why there are two
+fresh sources rather than one: a rebased branch is fast-forwardable, and a
+fast-forwarded merge ref has no second parent to read.
+
+### The inert-package trap
+
+An inert match **short-circuits** the `packages/` classification in `classify`, so
+an inert package never enters `changedPkgs`, never enters the reverse closure, and
+never appears in `packages`. A lane selecting on `pkgs` alone is therefore
+**unreachable**, and so is one selecting on `anyPkg` — the entry would make the
+package skippable *and* untested, with the lane still present and still looking
+like coverage. `documentation:build` already carried a tag for this reason;
+nothing recorded why, so `design-editor:check` was one line away from silently
+losing its coverage. `verify-self-lanes.test.mjs` now asserts every `ci.inert` tag
+is claimed by a lane.
+
+**The `anyPkg` half of that was caught by rebasing, not by the test.** #819 added
+`packages/design-editor` to `knip.json`'s `workspaces`, which makes knip's
+dead-code pass a gate a design-editor change can fail — and `verify:entropy` is
+selected by `anyPkg`, which an inert package cannot reach. The tag test passed
+either way, because one claimant (`design-editor:check`) satisfied it. So the tag
+is now claimed by both lanes, and the rule to apply when listing any package inert
+is: **enumerate every gate that can currently fail on it, and confirm each one's
+route in is a tag rather than `pkgs` or `anyPkg`.** A design-editor change selects
+6 of 28 lanes (its check, entropy, and entropy's four engine builds) and still
+skips both heavy jobs.
+
 ## Phase 5: Deferred
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse
