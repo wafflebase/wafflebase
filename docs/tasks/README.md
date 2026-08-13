@@ -18,12 +18,16 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| notes image upload (2026-08-14) | [20260814-notes-image-upload-todo.md](./active/20260814-notes-image-upload-todo.md) | - |
 | doc index refresh (2026-08-13) | [20260813-doc-index-refresh-todo.md](./active/20260813-doc-index-refresh-todo.md) | [20260813-doc-index-refresh-lessons.md](./active/20260813-doc-index-refresh-lessons.md) |
+| document copy (2026-08-13) | [20260813-document-copy-todo.md](./active/20260813-document-copy-todo.md) | [20260813-document-copy-lessons.md](./active/20260813-document-copy-lessons.md) |
 | visual font cache (2026-08-13) | [20260813-visual-font-cache-todo.md](./active/20260813-visual-font-cache-todo.md) | [20260813-visual-font-cache-lessons.md](./active/20260813-visual-font-cache-lessons.md) |
 | coderabbit latency (2026-08-12) | [20260812-coderabbit-latency-todo.md](./active/20260812-coderabbit-latency-todo.md) | - |
 | coderabbit title excludes code (2026-08-12) | [20260812-coderabbit-title-excludes-code-todo.md](./active/20260812-coderabbit-title-excludes-code-todo.md) | - |
 | date display format (2026-08-12) | [20260812-date-display-format-todo.md](./active/20260812-date-display-format-todo.md) | [20260812-date-display-format-lessons.md](./active/20260812-date-display-format-lessons.md) |
+| eval adjudication cli (2026-08-12) | [20260812-eval-adjudication-cli-todo.md](./active/20260812-eval-adjudication-cli-todo.md) | - |
 | eval cost latency scorer (2026-08-12) | [20260812-eval-cost-latency-scorer-todo.md](./active/20260812-eval-cost-latency-scorer-todo.md) | - |
+| eval report renderer (2026-08-12) | [20260812-eval-report-renderer-todo.md](./active/20260812-eval-report-renderer-todo.md) | - |
 | eval segmentation (2026-08-12) | [20260812-eval-segmentation-todo.md](./active/20260812-eval-segmentation-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
 | token overlap arm aware (2026-08-12) | [20260812-token-overlap-arm-aware-todo.md](./active/20260812-token-overlap-arm-aware-todo.md) | - |
@@ -62,4 +66,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 469
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: doc index refresh (2026-08-13)
+Latest active task: notes image upload (2026-08-14)
