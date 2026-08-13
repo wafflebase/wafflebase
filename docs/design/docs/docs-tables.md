@@ -135,7 +135,7 @@ doc (root)
 │   └─ inline → text("normal paragraph")
 ├─ block(type=table, cols="0.333,0.334,0.333")
 │   ├─ row
-│   │   ├─ cell(backgroundColor="" verticalAlign="top" padding="4"
+│   │   ├─ cell(backgroundColor="#fff2cc" verticalAlign="top" padding="4"
 │   │   │       colSpan="1" rowSpan="1")
 │   │   │   └─ block(type=paragraph)
 │   │   │       └─ inline → text("cell A")
@@ -167,6 +167,25 @@ doc (root)
 
 **Cell children:** standard `block → inline → text` hierarchy, identical
 to top-level document blocks.
+
+**Clearing a cell attribute.** An attribute that is *absent* means "unset"
+— there is no empty-string form of a cell style. Clearing one (the "No
+fill" reset of issue #728) therefore has to *remove* the attribute from
+the `cell` node: `styleByPath` only merges, so writing the cleared style
+would silently leave the previous value behind, and storing `""` instead
+would put a value the paint and export paths must each special-case into
+the CRDT.
+
+Removal is node-scoped, which needs care. `removeStyleByPath(cellPath,
+cellPath+1, …)` reads as "this cell" but spans the cell's whole subtree,
+and Yorkie removes the attribute from every element node in the range —
+that would strip `backgroundColor` from the text highlight of every inline
+in the cell and from every nested-table cell as well. Yorkie has no
+single-node removal, so `removeCellNodeStyle` (`yorkie-doc-store.ts`)
+converts the path to an index and removes over `[idx, idx + 1)`, the range
+covering the cell's opening tag alone: the first child starts exactly at
+`idx + 1`, a zero-width overlap the range walk excludes. `applyCellStyle`
+and `applyCellSpan` both go through it.
 
 ### Concurrent Editing Behavior
 

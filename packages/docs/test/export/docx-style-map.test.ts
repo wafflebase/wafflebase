@@ -157,3 +157,20 @@ describe('buildParagraphPropertiesXml', () => {
     expect(xml).not.toContain('<w:jc');
   });
 });
+
+describe('DOCX_ALIGNMENTS is a closed lookup', () => {
+  // A plain object literal consults the prototype chain, so `toString` and
+  // friends would resolve to an inherited member, survive the `?? 'left'`
+  // fallback and be stringified into the attribute
+  // (`<w:jc w:val="function toString() { [native code] }"/>`).
+  it.each(['toString', 'constructor', 'valueOf', '__proto__', 'hasOwnProperty'])(
+    'ignores the inherited key %s',
+    (key) => {
+      const xml = buildParagraphPropertiesXml({
+        alignment: key as never,
+        lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
+      });
+      expect(xml).not.toContain('<w:jc');
+    },
+  );
+});

@@ -1,5 +1,5 @@
+import { toRgbHexColor } from '@wafflebase/docs';
 import { representativeColor, type ColorRole, type Fill, type GradientFill, type ThemeColor } from '../../model/theme';
-import { escapeXmlAttr } from './xml.js';
 
 export const ROLE_TO_SCHEME: Record<ColorRole, string> = {
   text: 'tx1',
@@ -32,7 +32,14 @@ export function colorChildXml(c: ThemeColor): string {
     const val = ROLE_TO_SCHEME[c.role];
     return inner ? `<a:schemeClr val="${val}">${inner}</a:schemeClr>` : `<a:schemeClr val="${val}"/>`;
   }
-  const hex = escapeXmlAttr(c.value.replace(/^#/, '').toUpperCase());
+  // `<a:srgbClr val>` is `ST_HexColorRGB` — exactly six hex digits. The model
+  // holds whatever string reached it (import, HTML paste's `rgb(255, 0, 0)`,
+  // the legacy `''` reset of issue #728), so normalize through the shared
+  // converter every OOXML color sink uses. Callers that can omit the color
+  // (`text.ts`) already drop it before getting here; this is the backstop for
+  // the sinks that must emit *some* color — shape/gradient/background fills —
+  // where black matches the "unknown role" fallback below.
+  const hex = toRgbHexColor(c.value) ?? '000000';
   return inner ? `<a:srgbClr val="${hex}">${inner}</a:srgbClr>` : `<a:srgbClr val="${hex}"/>`;
 }
 

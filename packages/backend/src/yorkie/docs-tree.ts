@@ -136,17 +136,37 @@ function parseInlineStyle(
   return style;
 }
 
+const BLOCK_STYLE_NUMERIC_FIELDS = [
+  'lineHeight',
+  'marginTop',
+  'marginBottom',
+  'textIndent',
+  'marginLeft',
+] as const;
+
+/**
+ * `BlockStyle` is a full shape in the model but a *partial* on the wire: the
+ * content PUT API accepts `style: {}`, and older documents predate fields
+ * added since. Writing those absent fields unconditionally would persist
+ * `alignment: undefined` and the literal string `"undefined"` for every
+ * number, which `parseBlockStyle` then reads back as `NaN` and the layout
+ * engine turns into an unrenderable block. So each attribute is emitted only
+ * when it carries a value the reader can invert: a string alignment, and a
+ * finite number for the geometry. Anything omitted falls back to
+ * `DEFAULT_BLOCK_STYLE` on read, which is what an unspecified field means.
+ */
 function serializeBlockStyle(
-  style: DocsBlock['style'],
+  style: DocsBlock['style'] | undefined,
 ): Record<string, string> {
-  return {
-    alignment: style.alignment,
-    lineHeight: String(style.lineHeight),
-    marginTop: String(style.marginTop),
-    marginBottom: String(style.marginBottom),
-    textIndent: String(style.textIndent),
-    marginLeft: String(style.marginLeft),
-  };
+  const attrs: Record<string, string> = {};
+  if (typeof style?.alignment === 'string') attrs.alignment = style.alignment;
+  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
+    const value = Number(style?.[field]);
+    if (style?.[field] !== undefined && Number.isFinite(value)) {
+      attrs[field] = String(value);
+    }
+  }
+  return attrs;
 }
 
 function parseBlockStyle(
@@ -154,13 +174,17 @@ function parseBlockStyle(
 ): DocsBlockStyle {
   if (!attrs) return { ...DEFAULT_BLOCK_STYLE };
   const partial: Partial<DocsBlockStyle> = {};
-  if ('alignment' in attrs)
+  if (typeof attrs.alignment === 'string')
     partial.alignment = attrs.alignment as DocsBlockStyle['alignment'];
-  if ('lineHeight' in attrs) partial.lineHeight = Number(attrs.lineHeight);
-  if ('marginTop' in attrs) partial.marginTop = Number(attrs.marginTop);
-  if ('marginBottom' in attrs) partial.marginBottom = Number(attrs.marginBottom);
-  if ('textIndent' in attrs) partial.textIndent = Number(attrs.textIndent);
-  if ('marginLeft' in attrs) partial.marginLeft = Number(attrs.marginLeft);
+  // A non-finite attribute (a hand-edited CRDT, a document written before
+  // the serializer above) reads as the default rather than poisoning the
+  // layout with NaN — `normalizeBlockStyle` is a bare spread and would keep
+  // whatever it is handed.
+  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
+    if (!(field in attrs)) continue;
+    const value = Number(attrs[field]);
+    if (Number.isFinite(value)) partial[field] = value;
+  }
   return normalizeBlockStyle(partial);
 }
 

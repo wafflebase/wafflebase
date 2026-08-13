@@ -265,3 +265,30 @@ describe('toRgbHexColor', () => {
     expect(toRgbHexColor('a" w:themeColor="dark1')).toBeUndefined();
   });
 });
+
+describe('resolveStoredColor with malformed persisted values', () => {
+  // `StoredColor` is a persisted shape — the content PUT API, PPTX import
+  // and older schema versions can all put something else there. The paint
+  // path must never throw on it: a TypeError inside the render loop takes
+  // the editor down for every viewer of the document.
+  const malformed = [
+    null,
+    { kind: 'srgb', value: 42 },
+    { kind: 'srgb' },
+    { kind: 'srgb', value: null },
+    42,
+    { kind: 'role' },
+  ];
+
+  it.each(malformed)('treats %p as no color instead of throwing', (value) => {
+    expect(() =>
+      resolveStoredColor(defaultColorResolver, value as never),
+    ).not.toThrow();
+    expect(resolveStoredColor(defaultColorResolver, value as never)).toBeUndefined();
+  });
+
+  it('does not throw when a non-string reaches the export normalizer', () => {
+    expect(toRgbHexColor(42 as never)).toBeUndefined();
+    expect(toRgbHexColor(null as never)).toBeUndefined();
+  });
+});

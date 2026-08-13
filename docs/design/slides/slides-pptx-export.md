@@ -148,18 +148,25 @@ expects to resolve them.
 - **Colors (`color.ts`)**: `ThemeColor` →
   - `{ kind: 'role', role }` → `<a:schemeClr val="…">` (role → OOXML
     scheme name map, inverse of the importer's scheme→role map),
-  - `{ kind: 'srgb', hex }` → `<a:srgbClr val="RRGGBB">`, where the hex is
-    first normalized by the shared `toRgbHexColor` (docs `model/color.ts`,
-    also used by the DOCX exporter). `ST_HexColorRGB` is six hex digits, but
-    the model holds whatever string reached it (PPTX/DOCX import, HTML
-    paste's `rgb(255, 0, 0)`, the legacy `''` reset of issue #728), so a
-    value that cannot be expressed as a triplet — including a **fully
-    transparent** one, which has no opaque equivalent — emits **no color
-    child at all** and the run inherits the theme/placeholder default. The
-    normalizer returns only `[0-9A-F]{6}`, which makes the attribute
-    injection-proof by construction.
-  - alpha → child `<a:alpha val="…">` (partial alpha only; a fully
-    transparent color drops the whole color instead).
+  - `{ kind: 'srgb', hex }` → `<a:srgbClr val="RRGGBB">`, where the hex goes
+    through the shared `toRgbHexColor` (docs `model/color.ts`, also used by
+    the DOCX exporter). `ST_HexColorRGB` is six hex digits, but the model
+    holds whatever string reached it (PPTX/DOCX import, HTML paste's
+    `rgb(255, 0, 0)`, the legacy `''` reset of issue #728), so the value is
+    normalized rather than trusted. The normalizer returns only
+    `[0-9A-F]{6}`, which makes the attribute injection-proof by
+    construction. What happens to a value it cannot express — including a
+    **fully transparent** one, which has no opaque equivalent — depends on
+    whether the sink may omit the color:
+    - **Omittable sinks** (`text.ts`: run fill, highlight, underline fill,
+      bullet color) normalize *before* building the `ThemeColor`, in
+      `storedColorToThemeColor`, and emit **no color child at all** — the run
+      inherits the theme/placeholder default, matching the canvas painters.
+    - **Mandatory sinks** (shape / gradient-stop / background fills, which
+      must emit some color) normalize inside `colorChildXml` itself and fall
+      back to `000000`, the same fallback the unknown-`role` arm uses.
+  - alpha → child `<a:alpha val="…">` (partial alpha only; at an omittable
+    sink a fully transparent color drops the whole color instead).
 - **Text (`text.ts`)**: `TextBody.blocks` → `<a:txBody>` with
   `<a:bodyPr>` (autofit: none→`noAutofit`, shrink→`normAutofit`,
   grow→`spAutoFit`; `verticalAnchor`→`anchor`). Each `Block` → `<a:p>`

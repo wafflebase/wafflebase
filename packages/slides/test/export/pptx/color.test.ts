@@ -98,12 +98,23 @@ describe('color', () => {
     });
   });
 
-  it('escapes special chars in srgbClr val attribute', () => {
-    // A malformed hex value containing " or & must not produce raw special
-    // characters inside the XML attribute value.
-    const xml = colorChildXml({ kind: 'srgb', value: 'FF00"00' });
-    // The " must be escaped; no raw " inside the val attribute
-    expect(xml).not.toMatch(/val="[^"]*"[^/]/);
-    expect(xml).toContain('&quot;');
+  it('normalizes the srgbClr val attribute instead of escaping it', () => {
+    // `ST_HexColorRGB` is six hex digits, so a malformed value is not
+    // escaped into the attribute — it is replaced by the black fallback.
+    // The attribute can therefore only ever hold [0-9A-F]{6}, which
+    // subsumes escaping.
+    expect(colorChildXml({ kind: 'srgb', value: 'FF00"00' }))
+      .toBe('<a:srgbClr val="000000"/>');
+    expect(colorChildXml({ kind: 'srgb', value: '' }))
+      .toBe('<a:srgbClr val="000000"/>');
+  });
+
+  it('normalizes the CSS forms the model can hold', () => {
+    // Slide text boxes are edited by the docs TextEditor, so HTML paste
+    // stores browser-normalized CSS; import/older schemas add shorthand.
+    expect(colorChildXml({ kind: 'srgb', value: 'rgb(255, 128, 0)' }))
+      .toBe('<a:srgbClr val="FF8000"/>');
+    expect(colorChildXml({ kind: 'srgb', value: '#f80' }))
+      .toBe('<a:srgbClr val="FF8800"/>');
   });
 });

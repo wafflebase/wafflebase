@@ -95,6 +95,34 @@ describe('docs-tree', () => {
     expect(readDocsRoot(doc.getRoot())).toEqual({ blocks: [] });
   });
 
+  it('falls back to the block defaults for a partial style', () => {
+    // The content PUT API accepts `style: {}` (every field is optional).
+    // Serializing the absent fields would persist the literal string
+    // "undefined" and read back as NaN geometry, which the layout engine
+    // cannot render.
+    const partial = {
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          inlines: [{ text: 'x', style: {} }],
+          style: {},
+        },
+      ],
+    } as unknown as DocsDocument;
+
+    doc.update((root) => writeDocsRoot(root, partial));
+    const style = readDocsRoot(doc.getRoot()).blocks[0].style;
+
+    expect(style.alignment).toBe('left');
+    for (const value of Object.values(style)) {
+      expect(typeof value === 'number' ? Number.isFinite(value) : true).toBe(
+        true,
+      );
+    }
+    expect(JSON.stringify(style)).not.toContain('undefined');
+  });
+
   it('round-trips a table cell border whose color contains commas', () => {
     // Border colors like `rgb(255, 128, 0)` produce 5 comma-separated
     // parts in the serialized attribute string ("1,solid,rgb(255, 128, 0)").

@@ -260,6 +260,30 @@ function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
   return keys.filter((key) => key in style && style[key] === undefined);
 }
 
+/**
+ * Remove attributes from the cell node at `cellPath` — and from nothing
+ * inside it.
+ *
+ * `removeStyleByPath(cellPath, cellPath+1, …)` looks node-scoped but is not:
+ * that path range spans the cell's whole subtree, and Yorkie applies the
+ * removal to every element node in it. Clearing `backgroundColor` that way
+ * would also strip the text highlight of every inline in the cell and the
+ * fill of every nested-table cell (the block-level `removeStyleByPath` calls
+ * elsewhere in this file get away with it only because keys like `listKind`
+ * exist on no descendant). Yorkie has no single-node removal, so use the
+ * index range covering the cell's opening tag alone: a child node starts
+ * exactly at `idx + 1`, a zero-width overlap the range walk excludes.
+ */
+function removeCellNodeStyle(
+  tree: YorkieDocsRoot['content'],
+  cellPath: number[],
+  attrsToRemove: string[],
+): void {
+  if (attrsToRemove.length === 0) return;
+  const from = tree.pathToIndex(cellPath);
+  tree.removeStyle(from, from + 1, attrsToRemove);
+}
+
 function parseBorderStyle(value: string): BorderStyle | undefined {
   const parts = value.split(',');
   if (parts.length !== 3) return undefined;
@@ -2445,11 +2469,7 @@ export class YorkieDocStore implements DocStore {
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const cellPath = [...tablePath, rowIndex, colIndex];
       tree.styleByPath(cellPath, attrs);
-      if (removeAttrs.length > 0) {
-        const endPath = [...cellPath];
-        endPath[endPath.length - 1] += 1;
-        tree.removeStyleByPath(cellPath, endPath, removeAttrs);
-      }
+      removeCellNodeStyle(tree, cellPath, removeAttrs);
     });
 
     // Update cache after Yorkie update succeeds
@@ -2497,11 +2517,9 @@ export class YorkieDocStore implements DocStore {
       if (Object.keys(attrsToSet).length > 0) {
         tree.styleByPath(cellPath, attrsToSet);
       }
-      if (attrsToRemove.length > 0) {
-        const endPath = [...cellPath];
-        endPath[endPath.length - 1] += 1;
-        tree.removeStyleByPath(cellPath, endPath, attrsToRemove);
-      }
+      // Node-scoped: a path range would drop `colSpan`/`rowSpan` from every
+      // nested-table cell inside this one too.
+      removeCellNodeStyle(tree, cellPath, attrsToRemove);
     });
 
     // Update cache after Yorkie update succeeds

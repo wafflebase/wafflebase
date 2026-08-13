@@ -58,12 +58,32 @@ function bodyPrXml(
   return `<a:bodyPr${anchorAttr}>${fit}</a:bodyPr>`;
 }
 
-const ALGN: Record<string, string> = {
-  left: 'l',
-  center: 'ctr',
-  right: 'r',
-  justify: 'just',
-};
+/**
+ * `BlockStyle.alignment` → OOXML `ST_TextAlignType`. A `Map`, not an object
+ * literal: an object lookup walks the prototype chain, so an alignment of
+ * `toString` / `constructor` would resolve to an inherited member, survive
+ * the `?? 'l'` fallback and be stringified into `<a:pPr algn>`. Slide text
+ * bodies are plain JSON persisted verbatim by the content PUT API, so the
+ * value is untrusted at this sink.
+ */
+const ALGN = new Map<string, string>([
+  ['left', 'l'],
+  ['center', 'ctr'],
+  ['right', 'r'],
+  ['justify', 'just'],
+]);
+
+/**
+ * `<a:pPr lvl>` is `ST_TextIndentLevelType` — an integer in `[0, 8]`. The
+ * model value is untrusted (content PUT API, PPTX import), so it is coerced
+ * and clamped rather than interpolated; anything non-numeric drops the
+ * attribute and the paragraph renders at the outermost level.
+ */
+function listLevelAttr(listLevel: number | undefined): string {
+  const n = Math.trunc(Number(listLevel));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return ` lvl="${Math.min(8, n)}"`;
+}
 
 /**
  * EMU per pixel at 96 dpi (914400 EMU/in ÷ 96 px/in = 9525).
@@ -76,8 +96,8 @@ function blockToXml(
   block: Block,
   resolveHyperlinkRId?: HyperlinkRIdResolver,
 ): string {
-  const algn = ALGN[block.style.alignment] ?? 'l';
-  const lvl = block.listLevel ? ` lvl="${block.listLevel}"` : '';
+  const algn = ALGN.get(block.style.alignment) ?? 'l';
+  const lvl = listLevelAttr(block.listLevel);
 
   // marL / indent — importer reads attrInt(pPr,'marL') / 'indent' then
   // divides by 9525 (EMU→px). Invert: multiply by 9525 and emit only when non-zero.
@@ -224,15 +244,20 @@ function runToXml(
 // into an exported deck even if present in the model (defense-in-depth).
 const UNSAFE_HREF_SCHEMES = new Set(['javascript', 'data', 'vbscript', 'file']);
 
-/** `InlineStyle.underlineStyle` → OOXML `@u` value (inverse of the import map). */
-const UNDERLINE_STYLE_TO_U: Record<string, string> = {
-  single: 'sng',
-  double: 'dbl',
-  heavy: 'heavy',
-  dotted: 'dotted',
-  dashed: 'dash',
-  wavy: 'wavy',
-};
+/**
+ * `InlineStyle.underlineStyle` → OOXML `@u` value (inverse of the import
+ * map). A `Map` for the same reason as `ALGN`: an object lookup would let a
+ * persisted `constructor` / `toString` resolve through the prototype chain
+ * into the attribute.
+ */
+const UNDERLINE_STYLE_TO_U = new Map<string, string>([
+  ['single', 'sng'],
+  ['double', 'dbl'],
+  ['heavy', 'heavy'],
+  ['dotted', 'dotted'],
+  ['dashed', 'dash'],
+  ['wavy', 'wavy'],
+]);
 
 /**
  * Whether an `href` should be written as an `<a:hlinkClick>` **external**
@@ -265,7 +290,7 @@ function rPrXml(
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
-  if (s.underline) attrs.push(`u="${UNDERLINE_STYLE_TO_U[s.underlineStyle ?? 'single'] ?? 'sng'}"`);
+  if (s.underline) attrs.push(`u="${UNDERLINE_STYLE_TO_U.get(s.underlineStyle ?? 'single') ?? 'sng'}"`);
   if (s.strikethrough) {
     attrs.push(s.strikeStyle === 'double' ? 'strike="dblStrike"' : 'strike="sngStrike"');
   }

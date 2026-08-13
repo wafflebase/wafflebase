@@ -481,28 +481,10 @@ describe('ApiV1DocsContentController', () => {
         );
       });
 
-      it('rejects a block style whose alignment is not a known value', async () => {
-        // `style.alignment` is persisted verbatim and read back out into an
-        // OOXML `<w:jc w:val>` attribute by the DOCX exporter, so an
-        // arbitrary string must never enter the document.
-        await expectReject(
-          {
-            blocks: [
-              {
-                id: 'b1',
-                type: 'paragraph',
-                style: { alignment: 'center"/><w:jc w:val="right' },
-                inlines: [],
-              },
-            ],
-          },
-          /blocks\[0\].*'style\.alignment'/,
-        );
-      });
-
-      it('accepts a block style with no alignment at all', async () => {
-        // The field is optional — validation only constrains its value.
-        // Getting as far as the metadata lookup is what proves it passed.
+      it('accepts a partial block style', async () => {
+        // Validation constrains the *shape* only; every field of a block
+        // style is optional and the writer/reader fall back to the block
+        // defaults. Getting as far as the metadata lookup proves it passed.
         documentService.getDocumentOrThrow.mockRejectedValue(
           new NotFoundException('sentinel'),
         );

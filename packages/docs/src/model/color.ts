@@ -55,11 +55,22 @@ export function resolveStoredColor(
  * Whether a `StoredColor` carries no color at all — the legacy `''` reset
  * of issue #728 in either of its two shapes (bare string, or wrapped as an
  * `srgb` theme color by the color migration / PPTX import path).
+ *
+ * `StoredColor` is a *persisted* shape: it arrives from the content PUT API,
+ * PPTX/DOCX import and older schema versions, so the static type is a claim
+ * rather than a guarantee. Anything that is not a string and not an object
+ * with a string `value` is treated as "no color" instead of being
+ * dereferenced — a `null` or `{ kind: 'srgb', value: 42 }` would otherwise
+ * throw inside the paint loop and take down the renderer for every viewer of
+ * the document.
  */
 function isEmptyStoredColor(c: StoredColor | undefined): boolean {
-  if (c === undefined) return false;
+  if (c == null) return true;
   if (typeof c === 'string') return c.trim() === '';
-  return c.kind === 'srgb' && c.value.trim() === '';
+  if (typeof c !== 'object') return true;
+  const value = (c as { kind?: unknown; value?: unknown }).value;
+  if ((c as { kind?: unknown }).kind !== 'srgb') return false;
+  return typeof value !== 'string' || value.trim() === '';
 }
 
 /**
@@ -100,7 +111,11 @@ function isTransparentAlpha(raw: string): boolean {
  * by construction — the validation subsumes any XML attribute escaping.
  */
 export function toRgbHexColor(color: string | undefined): string | undefined {
-  if (!color) return undefined;
+  // `string` is a claim, not a guarantee: the value reaches here from
+  // `defaultColorResolver`, which passes a persisted `{ kind: 'srgb', value }`
+  // through untouched even when `value` is not a string (content PUT API,
+  // hand-edited CRDT). Fail closed rather than throwing inside an export.
+  if (!color || typeof color !== 'string') return undefined;
   const v = color.trim().replace(/^#/, '');
   if (/^[0-9a-fA-F]{6}$/.test(v)) return v.toUpperCase();
   // #RGB shorthand — expand each nibble (CSS rule: #abc === #aabbcc).

@@ -2045,6 +2045,25 @@ describe('YorkieDocStore', () => {
       // Untouched keys survive the removal.
       expect(cell.style.verticalAlign).toBe('middle');
     });
+
+    // A path range spanning the cell subtree would remove `backgroundColor`
+    // from every element node inside the cell too — the text highlight of
+    // each inline, and every nested-table cell. The removal must hit the
+    // cell node alone.
+    it('should not strip backgroundColor from nodes inside the cell', () => {
+      const tableBlock = createTableBlock(1, 1);
+      const inner = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      inner.inlines[0].text = 'hello';
+      inner.inlines[0].style = { backgroundColor: '#00ff00' };
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: undefined });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.style.backgroundColor).toBe(undefined);
+      expect(cell.blocks[0].inlines[0].style.backgroundColor).toBe('#00ff00');
+    });
   });
 
   describe('applyCellSpan', () => {

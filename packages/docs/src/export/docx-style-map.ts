@@ -108,16 +108,19 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
 }
 
 /**
- * `BlockStyle.alignment` → OOXML `ST_Jc` token. A closed map, so an
- * unrecognized value falls back to the paragraph default instead of being
- * interpolated into the `w:val` attribute.
+ * `BlockStyle.alignment` → OOXML `ST_Jc` token. A `Map`, not an object
+ * literal: an object lookup consults the prototype chain, so an alignment of
+ * `toString` / `constructor` / `valueOf` would resolve to an inherited
+ * `Object.prototype` member, survive the `?? 'left'` fallback and be
+ * stringified into the `w:val` attribute. `Map.get` only ever returns an own
+ * entry, which is what makes this lookup actually closed.
  */
-const DOCX_ALIGNMENTS: Record<string, string> = {
-  left: 'left',
-  center: 'center',
-  right: 'right',
-  justify: 'both',
-};
+const DOCX_ALIGNMENTS = new Map<string, string>([
+  ['left', 'left'],
+  ['center', 'center'],
+  ['right', 'right'],
+  ['justify', 'both'],
+]);
 
 /**
  * Build <w:pPr>...</w:pPr> XML from BlockStyle.
@@ -138,7 +141,7 @@ export function buildParagraphPropertiesXml(
   // same way colors are. Resolve it through a closed lookup — mirroring the
   // PPTX exporter's `ALGN[...] ?? 'l'` — so `<w:jc w:val>` can only ever
   // carry an `ST_Jc` token and never an attacker-chosen fragment.
-  const align = DOCX_ALIGNMENTS[style.alignment as string] ?? 'left';
+  const align = DOCX_ALIGNMENTS.get(style.alignment as string) ?? 'left';
   if (align !== 'left') {
     parts.push(`<w:jc w:val="${align}"/>`);
   }

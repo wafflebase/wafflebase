@@ -344,6 +344,31 @@ describe('textBodyToXml', () => {
     expect(xml).toContain('lvl="1"');
   });
 
+  it('coerces an untrusted listLevel instead of interpolating it', () => {
+    // Slide text bodies are plain JSON persisted verbatim by the content PUT
+    // API, so `listLevel` reaches this sink unchecked. `<a:pPr lvl>` is an
+    // integer in [0, 8].
+    const withLevel = (listLevel: unknown): string =>
+      textBodyToXml({
+        blocks: [
+          {
+            id: 'b',
+            type: 'list-item',
+            inlines: [{ text: 'x', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+            listKind: 'ordered',
+            listLevel,
+          } as unknown as Block,
+        ],
+      });
+
+    expect(withLevel('1"/><a:pPr algn="r')).not.toContain('algn="r"');
+    expect(withLevel('1"/><a:pPr algn="r')).not.toContain('lvl=');
+    expect(withLevel(99)).toContain('lvl="8"');
+    expect(withLevel(2.7)).toContain('lvl="2"');
+    expect(withLevel(-3)).not.toContain('lvl=');
+  });
+
   it('emits unordered list bullet', () => {
     const block: Block = {
       id: 'b',
