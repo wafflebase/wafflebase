@@ -516,7 +516,17 @@ counter is for.
 
 ## Corrected while building
 
-### 8. The declared gap had to become conditional, not disappear
+### 8. The census line was a copy of the adapter's exported formatter — found in review
+
+`renderCoderabbitLatency` rebuilt the absence line inline, character for character the body
+of `latencyAbsentLine`, while importing `LATENCY_ABSENT` from the module that exports the
+function. The adapter exports it precisely so the two reports read alike, and its own
+docblock records that an earlier version dropped the unrecognised-flavour row — which makes
+giving an unknown absence its own key worthless, because nothing prints it. Now imported and
+called, and the test asserts through an unrecognised flavour, which is the behaviour a
+re-implementation loses first.
+
+### 8b. The declared gap had to become conditional, not disappear
 
 The first draft deleted `coderabbit_latency_ms` outright. That is wrong in the direction
 this file exists to prevent: with the flag absent there is still no figure, and a deleted
@@ -525,7 +535,24 @@ records were supplied**, with a reason naming the flag — and the test asserts 
 directions, because a gap that never appears and a gap that never retires are both
 failures and only one of them is obvious.
 
-### 9. A push-proxy shortfall must not be a completeness failure
+### 9. 🔴 `requested` is not evidence that anything was measured — found in review
+
+The first version derived `latencyMeasured` from **array-ness**: `coderabbitLatency` set
+`requested: true` for any array, and `declaredGaps` dropped `coderabbit_latency_ms` on it.
+So `latency: []` — or an array of entries carrying no `latency` — retired the gap while
+producing **no figure**, and the completeness guard below read `0 < 0` and pushed **no
+reason**. The run reported `complete`, exited 0, and printed *"declared gaps — none"*
+beside `latency: n/a (n=0)`. That is the silent success this whole module is shaped
+against, reachable from a caller typo.
+
+`measured` is now a separate field and the predicate the gap's own wording implies — **a
+pooled figure exists on the primary interval** (`self_timed.ms.n > 0`). And the absence
+now has **three** reasons rather than one, because they send a reader to three different
+places: nobody asked, records arrived carrying nothing, or records arrived and not one
+yielded a poolable interval. Reusing the not-requested wording for the second and third
+would tell someone to pass a flag they had already passed.
+
+### 10. A push-proxy shortfall must not be a completeness failure
 
 The first draft counted every non-poolable item as incompleteness. On the pilot that
 marks a **correct** run `partial` and exits 1 forever, because 2 of 7 items are on-demand
@@ -536,6 +563,10 @@ meaning anything — and the test asserts `complete` on exactly that input.
 ## Fail directions
 
 - **No records supplied** → declared gap with the flag named. Never a blank, never a zero.
+- **Records supplied that carry no figure** (empty list, or no poolable interval on any
+  item) → the gap **stays declared**, with its own reason rather than the not-requested
+  one, and the run is `partial` with a named shortfall. `requested` is never read as
+  `measured`.
 - **An item with no start marker** → excluded from the figure, counted in the census under
   its own flavour, and named in `completeness.reasons`, which makes the run `partial` and
   the exit code non-zero. **Never pooled as zero**, which would make the other arm look
@@ -560,9 +591,9 @@ meaning anything — and the test asserts `complete` on exactly that input.
 
 ## Verification
 
-- [x] **`agent:tests`, both invocations, from the committed tree**: **1865 + 56 = 1921,
+- [x] **`agent:tests`, both invocations, from the committed tree**: **1868 + 56 = 1924,
       0 fail, 0 skipped**, against a freshly measured **1857 + 56 = 1913** on `main`
-      `1902133bf` — **+8**, both trees set up identically (root `eslint@9.24.0`, agent SDK
+      `1902133bf` — **+11**, both trees set up identically (root `eslint@9.24.0`, agent SDK
       symlinked into both).
 - [x] `npx eslint scripts` exits 0.
 - [x] **The pilot figure reproduces from the real store**, `--coderabbit-latency` against
@@ -574,7 +605,10 @@ meaning anything — and the test asserts `complete` on exactly that input.
       retiring both is the plausible mistake.
 - [x] Our pooled wall clock reads **median 9.3 min, n=21**, matching the recorded
       interval decision; the replicate spend series still reads n=3.
-- [x] **11 mutations, 11 caught**, each by the test that should catch it: pooling the
+- [x] **17 mutations, 17 caught**, each by the test that should catch it. Six of them are
+      the review round's, and two re-introduce the exact defects it found — deriving the
+      gap's predicate from `requested` again, and re-implementing the adapter's absence
+      formatter inline. The other eleven: pooling the
       proxy regardless of trigger, counting a missing latency as zero, dropping the
       interval name, keeping the gap after measuring, retiring the wrong gap, emitting a
       cross-arm ratio, dropping `min_n`, counting the proxy's exclusion as

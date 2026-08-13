@@ -45,7 +45,7 @@ import {
   spendOf,
   wallMsOf,
 } from "./cost-latency.mjs";
-import { PUSH_PROXY_INTERVAL, SELF_TIMED_INTERVAL } from "./adapters/coderabbit.mjs";
+import { PUSH_PROXY_INTERVAL, SELF_TIMED_INTERVAL, latencyAbsentLine } from "./adapters/coderabbit.mjs";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -512,6 +512,61 @@ test("the latency gap is RETIRED once the arm's records arrive, and declared whi
   const r = scoreK1({ coderabbit: { latency: pilotLatency() } });
   assert.equal(r.declared_gaps.some((g) => g.metric === "coderabbit_latency_ms"), false, "a gap that outlives the read it asked for is a gap nobody believes");
   assert.equal(r.coderabbit.latency.requested, true);
+});
+
+test("🔴 an EMPTY records array does not retire the gap — `requested` is not evidence of a measurement", () => {
+  // Found in review. `requested` was derived from array-ness, so a perfectly
+  // well-formed but empty input reported "the read happened", retired the declared
+  // gap, produced no figure and pushed no shortfall reason — the run exited 0 saying
+  // every metric was either measured or not asked for. That is the silent success
+  // this whole module is shaped against, and it is reachable from a caller typo.
+  for (const [label, records] of [["empty array", []], ["entries with no latency", [{ item_id: "pr-415" }, { item_id: "pr-429" }]]]) {
+    const l = coderabbitLatency(records);
+    assert.equal(l.requested, true, `${label}: the caller did ask`);
+    assert.equal(l.measured, false, `${label}: but nothing was measured, and those are different facts`);
+    assert.equal(l.self_timed.ms.n, 0);
+    const r = scoreK1({ coderabbit: { latency: records } });
+    // THE GAP SURVIVES, with a reason that is not the not-requested one — a reader
+    // told to pass a flag they already passed goes looking in the wrong place.
+    const gap = r.declared_gaps.find((g) => g.metric === "coderabbit_latency_ms");
+    assert.ok(gap, `${label}: a retired gap with no figure behind it is an absence nobody can see`);
+    assert.match(gap.reason, /NONE carried a latency|NOT ONE yielded a poolable interval/);
+    assert.equal(gap.reason.includes("Pass --coderabbit-latency"), false, `${label}: it was passed`);
+    // AND THE RUN IS PARTIAL, so a pipeline cannot quote it by ignoring stderr.
+    assert.equal(r.completeness.verdict, "partial", `${label}: requested and empty is a shortfall`);
+    assert.match(r.completeness.reasons.join("\n"), /coderabbit latency: requested, and no figure was produced/);
+    // And no interval is captioned onto minutes that do not exist.
+    assert.equal(renderReport(r).join("\n").includes("median"), true);
+  }
+});
+
+test("records that arrive but are ALL absent keep the gap, with the third reason", () => {
+  // Distinct from the empty case: the read ran, every item answered, and not one
+  // yielded a poolable interval. Three absences, three different places to look.
+  const allAbsent = LATENCY.map((r) => latencyRow(r, { self_timed: { ms: null, poolable: false, absent: "no-start-marker" } }));
+  const l = coderabbitLatency(allAbsent);
+  assert.equal(l.requested, true);
+  assert.equal(l.measured, false);
+  assert.equal(l.n_items, 7, "the items are there; the figures are not");
+  assert.match(l.reason, /NOT ONE yielded a poolable interval/);
+  const r = scoreK1({ coderabbit: { latency: allAbsent } });
+  assert.ok(r.declared_gaps.find((g) => g.metric === "coderabbit_latency_ms"));
+  assert.equal(r.completeness.verdict, "partial");
+});
+
+test("the absence census line is the ADAPTER's formatter, not a second copy", () => {
+  // The adapter exports `latencyAbsentLine` so the two reports read alike, and its
+  // docblock records that an earlier version dropped the unrecognised row — which
+  // makes giving an unknown absence its own key worthless, because nothing prints it.
+  // Asserted through an UNRECOGNISED flavour, which is the behaviour a re-implementation
+  // is most likely to lose.
+  const l = coderabbitLatency(pilotLatency());
+  l.census.self_timed.absent["a-brand-new-flavour"] = 2;
+  const text = renderReport({ ...scoreK1({ coderabbit: { latency: pilotLatency() } }), coderabbit: { ...scoreK1().coderabbit, latency: l } }).join("\n");
+  assert.match(text, /UNRECOGNISED a-brand-new-flavour=2/);
+  // And the declared flavours still print first, in the vocabulary's own order.
+  assert.match(text, /self_timed absent: findings-unavailable=0 no-finding=0/);
+  assert.equal(text.includes(latencyAbsentLine(l.census.self_timed.absent)), true, "the report must print exactly what the adapter's formatter produces");
 });
 
 test("the arm's latency reproduces the pilot's figure, and NEVER as a bare duration", () => {

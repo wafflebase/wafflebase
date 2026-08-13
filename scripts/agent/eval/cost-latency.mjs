@@ -80,7 +80,7 @@ import { assertOneReviewer, assertRequestedCorpus } from "./reliability.mjs";
 // here beside the pure ones because `complementarity.mjs` reaches the same adapter
 // the same way — one import site per module, so the dependency is visible at the top
 // of the file rather than buried in a branch.
-import { LATENCY_ABSENT, PUSH_PROXY_INTERVAL, SELF_TIMED_INTERVAL, TRIGGERS, corpusRecords, latencyCensus } from "./adapters/coderabbit.mjs";
+import { PUSH_PROXY_INTERVAL, SELF_TIMED_INTERVAL, TRIGGERS, corpusRecords, latencyAbsentLine, latencyCensus } from "./adapters/coderabbit.mjs";
 
 const refuse = (msg) => {
   throw new Error(`cost & latency: ${msg}`);
@@ -621,6 +621,7 @@ export function coderabbitLatency(perItem = null) {
   if (!Array.isArray(perItem)) {
     return {
       requested: false,
+      measured: false,
       n_items: 0,
       self_timed: shape({ interval: SELF_TIMED_INTERVAL }),
       push_proxy: shape({ interval: PUSH_PROXY_INTERVAL }),
@@ -647,24 +648,47 @@ export function coderabbitLatency(perItem = null) {
       n_measured: spans.filter((s) => Number.isFinite(s.ms)).length,
     };
   };
+  const self_timed = seriesFor("self_timed", SELF_TIMED_INTERVAL);
+  // 🔴 `requested` IS NOT EVIDENCE THAT ANYTHING WAS MEASURED, and conflating the two
+  // reopens the exact hole this block exists to close. An empty array — or an array of
+  // entries carrying no `latency` — is a perfectly well-formed input that yields no
+  // figure at all, and reading "the caller passed an array" as "the read succeeded"
+  // retires the declared gap with nothing behind it. `measured` is the predicate the
+  // gap's own wording implies: a POOLED FIGURE EXISTS on the primary interval.
+  const measured = self_timed.ms.n > 0;
   return {
     requested: true,
+    measured,
     n_items: lats.length,
-    self_timed: seriesFor("self_timed", SELF_TIMED_INTERVAL),
+    self_timed,
     push_proxy: seriesFor("push_proxy", PUSH_PROXY_INTERVAL),
     triggers: latencyCensus(perItem).triggers,
     // The adapter's census verbatim, every declared absence at n=0 included. Not
     // summarised: `no-check-run=0` has never occurred on real data, which is exactly
     // the state in which a mishandled absence goes unnoticed.
     census: latencyCensus(perItem),
-    reason: null,
+    // Records arrived and produced nothing poolable — a THIRD state, and it must not
+    // borrow the not-requested wording, which would send a reader to add a flag they
+    // already passed.
+    reason: measured ? null : lats.length === 0 ? LATENCY_NO_RECORDS : LATENCY_NONE_POOLABLE,
   };
 }
 
-/** Said in one place because `declaredGaps` and `coderabbitLatency` must give the
- *  same answer to "why is there no number" — they are the same fact. */
+/**
+ * THREE reasons there is no latency figure, said in one place because `declaredGaps`
+ * and `coderabbitLatency` must give the same answer to "why is there no number" —
+ * they are the same fact.
+ *
+ * They are kept apart because they send a reader to three different places: pass the
+ * flag, fix the store, or re-run the read. Pooling them would be lesson 6 applied to
+ * the one field whose whole job is to explain an absence.
+ */
 const LATENCY_NOT_REQUESTED =
   "no timing records were passed to this scorer. The read exists — adapters/coderabbit.mjs latencyOf, on the arm's own start marker — but it is an API call, and a scorer that touched the network on every invocation could not be re-run offline against a committed store. Pass --coderabbit-latency to the CLI, or the coderabbit.latency option to costLatencyOf";
+const LATENCY_NO_RECORDS =
+  "timing records were passed and NONE carried a latency: an empty list, or entries with no latency field. That is a caller or a corpus-read failure rather than a fact about CodeRabbit, and it is reported as an absence rather than closing the gap";
+const LATENCY_NONE_POOLABLE =
+  "timing records arrived and NOT ONE yielded a poolable interval on the primary anchor. Every item is accounted for by flavour in the census below; re-run the read rather than reading this as a fast review";
 
 /**
  * The number §3.4 asks for that CANNOT be computed, emitted as an explicit null with
@@ -676,10 +700,13 @@ const LATENCY_NOT_REQUESTED =
  * is one: the substitute is available, cheap and wrong.
  *
  * ⟳ `coderabbit_latency_ms` USED TO BE UNCONDITIONAL. #799 built the read it named,
- * so it now appears only when this run was not given one — a gap that stays declared
- * after the thing that would close it exists is a gap nobody believes.
+ * so it now appears only when this run PRODUCED A FIGURE — a gap that stays declared
+ * after the thing that would close it exists is a gap nobody believes, and a gap
+ * retired with no number behind it is worse, because the absence stops being visible
+ * at all. `latencyMeasured` is therefore "a pooled figure exists", never "a caller
+ * passed something"; `latencyReason` carries which of the three absences it is.
  */
-export function declaredGaps({ latencyMeasured = false } = {}) {
+export function declaredGaps({ latencyMeasured = false, latencyReason = null } = {}) {
   const gaps = [
     {
       metric: "cost_per_real_finding",
@@ -693,7 +720,7 @@ export function declaredGaps({ latencyMeasured = false } = {}) {
     gaps.push({
       metric: "coderabbit_latency_ms",
       value: null,
-      reason: LATENCY_NOT_REQUESTED,
+      reason: latencyReason ?? LATENCY_NOT_REQUESTED,
       unblocked_by:
         "passing the arm adapter's timing records to this scorer; the read itself is built. Note what that does NOT unblock: a COMPARISON. Ours is a panel process's elapsed time on an offline replay that queued for nothing; theirs is a production reviewer measured end to end. Where both were measured from one trigger in production, ours ran about 2.2x LONGER — the opposite of the direction this was long assumed to err in — so the two stay in separate blocks with separate units and no ratio, and minutes need that discipline more than dollars because they look commensurable",
     });
@@ -794,7 +821,15 @@ export function costLatencyOf(runs = [], { sizes = new Map(), corpusVersion = nu
   // forever. It is reported in the census and on the report's own line instead.
   // A missing `self_timed` figure is different: it is the primary, and an item whose
   // review this scorer could not time is a fact about coverage.
-  if (latency.requested && latency.self_timed.n < latency.n_items) {
+  //
+  // ⚠ AND "REQUESTED BUT NOTHING CAME BACK" IS ITS OWN SHORTFALL, checked FIRST. The
+  // count comparison below reads `0 < 0` on an empty records array and passes, so a
+  // run that asked for the other arm's clock and got nothing would report `complete`
+  // and exit 0 with no figure and no reason anywhere — the silent success this
+  // directory exists to prevent.
+  if (latency.requested && !latency.measured) {
+    reasons.push(`coderabbit latency: requested, and no figure was produced on ${latency.self_timed.interval} — ${latency.reason}`);
+  } else if (latency.requested && latency.self_timed.n < latency.n_items) {
     const absent = Object.entries(latency.census?.self_timed?.absent ?? {}).filter(([, n]) => n > 0);
     reasons.push(
       `coderabbit latency: ${latency.self_timed.n} of ${latency.n_items} item(s) poolable on ${latency.self_timed.interval}` +
@@ -863,7 +898,10 @@ export function costLatencyOf(runs = [], { sizes = new Map(), corpusVersion = nu
       latency,
     },
     cost_per_real_finding: null,
-    declared_gaps: declaredGaps({ latencyMeasured: latency.requested }),
+    // `measured`, NOT `requested`. See `coderabbitLatency`: an empty or latency-less
+    // records array is a well-formed input that produces no figure, and reading the
+    // caller's intent as the read's result would retire the gap over nothing.
+    declared_gaps: declaredGaps({ latencyMeasured: latency.measured, latencyReason: latency.reason }),
   };
 }
 
@@ -987,12 +1025,13 @@ function renderCoderabbitLatency(l, panelInterval) {
   out.push(`  triggers: ${Object.entries(l.triggers).map(([t, n]) => `${t}=${n}`).join(" · ")} — READ from CodeRabbit's own marker, never inferred from the magnitude`);
   // The zeros are the point, exactly as for `duration_source` above: `no-check-run`
   // has never occurred, which is the state in which mishandling it goes unnoticed.
-  for (const key of ["self_timed", "push_proxy"]) {
-    const absent = l.census?.[key]?.absent ?? {};
-    const declared = LATENCY_ABSENT.map((f) => `${f}=${absent[f] ?? 0}`);
-    const extra = Object.keys(absent).filter((f) => !LATENCY_ABSENT.includes(f)).map((f) => `UNRECOGNISED ${f}=${absent[f]}`);
-    out.push(`    ${key} absent: ${[...declared, ...extra].join(" ")}`);
-  }
+  //
+  // `latencyAbsentLine` IS THE ADAPTER'S, not a second copy. It exports the formatter
+  // precisely so the two reports read alike, and its own docblock records that an
+  // earlier version of this line dropped the unrecognised-flavour row — which makes
+  // giving an unknown absence its own key worthless, because nothing prints it. A
+  // duplicate here would drift on the next wording change, in one report only.
+  for (const key of ["self_timed", "push_proxy"]) out.push(`    ${key} absent: ${latencyAbsentLine(l.census?.[key]?.absent)}`);
   out.push(
     `  🔴 NOT COMPARABLE with the panel's wall clock above and NO RATIO between them is computed anywhere: ` +
       `ours is ${panelInterval} — it starts after the lane materialised a worktree and it queued for nothing — ` +
