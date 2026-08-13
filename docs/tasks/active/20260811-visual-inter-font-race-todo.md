@@ -123,9 +123,15 @@ families a capture paints:
 
 ## Known limitations
 
-- If `fonts.googleapis.com` is genuinely unreachable the lane still fails —
+- ~~If `fonts.googleapis.com` is genuinely unreachable the lane still fails —
   now by name, with artifacts, instead of a bare timeout. Making it *pass*
   offline would mean vendoring the woff2 bytes and re-recording all 220
-  baselines against them; worth doing, out of scope here.
+  baselines against them; worth doing, out of scope here.~~ Closed by
+  `20260813-visual-font-cache-todo.md`: the requests are answered from
+  committed fixtures, so the lane passes with Google Fonts unreachable. The
+  re-recording this note feared was unnecessary — the fixtures hold the bytes
+  Google already served, so no baseline changed. It became the top priority
+  because it stopped being hypothetical: it was the cause of *every*
+  `verify-browser` failure in the following days.
 - `packages/frontend/scripts/capture-docs-screenshots.mjs` still uses a bare
   `document.fonts.ready`. Same weakness, different (non-gating) script.

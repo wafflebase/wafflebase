@@ -22,6 +22,7 @@
     "test:webkit": "node ./scripts/verify-webkit-browser.mjs",
     "test:visual:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh visual",
     "test:visual:browser:docker:update": "bash ../../scripts/run-browser-tests-docker.sh visual:update",
+    "test:visual:browser:docker:record": "bash ../../scripts/run-browser-tests-docker.sh visual:record",
     "test:interaction:docker": "bash ../../scripts/run-browser-tests-docker.sh interaction",
     "test:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh all",
     "preview": "vite preview",

@@ -19,8 +19,10 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | doc index refresh (2026-08-13) | [20260813-doc-index-refresh-todo.md](./active/20260813-doc-index-refresh-todo.md) | [20260813-doc-index-refresh-lessons.md](./active/20260813-doc-index-refresh-lessons.md) |
+| visual font cache (2026-08-13) | [20260813-visual-font-cache-todo.md](./active/20260813-visual-font-cache-todo.md) | [20260813-visual-font-cache-lessons.md](./active/20260813-visual-font-cache-lessons.md) |
 | coderabbit latency (2026-08-12) | [20260812-coderabbit-latency-todo.md](./active/20260812-coderabbit-latency-todo.md) | - |
 | coderabbit title excludes code (2026-08-12) | [20260812-coderabbit-title-excludes-code-todo.md](./active/20260812-coderabbit-title-excludes-code-todo.md) | - |
+| date display format (2026-08-12) | [20260812-date-display-format-todo.md](./active/20260812-date-display-format-todo.md) | [20260812-date-display-format-lessons.md](./active/20260812-date-display-format-lessons.md) |
 | eval cost latency scorer (2026-08-12) | [20260812-eval-cost-latency-scorer-todo.md](./active/20260812-eval-cost-latency-scorer-todo.md) | - |
 | eval segmentation (2026-08-12) | [20260812-eval-segmentation-todo.md](./active/20260812-eval-segmentation-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
