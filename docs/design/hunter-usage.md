@@ -159,7 +159,7 @@ climbs in the first case and stalls in the second.
 
 ## Reading the report
 
-`report.md` lands in `--out`. Read it in this order.
+`<out>/report.md` is written at the end of a run. Read it in this order.
 
 **1. Personas that did NOT run.** A zero means nothing until you know something executed.
 A brief can die on a session error or a turn ceiling, and that section is the difference
