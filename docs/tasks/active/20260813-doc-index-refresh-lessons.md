@@ -83,6 +83,26 @@ is that coverage is about an index's *silences*.
 **Rule:** after writing a gate, spend a pass attacking it — "how would I make
 this green without doing the work?" — and turn each answer into a test.
 
+CodeRabbit then found three more of the same shape on the PR, all in the one
+helper that decides what counts as prose:
+
+- HTML comments were kept, so a commented-out row — invisible on the rendered
+  page — still read as coverage. The row disappears and the gate stays green.
+- A fence closed on any run of three, so a ```` block containing ``` leaked its
+  contents *and* re-opened on the real closer, swallowing the honest prose after
+  it. That one case returned exactly the wrong link of the two.
+- An info string (` ```js `) closed a fence it should only ever open.
+
+**Rule:** the "what is prose" helper is the single highest-leverage thing to
+attack in a documentation gate — every coverage rule is downstream of it, so one
+parsing slip silently disables all of them at once. Two review rounds each found
+holes there and nowhere else.
+
+The comment/fence ordering is load-bearing and was chosen for its failure
+direction: stripping comments first risks swallowing prose (loud false positive
+on an honest doc), parsing fences first risks a derailed fence (silent pass).
+Given a choice of bugs, take the one that shouts.
+
 ## A duplicated list needs both copies gated
 
 The root `README.md` duplicates `packages/README.md`'s package list on purpose.

@@ -20,7 +20,7 @@ individual gates they (or CI, or a package script) invoke.
 | `verify-frontend-chunks.mjs` | `pnpm verify:frontend:chunks` | Enforces the frontend chunk-count and per-chunk KB budgets from `harness.config.json`. |
 | `verify-dts-entries.mjs` | `pnpm verify:dts` | Asserts each engine package's published type entry actually resolves. Consumers set `skipLibCheck`, so a holey `dist/` would otherwise degrade to `any` silently. |
 | `verify-entropy.mjs` | `pnpm verify:entropy` | Dead code (knip), dead links out of `docs/design/*.md`, and dependency freshness. |
-| `verify-doc-index.mjs` | `pnpm verify:doc-index` | The complement of the entropy link check: asserts every package, design doc, and script on disk is *reachable from* its index file. |
+| `verify-doc-index.mjs` | `pnpm verify:doc-index` | The complement of the entropy link check: asserts every package, every design doc, and every **top-level** entry of `scripts/` is *reachable from* its index file. Files nested inside a listed directory are not demanded. |
 | `verify-integration.mjs` | `pnpm verify:integration` | DB-backed integration suites. |
 | `verify-integration-local.mjs` | `pnpm verify:integration:local` | The same against a local Postgres. |
 | `verify-integration-docker.mjs` | `pnpm verify:integration:docker` | Brings up Postgres in Docker, then runs the above. |

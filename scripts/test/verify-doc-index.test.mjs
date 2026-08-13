@@ -75,6 +75,42 @@ test("linkedTargets", async (t) => {
     ]);
   });
 
+  await t.test("a shorter run does not close a longer fence", () => {
+    // A ```` block may contain ``` as content. Closing on it would both leak
+    // the fenced links AND treat the real closer as a new opener, swallowing
+    // the honest prose after it — this case used to return exactly the wrong
+    // link of the two.
+    const targets = linkedTargets("````\n```\n[a](leak.md)\n````\n[b](real.md)");
+    assert.deepEqual([...targets], ["real.md"]);
+  });
+
+  await t.test("a fence with an info string never closes one", () => {
+    // ```js opens a fence but is content inside one; CommonMark forbids an
+    // info string on a closing fence.
+    const targets = linkedTargets("```\n```js\n[a](leak.md)\n```\n[b](real.md)");
+    assert.deepEqual([...targets], ["real.md"]);
+  });
+
+  await t.test("ignores links inside HTML comments", () => {
+    // A commented-out row is invisible to a reader but would otherwise read as
+    // coverage — the row is gone and the gate stays green.
+    assert.deepEqual([...linkedTargets("<!-- [a](hidden.md) -->\n[b](real.md)")], [
+      "real.md",
+    ]);
+  });
+
+  await t.test("ignores links inside multi-line HTML comments", () => {
+    const targets = linkedTargets(
+      "<!--\n[a](hidden.md)\n[b](also-hidden.md)\n-->\n[c](real.md)",
+    );
+    assert.deepEqual([...targets], ["real.md"]);
+  });
+
+  await t.test("keeps text sharing a line with a comment", () => {
+    const targets = linkedTargets("[a](real.md) <!-- note --> [b](also.md)");
+    assert.deepEqual([...targets], ["real.md", "also.md"]);
+  });
+
   await t.test("ignores image embeds", () => {
     // `![alt](shot.png)` is not a claim that the directory holding the image
     // has been introduced to the reader.
@@ -238,6 +274,15 @@ test("scripts", async (t) => {
     const findings = findingsFor(files);
     assert.equal(findings.length, 1);
     assert.match(findings[0], /`test\/`/);
+  });
+
+  await t.test("a mention inside an HTML comment does not count", () => {
+    // The same rule as links: a commented-out row introduces nothing.
+    const files = passingTree({ "scripts/tasks-index.mjs": "" });
+    files["scripts/README.md"] += "<!-- | `tasks-index.mjs` | dropped | -->\n";
+    const findings = findingsFor(files);
+    assert.equal(findings.length, 1);
+    assert.match(findings[0], /tasks-index\.mjs/);
   });
 
   await t.test("a mention inside a fenced block does not count", () => {

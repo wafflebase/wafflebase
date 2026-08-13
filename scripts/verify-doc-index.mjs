@@ -24,23 +24,49 @@ import { fileURLToPath } from "node:url";
 const PREFIX = "[verify:doc-index]";
 
 /**
- * The lines of a markdown document that are not inside a fenced code block.
+ * The prose lines of a markdown document — outside fenced code, outside HTML
+ * comments.
  *
- * An index that shows an example row inside a fence is documenting its own
- * format, and counting that as coverage would let a document satisfy this gate
- * by describing itself — a fenced `ls scripts/` dump would name every entry
- * without introducing any of them. Both fence syntaxes are recognized, and a
- * fence only ever closes with its own character, so a ``` inside a ~~~ block
- * does not end it.
+ * Both exclusions exist for the same reason, and it is this gate's whole
+ * subject: text that a reader never sees as an index row must not satisfy the
+ * index. A fenced `ls scripts/` dump names every entry without introducing any
+ * of them, and a row someone commented out is invisible on the rendered page
+ * while still reading as coverage here — the row would be gone and the gate
+ * would stay green, which is precisely the silence this file exists to break.
+ *
+ * COMMENTS ARE STRIPPED FIRST, and the order is load-bearing. Doing fences
+ * first means a comment containing a ``` line derails fence tracking, and a
+ * derailed fence grants coverage silently. This order's failure is the
+ * opposite: an unterminated `<!--` inside a fence could swallow prose up to a
+ * later `-->`, which drops coverage and fails LOUDLY on an honest document.
+ * Given a choice of bugs, take the one that shouts.
+ *
+ * Fence matching follows CommonMark closely enough to matter here: a fence
+ * closes only with its own character, a run at least as long as the opener's,
+ * and nothing after it. Three backticks inside a ```` block are content, and an
+ * info string (` ```js `) opens a fence but never closes one.
  */
 function unfenced(content) {
+  // Blank the comment's content while preserving its newlines, so line
+  // structure — and anything sharing a line with the comment — survives.
+  const stripped = content.replace(/<!--[\s\S]*?-->/g, (comment) =>
+    comment.replace(/[^\n]/g, ""),
+  );
+
   const lines = [];
   let fence = null;
-  for (const line of content.split("\n")) {
-    const opener = /^\s*(```|~~~)/.exec(line);
-    if (opener) {
-      if (fence === null) fence = opener[1];
-      else if (fence === opener[1]) fence = null;
+  for (const line of stripped.split("\n")) {
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (match) {
+      const [, run, rest] = match;
+      if (fence === null) {
+        fence = { char: run[0], length: run.length };
+        continue;
+      }
+      if (run[0] === fence.char && run.length >= fence.length && !rest.trim()) {
+        fence = null;
+      }
+      // Anything else on a fence-shaped line inside a fence is content.
       continue;
     }
     if (fence === null) lines.push(line);

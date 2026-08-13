@@ -111,6 +111,28 @@ acting on. All are fixed; the suite grew from 23 to 30 tests.
   top-level `docs/design/*.md` only), a lane-selection test title went stale,
   and `packages/README.md` omitted core's `/tokens.css` subpath.
 
+## Review round 3 — CodeRabbit on the PR
+
+Three findings, all reproduced before fixing and all in `unfenced()` — the one
+helper that decides what counts as prose, and therefore the thing every coverage
+rule is downstream of. Suite 30 → 36 tests.
+
+- **HTML comments were kept** (Major). A commented-out row is invisible to a
+  reader but still read as coverage, so deleting a row could leave the gate
+  green. `unfenced()` now blanks comment bodies while preserving newlines.
+- **A fence closed on any run of three** (Major). A ```` block containing ```
+  leaked its contents *and* re-opened on the real closer — the repro returned
+  `leak.md` and dropped the legitimate `real.md`. Now a fence closes only on its
+  own character, a run at least as long as the opener's, and nothing trailing.
+- **An info string closed a fence** (Major). ` ```js ` may open one, never close
+  one.
+- **`scripts/README.md` overclaimed the gate's scope** (Minor) — "every script
+  on disk" when only top-level entries are checked. Reworded.
+
+Comment-stripping runs before fence parsing on purpose: the reverse lets a
+comment containing a ``` derail fence tracking, which grants coverage silently,
+while this order's worst case is swallowed prose — a loud false positive.
+
 **Not fixed, with reasons.** Reference-style (`[x]: path`) and angle-bracket
 link destinations are still uncounted — no index here uses them and the failure
 is a loud false positive, not a silent pass. Symlinked `packages/*` directories
