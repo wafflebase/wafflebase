@@ -20,9 +20,12 @@ pnpm frontend test:visual:browser:docker:record   # commit the result
 ```
 
 In Docker, because the `css2` response varies by User-Agent and CI's Chromium
-is the one that has to be able to parse it. Recording prunes bodies the new
-index no longer references, so a family that leaves `index.html` leaves here
-too.
+is the one that has to be able to parse it. Recording refetches everything
+rather than honouring what is already here — the `css2` URL does not change
+when Google ships a new font version, so trusting the stored copy would make
+a refresh a silent no-op. It also prunes bodies the new index no longer
+references, so a family that leaves `index.html` leaves here too. No git diff
+after a record means upstream has not changed.
 
 ## Licensing
 

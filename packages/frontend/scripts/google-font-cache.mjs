@@ -104,6 +104,14 @@ export async function loadGoogleFontCache({ dir, record }) {
   /** @type {Map<string, Buffer>} */
   const bodies = new Map();
   const misses = new Set();
+  // Record mode distrusts what is already on disk — refreshing is the whole
+  // point of the pass, and the `css2` URL is stable across upstream font
+  // versions, so honouring the stored copy would make a re-record a silent
+  // no-op for the one response that names every other URL. It does honour
+  // what *this* pass already fetched, so ~25 capture passes cost one request
+  // per URL rather than one per pass.
+  const fetchedThisRun = new Set();
+  const failedThisRun = new Set();
   /** @type {Array<{ url: string, status: number }>} */
   const recordFailures = [];
   let recorded = 0;
@@ -119,7 +127,7 @@ export async function loadGoogleFontCache({ dir, record }) {
 
   const handle = async (route) => {
     const url = route.request().url();
-    const entry = entries.get(url);
+    const entry = record && !fetchedThisRun.has(url) ? undefined : entries.get(url);
     if (entry) {
       let body;
       try {
@@ -143,11 +151,19 @@ export async function loadGoogleFontCache({ dir, record }) {
       return route.abort();
     }
 
+    if (failedThisRun.has(url)) {
+      // Already known bad, and the pass is already going to exit non-zero —
+      // asking the remaining ~25 capture passes to confirm it just adds
+      // minutes.
+      return route.abort();
+    }
+
     const response = await route.fetch();
     const status = response.status();
     if (status !== 200) {
       // Never bake a bad response into the fixtures: recording a 404 would
       // turn today's flake into tomorrow's permanent failure.
+      failedThisRun.add(url);
       recordFailures.push({ url, status });
       return route.fulfill({ response });
     }
@@ -160,6 +176,7 @@ export async function loadGoogleFontCache({ dir, record }) {
     await writeFile(path.join(dir, file), body);
     entries.set(url, { file, contentType });
     bodies.set(url, body);
+    fetchedThisRun.add(url);
     recorded += 1;
     return route.fulfill({ response, body });
   };

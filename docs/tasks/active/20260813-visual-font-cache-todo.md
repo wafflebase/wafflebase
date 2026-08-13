@@ -116,10 +116,21 @@ Recording in Docker was load-bearing, not caution: the `css2` body recorded
 on macOS was 19156 bytes against Docker's 18891, because Google varies the
 response by User-Agent.
 
-The prune in `save()` deleted every unreferenced file, which would have eaten
-the fixture directory's own `README.md` on the next record. Caught while
-writing the README, fixed with an explicit keep list, and covered by the
-prune test.
+Two bugs came out of self-review rather than testing:
+
+- The prune in `save()` deleted every unreferenced file, which would have
+  eaten the fixture directory's own `README.md` on the next record. Caught
+  while writing that README.
+- Record mode consulted the existing cache before fetching, so a re-record
+  would have served the *stored* `css2` and never seen an upstream change —
+  and since that stylesheet names every `woff2` URL, a refresh would have
+  been a silent no-op for the whole cache. Record mode now refetches, honouring
+  only what the current pass has already fetched (one request per URL, not one
+  per capture pass). Verified against the real endpoint: a second Docker
+  record over a populated cache refetched all four and produced byte-identical
+  fixtures.
+
+Both are covered by tests.
 
 ## Known limitations
 

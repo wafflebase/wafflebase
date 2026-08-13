@@ -726,8 +726,9 @@ if (recordFontCache) {
   }
   await fontCache.save();
   console.log(
-    `[verify:visual:browser] Recorded ${fontCache.recorded} new response(s); ` +
-      `cache now holds ${fontCache.size}. Commit tests/visual/fonts/.`,
+    `[verify:visual:browser] Recorded ${fontCache.recorded} response(s); ` +
+      `cache now holds ${fontCache.size}. Commit tests/visual/fonts/ ` +
+      "(no diff means upstream is unchanged).",
   );
   process.exit(0);
 }
