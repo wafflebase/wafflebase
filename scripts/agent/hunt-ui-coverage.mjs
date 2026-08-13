@@ -42,7 +42,7 @@
 // observed at and the renderer marks the stale ones individually.
 
 /** Bump when the key shape changes; older entries then cannot claim coverage. */
-export const COVERAGE_KEY_VERSION = 2;
+export const COVERAGE_KEY_VERSION = 3;
 
 /**
  * How a selection was shaped when a control was used.
@@ -117,6 +117,8 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
   const pairs = new Map(); // "a|b" -> sha, for consecutive DIFFERENT mutating controls
   const readAfterMutation = new Map(); // control -> sha, effect read before anything else
 
+  const inventory = new Map(); // "role|name" -> sha, from any `dom.controls` reading
+
   let shape = "none";
   // The selection ITSELF, not just its shape. A round trip is apply-then-reverse on the
   // SAME selection; Bold on one range and Bold on another is two applications, and
@@ -133,6 +135,23 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
 
     // Track the selection as the journal reveals it. A reading is only trustworthy for
     // actions AFTER it, which is why this updates before the click handling below.
+    // WHAT EXISTS, harvested from the explorer's own reading. This is the denominator
+    // the memory lacked: past journals show what WAS used, and only an inventory shows
+    // what was never touched. Recorded per run so a control added to the product shows
+    // up as newly-untried rather than silently absent.
+    if ((action.type === "read" || action.type === "wait") && action.reader === "dom.controls" && e.ok === true) {
+      for (const c of Array.isArray(e.value) ? e.value : []) {
+        if (!c || typeof c !== "object") continue;
+        if (typeof c.name !== "string" || c.name.trim() === "") continue;
+        // A missing role is DROPPED rather than defaulted. `target` takes `{role, name}`
+        // and a guessed role produces a target that does not resolve — inventing
+        // `button` would hand the explorer a name it cannot click, which is the exact
+        // failure this reader exists to prevent.
+        if (typeof c.role !== "string" || c.role.trim() === "") continue;
+        inventory.set(`${c.role.trim()}|${c.name.trim()}`, sha);
+      }
+    }
+
     if ((action.type === "read" || action.type === "wait") && SELECTION_READERS.has(action.reader)) {
       if (e.ok === true) {
         shape = selectionShape(e.value);
@@ -199,6 +218,12 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     readAfterMutation: [...readAfterMutation]
       .map(([control, at]) => ({ control, sha: at }))
       .sort((a, b) => a.control.localeCompare(b.control)),
+    inventory: [...inventory]
+      .map(([key, at]) => {
+        const cut = key.indexOf("|");
+        return { role: key.slice(0, cut), control: key.slice(cut + 1), sha: at };
+      })
+      .sort((a, b) => `${a.control}${a.role}`.localeCompare(`${b.control}${b.role}`)),
   };
 }
 
@@ -247,11 +272,35 @@ export function mergeCoverage(prev, next) {
     return [...out].map(([value, at]) => ({ [field]: value, sha: at })).sort((p, q) => p[field].localeCompare(q[field]));
   };
 
+  /** Union inventories on the `{role, name}` pair, newest sha winning per control. */
+  const unionInventory = (lists) => {
+    const out = new Map();
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const x of list) {
+        if (!x || typeof x !== "object") continue;
+        if (typeof x.control !== "string" || x.control === "") continue;
+        if (typeof x.role !== "string" || x.role === "") continue;
+        out.set(`${x.role}|${x.control}`, { role: x.role, control: x.control, sha: x.sha ?? null });
+      }
+    }
+    return [...out.values()].sort((p, q) => `${p.control}${p.role}`.localeCompare(`${q.control}${q.role}`));
+  };
+
   return {
     keyVersion: COVERAGE_KEY_VERSION,
     shapes: [...shapes.values()].sort((x, y) => `${x.control}${x.shape}`.localeCompare(`${y.control}${y.shape}`)),
     pairs: unionBy("pair", [a.pairs, b.pairs]),
     readAfterMutation: unionBy("control", [a.readAfterMutation, b.readAfterMutation]),
+    // The inventory is a UNION, never a replacement. A run that read `dom.controls`
+    // with a menu closed sees fewer controls than one that opened it, and letting the
+    // newer reading win would delete every menu item from the memory.
+    //
+    // Keyed on ROLE AND NAME together, because that pair is what `target` takes and what
+    // makes a control identifiable: a `menuitem` and a `button` can legitimately share a
+    // name, and collapsing them loses one control and leaves the survivor's role a coin
+    // toss.
+    inventory: unionInventory([a.inventory, b.inventory]),
   };
 }
 
@@ -274,7 +323,13 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   const shapes = (Array.isArray(coverage.shapes) ? coverage.shapes : []).filter(
     (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
   );
-  if (shapes.length === 0) return "";
+  const inventory = (Array.isArray(coverage.inventory) ? coverage.inventory : []).filter(
+    (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
+  );
+  // Nothing to say only when BOTH are empty. Returning early on `shapes` alone silenced
+  // the most valuable brief there is: a run that discovered twenty-five controls and
+  // clicked none has the entire surface to offer as never-tried, and said nothing.
+  if (shapes.length === 0 && inventory.length === 0) return "";
 
   // A per-entry marker, because the record-level version of this under-warned: a memory
   // whose newest run was minutes ago disclosed nothing while the entries inside it could
@@ -318,6 +373,23 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
       lines.push(`  - ${x.pair.split("|").map((n) => `\`${n}\``).join(" then ")}${stale(x)}`);
     }
     lines.push("");
+  }
+
+  // NEVER TRIED. Everything the inventory has seen that no journal has ever clicked.
+  // This is what the memory could not say before: past journals give what WAS used, and
+  // a control nobody touched appears in none of them, so it was invisible. `Clear
+  // formatting` sat unclicked for eight doc runs for exactly this reason.
+  const usedControls = new Set(shapes.map((x) => x.control));
+  const untried = inventory.filter((x) => !usedControls.has(x.control));
+  if (untried.length > 0) {
+    lines.push(
+      "NEVER TRIED — these exist on this surface and no run has ever clicked them:",
+      ...untried.map((x) => `  - \`${x.control}\``),
+      "",
+      "That list is the most valuable thing here. Every defect this hunter has filed came",
+      "from a control nobody had round-tripped yet.",
+      "",
+    );
   }
 
   const read = (Array.isArray(coverage.readAfterMutation) ? coverage.readAfterMutation : []).filter(

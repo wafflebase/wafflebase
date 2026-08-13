@@ -28,8 +28,11 @@ import { readFileSync } from "node:fs";
 import {
   DURATION_SOURCES,
   MEASURED_DURATION_SOURCE,
+  MIN_FIT_ITEMS,
+  PANEL_INTERVAL,
   SCORER_ID,
   coderabbitCost,
+  coderabbitLatency,
   costLatencyOf,
   declaredGaps,
   durationCensus,
@@ -42,6 +45,7 @@ import {
   spendOf,
   wallMsOf,
 } from "./cost-latency.mjs";
+import { PUSH_PROXY_INTERVAL, SELF_TIMED_INTERVAL, latencyAbsentLine } from "./adapters/coderabbit.mjs";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -104,6 +108,44 @@ const anotherRun = (runId, delta) => ({
 });
 
 const scoreK1 = (opts = {}) => costLatencyOf(oneRun(), { sizes: k1Sizes(), corpusVersion: CORPUS, corpusItemIds: K1.map((r) => r.item_id), ...opts });
+
+/**
+ * The seven REAL latency records `adapters/coderabbit.mjs` produced for this corpus
+ * on 2026-08-13, shaped exactly as `latencyOf` returns them.
+ *
+ * Real rather than invented for the same reason the envelopes above are, and the two
+ * on-demand rows are why: `pr-549`'s push proxy reads **183.7 min** against a
+ * self-timed **7.8**, because a maintainer asked for the review 176 minutes after the
+ * push. Nothing about the magnitude marks it — `pr-605` is the same event and reads
+ * an innocent 9.8 — so a fixture with only automatic items would let a scorer that
+ * pooled the proxy unconditionally stay green while reporting a three-hour review.
+ */
+const LATENCY = [
+  { item_id: "pr-415", trigger: "automatic", self: 395000, proxy: 402000, marker: "status-comment", runs: 4 },
+  { item_id: "pr-429", trigger: "automatic", self: 409000, proxy: 417000, marker: "status-comment", runs: 3 },
+  { item_id: "pr-465", trigger: "automatic", self: 864000, proxy: 891000, marker: "status-comment", runs: 4 },
+  { item_id: "pr-471", trigger: "automatic", self: 180000, proxy: 191000, marker: "status-comment", runs: 3 },
+  { item_id: "pr-524", trigger: "automatic", self: 154000, proxy: 167000, marker: "status-comment", runs: 4 },
+  { item_id: "pr-549", trigger: "on-demand", self: 468000, proxy: 11019000, marker: "review-command-invocation", runs: 10 },
+  { item_id: "pr-605", trigger: "on-demand", self: 454000, proxy: 590000, marker: "review-command-invocation", runs: 14 },
+];
+
+/** One item's latency, in `latencyOf`'s shape. `over` overrides either span. */
+const latencyRow = (r, over = {}) => ({
+  item_id: r.item_id,
+  latency: {
+    ended_at: "2026-08-10T12:20:55Z",
+    ended_source: "inline-comment",
+    absent: null,
+    trigger: r.trigger,
+    self_timed: { interval: SELF_TIMED_INTERVAL, ms: r.self, started_at: "2026-08-10T12:14:20Z", marker: r.marker, absent: null, poolable: true, ...(over.self_timed ?? {}) },
+    // `poolable` is FALSE on an on-demand item and the number is still carried —
+    // that pairing is the adapter's decision and this fixture must preserve it.
+    push_proxy: { interval: PUSH_PROXY_INTERVAL, ms: r.proxy, started_at: "2026-08-10T12:13:00Z", check_runs: r.runs, absent: null, poolable: r.trigger === "automatic", ...(over.push_proxy ?? {}) },
+  },
+});
+
+const pilotLatency = () => LATENCY.map((r) => latencyRow(r));
 
 // --- the trap this PR exists for --------------------------------------------
 
@@ -271,11 +313,21 @@ test("no average cost-per-line is emitted anywhere, at any level", () => {
 });
 
 test("a fit refuses fewer than three points, and refuses when every item is one size", () => {
-  assert.equal(fitCostToSize([{ diff_lines: 10, cost_usd: 1 }, { diff_lines: 20, cost_usd: 2 }]).intercept_usd, null);
+  const two = fitCostToSize([{ diff_lines: 10, cost_usd: 1 }, { diff_lines: 20, cost_usd: 2 }]);
+  assert.equal(two.intercept_usd, null);
   assert.match(fitCostToSize([{ diff_lines: 10, cost_usd: 1 }]).reason, /at least 3 items, got 1/);
   const flat = fitCostToSize([{ diff_lines: 100, cost_usd: 1 }, { diff_lines: 100, cost_usd: 2 }, { diff_lines: 100, cost_usd: 3 }]);
   assert.equal(flat.slope_usd_per_1000_lines, null);
   assert.match(flat.reason, /no slope to fit/);
+  // THE THRESHOLD IS A FIELD, on every path, not only prose inside `reason`. A
+  // consumer that must say "n=2 < 3" would otherwise parse it back out of an English
+  // sentence, or — worse — hard-code the 3 and keep printing it after this file
+  // changed its mind.
+  assert.equal(MIN_FIT_ITEMS, 3);
+  assert.equal(two.min_n, MIN_FIT_ITEMS);
+  assert.equal(two.n, 2);
+  assert.equal(flat.min_n, MIN_FIT_ITEMS);
+  assert.equal(fitCostToSize(K1.map((r) => ({ diff_lines: r.lines, cost_usd: r.cost_usd }))).min_n, MIN_FIT_ITEMS, "and on the path that DOES fit, so the field is never conditional");
 });
 
 test("size ordering COUNTS the pairs that violate it rather than asserting a trend", () => {
@@ -420,7 +472,7 @@ test("the two arms' costs cannot be read as like-for-like, structurally", () => 
   }
 });
 
-test("the two uncomputable metrics are explicit nulls with reasons, not omissions", () => {
+test("the uncomputable metric is an explicit null with a reason, not an omission", () => {
   const r = scoreK1();
   assert.equal(r.cost_per_real_finding, null);
   // The VALUE of every declared gap is null, checked as its own assertion: a
@@ -430,25 +482,209 @@ test("the two uncomputable metrics are explicit nulls with reasons, not omission
   const gaps = new Map(declaredGaps().map((g) => [g.metric, g]));
   assert.match(gaps.get("cost_per_real_finding").reason, /no adjudicated labels exist/);
   assert.match(gaps.get("cost_per_real_finding").reason, /cost divided by all findings/);
-  // The latency gap says MEASURABLE-but-not-here, not "impossible". The distinction
-  // is the whole value of the field: a reader who is told a number cannot exist
-  // stops looking, and this one can — from the other arm's own status-comment edit
-  // history, which is the adapter's to read.
-  assert.match(gaps.get("coderabbit_latency_ms").reason, /MEASURABLE, and not from anything this scorer reads/);
-  // The DECIDED interval, named. A gap that says "measurable" without saying which
-  // interval invites the next reader to pick one, and three of the available
-  // choices are wrong in ways that were measured rather than argued.
-  assert.match(gaps.get("coderabbit_latency_ms").reason, /coderabbit-start-marker-to-first-finding/);
-  // Including the one THIS FIELD used to propose, kept as a named rejection with
-  // its error rather than quietly dropped: a deleted wrong answer gets reinvented.
-  assert.match(gaps.get("coderabbit_latency_ms").reason, /created_at-to-updated_at pair, which is wrong by 8x/);
-  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /timing read in the arm's adapter/);
-  // The half that matters most: arriving at a number does not make the two arms
-  // comparable, and the bias runs the opposite way from the long-standing worry.
-  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /2\.2x LONGER/);
-  assert.match(gaps.get("coderabbit_latency_ms").unblocked_by, /no ratio/);
+  // 🔴 IT SURVIVES THE LATENCY MEASUREMENT. The two gaps were declared together and
+  // only one of them has been closed; a change that retired both would leave the
+  // report printing a cost-per-real-finding figure it cannot have.
   assert.deepEqual(r.declared_gaps.map((g) => g.metric), ["cost_per_real_finding", "coderabbit_latency_ms"]);
-  assert.equal(r.coderabbit.latency.wall_ms, null);
+  const measured = scoreK1({ coderabbit: { latency: pilotLatency() } });
+  assert.deepEqual(measured.declared_gaps.map((g) => g.metric), ["cost_per_real_finding"]);
+  assert.equal(measured.cost_per_real_finding, null);
+});
+
+// --- the other arm's clock (#799's read, consumed here) ----------------------
+
+test("the latency gap is RETIRED once the arm's records arrive, and declared while they have not", () => {
+  const unmeasured = scoreK1();
+  const gap = unmeasured.declared_gaps.find((g) => g.metric === "coderabbit_latency_ms");
+  // Not "impossible" and not blank: the read exists, this run was not given it, and
+  // the reason names the flag that would. A reader told a number cannot exist stops
+  // looking; this one can be had for one flag.
+  assert.match(gap.reason, /--coderabbit-latency/);
+  assert.match(gap.reason, /could not be re-run offline against a committed store/);
+  assert.equal(unmeasured.coderabbit.latency.requested, false);
+  assert.equal(unmeasured.coderabbit.latency.self_timed.ms.n, 0);
+  // The half that matters most, kept on the gap: arriving at a number does not make
+  // the two arms comparable, and the bias runs the opposite way from the long
+  // standing worry.
+  assert.match(gap.unblocked_by, /2\.2x LONGER/);
+  assert.match(gap.unblocked_by, /no ratio/);
+
+  const r = scoreK1({ coderabbit: { latency: pilotLatency() } });
+  assert.equal(r.declared_gaps.some((g) => g.metric === "coderabbit_latency_ms"), false, "a gap that outlives the read it asked for is a gap nobody believes");
+  assert.equal(r.coderabbit.latency.requested, true);
+});
+
+test("🔴 an EMPTY records array does not retire the gap — `requested` is not evidence of a measurement", () => {
+  // Found in review. `requested` was derived from array-ness, so a perfectly
+  // well-formed but empty input reported "the read happened", retired the declared
+  // gap, produced no figure and pushed no shortfall reason — the run exited 0 saying
+  // every metric was either measured or not asked for. That is the silent success
+  // this whole module is shaped against, and it is reachable from a caller typo.
+  for (const [label, records] of [["empty array", []], ["entries with no latency", [{ item_id: "pr-415" }, { item_id: "pr-429" }]]]) {
+    const l = coderabbitLatency(records);
+    assert.equal(l.requested, true, `${label}: the caller did ask`);
+    assert.equal(l.measured, false, `${label}: but nothing was measured, and those are different facts`);
+    assert.equal(l.self_timed.ms.n, 0);
+    const r = scoreK1({ coderabbit: { latency: records } });
+    // THE GAP SURVIVES, with a reason that is not the not-requested one — a reader
+    // told to pass a flag they already passed goes looking in the wrong place.
+    const gap = r.declared_gaps.find((g) => g.metric === "coderabbit_latency_ms");
+    assert.ok(gap, `${label}: a retired gap with no figure behind it is an absence nobody can see`);
+    assert.match(gap.reason, /NONE carried a latency|NOT ONE yielded a poolable interval/);
+    assert.equal(gap.reason.includes("Pass --coderabbit-latency"), false, `${label}: it was passed`);
+    // AND THE RUN IS PARTIAL, so a pipeline cannot quote it by ignoring stderr.
+    assert.equal(r.completeness.verdict, "partial", `${label}: requested and empty is a shortfall`);
+    assert.match(r.completeness.reasons.join("\n"), /coderabbit latency: requested, and no figure was produced/);
+    // And no interval is captioned onto minutes that do not exist.
+    assert.equal(renderReport(r).join("\n").includes("median"), true);
+  }
+});
+
+test("records that arrive but are ALL absent keep the gap, with the third reason", () => {
+  // Distinct from the empty case: the read ran, every item answered, and not one
+  // yielded a poolable interval. Three absences, three different places to look.
+  const allAbsent = LATENCY.map((r) => latencyRow(r, { self_timed: { ms: null, poolable: false, absent: "no-start-marker" } }));
+  const l = coderabbitLatency(allAbsent);
+  assert.equal(l.requested, true);
+  assert.equal(l.measured, false);
+  assert.equal(l.n_items, 7, "the items are there; the figures are not");
+  assert.match(l.reason, /NOT ONE yielded a poolable interval/);
+  const r = scoreK1({ coderabbit: { latency: allAbsent } });
+  assert.ok(r.declared_gaps.find((g) => g.metric === "coderabbit_latency_ms"));
+  assert.equal(r.completeness.verdict, "partial");
+});
+
+test("the absence census line is the ADAPTER's formatter, not a second copy", () => {
+  // The adapter exports `latencyAbsentLine` so the two reports read alike, and its
+  // docblock records that an earlier version dropped the unrecognised row — which
+  // makes giving an unknown absence its own key worthless, because nothing prints it.
+  // Asserted through an UNRECOGNISED flavour, which is the behaviour a re-implementation
+  // is most likely to lose.
+  const l = coderabbitLatency(pilotLatency());
+  l.census.self_timed.absent["a-brand-new-flavour"] = 2;
+  const text = renderReport({ ...scoreK1({ coderabbit: { latency: pilotLatency() } }), coderabbit: { ...scoreK1().coderabbit, latency: l } }).join("\n");
+  assert.match(text, /UNRECOGNISED a-brand-new-flavour=2/);
+  // And the declared flavours still print first, in the vocabulary's own order.
+  assert.match(text, /self_timed absent: findings-unavailable=0 no-finding=0/);
+  assert.equal(text.includes(latencyAbsentLine(l.census.self_timed.absent)), true, "the report must print exactly what the adapter's formatter produces");
+});
+
+test("the arm's latency reproduces the pilot's figure, and NEVER as a bare duration", () => {
+  const l = coderabbitLatency(pilotLatency());
+  // The recorded decision: median 6.8 min, range 2.6–14.4, n=7/7.
+  assert.equal(l.self_timed.ms.n, 7);
+  assert.equal(l.n_items, 7);
+  assert.equal((l.self_timed.ms.median / 60000).toFixed(1), "6.8");
+  assert.equal((l.self_timed.ms.min / 60000).toFixed(1), "2.6");
+  assert.equal((l.self_timed.ms.max / 60000).toFixed(1), "14.4");
+  // 🔴 THE INTERVAL TRAVELS WITH THE NUMBER. A duration whose definition is not in
+  // the same object is a duration that gets quoted without it — which is how one
+  // figure in this project was recorded as "3–5x too high against us" and as "not
+  // computable" inside one day.
+  assert.equal(l.self_timed.interval, SELF_TIMED_INTERVAL);
+  assert.equal(l.push_proxy.interval, PUSH_PROXY_INTERVAL);
+  assert.notEqual(l.self_timed.interval, l.push_proxy.interval);
+  // And there is no key holding a number without one.
+  assert.equal(Object.hasOwn(l, "wall_ms"), false, "a bare `wall_ms` on this arm is a duration with no interval");
+  assert.equal(Object.hasOwn(l, "ms"), false);
+});
+
+test("an on-demand review is MEASURED on the push proxy and excluded from it, which is not the same as missing", () => {
+  const l = coderabbitLatency(pilotLatency());
+  // 2 of 7 items are on-demand, so the proxy pools 5 — while still having measured 7.
+  assert.deepEqual(l.triggers, { automatic: 5, "on-demand": 2, unknown: 0 });
+  assert.equal(l.push_proxy.n, 5);
+  assert.equal(l.push_proxy.n_measured, 7, "dropping the number rather than the pooling is how pr-549 became a deleted row in one document and a three-hour review in the next");
+  // pr-549's proxy is 183.7 min. If it were pooled the median would leave the range
+  // of the other six entirely, so this asserts the CONSEQUENCE rather than the flag.
+  assert.equal(l.push_proxy.ms.max / 60000 < 20, true, `the 183.7 min on-demand item is in the pooled figure (max ${(l.push_proxy.ms.max / 60000).toFixed(1)}m)`);
+  // The self-timed figure keeps both, because CodeRabbit's own clock starts at its
+  // acknowledgement whoever asked.
+  assert.equal(l.self_timed.n, 7);
+});
+
+test("a missing start marker is excluded from the figure and NAMED, never counted as zero", () => {
+  const crippled = LATENCY.map((r, i) =>
+    i === 0 ? latencyRow(r, { self_timed: { ms: null, poolable: false, absent: "no-start-marker" } }) : latencyRow(r),
+  );
+  const l = coderabbitLatency(crippled);
+  assert.equal(l.self_timed.n, 6, "an unreadable start must shrink the denominator");
+  assert.equal(l.self_timed.n_items, 7, "and the denominator it shrank from is still printed");
+  assert.equal(l.self_timed.ms.min > 0, true, "a missing latency pooled as 0 makes the other arm look instantaneous");
+  assert.equal(l.census.self_timed.absent["no-start-marker"], 1);
+  // Every declared flavour is present at n=0 — the zeros are the point, and
+  // `no-check-run` in particular has never occurred on real data.
+  assert.equal(l.census.push_proxy.absent["no-check-run"], 0);
+  // And the shortfall reaches completeness, so a partial read cannot exit 0.
+  const r = scoreK1({ coderabbit: { latency: crippled } });
+  assert.match(r.completeness.reasons.join("\n"), /coderabbit latency: 6 of 7 item\(s\) poolable on coderabbit-start-marker-to-first-finding \(no-start-marker=1\)/);
+  assert.equal(r.completeness.verdict, "partial");
+});
+
+test("the push proxy's on-demand exclusion is NOT a completeness failure", () => {
+  // 2 of 7 items are never poolable on the proxy and that is the design, not a
+  // shortfall. Counting it would mark every correct pilot run `partial` and exit 1
+  // forever, which is how a guard stops meaning anything.
+  const r = scoreK1({ coderabbit: { latency: pilotLatency() } });
+  assert.equal(r.coderabbit.latency.push_proxy.n, 5);
+  assert.equal(r.completeness.verdict, "complete");
+  assert.equal(r.completeness.reasons.join("\n").includes("push"), false);
+});
+
+test("🔴 the two arms' minutes cannot be divided, and nothing in the result does it", () => {
+  const r = scoreK1({ coderabbit: { latency: pilotLatency() } });
+  // Both arms now carry minutes, which is the state this guard exists for. They are
+  // under different keys, in different blocks, each naming a DIFFERENT interval.
+  assert.equal(r.panel.latency_interval, PANEL_INTERVAL);
+  assert.notEqual(r.panel.latency_interval, r.coderabbit.latency.self_timed.interval);
+  assert.equal(Object.hasOwn(r.panel, "latency"), false, "our arm must not gain the other's key name");
+  assert.equal(Object.hasOwn(r.coderabbit.latency, "duration_ms"), false);
+  // No ratio anywhere in the payload. Matched as QUOTED KEYS: a substring search for
+  // "ratio" hits `duration_source` — the word is inside "duration" — and a check
+  // that cannot fail is decoration.
+  const json = JSON.stringify(r);
+  for (const key of ["ratio", "latency_ratio", "vs_coderabbit", "faster", "slower", "speedup", "times_faster"]) {
+    assert.equal(json.includes(`"${key}"`), false, `${key} divides a replay process's minutes by a production reviewer's`);
+  }
+  // And the report says so where the numbers are, not in a footnote.
+  const text = renderReport(r).join("\n");
+  assert.match(text, /NOT COMPARABLE with the panel's wall clock above and NO RATIO between them is computed anywhere/);
+  assert.match(text, /2\.2x LONGER \(n=2\)/);
+});
+
+test("the report prints the interval and the n on the same line as the minutes", () => {
+  const lines = renderReport(scoreK1({ coderabbit: { latency: pilotLatency() } }));
+  const self = lines.find((l) => l.includes(SELF_TIMED_INTERVAL) && l.includes("latency"));
+  assert.match(self, /median 6\.8m, n=7/);
+  assert.match(self, /7 of 7 item\(s\) poolable/);
+  const proxy = lines.find((l) => l.includes(PUSH_PROXY_INTERVAL) && l.includes("latency"));
+  assert.match(proxy, /5 of 7 item\(s\) poolable, 7 measured/);
+  assert.match(proxy, /UNDERSTATES/);
+  // Our own pooled figure names its interval too, and its n is OBSERVATIONS.
+  const pooled = lines.find((l) => l.includes("POOLED OVER OBSERVATIONS"));
+  assert.match(pooled, new RegExp(PANEL_INTERVAL));
+  assert.match(pooled, /n=7/);
+  // The trigger census, read rather than inferred.
+  assert.match(lines.join("\n"), /triggers: automatic=5 · on-demand=2 · unknown=0/);
+  // With nothing injected the same section says why, and prints no minutes at all.
+  const none = renderReport(scoreK1()).join("\n");
+  assert.match(none, /latency: n\/a — no timing records were passed to this scorer/);
+  assert.equal(none.includes(SELF_TIMED_INTERVAL), false, "an unmeasured arm must not print an interval as though it had a figure");
+});
+
+test("the pooled panel figures count OBSERVATIONS, and the replicate series counts replicates", () => {
+  // The same corpus reads n=3 or n=21 depending which question was asked, and
+  // decision 33 is that the figure carries the one it was measured at.
+  const r = costLatencyOf([oneRun()[0], anotherRun("pilot-01__k2", 1), anotherRun("pilot-01__k3", 2)], {
+    sizes: k1Sizes(),
+    corpusVersion: CORPUS,
+    corpusItemIds: K1.map((x) => x.item_id),
+  });
+  assert.equal(r.panel.replicate_spend_usd.n, 3);
+  assert.equal(r.panel.review_cost_usd.n, 21);
+  assert.equal(r.panel.review_wall_ms.n, 21);
+  // The pooled median is over all 21 draws, not a median of three medians.
+  assert.equal(r.panel.review_wall_ms.median, seriesOf(r.panel.replicates.flatMap((rep) => rep.items.map((i) => i.wall_ms))).median);
 });
 
 // --- what a reader actually sees ---------------------------------------------
