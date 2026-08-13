@@ -685,26 +685,50 @@ Phase 23 delivered:
 - `Dockerfile.playwright` using Playwright official image (Chromium + fonts
   included). Version tag matches `packages/frontend/package.json`.
 - `scripts/run-browser-tests-docker.sh` wrapper with modes: `visual`,
-  `visual:update`, `interaction`, `all`. Validates Playwright version match,
-  runs with host UID/GID to preserve file ownership.
+  `visual:update`, `visual:record`, `interaction`, `all`. Validates Playwright
+  version match, runs with host UID/GID to preserve file ownership.
 - `scripts/verify-browser-lanes.mjs` skips Chromium existence check when
   `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
 - `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
   baselines outside Docker.
-- The image bundles system fonts, but the app's *web* fonts still arrive from
-  fonts.googleapis.com, so each capture settles them after the section-ready
-  wait. The gate is an explicit floor — the families/weights `index.html`
+- The image bundles system fonts; the app's *web* fonts are served from
+  committed fixtures, and each capture settles them after the section-ready
+  wait.
+
+  `packages/frontend/scripts/google-font-cache.mjs` intercepts
+  `fonts.googleapis.com` / `fonts.gstatic.com` at the Playwright context and
+  answers from `packages/frontend/tests/visual/fonts/` (~170 KB, 5 files).
+  The lane used to make that request for real, on every one of ~25 capture
+  passes, and a single failed `woff2` failed the job: **11 of the 64
+  `verify-browser` runs sampled on 2026-08-12/13 died that way**, on a
+  rotating cast of families and profiles, none of them a regression in the
+  branch under test. Waiting harder was never going to fix it — a face whose
+  fetch failed sits in `status: "error"` and Chromium negatively caches the
+  `woff2`, which is why the stylesheet-refetch recovery below fails
+  identically on both attempts in every one of those logs.
+
+  A URL the fixtures do not hold is aborted and reported by URL, so a stale
+  cache is a loud deterministic failure (and blocks `visual:update`), never a
+  silent fallback-glyph capture. Refresh with `visual:record` — the one mode
+  that talks to Google — after changing `index.html`'s `css2` query or adding
+  a scenario that paints a new family, and commit the result. Record in
+  Docker: the `css2` response varies by User-Agent.
+
+  Serving the fonts from disk removed the flake, not the need for the wait —
+  a face is still asynchronous and still registered only once a mount injects
+  its link. The gate is an explicit floor — the families/weights `index.html`
   requests (Inter, Fraunces, JetBrains Mono), the families the baselines were
   recorded with — asserted positively: registered in `document.fonts` at all,
   at least one face `loaded`, and `fonts.check()` true at every declared
-  weight. Asserting registration is what makes an unreachable CDN fail: it
-  registers no @font-face rules, and both `fonts.check()` and a
+  weight. Asserting registration is what makes an unanswered stylesheet fail:
+  it registers no @font-face rules, and both `fonts.check()` and a
   registry-derived wait would otherwise pass vacuously. Every *other*
   registered family (KaTeX's same-origin maths faces, the eager catalog
   families) gets only a shorter, non-gating wait for quiet — no face left in
   `status: "loading"` — which warns rather than fails, so a family no
   screenshot paints cannot fail the lane. Recovery re-inserts the Google
-  Fonts `<link>` elements (URL untouched) so Chromium refetches them. A pass
+  Fonts `<link>` elements (URL untouched) so Chromium refetches them — now
+  from the cache, which is why it can actually recover. A pass
   whose floor never settles is recorded and fails the run *after* capture —
   screenshots and diffs still land — and blocks `visual:update` from
   recording fallback glyphs as a baseline.

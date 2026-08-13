@@ -1,0 +1,20 @@
+{
+  "entries": {
+    "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap": {
+      "file": "fonts-googleapis-com-css2-family-Fraunces-opsz-w-4cdfe1b1677dc60b.css",
+      "contentType": "text/css"
+    },
+    "https://fonts.gstatic.com/s/fraunces/v38/6NU78FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0KxC9TeA.woff2": {
+      "file": "fonts-gstatic-com-s-fraunces-v38-6NU78FyLNQOQZAn-6a8370661dae1863.woff2",
+      "contentType": "font/woff2"
+    },
+    "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2": {
+      "file": "fonts-gstatic-com-s-inter-v20-UcC73FwrK3iLTeHuS-e3237528af752eed.woff2",
+      "contentType": "font/woff2"
+    },
+    "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2": {
+      "file": "fonts-gstatic-com-s-jetbrainsmono-v24-tDbv2o-flE-cc27b30471250057.woff2",
+      "contentType": "font/woff2"
+    }
+  }
+}
