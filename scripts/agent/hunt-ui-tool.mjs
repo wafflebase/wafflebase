@@ -299,7 +299,40 @@ const say = (text, extra = {}) => ({ content: [{ type: "text", text }], ...extra
  * so the whole handler is testable against a stub returning scripted observations, which
  * is the only way any of this runs in `agent:tests`.
  */
-export function createUiTool({ charter = {}, surface = "doc", session, budget, journal, cfg = {} } = {}) {
+/**
+ * One line describing an action that just completed, for a human watching a live run.
+ *
+ * A run costs up to ten minutes and several dollars and, until now, printed NOTHING
+ * between "issue corpus: 91 issues" and the final funnel — the journal is only persisted
+ * when a brief FINISHES, so a run that hangs leaves no trace of how far it got. Asked
+ * whether a 23-minute run was working or stuck, the only available answer was "the
+ * process is alive".
+ *
+ * REDACTED like every other output boundary, and truncated, because the line carries
+ * whatever the explorer typed. `budget` is included because it is the one number that
+ * separates "working through a long brief" from "looping": actions climb in the first
+ * case and stall in the second.
+ */
+export function renderUiProgress({ label = "", index = 0, action: rawAction, observation: rawObservation, prediction = null, used = 0, total = 0 } = {}) {
+  // A default parameter only fills in `undefined`, and this runs on EVERY action of
+  // every run — a null slipping through would take down a session to print a log line.
+  const action = rawAction && typeof rawAction === "object" ? rawAction : {};
+  const observation = rawObservation && typeof rawObservation === "object" ? rawObservation : {};
+  const what =
+    action.type === "read" || action.type === "wait"
+      ? action.reader ?? "?"
+      : action.type === "type"
+        ? JSON.stringify(String(action.text ?? "").slice(0, 24))
+        : action.type === "key"
+          ? String(action.key ?? "")
+          : (action.target?.name ?? action.target?.reader ?? action.surface ?? "");
+  const status = observation.ok === true ? "ok" : `FAILED ${String(observation.error ?? "").slice(0, 60)}`;
+  const verdict = prediction?.verdict ? ` · ${prediction.verdict}` : "";
+  const budget = total > 0 ? `${used}/${total}` : String(used);
+  return `hunt-ui:   ${label} [${budget}] #${index} ${action.type} ${what} ${status}${verdict}`.trimEnd();
+}
+
+export function createUiTool({ charter = {}, surface = "doc", session, budget, journal, cfg = {}, label = "", maxActions = 0, onProgress = null } = {}) {
   if (!session || typeof session.act !== "function") throw new Error("hunt-ui-tool: a session with act() is required");
   if (!budget || typeof budget.charge !== "function") throw new Error("hunt-ui-tool: a budget is required");
   if (!Array.isArray(journal)) throw new Error("hunt-ui-tool: a journal array is required");
@@ -382,7 +415,29 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
     journal.push(entry);
     const atIndex = journal.length - 1;
 
-    if (!action.expect) return say(safe(renderUiObservation({ action, observation, atIndex })));
+    const progress = (pred) => {
+      if (typeof onProgress !== "function") return;
+      // Through `safe`, like every other egress from this file: the line carries the
+      // control name and whatever was typed.
+      onProgress(
+        safe(
+          renderUiProgress({
+            label,
+            index: atIndex,
+            action,
+            observation,
+            prediction: pred,
+            used: budget.used ?? 0,
+            total: maxActions,
+          }),
+        ),
+      );
+    };
+
+    if (!action.expect) {
+      progress(null);
+      return say(safe(renderUiObservation({ action, observation, atIndex })));
+    }
 
     // 6. ASSESS. `atIndex` is this action's own index, so a prediction cannot cite
     //    itself as its own baseline — `not-equals @read:<own index>` is otherwise a
@@ -395,6 +450,8 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
       atIndex,
     });
     entry.prediction = prediction;
+
+    progress(prediction);
 
     // 7. REDACT on the way out. Public repo; every output boundary is guarded.
     return say(safe(renderUiObservation({ action, observation, prediction, atIndex })));
