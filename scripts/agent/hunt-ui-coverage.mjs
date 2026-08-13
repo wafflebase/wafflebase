@@ -143,7 +143,12 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
       for (const c of Array.isArray(e.value) ? e.value : []) {
         if (!c || typeof c !== "object") continue;
         if (typeof c.name !== "string" || c.name.trim() === "") continue;
-        inventory.set(`${typeof c.role === "string" ? c.role : "button"}|${c.name.trim()}`, sha);
+        // A missing role is DROPPED rather than defaulted. `target` takes `{role, name}`
+        // and a guessed role produces a target that does not resolve — inventing
+        // `button` would hand the explorer a name it cannot click, which is the exact
+        // failure this reader exists to prevent.
+        if (typeof c.role !== "string" || c.role.trim() === "") continue;
+        inventory.set(`${c.role.trim()}|${c.name.trim()}`, sha);
       }
     }
 
@@ -213,8 +218,12 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     readAfterMutation: [...readAfterMutation]
       .map(([control, at]) => ({ control, sha: at }))
       .sort((a, b) => a.control.localeCompare(b.control)),
-    inventory: [...inventory].map(([key, at]) => ({ control: key.split("|").slice(1).join("|"), role: key.split("|")[0], sha: at }))
-      .sort((a, b) => a.control.localeCompare(b.control)),
+    inventory: [...inventory]
+      .map(([key, at]) => {
+        const cut = key.indexOf("|");
+        return { role: key.slice(0, cut), control: key.slice(cut + 1), sha: at };
+      })
+      .sort((a, b) => `${a.control}${a.role}`.localeCompare(`${b.control}${b.role}`)),
   };
 }
 
@@ -263,6 +272,21 @@ export function mergeCoverage(prev, next) {
     return [...out].map(([value, at]) => ({ [field]: value, sha: at })).sort((p, q) => p[field].localeCompare(q[field]));
   };
 
+  /** Union inventories on the `{role, name}` pair, newest sha winning per control. */
+  const unionInventory = (lists) => {
+    const out = new Map();
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const x of list) {
+        if (!x || typeof x !== "object") continue;
+        if (typeof x.control !== "string" || x.control === "") continue;
+        if (typeof x.role !== "string" || x.role === "") continue;
+        out.set(`${x.role}|${x.control}`, { role: x.role, control: x.control, sha: x.sha ?? null });
+      }
+    }
+    return [...out.values()].sort((p, q) => `${p.control}${p.role}`.localeCompare(`${q.control}${q.role}`));
+  };
+
   return {
     keyVersion: COVERAGE_KEY_VERSION,
     shapes: [...shapes.values()].sort((x, y) => `${x.control}${x.shape}`.localeCompare(`${y.control}${y.shape}`)),
@@ -271,7 +295,12 @@ export function mergeCoverage(prev, next) {
     // The inventory is a UNION, never a replacement. A run that read `dom.controls`
     // with a menu closed sees fewer controls than one that opened it, and letting the
     // newer reading win would delete every menu item from the memory.
-    inventory: unionBy("control", [a.inventory, b.inventory]),
+    //
+    // Keyed on ROLE AND NAME together, because that pair is what `target` takes and what
+    // makes a control identifiable: a `menuitem` and a `button` can legitimately share a
+    // name, and collapsing them loses one control and leaves the survivor's role a coin
+    // toss.
+    inventory: unionInventory([a.inventory, b.inventory]),
   };
 }
 
@@ -294,7 +323,13 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   const shapes = (Array.isArray(coverage.shapes) ? coverage.shapes : []).filter(
     (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
   );
-  if (shapes.length === 0) return "";
+  const inventory = (Array.isArray(coverage.inventory) ? coverage.inventory : []).filter(
+    (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
+  );
+  // Nothing to say only when BOTH are empty. Returning early on `shapes` alone silenced
+  // the most valuable brief there is: a run that discovered twenty-five controls and
+  // clicked none has the entire surface to offer as never-tried, and said nothing.
+  if (shapes.length === 0 && inventory.length === 0) return "";
 
   // A per-entry marker, because the record-level version of this under-warned: a memory
   // whose newest run was minutes ago disclosed nothing while the entries inside it could
@@ -344,9 +379,6 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   // This is what the memory could not say before: past journals give what WAS used, and
   // a control nobody touched appears in none of them, so it was invisible. `Clear
   // formatting` sat unclicked for eight doc runs for exactly this reason.
-  const inventory = (Array.isArray(coverage.inventory) ? coverage.inventory : []).filter(
-    (x) => x && typeof x === "object" && typeof x.control === "string" && x.control !== "",
-  );
   const usedControls = new Set(shapes.map((x) => x.control));
   const untried = inventory.filter((x) => !usedControls.has(x.control));
   if (untried.length > 0) {

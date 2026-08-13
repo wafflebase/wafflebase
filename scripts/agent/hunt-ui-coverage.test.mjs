@@ -215,3 +215,61 @@ test("the inventory UNIONS across runs, because a closed menu hides controls", (
   ]);
   assert.deepEqual(junk.inventory, []);
 });
+
+test("role is part of a control's identity, and a missing one is refused", () => {
+  // `target` takes `{role, name}`. A `menuitem` and a `button` can legitimately share a
+  // name, so collapsing on name alone loses a control and leaves the survivor's role a
+  // coin toss — and a GUESSED role produces a target that does not resolve, which is the
+  // failure this reader exists to prevent.
+  const c = coverageFromJournal(
+    [
+      {
+        action: { type: "read", reader: "dom.controls" },
+        ok: true,
+        value: [
+          { role: "button", name: "Bold" },
+          { role: "menuitem", name: "Bold" },
+          { name: "no-role-at-all" },
+          { role: "   ", name: "blank-role" },
+        ],
+      },
+    ],
+    { sha: "aaa" },
+  );
+  assert.deepEqual(
+    c.inventory.map((x) => `${x.role}|${x.control}`),
+    ["button|Bold", "menuitem|Bold"],
+    "both roles survive; entries without a usable role are dropped rather than defaulted",
+  );
+
+  // And the pair survives a merge, which keyed on name alone before.
+  const a = coverageFromJournal([{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "button", name: "Bold" }] }], { sha: "a" });
+  const b = coverageFromJournal([{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "menuitem", name: "Bold" }] }], { sha: "b" });
+  const merged = mergeCoverage(a, b);
+  assert.deepEqual(merged.inventory.map((x) => `${x.role}|${x.control}`), ["button|Bold", "menuitem|Bold"]);
+  assert.equal(merged.inventory.every((x) => typeof x.role === "string" && x.role !== ""), true, "role survives serialisation");
+});
+
+test("a run that discovered controls and clicked nothing still renders its brief", () => {
+  // The most valuable brief there is — an entire surface offered as never-tried — and the
+  // early return on `shapes` silenced it completely.
+  const discovered = coverageFromJournal(
+    [
+      {
+        action: { type: "read", reader: "dom.controls" },
+        ok: true,
+        value: [{ role: "button", name: "Clear formatting" }, { role: "button", name: "Insert table" }],
+      },
+    ],
+    { sha: "aaa" },
+  );
+  assert.deepEqual(discovered.shapes, [], "nothing was clicked");
+  const md = renderCoverageBrief(discovered, { sha: "aaa" });
+  assert.notEqual(md, "", "an inventory-only run must still say something");
+  assert.match(md, /NEVER TRIED/);
+  assert.match(md, /- `Clear formatting`/);
+  assert.match(md, /- `Insert table`/);
+
+  // Genuinely nothing still renders nothing.
+  assert.equal(renderCoverageBrief(coverageFromJournal([]), { sha: "aaa" }), "");
+});

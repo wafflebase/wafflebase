@@ -697,7 +697,10 @@ async function checkControlInventory(page, baseUrl) {
   // EVERY name it offers must resolve. One unclickable entry is enough to send a run
   // at a dead target and read the failure as a defect.
   const unreachable = [];
-  for (const c of controls.slice(0, 12)) {
+  // EVERY entry, not a sample. A capped check reports a clean result while leaving the
+  // uncapped remainder unmeasured, which is the silent truncation this lane exists to
+  // refuse everywhere else. The cost is one `count()` per control on one page.
+  for (const c of controls) {
     const n = await page.getByRole(c.role, { name: c.name, exact: true }).count();
     if (n === 0) unreachable.push(`${c.role}/${c.name}`);
   }
@@ -744,6 +747,21 @@ async function checkControlInventory(page, baseUrl) {
       b.style.overflow = "hidden";
     });
     mk("zz-probe-visible", () => {});
+
+    // LABELLED BY REFERENCE, with an `aria-label` that must LOSE to it. The accessible
+    // name the browser computes here is "zz-probe-from-labelledby", so a reader that
+    // reached for `aria-label` first would emit a name `getByRole` cannot resolve — the
+    // exact mismatch this whole list exists to avoid, and one no control on this surface
+    // currently exercises.
+    const src = document.createElement("span");
+    src.id = "zz-probe-label-src";
+    src.textContent = "zz-probe-from-labelledby";
+    document.body.appendChild(src);
+    const viaRef = document.createElement("button");
+    viaRef.setAttribute("aria-labelledby", "zz-probe-label-src");
+    viaRef.setAttribute("aria-label", "zz-probe-WRONG-aria-label");
+    viaRef.textContent = "zz-probe-WRONG-content";
+    document.body.appendChild(viaRef);
   });
 
   const withProbes = await domControls(page);
@@ -751,6 +769,20 @@ async function checkControlInventory(page, baseUrl) {
   if (!names.has("zz-probe-visible")) {
     problems.push("a planted, enabled, visible control was NOT listed — the reader is missing real controls");
   }
+  // The name it emits for the labelled-by-reference control must be the one the browser
+  // computes, and must resolve. Asserting resolution rather than the string alone is the
+  // point: the contract is "these are copyable into `target`".
+  const viaRef = withProbes.find((c) => c.name.startsWith("zz-probe-from-labelledby"));
+  if (!viaRef) {
+    problems.push(
+      `a control labelled via aria-labelledby was named ${JSON.stringify(
+        withProbes.filter((c) => c.name.includes("zz-probe-WRONG")).map((c) => c.name),
+      )} — the reader is not using the accessible name the browser computes`,
+    );
+  } else if ((await page.getByRole(viaRef.role, { name: viaRef.name, exact: true }).count()) === 0) {
+    problems.push(`dom.controls emitted ${JSON.stringify(viaRef.name)}, which getByRole cannot resolve`);
+  }
+
   for (const excluded of ["zz-probe-disabled", "zz-probe-aria-disabled", "zz-probe-zero-size"]) {
     if (names.has(excluded)) {
       problems.push(`dom.controls offered ${excluded}, which the explorer cannot usefully click`);

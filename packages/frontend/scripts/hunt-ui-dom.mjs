@@ -48,10 +48,21 @@ export function domControls(page) {
       const role = explicit || (el.tagName === "BUTTON" ? "button" : el.tagName === "A" ? "link" : "");
       if (!ROLES.includes(role)) continue;
 
-      // `aria-label` first, because that is what `getByRole`'s accessible-name
-      // computation prefers — a list keyed on anything else would name controls the
-      // explorer's own targeting cannot then find.
-      const name = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ");
+      // THE ORDER THE BROWSER USES, not a convenient approximation. The accessible-name
+      // computation `getByRole` resolves against is `aria-labelledby` > `aria-label` >
+      // content, and skipping the first means a control labelled by reference gets named
+      // from its content instead — a name the explorer's own targeting then cannot find.
+      // There is no DOM API for the computed name (`getComputedAccessibleNode` is not
+      // shipped), so the first branch is resolved by hand rather than approximated away.
+      const labelledBy = (el.getAttribute("aria-labelledby") || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(" ")
+        .trim();
+      const name = (labelledBy || el.getAttribute("aria-label") || el.textContent || "")
+        .trim()
+        .replace(/\s+/g, " ");
       if (name === "") continue;
 
       const key = `${role}|${name}`;
