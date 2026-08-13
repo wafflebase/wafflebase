@@ -43,6 +43,33 @@ const GRAPH = {
   documentation: [],
 };
 
+/**
+ * A throwaway repository with two commits, for the tests that need real shas.
+ *
+ * Deliberately NOT this repository's own history. An earlier version of these
+ * tests read `git rev-parse HEAD~1` from REPO_ROOT and passed locally while
+ * failing in CI, where the `verify-self` job checks out at `fetch-depth: 1` and
+ * HEAD~1 does not exist. Tests about resolving refs must not depend on how deep
+ * the checkout they happen to run in is.
+ *
+ * Callers are responsible for `rmSync`-ing the returned path.
+ */
+function twoCommitRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), "wb-refs-fixture-"));
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "T");
+  writeFileSync(path.join(dir, "first.txt"), "first\n");
+  git("add", "-A");
+  git("commit", "-qm", "first");
+  writeFileSync(path.join(dir, "second.txt"), "second\n");
+  git("add", "-A");
+  git("commit", "-qm", "second");
+  return dir;
+}
+
 const CI = {
   inert: [
     { paths: ["scripts/agent/**"], tags: ["agent"] },
@@ -520,7 +547,14 @@ test("resolve fail-safes", async (t) => {
     // `actions/checkout` leaves HEAD at the MERGE COMMIT — so taking the head
     // from the checkout instead of from the payload attributes the merge's
     // contents, i.e. other people's commits, to this pull request.
-    const dir = mkdtempSync(path.join(tmpdir(), "wb-payload-"));
+    //
+    // The fixture is built here rather than read out of this repository's own
+    // history, and that is not incidental: an earlier version of this test called
+    // `git rev-parse HEAD~1` on REPO_ROOT and failed in CI, where the
+    // `verify-self` job checks out at `fetch-depth: 1` and HEAD~1 does not exist.
+    // A test about resolving refs must not itself depend on how deep the checkout
+    // happens to be.
+    const dir = twoCommitRepo();
     const writeEvent = (payload) => {
       const file = path.join(dir, `event-${Object.keys(payload)[0]}.json`);
       writeFileSync(file, JSON.stringify(payload));
@@ -528,7 +562,7 @@ test("resolve fail-safes", async (t) => {
     };
     const sha = (rev) =>
       execFileSync("git", ["rev-parse", rev], {
-        cwd: REPO_ROOT,
+        cwd: dir,
         encoding: "utf8",
       }).trim();
 
@@ -542,7 +576,7 @@ test("resolve fail-safes", async (t) => {
             pull_request: { base: { sha: sha("HEAD~1") }, head: { sha: sha("HEAD") } },
           }),
         },
-        REPO_ROOT,
+        dir,
       );
       assert.ok(refs, "real shas must resolve");
       assert.notEqual(refs.head, "HEAD", "head must be the payload sha, not the checkout");
@@ -562,7 +596,7 @@ test("resolve fail-safes", async (t) => {
               pull_request: { base: { sha: "0".repeat(40) }, head: { sha: sha("HEAD") } },
             }),
           },
-          REPO_ROOT,
+          dir,
         ),
         null,
       );
@@ -576,7 +610,7 @@ test("resolve fail-safes", async (t) => {
               pull_request: { base: { sha: sha("HEAD~1") } },
             }),
           },
-          REPO_ROOT,
+          dir,
         ),
         null,
         "a missing head must fail safe, not silently become the checkout",
@@ -587,10 +621,10 @@ test("resolve fail-safes", async (t) => {
   });
 
   await t.test("merge_group resolves both ends from the payload", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "wb-mg-"));
+    const dir = twoCommitRepo();
     const file = path.join(dir, "event.json");
     const sha = (rev) =>
-      execFileSync("git", ["rev-parse", rev], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+      execFileSync("git", ["rev-parse", rev], { cwd: dir, encoding: "utf8" }).trim();
     try {
       writeFileSync(
         file,
@@ -598,7 +632,7 @@ test("resolve fail-safes", async (t) => {
       );
       const refs = resolveRefs(
         { GITHUB_EVENT_NAME: "merge_group", GITHUB_EVENT_PATH: file },
-        REPO_ROOT,
+        dir,
       );
       assert.deepEqual(refs, { base: sha("HEAD~1"), head: sha("HEAD") });
     } finally {
