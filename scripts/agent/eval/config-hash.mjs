@@ -50,7 +50,7 @@
 // for. **The pooling key is the PAIR (config_hash, panelSha).**
 
 import { createHash } from "node:crypto";
-import { FILE_CLASSES, sampleCountFor } from "../review-panel.mjs";
+import { FILE_CLASSES, sampleCountFor } from "../vendor/pipeline/review-panel.mjs";
 
 // Bumped on any change to the hash FUNCTION, so a stored hash carries the vintage
 // of the algorithm that produced it. @1 was the fork harness's version, which

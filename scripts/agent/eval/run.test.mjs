@@ -14,7 +14,7 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
-import { fixtureGitEnv } from "../git-env.mjs";
+import { fixtureGitEnv } from "../vendor/pipeline/git-env.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,8 +42,8 @@ import { GATE_STATES } from "./adapters/reviewer.mjs";
 // claim of the worktree. `routeFinding` is the gate's own router, so the three
 // together answer the question end to end — does a replay of this tree produce the
 // lane the shipped gate would? All free: no model, no network.
-import { baseResolves, noveltyOf } from "../novelty.mjs";
-import { routeFinding } from "../review-panel.mjs";
+import { baseResolves, noveltyOf } from "../vendor/pipeline/novelty.mjs";
+import { routeFinding } from "../vendor/pipeline/review-panel.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUB = path.join(HERE, "adapters", "stub-panel.mjs");

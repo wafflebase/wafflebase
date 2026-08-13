@@ -43,9 +43,9 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dedupeFindings } from "../../review-panel.mjs";
-import { findingKey } from "../../finding-key.mjs";
-import { parseArgs } from "../../gh-checks.mjs";
+import { dedupeFindings } from "../../vendor/pipeline/review-panel.mjs";
+import { findingKey } from "../../vendor/pipeline/finding-key.mjs";
+import { parseArgs } from "../../vendor/pipeline/gh-checks.mjs";
 import { POPULATIONS, buildFindingRecord, gatingCensus, validateFindingRecord } from "../finding-record.mjs";
 
 const refuse = (msg) => {
