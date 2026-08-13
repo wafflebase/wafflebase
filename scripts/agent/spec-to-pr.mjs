@@ -29,7 +29,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./disclosure.mjs";
+import { disclosesAiAuthorship, hasDisclosureTrailer, DISCLOSURE_TRAILER } from "./vendor/pipeline/disclosure.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

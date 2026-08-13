@@ -5,6 +5,7 @@ import { YorkieEventController } from './yorkie-event.controller';
 import { YorkieAuthController } from './yorkie-auth.controller';
 import { YorkieSignatureGuard } from './yorkie-signature.guard';
 import { DocumentService } from './document.service';
+import { DocumentCopyService } from './document-copy.service';
 import { UserService } from 'src/user/user.service';
 import { PrismaService } from 'src/database/prisma.service';
 import { AuthModule } from '../auth/auth.module';
@@ -23,6 +24,7 @@ import { FolderModule } from '../folder/folder.module';
   ],
   providers: [
     DocumentService,
+    DocumentCopyService,
     UserService,
     PrismaService,
     YorkieSignatureGuard,

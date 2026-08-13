@@ -9,8 +9,8 @@ import {
   renderReport,
   planSessions,
 } from "./cache-report.mjs";
-import { sliceDiffByFile, loadLenses } from "./review-panel.mjs";
-import { TOKEN_WEIGHTS } from "./metrics.mjs";
+import { sliceDiffByFile, loadLenses } from "./vendor/pipeline/review-panel.mjs";
+import { TOKEN_WEIGHTS } from "./vendor/pipeline/metrics.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

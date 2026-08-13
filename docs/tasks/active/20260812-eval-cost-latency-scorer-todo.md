@@ -440,3 +440,183 @@ the latency exceptions are real and specific (22 lines slower than 160).
       number rather than the superseded one.
 - [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`,
       `verify:integration`. Nothing here can affect them and CI runs them anyway.
+
+---
+
+# Follow-up — consume the arm adapter's timing read, and retire the latency gap
+
+*2026-08-13, against `main` `1902133bf`. This is the last step of the interlock the
+section above set up: that PR declared `coderabbit_latency_ms` as measurable-but-not-here
+and named the shape it would arrive in; the arm's adapter then built the read. Nothing
+consumed it, so the gap outlived the work that closed it.*
+
+## The problem
+
+`costLatencyOf` emitted `coderabbit.latency = {wall_ms: null, reason}` on every path,
+and `declaredGaps()` returned `coderabbit_latency_ms` unconditionally. Both were correct
+when written and neither was still true: `adapters/coderabbit.mjs` exports `latencyOf`,
+which measures the interval that gap names — `coderabbit-start-marker-to-first-finding`
+— on 7 of 7 pilot items. **A gap that outlives the read it asked for is a gap nobody
+believes**, and the next reader either re-derives the number or, worse, substitutes one.
+
+The other half of the problem is the one this file has always been shaped around. Once
+BOTH arms carry minutes, the field names are the only thing between a reader and a ratio
+the data cannot support. Ours is a panel **process's** elapsed time on an **offline
+replay**; theirs is a **production** reviewer measured end to end. Where both ran in
+production from one trigger, ours took **about 2.2× longer** — the opposite of the
+direction this project assumed for months.
+
+## The change
+
+**`coderabbitLatency(perItem)`** takes the adapter's per-item records — not a number —
+so every guard that made the number trustworthy travels with it: the author gate, the
+in-window rule, the trigger read and the twelve declared absences all stay in the module
+that owns them. It emits two figures, each naming its own interval:
+
+| | interval | pooled over | pilot |
+|---|---|---|---|
+| primary | `coderabbit-start-marker-to-first-finding` | all items | **2.6–14.4 min, median 6.8, n=7/7** |
+| secondary | `earliest-check-run-start-to-first-finding` | automatic triggers only | 2.8–14.8 min, median 6.7, n=5/7 |
+
+The secondary is kept because it is derived from **our** CI's clock rather than
+CodeRabbit's, so agreement between the two is evidence and disagreement is a question.
+It is pooled over the 5 automatic items because on the 2 on-demand ones it times a
+human's delay in asking: `pr-549` reads **183.7 min** from the push and **7.8 min** from
+CodeRabbit's own acknowledgement. **The number is kept and excluded, not dropped** — an
+outlier rule tuned to catch `pr-549` also catches `pr-605`, which is the same event
+reading an entirely ordinary 9.8 min, so the trigger is read rather than inferred from
+the magnitude.
+
+**`PANEL_INTERVAL`** does for our arm what #799 did for theirs: the interval is a field
+(`panel-process-elapsed-on-offline-replay`) rather than a sentence in a docblock.
+
+**`panel.review_wall_ms` and `panel.review_cost_usd`** pool over OBSERVATIONS — one item
+in one replicate, n=21 — beside the existing `replicate_spend_usd`, which counts
+REPLICATES, n=3. Both were already computable per replicate; neither existed at the
+run-set level, and a consumer that wanted one figure with an `n` had to build it and
+choose a denominator. The pilot reads **median 9.3 min, n=21**, which is the figure the
+recorded interval decision quotes.
+
+**`MIN_FIT_ITEMS`** makes `fitCostToSize`'s existing refusal machine-readable: the
+threshold is returned as `min_n` on every path, not only inside the reason's prose. A
+consumer rendering "measured and withheld for a thin denominator" needs both the `n` it
+had and the `n` it wanted, and parsing the second out of an English sentence is how a
+caption comes to contradict the refusal it captions.
+
+**`--coderabbit-latency`** is the CLI flag, and it is **opt-in**. It is the only network
+read in this file and it happens in `main()`, never inside `costLatencyOf` — the same
+split the arm adapter draws around `fetchCodeRabbitPr`. The library stays pure, its
+tests need no network, and the default invocation stays offline and reproducible against
+a committed store. With the flag absent the figure is a **declared gap naming the flag**,
+never a blank.
+
+`SCHEMA_VERSION` is **2**. `coderabbit.latency.wall_ms` was a scalar that was null on
+every path; it is now a block. That is a field changing meaning, which is what the
+counter is for.
+
+## Corrected while building
+
+### 8. The census line was a copy of the adapter's exported formatter — found in review
+
+`renderCoderabbitLatency` rebuilt the absence line inline, character for character the body
+of `latencyAbsentLine`, while importing `LATENCY_ABSENT` from the module that exports the
+function. The adapter exports it precisely so the two reports read alike, and its own
+docblock records that an earlier version dropped the unrecognised-flavour row — which makes
+giving an unknown absence its own key worthless, because nothing prints it. Now imported and
+called, and the test asserts through an unrecognised flavour, which is the behaviour a
+re-implementation loses first.
+
+### 8b. The declared gap had to become conditional, not disappear
+
+The first draft deleted `coderabbit_latency_ms` outright. That is wrong in the direction
+this file exists to prevent: with the flag absent there is still no figure, and a deleted
+gap makes that absence blank instead of explained. It is now emitted **only when no
+records were supplied**, with a reason naming the flag — and the test asserts both
+directions, because a gap that never appears and a gap that never retires are both
+failures and only one of them is obvious.
+
+### 9. 🔴 `requested` is not evidence that anything was measured — found in review
+
+The first version derived `latencyMeasured` from **array-ness**: `coderabbitLatency` set
+`requested: true` for any array, and `declaredGaps` dropped `coderabbit_latency_ms` on it.
+So `latency: []` — or an array of entries carrying no `latency` — retired the gap while
+producing **no figure**, and the completeness guard below read `0 < 0` and pushed **no
+reason**. The run reported `complete`, exited 0, and printed *"declared gaps — none"*
+beside `latency: n/a (n=0)`. That is the silent success this whole module is shaped
+against, reachable from a caller typo.
+
+`measured` is now a separate field and the predicate the gap's own wording implies — **a
+pooled figure exists on the primary interval** (`self_timed.ms.n > 0`). And the absence
+now has **three** reasons rather than one, because they send a reader to three different
+places: nobody asked, records arrived carrying nothing, or records arrived and not one
+yielded a poolable interval. Reusing the not-requested wording for the second and third
+would tell someone to pass a flag they had already passed.
+
+### 10. A push-proxy shortfall must not be a completeness failure
+
+The first draft counted every non-poolable item as incompleteness. On the pilot that
+marks a **correct** run `partial` and exits 1 forever, because 2 of 7 items are on-demand
+by design. Only a missing **primary** figure is a shortfall now; the proxy's exclusions
+are in the census and on the report line. A guard that fires on the correct case stops
+meaning anything — and the test asserts `complete` on exactly that input.
+
+## Fail directions
+
+- **No records supplied** → declared gap with the flag named. Never a blank, never a zero.
+- **Records supplied that carry no figure** (empty list, or no poolable interval on any
+  item) → the gap **stays declared**, with its own reason rather than the not-requested
+  one, and the run is `partial` with a named shortfall. `requested` is never read as
+  `measured`.
+- **An item with no start marker** → excluded from the figure, counted in the census under
+  its own flavour, and named in `completeness.reasons`, which makes the run `partial` and
+  the exit code non-zero. **Never pooled as zero**, which would make the other arm look
+  instantaneous.
+- **An on-demand trigger** → the proxy figure is carried and not pooled. Visible as a
+  decision rather than as missing data.
+- **`gh` cannot expand `{owner}/{repo}`** → the adapter refuses rather than reporting a
+  corpus-wide absence that reads like a repository CodeRabbit never reviewed.
+
+## Explicit non-goals
+
+- **No ratio, and no shared axis.** Not in a field, not in a line of the report. A test
+  asserts no quotient key exists in the payload and that the report says so where the
+  numbers are.
+- **No agreement statistic between the two anchors.** They agree to within 0.1–0.4 min on
+  the automatic items and that is worth knowing, but it is a new number and this PR emits
+  none.
+- **No finding counts.** This scorer reads the adapter's `latency` and discards its
+  records; `volume-mix.mjs` owns that population.
+- **The report is not re-rendered here.** Changing a scorer does not change a published
+  report — somebody must re-run the scorers and re-render.
+
+## Verification
+
+- [x] **`agent:tests`, both invocations, from the committed tree**: **1868 + 56 = 1924,
+      0 fail, 0 skipped**, against a freshly measured **1857 + 56 = 1913** on `main`
+      `1902133bf` — **+11**, both trees set up identically (root `eslint@9.24.0`, agent SDK
+      symlinked into both).
+- [x] `npx eslint scripts` exits 0.
+- [x] **The pilot figure reproduces from the real store**, `--coderabbit-latency` against
+      all three replicates: `latency [coderabbit-start-marker-to-first-finding]:
+      2.6m–14.4m (median 6.8m, n=7) — 7 of 7 item(s) poolable, 7 measured`. Exit 0,
+      `COMPLETE`.
+- [x] The `coderabbit_latency_ms` gap is **retired** on that run and
+      `cost_per_real_finding` is **still declared** — asserted as its own test, because
+      retiring both is the plausible mistake.
+- [x] Our pooled wall clock reads **median 9.3 min, n=21**, matching the recorded
+      interval decision; the replicate spend series still reads n=3.
+- [x] **17 mutations, 17 caught**, each by the test that should catch it. Six of them are
+      the review round's, and two re-introduce the exact defects it found — deriving the
+      gap's predicate from `requested` again, and re-implementing the adapter's absence
+      formatter inline. The other eleven: pooling the
+      proxy regardless of trigger, counting a missing latency as zero, dropping the
+      interval name, keeping the gap after measuring, retiring the wrong gap, emitting a
+      cross-arm ratio, dropping `min_n`, counting the proxy's exclusion as
+      incompleteness, pooling our wall clock over replicate medians, captioning an
+      interval onto an absent figure, and reporting `n_measured` as `n`.
+- [ ] **Not verified on real data: the absence paths.** All 12 latency flavours are
+      unit-tested and only the "everything present" one has ever occurred — 7/7 items
+      have a marker and check runs. That is precisely the state in which a mishandled
+      absence goes unnoticed, which is why each is printed at n=0 every run.
+- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+      `build`. Nothing here can affect them and CI runs them anyway.
