@@ -681,8 +681,13 @@ export function costLatencyFigures(payload) {
       // other's `n` is decision 33's failure in both directions.
       spend: seriesCell(panel.replicate_spend_usd, "replicates, each a whole run's stored envelopes", notComputed("the cost score carries no per-replicate spend series")),
       cost_per_review: seriesCell(panel.review_cost_usd, "observations — one item in one replicate", notComputed("the cost score carries no pooled per-review cost series")),
+      // OUR minutes refuse without an interval name too. The first version let this
+      // one fall back to the literal `unnamed` while the other arm's refused, which is
+      // the asymmetry that matters least on the pilot and most later: the figure a
+      // reader is likeliest to quote against CodeRabbit's is ours, and an unnamed
+      // interval is exactly how the two come to look commensurable.
       wall: wall
-        ? figure(wall, wall.n, `observations, interval \`${panel.latency_interval ?? "unnamed"}\``)
+        ? figure(wall, wall.n, `observations, interval \`${intervalOf({ interval: panel.latency_interval }, "the panel's wall clock")}\``)
         : notComputed("the cost score carries no pooled wall-clock series"),
       interval: panel.latency_interval ?? null,
       // A MEASURED ZERO IS `present`, and this is the cell that proves it. The census
@@ -708,11 +713,16 @@ export function costLatencyFigures(payload) {
         : figure(cr.cost.amortised_usd_per_pr, 1, "amortised USD per pull request, from a list price and a monthly volume supplied by the caller"),
       // NOBODY MEASURED IT, when nobody did — distinct from the cost cell above,
       // because this one a re-run closes and that one it does not.
+      // THE `n` COMES OFF THE SERIES THAT WAS VALIDATED, not off its parent. `series()`
+      // above checks `ms.n`, and an earlier version then passed `self_timed.n` — a
+      // different field that happens to be equal in today's producer. Validating one
+      // number and printing another is how a denominator drifts silently, and a
+      // payload carrying `ms` without the sibling count threw inside `figure`.
       latency: series(selfTimed?.ms)
-        ? figure(selfTimed.ms, selfTimed.n, `items, interval \`${intervalOf(selfTimed, "the self-timed latency")}\``)
+        ? figure(selfTimed.ms, selfTimed.ms.n, `items, interval \`${intervalOf(selfTimed, "the self-timed latency")}\``)
         : notComputed(latency.reason ?? gapFor("coderabbit_latency_ms")?.reason ?? "the cost score carries no CodeRabbit latency and gives no reason"),
       latency_secondary: series(pushProxy?.ms)
-        ? figure(pushProxy.ms, pushProxy.n, `items, interval \`${intervalOf(pushProxy, "the push-proxy latency")}\``)
+        ? figure(pushProxy.ms, pushProxy.ms.n, `items, interval \`${intervalOf(pushProxy, "the push-proxy latency")}\``)
         : null,
       self_timed: selfTimed,
       push_proxy: pushProxy,
@@ -750,16 +760,27 @@ function untimedCell(census) {
   return figure(untimed + unrecognised, census.n, "envelopes");
 }
 
-/** One replicate's cost-vs-size fit: measured, or WITHHELD with both numbers that
- *  decided it. The threshold is the scorer's — read, never defaulted. */
+/**
+ * One replicate's cost-vs-size fit: measured, or WITHHELD with both numbers that
+ * decided it. The threshold is the scorer's — read, never defaulted.
+ *
+ * 🔴 A REFUSED FIT IS NEVER `not-measurable`, and that distinction is the whole
+ * reason this function exists rather than a ternary. `not-measurable` means no
+ * quantity exists however long anyone runs anything — a per-review price for a flat
+ * subscription. A fit refused for too few points is the opposite: a third item
+ * disproves it. Labelling it structural tells a reader to stop, when the answer is to
+ * score more replicates.
+ *
+ * So the fallback is `not-computed`, and `suppressed` is used only when the payload
+ * states the threshold it failed. A scorer that emits `min_n` gets the fourth state
+ * with both numbers; one that does not still gets an honest, re-runnable absence
+ * instead of a permanent one.
+ */
 function fitCell(fit) {
   if (!fit || !Number.isFinite(fit.n)) return notComputed("the cost score carries no cost-vs-size fit for this replicate");
   if (Number.isFinite(fit.intercept_usd)) return figure(fit, fit.n, "items priced in this replicate");
-  // A fit refused for too few points is MEASURED AND WITHHELD, which is the fourth
-  // state and the only one that carries the `n` it wanted beside the `n` it had.
-  // A fit refused for any other reason (no spread in x) is not a thin denominator.
   if (Number.isFinite(fit.min_n) && fit.n < fit.min_n) return suppressed(fit.n, fit.min_n);
-  return notMeasurable(fit.reason ?? "the cost score refused this fit and gave no reason");
+  return notComputed(fit.reason ?? "the cost score refused this fit and gave no reason");
 }
 
 /**
@@ -1414,8 +1435,17 @@ function renderLimits(r) {
  */
 function renderLatencyLimit(r) {
   const s = r.sections.cost_latency;
-  // Nothing to bound if no latency figure was rendered.
-  if (s.availability !== "present" || s.coderabbit.latency.availability !== "present") return [];
+  if (s.availability !== "present") return [];
+  // 🔴 GATED ON EITHER ARM'S MINUTES, not on CodeRabbit's alone. The first version
+  // required CodeRabbit's latency to be `present`, which deleted this caveat — and its
+  // "no production pair on this corpus" fallback with it — from every report rendered
+  // over a score file that carries our own wall clock and not theirs. That is the most
+  // common payload there is, and it is the one where the caveat matters most: §4 then
+  // prints OUR minutes with nothing bounding how they may be read against a number a
+  // reader already has in their head.
+  const ourMinutes = s.panel.wall.availability === "present";
+  const theirMinutes = s.coderabbit.latency.availability === "present";
+  if (!ourMinutes && !theirMinutes) return [];
   const items = r.corpus_item_ids.filter((id) => PRODUCTION_LATENCY_PAIR[id]);
   if (items.length === 0) {
     return [
@@ -1427,12 +1457,23 @@ function renderLatencyLimit(r) {
     ];
   }
   const pairs = items.map((id) => PRODUCTION_LATENCY_PAIR[id]);
+  // DERIVED FROM THE TWO STATED MINUTES, not asserted beside them. The first version
+  // printed a hard-coded `2.2x` next to the four numbers it came from, which is the one
+  // shape this module forbids everywhere else: a figure a reader cannot check against
+  // the inputs on the same line. It is the mean of the per-item ratios, so editing a
+  // minute value moves it, and it can never contradict the pair it summarises.
+  //
+  // This is the ONE place a cross-arm latency ratio is legitimate, and only because
+  // both sides are the SAME interval — production, from one trigger. §4's two
+  // intervals are different clocks and no ratio between them is computed anywhere.
+  const ratios = pairs.map((p) => p.panel_min / p.coderabbit_min);
+  const meanRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
   return [
     `**🔴 §4's latency understates our panel, and here is the measurement that says so — n=${items.length}.** ` +
       `${items.map((id) => `\`${id}\``).join(" and ")} carry`,
     "`agent-review-*` check runs on the frozen commit itself, so on those two the panel ran **in production**, from",
     "the same `workflow_run: CI (requested)` trigger CodeRabbit's second anchor uses. Both arms' clocks start",
-    `together there: ours **${pairs.map((p) => p.panel_min.toFixed(1)).join(" and ")} min**, theirs **${pairs.map((p) => p.coderabbit_min.toFixed(1)).join(" and ")} min** — about **2.2x longer**, the opposite`,
+    `together there: ours **${pairs.map((p) => p.panel_min.toFixed(1)).join(" and ")} min**, theirs **${pairs.map((p) => p.coderabbit_min.toFixed(1)).join(" and ")} min** — about **${meanRatio.toFixed(1)}x longer**, the opposite`,
     "direction from §4's replay figures. So §4's minutes are not a tie, and they are not a win; they are a",
     `different interval. **n=${items.length}** is far too thin for a claim, which is exactly why this is a stated limit on §4`,
     "rather than a row inside it.",

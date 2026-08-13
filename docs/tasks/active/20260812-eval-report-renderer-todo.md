@@ -473,3 +473,113 @@ the same size for both, and remains stated in §6.
       store. That is not this PR's job and it is deliberately not done here.
 - [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
       `build`.
+
+## Review round — five defects fixed, three findings declined
+
+*2026-08-13. Thirteen findings from the review panel; six were three restatements of two
+root causes. Every one was checked against the code before being actioned.*
+
+### 5. A refused fit was labelled STRUCTURAL rather than re-runnable
+
+`fitCell` fell through to `notMeasurable` when the payload stated no `min_n`. That reads
+as *"no such quantity exists however long anyone runs anything"* — and a third priced item
+disproves it outright. The label decides what a reader does next: stop, or score more
+replicates. The fallback is now `notComputed`; `suppressed` is used only when the payload
+states the threshold it failed, which keeps the fourth state honest without inventing a
+number. The no-spread-in-x refusal takes the same path, for the same reason.
+
+### 6. §6's latency caveat was gated on the wrong arm
+
+It required **CodeRabbit's** latency to be `present`, so any score file carrying our wall
+clock and not theirs lost the caveat entirely — fallback included. That is the payload
+where it matters most: §4 prints our minutes and nothing bounds how they may be read
+against a figure the reader already has. The gate is now "either arm rendered minutes".
+With neither arm's minutes it stays silent, which is correct rather than arbitrary: a
+caveat about minutes has nothing to attach to. On today's committed score file §4 prints
+no minutes at all, so the section is silent for that reason and not by accident.
+
+### 7. A latency cell took its `n` from the parent of the series it validated
+
+`series()` checks `ms.n`; the cell then printed `self_timed.n`. Equal in today's producer,
+so invisible — and a payload carrying `ms` without the sibling count made `figure` refuse
+and aborted the whole render. Validating one number and printing another is how a
+denominator drifts silently. Both cells now read the series' own `n`.
+
+### 8. Interval enforcement was asymmetric
+
+CodeRabbit's minutes refused without an interval name; ours fell back to the literal
+`unnamed`. Ours is the figure a reader is likeliest to quote against theirs, so an unnamed
+interval here is precisely how the two come to look commensurable. Both refuse now.
+
+### 9. The production ratio was hard-coded beside the numbers it came from
+
+`2.2x` was asserted next to `18.7 / 19.0` and `8.0 / 8.6`. Recomputed from those four
+values the mean ratio is **2.3×**, so the sentence contradicted its own inputs — and the
+kit's 2.2× turns out to come from a different figure (the 17.8-min production *median* in
+`agent-review-panel.yml`'s header), not from this pair. It is now derived from the constant,
+so editing a minute value moves it and it can never disagree with the pair it summarises.
+This is the one place a cross-arm latency ratio is legitimate, and only because both sides
+are the same interval — production, from one trigger. The test recomputes it rather than
+pinning a literal, because a literal assertion happily agreed with the wrong number.
+
+### Declined — §4's payload shape. ⟳ AND THE PREMISE EXPIRED WHILE THIS WAS BEING WRITTEN
+
+Three findings said §4's pooled keys, the latency block and `min_n` are absent from the
+merged scorer, so the section could only ever render `not computed` for its headline
+figures.
+
+**That was true of `main` `1902133bf` and is no longer true of `main`.** The scorer-side
+change merged at 2026-08-13T08:05Z, and `main` `bb07acd4` now exports `MIN_FIT_ITEMS` and
+emits `panel.review_wall_ms`, `panel.review_cost_usd`, `panel.latency_interval` and
+`coderabbit.latency.self_timed` — checked against the file at that sha rather than assumed.
+So the producer these paths were written for exists, and every one of them is reachable on
+real data. **The findings were correct when raised and are now obsolete.**
+
+They were declined on their merits before that landed, and the reasoning is kept because it
+is what a reader needs if the question comes back:
+
+- §4 rendered each missing field as an absence **with the scorer's own reason**, which is
+  the required behaviour rather than a failure. The figures were not "in the payload but
+  unrendered" — the payload did not contain them.
+- **Reading the per-replicate `review.wall_ms` instead** was rejected: those existed, but
+  that payload named no interval for them, and publishing our minutes without their
+  interval is the one thing decision 35 forbids. An absence with a reason beats a figure
+  that cannot say what it measured.
+- **Deleting the paths until the producer landed** was rejected: they would have to be
+  rebuilt to render the same section, and the report's design is that a section states what
+  it expects and reports the gap.
+
+⚠ **One consequence for finding 5 above.** `min_n` now arrives, so the `not-measurable`
+mislabel it fixed is no longer reachable from the pilot's own scorer. The fix stays,
+because the renderer must not depend on a producer choosing to state its threshold — but it
+is now a robustness guard rather than a live bug, and this doc should not claim otherwise.
+
+### Re-verification
+
+- [x] **1959 + 56 = 2015, 0 fail, 0 skipped** from the committed tree, against **1952 + 56
+      = 2008** measured on this branch's own head before the review round — **+7**, both
+      trees set up identically. `eslint scripts` exits 0.
+      ⟳ **Re-measured against the branch tip rather than `main` `1902133bf`.** An
+      *Update branch* merge landed on the pull request at 08:00Z and brought 53
+      `scripts/` files with it, so the earlier baseline of 1857 describes a tree this
+      branch no longer has. Neither `report.mjs` nor `report.test.mjs` was among the 53
+      — checked before rebuilding on the merge rather than over it.
+- [x] **Rendered end to end against `main`'s merged scorer** (`bb07acd4`, which is #791's
+      successor merged at 08:05Z): §4 prints the panel's `$30.49 ($29.53–$32.91)`,
+      `$4.17`, `9.3 min` and `0 of 21`, and CodeRabbit's `6.8 min (2.6–14.4)` plus the
+      second anchor's `6.7 min (2.8–14.8)`, each with its `n` and its interval. §6's ratio
+      renders as the derived **2.3x**. Every path the review called unreachable is
+      reachable on real data.
+      ⚠ **This branch's own tree cannot show that yet** — it merged a `main` one commit
+      short of that scorer, so on the branch as it stands those rows still read
+      `not computed` with the scorer's own reasons. An *Update branch* would close the
+      gap; that is the maintainer's button, not this commit's job.
+- [x] **29 mutations, 29 caught** (18 original + 11 for this round). Five re-introduce the
+      defects above and all five go red.
+- [x] Two mutations survived the first pass and both were genuine test gaps, not
+      ineffective mutations: the `not-measurable` fallback had no test, and the `n`-source
+      fix needed a fixture where the series and its parent DISAGREE, since they are equal
+      by construction in today's producer. Both now covered.
+- [x] Re-rendered against the real store on the committed score file: the fit table, the
+      measured zero and every absence read as before; §6 correctly silent because §4
+      prints no minutes on that payload.
