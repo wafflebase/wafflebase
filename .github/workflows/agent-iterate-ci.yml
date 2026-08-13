@@ -244,7 +244,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs" summarize --pr "$PR"
 
       # Single-value state: the CI-fix loop paged a human → agent:blocked. The
       # repo is already checked out above.
@@ -254,7 +254,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" blocked
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked
 
       # OBSERVABILITY (Phase 1): flip the sticky loop-status comment to paged.
       # Runs the pre-fixer snapshot; absent on branches that predate the script,
@@ -303,7 +303,15 @@ jobs:
         # it used to exist only inside the fixer's prompt, so "which lane failed
         # and why" required reading the raw log. Same bytes, second surface.
         run: |
-          DIAG="$(node ./scripts/agent/summarize-ci.mjs)"
+          # From agent-tools, NOT ./scripts/agent — this job checks out the PR's
+          # own branch, so a script read from the workspace is one the PR author
+          # can edit. agent-tools is the pinned central copy staged above.
+          DIAG=""
+          if [ -f "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" ]; then
+            DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" || true)"
+          else
+            DIAG="(no CI diagnosis: the trusted pipeline was not staged for this run)"
+          fi
           {
             echo "summary<<HARNESS_EOF"
             printf '%s\n' "$DIAG"
@@ -329,7 +337,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" fixing
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       - name: Run Claude Code
         if: steps.guard.outputs.proceed == 'true'
@@ -451,7 +459,7 @@ jobs:
               '' \
               "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`iterate\`; a fixer transcript, when one was captured, is in the \`claude-ci-fix-execution-output\` artifact (its upload warns instead of failing when the fixer died before writing one)." \
               | gh pr comment "$PR" --body-file -
-            node ./scripts/agent/set-state.mjs "$PR" blocked || true
+            node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
           fi
 
       # OBSERVABILITY (Phase 1): reflect the CI-fix outcome on the sticky
@@ -488,4 +496,4 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"
+        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs" record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"

@@ -271,11 +271,13 @@ skips both heavy jobs.
 
 ## Constraints discovered during planning
 
-- **`scripts/agent/summarize-ci.mjs` must not be edited here** — because it is
-  not what runs. The agent workflows execute `wafflebase/agent-pipeline` at a
-  pinned commit; the copy in this repo is a mirror that only backs the
-  `agent:tests` lane, so editing it would change nothing that executes and would
-  register as drift in `scripts/verify-pipeline-drift.mjs` (which does not list
+- **`summarize-ci.mjs` cannot be edited here** — it is not in this repository at
+  all any more. The agent workflows execute `wafflebase/agent-pipeline` at a
+  pinned commit, and the mirror that used to sit in `scripts/agent/` was deleted;
+  the module is not part of the vendored subset either. Change it upstream, tag,
+  and bump the pin. (When this was written the mirror still existed and the
+  constraint was that editing it changed nothing that executes; the conclusion is
+  the same, the reason is now stronger.) `scripts/verify-pipeline-drift.mjs` (which does not list
   `summarize-ci.` in its `STAYS` exclusions).
 
   Note: #798 made the `pipeline-drift` job **advisory** (`continue-on-error`)

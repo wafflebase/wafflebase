@@ -282,7 +282,7 @@ jobs:
              screenshots for UI; add "Fixes #__ISSUE_NUMBER__"; in "Notes for
              Reviewers" DISCLOSE autonomous Claude Code authorship and what you could
              NOT verify). Set the agent state by running
-             `node ./scripts/agent/set-state.mjs <pr> implementing` (use the PR
+             `node ./scripts/agent/vendor/pipeline/set-state.mjs <pr> implementing` (use the PR
              number you just opened), then comment on issue #__ISSUE_NUMBER__
              linking the PR.
           5. LET CI VERIFY — do NOT run `pnpm verify:self`, `pnpm verify:fast`,
@@ -359,8 +359,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          [ -f ./scripts/agent/session-job-summary.mjs ] || { echo "session-job-summary.mjs not in this tree yet; skipping"; exit 0; }
-          node ./scripts/agent/session-job-summary.mjs \
+          node ./scripts/agent/vendor/pipeline/session-job-summary.mjs \
             --execution "$RUNNER_TEMP/claude-execution-output.json" \
             --kind implement \
             --title "Implement agent session"
@@ -374,7 +373,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
+        run: node ./scripts/agent/vendor/pipeline/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
 
       # OBSERVABILITY (Phase 3): the one silent termination left in the
       # pipeline — the run dies (or exhausts its turns) before opening a PR,

@@ -22,8 +22,28 @@ agent-oriented pipeline (Phases 24–27) has since shipped: the autonomous
 contribution loop, the local Spec→PR front door, Tier-1 autonomous issue
 hunting, and the panel feedback corpus all live in the `.github/workflows/`
 `agent-*` workflows (e.g. `.github/workflows/agent-review-panel.yml`) and under
-`scripts/agent/` (e.g. `scripts/agent/review-panel.mjs`, `scripts/agent/hunt.mjs`,
-`scripts/agent/harvest.mjs`). Browser
+`scripts/agent/` (e.g. `agent-pipeline:review-panel.mjs`, `scripts/agent/hunt.mjs`,
+`scripts/agent/harvest.mjs`).
+
+> **Where the pipeline lives now.** The reviewing/fixing half was extracted to
+> [`wafflebase/agent-pipeline`](https://github.com/wafflebase/agent-pipeline) and no
+> longer has a copy in this repo; the workflows check it out at a pinned commit.
+> This document cites those files as **`agent-pipeline:<file>`** — e.g.
+> `agent-pipeline:review-panel.mjs` is that repo's `packages/pipeline/` copy of it.
+>
+> Paths still written as `scripts/agent/…` are what STAYS here, and that is two
+> different things: the **measurement** half — the hunters, `scripts/agent/harvest.mjs`,
+> `scripts/agent/eval/` — and the **local front door**, `scripts/agent/spec-to-pr.mjs`,
+> which is a developer's command rather than part of the cloud loop.
+>
+> Both read the pipeline through `scripts/agent/vendor/pipeline/`: a pinned,
+> sha256-verified subset — read it, never edit it. Editing it fails
+> `scripts/vendor-pipeline.mjs`; changes belong upstream, followed by a re-vendor.
+>
+> Historical sections below describe the system as built, when these files were
+> local. The behaviour they record is unchanged; only the location moved.
+
+Browser
 visual and interaction lanes are integrated into `verify:self` with graceful
 Chromium skip. Docker-based browser testing ensures consistent font rendering
 across macOS and CI (Ubuntu). Structured JSON lane reports are generated per
@@ -300,11 +320,12 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- `pipeline-drift` job is independent and never path-gated: it checks
-  `scripts/agent/` against the pinned `wafflebase/agent-pipeline` commit. It is
-  the correctness gate on the very directory path filtering makes cheapest to
-  change, and it costs seconds, so it always runs. (It is advisory rather than
-  blocking while the mirror exists — see #798.)
+- `pipeline-drift` job is independent and never path-gated: it asserts that no
+  file owned by `wafflebase/agent-pipeline` has reappeared under `scripts/agent/`,
+  and that nothing retained there imports a path the deleted mirror used to
+  provide. It is the correctness gate on the very directory path filtering makes
+  cheapest to change, and it costs seconds, so it always runs. (Advisory while the
+  mirror existed — #798 — and **blocking** again since the mirror was deleted.)
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
@@ -600,11 +621,11 @@ Filtered lanes render as `⊘` and skipped-after-failure as `⏭️`, because co
 the two would let a real failure read as a deliberate omission.
 
 **`filtered` is a distinct lane status, not a reuse of `skip`.**
-`scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
-this never got its turn". It cannot be taught the difference *here*, because the
-copy in this repository is not what runs — the agent workflows execute
-`wafflebase/agent-pipeline` at a pinned commit, and this mirror only backs the
-`agent:tests` lane. An unrecognised status is merely absent from that tool's
+`agent-pipeline:summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
+this never got its turn". It cannot be taught the difference *here*, because that
+module does not live in this repository at all — the agent workflows execute
+`wafflebase/agent-pipeline` at a pinned commit, and it is not part of the vendored
+subset the measurement half reads. An unrecognised status is merely absent from that tool's
 counts; a reused one would have made it state something untrue about every
 filtered lane. Teaching the pipeline repo to render `filtered` is an outstanding
 follow-up.
@@ -930,7 +951,7 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Docker-based CI provisioning delivered (Phase 23) |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`scripts/agent/summarize-ci.mjs`); autonomous contribution loop shipped (Phases 24-27); remaining: Phase 21 structured logging/observability context + autonomous issue-filing |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); failure-summary digest delivered (`agent-pipeline:summarize-ci.mjs`); autonomous contribution loop shipped (Phases 24-27); remaining: Phase 21 structured logging/observability context + autonomous issue-filing |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
 ## Agent-Oriented Phases (21, 24-27)
@@ -952,7 +973,7 @@ Deliverables:
 - Structured logging format for backend services (JSON, correlation IDs).
 - Per-branch or per-PR observability context (log grouping by change).
 - Agent-queryable failure summaries from lane report artifacts.
-  **Delivered** by `scripts/agent/summarize-ci.mjs`, which reads the
+  **Delivered** by `agent-pipeline:summarize-ci.mjs`, which reads the
   `.harness-reports/` reports (the summary + per-lane files that `verify:self`
   already emits) and prints a ranked root-cause digest (failing lane + its
   failure summary, downstream skips noted). Consumed by the autonomous
@@ -963,7 +984,7 @@ without human interpretation.
 
 **Loop-status projection (`<!-- agent-loop-status -->`).** Delivered as the
 human half of this phase: one sticky PR comment, updated in place by
-`scripts/agent/loop-status.mjs`, that makes the review→fix loop legible without
+`agent-pipeline:loop-status.mjs`, that makes the review→fix loop legible without
 reading workflow logs — a newest-first round table (head sha, non-panel checks,
 per-lens check conclusions, what happened next), the fix-round budget, the
 latest loop decision, and effort totals. Its contract mirrors the `agent:*`
@@ -1010,7 +1031,7 @@ a link that appeared for some of them would flap.
 dashboard above summarizes conclusions; this posts the findings themselves.
 Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
 check runs — one set per commit — while the triage renderer that makes them
-readable (`scripts/agent/review-comment.mjs`) was wired solely into
+readable (`agent-pipeline:review-comment.mjs`) was wired solely into
 `.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
 complementary and neither was complete: `@claude review` gave a comment and no
 gate, the autonomous panel a gate and no comment. Measured across 19 `agent/*`
@@ -1018,7 +1039,7 @@ PRs, panel comments were **0** on every autonomous one, so a maintainer could
 read the fix agent's account of what it changed and never the findings it was
 answering.
 
-`scripts/agent/panel-round-comment.mjs` composes the existing pieces —
+`agent-pipeline:panel-round-comment.mjs` composes the existing pieces —
 `collectLenses` + `renderReviewComment` for the body, `buildRounds` for the round
 number, so the number here and the number in the dashboard's table come from one
 function and cannot disagree. It is keyed by **SHA, not upserted globally**: one
@@ -1046,12 +1067,12 @@ freeze the panel and the fixer. Everything interpolated goes through
 `neutralizeHiddenMarkers`, and a test plants a live latch inside a finding
 summary and asserts exactly one live HTML-comment opener survives: our own.
 
-Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
+Two run-page companions shipped with it: `agent-pipeline:review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a
 `verdict` step output plus a `$GITHUB_STEP_SUMMARY` block
-(`scripts/agent/guard-verdict.mjs`, pure presentation with no decision logic),
-and `scripts/agent/panel-job-summary.mjs` /
-`scripts/agent/session-job-summary.mjs` put the per-lens verdict/verifier/cost
+(`agent-pipeline:guard-verdict.mjs`, pure presentation with no decision logic),
+and `agent-pipeline:panel-job-summary.mjs` /
+`agent-pipeline:session-job-summary.mjs` put the per-lens verdict/verifier/cost
 table and each Claude session's turns/cost/outcome on the run page. The CI arm's attempts
 guard writes matching SKIPPED/PAGED/PROCEED summary blocks (inline in
 `github-script`, which cannot import a module — the same constraint behind the
@@ -1064,7 +1085,7 @@ actually decided, on the surfaces that already exist and without changing a
 single decision. Three additions, all pure rendering of data the pipeline
 already computes:
 
-- **Enriched lens check-run bodies** (`scripts/agent/severity.mjs`). Each
+- **Enriched lens check-run bodies** (`agent-pipeline:severity.mjs`). Each
   blocking row now renders a `file:line` locator (the finding's own `line`, or
   the first same-file citation in its evidence — `novelty.mjs::findingLocation`
   is the one rule for both) and the per-finding verifier outcome: confirmed at
@@ -1082,7 +1103,7 @@ already computes:
   are copied verbatim into a bot-authored PR comment
   (`.github/workflows/agent-review-on-demand.yml`), the two author-adjacent strings on this
   surface — the adjudication reason and the skip note — are `<!--`-neutralized
-  (the `scripts/agent/fix-report.mjs` ZWNJ technique) so author prose cannot
+  (the `agent-pipeline:fix-report.mjs` ZWNJ technique) so author prose cannot
   smuggle a live paged latch into a comment posted by a trusted identity. The fixer-prompt cut
   contract is preserved: every new section arrives via the same `\n###`
   marker (followed by a space, the exact delimiter the cut splits on), and
@@ -1103,7 +1124,7 @@ already computes:
   text into the bot-authored summary.
 
 - **"Where to look" on every 🛑 page** (`whereToLookLine` + `runUrlFromEnv` in
-  `scripts/agent/guard-verdict.mjs`). Every page comment now ends with a link
+  `agent-pipeline:guard-verdict.mjs`). Every page comment now ends with a link
   to the failed run, the job/step that decided or died, and the transcript
   artifact where one exists — the three clicks a hand-off used to make a
   maintainer reconstruct from the Actions tab. The URL is built only from the
@@ -1117,7 +1138,7 @@ already computes:
 last places the pipeline acts without a human-visible trace:
 
 - **Visible rebuttal bodies** (`renderRebuttalComment` in
-  `scripts/agent/rebuttal.mjs`). A rebuttal comment used to be ONLY its hidden
+  `agent-pipeline:rebuttal.mjs`). A rebuttal comment used to be ONLY its hidden
   marker — an empty-looking bot comment while a machine argument about
   removing a finding from the merge gate played out invisibly. The body now
   renders the disputed finding, the claim, its citations, and the
@@ -1130,20 +1151,20 @@ last places the pipeline acts without a human-visible trace:
   paged-latch predicates are containment tests gated on exactly that trusted
   identity — a claim quoting a latch would have frozen the loop; and the
   `-->` terminator is transport-escaped exactly as
-  `scripts/agent/fix-report.mjs` does, fixing a silent pre-existing failure
+  `agent-pipeline:fix-report.mjs` does, fixing a silent pre-existing failure
   where any dispute quoting a repo marker truncated its own JSON, failed the
   round-trip guard, and was never posted at all.
 
 - **Best-effort failure breadcrumbs** (`emitBestEffortWarning` in
-  `scripts/agent/guard-verdict.mjs`). The fail-safe
-  scripts — `scripts/agent/set-state.mjs`, `scripts/agent/loop-status.mjs`,
-  `scripts/agent/metrics.mjs` — deliberately exit 0 on operational failure,
+  `agent-pipeline:guard-verdict.mjs`). The fail-safe
+  scripts — `agent-pipeline:set-state.mjs`, `agent-pipeline:loop-status.mjs`,
+  `agent-pipeline:metrics.mjs` — deliberately exit 0 on operational failure,
   which means their `continue-on-error:` steps NEVER show a failed outcome:
   the symptom (a stale label, a stale dashboard, a missing effort comment)
   surfaces later with nothing connecting it to the cause. Their bail paths
   now emit one `::warning::` annotation (run page + PR checks-tab header,
   stdout-only and only inside Actions) plus a job-summary line naming the
-  consequence. In `scripts/agent/metrics.mjs` the consequence is OPT-IN per
+  consequence. In `agent-pipeline:metrics.mjs` the consequence is OPT-IN per
   call site — bail also serves normal no-ops ("no metrics recorded yet"),
   and warning on those would teach readers to ignore the annotation. The
   inline `github-script` best-effort steps already carried `core.warning`
@@ -1180,7 +1201,7 @@ evidence comment. It adds no parallel process; it triggers Claude Code
 
 Components:
 - **Command dispatch** — the `@claude` mention is a command surface parsed by the
-  shared `scripts/agent/command.mjs` (flexible/containment matching: a comment
+  shared `agent-pipeline:command.mjs` (flexible/containment matching: a comment
   triggers a verb when it contains `@claude <verb>` anywhere, case-insensitive,
   first-occurrence wins). Each workflow runs a cheap `route` job that calls the
   parser and gates on the resulting verb, so the mention maps deterministically
@@ -1195,7 +1216,7 @@ Components:
     comment, records NO check runs and drives no promote/fix, so it never touches
     the merge gate. Works on any PR incl. forks (read-only). PR author OR
     maintainer, throttled per head SHA. The comment is rendered by
-    `scripts/agent/review-comment.mjs` in a **triage layout**: a one-line
+    `agent-pipeline:review-comment.mjs` in a **triage layout**: a one-line
     verdict + counts headline, then EVERY blocking (critical/major) finding
     expanded and first (each a linkable `file:line` to the reviewed commit,
     lens-tagged), with minor/nit findings collapsed per lens (count in the
@@ -1207,7 +1228,7 @@ Components:
     panel's per-lens check bodies still go through `severity.mjs::renderSummaryMd`
     untouched, and the on-demand path falls back to that per-lens concatenation
     if the triage render is unavailable. The comment then ends with a collapsed
-    **"Prompt for AI Agents"** fold (`scripts/agent/ai-prompt.mjs`) — the blocking
+    **"Prompt for AI Agents"** fold (`agent-pipeline:ai-prompt.mjs`) — the blocking
     (critical/major, non-demoted) findings rendered as a fenced, copy-pasteable fix
     instruction, so a maintainer can hand the whole review to their own coding agent
     in one click (a fenced code block IS GitHub's native copy button). Empty and
@@ -1232,7 +1253,7 @@ Components:
   `.github/ISSUE_TEMPLATE/agent-task.yml`.
 - **Develop-review loop (CI)** — `.github/workflows/agent-iterate-ci.yml`: on CI
   failure for an agent-managed branch (an `agent/` branch, or a human PR labelled
-  `agent:managed` via `@claude loop`), `scripts/agent/summarize-ci.mjs` (Phase 21)
+  `agent:managed` via `@claude loop`), `agent-pipeline:summarize-ci.mjs` (Phase 21)
   feeds the diagnosis back to the agent, which pushes a fix. A bounded attempts counter
   pages a human instead of looping forever.
 - **Develop-review loop (review)** — `.github/workflows/agent-review-reply.yml`:
@@ -1249,10 +1270,10 @@ Components:
   job waits for it and gates the two PUSHING jobs (`promote`, `fix`), which is
   what keeps this arm and the CI-fix arm mutually exclusive per CI run. On a red
   CI both are skipped and `.github/workflows/agent-iterate-ci.yml` takes the branch;
-  ONE orchestrator process (`scripts/agent/review-panel.mjs`, Claude Agent SDK)
+  ONE orchestrator process (`agent-pipeline:review-panel.mjs`, Claude Agent SDK)
   spawns a FRESH read-only subagent per **lens** — `correctness`, `security`,
   `design-fit`, `test-adequacy`, `blast-radius` (declared data-drivenly in
-  `scripts/agent/lenses/lenses.json` + one rubric `.md` each). The reviewed
+  `agent-pipeline:lenses/lenses.json` + one rubric `.md` each). The reviewed
   artifact is the branch diff against `main`, minus ANTLR generated *tooling*
   artifacts (`packages/sheets/antlr/*.interp|.tokens` — nothing loads them at
   runtime, so no lens can act on them). The generated `.ts` files stay IN the
@@ -1359,7 +1380,7 @@ Components:
   time in isolation and re-runs a full session (and `git blame`) for each copy:
   the #578 shape would have paid for four redundant verifier sessions. Collapsing
   first removes that waste. The similarity metric is **not** re-derived:
-  `findingSimilarity` in `scripts/agent/rounds.mjs` already owns it for the
+  `findingSimilarity` in `agent-pipeline:rounds.mjs` already owns it for the
   non-convergence detector, calibrated against real panel output with the overlap
   coefficient chosen over Jaccard for exactly this restatement pattern. It
   separated all four of #578's real duplicate pairs from all four of its real
@@ -1387,7 +1408,7 @@ Components:
   A finding can now be clustered twice (fresh pass pre-verify, then again when a
   fresh survivor restates a carried-forward prior finding), so `mergeCluster`
   flattens the wordings each pass folded rather than overwriting them.
-  A **novelty gate** (`scripts/agent/novelty.mjs`) then answers a question the
+  A **novelty gate** (`agent-pipeline:novelty.mjs`) then answers a question the
   verifier structurally cannot: *did this change PUT this line here, carrying
   code that already existed?* The verifier's independence means it never sees the
   base, so from inside the branch checkout a line a refactor MOVED and a line the
@@ -1412,7 +1433,7 @@ Components:
   when move-aware blame cannot answer (shallow clone) — never an override of it.
   All probes run in the trusted script via async `execFile` (array args, no
   shell, timeout); no capability is granted to a model. Every git invocation is
-  built by `scripts/agent/git-env.mjs`, because **`cwd` and `-C` do not decide which repository
+  built by `agent-pipeline:git-env.mjs`, because **`cwd` and `-C` do not decide which repository
   git operates on — the environment does, and it wins.** git exports its location
   variables into every hook it runs, and `pre-push` runs `verify:self`, which
   reaches this module; unscoped, a probe under a hook answers about whatever
@@ -1438,12 +1459,12 @@ Components:
   passed in, never guessed: it is the same endpoint the reviewed diff uses, so
   "what changed" and "what counts as already-there" cannot diverge.
   `lensStats.lanes` reports `blocking`/`backlog`/`unknownOrigin` and
-  `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
+  `agent-pipeline:metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
   beside a high `unknownOrigin` means the gate ran blind rather than that nothing
   was relocated.
   **Token attribution.** Every SDK call is stamped with `{ lens, role }`
-  (`role` ∈ `detection` | `verifier`) as `scripts/agent/ask.mjs` pushes its result
-  to the shared execution log, so `scripts/agent/metrics.mjs`'s
+  (`role` ∈ `detection` | `verifier`) as `agent-pipeline:ask.mjs` pushes its result
+  to the shared execution log, so `agent-pipeline:metrics.mjs`'s
   `attributionBreakdown` can split the panel's spend per lens and by
   detection-vs-verifier instead of one anonymous total — the effort summary renders
   it as a cost · weighted-tokens table. This is what makes "which
@@ -1482,7 +1503,7 @@ Components:
   requires byte-*identity*, which is why the core is a common prefix rather than an
   ordering. The
   **trusted orchestrator** (run from a `main` checkout, via the shared
-  `scripts/agent/severity.mjs` rule) computes each lens's conclusion — the
+  `agent-pipeline:severity.mjs` rule) computes each lens's conclusion — the
   subagents only classify — and the job records one unforgeable
   **`agent-review-<lens>` check run** per lens (the author agent lacks
   `checks:write`). On all-pass it invokes the ready gate; on any failure it feeds
@@ -1503,7 +1524,7 @@ Components:
     correctness lens flagged a regression, then reviewed the *same unchanged code*
     clean on a re-run:
     1. **Sampling + union.** Each lens runs `samples` times (per-lens field in
-       `scripts/agent/lenses/lenses.json`, default 2) and the findings are UNIONed — any sample's
+       `agent-pipeline:lenses/lenses.json`, default 2) and the findings are UNIONed — any sample's
        finding enters the gate. The union goes through the same conservative
        `coerceFindings`/`dedupeFindings` (identical file+summary collapse to the
        highest severity; distinct bugs never merge), and the verifier refute pass
@@ -1524,7 +1545,7 @@ Components:
        the spend.
     2. **Cross-round re-check.** Each round persists its blocking findings in the
        per-lens check run's `output.text`; the next round reads the latest prior
-       `agent-review-<lens>` findings (`scripts/agent/prior-findings.mjs` →
+       `agent-review-<lens>` findings (`agent-pipeline:prior-findings.mjs` →
        `--prior-findings`, the same script on both panel paths) and re-verifies each
        against the *current repository* with the same biased-to-keep refute pass.
        A prior finding survives unless it is *resolved* on grounded evidence — so
@@ -1541,7 +1562,7 @@ Components:
        evidence (there is no code claim to disprove), so it would persist across
        every subsequent round. Two guards prevent it: the panel workflow persists
        an empty `output.text` for any lens whose `panelEntry` carries `infraError`,
-       and `scripts/agent/prior-findings.mjs` drops any carried record so flagged on
+       and `agent-pipeline:prior-findings.mjs` drops any carried record so flagged on
        read (so the guarantee holds on both panel paths regardless of producer). The
        discriminator is the script-set `infra: true` flag — authoritative because,
        unlike a finding's `summary`, a model cannot forge it. A shape-guarded legacy
@@ -1569,8 +1590,8 @@ Components:
        noise. Scoped `packages/**` + `scripts/**` (out-of-diff impact is a
        property of code) and blocking from day one.
 
-       `scripts/agent/lenses/correctness.md` and
-       `scripts/agent/lenses/security.md` additionally carry a **call-site
+       `agent-pipeline:lenses/correctness.md` and
+       `agent-pipeline:lenses/security.md` additionally carry a **call-site
        mandate** for guards in their own lane: enumerate the other call sites of
        what a new guard protects and cite any bypass by `file:line`. The overlap
        with `blast-radius` is deliberate — an added-but-bypassable gate reads as
@@ -1579,8 +1600,8 @@ Components:
     All three lower false-negative odds; none makes the panel safe to
     self-promote — the human review gate stays the backstop.
 
-  - **Incremental review (scope narrowing, `scripts/agent/review-state.mjs` +
-    `scripts/agent/review-scope.mjs`).** Live in the autonomous panel; the
+  - **Incremental review (scope narrowing, `agent-pipeline:review-state.mjs` +
+    `agent-pipeline:review-scope.mjs`).** Live in the autonomous panel; the
     on-demand path never narrows.
 
     The reviewed artifact was `git diff origin/main...HEAD`, recomputed every
@@ -1597,7 +1618,7 @@ Components:
     gets reviewed must not live in a lossy channel.
 
     **The write rule is a function, not a convention.** `panelEntry` in
-    `scripts/agent/review-panel.mjs` attaches the pointer only when a lens produced
+    `agent-pipeline:review-panel.mjs` attaches the pointer only when a lens produced
     a real verdict (`valid` and not skipped), so a crashed, quota-failed, skipped or
     inapplicable lens stamps nothing and the next round finds a state gap for it.
     Coverage is *proven by the presence of a pointer* rather than asserted
@@ -1608,7 +1629,7 @@ Components:
     was also attached elsewhere by a separate assignment.
 
     **Who decides what, and where.** The panel orchestrator resolves neither the
-    mode nor the diff: `scripts/agent/review-scope.mjs` reads the pointers (checks
+    mode nor the diff: `agent-pipeline:review-scope.mjs` reads the pointers (checks
     API) and measures the range (git), `resolveReviewMode` decides purely, and the
     workflow step that *rewrites the diff* is the same step that emits the
     `--review-mode` flag — so the two cannot disagree about what the panel is
@@ -1616,7 +1637,7 @@ Components:
     computes, so it tolerates failure and costs a full review; the narrowing step
     mutates the reviewed artifact, so any failure there fails the job. A narrowed
     diff with no flag is the one outcome this design must not produce, and
-    `scripts/agent/review-panel.mjs` cannot detect it — it receives a file, not a range.
+    `agent-pipeline:review-panel.mjs` cannot detect it — it receives a file, not a range.
 
     `latestLensRuns` filters check runs on `app.slug === "github-actions"`. That
     narrows the writer to a workflow **in this repository**, not to the panel
@@ -1675,7 +1696,7 @@ Components:
     workflow input takes). The on-demand path must never narrow: it records no
     check runs, so it can never write a pointer back.
 
-    `scripts/agent/prior-findings.mjs` replaces the inline `github-script` that
+    `agent-pipeline:prior-findings.mjs` replaces the inline `github-script` that
     reads the previous round's findings, with the same behaviour under test. Two
     GitHub API contracts are load-bearing and are easy to get wrong: the
     `commits/{sha}/check-runs` **list response omits or truncates `output.text`**,
@@ -1698,7 +1719,7 @@ Components:
     ("Claude API/quota error — re-run after reset"), **skips the fixer** (nothing to
     fix) and does **not** count it toward `MAX_REVIEW_ROUNDS`. This keeps a credential
     outage from masquerading as a code review finding (the #547/#548 test failures).
-- **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
+- **Ready gate** — `agent-pipeline:mark-ready.mjs`, invoked by the review-panel
   workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the
   author-writable verification comment), **every** required `agent-review-<lens>`
@@ -1713,7 +1734,7 @@ Components:
   the pipeline's *own* files, so it additionally requires an owner's review for
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
-- **Agent state (advisory single-value label)** — `scripts/agent/set-state.mjs`
+- **Agent state (advisory single-value label)** — `agent-pipeline:set-state.mjs`
   keeps **exactly one** `agent:<state>` label on the PR at a time
   (`implementing → awaiting-ci → reviewing → fixing → ready | blocked`), replacing
   the old additive `agent:iterating` / `agent:needs-human-review` labels (which
@@ -1742,9 +1763,9 @@ Components:
   spend after a page is bounded separately, by the paged latch in the `gate` job
   (the round guard runs in `fix`, downstream of `review-panel`, so on its own it
   left a paged PR re-reviewing on every CI-green push — five rounds and $53.98 on
-  #605). `scripts/agent/rounds.mjs`'s
+  #605). `agent-pipeline:rounds.mjs`'s
   `detectStalledRounds` (wired into
-  `scripts/agent/review-round-guard.mjs`, checked BEFORE the round cap so the
+  `agent-pipeline:review-round-guard.mjs`, checked BEFORE the round cap so the
   more specific reason wins) pages as soon as two consecutive round pairs both
   (a) fail to reduce the blocking-finding count and (b) exceed a similarity
   threshold against the previous round's findings.
@@ -1814,7 +1835,7 @@ Components:
   not do is give the loop its attempts back — its own summary said the PR was
   "still bounded by the pipeline's round/attempt caps", which on a PR that reached
   the cap means one panel round and an immediate re-page. That is exactly what
-  #648 did when it was un-stuck by hand. `scripts/agent/review-round-guard.mjs`
+  #648 did when it was un-stuck by hand. `agent-pipeline:review-round-guard.mjs`
   now counts fix attempts only from the newest rerun.
 
   **The resume point is the maintainer's COMMAND, not the workflow's result
@@ -1979,8 +2000,8 @@ the back half changes; only this local front half is new.
   a PR body that satisfies the ready-gate disclosure check. The draft PR's
   `pull_request:[main]` event runs CI (a bare branch push does not — push is
   filtered to `main`), which is the same trigger the cloud front half relies on.
-- **Single source of truth for the disclosure gate:** `scripts/agent/disclosure.mjs`
-  exports `disclosesAiAuthorship`, imported by BOTH `scripts/agent/mark-ready.mjs`
+- **Single source of truth for the disclosure gate:** `agent-pipeline:disclosure.mjs`
+  exports `disclosesAiAuthorship`, imported by BOTH `agent-pipeline:mark-ready.mjs`
   (the gate) and `scripts/agent/spec-to-pr.mjs` (the local self-check) — so the
   local body can never drift from the gate it must pass.
 - **Runner split:** local machine for spec→…→draft-PR (verify runs locally, a
@@ -2028,12 +2049,12 @@ That inversion makes every review-panel helper actively unsafe here, and
 escalates severity on collision; `unionSamples` needs only one lucky sample; and
 `applyVerifications` treats a null verdict as KEEP. All five are replaced with the
 failure direction flipped. Polarity-neutral helpers ARE shared — `globToRegExp`,
-`classifyResult`, `withRetry`, `CITATION`, and `KNOWN` from `scripts/agent/severity.mjs` (the
+`classifyResult`, `withRetry`, `CITATION`, and `KNOWN` from `agent-pipeline:severity.mjs` (the
 severity vocabulary is shared; only the coercion rule differs).
 
 Components:
 
-- **The hunter never gets `Bash`.** `scripts/agent/ask.mjs` refuses it outright, so
+- **The hunter never gets `Bash`.** `agent-pipeline:ask.mjs` refuses it outright, so
   the model emits a probe PLAN — `argv` arrays plus a predicted observation — and
   `scripts/agent/hunt-probe.mjs` executes it via `spawnSync` with no shell. Three
   consequences: no shell string is ever built from model output; the clean room is
@@ -2062,7 +2083,7 @@ Components:
   identity schemes each returned zero agreements on live data). `sameDefect` tests
   whether the in-scope code-location sets share a `file:line`. Line-level
   deliberately: `packages/cli/src/output/formatter.ts` genuinely holds two distinct defects, and file-level
-  matching would collapse them. Same shape of judgement `scripts/agent/rounds.mjs` already makes
+  matching would collapse them. Same shape of judgement `agent-pipeline:rounds.mjs` already makes
   for stall detection.
 - **The gate.** `isFilingVerdict` is the ONLY place "report it" is decided, in four
   stages — two owned by trusted code (replay reproduced + deterministic; charter
@@ -2096,7 +2117,7 @@ to emit `minor`/`nit` at all, since the gate drops them and emitting them spends
 budget for nothing.
 
 **Measured, not estimated** — each run writes a hunt-execution.json artifact shaped
-like the review panel's own execution log, so `scripts/agent/metrics.mjs` can sum
+like the review panel's own execution log, so `agent-pipeline:metrics.mjs` can sum
 tokens and cost over it: one `contract` run at
 `samples: 3`, `verifiers: 2` costs **~$6.20** and ~12 minutes, dominated by 3.1M
 cache-read tokens billed at 0.1×. Two verified defects (#585 and #586) were filed
@@ -2199,8 +2220,8 @@ runs cannot delete each other's fixtures. Docker lifecycle is NOT reimplemented 
 record of whether any change helped.
 
 Everything else in the pipeline measures effort
-(`scripts/agent/metrics.mjs`), self-agreement (`compareSampleAgreement`), or
-process (`scripts/agent/rounds.mjs`). Nothing records **outcomes**. So each of
+(`agent-pipeline:metrics.mjs`), self-agreement (`compareSampleAgreement`), or
+process (`agent-pipeline:rounds.mjs`). Nothing records **outcomes**. So each of
 the panel's tuning decisions — severity thresholds, `samples: 2`, file-class
 routing, the novelty gate, unanimity in the verifier — was argued from intuition
 and two or three remembered incidents. `scripts/agent/misses.jsonl` is the ledger that
@@ -2234,11 +2255,11 @@ panel somewhere specific and wrong rather than nowhere.
 
 **Two signatures**, both from data GitHub already keeps:
 
-1. **Human commits after handoff.** `scripts/agent/mark-ready.mjs` posts
+1. **Human commits after handoff.** `agent-pipeline:mark-ready.mjs` posts
    `HANDOFF_MARKER` when the panel approves. A human editing *reviewable code*
    after that instant is the shape of a missed defect. The marker constant moved
-   into `scripts/agent/disclosure.mjs` because it is now a contract between two
-   modules, and `scripts/agent/mark-ready.mjs` runs its CLI at import time so
+   into `agent-pipeline:disclosure.mjs` because it is now a contract between two
+   modules, and `agent-pipeline:mark-ready.mjs` runs its CLI at import time so
    nothing can import a constant from it.
 2. **CodeRabbit findings the panel did not raise**, at blocking severity only —
    this corpus measures the *gate*, and a minor maintainability note is not a gate
@@ -2289,7 +2310,7 @@ path may *decide*.
 
 **The gap, demonstrated live on #564.** The fixer prompt has always said "if you
 believe a finding is wrong, reply in the PR thread with your reasoning" — and
-nothing consumed that reply. `scripts/agent/review-panel.mjs` receives the diff,
+nothing consumed that reply. `agent-pipeline:review-panel.mjs` receives the diff,
 the changed files, the issue spec and the prior findings; it never received a word
 the author wrote. On #564 the fixer posted a correct, evidenced rebuttal (the App
 cannot push `.github/workflows/**`, with the literal push error) at 06:46. The
@@ -2322,7 +2343,7 @@ rebutted again, and pages at two. An overturn ground for inability would let a P
 merge with the work declared impossible.
 
 **Bounded.** A finding disputed `MAX_REBUTTAL_ROUNDS` (2) times and upheld both
-times pages a human, checked in `scripts/agent/review-round-guard.mjs` *before* convergence
+times pages a human, checked in `agent-pipeline:review-round-guard.mjs` *before* convergence
 because it is the more specific reason. The counter also catches the shape the
 plan did not name — overturned in one round, re-raised the next, disputed again —
 because both mean the loop cannot settle the question by itself.
@@ -2337,8 +2358,8 @@ before any session opens, so a panel invoked without it is the panel that existe
 before this.
 
 The adjudication outcome is no longer check-body-only:
-`scripts/agent/severity.mjs`'s
-`adjudicationNote` is exported and rendered by `scripts/agent/review-comment.mjs`
+`agent-pipeline:severity.mjs`'s
+`adjudicationNote` is exported and rendered by `agent-pipeline:review-comment.mjs`
 too, so a dispute's decision — and the adjudicator's reason — appears in the
 on-demand comment and in the per-round panel comment, the two places a
 maintainer actually reads findings. A carried-forward `{ upheld: N }` with no
@@ -2349,7 +2370,7 @@ filed on an agent PR, and until this was addressed that fact was
 indistinguishable from a channel that had quietly broken. Three surfaces close
 it: the fix report always renders `Disputed (N)` — `_Nothing._` at zero, the
 same treatment `Skipped (0)` already had; the loop-status table's `Fixer` column
-carries a per-round `N disputed`; and `scripts/agent/rebuttal.mjs`'s post-failure path, which
+carries a per-round `N disputed`; and `agent-pipeline:rebuttal.mjs`'s post-failure path, which
 exits 0 by design because a dispute that cannot be posted leaves the finding
 standing, now emits a best-effort warning naming that consequence instead of
 vanishing. The count in the report is rendered and never serialized — the hidden
@@ -2364,7 +2385,7 @@ overturn that should not have happened is a false negative like any other.
 
 `findingSimilarity` returns 0 unless both sides agree on `lens`, and it is the gate
 `matchRebuttal` scores through. But `lens` is not in the `FINDING` schema — a lens
-is never asked for it — and nothing in `scripts/agent/review-panel.mjs` assigned
+is never asked for it — and nothing in `agent-pipeline:review-panel.mjs` assigned
 one. Prior findings do carry it (`tagPriorFindings` stamps it from the check-run
 name), and when a fresh finding merges with its carried-forward twin the FRESH
 representative is the one that survives. So the lens was lost in exactly the case
@@ -2381,7 +2402,7 @@ fresh pass almost always re-finds it.
 
 It went unnoticed because the channel was never exercised. No structured rebuttal
 has ever been filed on any PR (#564, #605, #632, #633, #648, #649, #657, #666 all
-have none) — and a second defect explains part of that: `scripts/agent/rebuttal.mjs`
+have none) — and a second defect explains part of that: `agent-pipeline:rebuttal.mjs`
 landed with this phase, so branches cut before it (#632, #648 among them) do not
 contain the CLI their fixer prompt tells them to run. Both fail safe — the finding
 stands — which is why nothing observable ever went wrong.
@@ -2421,7 +2442,7 @@ and no unit test can reach it.
 
 Stamping the lens made disputes *match*; it did not make the counter *persist*.
 An upheld finding is RE-CREATED (`{...f, adjudication}`) by `adjudicateRebuttals`
-and `applySkipClaims` in `scripts/agent/review-panel.mjs`, and those copies lived
+and `applySkipClaims` in `agent-pipeline:review-panel.mjs`, and those copies lived
 only in `gating` — what the check's conclusion is computed from — while
 `writeVerdict` persisted `merged`'s pre-adjudication originals into verdict.json.
 verdict.json is where the panel workflow reads `adjudication.upheld` into the
@@ -2458,11 +2479,11 @@ the way into round N+1, both in the merge:
   merge order gets to move.
 
 This is a BEHAVIOUR change, not a refactor: the standstill page in
-`scripts/agent/review-round-guard.mjs` becomes reachable for the first time. A
+`agent-pipeline:review-round-guard.mjs` becomes reachable for the first time. A
 finding disputed and upheld in two rounds now pages a human instead of buying a
 third adjudication session, which is the destination Phase 28 specified for a
 question the loop cannot settle. An end-to-end two-round test in
-`scripts/agent/review-panel.test.mjs` drives the real wiring — merge, gate,
+`agent-pipeline:review-panel.test.mjs` drives the real wiring — merge, gate,
 adjudicate, substitute, carry forward — and asserts `upheldCount` reaches 2
 through both merge paths, alongside a source-level test that the round loop
 routes `writeVerdict`'s input through `substituteAdjudicated` at all.
@@ -2545,7 +2566,7 @@ land in a `noop` lane where cancelling each other costs nothing, and every run t
 will actually review shares `active` — which preserves what the guard exists for
 (#605's two same-second contradictory verdicts, #648's two fixers on one branch).
 The partition and the gate's admission rule are written separately and must agree,
-so `scripts/agent/checks.test.mjs` evaluates both across all four event/attempt
+so `agent-pipeline:checks.test.mjs` evaluates both across all four event/attempt
 combinations and fails if they diverge, including a check that the partition is not
 degenerate — a group that always answered `active` would pass a same-answer test
 while restoring the bug.
@@ -2570,14 +2591,14 @@ the mismatch produced two silent failures that looked like success:
   summary claimed the drop unconditionally. Observed on #632 and #648: both said
   they had dropped the label, and both stayed blocked.
 - **`agent:reviewing` has never existed.** The `review-panel` job had the same
-  `pull-requests: read`, and `scripts/agent/set-state.mjs` is fail-safe (any API
+  `pull-requests: read`, and `agent-pipeline:set-state.mjs` is fail-safe (any API
   error logs and exits 0), so the "Set state → reviewing" step reported success from
   the day it was written. #648, #632, #605 and #633 all show
   implementing → fixing → blocked with no reviewing state in between.
 
 Both are fixed by the grant. Two things generalise:
 
-**Fail-safe writes need their outcome reported.** `scripts/agent/set-state.mjs` exiting 0 on error
+**Fail-safe writes need their outcome reported.** `agent-pipeline:set-state.mjs` exiting 0 on error
 is the right call for a label that gates nothing — it must never fail the pipeline —
 but it means a broken grant is indistinguishable from a working one. The rerun
 summary now reports which of *dropped* / *was not set* / *could not drop* actually
@@ -2600,7 +2621,7 @@ everything it needed. `@claude fix` is that missing handle: one attempt,
 immediately, against the verdict as it stands.
 
 **The precondition is one question, not two.** The rule is "a previous panel run,
-and no commit after it". `scripts/agent/fix-eligible.mjs` decides it by asking
+and no commit after it". `agent-pipeline:fix-eligible.mjs` decides it by asking
 whether the CURRENT head sha carries completed `agent-review-*` check runs from
 `github-actions`. A commit MOVES the head, so a verdict attested against the head
 is simultaneously proof that the panel ran and proof that nothing has landed
@@ -2616,7 +2637,7 @@ in place: the loop stays parked and the next panel round does not silently
 re-engage the auto-fixer. `@claude rerun` remains the verb that clears it.
 
 **The report, and why it goes to the adjudicator.** After fixing, the agent files
-a structured report (`scripts/agent/fix-report.mjs`) — one `--fixed` or
+a structured report (`agent-pipeline:fix-report.mjs`) — one `--fixed` or
 `--skipped` per checklist item, in a hidden payload under a human-readable table.
 The next panel round reads it and folds each claim into the EXISTING adjudication
 pass (Phase 28) rather than into the verifier. That placement is the whole design:
@@ -2703,7 +2724,7 @@ again), and a **transient** (retry now).
 **One behavioural change, deliberately.** The inline version always emitted
 outputs, so a round with zero failing lens checks handed the fixer an empty work
 list, spent an agent run on nothing, and then paged from "the fix produced no
-commit". `scripts/agent/fix-brief.mjs` exits non-zero instead, which fails the
+commit". `agent-pipeline:fix-brief.mjs` exits non-zero instead, which fails the
 `fix` job and pages through the `stalled` net — same destination, one agent run
 cheaper, and the run log says why. The other zero-finding case is unchanged: when
 failing lenses exist but none of their `output.text` parses, the checklist is
@@ -2713,8 +2734,8 @@ all.
 
 **One brief, one builder.** The fixer's work list came from ~100 lines of inline
 `github-script` in `.github/workflows/agent-review-panel.yml`. It is now
-`scripts/agent/fix-brief.mjs`, shared by both workflows — the same lesson
-`scripts/agent/prior-findings.mjs` records, applied to a *prompt* input: a second copy is how
+`agent-pipeline:fix-brief.mjs`, shared by both workflows — the same lesson
+`agent-pipeline:prior-findings.mjs` records, applied to a *prompt* input: a second copy is how
 one of them keeps handing the fixer 39 minor findings after the other stopped.
 Extracting it also put its two bounds (40 items / 16k chars) and the
 `proseOnly` cut under test, and replaced `core.setOutput`'s implicit random
@@ -2731,7 +2752,7 @@ rather than re-derived: both channels have exactly one legitimate writer, the fi
 agent, and two copies of "who may write" is how one of them ends up wrong.
 
 **Two hazards from putting verbatim finding text in a hidden payload.**
-`scripts/agent/metrics.mjs` can state that its records never contain the
+`agent-pipeline:metrics.mjs` can state that its records never contain the
 space-then-`-->` terminator its parser splits on, because it serialises
 machine-generated fields. Every field in a fix
 report is model text copied verbatim from a finding, and this repo's findings
@@ -2746,7 +2767,7 @@ marker, which would otherwise be matched ahead of the real record sitting below 
 PROMPT (the brief) runs from the trusted `main` checkout, before the PR branch is
 checked out over it — a branch must not be able to choose whether it gets fixed or
 what the fixer is told to do. Author-side acts (posting the report, recording
-effort) run from the branch afterwards, the asymmetry `scripts/agent/rebuttal.mjs` documents:
+effort) run from the branch afterwards, the asymmetry `agent-pipeline:rebuttal.mjs` documents:
 writing a claim is an author-side act, and a tampered copy could only produce a
 differently-worded claim that still has to be grounded.
 
@@ -2777,10 +2798,10 @@ cancellation it caused itself, and won once. This is the same shape as the
 dispatch-record window (above): work done in the seconds after a push is not
 reliably delivered, so the fix is ordering rather than machinery. **Commit,
 report, then push.** Nothing can cancel work that happened before the push that
-causes the cancellation, and `scripts/agent/fix-report.mjs`'s `--head` is the SHA the fixer
+causes the cancellation, and `agent-pipeline:fix-report.mjs`'s `--head` is the SHA the fixer
 acted *on*, so the report is already complete before the new commit exists.
 
-`scripts/agent/fix-report.test.mjs` pins the ordering in the prompt — both the report and any
+`agent-pipeline:fix-report.test.mjs` pins the ordering in the prompt — both the report and any
 rebuttal must precede the push instruction, and the prompt must SAY so rather
 than merely be arranged that way, because the agent reads prose and "THEN REPORT"
 sitting above a push section reads as "report last".
@@ -2805,7 +2826,7 @@ best-effort by design, so nothing failed and nothing logged it — the comment s
 was not there. It looked like `@claude review` had produced only an effort comment.
 
 The exposure was general, not specific to the panel: CodeRabbit reviewing
-`scripts/agent/metrics.mjs` quotes markers as a matter of course, a maintainer can
+`agent-pipeline:metrics.mjs` quotes markers as a matter of course, a maintainer can
 paste one, and the `--final` branch swept `METRIC_PREFIX` on a bare `includes` with
 no parse at all. Any PR that touches or discusses this module was affected, on
 every summarize — which runs in the on-demand review, promote, and fix.
@@ -2836,15 +2857,15 @@ permission to run, and the command's effect, resolved by different authorities.
 That is the same shape as the `agent:blocked` label bug — the action reports
 success and the consequence is dropped.
 
-`scripts/agent/rounds.mjs` had named this gap, but in the opposite direction: it worried about
+`agent-pipeline:rounds.mjs` had named this gap, but in the opposite direction: it worried about
 being too *permissive* (an org MEMBER without write passing). The failure that
 happened was too strict. Both directions are real, and both are fixed below —
 the strict one is what paged #648, the permissive one would have handed the
 bounded party extra rounds on a rerun the workflow refused.
 
-`permissionResolver` in `scripts/agent/gh-checks.mjs` closes it — an injected
+`permissionResolver` in `agent-pipeline:gh-checks.mjs` closes it — an injected
 `(login) => true | false | null` built from the same API the workflows use, so
-`scripts/agent/rounds.mjs` stays pure and testable.
+`agent-pipeline:rounds.mjs` stays pure and testable.
 
 **The resolver is the only authority.** When one is supplied, `isRerunCommand`
 does not consult `author_association` at all. Association is *not* a fast-path
@@ -2853,13 +2874,13 @@ says nothing about permission on this repo, and `COLLABORATOR` is satisfied by a
 read- or triage-only invite. Accepting either would move the floor for a
 commenter `.github/workflows/agent-rerun.yml` then refuses to run — the same two-authorities-
 disagreeing bug in the opposite direction, granting budget for a rerun that never
-happened. That is the gap `scripts/agent/rounds.mjs` had named and left open; it is closed now,
+happened. That is the gap `agent-pipeline:rounds.mjs` had named and left open; it is closed now,
 in both directions. Lookups memoize per login, failures included, so a PR with
 many comments from few people costs at most one call each — and only for comments
 that already parsed as `rerun` from a non-Bot.
 
 The resolver-less form survives as the pure, association-only legacy behaviour.
-Its only caller is `scripts/agent/loop-status.mjs`, which is a **projection, never a gate**: at
+Its only caller is `agent-pipeline:loop-status.mjs`, which is a **projection, never a gate**: at
 worst it displays a round count the guard will not honour. Every *gating* caller
 injects a resolver.
 

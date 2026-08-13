@@ -78,7 +78,9 @@ const nowIso = () => new Date().toISOString();
 
 /** The panel this runner replays. Resolved as its own SIBLING, which is exactly
  *  why `panel_sha` is not optional — see `resolvePanelSha`. */
-export const DEFAULT_PANEL_SCRIPT = path.join(HERE, "..", "review-panel.mjs");
+export const DEFAULT_PANEL_SCRIPT = path.join(HERE, "..", "vendor", "pipeline", "review-panel.mjs");
+export const VENDOR_MANIFEST = path.join(HERE, "..", "vendor", "VENDOR.json");
+const readVendorManifest = () => JSON.parse(readFileSync(VENDOR_MANIFEST, "utf8"));
 
 /**
  * How long one panel gets before its process group is killed, in seconds.
@@ -497,20 +499,19 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot, sourcePr = nu
 /**
  * Which commit of the panel is about to run, and refuse if that cannot be said.
  *
- * The runner resolves the panel as `<this file>/../review-panel.mjs` — the SIBLING
- * IN WHATEVER CHECKOUT IT IS RUN FROM. Run it on a feature branch and it has
- * measured that branch's panel, not `main`'s, and nothing in the output would say
- * so. The fork's own `capabilities.md` warned about this trap; porting upstream
- * only removes it if the envelope records WHICH commit ran, which is why
- * `validateRunEnvelope` refuses an envelope without it.
+ * The panel is VENDORED — `../vendor/pipeline/review-panel.mjs`, a pinned copy of
+ * `wafflebase/agent-pipeline` — so the commit that ran is a recorded fact and not an
+ * inference from the surrounding checkout. This used to read `git rev-parse HEAD`
+ * beside the panel, which was correct only while the panel was a tracked file in
+ * this repository: read that way now it answers with WAFFLEBASE's commit, a sha
+ * that says nothing about which reviewer ran and that changes on every unrelated
+ * push. `VENDOR.json` carries the pipeline commit instead.
  *
- * A DIRTY TREE IS REFUSED. HEAD's sha describes HEAD's bytes, and a modified panel
- * is not the commit it claims to be — recording HEAD anyway is the same
- * "asserted, not measured" failure as the hardcoded `sdk_version` this PR deletes.
- * The dirtiness check is scoped to `scripts/agent/` and EXCLUDES `scripts/agent/eval/`
- * on purpose: the harness is not the reviewer, so editing the runner must not block
- * a replay, and the exclusion is the same one the README's known-limits table
- * already tells a reader to run by hand.
+ * A DIRTY PANEL IS STILL REFUSED, more strictly than before. The old check was a
+ * `git status` scoped to `scripts/agent/` and excluding `eval/`; the vendored copy
+ * is re-hashed byte-for-byte against `VENDOR.json` by `scripts/vendor-pipeline.mjs`
+ * in CI, so an edited panel fails the lane rather than merely this function — and
+ * editing the runner still cannot block a replay, because `eval/` is not vendored.
  *
  * `--panel-sha` overrides, and the override is RECORDED as such (`panel_sha_source`)
  * rather than being indistinguishable from a measured one. It is required, not
@@ -518,7 +519,7 @@ export function materializeRepoAt({ repoSource, commit, cacheRoot, sourcePr = nu
  * replaying a different script while stamping the sibling's sha is precisely the
  * mislabelling this field exists to prevent.
  */
-export function resolvePanelSha({ panelScript, override, git = gitLines }) {
+export function resolvePanelSha({ panelScript, override, readManifest = readVendorManifest }) {
   if (override !== undefined && override !== null && override !== "") {
     if (!SHA40.test(String(override))) {
       throw new Error(`run: --panel-sha must be 40 lowercase hex characters, got ${JSON.stringify(override)}`);
@@ -531,30 +532,30 @@ export function resolvePanelSha({ panelScript, override, git = gitLines }) {
         "Pass --panel-sha to say which panel this is; a run that cannot name its reviewer is not poolable with any other.",
     );
   }
-  const dir = path.dirname(path.resolve(panelScript));
-  let head;
+  // THE PANEL IS VENDORED, so its commit is a RECORDED fact rather than a read of
+  // whatever checkout this happens to be in. `git rev-parse HEAD` here would answer
+  // with WAFFLEBASE's commit — a sha that says nothing about which reviewer ran, and
+  // which changes on every unrelated push. VENDOR.json carries the pipeline commit
+  // the copy was taken from, and `scripts/vendor-pipeline.mjs` re-hashes every byte
+  // against that manifest in CI, so the dirty-tree check this replaces is enforced
+  // more strictly than a `git status` could: an edited vendor file fails the lane.
+  let manifest;
   try {
-    head = git(["-C", dir, "rev-parse", "HEAD"])[0] ?? "";
+    manifest = readManifest();
   } catch (e) {
     throw new Error(
-      `run: cannot read the panel's commit from ${dir} (${e.message}). Pass --panel-sha if you know which panel this is.`,
+      `run: cannot read the vendored pipeline's manifest at ${VENDOR_MANIFEST} (${e.message}). ` +
+        "Pass --panel-sha if you know which panel this is.",
     );
   }
-  if (!SHA40.test(head)) {
-    throw new Error(`run: git rev-parse HEAD in ${dir} answered ${JSON.stringify(head)}, which is not a commit sha`);
-  }
-  const dirty = git(["-C", dir, "status", "--porcelain", "--", "."])
-    .filter(Boolean)
-    // A porcelain line is `XY <path>`; the path is relative to the repo root.
-    .filter((l) => !/\s+scripts\/agent\/eval\//.test(l));
-  if (dirty.length > 0) {
+  const commit = String(manifest?.commit ?? "");
+  if (!SHA40.test(commit)) {
     throw new Error(
-      `run: ${dir} has ${dirty.length} uncommitted change(s) outside eval/, so ${head.slice(0, 12)} does not describe the panel that would run:\n` +
-        `${dirty.slice(0, 10).join("\n")}\n` +
-        "Commit them, stash them, or pass --panel-sha to record a sha deliberately.",
+      `run: ${VENDOR_MANIFEST} records commit ${JSON.stringify(commit)}, which is not a commit sha. ` +
+        "Re-vendor with scripts/vendor-pipeline.mjs, or pass --panel-sha.",
     );
   }
-  return { panelSha: head, source: "git" };
+  return { panelSha: commit, source: "vendor" };
 }
 
 /**
@@ -747,7 +748,9 @@ export function resolveRunOptions(argv, { readFile } = {}) {
     configId,
     runId: args["run-id"] ?? `${nowIso().replace(/[:.]/g, "-")}__${configId}`,
     items: args.items === undefined ? null : String(args.items).split(",").map((s) => s.trim()).filter(Boolean),
-    lensesDir: path.resolve(args["lenses-dir"] ?? path.join(HERE, "..", "lenses")),
+    // Vendored: the rubrics moved to wafflebase/agent-pipeline with the rest of the
+    // pipeline, and `vendor/pipeline/lenses/` is the pinned, sha256-verified copy.
+    lensesDir: path.resolve(args["lenses-dir"] ?? path.join(HERE, "..", "vendor", "pipeline", "lenses")),
     sdkVersion: args["sdk-version"] ?? pinnedSdkVersion(readFile ? { readFile } : {}),
     panelScript: path.resolve(args["panel-script"] ?? DEFAULT_PANEL_SCRIPT),
     panelShaOverride: args["panel-sha"] ?? null,

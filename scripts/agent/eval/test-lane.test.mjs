@@ -127,12 +127,17 @@ test("the two invocations PARTITION the suite — nothing is dropped, nothing ru
 });
 
 test("the first invocation still runs the flat suites it always ran, and skips node_modules", () => {
-  // The panel's safety-critical suites live directly in `scripts/agent`. Isolating
-  // one eval file must not narrow the lane away from them. And `find` — unlike
-  // node's own globber — descends into `node_modules`, where the `deps` job does
-  // an `npm ci`: without the prune, the lane would start running third-party tests.
+  // Measurement's own suites live directly in `scripts/agent`. Isolating one eval
+  // file must not narrow the lane away from them. And `find` — unlike node's own
+  // globber — descends into `node_modules`, where the `deps` job does an `npm ci`:
+  // without the prune, the lane would start running third-party tests.
+  //
+  // These sentinels used to be `review-panel.test.mjs` and `severity.test.mjs`. Both
+  // moved to wafflebase/agent-pipeline, where that repo's own CI runs them; what is
+  // left here is measurement, so the sentinels are measurement files now. The
+  // property under test is unchanged: flat suites are still in the first invocation.
   const [rest] = laneInvocations();
-  for (const file of ["review-panel.test.mjs", "severity.test.mjs", "capture-store.test.mjs"]) {
+  for (const file of ["capture-store.test.mjs", "harvest.test.mjs", "classify.test.mjs"]) {
     assert.ok(rest.includes(file), `${file} is no longer run by the agent:tests lane`);
   }
   const vendored = rest.filter((f) => f.split("/").includes("node_modules"));

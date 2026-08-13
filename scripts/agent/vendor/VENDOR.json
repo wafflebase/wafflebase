@@ -20,6 +20,15 @@
     "review-panel.mjs": "bfb028ded4d7214c25090e1746e93cd734f4900bb85b580bf9c2ac2d29a789ec",
     "review-state.mjs": "4b6d81944688af4f79eee7b09a1af93610c4112e5891c51bbfee385e7a330697",
     "rounds.mjs": "14875da9b5ed13aaaccebd69980c729ac830ea217ce09589dfcbac6010a1300a",
-    "severity.mjs": "45480ca05ae47c452b4d2448a791d5848246bddb19c7ad0840bb2badeaba7842"
+    "session-job-summary.mjs": "8118784d61097cde24cd097ef13e81a9e5263ad3e323395023ddd9b0a7ccff8a",
+    "set-state.mjs": "fdfeafe947e3bf14b271085744d68b14aa4e996ccf5016a7f5d8d67d77ad14c7",
+    "severity.mjs": "45480ca05ae47c452b4d2448a791d5848246bddb19c7ad0840bb2badeaba7842",
+    "lenses/lenses.json": "7c61aec378850e4e7fd8cb4c18f0b75fab03291dc2dabaf448b34918442525b8",
+    "lenses/blast-radius.md": "4cee1013f0263af17bbec0ea15d07580df27b4e7c4b1ad1d0ab45c7b9003147f",
+    "lenses/correctness.md": "1e43a042454e5c7d6a2119fb9f1c7d53360415c68f222e2fdf4dde1afaa408f1",
+    "lenses/design-fit.md": "a8b7dddfaefc08045e3e527f7c3f7776972435edcfb8cdf0c8e8259efea06865",
+    "lenses/docs.md": "35aad4c8766684c053ac9de3593fc2667403cf138e447b64d8b1e80b55af378f",
+    "lenses/security.md": "7d878f353795ddf40de598544f192ba9d0be2a22ef03491e64a31618951857f3",
+    "lenses/test-adequacy.md": "1151a85371c695d9804ea0c841de92245c9dac051b3c753d4932c1d45420fc1a"
   }
 }
