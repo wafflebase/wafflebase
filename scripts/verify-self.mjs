@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { extractFailureSummary } from "./failure-summary.mjs";
 import { readHeadSha } from "./agent/git-env.mjs";
 import {
   laneOrderViolations,
@@ -465,19 +466,6 @@ function runCommand(cmd, cwd) {
       resolve({ exitCode: exitCode ?? 1, output: Buffer.concat(chunks).toString() });
     });
   });
-}
-
-function extractFailureSummary(output) {
-  const lines = output.split("\n").filter((l) => l.trim().length > 0);
-  for (const line of lines) {
-    if (
-      /\b(FAIL|ERROR|error|Error|✗|✘|FAILED)\b/.test(line) &&
-      line.trim().length > 5
-    ) {
-      return line.trim().slice(0, 500);
-    }
-  }
-  return lines.length > 0 ? lines[lines.length - 1].trim().slice(0, 500) : null;
 }
 
 function laneFileName(lane) {
