@@ -502,6 +502,13 @@ export async function exploreUi(
         budget,
         journal,
         cfg: context.cfg,
+        // A live trace, because until now a run printed nothing between the corpus line
+        // and the final funnel. The journal is only persisted when a brief FINISHES, so
+        // a run that hangs leaves no record of how far it got — and the only answer to
+        // "is it working or stuck" was that the process was alive.
+        label: `${persona.id}/${brief.id}`,
+        maxActions,
+        onProgress: (line) => console.error(line),
       });
       return askStructured({
         systemPrompt:
