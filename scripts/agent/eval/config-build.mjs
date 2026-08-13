@@ -40,8 +40,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertEffort } from "../ask.mjs";
-import { parseArgs } from "../gh-checks.mjs";
+import { assertEffort } from "../vendor/pipeline/ask.mjs";
+import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 import { contentHash, configHash, CONFIG_HASH_VERSION } from "./config-hash.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
