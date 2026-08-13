@@ -33,6 +33,29 @@ import type { FrameSide, MutateRequest } from './protocol';
 export type { DesignEditorOptions, TokenAdapter } from './options';
 export { BASE } from './shell';
 
+/**
+ * The default `TokenAdapter`, exported from the same package as the plugin.
+ *
+ * §5's config example imports `{ designEditor, cssVariables }` together, and that is the
+ * point: a consumer whose tokens are plain CSS custom properties should not have to write
+ * an adapter to get the common case. Wafflebase's own four-file pipeline is the complex
+ * one and ships separately in `design-sandbox` (8c), which is the inversion §4 asks for —
+ * our pipeline stops being the assumption.
+ */
+export { cssVariables } from '../tokens/css-variables';
+export type { CssVariablesOptions } from '../tokens/css-variables';
+export type {
+  TokenEdit,
+  TokenEmitResult,
+  TokenFamily,
+  TokenFamilyMeta,
+  TokenRegenResult,
+  TokenTree,
+  TokenVars,
+  TokenWrite,
+  TokenWriteResult,
+} from '../tokens/adapter';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**

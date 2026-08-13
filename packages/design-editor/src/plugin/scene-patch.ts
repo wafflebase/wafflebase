@@ -83,7 +83,7 @@ export function scenePatch(deps: ScenePatchDeps): Plugin {
           // serve the module would blank the frame instead of showing the node the
           // edit could not be applied to. The bridge's `/validate` is what reports
           // the failure to the client.
-          applyIntentToCache(ctx, intent, cache);
+          await applyIntentToCache(ctx, intent, cache);
         }
         text = cache.get(abs) ?? text;
       }
