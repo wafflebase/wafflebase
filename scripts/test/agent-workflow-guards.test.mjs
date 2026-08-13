@@ -130,6 +130,11 @@ test("every pipeline script runs from a path something actually populated", () =
       let populated = new Set();
       for (let i = from; i < to; i++) {
         const line = lines[i];
+        // FIRST, before any state transition. A commented-out adapter or staging
+        // line must not populate anything: reading it as real would make a path
+        // that nothing fills look trusted, which is the failure this check exists
+        // to catch, arrived at through the check itself.
+        if (line.trim().startsWith("#")) continue;
         const mv = /mv\s+\.pipeline-src\/packages\/pipeline\s+(\S+)/.exec(line);
         if (mv) populated.add(norm(mv.group ? mv.group(1) : mv[1]));
         // The destination may be quoted AND contain spaces — `"${{ runner.temp }}/…"`
@@ -151,13 +156,12 @@ test("every pipeline script runs from a path something actually populated", () =
             populated = new Set([...populated].filter((p) => p.startsWith("<TMP>")));
           }
         }
-        if (line.trim().startsWith("#")) continue;
         // ANY directory, not only ones ending in scripts/agent: the staged copy at
         // $RUNNER_TEMP/agent-tools is the trusted source most post-checkout steps
         // use, and a version of this check that only matched `scripts/agent/` never
         // noticed when the step that stages it was removed.
         const inv = /\bnode\s+["']?([.\w/${}()\s-]*?\/)([\w.-]+\.mjs)/.exec(line);
-        if (!inv || line.includes("vendor/pipeline")) continue;
+        if (!inv) continue;
         const [, dir, file] = inv;
         if (existsSync(path.join(REPO, "scripts", "agent", file))) continue;
         if (existsSync(path.join(REPO, dir.replace(/\/$/, ""), file))) continue; // a real tracked path

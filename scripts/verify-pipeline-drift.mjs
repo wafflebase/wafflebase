@@ -144,6 +144,7 @@ export function readPins(workflowDir) {
  */
 export function stalePipelinePaths(root, pipelineFiles) {
   const names = new Set([...pipelineFiles].map((f) => f.split("/")[0]));
+  const VENDOR_PIPELINE = path.resolve(root, "vendor", "pipeline");
   const bad = [];
   const scan = (dir, base = "") => {
     for (const entry of readdirSync(dir)) {
@@ -157,9 +158,17 @@ export function stalePipelinePaths(root, pipelineFiles) {
       const src = readFileSync(abs, "utf8");
       for (const m of src.matchAll(/path\.(?:join|resolve)\(\s*HERE\s*,([^)]*)\)/g)) {
         const args = m[1];
-        if (/vendor/.test(args)) continue;
-        for (const s of args.matchAll(/["']([^"']+)["']/g)) {
-          if (names.has(s[1])) bad.push(`${rel} builds a path to ${s[1]}`);
+        const literals = [...args.matchAll(/["']([^"']+)["']/g)].map((s) => s[1]);
+        // Exempt only a path that genuinely RESOLVES under vendor/pipeline. Checked
+        // by resolution against the file's own directory (which is what HERE is), so
+        // `path.join(HERE, "..", "vendor", "pipeline", …)` from eval/ is exempt while
+        // a substring test for "vendor" — which let `vendor-backup/` and every other
+        // near-match through — is not enough. The segment-boundary check is what
+        // separates `vendor/pipeline` from `vendor/pipeline-old`.
+        const target = path.resolve(path.dirname(abs), literals.join("/"));
+        if (target === VENDOR_PIPELINE || target.startsWith(VENDOR_PIPELINE + path.sep)) continue;
+        for (const lit of literals) {
+          if (names.has(lit)) bad.push(`${rel} builds a path to ${lit}`);
         }
       }
     }
@@ -326,7 +335,20 @@ function main() {
   //    external anchor, and it is what the deleted byte-comparison used to provide.
   const vendorRoot = path.join(ours, "vendor", "pipeline");
   const manifestPath = path.join(ours, "vendor", "VENDOR.json");
-  if (existsSync(manifestPath)) {
+  // NOT conditional. Skipping this when the manifest is absent would make deleting
+  // VENDOR.json the way to switch the external anchor off, silently, while the lane
+  // still printed success — and the anchor is the only thing standing between "these
+  // bytes match their own hashes" and "these bytes are the pipeline that runs".
+  if (!existsSync(manifestPath)) {
+    die([
+      `No ${path.relative(REPO, manifestPath)}, so the vendored copy cannot be anchored to the pinned commit.`,
+      "",
+      "The measurement half imports vendor/pipeline/, and without the manifest nothing",
+      "ties those bytes to wafflebase/agent-pipeline. Re-vendor:",
+      "  node scripts/vendor-pipeline.mjs --pipeline-dir <checkout> --write",
+    ]);
+  }
+  {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     const wrong = [], absent = [];
     if (manifest.commit !== pinned) {

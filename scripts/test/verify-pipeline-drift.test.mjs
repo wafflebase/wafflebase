@@ -301,3 +301,33 @@ test("readPins ignores non-agent workflows and other repositories", () => {
   assert.deepEqual([...p.keys()], []);
   assert.deepEqual(loose, []);
 });
+
+test("a NEAR-MATCH vendor directory does not buy an exemption", () => {
+  // The exemption used to be a substring test for "vendor", so any directory whose
+  // name merely contained it — `vendor-backup`, `vendor/pipeline-old`, `my-vendor` —
+  // silenced the check. It now resolves the path and requires it to land under
+  // vendor/pipeline on a SEGMENT boundary.
+  for (const dir of ["vendor-backup", "vendored", "not-vendor"]) {
+    assert.deepEqual(
+      stale({ "harvest.mjs": `path.join(HERE, "${dir}", "lenses", "lenses.json");\n` }, ["lenses/lenses.json"]),
+      ["harvest.mjs builds a path to lenses"],
+      `${dir}/ must not be treated as the vendored copy`,
+    );
+  }
+  // A sibling of vendor/pipeline is not vendor/pipeline either.
+  assert.deepEqual(
+    stale({ "harvest.mjs": 'path.join(HERE, "vendor", "pipeline-old", "lenses");\n' }, ["lenses/lenses.json"]),
+    ["harvest.mjs builds a path to lenses"],
+  );
+});
+
+test("the exemption survives a parent hop, which is how eval/ reaches vendor", () => {
+  // `path.join(HERE, "..", "vendor", "pipeline", …)` from a subdirectory is the
+  // correct form and must not be flagged. A first version of the segment check
+  // compared the joined literals as a string, so the leading `../` broke it and
+  // every legitimate call in eval/ was reported.
+  assert.deepEqual(
+    stale({ "eval/run.mjs": 'path.join(HERE, "..", "vendor", "pipeline", "review-panel.mjs");\n' }, ["review-panel.mjs"]),
+    [],
+  );
+});
