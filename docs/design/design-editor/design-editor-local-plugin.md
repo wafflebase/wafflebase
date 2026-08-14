@@ -690,6 +690,35 @@ is accepted to keep 8a reviewable, and it is the argument for a fixture-project
 integration lane later — which would prove the pivot's central claim (that the
 plugin works in a *foreign* project) and is worth its own PR.
 
+**That gate now exists: `scripts/verify-consumer.mjs` against
+`fixtures/consumer/`.** The fixture is a project with its own layout (`app/`, not
+`packages/frontend/src/`), its own stylesheet and scene manifest, no
+`@wafflebase/*` dependency, and — the point — **no adapter of its own**: it uses
+the default `cssVariables()`, which §4 identifies as the common case. Its whole
+configuration is four lines, against `design-sandbox`'s ~250-line `TokenAdapter`.
+The script boots a real dev server there and drives health, tokens, preview, the
+token value / add / class-rewrite mutations, candidates, the generated scene
+module, two refusals and — under `--write` — a real commit, undo and
+byte-identical restore: **40 checks**.
+
+It is the first thing in the repository that can fail the way a stranger's
+install fails, and it did so immediately. Booting with `cwd` alone was not enough:
+`pnpm exec` runs from the nearest package root, so vite's root became
+`packages/design-editor`, it found no config, **every plugin went unloaded, and
+the dev server started cleanly and answered 404 to the whole bridge**.
+`verify-tokens.mjs` cannot hit that — its package root and its Vite root are the
+same directory. The gate asserts `health.root` for exactly this reason, and the
+script passes `--root` and `--config` explicitly.
+
+Checked by breaking the fixture four ways: dropping the adapter degrades to §3's
+"no token adapter configured" and fails 9 checks; dropping the scene manifest
+fails 4; renaming the consumer's CVA fails the class rewrite. A `./` prefix on
+the configured stylesheet does **not** fail — `normaliseSource` already handles
+it, which is 8b's fix holding.
+
+It stays out of `verify:fast` / `verify:self` on the same grounds as
+`verify-tokens.mjs`: it boots a dev server.
+
 **8b does NOT inherit that gap, and that is the argument for doing the default
 adapter before the wafflebase one.** `cssVariables` and its CSS primitive are pure
 text-in/text-out, and the routing is testable against a real temp-dir filesystem —
