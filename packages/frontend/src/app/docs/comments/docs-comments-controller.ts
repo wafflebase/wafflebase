@@ -15,6 +15,7 @@ import {
   extractAnchorContext,
   resolveDocsAnchor,
 } from "./docs-anchor";
+import { notifyCommentEvent } from "@/components/comments/notify";
 import { computeCommentMarkers } from "./decorations";
 import {
   StaleCommentAnchorError,
@@ -39,6 +40,12 @@ export interface UseDocsCommentsOpts {
   container: HTMLDivElement | null;
   currentUser: CommentAuthor | null;
   readOnly: boolean;
+  /**
+   * Enables notification reports for comment activity. Omitted (or empty)
+   * simply means no reports — an anonymous share-link session has no
+   * document id to attribute them to and no inbox to receive them.
+   */
+  documentId?: string;
   /**
    * Optional controlled state for the side panel. When `panelOpen` and
    * `onPanelOpenChange` are both provided, the hook delegates the
@@ -84,7 +91,7 @@ export interface UseDocsCommentsHandle {
  * handles marker clicks, and exposes the side-panel / popover state.
  */
 export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandle {
-  const { doc, editor, container, currentUser, readOnly } = opts;
+  const { doc, editor, container, currentUser, readOnly, documentId } = opts;
   const storeRef = useRef<YorkieCommentStore | null>(null);
   const [storeReady, setStoreReady] = useState(0);
   const [state, setState] = useState<DocsCommentsState>({
@@ -252,7 +259,14 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
       // it open so the user can retry; CommentComposer already logs the
       // error and keeps the body intact (it clears only on resolve).
       try {
-        await store.addThread(pending, body, currentUser);
+        const thread = await store.addThread(pending, body, currentUser);
+        notifyCommentEvent({
+          event: 'thread',
+          documentId,
+          actorUserId: currentUser.userId,
+          thread,
+          comment: thread.comments[thread.comments.length - 1],
+        });
       } catch (err) {
         // A collaborator deleted the anchored text between compose and
         // submit. The range can't be re-anchored, so retrying is futile —
@@ -268,16 +282,26 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
       pendingRangeRef.current = null;
       setComposeOpen(false);
     },
-    [currentUser],
+    [currentUser, documentId],
   );
 
   const reply = useCallback(
     async (threadId: string, body: string) => {
       const store = storeRef.current;
       if (!store || !currentUser) return;
-      await store.addReply(threadId, body, currentUser);
+      const comment = await store.addReply(threadId, body, currentUser);
+      const thread = (await store.listThreads()).find((t) => t.id === threadId);
+      if (thread) {
+        notifyCommentEvent({
+          event: 'reply',
+          documentId,
+          actorUserId: currentUser.userId,
+          thread,
+          comment,
+        });
+      }
     },
-    [currentUser],
+    [currentUser, documentId],
   );
 
   const editCommentFn = useCallback(
@@ -302,9 +326,27 @@ export function useDocsComments(opts: UseDocsCommentsOpts): UseDocsCommentsHandl
     async (thread: Thread<DocsRangeAnchor>) => {
       const store = storeRef.current;
       if (!store || !currentUser) return;
-      await store.setThreadResolved(thread.id, !thread.resolved, currentUser);
+      const resolving = !thread.resolved;
+      await store.setThreadResolved(thread.id, resolving, currentUser);
+      // Only resolving is worth a notification; reopening is not an event
+      // anyone is waiting on.
+      if (resolving) {
+        // Re-read rather than reusing the `thread` prop: that is a React
+        // snapshot, and a reply Yorkie applied since the last render would be
+        // missing from it — dropping that participant from the recipients.
+        // The sheets and pdf paths already do this.
+        const current = (await store.listThreads()).find(
+          (t) => t.id === thread.id,
+        );
+        notifyCommentEvent({
+          event: 'resolve',
+          documentId,
+          actorUserId: currentUser.userId,
+          thread: current ?? thread,
+        });
+      }
     },
-    [currentUser],
+    [currentUser, documentId],
   );
 
   const jumpToThread = useCallback(

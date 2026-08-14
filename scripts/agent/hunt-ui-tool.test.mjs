@@ -11,6 +11,7 @@ import {
   MAX_DISPLAY_CHARS,
   readersForSurface,
   renderUiObservation,
+  renderUiProgress,
   resolveActionRefs,
   UI_READERS_BY_SURFACE,
   UI_SHARED_READERS,
@@ -559,4 +560,137 @@ test("secrets are redacted from every path out", async () => {
 
   const fault = textOf(await run({ action: { type: "read", reader: "doc.text" } }));
   assert.ok(!fault.includes(key), "not in a session-fault message either");
+});
+
+test("a citable entry says how to cite itself, and an uncitable one does not", () => {
+  // WHY: ground A needs `@read:<i>`/`@input:<i>`, and the caller could only learn `<i>`
+  // by counting its own actions. Measured across three live runs, 10 of 97 predictions
+  // resolved to nothing and were discarded — ~10% of predictive work lost to arithmetic.
+  const read = renderUiObservation({
+    action: { type: "read", reader: "doc.runs" },
+    observation: { ok: true, value: [1, 2], oracles: [] },
+    atIndex: 7,
+  });
+  assert.match(read, /cite this reading as @read:7/);
+
+  assert.match(
+    renderUiObservation({
+      action: { type: "wait", reader: "doc.text" },
+      observation: { ok: true, value: "x", oracles: [] },
+      atIndex: 3,
+    }),
+    /cite this reading as @read:3/,
+    "`wait` resolves a reader too, so it is citable",
+  );
+
+  assert.match(
+    renderUiObservation({
+      action: { type: "type", text: "hello" },
+      observation: { ok: true, value: null, oracles: [] },
+      atIndex: 4,
+    }),
+    /cite this text as @input:4/,
+    "typed text is cited with the OTHER token",
+  );
+
+  // A FAILED read must not be advertised: the reference would resolve to an unusable
+  // entry, which is the same wasted prediction with a friendlier cause.
+  assert.doesNotMatch(
+    renderUiObservation({
+      action: { type: "read", reader: "doc.runs" },
+      observation: { ok: false, error: "boom", oracles: [] },
+      atIndex: 7,
+    }),
+    /@read:/,
+  );
+
+  // Neither must an action that produced no citable value.
+  for (const type of ["click", "scroll", "key", "goto"]) {
+    assert.doesNotMatch(
+      renderUiObservation({ action: { type }, observation: { ok: true, value: null, oracles: [] }, atIndex: 2 }),
+      /cite this/,
+      `${type} has nothing to cite`,
+    );
+  }
+
+  // Absent index changes nothing — the renderer is used in tests and tools without one.
+  assert.doesNotMatch(
+    renderUiObservation({
+      action: { type: "read", reader: "doc.runs" },
+      observation: { ok: true, value: 1, oracles: [] },
+    }),
+    /cite this/,
+  );
+});
+
+test("a completed action prints one line a human can read mid-run", () => {
+  // WHY: a run costs minutes and dollars and printed NOTHING between the corpus line and
+  // the final funnel. The journal is only persisted when a brief FINISHES, so a run that
+  // hangs leaves no trace of how far it got — asked whether a 23-minute run was working
+  // or stuck, the only available answer was "the process is alive".
+  const line = renderUiProgress({
+    label: "doc-writer/body-and-styles",
+    index: 14,
+    used: 15,
+    total: 80,
+    action: { type: "click", target: { role: "button", name: "Bold" } },
+    observation: { ok: true },
+    prediction: { verdict: "held" },
+  });
+  assert.match(line, /doc-writer\/body-and-styles/);
+  assert.match(line, /\[15\/80\]/, "the budget is what separates progress from a loop");
+  assert.match(line, /#14/);
+  assert.match(line, /click Bold/);
+  assert.match(line, /held/);
+
+  // A reader names its reader, not a target.
+  assert.match(
+    renderUiProgress({ action: { type: "read", reader: "doc.runs" }, observation: { ok: true } }),
+    /read doc\.runs ok/,
+  );
+  // A failure says so, and carries enough of the error to act on.
+  assert.match(
+    renderUiProgress({ action: { type: "click", target: { name: "Insert table" } }, observation: { ok: false, error: "locator timeout" } }),
+    /FAILED locator timeout/,
+  );
+  // Typed text is TRUNCATED — the line is a trace, not a transcript.
+  const typed = renderUiProgress({ action: { type: "type", text: "x".repeat(200) }, observation: { ok: true } });
+  assert.ok(typed.length < 120, `progress line should stay short, got ${typed.length}`);
+
+  // Junk must not throw: this runs on every action of every run.
+  for (const bad of [undefined, {}, { action: null }, { action: { type: "click" }, observation: null }]) {
+    assert.equal(typeof renderUiProgress(bad), "string");
+  }
+});
+
+test("progress is emitted for every action, and REDACTED like every other egress", async () => {
+  // The line carries the control name and whatever was typed, so it crosses the same
+  // boundary the tool result does. A secret in a progress line is a secret in a log.
+  const lines = [];
+  const journal = [];
+  const tool = createUiTool({
+    charter: { id: "p", surface: "doc", oracles: ["prediction"] },
+    surface: "doc",
+    session: { act: async () => ({ ok: true, value: "sk-live-SHOULD-NOT-APPEAR", oracles: [] }) },
+    budget: { charge: () => ({ ok: true }), used: 3, noteRefusal: () => {} },
+    journal,
+    cfg: { apiKey: "sk-live-SHOULD-NOT-APPEAR" },
+    label: "p/b",
+    maxActions: 80,
+    onProgress: (l) => lines.push(l),
+  });
+
+  // The secret must be planted where the LINE actually looks. The first version of this
+  // put it in the observation's value — which the progress line never carries — so the
+  // assertion held whether or not redaction ran, and removing `safe()` did not fail it.
+  // The line carries the action's own inputs, so that is where it has to go.
+  await tool({ action: { type: "type", text: "token sk-live-SHOULD-NOT-APPEAR here" } });
+  assert.equal(lines.length, 1, "an action without a prediction still reports");
+  assert.match(lines[0], /type /, "the typed action is what was reported");
+  assert.doesNotMatch(lines[0], /sk-live/, "and the progress line goes through redaction");
+
+  await tool({
+    action: { type: "read", reader: "doc.runs", expect: { read: "doc.runs", op: "equals", value: "@read:0", ground: "A", because: "x" } },
+  });
+  assert.equal(lines.length, 2, "an action WITH a prediction reports too");
 });

@@ -197,6 +197,7 @@ All document endpoints require JWT authentication.
 | `GET` | `/documents/:id` | Get document by ID (workspace member) |
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
+| `POST` | `/documents/:id/copy` | Duplicate a document into the same workspace + folder as `<title> (copy)` (any member — copying never touches the source) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
 
 ### Folders (`/workspaces/:workspaceId/folders`)
@@ -276,6 +277,49 @@ Open a document via a share link to emit events, then visit the workspace
 **Analytics** tab (`/w/:workspaceId/analytics`). With the env vars unset the
 whole pipeline is a no-op and the dashboard shows "not enabled" — the app is
 unaffected.
+
+### Notifications (`/notifications`)
+
+In-app notifications for the header bell (design:
+[`docs/design/notifications.md`](../../docs/design/notifications.md)). All
+routes require JWT authentication and are scoped to the caller — one user can
+never read or mark another user's notifications.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/notifications/comment` | Client report of a comment event (mention / reply / resolve) |
+| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO 8601>&beforeId=<id>` composite cursor, strictly ISO-validated; `beforeId` without `before` is a 400) |
+| `GET` | `/notifications/unread-count` | `{ count }` |
+| `POST` | `/notifications/read` | `{ ids? }` — omitted marks everything read |
+| `GET` | `/notifications/stream` | SSE badge stream |
+
+Comments live inside Yorkie CRDT documents and never pass through this
+backend, so the **client reports** comment events and the server authorizes
+them: the actor must belong to the document's workspace, and so must every
+recipient (non-members are dropped, not rejected). The actor never notifies
+themselves, previews are truncated to 200 characters with control and
+invisible formatting characters stripped, one report fans out to at most 20
+recipients, and the endpoint is throttled to 30 reports per minute **per
+authenticated user** (`UserThrottlerGuard`, which keys the bucket on the
+caller rather than their IP; the global per-IP bucket still applies on top). A
+repeated report is absorbed by a unique index rather than creating a second
+row.
+
+That still permits a sustained 30 × 20 rows per minute into peers' inboxes,
+and nothing is deleted — a workspace peer can make another member's inbox
+noisy. Bounding that needs a per-recipient ceiling or the retention job, both
+deferred; see `docs/design/notifications.md`.
+
+`workspace_member_joined` is the exception: it is created server-side in
+`WorkspaceService.acceptInvite()`, where the backend already has authority,
+and goes to the workspace owners plus the invite's creator.
+
+`/notifications/stream` carries `{ unreadCount, latestId }` only — the client
+refreshes its badge from the stream and fetches the list when the dropdown
+opens. Delivery is an in-process hub (instant for notifications created on the
+same replica) merged with a 60-second database re-check, which is what makes
+the stream correct across multiple replicas without Redis or Kafka. No
+environment variable configures any of this.
 
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 
@@ -405,6 +449,22 @@ blob with none (see
 | `revokedAt` | DateTime? | Soft-revoke timestamp |
 | `createdAt` | DateTime | Auto-set |
 
+**Notification** — one in-app notification addressed at one user
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` |
+| `recipientId` | Int | FK to User (`Cascade`) |
+| `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
+| `workspaceId` | String | FK to Workspace (`Cascade`) |
+| `documentId` | String? | FK to Document (`Cascade`) — a deleted document leaves no dead link |
+| `threadId` / `commentId` | String? | Opaque CRDT identifiers; no FK, never resolved server-side |
+| `dedupeKey` | String? | Comment id (required for mention/reply), or `<threadId>:resolved`. `@@unique([recipientId, type, dedupeKey])`, so a retried report creates no second row. Null for joins, which Postgres treats as distinct |
+| `preview` | String? | Plain-text excerpt, ≤200 chars; control characters collapsed to spaces, zero-width and bidi characters removed |
+| `readAt` | DateTime? | Null while unread |
+| `createdAt` | DateTime | Auto-set. `@@index([recipientId, createdAt])` covers the list; `@@index([recipientId, readAt])` covers the unread badge, which would otherwise scan every row the recipient has ever received |
+
 ## Module Structure
 
 ```
@@ -450,6 +510,7 @@ src/
 ├── file/                      # Blob storage for static file types (pdf)
 ├── image/                     # Image document type upload/serve (image-viewer.md)
 ├── analytics/                 # View-event Kafka producer + StarRocks reader (share-link-analytics.md)
+├── notification/              # In-app notifications: REST + SSE, in-process hub (notifications.md)
 ├── user-doc-styles/           # Per-user default docs named styles
 ├── health/                    # Health-check endpoint
 └── database/

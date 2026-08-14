@@ -15,6 +15,41 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
+function isTheme(value: unknown): value is Theme {
+  return value === "dark" || value === "light" || value === "system";
+}
+
+/**
+ * `localStorage` is not merely empty in Safari private mode, with blocked
+ * third-party storage, or in a sandboxed iframe — touching it throws
+ * SecurityError. This provider wraps the whole app, and the read below runs
+ * during render, so an unguarded throw would blank every route instead of
+ * losing a theme preference.
+ *
+ * The value is validated rather than cast: the key is shared with older builds,
+ * extensions, and anything else on the origin, and an arbitrary string reaches
+ * `classList.add(theme)` below — which throws `InvalidCharacterError` on an
+ * empty or whitespace-containing token, again blanking every route. Anything
+ * unrecognized is treated as absent.
+ */
+function readStoredTheme(storageKey: string): Theme | null {
+  try {
+    const stored = localStorage.getItem(storageKey);
+    return isTheme(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTheme(storageKey: string, theme: Theme): void {
+  try {
+    localStorage.setItem(storageKey, theme);
+  } catch {
+    // Same environments as above, plus a full quota. The theme still applies
+    // for this session; it just does not survive a reload.
+  }
+}
+
 const initialState: ThemeProviderState = {
   theme: "system",
   resolvedTheme: "light",
@@ -38,7 +73,7 @@ export function ThemeProvider({
     const params = new URLSearchParams(window.location.search);
     const urlTheme = params.get("theme");
     if (urlTheme === "light" || urlTheme === "dark") return urlTheme;
-    return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
+    return readStoredTheme(storageKey) ?? defaultTheme;
   });
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
@@ -105,7 +140,7 @@ export function ThemeProvider({
     resolvedTheme,
     setTheme: (newTheme: Theme) => {
       if (!isIframe) {
-        localStorage.setItem(storageKey, newTheme);
+        writeStoredTheme(storageKey, newTheme);
       }
       setThemeState(newTheme);
     },

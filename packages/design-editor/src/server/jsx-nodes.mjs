@@ -133,11 +133,34 @@ function attrPropsOf(node) {
 }
 
 /**
- * Attribute names (spreads as `...`), the values of `IDENTITY_ATTRS`, and the
- * `className` string literal when there is one.
+ * Attribute names (spreads as `...`), the values of `IDENTITY_ATTRS`, the
+ * `className` string literal when there is one, and — when the value is not
+ * simply that literal — the expression it was written as.
+ *
+ * `className` and `classNameExpr` are SIBLINGS, not a union, and the pair is
+ * what the UI reads:
+ *
+ * | `className` | `classNameExpr` | the node's class value is |
+ * | --- | --- | --- |
+ * | string | `null`   | a plain literal — fully editable |
+ * | string | string   | a joiner call with an authored blob — `cn("p-2", x)`. The blob is editable; the rest is the author's |
+ * | `null` | string   | LOCKED — an expression with no editable blob (`t("nav.home")`) |
+ * | `null` | `null`   | no `className` attribute … OR a valueless one, see below |
+ *
+ * So `classNameExpr !== null` means "an expression exists", NOT "locked".
+ * Locked is `className === null && classNameExpr !== null`.
+ *
+ * NOT COVERED BY THE PAIR: `<div className/>` and `<div className={}/>` have an
+ * attribute with no value, so both fields are null and they read as row 4 — while
+ * `applyClassRewrite` refuses them ("className is not a string literal"), because
+ * its test is `findJsxAttribute && !classLiteralOf`. A UI that must mirror the
+ * refusal exactly has to test `names.includes('className') && className === null`;
+ * `classNameExpr` supplies the text to SHOW, not the decision. Both shapes are a
+ * type error in any real consumer file and neither carries text worth showing,
+ * which is why they are documented rather than given a third field.
  *
  * @param {JsxRootNode} node
- * @returns {{names: string[], identity: Record<string, string>, className: string | null}}
+ * @returns {{names: string[], identity: Record<string, string>, className: string | null, classNameExpr: string | null}}
  */
 export function attrsOf(node) {
   /** @type {string[]} */
@@ -145,6 +168,8 @@ export function attrsOf(node) {
   /** @type {Record<string, string>} */
   const identity = {};
   let className = null;
+  let classNameExpr = null;
+  let seenClassName = false;
 
   for (const p of attrPropsOf(node)) {
     if (ts.isJsxSpreadAttribute(p)) {
@@ -161,13 +186,46 @@ export function attrsOf(node) {
     else if (ts.isStringLiteral(init)) text = init.text;
     else if (ts.isJsxExpression(init) && init.expression) text = init.expression.getText();
 
-    if (name === 'className') {
+    // FIRST `className` only. A duplicate attribute is a type error, not a parse
+    // error, so `<div className={t("x")} className="p-2"/>` reaches here — and
+    // `classLiteralOf` answers for the first one. Reading the expression off a
+    // later attribute would pair one attribute's literal with another's
+    // expression: "locked" about an editable node, or the reverse.
+    if (name === 'className' && !seenClassName) {
+      seenClassName = true;
       const lit = classLiteralOf(node);
       className = lit ? lit.text : null;
+      classNameExpr = classExprTextOf(init, lit);
     }
     if (IDENTITY_ATTRS.includes(name) && text != null) identity[name] = text;
   }
-  return { names, identity, className };
+  return { names, identity, className, classNameExpr };
+}
+
+/**
+ * The DISPLAY half of `classLiteralOf`'s refusal: the `className` expression as
+ * the author wrote it, or null when there is no expression to show.
+ *
+ * Derived from `classLiteralOf`'s own result rather than re-deciding what counts
+ * as a literal, so the two cannot drift into disagreeing about the same
+ * attribute. `className={"a b"}` is a braced literal: the expression IS the
+ * literal that was returned, there is nothing in it the designer cannot edit, and
+ * a read-only token showing `"a b"` beside an editable `a b` would be noise. It
+ * therefore reads identically to the unbraced `className="a b"`, which is the
+ * point — the braces are the author's punctuation, not a restriction.
+ *
+ * Returned VERBATIM, including newlines: a wrapped `cn(\n  "a b",\n  other,\n)`
+ * comes back wrapped. It is source text, so the caller collapses it for a
+ * single-line token rather than this losing the shape for everyone.
+ *
+ * @param {ts.JsxAttributeValue | undefined} init
+ * @param {ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | null} lit
+ * @returns {string | null}
+ */
+function classExprTextOf(init, lit) {
+  if (!init || !ts.isJsxExpression(init) || !init.expression) return null;
+  if (lit && unwrapParens(init.expression) === lit) return null;
+  return init.expression.getText();
 }
 
 /**
@@ -205,6 +263,15 @@ const isClassJoiner = (callee) =>
   (ts.isPropertyAccessExpression(callee) && CLASS_JOINERS.has(callee.name.text));
 
 /**
+ * `("a b")` → `"a b"`. Shared by `classLiteralOf` and `classExprTextOf` so that
+ * "is this expression just the literal?" is answered the same way in both.
+ *
+ * @param {ts.Expression} e
+ * @returns {ts.Expression}
+ */
+const unwrapParens = (e) => (ts.isParenthesizedExpression(e) ? unwrapParens(e.expression) : e);
+
+/**
  * The string-literal node holding `className`'s classes, or null.
  *
  * `className="a b"` and `className={"a b"}` resolve directly. For
@@ -238,11 +305,6 @@ export function classLiteralOf(node) {
    */
   const asLiteral = (n) =>
     ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) ? n : null;
-  /**
-   * @param {ts.Expression} e
-   * @returns {ts.Expression}
-   */
-  const unwrap = (e) => (ts.isParenthesizedExpression(e) ? unwrap(e.expression) : e);
 
   for (const p of attrPropsOf(node)) {
     if (!ts.isJsxAttribute(p) || p.name.getText() !== 'className') continue;
@@ -252,12 +314,12 @@ export function classLiteralOf(node) {
     if (bare) return bare;
     if (!ts.isJsxExpression(init) || !init.expression) return null;
 
-    const expr = unwrap(init.expression);
+    const expr = unwrapParens(init.expression);
     const direct = asLiteral(expr);
     if (direct) return direct;
     if (ts.isCallExpression(expr) && isClassJoiner(expr.expression)) {
       for (const arg of expr.arguments) {
-        const lit = asLiteral(unwrap(arg));
+        const lit = asLiteral(unwrapParens(arg));
         if (lit) return lit;
       }
     }
@@ -771,9 +833,25 @@ const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]
  * than as a disabled button, because the client's `SceneMeta` can be stale — the
  * same reason `/validate` shares `composeIntents` with `/commit`.
  *
+ * `role` says what the anchor IS to the caller's op, because two of the three
+ * guards depend on it:
+ *
+ *   - `'target'` (default) — the node itself is spliced into or out of a sibling
+ *     list: `applyLayoutRemove`, or an insert-as-sibling. All three guards.
+ *   - `'container'` — the node RECEIVES a child: `applyLayoutInsert`. Only the
+ *     scope guard applies.
+ *
+ * Verified against the parser rather than assumed: a child spliced into a
+ * returned root (`return <div><A/><NEW/></div>`) parses, and so does one spliced
+ * into a conditionally-rendered element; a SIBLING beside a returned root
+ * (`return <div/><NEW/>`) is a syntax error. The guards that exist to prevent
+ * the third case were refusing the first two, which made
+ * `applyLayoutRemove`'s inverse unapplicable for the commonest component shape
+ * — a remove that succeeded and could not be undone.
+ *
  * @param {ts.SourceFile} sf
  * @param {{component: string, path: number[], tag: string, fp: string, fpx?: string}} anchor
- * @param {{requireStatic?: boolean}} [opts]
+ * @param {{requireStatic?: boolean, role?: 'target'|'container'}} [opts]
  * @returns {{located: true, entry: JsxEntry, relocated: boolean} |
  *           {located: false, reason: string, candidates?: number[][], scope?: string}}
  */
@@ -836,10 +914,16 @@ export function resolveNode(sf, anchor, opts = {}) {
           `Extract the row into a component or a render helper to restructure it.`,
       };
     }
+    // The remaining two guards are about splicing THIS node into or out of a
+    // sibling list. When it is only receiving a child, neither hazard exists —
+    // the splice lands inside the node's own children region, which is why both
+    // shapes parse. See the `role` note above.
+    const asContainer = opts.role === 'container';
+
     // A node reached through an expression container cannot be spliced: removing
     // the element would leave `{}`, and removing the container would drop the
-    // condition. Its attributes are still editable.
-    if (hit.owner !== hit.node) {
+    // condition. Its attributes are still editable, and so are its children.
+    if (!asContainer && hit.owner !== hit.node) {
       return {
         located: false,
         reason:
@@ -859,13 +943,10 @@ export function resolveNode(sf, anchor, opts = {}) {
     // puts A and B at depth 1 — and those two are real siblings inside a real
     // container, so splicing between them is legal and must stay allowed.
     //
-    // FOLLOW-UP, for the PR that lands `inject.mjs`: this refuses the node, so it
-    // also refuses inserting a CHILD into it, which is perfectly valid. The
-    // correct guard needs the OP, not just the node — and `inject.mjs` is what
-    // defines the ops. Widening `opts` to carry it is a published-signature
-    // change, so it belongs there rather than here. Refusing is the safe half:
-    // a visible refusal costs a capability, a bad splice corrupts the file.
-    if (isReturnsRoot(root) && root.jsx.includes(/** @type {ts.Node} */ (hit.node))) {
+    // Inserting a CHILD into a returned root is fine and is the commonest
+    // structural op there is, which is what `role: 'container'` exempts. This
+    // guard is only about the node itself joining or leaving a sibling list.
+    if (!asContainer && isReturnsRoot(root) && root.jsx.includes(/** @type {ts.Node} */ (hit.node))) {
       return {
         located: false,
         reason:

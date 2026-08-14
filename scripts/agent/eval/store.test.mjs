@@ -10,12 +10,19 @@ import {
   EvalStore,
   ITEM_FILES,
   ITEM_STATUSES,
+  REPORTS_DIR,
   RUN_FILES,
+  SCORES_DIR,
+  SCORE_SCOPES,
+  SCORE_SCOPE_DIRS,
   TRANSCRIPT_STATES,
+  byConfigSegment,
+  configHashSegment,
   contentSha256,
   itemFileBytes,
   validateCorpusItem,
   validateRunEnvelope,
+  validateScore,
 } from "./store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -796,4 +803,181 @@ test("validateRunEnvelope is exported so a hand-written envelope is checked by t
   // `skipped` is gone because nothing produces it: an item the runner never
   // attempted is simply absent, and absence is already unambiguous here.
   assert.equal(ITEM_STATUSES.includes("skipped"), false);
+});
+
+// --- scores and reports ------------------------------------------------------
+// The store README has documented `scores/` and `reports/` since #677 and nothing
+// wrote to either until now. The tests below pin the two properties that make them
+// different from every other path on this surface: they are RE-WRITABLE, and their
+// key components are validated rather than sanitised.
+
+/** The pilot's real reviewer, so the `sha256:<64 hex>` rule is exercised against the
+ *  shape `config-hash.mjs` actually produces rather than a hand-made literal. */
+const CONFIG_HASH = "sha256:1c7853debf4edf92646d2299b0c924cb48cca89d6bb68b81648c57508a762f01";
+const CORPUS_VERSION = "2026-08-10-pilot-reviewed";
+const SCORE_KEY = { scorerId: "reliability-v1", scope: "cross-run", configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION };
+
+test("a re-score OVERWRITES rather than refusing — re-scoreability is what scores/ is for", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // The pre-#780 grouper's figures, then the post-#780 ones. This is the real case:
+    // #780 moved 219 defect classes to 245 with no model call, and a write-once
+    // `scores/` would have left that re-score unfilable.
+    store.putScore(SCORE_KEY, { classes: 219, jaccard: 0.422 });
+    assert.deepEqual(store.getScore(SCORE_KEY), { classes: 219, jaccard: 0.422 });
+    store.putScore(SCORE_KEY, { classes: 245, jaccard: 0.434 });
+    assert.deepEqual(store.getScore(SCORE_KEY), { classes: 245, jaccard: 0.434 });
+    // And it is only ONE file: an overwrite must not leave the superseded value
+    // beside the current one under a different name.
+    const dir = path.join(store.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, CORPUS_VERSION));
+    assert.deepEqual(readdirSync(dir), ["reliability-v1.json"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a run item is still write-once, so the score exception did not widen to observations", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { findings: [] } });
+    assert.throws(
+      () => store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: { findings: [] } }),
+      /runs are write-once/,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a scorer id and a comparison id are PATH SEGMENTS, and a traversal is refused", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    for (const bad of ["../escape", "a/b", "..", "", ".hidden", "x\0y"]) {
+      assert.throws(
+        () => store.putScore({ ...SCORE_KEY, scorerId: bad }, { n: 1 }),
+        /scorer id must match/,
+        `scorer id ${JSON.stringify(bad)} should be refused`,
+      );
+      assert.throws(
+        () => store.putReport(bad, "# report\n"),
+        /comparison id must match/,
+        `comparison id ${JSON.stringify(bad)} should be refused`,
+      );
+    }
+    // A traversal in the OTHER key components too — a valid scorer id is not enough.
+    assert.throws(() => store.putScore({ ...SCORE_KEY, corpusVersion: "../x" }, { n: 1 }), /corpus version must match/);
+    assert.throws(() => store.putScore({ scorerId: "volume-mix-v1", scope: "per-run", runId: "../x" }, { n: 1 }), /run id must match/);
+    // 🔴 AND THE READ PATH TOO, which is the assertion mutation testing added. The
+    // write path validates twice — `validateScore` checks the scorer id before
+    // `_scorePath` does — so removing `_scorePath`'s check left every write test
+    // green. `getScore` never calls `validateScore`, so `_scorePath` is the ONLY
+    // guard there, and a read is just as capable of escaping the store as a write.
+    for (const bad of ["../escape", "a/b", ".."]) {
+      assert.throws(() => store.getScore({ ...SCORE_KEY, scorerId: bad }), /scorer id must match/, `getScore(${JSON.stringify(bad)}) should be refused`);
+    }
+    // Nothing escaped: the whole write path refused before touching the filesystem.
+    assert.equal(existsSync(path.join(store.root, SCORES_DIR)), false);
+    assert.equal(existsSync(path.join(store.root, REPORTS_DIR)), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a config hash becomes a segment by VALIDATION, and the map is injective", () => {
+  assert.equal(configHashSegment(CONFIG_HASH), `sha256-${CONFIG_HASH.slice(7)}`);
+  // The fork-era artifact already on disk is named this way, so this keeps one
+  // convention rather than adding a second beside it.
+  assert.match(configHashSegment(CONFIG_HASH), /^sha256-[0-9a-f]{64}$/);
+  // Anything that is not the fixed `sha256:<64 hex>` shape is REFUSED rather than
+  // sanitised. That is the whole difference from the fork's `[:/\\] → -` replace:
+  // over this domain two distinct hashes cannot collide, because the only colon is
+  // the one at index 6 and no hash can spell a `-` there.
+  for (const bad of ["sha256:xyz", "1c7853debf4e", "sha1:" + "a".repeat(40), "../../etc/passwd", "", null]) {
+    assert.throws(() => configHashSegment(bad), /config hash must be sha256/, `${JSON.stringify(bad)} should be refused`);
+  }
+  assert.equal(byConfigSegment(CONFIG_HASH, CORPUS_VERSION), `sha256-${CONFIG_HASH.slice(7)}__${CORPUS_VERSION}`);
+  // Two hashes differing in one nibble stay two directories.
+  const other = `sha256:${"0".repeat(63)}1`;
+  assert.notEqual(configHashSegment(other), configHashSegment(`sha256:${"0".repeat(64)}`));
+});
+
+test("an absent score is null and a corrupt one is named — a renderer must tell those apart", () => {
+  const { root, store, cleanup } = tempStore();
+  try {
+    // ABSENT: the ordinary state of a scorer nobody has run. A renderer reads this
+    // as "not computed", which is a different fact from a measured zero.
+    assert.equal(store.getScore(SCORE_KEY), null);
+    assert.equal(store.getScore({ scorerId: "cost-latency-v1", scope: "per-run", runId: RUN_ID }), null);
+    // PRESENT and unparseable throws. Answering `null` would tell a renderer nobody
+    // measured this when the truth is that the measurement is unreadable, and the
+    // report would then print "not computed" about a number sitting right there.
+    const abs = path.join(root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, CORPUS_VERSION), "reliability-v1.json");
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, "{ not json");
+    assert.throws(() => store.getScore(SCORE_KEY), /reliability-v1.*is unreadable/s);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a score's scope decides its directory, and each scope demands its own key", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const perRun = store.putScore({ scorerId: "volume-mix-v1", scope: "per-run", runId: RUN_ID }, { findings: 142 });
+    assert.equal(perRun, path.join(store.root, SCORES_DIR, "per-run", RUN_ID, "volume-mix-v1.json"));
+    const crossRun = store.putScore(SCORE_KEY, { classes: 245 });
+    assert.equal(crossRun, path.join(store.root, SCORES_DIR, "by-config", byConfigSegment(CONFIG_HASH, CORPUS_VERSION), "reliability-v1.json"));
+    // A cross-run score keyed by nothing, and a per-run score with no run: both are
+    // callers who have not said what their number is about.
+    assert.throws(() => store.putScore({ scorerId: "reliability-v1", scope: "cross-run" }, { n: 1 }), /config hash must be sha256/);
+    assert.throws(() => store.putScore({ scorerId: "volume-mix-v1", scope: "per-run" }, { n: 1 }), /run id must match/);
+    assert.throws(() => store.putScore({ ...SCORE_KEY, scope: "whenever" }, { n: 1 }), /scope must be one of/);
+    assert.deepEqual(SCORE_SCOPES, ["per-run", "cross-run"]);
+    // The scope names the POPULATION and the directory names the KEY, so the two are
+    // deliberately not the same word.
+    assert.equal(SCORE_SCOPE_DIRS["cross-run"], "by-config");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a score payload may omit scorer_id and scope, but may not disagree with them", () => {
+  // The three merged scorers carry neither field — all three were written to print
+  // rather than to be filed — so both are optional in the payload and required at
+  // the call. Widens, never narrows.
+  assert.deepEqual(validateScore("reliability-v1", "cross-run", { classes: 245 }), { classes: 245 });
+  assert.deepEqual(
+    validateScore("cost-latency-v1", "cross-run", { scorer_id: "cost-latency-v1", scope: "cross-run", cost: 1 }),
+    { scorer_id: "cost-latency-v1", scope: "cross-run", cost: 1 },
+  );
+  // A payload that names itself something else means one of the two is wrong and
+  // nothing downstream can tell which.
+  assert.throws(() => validateScore("volume-mix-v1", "per-run", { scorer_id: "reliability-v1" }), /names itself/);
+  assert.throws(() => validateScore("reliability-v1", "cross-run", { scope: "per-run" }), /declares scope/);
+  assert.throws(() => validateScore("reliability-v1", "cross-run", null), /must be a JSON object/);
+  assert.throws(() => validateScore("reliability-v1", "cross-run", [{}]), /must be a JSON object/);
+});
+
+test("a report is written whole, is re-writable, and may not be empty", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const id = byConfigSegment(CONFIG_HASH, CORPUS_VERSION);
+    const abs = store.putReport(id, "# first render\n\n0.422");
+    assert.equal(abs, path.join(store.root, REPORTS_DIR, `${id}.md`));
+    assert.equal(readFileSync(abs, "utf8"), "# first render\n\n0.422\n");
+    // Re-rendering after a re-score replaces it, for the same reason a re-score does.
+    store.putReport(id, "# second render\n\n0.434\n");
+    assert.equal(readFileSync(abs, "utf8"), "# second render\n\n0.434\n");
+    // No partial file left behind by the atomic write.
+    assert.deepEqual(readdirSync(path.join(store.root, REPORTS_DIR)), [`${id}.md`]);
+    // An empty report at a path that exists reads as "the comparison produced nothing
+    // to say" rather than as the failed render it is.
+    for (const bad of ["", "   ", "\n", null, undefined, 42]) {
+      assert.throws(() => store.putReport(id, bad), /is empty/, `${JSON.stringify(bad)} should be refused`);
+    }
+    // The refusal did not clobber the good render.
+    assert.equal(readFileSync(abs, "utf8"), "# second render\n\n0.434\n");
+  } finally {
+    cleanup();
+  }
 });

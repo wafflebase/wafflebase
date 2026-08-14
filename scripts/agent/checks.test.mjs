@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
@@ -249,12 +249,57 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
   }
 });
 
+test("every workflow that runs a pipeline script sets GH_REPO", () => {
+  // REGRESSION GUARD for an outage this suite did not catch.
+  //
+  // `gh` expands `{owner}/{repo}` by shelling out to git, so it needs a git
+  // remote in the working directory. When the pipeline moved to its own repo,
+  // the trusted checkout began landing in a scratch path that is deleted after
+  // the move — which removed the only .git in the workspace. Every step running
+  // before the PR-branch checkout then failed with:
+  //
+  //   unable to expand placeholder in path: failed to run git:
+  //   fatal: not a git repository (or any of the parent directories): .git
+  //
+  // That killed the fix job, and would have killed promote too (mark-ready.mjs
+  // uses the same placeholder). It was invisible here because the scripts are
+  // fine — the missing thing was the ENVIRONMENT they run in, which no unit test
+  // observes. Hence a workflow-level assertion.
+  //
+  // Workflow level, not step level: a new step that shells out to gh is exactly
+  // how this comes back, and only a workflow-level default covers steps nobody
+  // has written yet.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(HERE, "..", "..", ".github", "workflows");
+  const offenders = [];
+  let checked = 0;
+  for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
+    const text = readFileSync(path.join(dir, file), "utf8");
+    // Only workflows that actually invoke pipeline code can hit this.
+    if (!text.includes("scripts/agent/") && !text.includes("agent-tools/")) continue;
+    checked += 1;
+    // A workflow-level `env:` block is at column 0; a job-level one is indented.
+    const wfEnv = /^env:\n(?:[ \t]+.*\n|\n)*?[ \t]+GH_REPO:/m.test(text);
+    if (!wfEnv) offenders.push(file);
+  }
+  assert.ok(checked > 0, "expected to find workflows that invoke pipeline scripts");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these workflows run pipeline scripts without a workflow-level GH_REPO:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
 test("agent-fix decides eligibility on TRUSTED main, before the branch checkout", () => {
   // The gate authorises a bot push and the brief becomes the agent's prompt. Both
   // must be computed by main's code — a branch that could supply either would be
   // choosing whether it gets fixed and what the fixer is told to do.
   const wf = WF("agent-fix.yml");
-  const trustedCheckout = wf.indexOf("ref: main");
+  // Anchored on the step NAME, not on a ref literal: the trusted source is this
+  // repository's own `main`, and a bare `ref: main` is not unique to this step.
+  // The step's name is what stays stable, and it is unique to this job — the
+  // router's checkout in the `route` job would otherwise match first.
+  const trustedCheckout = wf.indexOf("- name: Check out trusted main");
   const gate = wf.indexOf("fix-eligible.mjs");
   const brief = wf.indexOf("fix-brief.mjs");
   const branchCheckout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");

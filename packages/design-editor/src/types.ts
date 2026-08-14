@@ -96,8 +96,24 @@ export interface SceneNodeMeta {
   tag: string;
   /** Attribute names present, sorted; `...` for a spread. */
   attrs: string[];
-  /** `className`'s literal value, or null when it is an expression (`cn(...)`). */
+  /**
+   * The editable class blob: `className`'s own literal, or the first string
+   * argument of a recognised joiner call (`cn("p-2", x)` → `"p-2"`). Null when no
+   * literal is attributable — including when there is no `className` at all.
+   */
   className: string | null;
+  /**
+   * `className`'s expression as written, when the value is more than that
+   * literal — `cn("p-2", x)`, `t("nav.home")`, `styles.row`. Null for a plain
+   * literal and for no attribute.
+   *
+   * A SIBLING of `className`, never a replacement: the pair says how editable
+   * the node's classes are, and the read-only case the UI must show is
+   * `className === null && classNameExpr !== null` (an expression the injector
+   * refuses to rewrite). `classNameExpr !== null` on its own only means an
+   * expression exists. Verbatim source text, so it may contain newlines.
+   */
+  classNameExpr: string | null;
   /** Values of the identity-attribute allowlist that feeds `fp`. */
   identity: Record<string, string>;
   text: string | null;

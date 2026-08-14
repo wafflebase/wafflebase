@@ -2,10 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   extractAnchor, anchorIsEmpty, compareAnchors, linesOverlap,
-  matchFindings, tokenOverlap, bestMatch, groupFindings, LINKAGE,
+  matchFindings, tokenOverlap, crossArmTokenOverlap, bestMatch, groupFindings, LINKAGE, CROSS_ARM_SIMILARITY,
 } from "./finding-match.mjs";
-import { findingSimilarity } from "./rounds.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY } from "./rounds.mjs";
 import { findingKey } from "./finding-key.mjs";
+// The REAL record builder, not a hand-written fixture of its shape. `lensOf`'s
+// default exists to read `record.panel.lens`, and a test that asserted against
+// this file's own idea of a record would be a round trip through one author's
+// assumption — invisible to exactly the bug it is here to catch. Importing it
+// also makes an upstream rename of that field redden this lane instead of
+// quietly loosening a gate.
+//
+// The direction rule this does NOT break: `finding-match.mjs` must not import
+// `eval/` (see `LENSED_ARM`), because `harvest.mjs` imports `finding-match.mjs`
+// and would drag the benchmark's vocabulary into the harvester's graph. A test
+// file is in nobody's graph.
+import { buildFindingRecord } from "./eval/finding-record.mjs";
 
 test("extractAnchor: pulls backticked symbols from real-shaped evidence", () => {
   // modeled on the pr-521 resolveRange finding
@@ -253,6 +265,129 @@ test("matchFindings: missing operand → no, never a throw", () => {
 test("tokenOverlap: containment over the smaller summary; empty → 0", () => {
   assert.equal(tokenOverlap("blank skip breaks minmax aggregation", "blank skip breaks minmax aggregation"), 1);
   assert.equal(tokenOverlap("", "anything here"), 0);
+  // The property the name claims, which this test did NOT assert before: the
+  // denominator is the SMALLER set, so the longer wording's extra specifics cost
+  // nothing. 3 shared, 3 tokens against 9 → 3/3. That is upstream's deliberate
+  // choice for one reviewer restating itself, and it is unchanged by this PR.
+  assert.equal(tokenOverlap("alpha beta gamma", "alpha beta gamma delta epsilon zeta theta iota kappa"), 1);
+});
+
+test("crossArmTokenOverlap: DICE — the denominator is BOTH summaries", () => {
+  // The same operands as the row above score 6/12 here. Two different reviewers
+  // are not one reviewer restating itself, so a long text covering a short one is
+  // the arithmetic of shared vocabulary rather than evidence of agreement.
+  const short = "alpha beta gamma";
+  const long = "alpha beta gamma delta epsilon zeta theta iota kappa";
+  assert.equal(summaryTokens(short).length, 3);
+  assert.equal(summaryTokens(long).length, 9);
+  assert.equal(crossArmTokenOverlap(short, long), 0.5);
+  assert.equal(tokenOverlap(short, long), 1); // and the two DISAGREE, by design
+  assert.equal(crossArmTokenOverlap("blank skip breaks minmax aggregation", "blank skip breaks minmax aggregation"), 1);
+  assert.equal(crossArmTokenOverlap("", "anything here"), 0);
+});
+
+test("crossArmTokenOverlap: padding one side with unrelated words LOWERS the score", () => {
+  // With the numerator fixed, containment is CONSTANT in the length of the longer
+  // operand — 1.00 for every row below — so a long summary clears the bar on any
+  // file whose vocabulary it happens to cover. `harvest.mjs` compares CodeRabbit
+  // prose (median 32 significant tokens) against panel summaries (median 14), so
+  // this is the shape of its real input rather than a constructed one.
+  const a = "alpha beta gamma";
+  const near = crossArmTokenOverlap(a, "alpha beta gamma delta");
+  const far = crossArmTokenOverlap(a, "alpha beta gamma delta epsilon zeta theta iota kappa lambda sigma");
+  assert.ok(near > far, `padding must reduce agreement, got near ${near} far ${far}`);
+  assert.ok(far > 0, "and must not collapse to zero — the shared tokens are still shared");
+  assert.equal(tokenOverlap(a, "alpha beta gamma delta"), tokenOverlap(a, "alpha beta gamma delta epsilon zeta theta iota kappa lambda sigma"));
+});
+
+test("crossArmTokenOverlap: the MIN_SHARED_TOKENS floor still applies under Dice", () => {
+  // 2 shared across two 3-token summaries is Dice 4/6 = 0.67 — far over the bar
+  // and meaningless. Changing the denominator does not retire the floor.
+  assert.equal(crossArmTokenOverlap("alpha beta gamma", "alpha beta delta"), 0);
+  assert.equal(crossArmTokenOverlap("alpha beta gamma", "alpha beta gamma"), 1);
+});
+
+test("L2 metric is selected by ARM, not by run: same-arm keeps containment @ 0.3", () => {
+  // The population `reliability.mjs` scores — one reviewer, two replicates. It is
+  // cross-SOURCE (a defect can surface under a different lens on another try) but
+  // it is not cross-ARM, and containment is what it was calibrated for. 3 shared
+  // of 3 and 9 → containment 1.00 (match), Dice 0.50 (under the cross-arm bar's
+  // sibling but scored on a different scale). If this pair ever routes cross-arm,
+  // every reliability figure moves.
+  const a = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(matchFindings(a, b, { crossSource: true, sameArm: true }).verdict, "match");
+  assert.match(matchFindings(a, b, { crossSource: true, sameArm: true }).reason, /tokens 1\.00/);
+  // and the same pair, cross-arm, scores on the Dice scale instead
+  assert.match(matchFindings(a, b, { crossSource: true }).reason, /tokens 0\.50/);
+});
+
+test("🔴 a pair carrying NO arm or run must route CROSS-ARM, never same-arm", () => {
+  // THE TRAP THIS ASSERTION EXISTS FOR. `harvest.mjs` compares through
+  // `attributeToPanel`, whose `neutral()` helper carries only lens/file/summary/
+  // evidence — no `arm`, no `run`. Any implementation that infers same-arm from
+  // `a.arm === b.arm` evaluates `undefined === undefined`, gets `true`, and hands
+  // the one production cross-arm caller the containment metric. Nothing throws,
+  // every other test stays green, and the change's entire measured effect
+  // disappears. So: field-less pairs get Dice.
+  const a = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(a.arm, undefined);
+  assert.equal(b.arm, undefined);
+  // Dice would be 0.50; containment would be 1.00. Reading the reason is what
+  // distinguishes them, because both clear their own bar and both say `match`.
+  assert.match(matchFindings(a, b, { crossSource: true }).reason, /tokens 0\.50/);
+  assert.doesNotMatch(matchFindings(a, b, { crossSource: true }).reason, /tokens 1\.00/);
+
+  // AND `gateFor` must make the same choice, which needs a pair whose VERDICT
+  // differs between the two metrics — an earlier version of this test asserted
+  // only `stats.gate.defaulted > 0`, which is true under either routing, and a
+  // mutation flipping the unreadable-arm case to same-arm survived the whole
+  // suite. 3 shared tokens, 3 against 25: containment 3/3 = 1.00 (merge), Dice
+  // 6/28 = 0.214, under the bar (two classes).
+  const wide = "delta epsilon zeta theta iota kappa lambda omicron sigma tau upsilon phi chi psi omega mercury venus mars jupiter saturn neptune uranus";
+  const p = { lens: "", file: "a.ts", summary: "alpha beta gamma", evidence: "", item: "pr-1" };
+  const q = { lens: "", file: "a.ts", summary: `alpha beta gamma ${wide}`, evidence: "", item: "pr-1" };
+  assert.equal(summaryTokens(q.summary).length, 25);
+  assert.equal(tokenOverlap(p.summary, q.summary), 1); // containment would merge
+  assert.ok(crossArmTokenOverlap(p.summary, q.summary) < CROSS_ARM_SIMILARITY); // Dice does not
+  const { groups, stats } = groupFindings([p, q], { armOf: () => null, runOf: () => null, crossSource: true });
+  assert.ok(stats.gate.defaulted > 0, "an unreadable arm must be counted as defaulted");
+  assert.equal(groups.length, 2, "an unreadable arm must be scored cross-arm, so this pair must NOT merge");
+});
+
+test("the cross-arm bar BINDS from both sides — 0.214 is a maybe, 0.231 is a match", () => {
+  // Pins the constant by its consequences rather than by restating its value,
+  // which is the one assertion shape that would pass whatever the number became.
+  // Loosening to 0.20 promotes the first pair; tightening to 0.25 demotes the
+  // second and costs one of the six known cross-arm matches on the pilot corpus.
+  assert.ok(CROSS_ARM_SIMILARITY < DEFAULT_SIMILARITY);
+  const shared = "alpha beta gamma";
+  const aOnly = "delta epsilon zeta theta iota kappa omega sigma tau upsilon";
+  const bOnly = "phi chi psi omicron lambda rho mercury venus mars jupiter";
+
+  const lo1 = { lens: "", file: "a.ts", summary: `${shared} ${aOnly}`, evidence: "" };
+  const lo2 = { lens: "", file: "a.ts", summary: `${shared} ${bOnly} saturn neptune`, evidence: "" };
+  const tLo = crossArmTokenOverlap(lo1.summary, lo2.summary); // 6/28
+  assert.ok(tLo > 0.21 && tLo < CROSS_ARM_SIMILARITY, `expected ~0.214 under the bar, got ${tLo}`);
+  assert.equal(matchFindings(lo1, lo2, { crossSource: true }).verdict, "maybe");
+
+  const hi2 = { lens: "", file: "a.ts", summary: `${shared} ${bOnly}`, evidence: "" };
+  const tHi = crossArmTokenOverlap(lo1.summary, hi2.summary); // 6/26
+  assert.ok(tHi >= CROSS_ARM_SIMILARITY && tHi < 0.24, `expected ~0.231 over the bar, got ${tHi}`);
+  assert.equal(matchFindings(lo1, hi2, { crossSource: true }).verdict, "match");
+});
+
+test("the SAME-RUN path keeps findingSimilarity's containment — this change does not reach it", () => {
+  // Upstream's reasoning still holds within one run, and it is the same reasoning
+  // that keeps `tokenOverlap` on the same-arm L2 path: one reviewer restates one
+  // defect at different levels of detail, and containment refuses to penalise the
+  // longer wording for its extra specifics.
+  const a = { lens: "correctness", file: "a.ts", summary: "alpha beta gamma", evidence: "" };
+  const b = { lens: "correctness", file: "a.ts", summary: "alpha beta gamma delta epsilon zeta theta iota kappa", evidence: "" };
+  assert.equal(findingSimilarity(a, b), 1);
+  assert.equal(crossArmTokenOverlap(a.summary, b.summary), 0.5);
+  assert.equal(matchFindings(a, b).verdict, "match");
 });
 
 test("bestMatch: each CANDIDATE is judged on its OWN anchor, not the needle's", () => {
@@ -671,6 +806,9 @@ test("groupFindings GATE: derived per pair from arm and run, never chosen once p
     "same-run": 1,
     "cross-source": 0,
     defaulted: 0,
+    // Both sides carry a lens, so the (lens, file) gate ran on both halves. The
+    // test below is the one that pins what a NON-zero value here means.
+    lens_unreadable: 0,
   });
   // a second replicate is NOT one run: the same defect can surface under another lens
   assert.equal(groupFindings([sameRun, replicate]).stats.gate["cross-source"], 1);
@@ -705,6 +843,201 @@ test("groupFindings GATE: unreadable provenance falls back to the TIGHTER rule, 
   );
   assert.equal(loosened.stats.gate["cross-source"], 1);
   assert.equal(loosened.groups.length, 1);
+});
+
+// --- `lensOf`: the fourth accessor -----------------------------------------
+//
+// The same-run gate is documented as absolute on (lens, file) and, for a caller
+// passing normalised records, ran as file-only: `groupFindings` injected
+// `itemOf`, `armOf` and `runOf` but read the lens straight off the finding, and
+// a record keeps it at `panel.lens` because it is an arm-only field. Both sides
+// were `undefined`, `"" !== ""` is false, and 20-29 classes per replicate
+// collapsed with nothing thrown and nothing logged.
+
+/** A real record from the real builder, with the lens ONLY where a record puts
+ *  it — the arm namespace. The raw finding carries no `lens` of its own, which
+ *  is the sampled population's shape and the case the default has to handle. */
+const rec = (lens, file, summary, evidence = "", extra = {}) =>
+  buildFindingRecord({
+    arm: "panel",
+    itemId: "pr-548",
+    runId: "run-1",
+    population: "reported",
+    finding: { severity: "major", lane: "blocking", file, summary, evidence, ...extra },
+    detail: { lens },
+  });
+
+const ONE_DEFECT = "the retry loop never resets its backoff between attempts";
+
+test("groupFindings lensOf: a normalised record gates on LENS, with NO opts passed", () => {
+  // The property the docblock advertised and the code did not have. Two records
+  // word-for-word identical except for the lens that raised them: under the
+  // documented gate they are two classes, under the file-only gate they are one.
+  const two = [rec("correctness", "a.ts", ONE_DEFECT), rec("security", "a.ts", ONE_DEFECT)];
+  // the premise: the lens really is only in the arm namespace
+  assert.equal(two[0].lens, undefined);
+  assert.equal(two[0].panel.lens, "correctness");
+  assert.equal(two[0].panel.raw.lens, undefined);
+
+  const r = groupFindings(two);
+  assert.equal(r.groups.length, 2, "different lenses are two classes, not one");
+  assert.equal(r.stats.gate["same-run"], 1, "same arm, same run — the (lens, file) gate");
+  assert.equal(r.stats.gate.lens_unreadable, 0, "the lens WAS readable, out of the arm namespace");
+  // and the member says which lens it was gated on, which the finding cannot
+  assert.deepEqual(r.groups.flatMap((g) => g.members.map((m) => m.lens)).sort(), ["correctness", "security"]);
+
+  // …while the SAME lens on the same file still merges, so the gate is a lens
+  // check and not a blanket refusal to group records.
+  const same = groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("correctness", "a.ts", ONE_DEFECT)]);
+  assert.equal(same.groups.length, 1);
+  assert.equal(same.groups[0].size, 2);
+});
+
+test("regression: two findings on ONE file under DIFFERENT lenses do not merge", () => {
+  // The behaviour being restored, pinned in both shapes a caller has. Whether
+  // cross-lens restatement OUGHT to collapse is a real open question — the panel
+  // runs 5-6 lenses over one diff and two of them describing one defect is the
+  // normal case — but it is a policy decision for a scorer, not something a
+  // missing accessor should have decided silently.
+  const bare = groupFindings([
+    { lens: "correctness", file: "a.ts", summary: ONE_DEFECT, evidence: "", item_id: "pr-548", arm: "panel", run_id: "run-1" },
+    { lens: "security", file: "a.ts", summary: ONE_DEFECT, evidence: "", item_id: "pr-548", arm: "panel", run_id: "run-1" },
+  ]);
+  assert.equal(bare.groups.length, 2);
+  assert.equal(groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("design-fit", "a.ts", ONE_DEFECT)]).groups.length, 2);
+  // The pair is a `no` on the gate itself, not a demotion further down.
+  const r = groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("design-fit", "a.ts", ONE_DEFECT)]);
+  assert.equal(r.stats.pairs.no, 1);
+  assert.equal(r.stats.pairs.match, 0);
+  assert.equal(r.links.length, 0, "a structural `no` is not an adjudication candidate");
+});
+
+test("groupFindings lensOf: the default reads the TOP LEVEL first, then the arm namespace", () => {
+  // The precedence line, and it is the one a plausible rewrite gets backwards.
+  // Reading the arm namespace first would change the answer for every caller that
+  // widens its records with a top-level `lens` before grouping — silently, and in
+  // the direction of merging more.
+  const both = (top, armed, summary = ONE_DEFECT) => ({
+    lens: top,
+    panel: { lens: armed },
+    file: "a.ts",
+    summary,
+    evidence: "",
+    item_id: "pr-548",
+    arm: "panel",
+    run_id: "run-1",
+  });
+  // top level DIFFERS, arm namespace AGREES → the top level decides → two classes
+  assert.equal(groupFindings([both("correctness", "security"), both("design-fit", "security")]).groups.length, 2);
+  // top level AGREES, arm namespace differs → the top level decides → one class
+  const merged = groupFindings([both("correctness", "security"), both("correctness", "design-fit")]);
+  assert.equal(merged.groups.length, 1);
+  assert.equal(merged.groups[0].size, 2);
+  assert.deepEqual(merged.groups[0].members.map((m) => m.lens), ["correctness", "correctness"]);
+  // an empty or blank top-level lens is ABSENT, not a lens, so the arm namespace
+  // is still consulted — otherwise `lens: ""` would silently re-open the defect
+  assert.equal(groupFindings([both("", "security"), both("   ", "design-fit")]).groups.length, 2);
+});
+
+test("groupFindings lensOf: an injected accessor wins over BOTH defaults", () => {
+  const conflicting = (top, armed) => ({
+    lens: top,
+    panel: { lens: armed },
+    file: "a.ts",
+    summary: ONE_DEFECT,
+    evidence: "",
+    item_id: "pr-548",
+    arm: "panel",
+    run_id: "run-1",
+  });
+  // Both defaults would keep these apart (top level differs, arm namespace
+  // differs). An injected accessor that answers one lens merges them.
+  const input = [conflicting("correctness", "security"), conflicting("design-fit", "perf")];
+  assert.equal(groupFindings(input).groups.length, 2);
+  const injected = groupFindings(input, { lensOf: () => "the-only-lens" });
+  assert.equal(injected.groups.length, 1);
+  assert.deepEqual(injected.groups[0].members.map((m) => m.lens), ["the-only-lens", "the-only-lens"]);
+  // …and it can go the other way too: an accessor that DISAGREES splits a pair
+  // both defaults would have merged.
+  const agreeing = [conflicting("correctness", "security"), conflicting("correctness", "security")];
+  assert.equal(groupFindings(agreeing).groups.length, 1);
+  assert.equal(groupFindings(agreeing, { lensOf: (f) => (f === agreeing[0] ? "left" : "right") }).groups.length, 2);
+});
+
+test("groupFindings lensOf: an accessor that throws is reported, and the run still completes", () => {
+  // Same contract as the other three: caller code on a read path is caught and
+  // named, never allowed to take a scoring run down. An unreadable lens is then
+  // exactly that — unreadable — and shows up in the census rather than passing as
+  // agreement.
+  const r = groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("security", "a.ts", ONE_DEFECT)], {
+    lensOf: () => {
+      throw new Error("no lens column");
+    },
+  });
+  assert.equal(r.stats.accessor_failures.length, 2);
+  assert.deepEqual([...new Set(r.stats.accessor_failures.map((f) => f.accessor))], ["lensOf"]);
+  assert.match(r.stats.accessor_failures[0].message, /no lens column/);
+  assert.deepEqual(r.stats.accessor_failures.map((f) => f.index), [0, 1]);
+  assert.equal(r.stats.grouped, 2, "the grouping still ran");
+  assert.equal(r.stats.gate.lens_unreadable, 1, "and the pair it degraded is counted");
+  assert.deepEqual(r.groups.flatMap((g) => g.members.map((m) => m.lens)), [null, null]);
+});
+
+test("groupFindings lensOf: an UNREADABLE lens is counted, because it is invisible at the gate", () => {
+  // Lesson 1, and the reason this PR is more than an accessor. An absent lens and
+  // two equal lenses produce the identical comparison — `"" !== ""` is false — so
+  // the only thing that can tell them apart is a count. Without this number the
+  // file-only gate ran for three replicates and looked reasonable.
+  const noLens = (summary) => ({ file: "a.ts", summary, evidence: "", item_id: "pr-548", arm: "panel", run_id: "run-1" });
+  const blind = groupFindings([noLens(ONE_DEFECT), noLens(ONE_DEFECT), noLens(ONE_DEFECT)]);
+  assert.equal(blind.stats.gate["same-run"], 3);
+  assert.equal(blind.stats.gate.lens_unreadable, 3, "every same-run pair ran on the file alone");
+  // …and it is nonzero precisely when the merge it enabled happened
+  assert.equal(blind.groups.length, 1);
+
+  // A record-shaped input reports zero — the lens is readable, so the gate is the
+  // documented one.
+  const seeing = groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("correctness", "a.ts", ONE_DEFECT)]);
+  assert.equal(seeing.stats.gate["same-run"], 1);
+  assert.equal(seeing.stats.gate.lens_unreadable, 0);
+
+  // ONE unreadable side is enough to blind the pair, since the comparison needs both.
+  const half = groupFindings([noLens(ONE_DEFECT), rec("correctness", "a.ts", ONE_DEFECT)]);
+  assert.equal(half.stats.gate.lens_unreadable, 1);
+
+  // Cross-source pairs are NOT counted: L2 never reads a lens, so an absent one
+  // costs nothing there and counting it would report a problem that is not one.
+  const cr = { item_id: "pr-548", arm: "coderabbit", run_id: null, file: "a.ts", summary: ONE_DEFECT, evidence: "" };
+  const xsource = groupFindings([cr, { ...cr, summary: "the icon sprite sheet is fetched twice on every cold start" }]);
+  assert.equal(xsource.stats.gate["cross-source"], 1);
+  assert.equal(xsource.stats.gate.lens_unreadable, 0);
+});
+
+test("groupFindings lensOf: the resolved lens reaches the DIGEST, so two lenses are two ids", () => {
+  // Not cosmetic. The digest is documented as covering every field the matcher
+  // reads, and the matcher reads the lens. Leaving a lens that came out of the
+  // arm namespace out of it would make two classes the gate correctly separated
+  // digest identically, collide on one id, and take the occurrence suffix that
+  // exists for genuinely indistinguishable classes.
+  const r = groupFindings([rec("correctness", "a.ts", ONE_DEFECT), rec("security", "a.ts", ONE_DEFECT)]);
+  assert.equal(r.groups.length, 2);
+  assert.equal(r.stats.id_collisions, 0);
+  assert.equal(new Set(r.groups.map((g) => g.id)).size, 2);
+  assert.equal(new Set(r.groups.flatMap((g) => g.members.map((m) => m.digest))).size, 2);
+});
+
+test("groupFindings lensOf: a caller's findings are never widened with a lens they did not have", () => {
+  // The resolved lens is node metadata, reported beside `arm` and `run`. Writing
+  // it into the carried finding would hand a caller back a record shape it never
+  // passed in — and `record.panel.lens` is arm-only on purpose.
+  const one = rec("correctness", "a.ts", ONE_DEFECT);
+  const frozen = JSON.parse(JSON.stringify(one));
+  const r = groupFindings([one]);
+  const carried = r.groups[0].members[0].finding;
+  assert.equal(carried.lens, undefined, "the finding is carried as it arrived");
+  assert.equal(carried.panel.lens, "correctness");
+  assert.equal(r.groups[0].members[0].lens, "correctness", "…and the resolved lens is reported beside it");
+  assert.deepEqual(one, frozen, "the input was not mutated");
 });
 
 test("groupFindings WIDENS: a member carries the whole finding, and the input is never mutated", () => {

@@ -3007,6 +3007,52 @@ test("writeStageDetail: a failed write NEVER propagates", () => {
   }
 });
 
+test("writeStageDetail: the failure notice goes to stderr, never to stdout", () => {
+  // This file calls `writeStageDetail` IN-PROCESS, so under `node --test` stdout
+  // is the runner's result channel: v8 frames the parent parses in
+  // `#processRawBuffer`, which re-checks the `0xFF 0x0F` magic only at the top of
+  // a call. Plain text behind a frame in the same read chunk is therefore read as
+  // the next frame's length — a large one stalls the stream and loses this file's
+  // remaining results, a small one deserializes garbage and throws `Unable to
+  // deserialize cloned data`. That is the `agent:tests` flake, and on `console.log`
+  // this one line put 421 bytes per run onto the channel.
+  //
+  // BOTH directions, as with `eval/run.mjs`'s heartbeat: dropping the notice would
+  // satisfy "stdout is clean" while removing the only report that a capture was
+  // lost. stdout is teed rather than swallowed — dropping writes here would
+  // discard the runner's own frames and corrupt the stream this defends.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-fd-"));
+  const seen = [];
+  const realOut = process.stdout.write;
+  const realErr = process.stderr.write;
+  process.stdout.write = function (chunk, ...rest) {
+    seen.push({ fd: 1, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return realOut.call(this, chunk, ...rest);
+  };
+  process.stderr.write = function (chunk) {
+    seen.push({ fd: 2, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return true;
+  };
+  try {
+    const notADir = path.join(dir, "occupied");
+    writeFileSync(notADir, "i am a file\n");
+    assert.equal(writeStageDetail(path.join(notADir, "correctness"), { samples: [] }, {}), false);
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    const notice = /stage-detail capture failed/;
+    assert.ok(seen.some((w) => w.fd === 2 && notice.test(w.text)), "the failure must still be reported, on stderr");
+    assert.deepEqual(
+      seen.filter((w) => w.fd === 1 && notice.test(w.text)).map((w) => w.text),
+      [],
+      "stdout carries the test runner's v8 result frames; plain text there desynchronizes them",
+    );
+  } finally {
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildStageDetail: records per-sample findings before the union collapses them", () => {
   // `unionSamples` dedupes across samples and `lensStats.agreement` keeps only a
   // score, so which sample raised what is unrecoverable afterwards. That is the

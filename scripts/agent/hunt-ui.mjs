@@ -42,6 +42,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
+import {
+  COVERAGE_KEY_VERSION,
+  coverageFromJournal,
+  mergeCoverage,
+  renderCoverageBrief,
+} from "./hunt-ui-coverage.mjs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -50,6 +56,7 @@ import {
   UI_GROUNDS,
   isFilingVerdict,
   dropReason,
+  refutationDefects,
   coerceCandidates,
   dedupeCandidates,
 } from "./hunt-gate.mjs";
@@ -284,10 +291,50 @@ export function replayDidRun(observations) {
  * already refuses anything a verifier did not confirm.
  */
 export function uiScopedTitle(claimed, verdicts) {
-  const scoped = (Array.isArray(verdicts) ? verdicts : [])
-    .map((v) => (typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : ""))
-    .filter((t) => t.length > 0);
+  const scoped = uiScopedTitles(verdicts);
   return scoped[0] ?? claimed?.title ?? "(untitled)";
+}
+
+/**
+ * EVERY distinct scoped title, in verifier order.
+ *
+ * `uiScopedTitle` returns the first and the report headlines it. That headline is the
+ * one line a maintainer reads before deciding whether to open a defect, and taking it
+ * from `scoped[0]` silently discarded what the other verifier wrote — including, on
+ * the run that motivated this, the version without a false claim in it.
+ *
+ * Both verifiers confirmed the same real defect at high confidence, and scoped it
+ * differently:
+ *
+ *   A  `setBlockType` omits `notifyStyleApplied()`, so the Text style control keeps
+ *      showing the previous style until a caret move or another style action
+ *   B  ...the same, plus "the ⌘⌥N shortcut path is unaffected"
+ *
+ * B is what got headlined, and B's exclusion is FALSE — the shortcut path goes through
+ * `text-editor.ts` and does not notify either, so both entry points are equally stale.
+ * Filed as written it would have sent a maintainer looking for a difference between
+ * two paths that behave identically. A was correct, present, and thrown away.
+ *
+ * Nothing mechanical can tell which of two plausible sentences is true. What is
+ * mechanical is refusing to pick one and hide the other, which is the same lesson as
+ * the collapsed duplicate (#748) and the split panel (#785): a silent choice between
+ * two things a human would want to compare is how this pipeline loses information.
+ */
+export function uiScopedTitles(verdicts) {
+  const seen = new Set();
+  const out = [];
+  for (const v of Array.isArray(verdicts) ? verdicts : []) {
+    const t = typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : "";
+    if (t === "" || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Did the verifiers scope the same finding differently? Then a human must choose. */
+export function uiScopedTitleDisagreement(verdicts) {
+  return uiScopedTitles(verdicts).length > 1;
 }
 
 /** Did any verifier judge the explorer's own title broader than its evidence? */
@@ -394,9 +441,12 @@ export async function exploreUi(
   const budgetCfg = persona.actionBudget ?? {};
   const maxActions = budgetCfg.maxActions ?? 80;
 
+  const coverageBrief = renderCoverageBrief(context.coverage, { sha: context.sha ?? null });
+
   const prompt = [
     persona.rubric,
     "",
+    ...(coverageBrief ? [coverageBrief, ""] : []),
     "## Your task this session (DATA — the thing to actually do):",
     "",
     brief.task,
@@ -452,6 +502,13 @@ export async function exploreUi(
         budget,
         journal,
         cfg: context.cfg,
+        // A live trace, because until now a run printed nothing between the corpus line
+        // and the final funnel. The journal is only persisted when a brief FINISHES, so
+        // a run that hangs leaves no record of how far it got — and the only answer to
+        // "is it working or stuck" was that the process was alive.
+        label: `${persona.id}/${brief.id}`,
+        maxActions,
+        onProgress: (line) => console.error(line),
       });
       return askStructured({
         systemPrompt:
@@ -557,6 +614,19 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "symptom when you have found it — a title naming the wrong cause is as costly as",
     "one naming the wrong scope.",
     "",
+    "AN EXCLUSION IS A CLAIM, AND IT NEEDS THE SAME EVIDENCE. \"...but the keyboard",
+    "shortcut is unaffected\", \"...only in tables\", \"...rendering is fine\" — each of",
+    "those asserts something about code you may not have read. Measured: a verifier",
+    "correctly narrowed a real defect and appended \"the ⌘⌥N shortcut path is",
+    "unaffected\". It was false — that path calls the store directly and does not notify",
+    "either, so both entry points were equally broken. Its colleague wrote the same",
+    "finding WITHOUT the exclusion and was right. Narrowing introduced an error that",
+    "the original, broader title did not contain.",
+    "",
+    "So: state an exclusion only when you went and looked, and cite it in `groundedIn`",
+    "like anything else. If you did not check the other path, say nothing about it —",
+    "a title that is silent on a question is narrower than one that answers it wrongly.",
+    "",
     "Set `overclaimed: true` when the hunter's title asserts more than its evidence.",
     "That does NOT refute the finding — a real defect described loosely is still real,",
     "and your `scopedTitle` is what gets reported. It is recorded so a drift toward",
@@ -567,6 +637,38 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "the code proves generalises — not the whole control.",
     "",
     "Establish the facts yourself with Read/Grep/Glob.",
+    "",
+    "## Refuting costs the same work as confirming — `refutes`",
+    "",
+    "A refutation ends the candidate on its own: your colleague may have confirmed at",
+    "high confidence and the run will still report nothing. So it is held to the bar a",
+    "confirmation clears. When `verdict` is `refuted`, `refutes` must name the SPECIFIC",
+    "claim your evidence contradicts, and `groundedIn` must cite the code that",
+    "contradicts it — in scope, the same as a confirmation.",
+    "",
+    "The failure this exists to stop, measured on a real defect that was lost:",
+    "",
+    "  claim      un-listing a heading downgrades it to a plain paragraph",
+    "  cited      `list items map to \\`normal\\`` — a rule about how a block is STYLED",
+    "             WHILE IT IS a list item",
+    "  concluded  therefore the downgrade is intended",
+    "",
+    "Every citation was real. Two of them were evidence FOR the defect. The refutation",
+    "was still wrong, because the cited rule answers a different question than the claim",
+    "asks — current-state styling, not what the block returns to afterwards.",
+    "",
+    "So before refuting, read your own citation back against the exact claim: does this",
+    "line say the observed behaviour is CORRECT, or does it merely describe some",
+    "neighbouring behaviour? \"The code does what the code does\" is not a refutation —",
+    "the question is whether it does what it SHOULD. Intended-by-design is a real",
+    "refutation only when something states the intent for THIS behaviour: a spec, a",
+    "test asserting it, a comment about this case. A helper that computes the current",
+    "state is not a statement that the state is desired.",
+    "",
+    "If you cannot name what your evidence contradicts, you have not refuted it — you",
+    "have failed to confirm it. Say that instead: `confirmed` with `confidence: \"low\"`.",
+    "The gate reports only on HIGH-confidence unanimity, so that outcome files nothing",
+    "either, and it does not spend your colleague's confirmation to say so.",
     "",
     "## `groundedIn` — you are the ONLY source of it",
     "",
@@ -588,7 +690,13 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "",
     "Confirming causes a report. A false report costs maintainer attention; a missed",
     "defect costs nothing, because the next run looks again. So:",
-    '  - Unsure for ANY reason -> {verdict:"refuted", confirmationGround:"none"}.',
+    // This used to read `Unsure for ANY reason -> refuted`, which contradicted the
+    // refutation section above and was the instruction MANUFACTURING the ungrounded
+    // refutations that section exists to stop. Both outcomes below file nothing — the
+    // gate reports only on high-confidence unanimity — so uncertainty loses nothing by
+    // taking the honest one, and a refutation stays a claim somebody has to argue.
+    '  - Unsure for ANY reason -> {verdict:"confirmed", confidence:"low"}. Files nothing.',
+    '  - Refute only when you can name what your evidence contradicts, in `refutes`.',
     "  - Confirm only at high confidence, naming a `confirmationGround`.",
     "",
     `Claimed [${claimed.severity}] ${claimed.title}`,
@@ -811,6 +919,19 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
         ...(c.scopedTitle && c.scopedTitle !== k.title
           ? [`> The hunter proposed this as **"${k.title}"** — narrowed by the verifiers to the heading above.`, ""]
           : []),
+        // The OTHER verifier's scoping, when it wrote a different one. The heading is
+        // one verifier's prose and nothing verifies it; the alternative is the only
+        // cheap check available, and it is the check that catches an exclusion one
+        // verifier asserted and the other did not. DO NOT collapse this to "they
+        // agreed" — that is the assumption that put a false claim in a headline.
+        ...(Array.isArray(c.scopedTitles) && c.scopedTitles.length > 1
+          ? [
+              "> **The verifiers scoped this differently. Reconcile before filing —**",
+              "> the heading above is one of them, not a consensus:",
+              ...c.scopedTitles.map((t, i) => `> ${i + 1}. ${t}`),
+              "",
+            ]
+          : []),
         `- **persona:** ${c.personaId} / ${c.briefId} (surface \`${c.surface}\`)`,
         `- **oracle:** ${k.oracle}`,
         `- **expected:** ${k.expected}`,
@@ -1010,6 +1131,10 @@ async function cmdRun(args) {
   // other's suppression: the key spaces are different and a collision would
   // silently hide a real defect.
   const ledgerFile = path.resolve(strArg(args, "ledger") ?? path.join(outDir, "seen.json"));
+  // PER PERSONA, in one file keyed by persona id. The controls barely overlap between
+  // surfaces, so a shared memory would tell the sheet explorer it had already tried
+  // `Bold` because the doc explorer had.
+  const coverageFile = path.resolve(strArg(args, "coverage") ?? path.join(outDir, "coverage.json"));
   const fault = strArg(args, "fault") ?? null;
 
   const all = loadPersonas(chartersDir);
@@ -1021,6 +1146,29 @@ async function cmdRun(args) {
   if (personas.length === 0) fail("no personas selected");
   for (const s of args.surface) {
     if (!UI_SURFACES.includes(s)) fail(`--surface ${JSON.stringify(s)} is not one of: ${UI_SURFACES.join(", ")}`);
+  }
+
+  // Prior coverage, per persona. A file that will not parse is a memory, not a gate:
+  // it degrades to "nothing tried yet" rather than refusing the run the way an
+  // unreadable LEDGER does, because a wrong ledger hides real defects and a wrong
+  // coverage memory only costs a repeat.
+  let priorCoverage = {};
+  if (existsSync(coverageFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(coverageFile, "utf8"));
+      if (parsed && typeof parsed === "object") {
+        // NORMALISE, do not trust. `mergeCoverage` already drops entries that are not
+        // usable and refuses a record whose key version has moved, so running each
+        // persona's record through it turns "a file someone edited by hand" into either
+        // valid coverage or empty coverage — never a malformed object reaching the
+        // renderer, which sits on the path that assembles the explorer's prompt.
+        for (const [id, record] of Object.entries(parsed)) {
+          priorCoverage[id] = mergeCoverage(null, record);
+        }
+      }
+    } catch {
+      console.error(`hunt-ui: WARNING — ${coverageFile} is unreadable; this run explores as if nothing had been tried`);
+    }
   }
 
   const { seen, parseErrors, staleKeys } = parseSeenLedger(
@@ -1045,11 +1193,12 @@ async function cmdRun(args) {
     runId,
     headSha,
     seen,
+    priorCoverage,
     context,
     sessionLog,
     fault,
   });
-  const { reported, dropped, skipped, stats, ledgerAdds } = out;
+  const { reported, dropped, skipped, stats, ledgerAdds, coverageAdds } = out;
 
   mkdirSync(outDir, { recursive: true });
   const report = renderUiReport({
@@ -1084,6 +1233,13 @@ async function cmdRun(args) {
     console.error(`hunt-ui: seeded run — ${ledgerFile} left untouched`);
   } else {
     writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
+    // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+    // surface with a fabricated fault, and letting it claim a control was explored
+    // would suppress that control for the next REAL run.
+    if (Object.keys(coverageAdds).length > 0) {
+      writeFileSync(coverageFile, `${JSON.stringify({ ...priorCoverage, ...coverageAdds }, null, 2)}\n`);
+      console.error(`hunt-ui: coverage v${COVERAGE_KEY_VERSION} written to ${coverageFile}`);
+    }
   }
   process.stdout.write(
     `hunt-ui: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
@@ -1096,6 +1252,19 @@ async function cmdRun(args) {
         : "") +
       (stats.overclaimed > 0
         ? `         ${stats.overclaimed} reported finding(s) the verifiers had to narrow\n`
+        : "") +
+      // Loud on stderr, not just in the table: a split panel is the one drop where a
+      // verifier said "real defect, high confidence" and the run still reported
+      // nothing. It is the line most worth a human's attention on an otherwise empty
+      // run, and an empty run is exactly when nobody opens the report.
+      (stats.splitPanel > 0
+        ? `         ${stats.splitPanel} candidate(s) SPLIT the panel — some verifier confirmed; read the drop table\n`
+        : "") +
+      (stats.ungroundedRefutation > 0
+        ? `         ${stats.ungroundedRefutation} refutation(s) fell short of the confirmation standard\n`
+        : "") +
+      (stats.scopedTitleDisagreement > 0
+        ? `         ${stats.scopedTitleDisagreement} reported finding(s) the verifiers scoped DIFFERENTLY — reconcile before filing\n`
         : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
@@ -1122,6 +1291,9 @@ export async function runHunt({
   runId,
   headSha,
   seen = [],
+  // What each persona has already tried, keyed by persona id. A parameter rather than
+  // a read, so `runHunt` stays testable without a coverage file on disk.
+  priorCoverage = {},
   context,
   sessionLog = [],
   fault = null,
@@ -1144,6 +1316,14 @@ export async function runHunt({
     novel: 0,
     reproduced: 0,
     refutedAfterReplay: 0,
+    // Half the panel found a defect and the run reported nothing. Distinct from a
+    // unanimous refusal, which is the panel agreeing.
+    splitPanel: 0,
+    // Refutations that would not have cleared the bar their own confirmation had to.
+    ungroundedRefutation: 0,
+    // Reported findings whose verifiers wrote DIFFERENT scoped titles. The headline is
+    // one of them; a human has to reconcile before filing.
+    scopedTitleDisagreement: 0,
     // A candidate no verifier could finish judging. Distinct from every other drop
     // because it is pure WASTE, twice over: the truncated session is paid for and
     // produces nothing, and the candidate is deliberately not ledgered so the next
@@ -1167,6 +1347,7 @@ export async function runHunt({
     reported: 0,
   };
   const ledgerAdds = [];
+  const coverageAdds = {};
 
   if (fault) {
     console.error(`hunt-ui: FAULT INJECTION ACTIVE (?fault=${fault}) — this run is a positive control, not a hunt`);
@@ -1184,7 +1365,18 @@ export async function runHunt({
     const briefResults = [];
     for (const brief of persona.briefs) {
       try {
-        briefResults.push({ brief, ...(await exploreImpl(persona, brief, { repo, context, sessionLog, fault })) });
+        briefResults.push({
+          brief,
+          ...(await exploreImpl(persona, brief, {
+            repo,
+            // This persona's OWN memory. Per-persona because the surfaces barely share
+            // controls — telling the sheet explorer it had already tried `Bold` because
+            // the doc explorer had would steer it away from an untested control.
+            context: { ...context, coverage: priorCoverage[persona.id] ?? null, sha: headSha },
+            sessionLog,
+            fault,
+          })),
+        });
       } catch (err) {
         console.error(`hunt-ui: ${persona.id}/${brief.id} failed: ${err.message}`);
         skipped.push({ persona: `${persona.id}/${brief.id}`, kind: "session-failed", why: err.message });
@@ -1201,6 +1393,17 @@ export async function runHunt({
           refusals: err.refusals ?? [],
         });
       }
+    }
+
+    // COVERAGE, from every journal including the failed briefs'. A brief that died at
+    // the turn ceiling still clicked things, and pretending otherwise would send the
+    // next run back over the same controls.
+    for (const r of briefResults) {
+      const journal = r.out?.journal ?? r.journal ?? [];
+      coverageAdds[persona.id] = mergeCoverage(
+        coverageAdds[persona.id] ?? priorCoverage[persona.id] ?? null,
+        coverageFromJournal(journal, { sha: headSha }),
+      );
     }
 
     // Persist the RAW proposals before any filtering, journal included. For a run
@@ -1418,8 +1621,10 @@ export async function runHunt({
         record.planPath = path.relative(repo, planPath);
         record.groundedIn = uiCitationsOf(record.claimed, verdicts);
         record.scopedTitle = uiScopedTitle(record.claimed, verdicts);
+        record.scopedTitles = uiScopedTitles(verdicts);
         record.overclaimed = uiOverclaimed(verdicts);
         if (record.overclaimed) stats.overclaimed++;
+        if (uiScopedTitleDisagreement(verdicts)) stats.scopedTitleDisagreement++;
         reported.push(record);
         stats.reported++;
         ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "reported", runId, sha: headSha });
@@ -1433,6 +1638,18 @@ export async function runHunt({
         if (unjudged) stats.unjudgedVerifier++;
         if (!unjudged) {
           stats.refutedAfterReplay++;
+          // A SPLIT PANEL IS NOT THE SAME EVENT AS A UNANIMOUS NO, and until now the
+          // funnel spelled them identically. Measured on #783: one verifier confirmed
+          // at HIGH confidence and one refuted, the candidate was a real defect, and
+          // the only trace was a single drop-table line naming neither the dissent nor
+          // its reasoning. A stat is what makes "half the panel found a defect" a
+          // number somebody can watch rise.
+          const confirmations = verdicts.filter((v) => v?.verdict === "confirmed").length;
+          if (confirmations > 0 && confirmations < verdicts.length) stats.splitPanel++;
+          // Counted separately from the split, because the two say different things: a
+          // split is disagreement, this is a refutation that would not have passed the
+          // bar its own confirmation had to clear. Neither is a gate input.
+          if (verdicts.some((v) => refutationDefects(v, persona, {}).length > 0)) stats.ungroundedRefutation++;
           ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
         }
       }
@@ -1459,8 +1676,17 @@ export async function runHunt({
     );
     ledgerAdds.length = 0;
   }
+  // SEPARATE from the ledger branch above, which only fires when the seeded run produced
+  // ledger entries. A seeded run that proposed nothing still CLICKED things, and letting
+  // that claim coverage would suppress those controls for the next real run — on the
+  // strength of a session driven against a fabricated fault. `cmdRun` also refuses to
+  // write coverage for a seeded run, but `runHunt` is exported and the invariant is its
+  // own to keep.
+  if (fault) {
+    for (const k of Object.keys(coverageAdds)) delete coverageAdds[k];
+  }
 
-  return { reported, dropped, skipped, stats, ledgerAdds, seeded: fault ?? null };
+  return { reported, dropped, skipped, stats, ledgerAdds, coverageAdds, seeded: fault ?? null };
 }
 
 /**

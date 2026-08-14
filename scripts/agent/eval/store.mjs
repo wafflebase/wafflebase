@@ -102,6 +102,56 @@ export const CORPUS_DIR = "corpus";
 export const RUNS_DIR = "runs";
 
 /**
+ * Metrics layout, per the store README: `scores/per-run/<run id>/<scorer id>.json`
+ * and `scores/by-config/<config hash>__<corpus version>/<scorer id>.json`.
+ *
+ * 🔴 UNLIKE EVERY OTHER WRITE PATH IN THIS MODULE, SCORES ARE RE-WRITABLE, and
+ * that is not an oversight — it is the reason the directory exists. The README's
+ * invariant reads "Metrics live in `scores/`, never in `runs/` — change a
+ * matcher/metric and re-score cached run artifacts (cheap); no need to re-invoke
+ * the model." Re-scoreability IS the point: #780 moved every defect-class count in
+ * this store without one model call, and a write-once `scores/` would have left
+ * that re-score unfilable.
+ *
+ * So `putRun`'s refuse-on-conflict discipline is deliberately NOT copied here, and
+ * its reasoning does not transfer either. `putRun` refuses a differing
+ * `config_hash` because two reviewers' items must never be filed under one run id,
+ * which is a statement about an OBSERVATION of a non-deterministic judge. A score
+ * is a DERIVATION over observations that remain immutable underneath it — the runs
+ * it was computed from cannot move — so recomputing from them is safe by
+ * construction and the superseded value is evidence of nothing.
+ *
+ * The next reader will assume this store is uniformly write-once, because two of
+ * its three write paths are. It is not, and this is the exception.
+ */
+export const SCORES_DIR = "scores";
+
+/** Static A-vs-B comparisons: `reports/<comparison id>.md`. Re-writable for the
+ *  same reason `scores/` is — a report renders scores and holds no observation of
+ *  its own, so it is reproducible from the files it was built from. */
+export const REPORTS_DIR = "reports";
+
+/**
+ * WHAT A SCORE IS ABOUT, and therefore which of the store's two score directories
+ * it is filed under.
+ *
+ * The vocabulary is #791's (`scope: "cross-run"`), which chose it so that whichever
+ * PR persisted a score would find a shape already agreed rather than inventing a
+ * second one. The DIRECTORY names are the README's. They differ on purpose, and the
+ * asymmetry is the whole content of this constant: `scope` says which population
+ * the metric describes, while the directory says what the file is KEYED BY. A
+ * cross-run metric is keyed by `(config_hash, corpus_version)` rather than by the
+ * run ids it consumed, because that pair is the comparability key — it is what
+ * makes those runs replicates of one another at all — and a directory named after
+ * one of the run ids would file a K=3 figure under a third of its own input.
+ */
+export const SCORE_SCOPES = Object.freeze(["per-run", "cross-run"]);
+
+/** Which subdirectory of `scores/` each scope is keyed under, written once so a
+ *  reader, a writer and a test cannot disagree about where a score lives. */
+export const SCORE_SCOPE_DIRS = Object.freeze({ "per-run": "per-run", "cross-run": "by-config" });
+
+/**
  * A run directory's two files, and they have opposite mutability rules.
  *
  * `run.json` is a STATUS SUMMARY of an immutable item set, so it is rewritten as
@@ -264,6 +314,93 @@ function writeFileAtomic(abs, bytes) {
     rmSync(tmp, { force: true });
     throw e;
   }
+}
+
+/**
+ * A `config_hash` as a PATH SEGMENT: `sha256:<hex>` becomes `sha256-<hex>`.
+ *
+ * THIS IS NOT THE FORK'S MANGLE, and the difference is the validation that comes
+ * first. `_runDir` below condemns the fork's store for running every id through a
+ * `[:/\\] → -` replace, "which silently maps two distinct run ids onto one
+ * directory" — the failure there is that the replace ran over an UNCONSTRAINED
+ * string, where `a:b` and `a-b` are two ids that collide into one path. Here the
+ * input is refused unless it matches `SHA256_TEXT` first, so the domain is exactly
+ * `sha256:` followed by 64 lowercase hex characters, and over that fixed-width
+ * domain the map is INJECTIVE: the only colon is the one at index 6, and no hash
+ * can spell a `-` there. Two distinct config hashes cannot land in one directory.
+ *
+ * The alternative was to leave the colon in. It is legal on POSIX and would make
+ * the directory name the hash verbatim, which reads better — but a store that has
+ * to be checked out on Windows or copied through a bucket key would break, and the
+ * `__smoke` artifact already on disk from the fork era is named `sha256-…`, so
+ * this keeps one convention rather than adding a second beside it.
+ *
+ * The derived segment is passed back through `requireSegment` by its callers
+ * anyway. That is redundant today by the argument above, and it is the check that
+ * keeps the argument true if `SHA256_TEXT` is ever widened.
+ */
+export function configHashSegment(configHash) {
+  if (!SHA256_TEXT.test(String(configHash ?? ""))) {
+    refuse(
+      `config hash must be sha256:<64 hex> to become a path segment, got ${JSON.stringify(configHash)} — ` +
+        "it is validated rather than sanitised, because sanitising an unconstrained id is how two of them come to share one directory",
+    );
+  }
+  return configHash.replace(":", "-");
+}
+
+/**
+ * The `by-config` directory name for one comparability key.
+ *
+ * `(config_hash, corpus_version)` is that key per the store README, and it is
+ * joined with `__` because the fork-era artifact on disk already is
+ * (`sha256-7470…__smoke`). Both halves are validated before they are joined and
+ * the JOIN is validated after, so a `corpus_version` carrying a separator cannot
+ * smuggle a second directory level in behind a valid-looking hash.
+ */
+export function byConfigSegment(configHash, corpusVersion) {
+  const hash = configHashSegment(configHash);
+  const version = requireSegment("corpus version", corpusVersion);
+  return requireSegment("by-config segment", `${hash}__${version}`);
+}
+
+/**
+ * Everything that must be true of a score before it may be written.
+ *
+ * WIDENS, NEVER NARROWS, and here that rule is doing real work rather than being
+ * recited: of the four scorers this store will hold, only `cost-latency-v1` (#791)
+ * carries `scorer_id` and `scope` in its own payload — `volume-mix.mjs`,
+ * `complementarity.mjs` and `reliability.mjs` carry neither, because all three were
+ * written to print rather than to be filed. So both fields are OPTIONAL in the
+ * payload and REQUIRED at the call, and back-filling them into three merged
+ * scorers is not this module's business.
+ *
+ * What it does check is that the two do not DISAGREE. A payload that names itself
+ * `reliability-v1` filed under `volume-mix-v1` means one of the two is wrong and
+ * there is no way to tell which — the same rule, for the same reason, as `meta.id`
+ * and `envelope.run_id`.
+ */
+export function validateScore(scorerId, scope, score) {
+  requireSegment("scorer id", scorerId);
+  if (!SCORE_SCOPES.includes(scope)) {
+    refuse(`score ${scorerId}: scope must be one of ${SCORE_SCOPES.join(" | ")}, got ${JSON.stringify(scope)}`);
+  }
+  if (score === null || typeof score !== "object" || Array.isArray(score)) {
+    refuse(`score ${scorerId} must be a JSON object, got ${JSON.stringify(score)}`);
+  }
+  if (score.scorer_id !== undefined && score.scorer_id !== scorerId) {
+    refuse(
+      `score payload names itself ${JSON.stringify(score.scorer_id)} but is being filed under ${JSON.stringify(scorerId)} — ` +
+        "one of the two is wrong and nothing downstream can tell which",
+    );
+  }
+  if (score.scope !== undefined && score.scope !== scope) {
+    refuse(
+      `score ${scorerId} payload declares scope ${JSON.stringify(score.scope)} but is being filed as ${JSON.stringify(scope)} — ` +
+        "the scope decides which directory it lands in, so a disagreement files a cross-run figure under one of its own runs",
+    );
+  }
+  return score;
 }
 
 /**
@@ -836,5 +973,114 @@ export class EvalStore {
       out.push(rj.run_id ?? seg);
     }
     return out;
+  }
+
+  // --- scores ----------------------------------------------------------------
+  // Metrics over the runs above. The runs are immutable; these are not. See
+  // `SCORES_DIR`, which is where that exception is argued.
+
+  /**
+   * Where one score file lives, from its scope and its key.
+   *
+   * Every component is a PATH SEGMENT and every one of them is validated rather
+   * than sanitised, `requireSegment` being the validator the run ids and item ids
+   * already use. `<scorer id>` in particular arrives from a command line, and
+   * `scores/…/../../../etc/passwd.json` built from an unvalidated one is a
+   * traversal out of the store.
+   *
+   * The two scopes need DIFFERENT keys and neither is optional, so each refuses
+   * separately: a `per-run` score with no run id and a `cross-run` score with no
+   * config hash are both callers who have not said what their number is about.
+   */
+  _scorePath({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}) {
+    requireSegment("scorer id", scorerId);
+    if (!SCORE_SCOPES.includes(scope)) {
+      refuse(`score ${scorerId}: scope must be one of ${SCORE_SCOPES.join(" | ")}, got ${JSON.stringify(scope)}`);
+    }
+    const file = `${scorerId}.json`;
+    if (scope === "per-run") {
+      return path.join(this.root, SCORES_DIR, SCORE_SCOPE_DIRS["per-run"], requireSegment("run id", runId), file);
+    }
+    return path.join(this.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(configHash, corpusVersion), file);
+  }
+
+  /**
+   * File one metric. 🔴 OVERWRITES — a re-score replaces its predecessor.
+   *
+   * That is the opposite of `putCorpusItem` and `putItem`, and the argument is at
+   * `SCORES_DIR`: a score is a derivation over runs that cannot themselves move, so
+   * recomputing it is the cheap half of this benchmark and refusing the second
+   * write would make a metric change unfilable. #780 is the worked example — it
+   * moved 219 defect classes to 245 with no model call.
+   *
+   * The one thing an overwrite cannot silently do is cross reviewers, and that is a
+   * property of the PATH rather than a check here: a `cross-run` score is keyed by
+   * `(config_hash, corpus_version)`, and a `per-run` score by a run id whose
+   * envelope pins its own `(config_hash, panel_sha)`. So a score computed under a
+   * different reviewer lands in a different file by construction, and there is no
+   * case where "re-score" and "different reviewer" are the same write.
+   *
+   * Written atomically, like every other write on this surface: a half-written
+   * `reliability-v1.json` that parses is a metric nobody can distinguish from a
+   * complete one.
+   */
+  putScore({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}, score) {
+    validateScore(scorerId, scope, score);
+    const abs = this._scorePath({ scorerId, scope, runId, configHash, corpusVersion });
+    writeFileAtomic(abs, JSON.stringify(score, null, 2) + "\n");
+    return abs;
+  }
+
+  /**
+   * One stored metric, or `null` if it was never computed.
+   *
+   * A READ PATH, so it degrades — and here the degradation carries meaning the
+   * caller must not lose. `null` is exactly "no scorer has written this", which is
+   * the state of `cost-latency-v1` (#791, unmerged) and of a segmentation grid
+   * nobody has built. A renderer reads that as **not computed** and must render it
+   * as such, never as a zero and never as a blank cell: a scorer that never ran and
+   * a scorer that ran and found nothing are different facts, and pooling them is
+   * lesson 6.
+   *
+   * PRESENT-but-unparseable throws, the same split `getItem` and
+   * `getCorpusItemInput` draw. Answering `null` for a score file that exists and is
+   * corrupt would tell a renderer "nobody measured this" when the truth is "the
+   * measurement is unreadable", and the report would then print *"not computed"*
+   * about a number that is sitting right there.
+   */
+  getScore({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}) {
+    const abs = this._scorePath({ scorerId, scope, runId, configHash, corpusVersion });
+    if (!existsSync(abs)) return null;
+    try {
+      return JSON.parse(readFileSync(abs, "utf8"));
+    } catch (e) {
+      refuse(`score ${scorerId} at ${abs} is unreadable: ${e.message}`);
+    }
+  }
+
+  // --- reports ---------------------------------------------------------------
+
+  /**
+   * Write one rendered comparison. Returns the absolute path, which is the only
+   * thing a caller wants back and is what the CLI prints.
+   *
+   * `<comparison id>` becomes a PATH SEGMENT and is validated by `requireSegment`
+   * for the reason `_scorePath` gives: `reports/../../README.md` built from an
+   * unvalidated id overwrites a file outside the store. The id is not invented
+   * either — see `report.mjs`, which derives it from `(config_hash,
+   * corpus_version)` so a report names the reviewer pair its figures came from.
+   *
+   * An EMPTY report is refused. A report is the one artifact in this store with a
+   * human audience, and a zero-byte file at a path that exists reads as "the
+   * comparison produced nothing to say" rather than as the failed render it is.
+   */
+  putReport(comparisonId, markdown) {
+    requireSegment("comparison id", comparisonId);
+    if (typeof markdown !== "string" || markdown.trim() === "") {
+      refuse(`report ${comparisonId} is empty — a report nobody can read is worse than a report that is absent`);
+    }
+    const abs = path.join(this.root, REPORTS_DIR, `${comparisonId}.md`);
+    writeFileAtomic(abs, markdown.endsWith("\n") ? markdown : `${markdown}\n`);
+    return abs;
   }
 }

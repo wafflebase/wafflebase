@@ -777,11 +777,34 @@ success and failure uniformly:
 }
 ```
 
+Argument-parsing failures are part of that contract, not an exception to
+it. Commander exits *during parsing*, before any action handler runs, so
+its own errors would otherwise print bare prose and skip the envelope —
+the one failure an agent driver is most likely to hit. `createProgram()`
+sets `exitOverride()` plus a no-op `outputError` output hook so the parse
+error reaches `runCli`'s catch as a `CommanderError`, which envelopes it
+under the stable code `USAGE`:
+
+```console
+$ wafflebase docs content
+{
+  "error": {
+    "code": "USAGE",
+    "message": "missing required argument 'doc-id'"
+  }
+}
+```
+
+`--help`, `--version`, and bare `wafflebase` travel the same throw path
+(`commander.helpDisplayed` / `commander.version` / `commander.help`) but
+have already written their body, so they pass through with their exit code
+and no envelope.
+
 Exit codes: `0` success, `1` failure. `2` is reserved for a future
 system-error split (network, auth) and is not emitted by any command
-today — a network or auth failure exits `1` like every other failure, so
-what an agent branches on is the envelope's `code`, not the exit code
-(§10).
+today — a network or auth failure exits `1` like every other failure, and
+a `USAGE` parse failure exits `1` too, so what an agent branches on is the
+envelope's `code`, not the exit code (§10).
 
 #### 8.2 Dry-Run
 

@@ -60,20 +60,23 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
   doc: Object.freeze([
     ["doc.text", "", "the document's full plain text"],
     ["doc.blockCount", "", "how many blocks the document has"],
-    ["doc.runs", "", "every styled run: {text, bold, italic, fontSize, …}"],
+    ["doc.runs", "", "every run's STORED style: {text, bold, italic, fontSize, color, backgroundColor, …}"],
     ["doc.fontSizes", "", "the font size of each block's first run, in order"],
     ["doc.blockTypes", "", 'each block\'s type, e.g. ["heading1","paragraph"]'],
-    ["doc.styleSummary", "", "which inline styles are present anywhere in the document"],
+    ["doc.styleSummary", "", "the CURRENT SELECTION's COMPUTED style, 'mixed' where runs differ — differing from doc.runs is EXPECTED, not a defect"],
     ["doc.selection", "", "the current selection range, or null when nothing is selected"],
     ["doc.linkCount", "", "how many links the document contains"],
     ["doc.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
   sheet: Object.freeze([
-    ["sheet.cellValue", "(sref)", 'the displayed value of a cell, e.g. sheet.cellValue("B2")'],
+    ["sheet.cellValue", "(sref)", "a cell's STORED value, BEFORE any number format — percent/decimals do not change it"],
+    ["sheet.activeCellDisplay", "", "what the ACTIVE cell reads as on screen: its stored value WITH its number format applied"],
     ["sheet.cellFormula", "(sref)", "the formula text of a cell, or null when it holds a literal"],
     ["sheet.activeCell", "", "the currently selected cell reference"],
     ["sheet.selectionRange", "", "the selected range, or null"],
     ["sheet.cellCenter", "(sref)", "a cell's centre point — name it as a click target's `reader` to click that cell"],
+    ["sheet.rangeStyles", "", "every range-style patch {range,style} the toolbar has appended — they ACCUMULATE, they are not replaced"],
+    ["sheet.activeCellStyle", "", "the ACTIVE cell's COMPUTED style (sheet→col→row→cell) — differing from sheet.rangeStyles is EXPECTED, not a defect"],
     ["sheet.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
 });
@@ -89,11 +92,21 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
 export const UI_SHARED_READERS = Object.freeze([
   ["dom.text", "(selector)", "the visible text of the first element matching a CSS selector"],
   ["dom.count", "(selector)", "how many elements match a CSS selector"],
+  ["dom.controls", "", "every control you can click right now, as {role,name} — READ THIS FIRST, it is the list `target` takes"],
   ["dom.snapshot", "", "the accessibility tree of the page — sparse on canvas surfaces, so prefer the readers above"],
 ]);
 
-/** Every surface the hunt route can mount. Matches the runner's `goto` vocabulary. */
-export const UI_SURFACES = Object.freeze(Object.keys(UI_READERS_BY_SURFACE));
+/**
+ * Every surface the hunt route can mount. Matches the runner's `goto` vocabulary.
+ *
+ * Re-exported from `hunt-ui-surfaces.mjs` rather than derived from the reader table
+ * above. Deriving it made the table the only place a surface was written down, which read
+ * as tidy and hid that the plan validator and the runner each kept their own copy — and
+ * the runner's copy failed by silently substituting the sheet. The list now lives below
+ * both, and a test pins this table's keys to it, so a surface with no readers and readers
+ * with no surface are each a failing test rather than a quiet substitution.
+ */
+export { UI_SURFACES } from "./hunt-ui-surfaces.mjs";
 
 /** Display ceiling for one reader value. The journal keeps the full reading. */
 export const MAX_DISPLAY_CHARS = 1_200;
@@ -226,7 +239,7 @@ function forDisplay(value) {
  * measured value invites re-describing a violated prediction as some weaker claim that
  * happens to fit, which is the rationalisation this whole design forbids.
  */
-export function renderUiObservation({ action, observation, prediction = null }) {
+export function renderUiObservation({ action, observation, prediction = null, atIndex = null }) {
   const oracles = Array.isArray(observation?.oracles) ? observation.oracles : [];
   const lines = [];
   lines.push(
@@ -235,6 +248,26 @@ export function renderUiObservation({ action, observation, prediction = null }) 
 
   if ((action.type === "read" || action.type === "wait") && observation.ok) {
     lines.push(`${action.reader} => ${forDisplay(observation.value)}`);
+  }
+
+  // THE TOKEN THAT CITES THIS ENTRY, next to the value it names.
+  //
+  // Ground A requires `value` to be `@read:<i>` or `@input:<i>`, and the caller had no
+  // way to learn `<i>` except by counting its own actions since the session began. It
+  // miscounts: across three live runs, 10 of 97 predictions resolved to nothing and were
+  // discarded as unevaluable — ~10% of all predictive work paid for and thrown away, on
+  // arithmetic rather than on anything about the app.
+  //
+  // Emitted only for entries that CAN be cited, and only on success. Offering
+  // `@read:<i>` for a failed read, or for a click, would trade a miscount for a
+  // reference that resolves to an unusable entry — the same waste with a friendlier
+  // cause. `@input:` names typed text, which is why a `type` gets the other token.
+  if (Number.isInteger(atIndex) && observation.ok) {
+    if (action.type === "read" || action.type === "wait") {
+      lines.push(`cite this reading as @read:${atIndex}`);
+    } else if (action.type === "type") {
+      lines.push(`cite this text as @input:${atIndex}`);
+    }
   }
 
   if (prediction) {
@@ -275,7 +308,40 @@ const say = (text, extra = {}) => ({ content: [{ type: "text", text }], ...extra
  * so the whole handler is testable against a stub returning scripted observations, which
  * is the only way any of this runs in `agent:tests`.
  */
-export function createUiTool({ charter = {}, surface = "doc", session, budget, journal, cfg = {} } = {}) {
+/**
+ * One line describing an action that just completed, for a human watching a live run.
+ *
+ * A run costs up to ten minutes and several dollars and, until now, printed NOTHING
+ * between "issue corpus: 91 issues" and the final funnel — the journal is only persisted
+ * when a brief FINISHES, so a run that hangs leaves no trace of how far it got. Asked
+ * whether a 23-minute run was working or stuck, the only available answer was "the
+ * process is alive".
+ *
+ * REDACTED like every other output boundary, and truncated, because the line carries
+ * whatever the explorer typed. `budget` is included because it is the one number that
+ * separates "working through a long brief" from "looping": actions climb in the first
+ * case and stall in the second.
+ */
+export function renderUiProgress({ label = "", index = 0, action: rawAction, observation: rawObservation, prediction = null, used = 0, total = 0 } = {}) {
+  // A default parameter only fills in `undefined`, and this runs on EVERY action of
+  // every run — a null slipping through would take down a session to print a log line.
+  const action = rawAction && typeof rawAction === "object" ? rawAction : {};
+  const observation = rawObservation && typeof rawObservation === "object" ? rawObservation : {};
+  const what =
+    action.type === "read" || action.type === "wait"
+      ? action.reader ?? "?"
+      : action.type === "type"
+        ? JSON.stringify(String(action.text ?? "").slice(0, 24))
+        : action.type === "key"
+          ? String(action.key ?? "")
+          : (action.target?.name ?? action.target?.reader ?? action.surface ?? "");
+  const status = observation.ok === true ? "ok" : `FAILED ${String(observation.error ?? "").slice(0, 60)}`;
+  const verdict = prediction?.verdict ? ` · ${prediction.verdict}` : "";
+  const budget = total > 0 ? `${used}/${total}` : String(used);
+  return `hunt-ui:   ${label} [${budget}] #${index} ${action.type} ${what} ${status}${verdict}`.trimEnd();
+}
+
+export function createUiTool({ charter = {}, surface = "doc", session, budget, journal, cfg = {}, label = "", maxActions = 0, onProgress = null } = {}) {
   if (!session || typeof session.act !== "function") throw new Error("hunt-ui-tool: a session with act() is required");
   if (!budget || typeof budget.charge !== "function") throw new Error("hunt-ui-tool: a budget is required");
   if (!Array.isArray(journal)) throw new Error("hunt-ui-tool: a journal array is required");
@@ -358,7 +424,29 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
     journal.push(entry);
     const atIndex = journal.length - 1;
 
-    if (!action.expect) return say(safe(renderUiObservation({ action, observation })));
+    const progress = (pred) => {
+      if (typeof onProgress !== "function") return;
+      // Through `safe`, like every other egress from this file: the line carries the
+      // control name and whatever was typed.
+      onProgress(
+        safe(
+          renderUiProgress({
+            label,
+            index: atIndex,
+            action,
+            observation,
+            prediction: pred,
+            used: budget.used ?? 0,
+            total: maxActions,
+          }),
+        ),
+      );
+    };
+
+    if (!action.expect) {
+      progress(null);
+      return say(safe(renderUiObservation({ action, observation, atIndex })));
+    }
 
     // 6. ASSESS. `atIndex` is this action's own index, so a prediction cannot cite
     //    itself as its own baseline — `not-equals @read:<own index>` is otherwise a
@@ -372,8 +460,10 @@ export function createUiTool({ charter = {}, surface = "doc", session, budget, j
     });
     entry.prediction = prediction;
 
+    progress(prediction);
+
     // 7. REDACT on the way out. Public repo; every output boundary is guarded.
-    return say(safe(renderUiObservation({ action, observation, prediction })));
+    return say(safe(renderUiObservation({ action, observation, prediction, atIndex })));
   };
 }
 

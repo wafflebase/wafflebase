@@ -155,6 +155,51 @@ export function toggleLink(view: EditorView): void {
 }
 
 /**
+ * Escape the characters that would break out of a markdown image's alt text.
+ * The alt comes from a filename, which may legitimately contain brackets or
+ * backslashes, and — on Linux, where a newline is a legal filename byte — line
+ * breaks too. Collapsing those keeps a hostile name from splitting the image
+ * across two lines.
+ */
+function escapeAlt(alt: string): string {
+  return alt.replace(/[\\[\]]/g, (c) => `\\${c}`).replace(/[\r\n]+/g, ' ');
+}
+
+/**
+ * Insert `![alt](url)` as its own line at `pos` (default: the caret), leaving
+ * the caret after the inserted image.
+ *
+ * Dispatched as a single `input` transaction so `noteSync` records it as one
+ * undo unit — an image insert is undone in one step, not character by
+ * character. The URL is written verbatim: it comes from our own upload
+ * endpoint, and percent-encoding it here would corrupt keys that already
+ * contain escapes.
+ */
+export function insertImage(
+  view: EditorView,
+  url: string,
+  alt = '',
+  pos?: number,
+): void {
+  const { state } = view;
+  const at = Math.min(Math.max(0, pos ?? state.selection.main.head), state.doc.length);
+  const line = state.doc.lineAt(at);
+  // Own line: break out of the current one unless we are already at its start,
+  // and always end the line so following text is not swallowed into the image.
+  const prefix = at === line.from ? '' : '\n';
+  const insert = `${prefix}![${escapeAlt(alt)}](${url})\n`;
+
+  view.dispatch(
+    state.update({
+      changes: { from: at, insert },
+      selection: EditorSelection.cursor(at + insert.length),
+      userEvent: 'input',
+      scrollIntoView: true,
+    }),
+  );
+}
+
+/**
  * Insert a GFM table skeleton of `rows` × `cols` (the first row is the header,
  * so `rows` counts the header row) on its own line(s). Cells are empty.
  */

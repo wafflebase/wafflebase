@@ -30,6 +30,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { scrubVolatile } from "./hunt-fingerprint.mjs";
 import { checkExpectationShape } from "./hunt-ui-expect.mjs";
+import { UI_SURFACES } from "./hunt-ui-surfaces.mjs";
 import { withScratch } from "./hunt-probe.mjs";
 
 /** Relative to the repo root — the driver, which is where playwright resolves. */
@@ -113,8 +114,11 @@ export function assertSafeActionPlan(plan) {
     }
     switch (action.type) {
       case "goto":
-        if (action.surface !== "sheet" && action.surface !== "doc") {
-          bad(`${where} surface must be "sheet" or "doc", got ${JSON.stringify(action.surface)}`);
+        // Against the shared vocabulary rather than a pair spelled out here. This is the
+        // one surface check that has always failed loudly, which is why it was the one
+        // nobody noticed had copies.
+        if (!UI_SURFACES.includes(action.surface)) {
+          bad(`${where} surface must be one of ${UI_SURFACES.join(", ")}, got ${JSON.stringify(action.surface)}`);
         }
         break;
       case "click":

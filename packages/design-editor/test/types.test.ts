@@ -5,7 +5,7 @@ import {
   walkSceneNodes,
   type Analysis,
   type SceneNodeMeta,
-} from '../src/types';
+} from '../src/types.ts';
 
 /**
  * `sceneNodeAt` is the CLIENT half of the index-path addressing that
@@ -22,6 +22,7 @@ function node(tag: string, children: SceneNodeMeta[] = []): SceneNodeMeta {
     tag,
     attrs: [],
     className: null,
+    classNameExpr: null,
     identity: {},
     text: null,
     fp: `fp:${tag}`,

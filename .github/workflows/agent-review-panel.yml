@@ -120,6 +120,9 @@ concurrency:
 permissions: {}
 
 env:
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
   # Fix-agent dispatches before review-round-guard.mjs pages a human.
   #
   # Three, not five, because nothing in this pipeline can page for
@@ -753,9 +756,37 @@ jobs:
           # CLAUDE_CODE_OAUTH_TOKEN (verified against its source; see the header
           # comment in review-panel.mjs), which is exactly the secret the
           # maintainer configured and the same one the pipeline's
-          # claude-code-action steps use. Export ONLY that one — no second
-          # credential in a process whose cwd is the untrusted branch checkout.
+          # claude-code-action steps use. No GitHub token here — this process's
+          # cwd is the untrusted branch checkout.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          #
+          # THIS RELAXES A STATED INVARIANT. Until the credential pool, the rule
+          # here was "export ONLY that one — no second credential in a process
+          # whose cwd is the untrusted branch checkout" (#508), and the count was
+          # the point: it bounded what a single exfiltration bug in an untrusted
+          # context could take. The pool needs alternatives IN this process,
+          # because ask.mjs fails over inside the round, so the count is now up
+          # to nine and the blast radius scales with it.
+          #
+          # What still bounds it: this session grants Read/Grep/Glob only, with
+          # permissionMode 'dontAsk' and settingSources [] (see ask.mjs), so
+          # reaching the environment needs an SDK bug, not prompt injection. That
+          # is defence in depth, not a replacement for the count — see
+          # docs/design/harness-engineering.md, which tracks reducing this to the
+          # two credentials a round can actually use.
+          #
+          # One token is selected per JOB and held, because prompt caches are per
+          # account and rotating per call would make this panel pay its
+          # shared-prefix warm-up once per token instead of once per round.
+          # Unregistered slots arrive as "" and are dropped.
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
           # Via env, never interpolated into the `run:` string. This step holds
           # the Claude token, and repo convention keeps workflow expressions out
           # of shell commands in jobs that hold secrets.
@@ -1580,7 +1611,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" fixing
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
       # can detect a fix round that pushed NO new commit. We read the remote
@@ -1830,7 +1861,7 @@ jobs:
               '' \
               'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
-            node ./scripts/agent/set-state.mjs "$PR" blocked || true
+            node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
           fi
 
       # OBSERVABILITY (Phase 1): reflect the fix outcome on the sticky

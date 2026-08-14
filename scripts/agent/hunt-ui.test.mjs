@@ -22,6 +22,8 @@ import {
   replayPlanFor,
   replayDidRun,
   uiScopedTitle,
+  uiScopedTitles,
+  uiScopedTitleDisagreement,
   uiOverclaimed,
 } from "./hunt-ui.mjs";
 import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS, UI_VERIFIER_SCHEMA } from "./hunt-gate.mjs";
@@ -69,10 +71,26 @@ test("each rubric injects its OWN surface's constraints and not the other's", ()
   // no-ops. A whole ground-A finding was built on not knowing that.
   assert.match(byId["doc-writer"].rubric, /CLEAR THE SELECTION/i, "doc rubric must warn that undo/redo clears the selection");
 
-  // And the constraints must NOT bleed across: an explorer told about a toolbar it
-  // cannot reach wastes budget discovering that.
-  assert.doesNotMatch(byId["sheet-author"].rubric, /formatting toolbar is mounted/);
-  assert.match(byId["sheet-author"].rubric, /no formatting toolbar/i);
+  // The sheet surface HAS a toolbar now, and this assertion used to pin the opposite.
+  // It was right when written and became wrong the moment the toolbar was mounted —
+  // which is the failure mode worth naming, because it has now happened twice: a brief
+  // that told the doc explorer colour was out of bounds outlived the reader that made
+  // colour observable, and the capability sat unused until someone noticed. A rubric
+  // stating a surface fact is a claim with an expiry date, and this is its test.
+  assert.match(byId["sheet-author"].rubric, /formatting toolbar IS mounted/i, "sheet rubric must say the toolbar is there");
+  assert.doesNotMatch(byId["sheet-author"].rubric, /no formatting toolbar/i, "and must not still deny it");
+
+  // The two traps the mount CREATES. Both are buttons that render and do nothing, which
+  // is the exact shape that produced this persona's only previous finding — a confident,
+  // reproducible, false one.
+  assert.match(byId["sheet-author"].rubric, /DO NOTHING HERE/i, "sheet rubric must name the unwired panel buttons");
+  assert.match(byId["sheet-author"].rubric, /Undo` and `Redo` are visible/i, "and that visible undo still cannot work");
+
+  // The reader pair, and which side of it a prediction belongs on. Getting this wrong
+  // is how `doc.styleSummary` invited false findings for months.
+  assert.match(byId["sheet-author"].rubric, /sheet\.rangeStyles/, "sheet rubric must name the reader the toolbar writes to");
+  assert.match(byId["sheet-author"].rubric, /DOES NOT LAND ON THE CELL/i, "and warn that styling misses the cell itself");
+  assert.match(byId["sheet-author"].rubric, /ACCUMULATE/, "and that patches accumulate, so a round trip is not `equals` on them");
 });
 
 test("every persona's codeScope and docsScope name paths that EXIST", () => {
@@ -1393,4 +1411,117 @@ test("hunt-ui.mjs static-imports nothing third-party", () => {
       `static import of ${spec} — third-party imports must be lazy (await import)`,
     );
   }
+});
+
+test("uiScopedTitles: keeps every distinct scoping, so the report cannot hide one", () => {
+  // THE RUN THIS EXISTS FOR. Both verifiers confirmed the same real defect at high
+  // confidence; one appended an exclusion that was FALSE, and `scoped[0]` headlined
+  // that one while discarding the correct version.
+  const correct = "setBlockType omits notifyStyleApplied, so the control stays stale";
+  const withFalseExclusion = `${correct}; the shortcut path is unaffected`;
+  const verdicts = [
+    { verdict: "confirmed", confidence: "high", scopedTitle: withFalseExclusion },
+    { verdict: "confirmed", confidence: "high", scopedTitle: correct },
+  ];
+
+  assert.deepEqual(uiScopedTitles(verdicts), [withFalseExclusion, correct]);
+  assert.equal(uiScopedTitleDisagreement(verdicts), true);
+  // The headline is unchanged — this surfaces the alternative, it does not guess.
+  assert.equal(uiScopedTitle({ title: "hunter" }, verdicts), withFalseExclusion);
+
+  // Agreement is not disagreement, and identical prose is one title, not two.
+  const agreed = [{ scopedTitle: correct }, { scopedTitle: `  ${correct}  ` }];
+  assert.deepEqual(uiScopedTitles(agreed), [correct]);
+  assert.equal(uiScopedTitleDisagreement(agreed), false);
+
+  // Absent/blank/malformed verdicts contribute nothing rather than throwing — a
+  // verifier that errored must not manufacture a disagreement.
+  for (const junk of [null, undefined, [], [null], [{}], [{ scopedTitle: "   " }], "nope", 7]) {
+    assert.deepEqual(uiScopedTitles(junk), []);
+    assert.equal(uiScopedTitleDisagreement(junk), false);
+  }
+});
+
+test("the report shows both scopings, and says the heading is not a consensus", () => {
+  const md = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A; the shortcut path is unaffected",
+        scopedTitles: ["narrow A; the shortcut path is unaffected", "narrow B"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.match(md, /scoped this differently/i, "a disagreement must be visible in the report");
+  assert.match(md, /narrow B/, "the discarded scoping must appear");
+  assert.match(md, /not a consensus/i, "and the heading must not read as agreed");
+
+  // One scoping is the normal case and must NOT be dressed up as a disagreement.
+  const agreed = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A", scopedTitles: ["narrow A"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.doesNotMatch(agreed, /scoped this differently/i);
+});
+
+test("a capability the rubric advertises is one some brief actually asks for", () => {
+  // MEASURED, and it cost a live run to learn. `sheet-author`'s rubric was updated to
+  // describe a newly mounted formatting toolbar, twelve controls by name, with a worked
+  // round-trip example — and its two brief TASKS were left untouched. The explorer did
+  // exactly what it was asked (build a table, use formulas, navigate), never clicked a
+  // control, and never called either style reader. 100 actions, 37 predictions, all
+  // held, nothing proposed. The capability was mounted, documented, and unreachable.
+  //
+  // The rubric describes the SURFACE; the task is what the explorer is told to DO. A
+  // capability named only in the rubric is a capability nothing exercises, which reads
+  // downstream as "no defects in that area" — the same silent gap the reader-list drift
+  // test exists to close, one layer up.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    if (!/formatting toolbar IS mounted/i.test(p.rubric)) continue;
+    const tasks = p.briefs.map((b) => b.task).join("\n");
+    assert.match(
+      tasks,
+      /\bbold\b|\bitalic\b|\btoolbar\b|\bformat\b/i,
+      `${p.id}'s rubric advertises a toolbar, but no brief task directs the explorer at it — ` +
+        "the controls will sit unused and the run will read as a clean surface",
+    );
+  }
+});
+
+test("a seeded run records NO coverage, even when it proposed nothing", async () => {
+  // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+  // surface against a FABRICATED fault, and letting it claim a control was explored
+  // would suppress that control for the next real run.
+  //
+  // The narrow version of this check would gate on the ledger being non-empty, which is
+  // how the bug got in: a seeded run that proposed nothing still CLICKED things, so it
+  // skipped the reset and returned coverage anyway. `cmdRun` refuses to write coverage
+  // for a seeded run regardless, but `runHunt` is exported and the invariant is its own.
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      out: { candidates: [], summary: "nothing proposed" },
+      journal: [{ action: { type: "click", target: { name: "Bold" } }, ok: true }],
+      actionCount: 1,
+      refusals: [],
+    }),
+  });
+
+  const clean = await runHunt({ ...deps, fault: null });
+  assert.ok(Object.keys(clean.coverageAdds).length > 0, "a clean run that clicked something DOES record coverage");
+
+  const seeded = await runHunt({ ...deps, fault: "drop-second-char" });
+  assert.equal(seeded.stats.proposed, 0, "this run proposes nothing, so the ledger stays empty");
+  assert.deepEqual(seeded.coverageAdds, {}, "and coverage must still be discarded");
 });

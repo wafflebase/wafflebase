@@ -142,13 +142,46 @@ describe('DataSourceService', () => {
     expect(client.query).toHaveBeenNthCalledWith(4, "SET lc_monetary = 'C'");
     expect(client.query).toHaveBeenNthCalledWith(
       5,
-      'SELECT * FROM (SELECT id FROM users) AS _q LIMIT 10001',
+      'SELECT * FROM (SELECT id FROM users\n) AS _q LIMIT 10001',
     );
     expect(client.end).toHaveBeenCalledTimes(1);
 
     expect(result.columns).toEqual([{ name: 'id', dataTypeID: 23 }]);
     expect(result.rowCount).toBe(10_000);
     expect(result.truncated).toBe(true);
+  });
+
+  it('does not let a trailing line comment in the query swallow the LIMIT wrapper', async () => {
+    prisma.dataSource.findUnique.mockResolvedValue({
+      id: 'ds-1',
+      authorID: 7,
+      host: 'localhost',
+      port: 5432,
+      database: 'postgres',
+      username: 'waffle',
+      password: encrypt('plain-secret'),
+      sslEnabled: false,
+    });
+
+    const client = createMockPgClient();
+    client.query.mockResolvedValue({ rows: [], fields: [] });
+
+    jest
+      .spyOn(
+        service as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+      .mockReturnValue(client);
+
+    await service.executeQuery('ds-1', {
+      query: 'SELECT id FROM t -- filter TODO',
+    });
+
+    // The wrapper clause must survive on its own line, not get commented out.
+    expect(client.query).toHaveBeenNthCalledWith(
+      5,
+      'SELECT * FROM (SELECT id FROM t -- filter TODO\n) AS _q LIMIT 10001',
+    );
   });
 
   it('hands pg the decrypted password for a saved datasource', async () => {

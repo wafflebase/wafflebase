@@ -116,7 +116,9 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Errors**: a single JSON line on stderr —
   `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
-  command-specific `code` agents can branch on. A failed request whose
+  command-specific `code` agents can branch on; argument-parsing
+  failures (missing argument, unknown option, unknown command) report
+  `USAGE`. A failed request whose
   body the backend did *not* send in that shape (an Express/Nest
   `{message, error, statusCode}` 404/500, an HTML proxy page) reports
   `"HTTP_ERROR"` with `"HTTP <status>"` — plus the upstream's own

@@ -23,9 +23,11 @@ export function parseDatabaseUrl(databaseUrl: string) {
 }
 
 export async function clearDatabase(prisma: PrismaService) {
+  await prisma.notification.deleteMany();
   await prisma.apiKey.deleteMany();
   await prisma.shareLink.deleteMany();
   await prisma.dataSource.deleteMany();
+  await prisma.bigQuerySource.deleteMany();
   await prisma.document.deleteMany();
   await prisma.workspaceInvite.deleteMany();
   await prisma.workspaceMember.deleteMany();
