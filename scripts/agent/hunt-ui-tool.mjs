@@ -96,8 +96,17 @@ export const UI_SHARED_READERS = Object.freeze([
   ["dom.snapshot", "", "the accessibility tree of the page — sparse on canvas surfaces, so prefer the readers above"],
 ]);
 
-/** Every surface the hunt route can mount. Matches the runner's `goto` vocabulary. */
-export const UI_SURFACES = Object.freeze(Object.keys(UI_READERS_BY_SURFACE));
+/**
+ * Every surface the hunt route can mount. Matches the runner's `goto` vocabulary.
+ *
+ * Re-exported from `hunt-ui-surfaces.mjs` rather than derived from the reader table
+ * above. Deriving it made the table the only place a surface was written down, which read
+ * as tidy and hid that the plan validator and the runner each kept their own copy — and
+ * the runner's copy failed by silently substituting the sheet. The list now lives below
+ * both, and a test pins this table's keys to it, so a surface with no readers and readers
+ * with no surface are each a failing test rather than a quiet substitution.
+ */
+export { UI_SURFACES } from "./hunt-ui-surfaces.mjs";
 
 /** Display ceiling for one reader value. The journal keeps the full reading. */
 export const MAX_DISPLAY_CHARS = 1_200;

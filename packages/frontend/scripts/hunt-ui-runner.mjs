@@ -49,6 +49,7 @@ import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
 // All node builtins behind it (~15ms), and this file already reaches across for
 // `boundValue` for the same reason: a duplicated rule is a rule that drifts.
 import { assertFaultId } from "../../../scripts/agent/hunt-ui-probe.mjs";
+import { assertMountedSurface, UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -218,7 +219,7 @@ async function resolveTarget(page, target) {
 
 // --- the action loop ---------------------------------------------------------
 
-async function waitForReady(page, url) {
+async function waitForReady(page, url, expectedSurface = null) {
   await page.goto(url, { waitUntil: "networkidle" });
   // Same animation kill the interaction lane uses. Transitions in flight are the
   // cheapest source of a screenshot or a hit-test landing on the wrong frame.
@@ -234,19 +235,45 @@ async function waitForReady(page, url) {
     BRIDGE_KEY,
     { timeout: 20_000 },
   );
+
+  // ASK THE PAGE WHAT IT ACTUALLY MOUNTED.
+  //
+  // The check above proves something is ready, not that it is the right something. The
+  // hunt page resolves `?surface=` from the URL and must keep DEFAULTING an unrecognised
+  // value, because a URL is typed by hand — so single-sourcing the vocabulary across this
+  // repository's own lists still cannot make the page tell us it substituted. This can:
+  // the bridge reports the surface it installed, and nothing between here and there gets
+  // to disagree silently.
+  if (expectedSurface !== null) {
+    const mounted = await page.evaluate((key) => {
+      const bridge = window[key];
+      return bridge && typeof bridge.surface === "function" ? bridge.surface() : null;
+    }, BRIDGE_KEY);
+    assertMountedSurface(expectedSurface, mounted);
+  }
 }
 
 
 async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
   switch (action.type) {
     case "goto": {
-      const surface = action.surface === "doc" ? "doc" : "sheet";
+      // REFUSED, NOT COERCED. This read `=== "doc" ? "doc" : "sheet"`, so any surface
+      // the plan validator had not already rejected became the sheet without a word.
+      // Nothing could reach it today — `assertSafeActionPlan` runs first — which is
+      // precisely why it was worth removing before a third surface exists rather than
+      // after: the copy that errors is the one you remember to update.
+      const surface = String(action.surface ?? "");
+      if (!UI_SURFACES.includes(surface)) {
+        throw new Error(
+          `goto surface ${JSON.stringify(action.surface)} is not one of: ${UI_SURFACES.join(", ")}`,
+        );
+      }
       // `?fault=` rides on the SAME navigation as `?surface=`, so a seeded defect
       // survives every reset the plan performs. Injecting it once at boot instead
       // would silently switch itself off the first time the agent navigated, and a
       // positive control that stops controlling is worse than none.
       const seed = fault ? `&fault=${encodeURIComponent(fault)}` : "";
-      await waitForReady(page, `${baseUrl}/harness/hunt?surface=${surface}${seed}`);
+      await waitForReady(page, `${baseUrl}/harness/hunt?surface=${surface}${seed}`, surface);
       return { value: surface };
     }
     case "click": {
