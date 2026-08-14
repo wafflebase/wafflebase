@@ -94,9 +94,15 @@ Every file on `feat/design-system` falls into exactly one of three populations.
 | --- | --- |
 | Node model + mutators | `src/server/jsx-nodes.mjs`, `inject.mjs`, `extract.mjs`, `stamp.mjs` |
 | Plugin host | the bridge/HTTP/transaction half of `vite.config.ts`, refactored into `src/plugin/` |
-| Bridge client | `mutate.ts`, `states.ts`, `anchors.ts`, `history.ts`, `candidates.ts`, `registry.tsx` |
+| Bridge client | `mutate.ts`, `states.ts`, `anchors.ts`, `history.ts`, `candidates.ts`, ~~`registry.tsx`~~ ⚠ |
 | Frame + host | `frame-protocol.ts`, `SceneHost.tsx`, `frame-picker.ts`, `hmr-state.ts`, `import-paths.ts`, `SceneOutline.tsx`, `SceneNodeDetail.tsx`, `FloatingClassEditor.tsx` |
 | Shell UI | the panels, modal, combobox, accordion, toast, `SandboxLayout.tsx` |
+
+⚠ **`registry.tsx` is population C, not A** — corrected while building 9a. It is a
+map from component name to a live renderer, and every entry is one of *wafflebase's*
+components imported through `@`: `Button` and `Badge`, nothing else. The generic half
+is the type and `hasPreview()`; the contents belong beside `providers.tsx` in
+`packages/design-sandbox`, for the same reason and in the same PR.
 
 **B — Coupled today, must become configuration.** Enumerated in
 [§6](#6-the-couplings-that-must-become-configuration).
@@ -573,8 +579,10 @@ cap is what sets the granularity.
 | 7b | `classNameExpr` — surfacing the class-rewrite refusal (engine §5.7) | **merged** (#787) |
 | 8a | plugin host, **layout only** | **merged** (#819) |
 | 8b | the `TokenAdapter` seam | **merged** (#833) |
-| 8c | `packages/design-sandbox` — the token half | in review (#839) — see below |
-| 9 | client state (`mutate` · `history` · `anchors` · `states`) | held |
+| 8c | `packages/design-sandbox` — the token half | **merged** (#839) — see below |
+| 9a | bridge client (`bridge` · `states` · `property-labels`) | next — see below |
+| 9b | `edits.ts` | held |
+| 9c | `history` · `anchors` | held |
 | 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
@@ -639,6 +647,27 @@ So the cut follows the one that already worked for the module underneath it —
   statement that the two halves *meet*: the unit suites on either side would not
   notice them failing to. It stays out of `verify:fast` / `verify:self` on the same
   grounds as the prototype's smoke scripts.
+- **9a — the bridge client.** `@wafflebase/design-editor/client`: the browser half,
+  as a subpath so importing it never reaches the plugin's `node:fs`. `BASE` moved to
+  `src/base.ts` for that reason — the client needs the value and cannot import the
+  module that declared it.
+
+  **`bridge.ts` is a rewrite, not a port.** The prototype's `mutate.ts` called
+  `/__design-sdk/*` and four routes the shipped bridge does not serve: `/introspect`
+  (now `/tokens`, adapter-supplied), `/history` (now `/transactions`), and
+  `/metadata` + `/scene-preview`, which belong to the scene runtime in PR 10. It
+  also redeclared the intent and result types the server owns; the client imports
+  them, so the two cannot drift.
+
+  Driving it against a live dev server before writing the tests corrected the
+  contract once: `/candidates` also returns `rejected` and `capped`, and both matter
+  — a refused class generates no rule, so the preview renders unstyled with nothing
+  on screen to say why.
+
+  Three prototype files did **not** come with it. `candidates.ts` needs React, which
+  this package does not depend on, and has no consumer until PR 10. `toast.tsx` is
+  Shell UI by the table in §2. `registry.tsx` is wafflebase's own components — see
+  the ⚠ there.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,

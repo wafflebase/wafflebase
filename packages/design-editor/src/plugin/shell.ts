@@ -18,8 +18,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 
-/** Where the bridge and the shell live, so neither can collide with a real route. */
-export const BASE = '/__design-editor';
+// Imported, not declared: the browser client needs the same value and cannot import
+// this file, which pulls in `node:fs`. See `src/base.ts`. Re-exported so every
+// existing `import { BASE } from './shell.ts'` keeps working.
+import { BASE } from '../base.ts';
+
+export { BASE };
 
 export interface ShellDeps {
   /** Directory holding the prebuilt `index.html`, `scene.html` and assets. */
