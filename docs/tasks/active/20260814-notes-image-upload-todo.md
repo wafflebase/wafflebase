@@ -4,7 +4,8 @@ Bring image insertion to the notes markdown editor: paste, drop, and a
 toolbar button, uploading through the existing workspace image endpoint and
 inserting `![alt](url)` at the right place.
 
-Ported in spirit from CodePair's `packages/codemirror/src/plugins/imageUploader.ts`
+Ported in spirit from CodePair's imageUploader plugin
+(`packages/codemirror/src/plugins/` in that repo, not this one)
 (paste/drop → presigned upload → `![image](url)` at the caret), with three of
 its weaknesses fixed:
 

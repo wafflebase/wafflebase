@@ -251,7 +251,7 @@ board already share, through the frontend's existing
 `uploadImageFile(file, workspaceId)`. The preview needed nothing either —
 `markdown-it`'s image rule already renders the result.
 
-The design departs from CodePair's `imageUploader.ts` in several places, each
+The design departs from CodePair's imageUploader plugin in several places, each
 because the naive version misbehaves in a collaborative markdown editor:
 
 - **The in-flight placeholder is view-local, not text.** A note's body is one
