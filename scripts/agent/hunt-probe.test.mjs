@@ -33,7 +33,11 @@ test("redactSecrets: removes every credential shape, including nested in output"
   const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123signature";
   const cases = [
     ["wfb_live_AbCdEf123456", /<REDACTED_API_KEY>/],
-    ["Authorization: Bearer sk-secret-value-here", /<REDACTED>/],
+    // Labelled `<REDACTED_API_KEY>`, not the generic `<REDACTED>`, since the
+    // redactor moved to redact.mjs: an `sk-` key is now recognised by SHAPE before
+    // the Bearer rule sees it, so it gets the more specific label. The safety
+    // property is the `doesNotMatch` below, which is unchanged.
+    ["Authorization: Bearer sk-secret-value-here", /<REDACTED_API_KEY>/],
     [jwt, /<REDACTED_JWT>/],
     ['{"api_key": "abcdef1234567890"}', /<REDACTED>/],
     ["x-api-key: 0123456789abcdef", /<REDACTED>/],

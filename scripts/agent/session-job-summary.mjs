@@ -17,6 +17,7 @@
 import { readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { redactSecrets } from "./redact.mjs";
 import {
   parseExecution,
   classifyFixResult,
@@ -47,7 +48,9 @@ export function renderSessionSummary({ rec = null, outcome = null, title = "Agen
     "",
   );
   if (outcome && outcome.ok === false) {
-    const detail = String(outcome.detail || "no detail reported").slice(0, 400);
+    // `reason` first (closed vocabulary), redacted `detail` as the fallback for
+    // records written before the vocabulary existed. Same rule as metrics.mjs.
+    const detail = String(outcome.reason || redactSecrets(String(outcome.detail || "")) || "no detail reported").slice(0, 400);
     lines.push(
       `**Outcome: failed (${outcome.kind}${outcome.status ? ` ${outcome.status}` : ""})** — ${detail}`,
       "",
