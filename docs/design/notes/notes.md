@@ -282,6 +282,23 @@ because the naive version misbehaves in a collaborative markdown editor:
   type, oversize, network) and raises a toast. CodePair's rejected upload
   becomes `undefined` and is swallowed by an `if (!url) return`.
 
+**An oversized image is downscaled, not refused.** Over the limit, the shared
+helper re-encodes the image through `image-downscale.ts` and uploads the
+smaller version: the longest side is capped at 4096 px, then progressively
+smaller scale steps are tried until the encode lands under the limit. A PNG
+source becomes WebP (alpha survives, and it is already in the backend's MIME
+allowlist); a JPEG stays JPEG rather than passing through a second lossy codec;
+a GIF is never re-encoded, because a canvas keeps its first frame only and a
+downscaled animation is a silently broken image. Downscaling never throws — a
+failed decode or encode yields the original file and `uploadImageFile` produces
+the error, so exactly one place decides "too large". The size error names the
+limit *and* the sizes ("Image is still 12.5 MB after downscaling (was 40 MB),
+over the 10 MB limit"), because the bare limit left the user guessing whether
+they missed it by 200 KB or by 40 MB. This lives in
+`packages/frontend/src/app/spreadsheet/image-upload.ts`, so sheets, slides, and
+board get it too; the docs editor uploads through its own `docxImageUploader`
+path and still fails at the backend instead.
+
 The completed upload dispatches a single `input` transaction, which `noteSync`
 collapses into one undo unit — Ctrl+Z removes an inserted image in one step.
 When the payload carries no image the handlers decline the event rather than

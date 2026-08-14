@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/api/auth";
+import { downscaleImageFile } from "./image-downscale";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
 
@@ -13,8 +14,13 @@ export type UploadResult = {
 };
 
 /**
- * Validates the file, loads dimensions, uploads to server.
- * Throws on validation or upload failure.
+ * Validates the file, downscales it if it is over the size limit, loads
+ * dimensions, uploads to server. Throws on validation or upload failure.
+ *
+ * An oversized image is shrunk rather than refused — resizing is the common
+ * case and should not need a round trip through an image editor (issue #815).
+ * The dimensions returned are those of the bytes actually uploaded, not of the
+ * original.
  */
 export async function uploadImageFile(
   file: File,
@@ -23,14 +29,19 @@ export async function uploadImageFile(
   if (!ALLOWED_TYPES.includes(file.type)) {
     throw new Error(`Unsupported file type: ${file.type}`);
   }
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error("File too large (max 10 MB)");
+
+  const upload =
+    file.size > MAX_FILE_SIZE
+      ? await downscaleImageFile(file, MAX_FILE_SIZE)
+      : file;
+  if (upload.size > MAX_FILE_SIZE) {
+    throw new Error(tooLargeMessage(file, upload));
   }
 
-  const { width, height } = await loadImageDimensions(file);
+  const { width, height } = await loadImageDimensions(upload);
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", upload);
 
   const res = await fetchWithAuth(
     `${BACKEND_BASE}/api/v1/workspaces/${workspaceId}/images`,
@@ -44,6 +55,31 @@ export async function uploadImageFile(
 
   const { id, url } = (await res.json()) as { id: string; url: string };
   return { id, url: resolveImageUrl(url), width, height };
+}
+
+/**
+ * Explain a rejection in the terms the user can act on: how big their image
+ * is, what the limit is, and — when downscaling ran and still came up short —
+ * that it was already tried. A bare "File too large (max 10 MB)" leaves them
+ * guessing whether they missed by 200 KB or by 40 MB.
+ */
+function tooLargeMessage(original: File, downscaled: File): string {
+  const limit = formatBytes(MAX_FILE_SIZE);
+  if (downscaled === original) {
+    return `Image is ${formatBytes(original.size)}, over the ${limit} limit`;
+  }
+  return (
+    `Image is still ${formatBytes(downscaled.size)} after downscaling ` +
+    `(was ${formatBytes(original.size)}), over the ${limit} limit`
+  );
+}
+
+function formatBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (mb < 0.1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  // One decimal, but "10 MB" rather than "10.0 MB": rounding a 12.5 MB image
+  // to "13 MB" would be the same kind of unhelpful the old message was.
+  return `${mb.toFixed(1).replace(/\.0$/, "")} MB`;
 }
 
 function loadImageDimensions(
