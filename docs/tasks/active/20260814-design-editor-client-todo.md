@@ -8,7 +8,7 @@ Part of #700. Follows 8c (#839). Adds the browser half of the plugin:
 | File | Origin |
 | --- | --- |
 | `src/client/bridge.ts` | rewrite of the prototype's `mutate.ts` |
-| `src/client/states.ts` | port, unchanged |
+| `src/client/states.ts` | port + one bug fixed in review (below) |
 | `src/client/property-labels.ts` | port, unchanged |
 | `src/base.ts` | `BASE` moved out of `plugin/shell.ts` |
 
@@ -26,6 +26,15 @@ also redeclared the intent and result types the server owns; the client imports 
 | `candidates.ts` | needs React, which this package does not depend on, and has no consumer until PR 10 |
 | `toast.tsx` | the design doc's own table files it under Shell UI, not Bridge client |
 | `registry.tsx` | hardcodes wafflebase's `Button`/`Badge` via `@/components/ui/*` — a consumer artifact, like `providers.tsx` in 8c |
+
+## Fixed in review
+
+- `mutate()` overwrote a `dryRun` set on the intent with `undefined`, so a
+  requested dry run performed a real write. `dryRun` is part of `MutateRequest`,
+  so that call typechecks.
+- `stateSlots()` keyed on utility alone, so `dark:` and base classes shared a
+  slot and a dark state class was paired with a light resting class. Slots are
+  now per modifier context.
 
 ## Done when
 

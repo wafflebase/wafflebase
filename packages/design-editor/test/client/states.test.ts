@@ -90,6 +90,41 @@ describe('stateSlots', () => {
   it('emits nothing for a utility with neither a state nor a resting class', () => {
     expect(stateSlots('', ROLES, STATE_UTILITIES)).toEqual([]);
   });
+
+  it('keeps light and dark in separate slots, each paired with its own resting class', () => {
+    // Found in review. Keying by utility alone collapsed these four classes into ONE
+    // `hover|bg` slot whose `current` was the DARK hover and whose `base` was the
+    // LIGHT resting class — so the panel claimed `dark:hover:bg-secondary/90` derives
+    // from `bg-primary`, and an edit computed from that base would write the wrong
+    // role. Measured before and after the fix.
+    const slots = stateSlots(
+      'bg-primary dark:bg-secondary hover:bg-primary/90 dark:hover:bg-secondary/90',
+      ROLES,
+      STATE_UTILITIES,
+    ).filter((s) => s.state === 'hover');
+
+    expect(slots.map((s) => s.id)).toEqual(['hover|bg', 'dark|hover|bg']);
+    expect(slots[0]).toMatchObject({
+      context: '',
+      current: { className: 'hover:bg-primary/90' },
+      base: { className: 'bg-primary' },
+    });
+    expect(slots[1]).toMatchObject({
+      context: 'dark',
+      current: { className: 'dark:hover:bg-secondary/90' },
+      base: { className: 'dark:bg-secondary' },
+    });
+  });
+
+  it('does not offer a light resting class as the base for a dark-only state', () => {
+    // The narrower half of the same bug: with no `dark:` resting class there is
+    // nothing in that context to derive from, and saying otherwise would invent one.
+    const dark = stateSlots('bg-primary dark:hover:bg-secondary/90', ROLES, STATE_UTILITIES).find(
+      (s) => s.context === 'dark' && s.state === 'hover',
+    );
+    expect(dark?.current?.className).toBe('dark:hover:bg-secondary/90');
+    expect(dark?.base).toBeNull();
+  });
 });
 
 describe('forcedStateClasses', () => {

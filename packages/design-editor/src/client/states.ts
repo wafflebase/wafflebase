@@ -121,43 +121,75 @@ export function buildColorClass(
 }
 
 /**
- * One editable cell of the state matrix: a (state, utility) pair, the class that
- * currently implements it (if any), and the resting-state class it derives from.
- * A slot with `current === null` is an offer to *introduce* the state.
+ * One editable cell of the state matrix: a (context, state, utility) triple, the
+ * class that currently implements it (if any), and the resting class it derives
+ * from. A slot with `current === null` is an offer to *introduce* the state.
  */
 export interface StateSlot {
   id: string;
+  /**
+   * The non-state modifier chain this slot belongs to — `''` for the base context,
+   * `'dark'` for `dark:hover:bg-*`.
+   *
+   * Slots are keyed per context because a state class and the resting class it
+   * derives from must come from the SAME one. Without it,
+   * `bg-primary dark:bg-secondary hover:bg-primary/90 dark:hover:bg-secondary/90`
+   * collapsed to a single `hover|bg` slot pairing the DARK hover class with the
+   * LIGHT resting class — so the panel said "hover derives from bg-primary" while
+   * the class on screen was `dark:hover:bg-secondary/90`, and an edit computed from
+   * that base would write the wrong role.
+   */
+  context: string;
   state: StateKey;
   utility: string;
   current: ColorClass | null;
   base: ColorClass | null;
 }
 
+/** Everything in the modifier chain except the interaction state. */
+const contextOf = (c: ColorClass): string => c.mods.filter((m) => !STATE_KEYS.has(m)).join(':');
+
 /**
- * Build the state matrix for one CVA scope: every state × every colour utility
+ * Build the state matrix for one CVA scope: every context × state × colour utility
  * that either already has a state class or has a resting class to derive from.
  */
 export function stateSlots(classes: string, roles: string[], utilities: string[]): StateSlot[] {
   const parsed = parseColorClasses(classes, roles, utilities);
-  const restingByUtility = new Map<string, ColorClass>();
-  for (const c of parsed) if (c.state === null && !restingByUtility.has(c.utility)) restingByUtility.set(c.utility, c);
 
-  const stateByKey = new Map<string, ColorClass>();
-  for (const c of parsed) if (c.state) stateByKey.set(`${c.state}|${c.utility}`, c);
+  const resting = new Map<string, ColorClass>();
+  const byState = new Map<string, ColorClass>();
+  // Insertion order, so the base context keeps coming first in the common case.
+  const contexts = new Set<string>();
+
+  for (const c of parsed) {
+    const ctx = contextOf(c);
+    contexts.add(ctx);
+    if (c.state === null) {
+      // First wins: an authored duplicate is a redundancy, not a redefinition.
+      if (!resting.has(`${ctx}|${c.utility}`)) resting.set(`${ctx}|${c.utility}`, c);
+    } else {
+      byState.set(`${ctx}|${c.state}|${c.utility}`, c);
+    }
+  }
 
   const utilityOrder = (u: string) =>
     STATE_UTILITIES.indexOf(u) === -1 ? STATE_UTILITIES.length : STATE_UTILITIES.indexOf(u);
-  const utilities_ = [...new Set([...restingByUtility.keys(), ...parsed.filter((c) => c.state).map((c) => c.utility)])]
+  const ordered = [...new Set(parsed.map((c) => c.utility))]
     .filter((u) => STATE_UTILITIES.includes(u))
     .sort((a, b) => utilityOrder(a) - utilityOrder(b));
 
   const slots: StateSlot[] = [];
-  for (const { key } of STATES) {
-    for (const utility of utilities_) {
-      const current = stateByKey.get(`${key}|${utility}`) ?? null;
-      const base = restingByUtility.get(utility) ?? null;
-      if (!current && !base) continue;
-      slots.push({ id: `${key}|${utility}`, state: key, utility, current, base });
+  for (const ctx of contexts) {
+    for (const { key } of STATES) {
+      for (const utility of ordered) {
+        const current = byState.get(`${ctx}|${key}|${utility}`) ?? null;
+        const base = resting.get(`${ctx}|${utility}`) ?? null;
+        if (!current && !base) continue;
+        // `filter(Boolean)` keeps the base context reading `hover|bg` rather than
+        // `|hover|bg`. A context can never collide with a state name — states are
+        // exactly what `contextOf` strips out.
+        slots.push({ id: [ctx, key, utility].filter(Boolean).join('|'), context: ctx, state: key, utility, current, base });
+      }
     }
   }
   return slots;

@@ -99,6 +99,23 @@ describe('createBridgeClient — request bodies', () => {
     });
   });
 
+  it('keeps dryRun set on the intent when no options are passed', async () => {
+    // `dryRun` is part of `MutateRequest`, so this call typechecks. Overwriting it
+    // with `opts?.dryRun` dropped the key from the JSON and the server defaulted to a
+    // real write — a requested dry run editing the repository. Found in review.
+    const r = recorder();
+    const intent = { kind: 'palette-value', file: 'p.ts', path: ['a'], tokenValue: '#fff', dryRun: true } as never;
+    await createBridgeClient({ fetch: r.fetch }).mutate(intent);
+    expect(bodyOf(r.calls[0].init).dryRun).toBe(true);
+  });
+
+  it('lets the option override the intent', async () => {
+    const r = recorder();
+    const intent = { kind: 'palette-value', file: 'p.ts', path: ['a'], tokenValue: '#fff', dryRun: true } as never;
+    await createBridgeClient({ fetch: r.fetch }).mutate(intent, { dryRun: false });
+    expect(bodyOf(r.calls[0].init).dryRun).toBe(false);
+  });
+
   it('wraps commit intents and carries dryRun beside them', async () => {
     const r = recorder();
     await createBridgeClient({ fetch: r.fetch }).commit([], { dryRun: true });

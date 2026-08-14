@@ -221,7 +221,12 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
     health: () => request<HealthResult>('/health'),
     tokens: () => request<TokensResult>('/tokens'),
     previewTokens: (intents) => post<PreviewTokensResult>('/preview-tokens', { intents }),
-    mutate: (intent, opts) => post<MutateResponse>('/mutate', { ...intent, dryRun: opts?.dryRun }),
+    // `?? intent.dryRun`, not a bare override: `dryRun` is part of `MutateRequest`, so
+    // `mutate({ …, dryRun: true })` is a type-valid call. Writing `opts?.dryRun` alone
+    // replaced that with `undefined`, `JSON.stringify` dropped the key, and the server
+    // defaulted to a REAL WRITE — a requested dry run silently editing the repository.
+    mutate: (intent, opts) =>
+      post<MutateResponse>('/mutate', { ...intent, dryRun: opts?.dryRun ?? intent.dryRun }),
     validate: (intents) => post<ValidateResult>('/validate', { intents }),
     commit: (intents, opts) => post<CommitResult>('/commit', { intents, dryRun: opts?.dryRun }),
     transactions: () => request<TransactionsResult>('/transactions'),
