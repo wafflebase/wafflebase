@@ -29,3 +29,21 @@ export type {
 
 export { joinPosix, resolveImport } from './import-paths.ts';
 export type { AliasEntry } from './import-paths.ts';
+
+export {
+  applyTokenVars,
+  disposePicker,
+  installPicker,
+  renderedClasses,
+  selectableIds,
+} from './frame-picker.ts';
+export type { PickerOptions } from './frame-picker.ts';
+
+export {
+  captureFrameState,
+  installHmrStatePreservation,
+  restoreFrameState,
+} from './hmr-state.ts';
+
+export { emptyFixtureTable, installFetchGuard, setFixtures } from './fetch-fixtures.ts';
+export type { FetchGuardOptions, FixtureTable, FixtureValue } from './fetch-fixtures.ts';

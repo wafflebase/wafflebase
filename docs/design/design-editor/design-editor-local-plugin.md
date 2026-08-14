@@ -585,10 +585,9 @@ cap is what sets the granularity.
 | 9b | `edits.ts` | **merged** (#848) — see below |
 | gate | `fixtures/consumer` + `verify-consumer.mjs` | **merged** (#849) — see above |
 | 9c | `history` · `anchors` | held |
-| 10a | frame protocol · drill-in resolver · the alias seam | in review — see below |
-| 10b | `frame-picker` · `hmr-state` — the frame's DOM runtime | next |
-| 10c | `SceneHost` + outline/detail/class-editor + `scene-entry` | held — lands React |
-| 11–12 | token panels, shell chrome, canvas | held |
+| 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
+| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review — see below |
+| 11–12 | the React chrome (`SceneHost`, panels, `scene-entry`), token panels, canvas | held — lands React |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -747,6 +746,47 @@ So the cut follows the one that already worked for the module underneath it —
   Over-reporting is the safe direction against *missing* a leak, but a false failure
   blocks correct code, which is worse than what it was protecting against. Now
   line-anchored, with a clause that may not span a `;`.
+
+- **10b — the frame's DOM runtime.** `frame-picker` (click-to-select and the
+  overlay), `fetch-fixtures` (the network kill-switch) and `hmr-state` (focus and
+  scroll across a Fast Refresh patch). All three are generic as written — `git grep`
+  finds no wafflebase path in the first or third — so this is the closest thing in the
+  series to a straight port. `jsdom` joins the dev dependencies as the first DOM test
+  environment here, per-file via `@vitest-environment`, with no config change.
+
+  **The defect.** `installFetchGuard` passed requests through by hardcoded prefix, and
+  one of them was `/__design-sdk/` — a namespace the shipped plugin does not serve. So
+  every request to the editor's own routes missed the passthrough, fell to the miss
+  path, and **threw**. Derived from `BASE` now. That is the third instance of the same
+  failure mode: 10a found `/scene.html`, 9a found four dead routes, and each one was a
+  string the prototype had no reason to revisit.
+
+  **What the DOM tests forced.** `installPicker` attached window listeners, two
+  `ResizeObserver`s and a `MutationObserver`, and had no teardown. An observer callback
+  is a microtask, so it runs after its document is gone; it took the first test run
+  down twice, once on `Element` and once on `window`, from inside an observer where
+  nothing catches it. `disposePicker` — one `AbortController` plus the observer list —
+  is the fix. Worth recording that the first attempt guarded each global read instead,
+  and that reverting that guard with `disposePicker` in place changes no test: the
+  guard was treating the symptom.
+
+  **One coupling is recorded rather than fixed.** `applyTokenVars` emits the override
+  for `:root` and for a dark selector, and the selector was the literal `.dark`. That
+  matches the default `cssVariables()` adapter and any shadcn project, but the option
+  exists precisely because a project may use something else — and if it does, its own
+  dark block out-specifies a `:root` override and the dark preview silently shows the
+  on-disk colour. It is a parameter now, defaulting to `.dark`. **Nothing configures
+  it yet**: threading the adapter's selector through `wb:set-token-vars` is the shell's
+  job, in the PR that builds the shell.
+
+- **What is left of PR 10, and why it is not a port.** `SceneHost` (712),
+  `SceneOutline` (323), `SceneNodeDetail` (296), `FloatingClassEditor` (272) and
+  `scene-entry` (202). Beyond needing React — absent from this package entirely — they
+  import `cn()` from the consumer's `@/lib/utils`, `SceneHost` alone has **25**
+  `Select` call sites against the consumer's own shadcn component, and `scene-entry`
+  imports the fixtures that §2 files under population C. Every one of those is the
+  `registry.tsx` problem again: generic-looking chrome built from the consumer's
+  component library. They land with the shell, as a rewrite rather than a move.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,

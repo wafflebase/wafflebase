@@ -17,9 +17,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.1",
+    "jsdom": "^28.0.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8",
-    "vite": "^6.4.2"
+    "vite": "^6.4.2",
+    "vitest": "^4.1.8"
   },
   "peerDependencies": {
     "vite": "^6.0.0 || ^7.0.0"
