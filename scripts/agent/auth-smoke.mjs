@@ -1,11 +1,17 @@
 // Live auth smoke test for the Claude Agent SDK.
 //
 // This is the ONE pre-arm item that cannot be verified statically: a secret
-// can't be validated offline. It runs a single trivial query and asserts the
-// SDK authenticated and returned a successful result — using the exact same
+// can't be validated offline. It runs a trivial query per credential and asserts
+// the SDK authenticated and returned a successful result — using the exact same
 // SDK + auth path (CLAUDE_CODE_OAUTH_TOKEN) that review-panel.mjs uses, so a
 // green run here means the panel will authenticate too. It is NOT a review: no
 // repo code is read (allowedTools: []).
+//
+// It checks EVERY credential in the pool (token-pool.mjs), not the one this run
+// would shard onto. A pool hides its own failures: a token that quietly expired
+// stays invisible until the run unlucky enough to select it dies, which is
+// precisely what a pre-flight is for. Failures are reported per SECRET NAME —
+// never the token, since this output lands in a public Actions log.
 //
 // EXIT CODES ARE A CONTRACT, because this is the FIRST thing an adopter runs and
 // its message is the first diagnosis they get:
@@ -25,6 +31,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPoolSlots, TOKEN_ENV } from "./token-pool.mjs";
 
 export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 
@@ -104,17 +111,18 @@ export function describeFailure(kind, detail) {
   };
 }
 
-async function main() {
-  const model = process.env.SMOKE_MODEL || "claude-haiku-4-5-20251001";
-
-  let query;
-  try {
-    ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
-  } catch (err) {
-    console.error(`Could not import the Agent SDK — run \`npm ci\` in this directory first: ${err.message}`);
-    process.exit(EXIT.tooling);
-  }
-
+/**
+ * Run the trivial query against ONE credential.
+ *
+ * `authToken` undefined means "inherit the ambient environment", which is what
+ * an unconfigured pool falls back to — the SDK's own credential resolution, and
+ * the same message an adopter got before the pool existed.
+ *
+ * The `process.env` spread matters: `Options.env` REPLACES the subprocess
+ * environment rather than merging it, so without it the CLI loses PATH and never
+ * starts (see ask.mjs, which carries the same note against sdk.d.ts:1408).
+ */
+async function checkCredential(query, model, authToken) {
   let ok = false;
   let lastSubtype = "(no result message)";
   try {
@@ -125,6 +133,7 @@ async function main() {
         allowedTools: [], // no tools — this is a pure auth check
         permissionMode: "dontAsk",
         settingSources: [], // load no project config
+        ...(authToken ? { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: authToken } } : {}),
       },
     })) {
       if (message.type === "result") {
@@ -138,20 +147,67 @@ async function main() {
       }
     }
   } catch (err) {
-    const { code, text } = describeFailure(classifyFailure(err.message), err.message);
-    console.error(text);
-    process.exit(code);
+    return { ...describeFailure(classifyFailure(err.message), err.message), detail: err.message };
+  }
+  if (ok) return { code: EXIT.ok, detail: "" };
+  return { ...describeFailure(classifyFailure(lastSubtype), lastSubtype), detail: lastSubtype };
+}
+
+/**
+ * The exit code for a whole pool: the most serious outcome any credential
+ * produced.
+ *
+ * `auth` outranks `quota` deliberately — a pool where one secret is expired and
+ * the rest are merely rate-limited has a configuration problem, and reporting
+ * the reassuring code would bury it. Exported so the ordering is a tested claim.
+ */
+export function worstExit(codes) {
+  if (codes.includes(EXIT.auth)) return EXIT.auth;
+  if (codes.includes(EXIT.quota)) return EXIT.quota;
+  return EXIT.ok;
+}
+
+async function main() {
+  const model = process.env.SMOKE_MODEL || "claude-haiku-4-5-20251001";
+
+  let query;
+  try {
+    ({ query } = await import("@anthropic-ai/claude-agent-sdk"));
+  } catch (err) {
+    console.error(`Could not import the Agent SDK — run \`npm ci\` in this directory first: ${err.message}`);
+    process.exit(EXIT.tooling);
   }
 
-  if (!ok) {
-    const { code, text } = describeFailure(classifyFailure(lastSubtype), lastSubtype);
-    console.error(text);
-    process.exit(code);
+  // EVERY registered credential, not the one this run happens to shard onto.
+  // A pool is only as good as its worst member, and a token that silently
+  // stopped working is invisible until the run that shards onto it fails — which
+  // is exactly the class of problem a pre-flight exists to surface. Serial on
+  // purpose: concurrent checks would race each other into rate limits and report
+  // quota refusals this script would then have to explain away.
+  //
+  // An empty pool checks once with the ambient environment, so an unconfigured
+  // repo gets the same diagnosis it always did.
+  const slots = readPoolSlots();
+  const checks = slots.length ? slots : [{ name: TOKEN_ENV, token: undefined }];
+
+  const results = [];
+  for (const slot of checks) {
+    const result = await checkCredential(query, model, slot.token);
+    results.push({ name: slot.name, ...result });
+    // The NAME, never the token. This output lands in a public Actions log, and
+    // `describeFailure` already carries its own marker and guidance.
+    if (result.code === EXIT.ok) console.log(`✅ ${slot.name}: authenticated`);
+    else console.error(`${slot.name} →\n${result.text}`);
   }
-  console.log(
-    `✅ Agent SDK authenticated and returned a result (model: ${model}). ` +
-      "CLAUDE_CODE_OAUTH_TOKEN works on this runner — the review panel will authenticate.",
-  );
+
+  const code = worstExit(results.map((r) => r.code));
+  if (code === EXIT.ok) {
+    console.log(
+      `✅ ${results.length} credential${results.length === 1 ? "" : "s"} authenticated (model: ${model}). ` +
+        "The pool works on this runner — the review panel will authenticate.",
+    );
+  }
+  process.exit(code);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

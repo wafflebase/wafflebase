@@ -55,6 +55,8 @@
  * consumer that genuinely needs to run something must do it in its own trusted
  * code, from data the model returned, rather than holding the capability itself.
  */
+import { createTokenPool } from "./token-pool.mjs";
+
 export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
 
 /**
@@ -370,7 +372,7 @@ export async function withRetry(fn, { retries = 2, baseMs = 2000, sleep = defaul
  * `allowedTools` is validated here, which is also what keeps the grant check
  * ahead of the lazy SDK import at the one call site below.
  */
-export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort }) {
+export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort, authToken }) {
   const sessionTools = assertAllowedTools(allowedTools);
   // Validated here, not at the spread below, so a bad value fails before the
   // session is opened — same ordering as the tool grant.
@@ -460,8 +462,68 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
     // belt-and-suspenders).
     // settingSources exists in the pinned SDK (0.3.217); [] loads no project config.
     settingSources: [],
+    // Pin THIS session to one pooled credential. Per-session rather than a
+    // `process.env` mutation because the panel runs lenses and samples
+    // concurrently: a global swap during a failover would hand a half-changed
+    // environment to sessions already in flight.
+    //
+    // The `process.env` spread is load-bearing. `Options.env` REPLACES the
+    // subprocess environment rather than merging it (sdk.d.ts:1408, pinned
+    // 0.3.217), so dropping the spread strips PATH/HOME and the CLI never
+    // starts. Omitted entirely when there is no pool, so an unconfigured
+    // environment keeps today's plain inheritance.
+    ...(authToken ? { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: authToken } } : {}),
     outputFormat: { type: "json_schema", schema },
   };
+}
+
+/**
+ * Is this a CLOSED USAGE WINDOW on the account, rather than any other failure?
+ *
+ * The one error where switching credentials is the fix. Deliberately narrow:
+ * `classifyResult` also marks a 401 and our own turn ceilings non-retryable, and
+ * failing over on those would burn the entire pool on a problem no other token
+ * can solve — a bad secret would look exactly like "we are out of quota".
+ */
+export function isAccountLimit(err) {
+  return Boolean(err) && err.kind === "api-error" && SESSION_LIMIT_RE.test(String(err.detail ?? ""));
+}
+
+/**
+ * The credential pool for this process, built once.
+ *
+ * Module-scoped because exhaustion is a fact about the ACCOUNT, not about one
+ * call: the six lenses of a panel round should make that discovery once between
+ * them rather than six times each.
+ */
+let poolInstance = null;
+export function tokenPool() {
+  if (!poolInstance) poolInstance = createTokenPool();
+  return poolInstance;
+}
+
+/** Test seam: drop the memoised pool (and optionally install a fake). */
+export function __setTokenPool(pool = null) {
+  poolInstance = pool;
+}
+
+/**
+ * The credential to retry this failure on, or `null` to give up and rethrow.
+ *
+ * Pure and exported so the failover decision is testable WITHOUT the SDK on disk
+ * — the agent test lane runs without it, which is the same reason
+ * `buildSessionOptions` is separated out.
+ *
+ * `authToken` is the credential the failed session actually used. Passing it is
+ * what makes a concurrent report idempotent: the panel's lenses hit one closed
+ * window within milliseconds of each other, and without it the second report
+ * would retire the healthy token the first one just moved to — a burst of
+ * concurrency would drain the pool in a single round.
+ */
+export function nextCredential({ pool, err, authToken }) {
+  if (!isAccountLimit(err)) return null;
+  const next = pool.advance(err.detail, authToken);
+  return !next || next === authToken ? null : next;
 }
 
 /**
@@ -493,13 +555,45 @@ export async function askStructured({
   // effect; omitted for callers that don't attribute.
   logMeta,
 }) {
+  // One credential for this session, and — barring exhaustion — for every other
+  // session in this process. See token-pool.mjs: distribution is per JOB because
+  // prompt caches are per account, and rotating per call would make the panel pay
+  // its shared-prefix warm-up once per token instead of once per round.
+  const pool = tokenPool();
+  let authToken = pool.current();
+
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad
   // grant must fail without opening a session (ask.test.mjs asserts this ordering
   // by observing that an invalid grant throws the validation error even when the
   // SDK cannot be resolved). It also splits any MCP grant from the built-ins and
   // wires `mcpServers`, so the whole session shape stays observable in one place.
-  const options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort });
+  let options = buildSessionOptions({ systemPrompt, model, repo, schema, maxTurns, allowedTools, mcpServers, effort, authToken });
 
+  for (;;) {
+    try {
+      return await runSession({ options, prompt, sessionLog, logMeta, label });
+    } catch (err) {
+      // Null covers both "not a closed window" and "pool dry", and rethrowing is
+      // right for both. Every other failure belongs to the caller: `withRetry`
+      // still owns the transient ones, and a non-retryable error another
+      // credential cannot fix (a bad token, our own turn ceiling) must not burn
+      // the pool looking for one that can.
+      const next = nextCredential({ pool, err, authToken });
+      if (next === null) throw err;
+      authToken = next;
+      options = { ...options, env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: authToken } };
+    }
+  }
+}
+
+/**
+ * Open ONE session and return the validated object — the body of askStructured's
+ * failover loop, split out so the retry is readable as a retry.
+ *
+ * Throws on every non-success path, with `kind`/`status`/`detail`/`retryable`
+ * copied onto the error from `classifyResult`.
+ */
+async function runSession({ options, prompt, sessionLog, logMeta, label }) {
   // NOTE: `MCP_TOOL_TIMEOUT` is deliberately NOT set here. It has to be in place
   // before the SDK is imported, and by this line it already has been — the server
   // passed in `mcpServers` was built by `createProbeServer` (hunt-tool.mjs), which

@@ -343,9 +343,21 @@ jobs:
       # measured.
       - name: Replay
         env:
-          # The only credential this job holds. Nothing else is exported into a
-          # process whose working tree is a checkout of somebody else's pull request.
+          # The only KIND of credential this job holds. Nothing else is exported
+          # into a process whose working tree is a checkout of somebody else's
+          # pull request.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The credential pool — see the twin step in agent-review-panel.yml for
+          # why selection is per job. Unregistered slots arrive as "" and are
+          # dropped by token-pool.mjs.
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
           CORPUS_VERSION: ${{ inputs.corpus_version }}
           MAX_COST_USD: ${{ inputs.max_cost_usd }}
           PANEL: ${{ inputs.panel }}

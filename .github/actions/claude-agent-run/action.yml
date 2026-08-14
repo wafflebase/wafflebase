@@ -1,0 +1,126 @@
+# claude-code-action, with the credential pool in front of it.
+#
+# The SDK lane picks its token inside the process (scripts/agent/ask.mjs) and can
+# walk the whole pool on exhaustion. claude-code-action takes its token as an
+# INPUT, so the pick has to happen first and the failover has to be a second
+# step — which is all this wrapper is. Six workflows then change one `uses:` line
+# instead of growing a retry ladder apiece.
+#
+# NOT YET WIRED INTO THE WORKFLOWS. Two behaviours here are documented but
+# unverified on this runner, and both fail in the dangerous direction — silently,
+# with a step that looks like it ran:
+#
+#   1. `continue-on-error` on a composite step. If it is ignored, a primary
+#      failure aborts the action and the backup never runs, which is the current
+#      behaviour and therefore harmless — but it is not failover.
+#   2. Passing a credential through a step output. Registered secrets are masked
+#      by the runner wherever they appear, and `pick.mjs` also emits ::add-mask::,
+#      but this must be confirmed against a real log before it carries a token.
+#
+# Run agent-sdk-smoke-test.yml first: it exercises the same pool module and the
+# same secrets, and it prints per-secret results. Wire the workflows only after
+# that is green AND a dispatch of this action shows the ladder behaving.
+name: Run Claude Code with a pooled credential
+description: >-
+  Wraps anthropics/claude-code-action with per-job credential selection and one
+  level of failover when the selected account's usage window has closed.
+
+inputs:
+  claude_code_oauth_token:
+    description: Slot zero — the original unsuffixed secret. Kept so a repo with one token needs no change.
+    required: false
+  claude_code_oauth_token_1:
+    description: Pool slot 1. Unregistered slots arrive empty and are dropped.
+    required: false
+  claude_code_oauth_token_2:
+    description: Pool slot 2.
+    required: false
+  claude_code_oauth_token_3:
+    description: Pool slot 3.
+    required: false
+  claude_code_oauth_token_4:
+    description: Pool slot 4.
+    required: false
+  claude_code_oauth_token_5:
+    description: Pool slot 5.
+    required: false
+  claude_code_oauth_token_6:
+    description: Pool slot 6.
+    required: false
+  claude_code_oauth_token_7:
+    description: Pool slot 7.
+    required: false
+  claude_code_oauth_token_8:
+    description: Pool slot 8.
+    required: false
+  github_token:
+    description: Passed through unchanged — the App token, so pushes re-trigger CI.
+    required: true
+  prompt:
+    description: Passed through unchanged.
+    required: true
+  claude_args:
+    description: Passed through unchanged.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    # token-pool.mjs reads these from the environment under their canonical
+    # names, so the pool behaves identically here and in the SDK lane.
+    - id: pick
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        CLAUDE_CODE_OAUTH_TOKEN_1: ${{ inputs.claude_code_oauth_token_1 }}
+        CLAUDE_CODE_OAUTH_TOKEN_2: ${{ inputs.claude_code_oauth_token_2 }}
+        CLAUDE_CODE_OAUTH_TOKEN_3: ${{ inputs.claude_code_oauth_token_3 }}
+        CLAUDE_CODE_OAUTH_TOKEN_4: ${{ inputs.claude_code_oauth_token_4 }}
+        CLAUDE_CODE_OAUTH_TOKEN_5: ${{ inputs.claude_code_oauth_token_5 }}
+        CLAUDE_CODE_OAUTH_TOKEN_6: ${{ inputs.claude_code_oauth_token_6 }}
+        CLAUDE_CODE_OAUTH_TOKEN_7: ${{ inputs.claude_code_oauth_token_7 }}
+        CLAUDE_CODE_OAUTH_TOKEN_8: ${{ inputs.claude_code_oauth_token_8 }}
+      run: node "$GITHUB_ACTION_PATH/pick.mjs"
+
+    - id: primary
+      # The failure this tolerates is "the account's window closed". Every other
+      # failure is tolerated too, and re-runs on the backup — one wasted attempt.
+      # Narrowing that needs the run's claude-execution-output.json, which every
+      # calling workflow already uploads; see the todo before adding it, because
+      # a wrong reading here turns a real failure into a silent second charge.
+      continue-on-error: true
+      uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
+      with:
+        claude_code_oauth_token: ${{ steps.pick.outputs.primary }}
+        github_token: ${{ inputs.github_token }}
+        prompt: ${{ inputs.prompt }}
+        claude_args: ${{ inputs.claude_args }}
+
+    - id: backup
+      if: steps.primary.outcome == 'failure' && steps.pick.outputs.has_backup == 'true'
+      uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
+      with:
+        claude_code_oauth_token: ${{ steps.pick.outputs.backup }}
+        github_token: ${{ inputs.github_token }}
+        prompt: ${{ inputs.prompt }}
+        claude_args: ${{ inputs.claude_args }}
+
+    # `continue-on-error` above swallows the primary's exit code, so without this
+    # the action would report success for a run where BOTH attempts failed — the
+    # exact silent-green a fail-closed pipeline cannot have. `backup.outcome` is
+    # 'skipped' when the ladder never reached it, which is a failure here: it
+    # means the primary died and there was nothing to fall back to.
+    - if: steps.primary.outcome == 'failure' && steps.backup.outcome != 'success'
+      shell: bash
+      # Via env, never interpolated into the `run:` string — the same rule the
+      # calling workflows apply, and the reason `has_backup` exists as a boolean
+      # rather than the ladder testing the token itself.
+      env:
+        HAD_BACKUP: ${{ steps.pick.outputs.has_backup }}
+      run: |
+        if [ "$HAD_BACKUP" = "true" ]; then
+          echo "::error::Claude Code failed on the selected credential and on its failover."
+        else
+          echo "::error::Claude Code failed on the selected credential, and no failover was registered."
+        fi
+        exit 1
