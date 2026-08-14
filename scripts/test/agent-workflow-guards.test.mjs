@@ -120,3 +120,74 @@ test("no step runs pipeline code from the workspace after the PR's branch is che
       `from there:\n${problems.join("\n")}`,
   );
 });
+
+test("the staged agent-tools copy is itself populated from trusted code", () => {
+  // THE HOLE THE CHECK ABOVE LEAVES. That one only reads invocation paths, so it is
+  // satisfied the moment a step says `$RUNNER_TEMP/agent-tools/…` — it cannot tell
+  // whether what was copied there is main's code or the PR author's. Move a
+  // `cp -R ./scripts/agent` one step later, past the branch checkout, and every
+  // invocation still looks trusted while all of them now run the branch's code.
+  // That is the worse failure of the two, because nothing about it reads wrong.
+  //
+  // Two legitimate sources, and they are the two the workflows use:
+  //
+  //   * the WORKSPACE (`./scripts/agent`) while it still holds trusted main — i.e.
+  //     before any checkout of the PR's own ref in that job. `agent-fix` and the
+  //     panel's `fix` job both stage this way.
+  //   * a `path:`-scoped checkout pinned to `ref: main` (`.trusted-agent/…`), which
+  //     is trusted whenever it happens — `agent-iterate-ci` stages AFTER the branch
+  //     checkout and is correct precisely because its source is not the workspace.
+  const UNTRUSTED_REF =
+    /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha))/;
+  const STAGE =
+    /\b(?:cp -R|mv)\s+(\S+)\s+["']?(?:\$\{\{\s*runner\.temp\s*\}\}|\$\{?RUNNER_TEMP\}?)\/agent-tools/;
+
+  const problems = [];
+  let staged = 0;
+  for (const f of agentWorkflows) {
+    const lines = readFileSync(path.join(WORKFLOWS, f), "utf8").split("\n");
+    const jobsAt = lines.findIndex((l) => l === "jobs:");
+    if (jobsAt === -1) continue;
+    const starts = lines.reduce((acc, l, i) => (i > jobsAt && /^ {2}[\w-]+:\s*$/.test(l) ? [...acc, i] : acc), []);
+    for (let k = 0; k < starts.length; k++) {
+      const [from, to] = [starts[k], starts[k + 1] ?? lines.length];
+      const job = lines[from].trim().replace(/:$/, "");
+      let checkedOutAt = null;
+      const trusted = new Set(); // `path:` dirs written by a `ref: main` checkout
+      for (let i = from; i < to; i++) {
+        const line = lines[i];
+        if (line.trim().startsWith("#")) continue;
+        if (UNTRUSTED_REF.test(line)) checkedOutAt = i + 1;
+        // A checkout block: pair its `ref:` with its `path:`, both within the `with:`.
+        if (/^\s*-?\s*uses:\s*actions\/checkout@/.test(line)) {
+          const win = lines.slice(i + 1, i + 12);
+          const end = win.findIndex((b) => /^\s*- /.test(b));
+          const body = end === -1 ? win : win.slice(0, end);
+          const isMain = body.some((b) => /^\s*ref:\s*main\s*$/.test(b));
+          const dir = body.find((b) => /^\s*path:\s*/.test(b));
+          if (isMain && dir) trusted.add(dir.replace(/^\s*path:\s*/, "").trim().replace(/^\.\//, ""));
+        }
+        const stage = STAGE.exec(line);
+        if (!stage) continue;
+        staged++;
+        const src = stage[1].replace(/^\.\//, "");
+        if ([...trusted].some((t) => src === t || src.startsWith(`${t}/`))) continue;
+        if (src.startsWith("scripts/agent") && checkedOutAt === null) continue; // workspace is still main
+        problems.push(
+          `${f}:${i + 1} (job ${job}) stages agent-tools from ${stage[1]}, which is not ` +
+            (checkedOutAt !== null
+              ? `trusted here: the PR's own ref was checked out at line ${checkedOutAt}`
+              : "a `ref: main` checkout nor the pre-checkout workspace"),
+        );
+      }
+    }
+  }
+
+  assert.ok(staged > 0, "found no step staging $RUNNER_TEMP/agent-tools");
+  assert.deepEqual(
+    problems,
+    [],
+    `agent-tools would hold author-controlled code, and every read of it would still ` +
+      `look trusted:\n${problems.join("\n")}`,
+  );
+});
