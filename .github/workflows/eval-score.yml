@@ -1,0 +1,280 @@
+# Score the stored eval runs and re-render the comparison, for free.
+#
+# THE COMPANION TO `eval-replay.yml` AND ITS OPPOSITE IN EVERY COST DIMENSION. That lane
+# spends model budget to produce run envelopes; this one derives numbers from envelopes
+# that already exist. It calls no model, builds no worktree, and needs no clone of the
+# repository under review — so the four mechanisms that lane is arranged around
+# (dispatch-only, a required cost cap, a panel timeout, a job ceiling) have nothing to
+# guard here, and it may safely run on a schedule.
+#
+# WHAT IT IS FOR. Re-scoring was a shell script on one laptop, which makes the "and a
+# reproducible pipeline anyone can re-run" half of this project's definition of done
+# untrue by inspection. Everything the script did now lives in
+# `scripts/agent/eval/score-all.mjs`, which is committed, tested, and runnable both here
+# and locally with the same arguments.
+#
+# WHY SCORING NEEDS NO GIT TREE, MEASURED RATHER THAN ASSUMED. `eval-replay.yml`'s
+# header explains at length why a corpus item's commits must be fetched and why
+# `fetch-depth: 0` is not enough — a squash-merged pull request's head is reachable from
+# nothing. None of that binds this lane, and the difference is not an inference: a full
+# pass was run against a store COPY with no `.git` at all, from a shallow checkout
+# carrying zero `refs/eval/*` refs, and it reproduced the laptop's eight output files
+# byte for byte. The scorers read stored JSON and the read-only GitHub API. So the
+# checkout below is the default shallow one and stays that way.
+#
+# NO `npm ci`, for the collector's reason. The scorers import `node:` builtins and their
+# own siblings; the pass above ran in a checkout with no `node_modules` anywhere.
+#
+# THE PERMISSION STORY. This repository gains NO write scope. `permissions: {}` at the
+# top denies everything by default, and the job opts back into four READ scopes, each one
+# because a named endpoint needs it. Writing happens in the OTHER repository, through
+# `secrets.EVAL_STORE_TOKEN` — the same fine-grained PAT `eval-replay.yml` and
+# `capture-collect.yml` already use, scoped to `dlgpdmsly2/wafflebase-agent-eval` and
+# nothing else. `score-all.test.mjs` asserts that no write scope of any kind appears in
+# this file.
+#
+# ONE JOB, WHERE THE REPLAY LANE NEEDS THREE. That lane holds the store-write token in a
+# separate job because its replay jobs point a MODEL at a checkout of an arbitrary past
+# pull request, and a secret in that process is already past every permission. Nothing
+# here runs a model or executes anything but this repository's own committed code, so the
+# split would be ceremony. The CodeRabbit comment bodies this lane parses are
+# attacker-influenced TEXT read by regexes, never instructions to anything.
+#
+# IT CANNOT GATE A PULL REQUEST. `workflow_dispatch` and `schedule` are the only
+# triggers, and neither is attached to a commit, so this lane cannot produce a status
+# check, cannot be made a required check, and has nothing for a merge to block on. That
+# is asserted too — the same assertion `eval-replay.yml` carries, for the opposite
+# reason: there it keeps a paid job from firing itself, here it keeps a free job from
+# becoming a gate.
+
+name: Eval Score (free — scores stored runs)
+
+on:
+  # A HUMAN PRESS, for a corpus and reviewer named at the press.
+  workflow_dispatch:
+    inputs:
+      corpus_version:
+        description: "Which frozen corpus to score, e.g. 2026-08-10-pilot-reviewed. Empty uses the scheduled default in env below."
+        required: false
+        default: ""
+      config_hash:
+        description: "The reviewer's config_hash, sha256:… — half of the pair a score is filed under. Empty uses the scheduled default."
+        required: false
+        default: ""
+      runs:
+        description: "EVERY replicate of one reviewer, comma-separated, e.g. pilot-01__k1,pilot-01__k2,pilot-01__k3. At least two: agreement is defined over replicates."
+        required: false
+        default: ""
+      dry_run:
+        description: "yes = score, render and print everything, then STOP before the commit. no = commit and push the scores and the report."
+        required: true
+        type: choice
+        default: "yes"
+        options:
+          - "yes"
+          - "no"
+  # A SCHEDULE, which is safe here for a reason worth stating rather than assuming:
+  # `putScore` OVERWRITES by design, and only `putRun` refuses a conflict. So a tick that
+  # recomputes an existing score cannot corrupt one, and a tick over unchanged inputs
+  # produces a byte-identical result (see the commit step).
+  #
+  # WEEKLY, not nightly. The inputs move on two occasions — a replicate is bought, which
+  # is a paid dispatch somebody is watching, or a scorer changes upstream, which is a
+  # merge. Neither happens daily, and each tick costs about 175 GitHub API calls against
+  # a 5000/hour budget shared with the review panel. A week catches a scorer change well
+  # inside the time it takes anyone to quote the report.
+  schedule:
+    - cron: "23 5 * * 1"
+
+# DENY EVERYTHING, then opt back in per job. The dominant pattern in this repository
+# (`agent-review-panel.yml`, `agent-review-on-demand.yml`, `agent-summarize.yml` all
+# open with `permissions: {}`) and a stronger statement than a top-level read list,
+# because a job added later starts with nothing rather than inheriting.
+permissions: {}
+
+# Serialise. Two passes writing one store would race on the push, and — because scoring
+# is idempotent — the loser would have done identical work for nothing.
+# `cancel-in-progress: false`: a cancelled pass is a re-score that did not happen, and
+# the queue is the cheaper end of that trade. Same reasoning as the collector's, and
+# explicitly NOT the replay lane's stronger one, which is about money already spent.
+concurrency:
+  group: eval-score
+  cancel-in-progress: false
+
+env:
+  # gh expands `{owner}/{repo}` by shelling out to git, and this workspace holds two
+  # checkouts with different remotes. #790 set this at workflow level for exactly that
+  # reason; the CodeRabbit arm refuses without it rather than reporting a corpus-wide
+  # absence that reads like a repository CodeRabbit never reviewed.
+  GH_REPO: wafflebase/wafflebase
+  EVAL_STORE_REPO: dlgpdmsly2/wafflebase-agent-eval
+  # WHAT A SCHEDULED TICK SCORES. `inputs.*` are empty on a schedule, so the target has
+  # to be written down somewhere, and here is better than inside the driver: it is the
+  # first thing a reader of this file sees and it is one edit away from current.
+  #
+  # 🔴 THESE GO STALE ON A RE-FREEZE. The pilot corpus has been re-frozen once already
+  # (2026-08-07-pilot to 2026-08-10-pilot-reviewed, decision 22). A schedule pointed at a
+  # retired corpus version does not fail quietly — `score-all.mjs` refuses a corpus
+  # version that does not exist under the root — but the pass that stops is a pass
+  # nobody asked for, so update these in the same commit that freezes a new corpus.
+  SCHEDULED_CORPUS_VERSION: "2026-08-10-pilot-reviewed"
+  SCHEDULED_CONFIG_HASH: "sha256:1c7853debf4edf92646d2299b0c924cb48cca89d6bb68b81648c57508a762f01"
+  SCHEDULED_RUNS: "pilot-01__k1,pilot-01__k2,pilot-01__k3"
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    # #692's rule, and 30 minutes is about 10x the measurement: a full pass over the
+    # 7-item pilot at K=3 takes a little over two minutes, almost all of it waiting on
+    # the GitHub API.
+    timeout-minutes: 30
+    permissions:
+      contents: read # check out the harness
+      pull-requests: read # pulls/<n>/commits, /comments and /reviews — the CodeRabbit arm
+      issues: read # issues/<n>/comments — a PR's issue comments carry CodeRabbit's status comment
+      checks: read # commits/<sha>/check-runs — the push-time timing proxy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # No credential in `.git/config`. Nothing here pushes to this repository and
+          # nothing may be able to.
+          persist-credentials: false
+
+      # The STORE, and the only checkout in this workflow that carries a credential.
+      # Credentials are persisted on purpose — the commit step at the end uses them.
+      - uses: actions/checkout@v4
+        with:
+          repository: dlgpdmsly2/wafflebase-agent-eval
+          path: .eval-store
+          token: ${{ secrets.EVAL_STORE_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      # Inputs or the scheduled defaults, resolved in ONE place and written to the
+      # environment. A schedule supplies no inputs at all, and a mistyped input
+      # expression is not an error in Actions — it interpolates to the empty string — so
+      # a per-step `${{ inputs.x || env.Y }}` repeated four times is four chances to get
+      # a different answer.
+      - name: Resolve what to score
+        env:
+          INPUT_CORPUS_VERSION: ${{ inputs.corpus_version }}
+          INPUT_CONFIG_HASH: ${{ inputs.config_hash }}
+          INPUT_RUNS: ${{ inputs.runs }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          corpus_version="${INPUT_CORPUS_VERSION:-$SCHEDULED_CORPUS_VERSION}"
+          config_hash="${INPUT_CONFIG_HASH:-$SCHEDULED_CONFIG_HASH}"
+          runs="${INPUT_RUNS:-$SCHEDULED_RUNS}"
+          # A SCHEDULE MUST NEVER COMMIT ON A DEFAULT NOBODY CHOSE — but it must commit,
+          # or the whole point of the schedule is lost. So the default is inverted by
+          # trigger rather than by input: a dispatch defaults to a dry run, and a
+          # schedule, which has no inputs to read, always commits.
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            dry_run="no"
+          else
+            dry_run="${INPUT_DRY_RUN:-yes}"
+          fi
+          {
+            echo "CORPUS_VERSION=${corpus_version}"
+            echo "CONFIG_HASH=${config_hash}"
+            echo "RUNS=${runs}"
+            echo "DRY_RUN=${dry_run}"
+          } >> "$GITHUB_ENV"
+          echo "eval-score: ${GITHUB_EVENT_NAME} · corpus ${corpus_version} · reviewer ${config_hash} · replicates ${runs} · dry-run ${dry_run}"
+
+      # The whole sequence, as one command with one exit code. Every assertion lives in
+      # the driver, where a test can break it on purpose and watch it go red; see its
+      # header for why that is not a `run:` block.
+      - name: Score and render
+        env:
+          # `gh`'s credential, for the CodeRabbit arm's read-only calls. This is the
+          # default token restricted to the four read scopes above — it can read this
+          # repository's pull requests and it cannot write anything anywhere.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/agent/eval/score-all.mjs \
+            --root .eval-store \
+            --corpus-version "$CORPUS_VERSION" \
+            --config-hash "$CONFIG_HASH" \
+            --runs "$RUNS" \
+            --out "$RUNNER_TEMP/payloads" \
+            --emit-dir "$RUNNER_TEMP/emit"
+
+      # The deliverable, in the job log, on every run including a dry one. A report that
+      # exists only inside a commit in another repository is a report nobody reads from
+      # the Actions tab, and the log is the one place a dry run leaves anything behind.
+      - name: Print the rendered report
+        run: |
+          set -euo pipefail
+          report=".eval-store/$(tail -1 "$RUNNER_TEMP/emit/written-paths.txt")"
+          echo "::group::${report}"
+          cat "$report"
+          echo "::endgroup::"
+
+      # STAGED BY EXPLICIT PATH, and this is a correctness requirement rather than a
+      # convention recited.
+      #
+      # `scores/` already holds `by-config/sha256-7470…__smoke/reliability-v1.json`, a
+      # fork-era artifact from a different config hash and a corpus that no longer
+      # exists. `git add scores/` would commit it into the store's permanent history as
+      # though this pass had produced it, and `git add -A` is forbidden outright. So what
+      # is staged is the list the driver emitted — derived from this comparison's own key,
+      # so a file no pass wrote cannot be in it — and then the staged set is checked back
+      # against that list, because "I staged the right paths" and "only the right paths
+      # are staged" are different claims and a `*.orig` left by a rebase satisfies only
+      # the first.
+      - name: Commit the scores and the report
+        working-directory: .eval-store
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          xargs git add -- < "$RUNNER_TEMP/emit/written-paths.txt"
+          sort "$RUNNER_TEMP/emit/written-paths.txt" > "$RUNNER_TEMP/emit/expected.txt"
+          git diff --cached --name-only | sort > "$RUNNER_TEMP/emit/staged.txt"
+          # `comm -13` is the lines in the SECOND file only — staged but not written by
+          # this pass. Anything there is the `git add scores/` failure arriving by another
+          # route, so it stops the lane rather than being committed.
+          unexpected="$(comm -13 "$RUNNER_TEMP/emit/expected.txt" "$RUNNER_TEMP/emit/staged.txt")"
+          if [ -n "$unexpected" ]; then
+            echo "eval-score: the index holds path(s) this pass did not write:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          # 🔴 NO DIFF IS A SUCCESSFUL RUN, and saying so is the point.
+          #
+          # `report.mjs` carries no `generated_at` on purpose — a timestamp would make two
+          # renders of one dataset differ in bytes, so a re-render could not be diffed
+          # against its predecessor to show that nothing moved. Measured: two full passes
+          # over unchanged inputs produce byte-identical output across all eight files. So
+          # the ordinary outcome of a weekly tick is an empty index, and a commit step
+          # that assumed otherwise would either paint the lane red every Monday or file an
+          # empty commit to look busy. Both teach a reader to ignore this job.
+          if git diff --cached --quiet; then
+            echo "eval-score: nothing moved — every score and the report already match this dataset. That is a successful re-score, not a no-op."
+            exit 0
+          fi
+          files=$(git diff --cached --name-only | wc -l | tr -d ' ')
+          echo "eval-score: ${files} file(s) changed:"
+          git --no-pager diff --cached --stat
+          # A DRY RUN STOPS HERE, one step short of permanent history. Everything above has
+          # run for real — both checkouts, the API budget preflight, five scorers, seven
+          # filings, the render, the staging and the explicit-path check — and the diff is
+          # printed. Only the commit is skipped, because a commit into the store is the
+          # one thing in this lane that cannot be taken back out.
+          if [ "$DRY_RUN" != "no" ]; then
+            echo "eval-score: DRY RUN — staged ${files} file(s) and STOPPING before the commit. Nothing was committed and nothing was pushed."
+            exit 0
+          fi
+          git commit -m "Re-score ${CORPUS_VERSION} (wafflebase run ${GITHUB_RUN_ID})"
+          # One retry, rebasing. The concurrency group keeps two passes of THIS lane
+          # apart, but the capture collector and the replay lane push to the same
+          # repository on their own schedules and their groups do not serialise against
+          # this one. Rebasing is safe: this pass only ever authors the paths above, and a
+          # re-score of one comparison is the only writer of them.
+          git push || (git pull --rebase && git push)
+          echo "eval-score: pushed ${files} file(s)."
