@@ -124,6 +124,16 @@ wafflebase schema cell.get          # → sheets.cells.get
   command reports the same code for that condition, so the branch does
   not depend on which subcommand ran. Local failures (bad input, a
   filesystem error) still report `"ERROR"`.
+- **Forwarded backend errors are bounded**: when the backend *did* send
+  the envelope, its own `code` is what you get — that is the value to
+  branch on, and it is never rewritten. The surrounding text is capped,
+  because it is upstream-controlled content going straight into an
+  agent's stderr: `code` is truncated at 80 characters, `message` at 500
+  (with a trailing `…`), a `message` that is an HTML document is replaced
+  by `"HTTP <status>"`, and any extra fields the backend attached
+  (`command`, a request id) are dropped once the whole body exceeds
+  4 KB, leaving `{code, message}`. Treat `message` as a display string,
+  not a parseable payload.
 - **Exit codes**: `0` success, `1` failure. Every failure exits `1` —
   including a network or auth failure — so branch on the envelope's
   `code`, not the exit code. (`2` is reserved for a future system-error

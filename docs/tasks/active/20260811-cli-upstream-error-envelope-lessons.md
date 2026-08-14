@@ -33,3 +33,20 @@
   `docs/design/cli.md`'s error matrix, both of which still said everything
   untyped reports `ERROR`. A contract nobody documented is a contract
   nobody can rely on.
+- "Verbatim" was the wrong word to leave in the spec once the code
+  stopped being verbatim. Bounding the forwarded envelope
+  (`safeEnvelope`) is right — it is upstream text going into an agent's
+  stderr — but the todo's acceptance criterion, the README and the design
+  doc all still promised a byte-for-byte pass-through, so the shipped
+  behavior contradicted every line of text describing it. When a guard
+  grows a policy, the policy is part of the contract: say what survives
+  (the `code`) and what is bounded (everything else).
+- Adding `encodeURIComponent` to *one* new URL builder advertises the
+  hole in the other fifteen. `apiKeysUrl()` encoded its workspace while
+  `base` and every `/documents/${docId}/tabs/${tabId}` interpolation next
+  to it did not — and `fetch` resolves `..`, so a document id taken from
+  argv could walk the request out of the workspace base and reissue the
+  command's method with the session's bearer token. Encoding is not the
+  whole fix either: `encodeURIComponent('..') === '..'`, and the URL
+  parser resolves a dot segment however it is spelled (`%2e%2e` decodes
+  back), so a bare `.`/`..` id has to be refused rather than encoded.

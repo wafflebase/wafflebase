@@ -1039,7 +1039,7 @@ is the agent interface. This approach has key advantages:
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
 | Backend 401, JWT session could not be refreshed     | 1    | SESSION_EXPIRED     | "Session expired. Run `wafflebase login`."                         |
 | Backend 401/403, any other body                     | 1    | HTTP_ERROR          | "HTTP 403: Forbidden resource"                                     |
-| Backend error body *is* the envelope                | 1    | (forwarded)          | (the upstream's own code — e.g. SESSION_EXPIRED, TYPE_MISMATCH)   |
+| Backend error body *is* the envelope                | 1    | (forwarded, bounded) | (the upstream's own code — e.g. SESSION_EXPIRED, TYPE_MISMATCH)   |
 | Backend error body is not the envelope              | 1    | HTTP_ERROR          | "HTTP <status>" (+ ": <upstream message>" when the body had one)   |
 | Backend 5xx                                         | 1    | HTTP_ERROR          | "HTTP 500" (+ the upstream message when the body had one)          |
 | Network failure (no response at all)                | 1    | ERROR               | (fetch's own message preserved)                                     |
@@ -1055,6 +1055,23 @@ reports `SESSION_EXPIRED` (the client's own synthesized envelope, the one case
 the CLI knows is an auth failure) or `HTTP_ERROR` — a single classifier for
 every command, so the code an agent branches on never depends on which
 subcommand it ran.
+
+**Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
+row the `code` is the upstream's own — that is the contract, and it is never
+rewritten or reclassified. The text around it is not echoed unchanged,
+because a forwarded body is upstream-controlled content printed straight
+into an agent's stderr, and the non-envelope path already refuses to quote a
+stack trace or an HTML page. The same bounds therefore apply on the envelope
+path (`safeEnvelope`, `packages/cli/src/output/formatter.ts`):
+
+| Field                       | Bound                                                              |
+| --------------------------- | ------------------------------------------------------------------ |
+| `error.code`                | truncated at 80 characters — a code is an identifier, not prose     |
+| `error.message`             | trimmed, truncated at 500 characters with a trailing `…`            |
+| `error.message` that is HTML | replaced by `HTTP <status>` — a document is not a message           |
+| sibling fields (`command`, request ids) | kept while the serialized body stays under 4 KB; past that only `{code, message}` survives |
+
+An `error.message` is a display string, not a payload to parse.
 
 ### 11. Design Principles
 

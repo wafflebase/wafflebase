@@ -58,9 +58,19 @@ Sites:
   (content/export as well as import/upload/download), because both
   describe the identical condition and an agent must not have to branch
   on which command it ran to know what the code will be.
-- A backend-shaped body (e.g. `TYPE_MISMATCH`, `SESSION_EXPIRED`) is
-  still forwarded verbatim, exit code 1, from *every* command — not just
-  the six that already did.
+- A backend-shaped body (e.g. `TYPE_MISMATCH`, `SESSION_EXPIRED`) still
+  reaches stderr with the upstream's **own `code`**, exit code 1, from
+  *every* command — not just the six that already did. Forwarding is
+  bounded rather than byte-for-byte: the `code` is never rewritten, but
+  the surrounding text is capped (`code` 80 chars, `message` 500 chars,
+  an HTML `message` replaced by `HTTP <status>`, sibling fields dropped
+  past 4 KB), because a forwarded body is upstream-controlled content
+  printed into an agent's stderr. Documented in `packages/cli/README.md`
+  and `docs/design/cli.md` §10.
+- No id the client interpolates into a request path — workspace,
+  document, tab, cell ref — can leave its own path segment. `fetch`
+  resolves `..`, so an unencoded id could otherwise send the command's
+  method and the session's bearer token at an unrelated endpoint.
 - Every CLI path that prints an upstream body shares one guard
   (`isErrorEnvelope`) in `src/output/formatter.ts`.
 - `packages/cli/README.md` and `docs/design/cli.md`'s error matrix
