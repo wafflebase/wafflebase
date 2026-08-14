@@ -416,7 +416,7 @@ inspection. Corrections are marked ⚠.
 | `BUILD_CSS_FILE` / `THEME_CSS_FILE` | `vite.config.ts:1124,1132` | `TokenAdapter.plan()` | 8b |
 | `isTokenSourcePath()` regex on `packages/core/**` | `vite.config.ts:1342` | `TokenAdapter.sources()`. Also wrong in the other direction: it matched by PATTERN, so a file that merely looked like a token source triggered a regeneration | 8b |
 | `SEMANTIC_FILE` / `PALETTE_FILE` / `RADIUS_FILE` / `TYPOGRAPHY_FILE`, and the `FAMILY` map keyed on them | `vite.config.ts:1126-1129,1141-1187` | `TokenAdapter.plan()` / `read()` | 8b iface · 8c impl |
-| ⚠ the same four paths again, **compiled into client code** | `src/sandbox/edits.ts:116-119` | server-supplied token metadata, as `TokenFamilyMeta` from `GET /tokens`. **This row can only half-close in 8b**: 8a shipped no client code at all, so there is no `edits.ts` yet to de-hardcode. 8b makes the metadata available; the client stops carrying its own copy when it arrives in PR 9. What 8b *did* settle is the reason the copy existed — `FAMILY` expressed each naming rule as a FUNCTION (`` cssVar: (k) => `--wb-${k}` ``), and a function cannot cross the wire. Every one of the four is prefix-plus-kebab, checked rather than assumed, so `cssVarPrefix` / `themeVarPrefix` / `utilityPrefix` carry the same rules as data | 8b server · 9 client |
+| ✅ the same four paths again, **compiled into client code** | `src/sandbox/edits.ts:116-119` | server-supplied token metadata, as `TokenFamilyMeta` from `GET /tokens`. 8b made the metadata available and settled the reason the copy existed — `FAMILY` expressed each naming rule as a FUNCTION (`` cssVar: (k) => `--wb-${k}` ``), and a function cannot cross the wire. Every one of the four is prefix-plus-kebab, checked rather than assumed, so `cssVarPrefix` / `themeVarPrefix` / `utilityPrefix` carry the same rules as data. **Closed in 9b**, and it closed further than "read the path from the server": the server never wanted a path at all — see below | 8b server · 9b client |
 | `regenerateTokensCss` + the `build-css.ts` preview worker | `vite.config.ts:799-812,823-890` | ⚠ **two methods, not one** — `regenerate()` re-runs the emitter for real, `emit()` renders the preview map from patched text. See §4 | 8b iface · 8c impl |
 | `react`, `react-dom`, `@wafflebase/core` as `dependencies` | `package.json` | React → `peerDependencies`; core → gone from the published package | 8a React · 8c core |
 
@@ -580,8 +580,8 @@ cap is what sets the granularity.
 | 8a | plugin host, **layout only** | **merged** (#819) |
 | 8b | the `TokenAdapter` seam | **merged** (#833) |
 | 8c | `packages/design-sandbox` — the token half | **merged** (#839) — see below |
-| 9a | bridge client (`bridge` · `states` · `property-labels`) | next — see below |
-| 9b | `edits.ts` | held |
+| 9a | bridge client (`bridge` · `states` · `property-labels`) | **merged** (#846) — see below |
+| 9b | `edits.ts` | in review — see below |
 | 9c | `history` · `anchors` | held |
 | 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
 
@@ -668,6 +668,42 @@ So the cut follows the one that already worked for the module underneath it —
   this package does not depend on, and has no consumer until PR 10. `toast.tsx` is
   Shell UI by the table in §2. `registry.tsx` is wafflebase's own components — see
   the ⚠ there.
+- **9b — the staged-edit model.** `src/client/edits.ts`: the staged-edit types, the
+  class / token / layout → intent translators and their inverses, `saveDiff`, and the
+  ordering rule. This is the contract PRs 10–12 are written against, which is why it
+  ships before any panel that consumes it.
+
+  **It closes §6's last open row, further than that row anticipated.** The plan was
+  "read the four paths from `TokenFamilyMeta` instead of compiling them in". Building
+  it showed the server never wanted a path: `tokenEditOf` does not read `intent.file`
+  for any token kind, because the adapter derives the file from the FAMILY. So the
+  client sends `family` and no path at all, and the naming rules it does need
+  (`cssVarFor` / `themeVarFor` / `utilityFor`) are prefix composition over server data.
+
+  **The defect that fell out of it.** The prototype sent `file` and no `family`, and a
+  missing family defaults to `semantic` — so a **radius or typography value edit was
+  planned against the semantic source**. Measured against wafflebase's own adapter:
+
+  ```
+  radius     → semantic.ts [light.lg]   located=false  property lg not found
+  typography → semantic.ts [light.body] located=false  property body not found
+  ```
+
+  It refuses rather than corrupting the wrong file, so nothing was ever written to the
+  wrong place — but neither family could save at all, and the error names the right key
+  in the wrong file, which is the least debuggable shape that failure could have taken.
+
+  Two smaller inferences went the same way. The prototype decided "was this token
+  reference-bound before?" by testing `fromRef.startsWith('palette.')`, which reads as
+  a literal in any project whose reference layer is not called `palette`; the client
+  now carries `TokenBinding['kind']`, which is the contract's own answer. And its
+  private `camelToKebab` broke on every digit (`gray100` → `gray-1-0-0`) — the bug 8b
+  had already fixed in `tokens/adapter.ts`, re-imported here rather than re-written.
+
+  Four other things stayed on the client and are **not** couplings: `PendingClassEdit.file`
+  (a `class-rewrite` genuinely addresses a source file), `insertedFp` (never sent — the
+  wire has no `fp` on an insert; it exists to anchor the inverse), the ordering rule, and
+  `editStateKey`'s hint stripping.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,
