@@ -26,6 +26,95 @@ test("selectionShape names only what the readers can actually tell apart", () =>
   for (const junk of [undefined, 7, "x", {}, { anchor: 1, focus: 2 }]) assert.equal(selectionShape(junk), "none");
 });
 
+test("sheet.activeCell's bare sref is a cell selection, not an absent one", () => {
+  // KEY VERSION 4. This reader answers `"A1"`, and for a year that classified as `none`
+  // because only objects were understood — 7 of the sheet persona's 12 live entries were
+  // keyed that way, and it is the reader the explorer reaches for most.
+  for (const sref of ["A1", "B2", "C210", "ZZZ1000000"]) {
+    assert.equal(selectionShape(sref), "cell", `${sref} is a cell reference`);
+  }
+  // Same state, two readers, one key: `sheet.selectionRange` on a single cell already
+  // reported `cell`, and splitting them would make one selection cover two entries.
+  assert.equal(selectionShape("B2"), selectionShape({ start: "B2", end: "B2" }));
+  // Still shape-matched, so a string that is not a reference degrades as before rather
+  // than inventing coverage for whatever a changed reader starts returning.
+  for (const junk of ["x", "a1", "1A", "A", "12", "A1:B2", "", "Sheet1!A1"]) {
+    assert.equal(selectionShape(junk), "none", `${JSON.stringify(junk)} is not a cell reference`);
+  }
+});
+
+test("a list of selected ids is an element selection", () => {
+  // Nothing returns this yet — it is the shape a canvas surface reports, where selection
+  // is a set of objects rather than a span. Ordered before the object branches because an
+  // array IS an object: without that, every reading would have answered `none`, which is
+  // the exact failure `sheet.activeCell` just spent a year in.
+  assert.equal(selectionShape([]), "none");
+  assert.equal(selectionShape(["el-1"]), "element");
+  assert.equal(selectionShape(["el-1", "el-2"]), "element-multi");
+  assert.equal(selectionShape(["el-1", "el-2", "el-3"]), "element-multi");
+});
+
+const failedClick = (name) => ({
+  action: { type: "click", target: { role: "button", name } },
+  ok: false,
+  error: "locator.click: Timeout 30000ms exceeded",
+});
+
+test("a click that did not land records no coverage at all", () => {
+  // 7 of the 280 clicks across this repository's runs failed, and every one of them was
+  // recorded as tried — `Text style`, `Text alignment`, `Heading 2⌘+⌥2`, `Right⌘+⇧R` and
+  // two off-screen `sheet.cellCenter` refusals.
+  const c = coverageFromJournal([sel(0, 5), failedClick("Text style")]);
+  assert.deepEqual(c.shapes, [], "a click that threw explored nothing");
+  assert.deepEqual(c.pairs, []);
+  assert.deepEqual(c.readAfterMutation, []);
+});
+
+test("a failed click leaves its control on the NEVER TRIED list", () => {
+  // THE CONSEQUENCE THAT COST SOMETHING. Striking a control off this list is permanent
+  // and it is the most valuable line in the brief, so a control the explorer never once
+  // managed to click must stay on offer.
+  const inv = {
+    action: { type: "read", reader: "dom.controls" },
+    ok: true,
+    value: [
+      { role: "button", name: "Bold" },
+      { role: "button", name: "Text style" },
+    ],
+  };
+  const md = renderCoverageBrief(coverageFromJournal([inv, sel(0, 5), click("Bold"), failedClick("Text style")]));
+  assert.match(md, /NEVER TRIED/);
+  assert.match(md, /`Text style`/, "the click threw, so nothing about it was explored");
+  assert.doesNotMatch(
+    md.slice(md.indexOf("NEVER TRIED")),
+    /`Bold`/,
+    "Bold DID land, so it is not untried",
+  );
+});
+
+test("a failed click does not break the round trip it sits inside", () => {
+  // A no-op has to be a no-op in both directions. The click changed nothing, so
+  // Bold -> (threw) -> Bold is still apply-then-reverse with nothing in between; treating
+  // the failure as an intervening mutation would hide the round trip as well as the
+  // failure, which is the more expensive of the two mistakes.
+  const c = coverageFromJournal([sel(0, 5), click("Bold"), failedClick("Italic"), click("Bold")]);
+  assert.deepEqual(c.shapes, [{ control: "Bold", shape: "forward-range", roundTripped: true, sha: null }]);
+  assert.deepEqual(c.pairs, [], "a click that never landed is not half of a sequence");
+});
+
+test("a failed click does not consume the read that follows a real mutation", () => {
+  // #792's shape is a mutation whose effect was observed BEFORE anything else touched the
+  // document. A click that threw touched nothing, so it must not count as the something
+  // else that spoils it.
+  const c = coverageFromJournal([
+    sel(0, 5),
+    click("Heading 2"),
+    failedClick("Text style"),
+    read("doc.runs", []),
+  ]);
+  assert.deepEqual(c.readAfterMutation.map((x) => x.control), ["Heading 2"]);
+});
+
 test("a control applied once is NOT recorded as round-tripped", () => {
   // THE WHOLE POINT. Command-level coverage would mark Bold covered here and steer the
   // next run away from it — while #715 and #749 both live in Bold/Italic PAIRS.
@@ -93,6 +182,32 @@ test("mergeCoverage unions, keeps roundTripped sticky, and drops a stale key ver
     assert.equal(mergeCoverage(junk, newer).shapes.length, 1);
     assert.equal(mergeCoverage(newer, junk).shapes.length, 1);
   }
+});
+
+test("a key-version bump drops shapes but KEEPS the control inventory", () => {
+  // `keyVersion` versions the SHAPE key. The inventory is keyed `role|name`, which no
+  // bump has changed the meaning of, and it is the expensive half of this memory to
+  // rebuild — top-level controls come back on the next run's first `dom.controls` read,
+  // but menu items only reappear when someone opens that menu again.
+  const stale = {
+    keyVersion: COVERAGE_KEY_VERSION - 1,
+    shapes: [{ control: "Ghost", shape: "collapsed", roundTripped: true }],
+    inventory: [
+      { role: "button", control: "Clear formatting", sha: "old111111" },
+      { role: "menuitemcheckbox", control: "Courier New", sha: "old111111" },
+    ],
+  };
+  const merged = mergeCoverage(stale, { keyVersion: COVERAGE_KEY_VERSION, shapes: [], inventory: [] });
+
+  assert.deepEqual(merged.shapes, [], "a shape key that changed meaning claims nothing");
+  assert.deepEqual(
+    merged.inventory.map((x) => x.control),
+    ["Clear formatting", "Courier New"],
+    "the denominator survives — it is what makes NEVER TRIED computable at all",
+  );
+  // Carrying `role|name` forward must not smuggle a stale `control|shape` claim past the
+  // version gate; that is the one thing the gate exists to stop.
+  assert.equal(merged.shapes.length, 0);
 });
 
 test("the rendered brief tells the explorer to vary WHAT it round-trips, not to stop", () => {

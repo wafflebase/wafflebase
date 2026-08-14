@@ -41,8 +41,20 @@
 // is the failure that costs a missed defect, so every entry carries the tree it was
 // observed at and the renderer marks the stale ones individually.
 
-/** Bump when the key shape changes; older entries then cannot claim coverage. */
-export const COVERAGE_KEY_VERSION = 3;
+/**
+ * Bump when the key shape changes; older entries then cannot claim coverage.
+ *
+ * 4: `sheet.activeCell` now keys as `cell` rather than `none`. Measured on the live
+ *    memory, 7 of the sheet persona's 12 entries were keyed `none` — the reader returns a
+ *    bare sref string, `selectionShape` only understood objects, and it is the reader the
+ *    explorer reaches for most. Existing entries therefore claim a shape that was never
+ *    observed, and a key whose meaning changed cannot claim to have covered anything.
+ *
+ *    This versions the SHAPE key — `control|selectionShape|roundTripped` — and nothing
+ *    else. The inventory is keyed `role|name`, which no bump has ever changed the meaning
+ *    of, so `mergeCoverage` carries it across rather than discarding it with the rest.
+ */
+export const COVERAGE_KEY_VERSION = 4;
 
 /**
  * How a selection was shaped when a control was used.
@@ -61,6 +73,8 @@ export const SELECTION_SHAPES = Object.freeze([
   "multi-block",
   "cell",
   "cell-range",
+  "element",
+  "element-multi",
 ]);
 
 /** Readers whose value describes the current selection, by surface. */
@@ -72,7 +86,40 @@ const SELECTION_READERS = new Set(["doc.selection", "sheet.selectionRange", "she
  * break the run that reads it.
  */
 export function selectionShape(value) {
-  if (value == null || typeof value !== "object") return "none";
+  if (value == null) return "none";
+
+  // sheet.activeCell -> a bare sref string, "A1".
+  //
+  // THE READER THE EXPLORER ACTUALLY USES, and it was keyed `none` for a year because
+  // this function only understood objects. Measured across the sheet runs in this
+  // repository: of 11 selection readings in one journal, 10 were `sheet.activeCell` — so
+  // nearly every sheet entry recorded a shape meaning "nothing was selected" for a cell
+  // that plainly was, and each such reading also DOWNGRADED a correct `cell-range` taken
+  // moments earlier.
+  //
+  // `cell` rather than a shape of its own, because that is what it is: one active cell is
+  // the same selection `sheet.selectionRange` reports as `{start:"B2", end:"B2"}`, and
+  // splitting them would make the same state cover two keys.
+  //
+  // AMBIGUOUS IN ONE DIRECTION, and worth naming. When a RANGE is selected this reader
+  // still answers with the anchor alone, so reading it records `cell` where the truth was
+  // `cell-range`. That is a narrowing of one entry; the alternative on offer was `none`,
+  // which was never true of anything. Shape-matched, so junk still degrades: a lowercase
+  // or malformed string is not a reference and answers `none` as before.
+  if (typeof value === "string") return /^[A-Z]+[1-9][0-9]*$/.test(value) ? "cell" : "none";
+
+  if (typeof value !== "object") return "none";
+
+  // A list of selected ids — the shape a canvas surface reports, where selection is a set
+  // of objects rather than a span. Tested before the object branches below because an
+  // array IS an object, and reaching `value.start` on one would answer `none` for every
+  // reading. Nothing returns this yet; it is here so the first surface that does is not
+  // silently recorded as having selected nothing, which is the failure this whole
+  // function just had.
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "none";
+    return value.length === 1 ? "element" : "element-multi";
+  }
 
   // sheet.selectionRange -> { start, end }
   if (typeof value.start === "string" && typeof value.end === "string") {
@@ -132,6 +179,23 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
   for (const e of entries) {
     const action = e?.action;
     if (!action || typeof action !== "object") continue;
+
+    // A CLICK THAT DID NOT LAND IS NOT COVERAGE.
+    //
+    // Every other branch here gates on `e.ok === true`; clicks did not, so a click that
+    // threw was recorded exactly like one that worked. Measured on the runs in this
+    // repository: 7 of 280 clicks failed, and all 7 are in the live memory as tried —
+    // `Text style`, `Text alignment`, `Heading 2⌘+⌥2`, `Right⌘+⇧R` and two off-screen
+    // `sheet.cellCenter` refusals. So four controls the explorer never once managed to
+    // click were struck off the NEVER TRIED list, which is the single most valuable line
+    // in the brief, and `Heading 2⌘+⌥2` is a name that no longer exists on the surface at
+    // all — it is the concatenated accessible name #837 fixed.
+    //
+    // A total no-op, placed before the chains below rather than beside the recording. A
+    // failed click changed nothing, so it must not break a round trip either: Bold, a
+    // click that threw, Bold is still apply-then-reverse with nothing in between. Letting
+    // it reset `lastControl` would hide the round trip instead of the failure.
+    if (action.type === "click" && e?.ok !== true) continue;
 
     // Track the selection as the journal reveals it. A reading is only trustworthy for
     // actions AFTER it, which is why this updates before the click handling below.
@@ -292,7 +356,20 @@ export function mergeCoverage(prev, next) {
     shapes: [...shapes.values()].sort((x, y) => `${x.control}${x.shape}`.localeCompare(`${y.control}${y.shape}`)),
     pairs: unionBy("pair", [a.pairs, b.pairs]),
     readAfterMutation: unionBy("control", [a.readAfterMutation, b.readAfterMutation]),
-    // The inventory is a UNION, never a replacement. A run that read `dom.controls`
+    // THE INVENTORY OUTLIVES A KEY BUMP, so this reads `prev`/`next` directly rather
+    // than the version-gated `a`/`b` every other field uses. `keyVersion` versions the
+    // SHAPE key; the inventory is keyed `role|name`, which no bump has changed the
+    // meaning of. Discarding it with the rest would throw away the DENOMINATOR — the
+    // only thing that can say a control was never tried — and it is the expensive half
+    // of this memory to rebuild: top-level controls come back on the next run's first
+    // `dom.controls` read, but menu items only reappear when someone opens that menu
+    // again. The doc surface's 116 typefaces cost a live run to discover.
+    //
+    // Safe precisely because the two are keyed independently: carrying `role|name`
+    // forward cannot smuggle a stale `control|shape` claim past the version gate, which
+    // is the thing the gate exists to stop.
+    //
+    // The inventory is also a UNION, never a replacement. A run that read `dom.controls`
     // with a menu closed sees fewer controls than one that opened it, and letting the
     // newer reading win would delete every menu item from the memory.
     //
@@ -300,7 +377,7 @@ export function mergeCoverage(prev, next) {
     // makes a control identifiable: a `menuitem` and a `button` can legitimately share a
     // name, and collapsing them loses one control and leaves the survivor's role a coin
     // toss.
-    inventory: unionInventory([a.inventory, b.inventory]),
+    inventory: unionInventory([prev?.inventory, next?.inventory]),
   };
 }
 

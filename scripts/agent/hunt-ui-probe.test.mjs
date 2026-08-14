@@ -94,7 +94,12 @@ test("assertSafeActionPlan bounds clickCount", () => {
 });
 
 test("assertSafeActionPlan refuses a goto to an unknown surface", () => {
-  assert.throws(() => assertSafeActionPlan({ actions: [{ type: "goto", surface: "slides" }] }), /must be "sheet" or "doc"/);
+  // Names the valid surfaces from the shared list rather than a pair spelled out here, so
+  // adding one does not silently leave this assertion describing the old vocabulary.
+  assert.throws(
+    () => assertSafeActionPlan({ actions: [{ type: "goto", surface: "slides" }] }),
+    /surface must be one of sheet, doc/,
+  );
 });
 
 test("assertSafeActionPlan refuses malformed type/key/scroll payloads", () => {
