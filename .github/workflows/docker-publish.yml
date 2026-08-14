@@ -1,17 +1,45 @@
 name: Docker Publish
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "frontend/**"
+  # WAITS FOR CI, rather than racing it. This used to be `push: main`, which is a
+  # separate workflow with no `needs:` — so `:latest` was published in parallel
+  # with the run that decided whether main was green, and a red main published
+  # anyway. Nothing anywhere enforced "full CI before deploy"; this trigger is
+  # what makes that true. The other half is in `scripts/changed-areas.mjs`: a
+  # `push` to `main` is never path-filtered, so the run gating this is always the
+  # complete suite. See docs/design/harness-engineering.md#deploy-gate.
+  #
+  # CHAIN DEPTH IS UNCHANGED. GitHub allows three levels of `workflow_run`
+  # chaining, and `capture-collect.yml` documents that `ci.yml` →
+  # `agent-review-panel.yml` → `capture-collect.yml` already uses all three with
+  # no headroom. This adds a SIBLING at level 2, not a link between existing
+  # levels, so that chain is untouched. Do not insert anything between CI and
+  # this workflow either.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # Unchanged: a release publishes a tagged image and does not go through a
+  # CI-on-main run, so it keeps its own direct trigger.
   release:
     types: [published]
 
 env:
   REGISTRY: docker.io
   IMAGE_NAME: yorkieteam/wafflebase
+
+# Coalescing, and it is the answer to "should we deploy once every few PRs?" —
+# no policy needed. Several merges in quick succession each queue a deploy; all
+# but the newest are cancelled, so one deploy publishes the newest CI-verified
+# tree. Safe to cancel because both halves are self-reconciling: a cancelled run
+# leaves digests pushed without a manifest, which the next run's
+# `imagetools create` supersedes.
+#
+# Keyed so a `release` publish can NEVER be cancelled by a subsequent merge to
+# main — that would lose a release image, which no later run would restore.
+concurrency:
+  group: docker-publish-${{ github.event_name == 'release' && github.event.release.tag_name || 'main' }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -20,6 +48,28 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    # Four clauses, none of them redundant:
+    #
+    #   conclusion == 'success'   the point of the gate.
+    #   event == 'push'           CI also runs on `pull_request` and `merge_group`.
+    #                             A merge-queue run is a speculative commit that
+    #                             need never reach main, so it must not publish.
+    #   head_branch == 'main'     belt-and-braces with the trigger's `branches`.
+    #   head_repository == this   THE TRAP. `workflow_run.branches` filters on the
+    #                             triggering run's HEAD branch, and a fork's
+    #                             default branch is usually also called `main` —
+    #                             so a fork PR opened from its own `main` produces
+    #                             a CI run with head_branch `main` and would
+    #                             otherwise pass the trigger filter. `event ==
+    #                             'push'` already excludes it; this makes the
+    #                             intent explicit rather than incidental.
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +83,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # The commit CI actually verified, NOT main's tip. A `workflow_run`
+          # starts after its trigger finished, so main may already have moved on
+          # to a commit whose CI has not reported yet — checking out the branch
+          # would publish that unverified tree and the gate would be theatre.
+          # Null on a `release`, where `github.ref` is the tag.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          # The checkout is only a build context for `docker build`; nothing here
+          # talks back to git. (Contrast publish-ghpage.yml, whose cleanup step
+          # pushes to `gh-pages` and therefore must keep its credentials.)
+          persist-credentials: false
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3

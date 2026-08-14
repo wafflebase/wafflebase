@@ -5,14 +5,23 @@ import { createHash } from "node:crypto";
 import { createServer } from "vite";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
+import { loadGoogleFontCache } from "./google-font-cache.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
 const baselineDir = path.resolve(frontendRoot, "tests/visual/baselines");
+const fontCacheDir = path.resolve(frontendRoot, "tests/visual/fonts");
 const host = "127.0.0.1";
 const port = Number(process.env.VISUAL_BROWSER_PORT || 4175);
 const targetUrl = `http://${host}:${port}/harness/visual`;
 const updateBaseline = process.env.UPDATE_VISUAL_BROWSER_BASELINE === "true";
+// Refreshes `tests/visual/fonts/` from the network instead of replaying it.
+// On demand only — see google-font-cache.mjs.
+const recordFontCache = process.env.RECORD_GOOGLE_FONT_CACHE === "true";
+// Deliberately the Docker command and only the Docker command: the `css2`
+// response varies by User-Agent, so a host recording can hold a stylesheet
+// CI's Chromium never asks for.
+const RECORD_FONTS_COMMAND = "pnpm frontend test:visual:browser:docker:record";
 const captureProfiles = [
   {
     id: "desktop",
@@ -316,17 +325,24 @@ async function readBaseline(target, profile) {
   }
 }
 
-// Web fonts are the one input to a capture that arrives over the network,
-// so they are the one input that can differ between the run that recorded a
-// baseline and the run being compared against it. index.html requests
-// Inter/Fraunces/JetBrains Mono up front, and the slides ThemedFontPicker
-// (plus any preview hosting named families) injects further Google Fonts
-// links from a child mount effect. A bare `fonts.ready` is not enough for
-// either: it can resolve before a late-injected link registers its faces at
-// all, and once it has resolved nothing re-arms it — the screenshot then
-// paints the browser's default serif where the baseline holds Inter, which
-// is how slides-theme-panel and slides-pickers drifted while every
-// system-family row around them matched.
+// Web fonts are the one input to a capture that the page fetches rather than
+// renders, so they are the one input that can differ between the run that
+// recorded a baseline and the run being compared against it. index.html
+// requests Inter/Fraunces/JetBrains Mono up front, and the slides
+// ThemedFontPicker (plus any preview hosting named families) injects further
+// Google Fonts links from a child mount effect. A bare `fonts.ready` is not
+// enough for either: it can resolve before a late-injected link registers
+// its faces at all, and once it has resolved nothing re-arms it — the
+// screenshot then paints the browser's default serif where the baseline
+// holds Inter, which is how slides-theme-panel and slides-pickers drifted
+// while every system-family row around them matched.
+//
+// Those fetches no longer leave the machine: google-font-cache.mjs answers
+// them from `tests/visual/fonts/`. That removed the *flake* (11 of the last
+// 64 verify-browser runs died on a `fonts.gstatic.com` failure) but not the
+// need for this wait — a face is still asynchronous, still registered only
+// once a mount injects its link, and still capable of arriving after a
+// screenshot.
 //
 // What gets *gated* is an explicit floor — the families and weights
 // `index.html`'s own Google Fonts stylesheet requests, which are the
@@ -612,7 +628,7 @@ async function capturePass(context, profile, section, targets, captures) {
   }
 }
 
-async function captureScreenshots(playwright) {
+async function captureScreenshots(playwright, fontCache) {
   const server = await createServer({
     configFile: path.resolve(frontendRoot, "vite.config.ts"),
     root: frontendRoot,
@@ -640,6 +656,11 @@ async function captureScreenshots(playwright) {
         timezoneId: "UTC",
         colorScheme: profile.colorScheme,
       });
+
+      // Before the first navigation: the `css2` link is in the document
+      // head, so an uninstalled route would let the very request this
+      // exists to intercept reach the network.
+      await fontCache.install(context);
 
       try {
         // Root pass: the full assembled page (every section mounted
@@ -682,7 +703,53 @@ async function captureScreenshots(playwright) {
 }
 
 const playwright = await loadPlaywright();
-const capturedById = await captureScreenshots(playwright);
+const fontCache = await loadGoogleFontCache({
+  dir: fontCacheDir,
+  record: recordFontCache,
+});
+const capturedById = await captureScreenshots(playwright, fontCache);
+
+// Record mode is a maintenance pass, not a verification: it exists to
+// refresh the fixtures, so it reports what it wrote and stops before any
+// baseline is compared or overwritten with screenshots taken against
+// whatever the network happened to serve.
+if (recordFontCache) {
+  if (fontCache.recordFailures.length > 0) {
+    console.error(
+      "[verify:visual:browser] Google Fonts requests failed; nothing was recorded for them:",
+    );
+    for (const { url, reason } of fontCache.recordFailures) {
+      console.error(`- ${reason} ${url}`);
+    }
+    console.error(
+      "[verify:visual:browser] Re-run the record pass — a partial cache would fail every later run.",
+    );
+    process.exit(1);
+  }
+  await fontCache.save();
+  console.log(
+    `[verify:visual:browser] Recorded ${fontCache.recorded} response(s); ` +
+      `cache now holds ${fontCache.size}. Commit tests/visual/fonts/ ` +
+      "(no diff means upstream is unchanged).",
+  );
+  process.exit(0);
+}
+
+// A request the fixtures do not answer was aborted, so this pass painted
+// fallback glyphs for whatever needed it — the same worthless capture a
+// failed network fetch produced, and reported the same way: after every
+// screenshot is on disk, never as a silent pass.
+if (fontCache.misses.length > 0) {
+  console.error(
+    "[verify:visual:browser] Google Fonts requests missing from tests/visual/fonts/:",
+  );
+  for (const url of fontCache.misses) {
+    console.error(`- ${url}`);
+  }
+  console.error(
+    `[verify:visual:browser] Re-record the cache and commit it: ${RECORD_FONTS_COMMAND}`,
+  );
+}
 
 await mkdir(baselineDir, { recursive: true });
 
@@ -700,11 +767,11 @@ if (webFontFailures.length > 0) {
   }
   console.error(
     "[verify:visual:browser] These screenshots paint fallback families. " +
-      "Check network access to fonts.googleapis.com and re-run.",
+      `The faces are served from tests/visual/fonts/, not the network: ${RECORD_FONTS_COMMAND}`,
   );
 }
 
-if (updateBaseline && webFontFailures.length > 0) {
+if (updateBaseline && (webFontFailures.length > 0 || fontCache.misses.length > 0)) {
   console.error(
     "[verify:visual:browser] Refusing to record baselines from fallback glyphs.",
   );
@@ -818,7 +885,7 @@ if (missingTargets.length > 0 || mismatchedTargets.length > 0) {
   process.exit(1);
 }
 
-if (webFontFailures.length > 0) {
+if (webFontFailures.length > 0 || fontCache.misses.length > 0) {
   process.exit(1);
 }
 

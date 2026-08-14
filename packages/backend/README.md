@@ -197,6 +197,7 @@ All document endpoints require JWT authentication.
 | `GET` | `/documents/:id` | Get document by ID (workspace member) |
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
+| `POST` | `/documents/:id/copy` | Duplicate a document into the same workspace + folder as `<title> (copy)` (any member — copying never touches the source) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
 
 ### Folders (`/workspaces/:workspaceId/folders`)

@@ -770,6 +770,41 @@ exactly the moment it is needed, and resolution falls through to `fp` when it is
 not. No new failure mode, and most post-external-edit relocations become silent
 recoveries instead of "discard your edit".
 
+**`className` reaches the UI as TWO fields, and neither one is in `fp`.**
+`classLiteralOf` names a rewrite TARGET, so it refuses anything it cannot
+attribute to an authored blob — and that refusal was invisible:
+`className={t("nav.home")}` arrived as `className: null`, which the editor could
+not tell from a node with no class attribute, so it offered an edit
+`applyClassRewrite` then refused. `attrsOf` therefore also returns
+`classNameExpr`, the expression **as written**, for the UI to render read-only:
+
+| `className` | `classNameExpr` | the class value is |
+|---|---|---|
+| string | `null` | a plain literal — fully editable (`"p-2"`, `{"p-2"}`, `` {`p-2`} ``, `{("p-2")}` are one case) |
+| string | string | a joiner call with an authored blob — `cn("p-2", x)`. The blob is editable, the rest is the author's |
+| `null` | string | **locked** — an expression with no attributable blob (`t("nav.home")`, `styles.row`, a ternary) |
+| `null` | `null` | no `className` attribute |
+
+`classNameExpr !== null` means "an expression exists", **not** "locked" — row 2
+is editable, and a UI keying off the single field greys out the commonest shadcn
+shape there is. Locked is `className === null && classNameExpr !== null`.
+
+Two limits, both deliberate. A **valueless** attribute (`<div className/>`,
+`<div className={}/>`) has no expression to show, so it reads as row 4 while
+`applyClassRewrite` still refuses it — its test is `findJsxAttribute &&
+!classLiteralOf`, so a UI mirroring the refusal exactly must check
+`attrs.includes('className')`; `classNameExpr` supplies the text to *show*, not
+the decision. And the text is **verbatim source**, newlines included, so a
+single-line token is the caller's collapse to make.
+
+The field is additive in the strict sense: it enters neither `fp` nor `fpx`, and
+`test/server/jsx-nodes.test.mjs` pins both hashes for sixteen fixtures against
+values recorded *before* it existed. That guard is not redundant with the drift
+check in §5.10 — a payload change moves `walkJsx` and `extract.mjs` together, so
+they keep agreeing while every anchor already written down goes stale. Measured:
+routing the new field into `fpOf` fails exactly the six fixtures that have an
+expression, and nothing else in the suite.
+
 `resolveNode` tries **path → unique `fpx` → unique `fp` → refuse**, and *every
 search step resolves only on exactly one match*. Ambiguity is treated as absence:
 picking the first of two identical spans would write to the wrong node silently,
@@ -938,6 +973,11 @@ even though the injector would have taken it.
 roles** over eight shapes, rather than trusting the rules to stay in step, in
 the same spirit as the stamper's cross-consumer test. Adding a third role
 without a third flag fails there.
+
+The class-edit refusal is the same kind of prediction one level down, and it is
+data rather than a flag: `buildNode` carries `className` + `classNameExpr` (§5.7)
+so the outline can render a locked, read-only class value instead of an empty one
+that invites an edit `applyClassRewrite` will reject.
 
 `analyzeNodes` also drops **ambiguous** roots, matching `resolveNode`'s
 treatment of a name two JSX-returning functions claim, and returns those names so

@@ -1,4 +1,4 @@
-import { validateSelectQuery } from './sql-validator';
+import { validateSelectQuery, wrapWithRowLimit } from './sql-validator';
 
 describe('validateSelectQuery', () => {
   it('accepts simple SELECT queries', () => {
@@ -45,5 +45,21 @@ describe('validateSelectQuery', () => {
       valid: false,
       error: 'Multiple statements are not allowed',
     });
+  });
+});
+
+describe('wrapWithRowLimit', () => {
+  it('wraps a query in a row-limited subquery', () => {
+    expect(wrapWithRowLimit('SELECT id FROM users', 10_001)).toBe(
+      'SELECT * FROM (SELECT id FROM users\n) AS _q LIMIT 10001',
+    );
+  });
+
+  it('does not let a trailing line comment swallow the wrapper clause', () => {
+    const wrapped = wrapWithRowLimit('SELECT id FROM t -- filter TODO', 10_001);
+
+    expect(wrapped).toBe(
+      'SELECT * FROM (SELECT id FROM t -- filter TODO\n) AS _q LIMIT 10001',
+    );
   });
 });

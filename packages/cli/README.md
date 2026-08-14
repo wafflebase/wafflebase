@@ -118,10 +118,11 @@ wafflebase schema cell.get          # → sheets.cells.get
   is the dotted command name (the same string `schema` indexes on), so a
   caller running several commands can tell which one failed. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
-  command-specific `code` agents can branch on; everything else
-  reports `"ERROR"`. A backend error keeps its own `code` and context,
-  but `command` is always the CLI's — a server cannot relabel which
-  command failed.
+  command-specific `code` agents can branch on; argument-parsing
+  failures (missing argument, unknown option, unknown command) report
+  `USAGE`; everything else reports `"ERROR"`. A backend error keeps its
+  own `code` and context, but `command` is always the CLI's — a server
+  cannot relabel which command failed.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error (network, auth).
 

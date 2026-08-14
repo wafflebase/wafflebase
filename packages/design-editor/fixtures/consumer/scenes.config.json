@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "The fixture consumer's scene manifest — its own curation, in its own layout.",
+    "",
+    "Paths are `app/...`, not `packages/frontend/src/...`, and that is the point: the",
+    "plugin reads this through `options.scenes` and resolves every path against",
+    "`options.root`, so a project that keeps its routes anywhere at all works.",
+    "",
+    "NOT `deferred`, unlike every wafflebase scene: a deferred entry is dropped from the",
+    "generated module entirely, so it would prove nothing about path resolution. Live, the",
+    "module names the scene and its `app/` file, which is exactly the claim. Nothing mounts",
+    "it — the gate drives the JSON API, not a browser — so the loader is generated and",
+    "never called, and this project needs no React installed to satisfy it."
+  ],
+  "components": ["app/components/badge.tsx"],
+  "scenes": [
+    {
+      "id": "dashboard",
+      "kind": "dom",
+      "label": "Dashboard",
+      "file": "app/pages/dashboard.tsx",
+      "export": "default",
+      "route": "/dashboard",
+      "mocks": [],
+      "viewports": ["desktop"]
+    }
+  ]
+}

@@ -42,6 +42,21 @@ export function getClient(opts: GlobalOpts): HttpClient {
 export function createProgram(): Command {
   const program = new Command();
 
+  // Commander's own parse failures (missing argument, unknown option, unknown
+  // command) exit during parsing, before any action handler runs, so they used
+  // to bypass the documented `{ error: { code, message } }` envelope and print
+  // bare prose. `exitOverride` turns them into a thrown `CommanderError` that
+  // `runCli` can envelope; the `outputError` output hook — not `writeErr`,
+  // which `outputHelp({ error: true })` also uses — suppresses the prose.
+  //
+  // Set here, before any subcommand is registered: `.command()` copies the
+  // exit callback into the child at creation time.
+  program.exitOverride().configureOutput({
+    outputError: () => {
+      /* enveloped by runCli */
+    },
+  });
+
   program
     .name('wafflebase')
     .description('CLI for Wafflebase spreadsheet API')

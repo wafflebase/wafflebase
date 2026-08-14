@@ -518,7 +518,7 @@ export function readImports(sf) {
  */
 function buildNode(node, path, ancestorTags, scope, owner, returnedJsx) {
   const tag = tagOf(node);
-  const { names, identity, className } = attrsOf(node);
+  const { names, identity, className, classNameExpr } = attrsOf(node);
   const text = directTextOf(node);
   const kids = childrenOf(node, scope);
   const fp = fpOf({ ancestorTags, tag, attrNames: names, identity, text });
@@ -528,6 +528,14 @@ function buildNode(node, path, ancestorTags, scope, owner, returnedJsx) {
     tag,
     attrs: names,
     className,
+    // The refusal, made visible. `className` alone cannot tell "no class
+    // attribute" from "an expression this tool will not rewrite", so the UI
+    // showed a class-less node for `className={t("nav.home")}` and offered an
+    // edit the injector then refused. Carrying the expression lets it render a
+    // locked, read-only token instead. See `attrsOf` for the four-row contract —
+    // in particular, a non-null `classNameExpr` does NOT by itself mean locked:
+    // `cn("p-2", x)` fills BOTH fields and its blob is editable.
+    classNameExpr,
     identity,
     text: text || null,
     fp,

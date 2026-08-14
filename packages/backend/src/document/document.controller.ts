@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { DocumentService, DocumentWithAuthor } from './document.service';
+import { DocumentCopyService } from './document-copy.service';
 import { Document as DocumentModel, Prisma } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
@@ -57,6 +58,7 @@ type DocumentListItem = Omit<DocumentWithAuthor, 'updatedAt'> & {
 export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
+    private readonly documentCopyService: DocumentCopyService,
     private readonly workspaceService: WorkspaceService,
     private readonly yorkieAdminService: YorkieAdminService,
     private readonly fileService: FileService,
@@ -280,6 +282,29 @@ export class DocumentController {
     }
     await this.documentService.moveDocuments(updates);
     return { moved: updates.map((u) => u.id) };
+  }
+
+  /**
+   * Duplicate a document into the same workspace and folder as
+   * `<title> (copy)` — see docs/design/document-copy.md.
+   *
+   * Gated on workspace membership only, deliberately **not** on
+   * `resolveDocManager`: a copy neither modifies, moves, nor destroys the
+   * source, so anyone who can read the document can duplicate it. This is the
+   * one document action where that gate diverges from move/delete.
+   */
+  @Post('documents/:id/copy')
+  async copyDocument(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ): Promise<DocumentModel> {
+    const doc = await this.documentService.document({ id });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+    const userId = Number(req.user.id);
+    await this.workspaceService.assertMember(doc.workspaceId, userId);
+    return this.documentCopyService.copy(doc, userId);
   }
 
   @Patch('documents/:id')

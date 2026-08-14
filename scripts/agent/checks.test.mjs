@@ -249,58 +249,45 @@ test("the `fix` verb reaches exactly one workflow: issues -> implement, PRs -> f
   }
 });
 
-test("every agent-pipeline checkout pins an immutable commit SHA, not a tag", () => {
-  // The trusted pipeline is checked out from another repository, and in this
-  // phase NOTHING re-verifies that the code fetched is the code intended: the
-  // OIDC `job_workflow_ref` assertion only becomes available once these
-  // workflows are themselves reusable. Until then the pin IS the guard.
+test("every workflow that runs a pipeline script sets GH_REPO", () => {
+  // REGRESSION GUARD for an outage this suite did not catch.
   //
-  // A tag would put that guarantee in a repository setting (a ruleset on
-  // refs/tags/v*) which a reader of these files cannot see and an org admin can
-  // change. A 40-hex SHA cannot be re-pointed by anyone. This is the same rule
-  // the repo already applies to create-github-app-token and claude-code-action,
-  // for the same reason, and it is asserted here rather than trusted to review
-  // because a bump that quietly reverts to a tag is invisible in a diff.
+  // `gh` expands `{owner}/{repo}` by shelling out to git, so it needs a git
+  // remote in the working directory. When the pipeline moved to its own repo,
+  // the trusted checkout began landing in a scratch path that is deleted after
+  // the move — which removed the only .git in the workspace. Every step running
+  // before the PR-branch checkout then failed with:
   //
-  // Deliberately NOT pinned to one specific SHA: that would need editing in
-  // lockstep with every version bump, and a bumper updating both would learn
-  // nothing. The invariant is the SHAPE of the pin.
+  //   unable to expand placeholder in path: failed to run git:
+  //   fatal: not a git repository (or any of the parent directories): .git
+  //
+  // That killed the fix job, and would have killed promote too (mark-ready.mjs
+  // uses the same placeholder). It was invisible here because the scripts are
+  // fine — the missing thing was the ENVIRONMENT they run in, which no unit test
+  // observes. Hence a workflow-level assertion.
+  //
+  // Workflow level, not step level: a new step that shells out to gh is exactly
+  // how this comes back, and only a workflow-level default covers steps nobody
+  // has written yet.
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(HERE, "..", "..", ".github", "workflows");
-  // Both patterns end in `\s*(#.*)?$` — trailing whitespace and a YAML comment
-  // are allowed, nothing else is.
-  //
-  // The REPOSITORY pattern must tolerate a comment or the guard has a silent
-  // hole: `repository: wafflebase/agent-pipeline # central` would fail to match,
-  // and a site that does not match is not scanned at all — neither counted nor
-  // reported. A checkout could then be added, or an existing one annotated, and
-  // quietly leave the guard's view. That is the exact failure shape this test
-  // exists to catch, so it must not be one the test itself has.
-  //
-  // The REF pattern must end at the SHA, or `[0-9a-f]{40}\b` accepts anything
-  // that merely STARTS with 40 hex characters: `<sha>/branch` and `<sha>-evil`
-  // both passed before this. (41+ hex already failed closed — `\b` cannot match
-  // between two hex digits.) A quoted ref is deliberately rejected too: every
-  // one of these blocks is generated from one template, so one canonical form is
-  // the point, and a clear failure naming the expected shape beats a guard that
-  // quietly accepts variants.
-  const REPO_LINE = /^\s*repository:\s*wafflebase\/agent-pipeline\s*(#.*)?$/;
-  const SHA_REF = /^\s*ref:\s*[0-9a-f]{40}\s*(#.*)?$/;
   const offenders = [];
-  let pins = 0;
+  let checked = 0;
   for (const file of readdirSync(dir).filter((f) => f.startsWith("agent-") && f.endsWith(".yml"))) {
-    const lines = readFileSync(path.join(dir, file), "utf8").split("\n");
-    lines.forEach((line, i) => {
-      if (!REPO_LINE.test(line)) return;
-      // `ref:` is the next non-comment key in every one of these blocks. Not
-      // finding one leaves `ref` empty, which is reported rather than skipped.
-      const ref = lines.slice(i + 1, i + 4).find((l) => /^\s*ref:/.test(l)) ?? "";
-      pins += 1;
-      if (!SHA_REF.test(ref)) offenders.push(`${file}:${i + 2} -> ${ref.trim() || "(no ref)"}`);
-    });
+    const text = readFileSync(path.join(dir, file), "utf8");
+    // Only workflows that actually invoke pipeline code can hit this.
+    if (!text.includes("scripts/agent/") && !text.includes("agent-tools/")) continue;
+    checked += 1;
+    // A workflow-level `env:` block is at column 0; a job-level one is indented.
+    const wfEnv = /^env:\n(?:[ \t]+.*\n|\n)*?[ \t]+GH_REPO:/m.test(text);
+    if (!wfEnv) offenders.push(file);
   }
-  assert.ok(pins > 0, "expected at least one agent-pipeline checkout to exist");
-  assert.deepEqual(offenders, [], `these agent-pipeline checkouts are not SHA-pinned:\n  ${offenders.join("\n  ")}`);
+  assert.ok(checked > 0, "expected to find workflows that invoke pipeline scripts");
+  assert.deepEqual(
+    offenders,
+    [],
+    `these workflows run pipeline scripts without a workflow-level GH_REPO:\n  ${offenders.join("\n  ")}`,
+  );
 });
 
 test("agent-fix decides eligibility on TRUSTED main, before the branch checkout", () => {
@@ -308,11 +295,11 @@ test("agent-fix decides eligibility on TRUSTED main, before the branch checkout"
   // must be computed by main's code — a branch that could supply either would be
   // choosing whether it gets fixed and what the fixer is told to do.
   const wf = WF("agent-fix.yml");
-  // Anchored on the step NAME, not on a ref literal: the trusted source is now
-  // the pinned agent-pipeline repo, and the pin moves at every version bump.
+  // Anchored on the step NAME, not on a ref literal: the trusted source is this
+  // repository's own `main`, and a bare `ref: main` is not unique to this step.
   // The step's name is what stays stable, and it is unique to this job — the
   // router's checkout in the `route` job would otherwise match first.
-  const trustedCheckout = wf.indexOf("- name: Check out the trusted pipeline");
+  const trustedCheckout = wf.indexOf("- name: Check out trusted main");
   const gate = wf.indexOf("fix-eligible.mjs");
   const brief = wf.indexOf("fix-brief.mjs");
   const branchCheckout = wf.indexOf("ref: ${{ steps.pr.outputs.branch }}");

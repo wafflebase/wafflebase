@@ -370,7 +370,7 @@ range-subtraction), matching the current `insert*`/`remove*` semantics.
 
 **Component & placement**
 
-- New `DataValidationPanel.tsx` (lazy-loaded), sharing the **same right-side
+- New `packages/frontend/src/app/spreadsheet/data-validation-panel.tsx` (lazy-loaded), sharing the **same right-side
   slot** as `ConditionalFormatPanel` and the chart editor — only one is open at
   a time (mutually exclusive, as the existing panels already are).
 - Same props as the CF panel: `{ spreadsheet, open, onClose, getSelectionRange }`.

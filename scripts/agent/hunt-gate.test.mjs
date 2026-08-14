@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   isFilingVerdict,
   dropReason,
+  refutationDefects,
   huntSeverity,
   coerceCandidates,
   dedupeCandidates,
@@ -476,4 +477,104 @@ test("coerceCandidates: evidenceOf can only reject, and its reason reaches the d
   // rejected, and a caller that returns `false` meaning "fine" must not pass.
   assert.equal(coerceCandidates([base], { evidenceOf: () => false }).kept.length, 0);
   assert.equal(coerceCandidates([base], { evidenceOf: () => undefined }).kept.length, 0);
+});
+
+test("refutationDefects: a refutation is held to the confirmation's standard", () => {
+  const charter = { codeScope: ["packages/docs/**"] };
+  const sound = {
+    verdict: "refuted",
+    confidence: "high",
+    refutes: "that un-listing loses the heading",
+    groundedIn: ["packages/docs/src/store/memory.ts:250"],
+  };
+  assert.deepEqual(refutationDefects(sound, charter), [], "a grounded refutation naming its target is clean");
+
+  // Not applicable to anything that is not a refutation, so a caller can map over
+  // every verdict without branching — including junk, which must not throw.
+  assert.deepEqual(refutationDefects({ verdict: "confirmed", groundedIn: [] }, charter), []);
+  for (const junk of [null, undefined, 7, "refuted", []]) assert.deepEqual(refutationDefects(junk, charter), []);
+
+  // The #783 shape: real citations, but nothing said about WHAT they contradict.
+  const unnamed = { ...sound, refutes: "   " };
+  assert.deepEqual(refutationDefects(unnamed, charter), ["names no contradicted claim"]);
+  assert.deepEqual(refutationDefects({ ...sound, refutes: undefined }, charter), ["names no contradicted claim"]);
+
+  // Citations are held to the SAME shape and scope the confirmation path applies.
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: [] }, charter), ["cites nothing that locates code"]);
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: ["not a citation"] }, charter), [
+    "cites nothing that locates code",
+  ]);
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: ["scripts/agent/x.mjs:1"] }, charter), [
+    "all 1 citation(s) outside codeScope",
+  ]);
+
+  // Both shortfalls are reported together: a drop table that named only the first
+  // would send someone to fix one half and re-run for the other.
+  assert.deepEqual(
+    refutationDefects({ verdict: "refuted", confidence: "low", refutes: "", groundedIn: [] }, charter).length,
+    3,
+  );
+
+  // A refutation at LOW confidence still outvotes a colleague who confirmed at HIGH.
+  // The confirmation path has always required `high`, so the same standard requires it
+  // here — this is the asymmetry #785 left behind.
+  assert.deepEqual(refutationDefects({ ...sound, confidence: "low" }, charter), ["refuted at low confidence"]);
+  assert.deepEqual(refutationDefects({ ...sound, confidence: undefined }, charter), ["refuted at low confidence"]);
+
+  // `charter.minCitations` is read, not assumed to be 1: a charter that demands two
+  // citations to confirm must demand two to refute.
+  const strict = { codeScope: ["packages/docs/**"], minCitations: 2 };
+  assert.deepEqual(refutationDefects(sound, strict), ["cites 1 of the 2 citations this charter requires"]);
+  assert.deepEqual(
+    refutationDefects({ ...sound, groundedIn: [...sound.groundedIn, "packages/docs/src/view/editor.ts:3100"] }, strict),
+    [],
+  );
+
+  // A `citationsOf` that throws yields zero citations rather than escaping — same
+  // fail-quiet rule the confirmation path uses.
+  assert.deepEqual(
+    refutationDefects(sound, charter, { citationsOf: () => { throw new Error("boom"); } }),
+    ["cites nothing that locates code"],
+  );
+});
+
+test("dropReason carries the refuter's reasoning, and says when it fell short", () => {
+  // THE POINT: on issue #783 this row read only `verifier 1 refuted the candidate`,
+  // and the argument that killed a real defect was reachable only by reading raw
+  // execution JSON afterwards.
+  const uiCharter = { ...CHARTER, minCitations: 1, requiresDocCitation: false, codeScope: ["packages/**"] };
+  const opts = {
+    grounds: UI_GROUNDS,
+    citationsOf: (_c, verdicts) => verdicts.flatMap((x) => x?.groundedIn ?? []),
+  };
+  const good = confirmed({ confirmationGround: "expectation-violated" });
+
+  const sound = {
+    ...good,
+    verdict: "refuted",
+    reason: "the block model documents this as normal-styled",
+    refutes: "that the heading should survive",
+    groundedIn: ["packages/docs/src/model/named-styles.ts:97"],
+  };
+  const why = dropReason(candidate(), [good, sound], uiCharter, opts);
+  assert.match(why, /verifier 1 refuted/);
+  assert.match(why, /the block model documents this as normal-styled/, "the refuter's own words must reach the table");
+  assert.match(why, /that the heading should survive/, "and what it claims to contradict");
+  assert.match(why, /named-styles\.ts:97/, "and where it looked");
+  assert.doesNotMatch(why, /NOT HELD TO THE CONFIRMATION STANDARD/, "a sound refutation is not scolded");
+
+  // An unsound one still drops the candidate — hunting fails quiet, and a gate that
+  // promoted a finding because it disliked the argument against it would manufacture
+  // reports out of its own dissatisfaction.
+  const unsound = { ...sound, refutes: "", groundedIn: [] };
+  assert.equal(isFilingVerdict(candidate(), [good, unsound], uiCharter, opts), false, "still not reported");
+  const bad = dropReason(candidate(), [good, unsound], uiCharter, opts);
+  assert.match(bad, /NOT HELD TO THE CONFIRMATION STANDARD/);
+  assert.match(bad, /names no contradicted claim/);
+
+  // One verifier's essay must not swallow the row.
+  const windy = { ...sound, reason: "x".repeat(900) };
+  const long = dropReason(candidate(), [good, windy], uiCharter, opts);
+  assert.ok(long.length < 700, `drop row should be bounded, got ${long.length}`);
+  assert.match(long, /\.\.\./, "and should say it was cut");
 });

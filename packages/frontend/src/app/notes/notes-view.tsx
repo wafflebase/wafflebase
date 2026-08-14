@@ -4,6 +4,7 @@ import {
   type ThemeMode,
   type NoteViewMode,
   type NoteKeymap,
+  type UploadImage,
 } from "@wafflebase/notes";
 import { useEffect, useRef, useState } from "react";
 // `Text` is imported from @yorkie-js/react (NOT @yorkie-js/sdk) on purpose: the
@@ -25,6 +26,12 @@ interface NotesViewProps {
   viewMode?: NoteViewMode;
   /** Editor keybinding mode. Defaults to `default`. */
   keymap?: NoteKeymap;
+  /**
+   * Upload a pasted/dropped/picked image and resolve with its URL, or `null`
+   * if the upload failed and was already reported to the user. Omitted on
+   * read-only mounts.
+   */
+  uploadImage?: UploadImage;
 }
 
 /**
@@ -70,9 +77,17 @@ export function NotesView({
   readOnly,
   viewMode = "both",
   keymap = "default",
+  uploadImage,
 }: NotesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
+  // The editor is initialized once (see the [didMount, doc] effect below), but
+  // `uploadImage` changes identity as the document query resolves the
+  // workspace id. Reading it through a ref hands the engine a stable callback
+  // that always calls the current one, instead of remounting the editor —
+  // which would drop the caret, scroll position, and any in-flight upload.
+  const uploadRef = useRef(uploadImage);
+  uploadRef.current = uploadImage;
   const [didMount, setDidMount] = useState(false);
   const { doc, loading, error } = useDocument<YorkieNotesRoot, NotesPresence>();
   const { resolvedTheme } = useTheme();
@@ -92,7 +107,11 @@ export function NotesView({
 
     const store = new YorkieNoteStore(doc);
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
-    const editor = initialize(container, store, theme, readOnly, viewMode);
+    const editor = initialize(container, store, theme, readOnly, viewMode, {
+      uploadImage: uploadRef.current
+        ? (file) => uploadRef.current!(file)
+        : undefined,
+    });
     editorRef.current = editor;
     // keymap is not an initialize() param, so apply the persisted preference
     // now — otherwise re-opening with Vim set reverts to the default keymap.

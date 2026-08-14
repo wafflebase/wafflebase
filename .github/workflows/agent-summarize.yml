@@ -21,6 +21,10 @@ on:
 
 permissions: {}
 
+env:
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   route:
     if: >-
@@ -37,22 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 9b02a392a4f89239f6963ace00e2705d08ad2181 # v0.1.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline/command.mjs
+          sparse-checkout: scripts/agent/command.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
       - name: Route command
         id: route
         env:
