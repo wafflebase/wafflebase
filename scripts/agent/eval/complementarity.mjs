@@ -95,13 +95,17 @@ pin(
 // band is the gold-only one.
 pin(`PAIR_VERDICTS is ${JSON.stringify(PAIR_VERDICTS)}, expected same | different | insufficient-basis`, PAIR_VERDICTS.length === 3 && ["same", "different", "insufficient-basis"].every((v) => PAIR_VERDICTS.includes(v)));
 pin(`LABEL_SOURCES does not contain "gold"`, LABEL_SOURCES.includes("gold"));
-// The two states this file SETS itself are pinned by name, and the count with them:
-// a state added upstream that this scorer never emits would leave a reader of the
-// payload with a vocabulary wider than the code that fills it.
+// EVERY state, by name, not just the two this file sets itself. `labelLines` below
+// switches on four of them to print why a band did not move, and a rename upstream
+// would drop a case through to the "resolved" branch and report a band that does not
+// exist. Pinning only the ones this file writes would leave the ones it READS
+// unguarded, which is the half that fails silently.
 pin(
   `LABEL_AVAILABILITY is ${JSON.stringify(LABEL_AVAILABILITY)}, expected the seven states a band's provenance can be in`,
   LABEL_AVAILABILITY.length === 7 &&
-    ["not-supplied", "no-store", "none-for-replicate", "resolved-nothing"].every((s) => LABEL_AVAILABILITY.includes(s)),
+    ["not-supplied", "no-store", "store-empty", "none-for-replicate", "none-matched", "resolved-nothing", "resolved"].every((s) =>
+      LABEL_AVAILABILITY.includes(s),
+    ),
 );
 
 const PANEL = "panel";
@@ -630,9 +634,26 @@ function unresolvedCrossArm(links, classes, overlap, memberOfDigest) {
  * difference between "nobody has adjudicated this corpus" and "adjudicated, and three
  * files are corrupt". A bare array cannot say either, so it is refused.
  */
-function labelledBands(scored, pairs, overlap, opts) {
+function labelledBands(scored, pairs, overlap, opts, view) {
   const store = opts.pairLabels ?? null;
   const emptyStore = { present: false, dir: null, n: 0, unreadable: [], invalid: [] };
+  // LABELS ARE PER-REPLICATE, and this is the guard rather than the convention.
+  //
+  // `union` and `intersection` pool K draws against CodeRabbit's one; a verdict
+  // resolves a pair inside ONE draw, so applying it to a pooled class set would
+  // combine a per-replicate correction with a deliberately unfair comparison and
+  // produce a number that is neither. The CLI already declines to pass labels to
+  // those views, but a convention held in one caller is not a guard: this module is
+  // a library, and the next caller is the one that gets it wrong. Refused rather
+  // than silently ignored, because a caller who asked for a resolved bound and got
+  // an unresolved one back would have no way to tell.
+  if (store !== null && store !== undefined && view !== "per-replicate") {
+    refuse(
+      `opts.pairLabels was supplied with view ${JSON.stringify(view)} — adjudicated pairs resolve one replicate's classes, and ` +
+        `${view} pools every replicate's, so applying them here would correct a pooled comparison with a per-replicate verdict. ` +
+        `Score each replicate separately to use labels, or drop opts.pairLabels to take this view as the unlabelled bound it is`,
+    );
+  }
   if (store === null || store === undefined) {
     // A caller that passed nothing. Reported as a state rather than as an absent key,
     // so a reader of the payload can tell "no labels were offered to this scoring
@@ -830,7 +851,7 @@ export function complementarityOf(records, opts = {}) {
 
   const overlap = overlapOf(scored);
   const unresolved = unresolvedCrossArm(grouped.links, scored, overlap, memberOfDigest);
-  const labels = labelledBands(scored, unresolved.pairs, overlap, opts);
+  const labels = labelledBands(scored, unresolved.pairs, overlap, opts, view);
   note(labels.store.unreadable.length, "pair label file(s) that could not be read");
   note(labels.store.invalid.length, "pair label file(s) refused by the record validator");
   // Only where it is an ANOMALY. On a replicate no label was adjudicated on,
@@ -1091,9 +1112,17 @@ async function main() {
   // that moves for the same reason.
   const pairLabels = readPairLabels(args.root, args["corpus-version"]);
   const diffSha = new Map();
-  for (const itemId of corpus.map((it) => it.id)) {
-    const input = store.getCorpusItemInput(itemId);
-    if (input?.meta?.sha256_diff) diffSha.set(itemId, input.meta.sha256_diff);
+  // Only when there is something to guard. `getCorpusItemInput` reads each item's
+  // whole `diff.patch` alongside its `meta.json` — the pilot's seven are 3361 lines
+  // in total — and with no labels filed there is nothing to check those hashes
+  // against, so the common path pays for a guard that cannot fire. The map stays
+  // empty and `diffShaOf` keeps returning null, which no caller reaches: a label is
+  // the only thing that consults it.
+  if (pairLabels.labels.length > 0) {
+    for (const itemId of corpus.map((it) => it.id)) {
+      const input = store.getCorpusItemInput(itemId);
+      if (input?.meta?.sha256_diff) diffSha.set(itemId, input.meta.sha256_diff);
+    }
   }
   const diffShaOf = (itemId) => diffSha.get(itemId) ?? null;
   if (pairLabels.labels.length > 0) {

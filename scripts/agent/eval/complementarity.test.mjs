@@ -686,3 +686,29 @@ test("complementarityOf: `insufficient-basis` leaves the pair undecided, so neit
   assert.equal(mixed.labels.headline.band.ceiling_moved, true);
   assert.match(mixed.stats.concerns.join("\n"), /label-resolved CEILING moved/, "a ceiling that moves is called out, because it is what everyone wants to see");
 });
+
+test("complementarityOf: labels are REFUSED in the pooled views, not silently ignored", () => {
+  // `union` and `intersection` give our arm K draws against CodeRabbit's one. A
+  // verdict resolves a pair inside ONE draw, so applying it to a pooled class set
+  // would correct a deliberately unfair comparison with a per-replicate fact. The
+  // CLI already declines to pass labels there, but a convention living in one caller
+  // is not a guard — this is a library, and refusing is what makes the next caller
+  // find out at once rather than read a bound that quietly ignored its input.
+  const { records, keyB } = LABELLABLE();
+  const twoRuns = [...records, panel({ run: "run-2", file: "d.ts", summary: DEFECT_B })];
+  const cover = COVER_1;
+  for (const view of ["union", "intersection"]) {
+    assert.throws(
+      () => complementarityOf(twoRuns, { coverage: cover, view, pairLabels: store([goldLabel(keyB, "same")]), ...LABEL_OPTS }),
+      /adjudicated pairs resolve one replicate's classes/,
+      `${view} must refuse labels`,
+    );
+    // The same view without labels is untouched and still scores.
+    const ok = complementarityOf(twoRuns, { coverage: cover, view });
+    assert.equal(ok.labels.availability, "not-supplied");
+    assert.ok(ok.overlap.classes > 0);
+  }
+  // And the headline view still takes them, which is the behaviour being preserved.
+  const perReplicate = complementarityOf(records, { coverage: cover, view: "per-replicate", pairLabels: store([goldLabel(keyB, "same")]), ...LABEL_OPTS });
+  assert.equal(perReplicate.labels.availability, "resolved");
+});

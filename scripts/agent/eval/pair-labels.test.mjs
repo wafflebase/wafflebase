@@ -195,6 +195,34 @@ test("readPairLabels degrades to fewer records, and says exactly what it dropped
   }
 });
 
+test("readPairLabels rejects a record filed under one corpus version and claiming another", () => {
+  // The record is well-formed — `validatePairLabel` passes it, because one record on
+  // its own cannot say which directory it came out of. Only the reader knows that.
+  //
+  // It matters because of what happens WITHOUT this check: the misfiled record reaches
+  // the drift guard, its `diff_sha256` is compared against an item of the same id in a
+  // different corpus, and the whole scoring run aborts talking about a diff hash. The
+  // cause is a file in the wrong directory and the error would never mention one.
+  const root = mkdtempSync(path.join(os.tmpdir(), "pair-labels-cv-"));
+  try {
+    const dir = path.join(root, "labels", "cv-1", "pairs");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "aaaaaaaaaaaa.json"), JSON.stringify(label()));
+    writeFileSync(path.join(dir, "dddddddddddd.json"), JSON.stringify(label({ pair_key: "dddddddddddd", corpus_version: "cv-2" })));
+
+    const got = readPairLabels(root, "cv-1");
+    assert.equal(got.labels.length, 1, "only the record that belongs to this corpus");
+    assert.equal(got.invalid.length, 1);
+    assert.equal(got.invalid[0].file, "dddddddddddd.json");
+    assert.match(got.invalid[0].reason, /corpus_version is "cv-2" but this record is filed under "cv-1"/);
+    // The validator itself is unchanged: the record is refused for where it sits, not
+    // for what it says, and it validates fine on its own.
+    assert.equal(validatePairLabel(label({ corpus_version: "cv-2" })).corpus_version, "cv-2");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // --- the arithmetic: what a partial label set may and may not move -----------
 
 test("a `same` verdict raises the floor and leaves the ceiling EXACTLY where it was", () => {

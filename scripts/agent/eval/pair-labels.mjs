@@ -25,11 +25,20 @@
 //   replicate, 4 of the 7 CodeRabbit classes a `same` label touches have TWO
 //   distinct panel partner classes (5 resolved classes, 8 distinct partners).
 //   Closing that under transitivity would merge two panel classes on the strength of
-//   a pair nobody adjudicated, and it moves the number: k2's floor reads 6.9% under
-//   transitive closure against 6.6% under this rule, because 7 classes leave the
-//   denominator instead of 5. `finding-match.mjs` uses COMPLETE linkage precisely to
-//   refuse that inference; a label store must not smuggle single linkage in behind
-//   it. The matcher owns the panel's partition. Labels resolve pairs.
+//   a pair nobody adjudicated, and it moves the number. Measured on k2's 171 classes,
+//   against the 23 gold verdicts in the label store's committed state:
+//
+//     this rule          171 → 166 classes.  5 leave: the 5 resolved CodeRabbit-only
+//                        classes. Floor 11/166 = 6.6%.
+//     transitive closure 171 → 159 classes. 12 leave: those same 5, PLUS 7 PANEL
+//                        classes absorbed into another panel class by a verdict that
+//                        never mentioned them. Floor 11/159 = 6.9%.
+//
+//   The numerator is identical either way — 11 — so the whole difference is a
+//   denominator shrunk by an inference nobody adjudicated. `finding-match.mjs` uses
+//   COMPLETE linkage precisely to refuse that inference; a label store must not
+//   smuggle single linkage in behind it. The matcher owns the panel's partition.
+//   Labels resolve pairs.
 //
 //   IT DOES NOT RE-THRESHOLD THE MATCHER. No `clusterFindings`, no
 //   `findingSimilarity`, no `gateFor`, no threshold. Decision 24 stands: lowering
@@ -51,6 +60,10 @@
 import path from "node:path";
 import crypto from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+// The ONLY thing this module takes from the item/finding label store: where the
+// labels tree lives. Nothing else is shared, deliberately — a pair record is a
+// different record type with a different key, and `labels.mjs` says so itself.
+import { LABELS_DIR } from "./labels.mjs";
 
 /**
  * Bumped when a field changes MEANING, never when one is added. The 23 records on
@@ -68,17 +81,18 @@ export const PAIR_LABEL_SCHEMA = "pair-label";
  * `labels/<corpus-version>/pairs/<pair_key>.json` — the pair records' own subtree,
  * beside the item- and finding-level ones rather than inside them.
  *
- * ⚠ `store.mjs` owns every OTHER layout constant in this directory
- * (`CORPUS_DIR`, `RUNS_DIR`, `SCORES_DIR`, `REPORTS_DIR`) and has none for
- * `labels/`: the tree exists in the eval store and in `ANNOTATION-GUIDE.md`, but no
- * store method has ever read it — `store.labelStatus()` is named in §8 and was never
- * built. These two literals therefore live here, at the only module that reads the
- * tree. If a future PR adds them to `store.mjs`, IMPORT THEM AND DELETE THESE rather
- * than keeping both: `CAPTURES_SUBDIR`'s own docstring is this repository's warning
- * about the alternative — "written as two independent literals they drift, and the
- * drift is silent in the worst direction".
+ * `LABELS_DIR` is IMPORTED from `labels.mjs` rather than restated here, and that is
+ * the whole reason this file does not own it: the two modules must read the same tree
+ * or one of them is silently looking somewhere else. An earlier revision of this file
+ * defined the literal locally, because no module owned it yet, with a note to import
+ * and delete it the moment one did. #817 did. `CAPTURES_SUBDIR`'s own docstring in
+ * `store.mjs` is this repository's warning about the alternative — "written as two
+ * independent literals they drift, and the drift is silent in the worst direction".
+ *
+ * `PAIRS_SUBDIR` stays here, because `labels.mjs` has no counterpart: it owns the
+ * item- and finding-level records and says so — "`pairs/` under the same corpus
+ * version belongs to a different label type". That directory is this module's.
  */
-export const LABELS_DIR = "labels";
 export const PAIRS_SUBDIR = "pairs";
 
 /**
@@ -343,7 +357,25 @@ export function readPairLabels(root, corpusVersion) {
       continue;
     }
     try {
-      out.labels.push(validatePairLabel(parsed));
+      const label = validatePairLabel(parsed);
+      // FILED UNDER ONE CORPUS, CLAIMING ANOTHER. Checked here rather than in the
+      // validator because only the reader knows which directory the record came out
+      // of — `validatePairLabel` sees one record and can say the field is a non-empty
+      // string, not that it is the RIGHT string.
+      //
+      // Rejected locally, and that is the point: without this, a misfiled record
+      // reaches the drift guard, its `diff_sha256` is compared against an item of the
+      // same id in the WRONG corpus, and the whole scoring run aborts complaining
+      // about a diff hash. The cause would be a file in the wrong directory and the
+      // error would say nothing about that. Same fail direction as any other
+      // unusable record — dropped, counted and named.
+      if (label.corpus_version !== corpusVersion) {
+        refuse(
+          `corpus_version is ${JSON.stringify(label.corpus_version)} but this record is filed under ${JSON.stringify(corpusVersion)} — ` +
+            `a verdict about one corpus cannot be read as a verdict about another, and the two may hold different diffs for the same item id`,
+        );
+      }
+      out.labels.push(label);
     } catch (e) {
       out.invalid.push({ file, reason: e.message });
     }
