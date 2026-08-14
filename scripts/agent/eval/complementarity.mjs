@@ -57,6 +57,7 @@ import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
 import { ARMS, POPULATIONS } from "./finding-record.mjs";
 import { POPULATION_STATES, runRecords } from "./adapters/panel.mjs";
 import { WINDOW, corpusRecords } from "./adapters/coderabbit.mjs";
+import { LABEL_AVAILABILITY, LABEL_SOURCES, PAIR_VERDICTS, pairLabelCensus, pairLabelKey, readPairLabels, resolveClasses } from "./pair-labels.mjs";
 
 const refuse = (msg) => {
   throw new Error(`complementarity: ${msg}`);
@@ -87,6 +88,24 @@ pin(`WINDOW does not contain "after-window"`, WINDOW.includes("after-window"));
 pin(
   `KNOWN is ${JSON.stringify(KNOWN)}, expected a worst-first ordered scale`,
   KNOWN.length === 4 && KNOWN[0] === "critical" && KNOWN[1] === "major" && KNOWN[2] === "minor" && KNOWN[3] === "nit",
+);
+// The label vocabulary this file's band arithmetic depends on. `insufficient-basis`
+// is pinned by name because pooling it with `different` is the one mistake that
+// would move the CEILING on evidence nobody has, and `gold` because the headline
+// band is the gold-only one.
+pin(`PAIR_VERDICTS is ${JSON.stringify(PAIR_VERDICTS)}, expected same | different | insufficient-basis`, PAIR_VERDICTS.length === 3 && ["same", "different", "insufficient-basis"].every((v) => PAIR_VERDICTS.includes(v)));
+pin(`LABEL_SOURCES does not contain "gold"`, LABEL_SOURCES.includes("gold"));
+// EVERY state, by name, not just the two this file sets itself. `labelLines` below
+// switches on four of them to print why a band did not move, and a rename upstream
+// would drop a case through to the "resolved" branch and report a band that does not
+// exist. Pinning only the ones this file writes would leave the ones it READS
+// unguarded, which is the half that fails silently.
+pin(
+  `LABEL_AVAILABILITY is ${JSON.stringify(LABEL_AVAILABILITY)}, expected the seven states a band's provenance can be in`,
+  LABEL_AVAILABILITY.length === 7 &&
+    ["not-supplied", "no-store", "store-empty", "none-for-replicate", "none-matched", "resolved-nothing", "resolved"].every((s) =>
+      LABEL_AVAILABILITY.includes(s),
+    ),
 );
 
 const PANEL = "panel";
@@ -498,7 +517,7 @@ function overlapOf(rows) {
  * resolving a `maybe` needs a curator or the designed-and-unbuilt L3, and both are
  * somebody else's PR.
  */
-function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
+function unresolvedCrossArm(links, classes, overlap, memberOfDigest) {
   const armsOf = new Map(classes.map((c) => [c.id, { panel: c.panel_claims > 0, coderabbit: c.coderabbit_claims > 0 }]));
   const itemOf = new Map(classes.map((c) => [c.id, c.item]));
   // A link joins two FINDINGS, and the arms that decide whether it is cross-arm are
@@ -520,7 +539,7 @@ function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
   const pairs = [];
   for (const link of links) {
     if (link.verdict !== "maybe") continue;
-    const memberArms = link.members.map((d) => armOfDigest.get(d) ?? null);
+    const memberArms = link.members.map((d) => memberOfDigest.get(d)?.arm ?? null);
     if (memberArms[0] === null || memberArms[1] === null || memberArms[0] === memberArms[1]) continue;
     // BOTH classes must be in scope before this pair is counted anywhere.
     //
@@ -532,7 +551,28 @@ function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
     // every other row belongs to an item that was actually scored.
     const [a, b] = link.groups.map((id) => armsOf.get(id));
     if (!a || !b) continue;
-    pairs.push({ score: link.score, groups: [...link.groups], item: itemOf.get(link.groups[0]) ?? null });
+    // WHICH SIDE IS WHICH, because a pair label's key is order-dependent — panel
+    // side first — and `link.members` is in the grouping's own order, not the arms'.
+    // Swapping them produces a different 12-hex key, which does not throw and does
+    // not warn: it silently matches nothing, and a label store that resolves zero
+    // pairs looks exactly like a store nobody has filled.
+    const panelSide = memberArms[0] === PANEL ? 0 : 1;
+    const panelDigest = link.members[panelSide];
+    const crDigest = link.members[1 - panelSide];
+    pairs.push({
+      score: link.score,
+      groups: [...link.groups],
+      item: itemOf.get(link.groups[0]) ?? null,
+      // ADDED, never replacing `groups` — a curator works from the pair key and the
+      // class ids answer a different question. The key is what joins this row to
+      // `labels/<cv>/pairs/<pair_key>.json`, so printing it makes the queue
+      // adjudicable without a second tool to compute it.
+      pair_key: pairLabelKey(memberOfDigest.get(panelDigest)?.finding, memberOfDigest.get(crDigest)?.finding),
+      // `link.groups[i]` is the class of `link.members[i]` — the two arrays are built
+      // from the same pair in the same order, which is what makes this index safe.
+      panel_class: link.groups[panelSide],
+      coderabbit_class: link.groups[1 - panelSide],
+    });
     // The CLASS each of those findings sits in is what could become shared, so the
     // candidate sets stay class-keyed — and view-aware, since `intersection`
     // narrows what counts as a panel claim.
@@ -577,6 +617,91 @@ function unresolvedCrossArm(links, classes, overlap, armOfDigest) {
   };
 }
 
+/**
+ * THE BAND AGAIN, WITH THE ADJUDICATED PAIRS TAKEN INTO ACCOUNT — one resolution per
+ * trust tier, never a pooled one.
+ *
+ * The headline is the GOLD tier's, and that is a decision rather than a default: a
+ * silver pair labeler exists for this corpus, failed its own pre-registered
+ * validation at 17/23, and its verdicts were deliberately kept out of the store. If
+ * they ever land, the gold-only band must still be computable and a reader must be
+ * able to see which tier moved which number — so every tier present gets its own
+ * entry, `headline` names the one the band above it came from, and there is no code
+ * path that averages two tiers' verdicts on one pair.
+ *
+ * `opts.pairLabels` is the `readPairLabels` result, NOT a bare array: the result
+ * carries whether the directory exists and what it could not read, and those are the
+ * difference between "nobody has adjudicated this corpus" and "adjudicated, and three
+ * files are corrupt". A bare array cannot say either, so it is refused.
+ */
+function labelledBands(scored, pairs, overlap, opts, view) {
+  const store = opts.pairLabels ?? null;
+  const emptyStore = { present: false, dir: null, n: 0, unreadable: [], invalid: [] };
+  // LABELS ARE PER-REPLICATE, and this is the guard rather than the convention.
+  //
+  // `union` and `intersection` pool K draws against CodeRabbit's one; a verdict
+  // resolves a pair inside ONE draw, so applying it to a pooled class set would
+  // combine a per-replicate correction with a deliberately unfair comparison and
+  // produce a number that is neither. The CLI already declines to pass labels to
+  // those views, but a convention held in one caller is not a guard: this module is
+  // a library, and the next caller is the one that gets it wrong. Refused rather
+  // than silently ignored, because a caller who asked for a resolved bound and got
+  // an unresolved one back would have no way to tell.
+  if (store !== null && store !== undefined && view !== "per-replicate") {
+    refuse(
+      `opts.pairLabels was supplied with view ${JSON.stringify(view)} — adjudicated pairs resolve one replicate's classes, and ` +
+        `${view} pools every replicate's, so applying them here would correct a pooled comparison with a per-replicate verdict. ` +
+        `Score each replicate separately to use labels, or drop opts.pairLabels to take this view as the unlabelled bound it is`,
+    );
+  }
+  if (store === null || store === undefined) {
+    // A caller that passed nothing. Reported as a state rather than as an absent key,
+    // so a reader of the payload can tell "no labels were offered to this scoring
+    // run" from "labels were offered and resolved nothing".
+    return { availability: "not-supplied", tier: null, headline: null, by_tier: {}, store: emptyStore, census: pairLabelCensus([]) };
+  }
+  if (Array.isArray(store) || !(typeof store === "object" && Array.isArray(store.labels))) {
+    refuse(
+      `opts.pairLabels must be the object readPairLabels(root, corpusVersion) returns ({ present, labels, unreadable, invalid }), got ` +
+        `${Array.isArray(store) ? "a bare array" : JSON.stringify(store)} — a bare list cannot say whether the label store exists or what in it was unreadable, ` +
+        `and those are two of the states the band's provenance has to distinguish`,
+    );
+  }
+  const classRows = scored.map((c) => ({ id: c.id, item: c.item, claim: c.claim }));
+  const byTier = {};
+  for (const tier of LABEL_SOURCES) {
+    if (!store.labels.some((L) => L.label_source === tier)) continue;
+    byTier[tier] = resolveClasses({ classes: classRows, pairs, labels: store.labels, diffShaOf: opts.diffShaOf, runId: opts.runId ?? null, tier });
+  }
+  // Gold, or the most trusted tier the store actually holds. Named in the payload so
+  // a report can never present a silver-moved band as the headline by accident.
+  const headlineTier = LABEL_SOURCES.find((t) => Object.hasOwn(byTier, t)) ?? null;
+  const headline = headlineTier === null
+    ? resolveClasses({ classes: classRows, pairs, labels: [], diffShaOf: opts.diffShaOf, runId: opts.runId ?? null, tier: "gold" })
+    : byTier[headlineTier];
+  return {
+    // `store-empty` is what the resolver can see; the scorer knows whether the
+    // directory was there at all, so it says which.
+    availability: store.labels.length === 0 && !store.present ? "no-store" : headline.availability,
+    tier: headlineTier,
+    headline,
+    by_tier: byTier,
+    store: {
+      present: store.present === true,
+      dir: store.dir ?? null,
+      n: store.labels.length,
+      unreadable: Array.isArray(store.unreadable) ? store.unreadable : [],
+      invalid: Array.isArray(store.invalid) ? store.invalid : [],
+    },
+    // Over EVERY tier, unlike the band: a census is a description of the store and
+    // pooling tiers in a description is not the bug — pooling them in an arithmetic is.
+    census: pairLabelCensus(store.labels),
+    // The unlabelled band, restated here so the two are side by side in one place.
+    // `overlap.jaccard` keeps its own meaning above; this is a copy, not a move.
+    unlabelled: { jaccard: overlap.jaccard, classes: overlap.classes, both: overlap.both },
+  };
+}
+
 /** The severity-agreement census over shared classes, SPLIT by whether CodeRabbit
  *  stated the severity it is being compared on. */
 function severityCensus(rows) {
@@ -616,6 +741,14 @@ function severityCensus(rows) {
  *   label       free text carried into `stats.label`, so a printed result says
  *               which draw it is of.
  *   threshold   passed through to `groupFindings`; the matcher owns the default.
+ *   pairLabels  OPTIONAL. The `readPairLabels(root, cv)` result. Omitting it leaves
+ *               every count below exactly as it was before labels existed and the
+ *               payload's `labels.availability` reads `not-supplied`.
+ *   diffShaOf   `itemId -> "sha256:…"`. REQUIRED WHENEVER `pairLabels` is given: it
+ *               is the drift guard's only input, and an optional guard input is not
+ *               a guard.
+ *   runId       the replicate being scored, so a verdict adjudicated on another draw
+ *               is counted as such rather than silently applied.
  */
 export function complementarityOf(records, opts = {}) {
   const view = opts.view ?? "per-replicate";
@@ -638,10 +771,13 @@ export function complementarityOf(records, opts = {}) {
   const grouped = groupFindings(input.map(groupable), { threshold: opts.threshold });
   const replicates = panelRuns.filter((r) => r !== "(none)");
   const classes = grouped.groups.map((g) => classify(g, { view, replicates }));
-  // digest → the arm of the FINDING, off the raw groups, because a link joins two
-  // findings and the class each landed in carries whichever arms merged into it.
-  const armOfDigest = new Map();
-  for (const g of grouped.groups) for (const m of g.members) armOfDigest.set(m.digest, m.arm);
+  // digest → the arm AND the finding, off the raw groups, because a link joins two
+  // findings and the class each landed in carries whichever arms merged into it. The
+  // finding comes along because a pair label's key is computed from both sides' text,
+  // and only the raw groups still hold it: the class rows this module reports
+  // deliberately do not carry members.
+  const memberOfDigest = new Map();
+  for (const g of grouped.groups) for (const m of g.members) memberOfDigest.set(m.digest, { arm: m.arm, finding: m.finding });
 
   // An item is COMPARABLE only when every arm answered for it. The cross-arm
   // numbers are computed over those items alone, because an item where one arm is
@@ -714,13 +850,38 @@ export function complementarityOf(records, opts = {}) {
   note(window.by_window["no-window"] ?? 0, "CodeRabbit findings on a pull request this corpus never froze");
 
   const overlap = overlapOf(scored);
+  const unresolved = unresolvedCrossArm(grouped.links, scored, overlap, memberOfDigest);
+  const labels = labelledBands(scored, unresolved.pairs, overlap, opts, view);
+  note(labels.store.unreadable.length, "pair label file(s) that could not be read");
+  note(labels.store.invalid.length, "pair label file(s) refused by the record validator");
+  // Only where it is an ANOMALY. On a replicate no label was adjudicated on,
+  // "every label matches nothing here" is the definition of `none-for-replicate`
+  // rather than a finding about it, and raising it as a concern would put a warning
+  // on the two replicates that are behaving exactly as expected — which is how a real
+  // drift signal (`none-matched`: labels DO name this run and still match nothing)
+  // gets lost in a list of three identical notes.
+  if (labels.availability !== "none-for-replicate") {
+    note(labels.headline?.labels.unmatched.length ?? 0, "pair label(s) matching no undecided pair in this replicate");
+  }
+  // A ceiling that moves is what everyone WANTS this to do, so it is called out as a
+  // concern rather than left to be noticed: on a partial label set it must not move,
+  // and the only thing that legitimately moves it is a class every one of whose pairs
+  // is decided.
+  if (labels.headline?.band.ceiling_moved) {
+    concerns.push(`the label-resolved CEILING moved: ${labels.headline.resolution.coderabbit_only_finished_apart} coderabbit-only class(es) had every pair decided`);
+  }
   return {
     classes,
     byArm,
     byItem,
     overlap,
     severity: severityCensus(scored),
-    unresolved: unresolvedCrossArm(grouped.links, scored, overlap, armOfDigest),
+    unresolved,
+    // NEW, and additive: every field above keeps the meaning it had before labels
+    // existed. `overlap.jaccard` is still the unlabelled floor and
+    // `unresolved.jaccard_upper_bound` still the unlabelled ceiling, so a consumer
+    // that has never heard of a label renders exactly what it rendered before.
+    labels,
     stats: {
       view,
       label: typeof opts.label === "string" ? opts.label : null,
@@ -785,9 +946,67 @@ const USAGE =
   "--run-id is REPEATABLE and each one is scored as its own draw against\n" +
   "CodeRabbit's single historical review. The per-replicate numbers are the\n" +
   "headline; the union and intersection of the replicates are printed after them,\n" +
-  "labelled as bounds.";
+  "labelled as bounds.\n" +
+  "\n" +
+  "Adjudicated pairs under <root>/labels/<corpus-version>/pairs/ are read if they\n" +
+  "are there and reported per replicate and per trust tier, never pooled across\n" +
+  "tiers. A `same` verdict raises the floor; only a CodeRabbit class with EVERY\n" +
+  "one of its pairs decided can move the ceiling. Nothing is written.";
 
 const pct = (r) => (r === null ? "n/a" : `${(r * 100).toFixed(1)}%`);
+
+/**
+ * WHAT THE ADJUDICATED PAIRS DID TO THIS REPLICATE'S BAND, in the report.
+ *
+ * Six of the seven availability states print a REASON rather than a number, because
+ * every one of them is a different sentence and "the band did not move" is the same
+ * output for all of them. The state a reader is most likely to misread is
+ * `none-for-replicate`: k1 and k3 have no labels at all, so their band is the
+ * unlabelled one, and a line saying nothing would leave it looking adjudicated.
+ */
+function labelLines(labels) {
+  if (!labels) return "";
+  const a = labels.availability;
+  if (a === "not-supplied") return "";
+  const why = {
+    "no-store": "no pair labels are filed for this corpus version, so the band is the unlabelled one",
+    "store-empty": "the pair label store holds no usable record, so the band is the unlabelled one",
+    "none-for-replicate": "no pair label was adjudicated on this replicate and none of the store's keys appears in its queue, so the band is the unlabelled one",
+    "none-matched": "pair labels name this replicate and NONE matches a live undecided pair — every key has moved or been promoted, so the band is the unlabelled one",
+  };
+  if (Object.hasOwn(why, a)) return `\n  pair labels: ${why[a]} (store: ${labels.store.n} record(s))`;
+  const h = labels.headline;
+  const r = h.resolution;
+  const b = h.band;
+  return (
+    `\n  pair labels (${h.tier} only, never pooled across tiers): ${h.labels.applied} of ${h.labels.in_tier} ${h.tier} label(s) match a live undecided pair` +
+    ` — same ${h.labels.by_verdict.same ?? 0} · different ${h.labels.by_verdict.different ?? 0} · insufficient-basis ${h.labels["by_verdict"]["insufficient-basis"] ?? 0}` +
+    `\n  label-resolved band: ${b.after.both}/${b.after.classes} = ${pct(b.after.jaccard)} .. ${b.after.both_upper_bound}/${b.after.classes_at_ceiling} = ${pct(b.after.jaccard_upper_bound)}` +
+    `   (unlabelled: ${pct(b.before.jaccard)} .. ${pct(b.before.jaccard_upper_bound)})` +
+    `\n    ${r.coderabbit_only_resolved_same} coderabbit-only class(es) resolved SHARED · ${r.coderabbit_only_finished_apart} finished apart` +
+    ` · ${r.coderabbit_only_still_undecided} still undecided` +
+    // The reason the ceiling holds still, printed every time rather than only when
+    // somebody asks: a `same` verdict adds to the ceiling's numerator exactly what it
+    // removes from its denominator, so only a FINISHED class can move it.
+    (b.ceiling_moved
+      ? `\n    the ceiling MOVED, because ${r.coderabbit_only_finished_apart} class(es) had every pair decided`
+      : `\n    the ceiling is unchanged BY CONSTRUCTION: no coderabbit-only class has every one of its pairs decided, and a \`same\` verdict cancels between the ceiling's numerator and its denominator`) +
+    (r.labels_on_already_shared_class
+      ? `\n    ! ${r.labels_on_already_shared_class} \`same\` label(s) sit on a class BOTH arms already claim — counted nowhere, because their class is already in \`both\``
+      : "") +
+    (r.fanout.length
+      ? `\n    ! ${r.fanout.length} coderabbit class(es) are \`same\` with MORE THAN ONE panel class. The panel's own classes stay apart:` +
+        ` the matcher owns that partition and nobody adjudicated those panel/panel pairs`
+      : "") +
+    (h.labels.unmatched.length
+      ? `\n    ! ${h.labels.unmatched.length} ${h.tier} label(s) match no undecided pair here (promoted to a match, or the finding's text was re-parsed and the key moved) — listed in --json, not dropped`
+      : "") +
+    (h.labels.cross_replicate ? `\n    ! ${h.labels.cross_replicate} verdict(s) were adjudicated on a different draw of the same corpus, and applied because the key is content-derived` : "") +
+    (Object.keys(h.labels.other_tiers).length
+      ? `\n    ! tier(s) NOT in this band: ${Object.entries(h.labels.other_tiers).map(([t, n]) => `${t}=${n}`).join(" · ")} — resolved separately under labels.by_tier, never averaged with ${h.tier}`
+      : "")
+  );
+}
 
 /** One view's block of the report. Every proportion carries its `n`. */
 function reportView(title, result) {
@@ -816,6 +1035,7 @@ function reportView(title, result) {
       // and printing only the first reads as intractable.
       `\n  the undecided queue is triageable: ${u.strong_maybe_links} of ${u.maybe_links} pair(s) score >= ${u.triage_threshold}` +
       ` (strongest first in --json; the rest are mostly same-file, different subject)` +
+      labelLines(result.labels) +
       (o.not_claimed_in_view ? `\n  ! ${o.not_claimed_in_view} class(es) dropped BY this view — our arm raised them, but not in every replicate` : "") +
       (o.no_arm ? `\n  ! ${o.no_arm} class(es) whose members carry no readable arm — counted nowhere, credited to nobody` : "") +
       `\n  severity agreement on the ${s.stated.n} shared class(es) CodeRabbit stated a severity for:` +
@@ -878,6 +1098,48 @@ async function main() {
     process.exit(1);
   }
   const wanted = new Set(corpus.filter((it) => !args.item || it.id === args.item).map((it) => it.id));
+
+  // --- the pair labels, and the drift guard's input ---------------------------
+  //
+  // Read once for the whole run: the labels are keyed by corpus version and pair
+  // content, not by replicate, so every view resolves against one store.
+  //
+  // `sha256_diff` comes from each item's own `meta.json` rather than from the corpus
+  // MANIFEST, which also carries a copy. The manifest's copy is written by
+  // `extract-corpus.mjs` from the same field, so the two normally agree — but a
+  // re-extraction is exactly the event the drift guard exists to catch, and checking a
+  // label against a cached copy of the value would be checking it against something
+  // that moves for the same reason.
+  const pairLabels = readPairLabels(args.root, args["corpus-version"]);
+  const diffSha = new Map();
+  // Only when there is something to guard. `getCorpusItemInput` reads each item's
+  // whole `diff.patch` alongside its `meta.json` — the pilot's seven are 3361 lines
+  // in total — and with no labels filed there is nothing to check those hashes
+  // against, so the common path pays for a guard that cannot fire. The map stays
+  // empty and `diffShaOf` keeps returning null, which no caller reaches: a label is
+  // the only thing that consults it.
+  if (pairLabels.labels.length > 0) {
+    for (const itemId of corpus.map((it) => it.id)) {
+      const input = store.getCorpusItemInput(itemId);
+      if (input?.meta?.sha256_diff) diffSha.set(itemId, input.meta.sha256_diff);
+    }
+  }
+  const diffShaOf = (itemId) => diffSha.get(itemId) ?? null;
+  if (pairLabels.labels.length > 0) {
+    const census = pairLabelCensus(pairLabels.labels);
+    const list = (t) => Object.entries(t).map(([k, n]) => `${k}=${n}`).join(" · ");
+    console.error(
+      `\npair label store · ${pairLabels.labels.length} record(s) under ${pairLabels.dir}: ${list(census.by_source)}` +
+        ` · verdicts ${list(census.by_verdict)}` +
+        // Provenance printed with the census rather than on request: a band resting on
+        // verdicts flagged for re-adjudication is one a reader must not quote without
+        // knowing that, and #801 moved six of these keys.
+        (census.needs_readjudication ? ` · ${census.needs_readjudication} flagged for re-adjudication` : "") +
+        (census.keys_moved ? ` · ${census.keys_moved} key(s) moved since adjudication` : ""),
+    );
+  }
+  for (const bad of pairLabels.unreadable) console.error(`  ! unreadable pair label ${bad.file}: ${bad.reason}`);
+  for (const bad of pairLabels.invalid) console.error(`  ! invalid pair label ${bad.file}: ${bad.reason}`);
 
   // --- read both arms, and record what each one could answer -----------------
   //
@@ -963,6 +1225,9 @@ async function main() {
       coverage: coverage.filter((c) => c.arm === CODERABBIT || c.run_id === runId),
       view: "per-replicate",
       label: runId,
+      pairLabels,
+      diffShaOf,
+      runId,
     }),
   );
   console.error(`\n=== HEADLINE — one panel replicate against CodeRabbit's one review, ${runIds.length} time(s) ===`);
@@ -979,6 +1244,12 @@ async function main() {
   reportItems(perReplicate[0]);
 
   // --- the bounds, labelled, never mixed into the headline --------------------
+  // NO PAIR LABELS ARE APPLIED HERE, deliberately. These two views pool K draws
+  // against CodeRabbit's one, and a label resolves a pair inside ONE draw — so
+  // resolving inside a pooled view would apply a per-replicate correction to a
+  // deliberately unfair comparison and produce a number that is neither. The band is
+  // reported per replicate and never pooled; that rule is the reason `VIEWS` exists,
+  // and it does not stop applying because there are labels now.
   if (runIds.length > 1) {
     const all = [...runIds.flatMap((r) => panelByRun.get(r)), ...crRecords];
     console.error(`\n=== BOUNDS — NOT the headline. Our arm gets ${runIds.length} draws here and CodeRabbit still gets 1. ===`);
