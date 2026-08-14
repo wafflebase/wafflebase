@@ -381,13 +381,55 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   // formatting` sat unclicked for eight doc runs for exactly this reason.
   const usedControls = new Set(shapes.map((x) => x.control));
   const untried = inventory.filter((x) => !usedControls.has(x.control));
-  if (untried.length > 0) {
+
+  // MENU LEAVES ARE NOT OPPORTUNITIES, and listing them as such drowned the list that
+  // matters. A menu item is reachable only THROUGH the control that opens it, so once
+  // that opener has been tried its items are variations rather than new capabilities:
+  // clicking a fifth typeface tests nothing the fourth did not.
+  //
+  // Measured on the doc surface after one run opened the Font menu — 120 untried
+  // controls, of which:
+  //
+  //     menuitemcheckbox  116   (typefaces)
+  //     menuitem            3
+  //     button              1   `Insert image`
+  //
+  // The one genuinely untried control on the surface was buried under 119 typefaces, so
+  // the most valuable line in this brief had become its noisiest.
+  //
+  // They are COUNTED, never silently dropped. A count plus a sample says "this is a long
+  // tail of options" without pretending the tail is not there — and if a menu leaf ever
+  // is the interesting thing, the number is the invitation to go look.
+  const TOP_LEVEL_ROLES = new Set(["button", "tab", "link"]);
+  const untriedTop = untried.filter((x) => TOP_LEVEL_ROLES.has(x.role));
+  const untriedLeaves = untried.filter((x) => !TOP_LEVEL_ROLES.has(x.role));
+
+  if (untriedTop.length > 0) {
     lines.push(
       "NEVER TRIED — these exist on this surface and no run has ever clicked them:",
-      ...untried.map((x) => `  - \`${x.control}\``),
+      ...untriedTop.map((x) => `  - \`${x.control}\``),
       "",
       "That list is the most valuable thing here. Every defect this hunter has filed came",
       "from a control nobody had round-tripped yet.",
+      "",
+    );
+  }
+  if (untriedLeaves.length > 0) {
+    const sample = untriedLeaves.slice(0, 3).map((x) => `\`${x.control}\``).join(", ");
+    lines.push(
+      `Also unused: ${untriedLeaves.length} item(s) INSIDE menus — ${sample}` +
+        (untriedLeaves.length > 3 ? ", and so on." : "."),
+      "Those are options within a control rather than controls, so a menu whose opener you",
+      "have already round-tripped is mostly explored. Worth a look only if one of them",
+      "does something the others do not.",
+      "",
+    );
+  }
+  if (untriedTop.length === 0 && untriedLeaves.length > 0) {
+    lines.push(
+      "EVERY top-level control on this surface has been clicked at least once. Depth is now",
+      "worth more than breadth: a control applied but never REVERSED, or reversed only on",
+      "one selection shape, is where the unexplored ground is.",
       "",
     );
   }

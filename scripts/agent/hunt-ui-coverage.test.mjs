@@ -273,3 +273,61 @@ test("a run that discovered controls and clicked nothing still renders its brief
   // Genuinely nothing still renders nothing.
   assert.equal(renderCoverageBrief(coverageFromJournal([]), { sha: "aaa" }), "");
 });
+
+test("menu leaves are counted, not listed — they drowned the list that matters", () => {
+  // Measured on the doc surface after one run opened the Font menu: 120 untried
+  // controls, 116 of them typefaces, and the ONE genuinely untried button buried under
+  // them. A menu item is reachable only through its opener, so once that opener has been
+  // tried its items are variations rather than new capabilities.
+  const inv = {
+    action: { type: "read", reader: "dom.controls" },
+    ok: true,
+    value: [
+      { role: "button", name: "Font" },
+      { role: "button", name: "Insert image" },
+      ...Array.from({ length: 40 }, (_, i) => ({ role: "menuitemcheckbox", name: `Typeface ${i}` })),
+    ],
+  };
+  const c = coverageFromJournal([inv, click("Font")], { sha: "aaa" });
+  const md = renderCoverageBrief(c, { sha: "aaa" });
+
+  // The actionable list holds the button and nothing else.
+  const headline = md.slice(md.indexOf("NEVER TRIED"), md.indexOf("Also unused"));
+  assert.match(headline, /`Insert image`/);
+  assert.doesNotMatch(headline, /Typeface/, "40 typefaces must not drown one untried button");
+
+  // COUNTED, never silently dropped — the number is the invitation to look.
+  assert.match(md, /Also unused: 40 item\(s\) INSIDE menus/);
+  assert.match(md, /Typeface 0/, "a sample is still shown");
+
+  // A leaf whose opener was never tried is still just a leaf; the grouping is by ROLE,
+  // not by whether the opener happens to have been clicked.
+  const noOpener = coverageFromJournal([inv], { sha: "aaa" });
+  assert.match(renderCoverageBrief(noOpener, { sha: "aaa" }), /Also unused: 40 item/);
+});
+
+test("when every top-level control is used, the brief says depth beats breadth", () => {
+  // The state the doc surface is actually in. Without this the brief would print a menu
+  // count and nothing else, which reads as "almost nothing left" when what is left is
+  // every un-reversed round trip.
+  const inv = {
+    action: { type: "read", reader: "dom.controls" },
+    ok: true,
+    value: [
+      { role: "button", name: "Bold" },
+      { role: "menuitemcheckbox", name: "Typeface 1" },
+    ],
+  };
+  const c = coverageFromJournal([inv, click("Bold")], { sha: "aaa" });
+  const md = renderCoverageBrief(c, { sha: "aaa" });
+  assert.doesNotMatch(md, /NEVER TRIED/, "nothing top-level is untried, so no headline list");
+  assert.match(md, /EVERY top-level control on this surface has been clicked/);
+  assert.match(md, /Depth is now/);
+
+  // And it does NOT claim that when something top-level is still untried.
+  const partial = coverageFromJournal(
+    [{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "button", name: "Bold" }, { role: "button", name: "Italic" }] }, click("Bold")],
+    { sha: "aaa" },
+  );
+  assert.doesNotMatch(renderCoverageBrief(partial, { sha: "aaa" }), /EVERY top-level control/);
+});
