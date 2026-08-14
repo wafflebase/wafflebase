@@ -1270,6 +1270,8 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4 # default branch — only need the gate script
+        with:
+          persist-credentials: false # nothing here uses git; don't leave the token in .git/config
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -2099,6 +2101,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          persist-credentials: false # nothing here uses git; don't leave the token in .git/config
       - name: Post agent-effort summary
         if: steps.page.outputs.pr != ''
         continue-on-error: true

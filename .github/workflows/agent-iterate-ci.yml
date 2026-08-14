@@ -287,7 +287,18 @@ jobs:
         # it used to exist only inside the fixer's prompt, so "which lane failed
         # and why" required reading the raw log. Same bytes, second surface.
         run: |
-          DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs")"
+          # DEGRADE, don't die. Both steps that fill agent-tools — the trusted
+          # checkout and the staging copy — are `continue-on-error: true`, so an
+          # absent tool is a state this job is designed to survive. This step has
+          # no continue-on-error of its own (the fixer needs the output), so an
+          # unguarded `node` on a missing file would fail the step and kill the
+          # CI-fix arm before the fixer is ever dispatched. Every other
+          # agent-tools read in this job guards the same way.
+          if [ -f "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" ]; then
+            DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" || true)"
+          else
+            DIAG="(no CI diagnosis: the trusted agent scripts were not staged for this run)"
+          fi
           {
             echo "summary<<HARNESS_EOF"
             printf '%s\n' "$DIAG"

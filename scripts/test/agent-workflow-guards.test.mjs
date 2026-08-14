@@ -62,25 +62,64 @@ test("every agent workflow sets GH_REPO at WORKFLOW level", () => {
   }
 });
 
-test("no step runs pipeline code from the workspace after the PR's branch is checked out", () => {
+/** Steps of one job, as [start, end) line bounds. Splits on the `- ` entries that
+ *  sit at the step-list indent, so a nested `- ` inside a `with:` block or a
+ *  script body cannot be mistaken for a new step. */
+function stepBounds(lines, from, to) {
+  const stepsAt = lines.findIndex((l, i) => i >= from && i < to && /^\s*steps:\s*$/.test(l));
+  if (stepsAt === -1) return [];
+  const firstAt = lines.slice(stepsAt + 1, to).findIndex((l) => /^\s*- /.test(l));
+  if (firstAt === -1) return [];
+  const indent = lines[stepsAt + 1 + firstAt].match(/^(\s*)- /)[1].length;
+  const starts = [];
+  for (let i = stepsAt + 1; i < to; i++) {
+    const m = lines[i].match(/^(\s*)- /);
+    if (m && m[1].length === indent) starts.push(i);
+  }
+  return starts.map((s, k) => [s, starts[k + 1] ?? to]);
+}
+
+test("no step runs pipeline code from the workspace after untrusted code is checked out into it", () => {
   // ORDER, NOT EXISTENCE. The version of this check that shipped with the extraction
   // asked "is this file absent from `scripts/agent/`?" — true only while the pipeline
   // lived in another repository. With the pipeline back, every file is present, so
   // every invocation was skipped and the check inspected 0 of them while reporting
-  // success. Keying on order instead makes it independent of where the code lives:
-  // it inspects 28 invocations here, and it is what catches the eight-site
-  // regression described at the top of this file.
+  // success. Keying on order instead makes it independent of where the code lives.
   //
-  // Scoped per job, because that is the boundary a checkout acts on — one job's
-  // checkout says nothing about another's, and jobs in the same file may legitimately
-  // differ. `$RUNNER_TEMP/agent-tools/` reads are not matched at all: the whole point
-  // is that they are outside the workspace and survive `actions/checkout`'s clean.
-  const UNTRUSTED_REF =
-    /^\s*ref:\s*\$\{\{\s*(github\.event\.workflow_run\.head_(branch|sha)|github\.event\.pull_request\.head\.(ref|sha)|steps\.[\w-]+\.outputs\.(head_)?(branch|sha))/;
+  // TRUST IS AN ALLOW-LIST, NOT A DENY-LIST, and that is the second lesson from the
+  // same failure. The first order-based version armed on an enumeration of UNTRUSTED
+  // `ref:` spellings — `github.event.*.head_*`, `steps.*.outputs.(branch|sha)` — and
+  // two refs already in this directory were outside it: `agent-review-on-demand.yml`
+  // checks out `needs.authorize.outputs.head_sha`, and `agent-review-reply.yml` checks
+  // out `steps.pr.outputs.ref`. Neither armed the check, so a workspace read added to
+  // either job would have passed silently. An enumeration of the untrusted cases can
+  // only ever be as complete as its author's memory; the trusted cases are few, so
+  // those are what gets enumerated here.
+  //
+  // A checkout is TRUSTED iff its `ref:` is absent (the default branch, which is what
+  // `workflow_run` and `issue_comment` runs resolve to) or the literal `main`. Adding
+  // another trusted spelling means adding it HERE, deliberately, next to this comment.
+  //
+  // Scoped per job, because that is the boundary a checkout acts on. Only a checkout
+  // WITHOUT `path:` counts: it replaces and git-cleans the workspace root, so it both
+  // arms (untrusted ref) and disarms (trusted ref) the state. A `path:`-scoped
+  // checkout writes a subdirectory and leaves the root's `scripts/agent` alone, which
+  // is why `.trusted/scripts/agent/…` reads are correct and are not matched below.
+  // `$RUNNER_TEMP/agent-tools/` reads are not matched either — the whole point is that
+  // they are outside the workspace and survive the clean.
+  const TRUSTED_REF = /^main$/;
+  const REF = /^\s*ref:\s*([^\s#]+)/m;
+  const HAS_PATH = /^\s*path:\s*[^\s#]/m;
+  const IS_CHECKOUT = /uses:\s*actions\/checkout@/;
+  // `gh pr checkout` populates the workspace root with the PR's code just as surely
+  // as `actions/checkout` does, and exposes no `with:` block for the trust test to
+  // read — so it can only ever arm, never disarm.
+  const GH_PR_CHECKOUT = /\bgh\s+pr\s+checkout\b/;
   const WORKSPACE_RUN = /\bnode\s+["']?\.?\/?scripts\/agent\/([\w.-]+\.mjs)/;
 
   const problems = [];
   let inspected = 0;
+  let untrustedCheckouts = 0;
   for (const f of agentWorkflows) {
     const lines = readFileSync(path.join(WORKFLOWS, f), "utf8").split("\n");
     const jobsAt = lines.findIndex((l) => l === "jobs:");
@@ -89,29 +128,52 @@ test("no step runs pipeline code from the workspace after the PR's branch is che
     for (let k = 0; k < starts.length; k++) {
       const [from, to] = [starts[k], starts[k + 1] ?? lines.length];
       const job = lines[from].trim().replace(/:$/, "");
-      let checkedOutAt = null;
-      for (let i = from; i < to; i++) {
-        const line = lines[i];
+      let untrustedAt = null;
+      for (const [start, end] of stepBounds(lines, from, to)) {
         // A commented-out checkout must not arm the check, and a commented-out
         // invocation must not trip it.
-        if (line.trim().startsWith("#")) continue;
-        if (UNTRUSTED_REF.test(line)) checkedOutAt = i + 1;
-        const run = WORKSPACE_RUN.exec(line);
-        if (!run) continue;
-        inspected++;
-        if (checkedOutAt !== null) {
-          problems.push(
-            `${f}:${i + 1} (job ${job}) runs ${run[1]} from the workspace, ` +
-              `after the PR's own ref was checked out at line ${checkedOutAt}`,
-          );
+        const body = lines
+          .slice(start, end)
+          .filter((l) => !l.trim().startsWith("#"))
+          .join("\n");
+        const checkout = IS_CHECKOUT.test(body);
+        if ((checkout || GH_PR_CHECKOUT.test(body)) && !HAS_PATH.test(body)) {
+          // No `ref:` at all means the default branch, which is what a
+          // `workflow_run` / `issue_comment` run resolves to — trusted.
+          const refMatch = REF.exec(body);
+          const ref = refMatch ? refMatch[1] : "main";
+          if (checkout && TRUSTED_REF.test(ref)) untrustedAt = null;
+          else {
+            untrustedAt = start + 1;
+            untrustedCheckouts++;
+          }
+        }
+        for (const [offset, line] of body.split("\n").entries()) {
+          const run = WORKSPACE_RUN.exec(line);
+          if (!run) continue;
+          inspected++;
+          if (untrustedAt !== null) {
+            problems.push(
+              `${f}:~${start + 1 + offset} (job ${job}) runs ${run[1]} from the workspace, ` +
+                `after untrusted code was checked out over it at line ${untrustedAt}`,
+            );
+          }
         }
       }
     }
   }
 
-  // The counterpart to the anti-vacuity test above: if the invocations stop being
-  // found at all, this check is green because it looked at nothing.
+  // The counterpart to the anti-vacuity test above, in BOTH directions: this check is
+  // green if it looked at no invocations, and equally green if it recognised no
+  // untrusted checkout to order them against. The second is the exact way both
+  // previous versions of this guard died, so it is asserted rather than assumed.
   assert.ok(inspected > 0, "found no `node scripts/agent/*.mjs` invocations to inspect");
+  assert.ok(
+    untrustedCheckouts > 0,
+    "found no untrusted workspace checkout to order invocations against — the trust " +
+      "predicate above has stopped recognising the PR-branch checkouts, so this guard " +
+      "is now vacuous",
+  );
   assert.deepEqual(
     problems,
     [],

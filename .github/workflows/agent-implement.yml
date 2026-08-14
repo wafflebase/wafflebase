@@ -340,7 +340,6 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          [ -f ./scripts/agent/session-job-summary.mjs ] || { echo "session-job-summary.mjs not in this tree yet; skipping"; exit 0; }
           node ./scripts/agent/session-job-summary.mjs \
             --execution "$RUNNER_TEMP/claude-execution-output.json" \
             --kind implement \
