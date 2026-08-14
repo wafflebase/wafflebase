@@ -1933,10 +1933,15 @@ moves to the approving human reviewer.
   so reaching the environment takes an SDK bug rather than prompt injection —
   defence in depth, not a substitute for the count. **Open:** hand the
   untrusted-cwd step only the two credentials a round can use (the selected one
-  and its failover), choosing them in a trusted step, as
-  `.github/actions/claude-agent-run` already does for the `claude-code-action`
-  lane. Until then, treat every pooled token as sharing one blast radius: rotate
-  them together.
+  and its failover), choosing them in a trusted step. Until then, treat every
+  pooled token as sharing one blast radius: rotate them together.
+- **The `claude-code-action` lane is not pooled yet.** `agent-implement`,
+  `agent-fix`, `agent-iterate-ci`, `agent-review-reply` and `agent-summarize`
+  pass the token as an action *input*, so selection has to happen before the step
+  and failover has to be a second step. That wrapper needs two behaviours
+  confirmed on a real runner first — `continue-on-error` on a composite step, and
+  passing a credential through a step output — and both fail silently if the
+  assumption is wrong. It lands with that verification, not before.
 - **The agent-state label is forgeable and advisory.** The author agent holds
   `issues:write`, so it can set any `agent:<state>` (e.g. a fake `agent:ready`).
   This is acceptable because **nothing gates on the label** — it is a human-facing

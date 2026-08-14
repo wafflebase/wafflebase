@@ -94,17 +94,23 @@ that died on exhaustion does not immediately re-pick the exhausted token.
 - Exhaustion is process-scoped, so the six lenses of one panel round make the discovery
   once instead of six times.
 
-### Action lane
+### Action lane — deferred to its own PR
 
-A composite action, `.github/actions/claude-agent-run`, wraps `claude-code-action` with the
-same pick-then-failover ladder and takes the pool as inputs. Six workflows change one
-`uses:` line each rather than growing a retry ladder apiece.
+`claude-code-action` takes the token as an *input*, so selection must happen before the step
+and failover must be a second step. A composite action wrapping both was written and then
+**removed from this PR**: nothing referenced it, and the `verify:entropy` dead-code gate
+refused it — correctly. Unwired code does not belong on `main`, and the gate is the reason
+it does not get there. It lands with the verification it is waiting on.
 
-Open question to settle in implementation, not now: whether the second attempt can tell an
-exhaustion apart from an ordinary agent failure. `claude-code-action` writes
-`claude-execution-output.json` (already uploaded as an artifact by every one of these
-workflows), so the ladder can read the same `SESSION_LIMIT_RE` signal out of it. If that
-proves unreliable, the fallback is to retry on any failure and accept one wasted attempt.
+Two behaviours have to be confirmed on a real runner before that, and both fail silently if
+the assumption is wrong: `continue-on-error` on a composite step, and passing a credential
+through a step output.
+
+Open question to settle then: whether the second attempt can tell an exhaustion apart from an
+ordinary agent failure. `claude-code-action` writes `claude-execution-output.json` (already
+uploaded as an artifact by every one of these workflows), so the ladder can read the same
+`SESSION_LIMIT_RE` signal out of it. If that proves unreliable, the fallback is to retry on
+any failure and accept one wasted attempt.
 
 ### What is deliberately not in scope
 
@@ -124,15 +130,14 @@ proves unreliable, the fallback is to retry on any failure and accept one wasted
 - [x] `ask.mjs` — failover on the session-limit signal only; `ask.test.mjs` asserts a 401
       and a `kind: 'limit'` (our own turn ceiling) still throw without consuming a token
 - [x] `auth-smoke.mjs` — check every registered credential, report by secret name
-- [x] `.github/actions/claude-agent-run/` — pick + ladder, written but **not wired**
-- [x] `pnpm verify:fast` (exit 0)
+- [x] `pnpm verify:fast` (exit 0) and `pnpm verify:self` (the pre-push gate)
 - [x] Update `docs/design/harness-engineering.md` with the pool, the per-job constraint, and
       the invariant it relaxes
 - [ ] Register `CLAUDE_CODE_OAUTH_TOKEN_1..N` in the `agent` environment
 - [ ] Dispatch `agent-sdk-smoke-test.yml` — every credential green, pool size as expected
 - [ ] Roll out the SDK lane: `eval-replay` → panel
-- [ ] Confirm composite `continue-on-error` and step-output masking on a real runner, then
-      wire the action lane
+- [ ] Action lane, as its own PR: confirm composite `continue-on-error` and step-output
+      masking on a real runner, then land the wrapper wired to the six workflows
 - [ ] **Reduce the untrusted-cwd credential count from nine to two** — see Review below
 
 ## Review
@@ -162,6 +167,13 @@ to fail identically, or reporting "not logged in" for a pool merely out of quota
 the one lane whose `max-parallel: 1` exists because legs contend on a single account.
 
 **Not acted on.** A reviewer read the reworded comments as correct; the two reviewers with
-commit-level evidence were right and it was not. Another flagged the composite action's
-step-output credential — already documented in the action's own header as unverified, and
-the action is unwired, so it is gated rather than fixed.
+commit-level evidence were right and it was not.
+
+**Caught by the pre-push gate, after the review.** `verify:entropy`'s dead-code lane refused
+the branch: `.github/actions/claude-agent-run/pick.mjs` was an unused file, because the
+wrapper was written but deliberately not wired. That is the gate doing its job — five
+reviewers read the wrapper's "NOT YET WIRED" header as a documented decision, and none of
+them said the obvious thing, which is that unwired code should not be on `main` at all. It
+was removed and deferred to the PR that verifies and wires it; the design survives here and
+in `harness-engineering.md`. This also moots the step-output-credential concern a reviewer
+raised, since that code is no longer in this change.
