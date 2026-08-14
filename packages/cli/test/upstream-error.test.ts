@@ -413,6 +413,153 @@ describe('api-keys requests report SESSION_EXPIRED like every other call', () =>
   }
 });
 
+// Moving `api-keys` onto `requestUrl` rewrote how its request is built, and
+// the SESSION_EXPIRED tests above stub a fetch that answers any URL with the
+// same response — so a wrong base, a lost method or a dropped body would keep
+// them green while all three commands broke. Pin the request itself.
+describe('api-keys requests keep their URL, method and body', () => {
+  function apiKeyClient(workspace = 'ws-1'): HttpClient {
+    return new HttpClient({
+      server: 'https://api.test/',
+      apiKey: 'wfb_test',
+      workspace,
+      authMode: 'api-key',
+    });
+  }
+
+  function stubOk(): ReturnType<typeof vi.fn> {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // The management endpoints sit outside the `/api/v1` base; pointing them at
+  // `base` would 404 against every real deployment.
+  const KEYS_URL = 'https://api.test/workspaces/ws-1/api-keys';
+
+  it('lists with a GET against the management URL', async () => {
+    const fetchMock = stubOk();
+    await apiKeyClient().listApiKeys();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(KEYS_URL);
+    expect(init.method).toBe('GET');
+    expect(init.body).toBeUndefined();
+  });
+
+  it('creates with a POST carrying the name', async () => {
+    const fetchMock = stubOk();
+    await apiKeyClient().createApiKey('ci key');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(KEYS_URL);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ name: 'ci key' });
+    expect(
+      (init.headers as Record<string, string>)['Content-Type'],
+    ).toBe('application/json');
+  });
+
+  it('revokes with a DELETE against the key id', async () => {
+    const fetchMock = stubOk();
+    await apiKeyClient().revokeApiKey('key-1');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${KEYS_URL}/key-1`);
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('keeps a hostile workspace or key id inside its own path segment', async () => {
+    const fetchMock = stubOk();
+    await apiKeyClient('../../evil').listApiKeys();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://api.test/workspaces/..%2F..%2Fevil/api-keys',
+    );
+
+    fetchMock.mockClear();
+    await apiKeyClient().revokeApiKey('../../../auth/logout');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `${KEYS_URL}/..%2F..%2F..%2Fauth%2Flogout`,
+    );
+  });
+});
+
+// `fetch` resolves `..` in a path, so an id interpolated raw can walk the
+// request out of the workspace base and issue it — with the session's bearer
+// token — against an endpoint the command never named.
+describe('request paths pin every id to one segment', () => {
+  function client(workspace = 'ws-1'): HttpClient {
+    return new HttpClient({
+      server: 'https://api.test',
+      apiKey: 'wfb_test',
+      workspace,
+      authMode: 'api-key',
+    });
+  }
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** The path `fetch` would actually request, after URL normalization. */
+  function requestedPath(): string {
+    return new URL(String(fetchMock.mock.calls[0]?.[0])).pathname;
+  }
+
+  const TRAVERSAL = '../../../../workspaces/other-ws/api-keys/key-1';
+
+  it('does not let a document id escape the workspace base', async () => {
+    await client().deleteDocument(TRAVERSAL);
+    expect(requestedPath()).toBe(
+      '/api/v1/workspaces/ws-1/documents/..%2F..%2F..%2F..%2Fworkspaces%2Fother-ws%2Fapi-keys%2Fkey-1',
+    );
+  });
+
+  it('does not let a tab id or cell ref escape it either', async () => {
+    const encoded =
+      '..%2F..%2F..%2F..%2Fworkspaces%2Fother-ws%2Fapi-keys%2Fkey-1';
+
+    await client().setCell('doc-1', 'tab-1', TRAVERSAL, '1');
+    expect(requestedPath()).toBe(
+      `/api/v1/workspaces/ws-1/documents/doc-1/tabs/tab-1/cells/${encoded}`,
+    );
+
+    fetchMock.mockClear();
+    await client().renameTab('doc-1', TRAVERSAL, 'S2');
+    expect(requestedPath()).toBe(
+      `/api/v1/workspaces/ws-1/documents/doc-1/tabs/${encoded}`,
+    );
+  });
+
+  it('does not let a configured workspace escape the API base', async () => {
+    await client('../../..').listDocuments();
+    expect(requestedPath()).toBe('/api/v1/workspaces/..%2F..%2F../documents');
+  });
+
+  // The one case encoding cannot pin: `encodeURIComponent` leaves a dot
+  // alone and the URL parser resolves a bare `..` segment anyway, so it is
+  // refused before the request is built rather than sent.
+  it('refuses a dot segment instead of walking up one level', () => {
+    expect(() => client().deleteDocument('..')).toThrow('Invalid path segment');
+    expect(() => client().getCell('doc-1', 'tab-1', '.')).toThrow(
+      'Invalid path segment',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('upstreamErrorJson', () => {
   it('forwards the documented envelope verbatim', () => {
     expect(JSON.parse(upstreamErrorJson({ status: 409, data: ENVELOPE }))).toEqual(
