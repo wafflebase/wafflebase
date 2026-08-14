@@ -27,7 +27,7 @@ Token value edits carried `file` and no `family`. The server ignores `file`
 and defaults a missing `family` to `semantic`, so a **radius or typography
 edit was planned against `semantic.ts`** — measured, both families:
 
-```
+```text
 radius     -> semantic.ts [light.lg]   located=false  property lg not found
 typography -> semantic.ts [light.body] located=false  property body not found
 ```

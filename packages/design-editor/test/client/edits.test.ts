@@ -102,6 +102,18 @@ const classEdit = (over: Partial<PendingClassEdit> = {}): PendingClassEdit => ({
   ...over,
 });
 
+/** Everything a rebind carries EXCEPT the `fromKind`/`fromValue` discriminant. */
+const REBIND = {
+  key: 'r',
+  cssVar: 'ring',
+  family: 'semantic' as const,
+  constName: 'light' as const,
+  path: ['ring'],
+  label: 'Ring',
+  toRef: 'palette.butter',
+  previewValue: '#fff',
+};
+
 const anchor = (path: number[], over: Partial<NodeAnchor> = {}): NodeAnchor => ({
   file: 'src/routes/home.tsx',
   component: 'Home',
@@ -556,29 +568,49 @@ describe('saveDiff', () => {
   });
 
   it('rebinds back to the reference, or restores the literal it replaced', () => {
-    const base = (over: Partial<PendingTokenRebind>): PendingTokenRebind => ({
-      key: 'r',
-      cssVar: 'ring',
-      family: 'semantic',
-      constName: 'light',
-      path: ['ring'],
-      label: 'Ring',
-      fromRef: 'palette.syrup',
-      fromKind: 'ref',
-      toRef: 'palette.butter',
-      previewValue: '#fff',
-      ...over,
-    });
     const drop = (r: PendingTokenRebind) =>
       saveDiff({ ...emptyEditState(), rebinds: { r } }, emptyEditState())[0].intent;
 
-    expect(drop(base({}))).toMatchObject({ kind: 'token-rebind', tokenValue: 'palette.syrup' });
+    expect(drop({ ...REBIND, fromRef: 'palette.syrup', fromKind: 'ref' }))
+      .toMatchObject({ kind: 'token-rebind', tokenValue: 'palette.syrup' });
     // A literal cannot be written through `token-rebind`, so the inverse changes kind.
-    expect(drop(base({ fromKind: 'literal', fromRef: '#abcdef', fromValue: '#abcdef' })))
+    expect(drop({ ...REBIND, fromRef: '#abcdef', fromKind: 'literal', fromValue: '#abcdef' }))
       .toMatchObject({ kind: 'token-value', tokenValue: '#abcdef' });
     // And a locked expression takes the same branch — it was never rebindable.
-    expect(drop(base({ fromKind: 'expression', fromValue: 'rgba(0,0,0,.3)' })))
+    expect(drop({ ...REBIND, fromRef: 'rgba(x, .3)', fromKind: 'expression', fromValue: 'rgba(0,0,0,.3)' }))
       .toMatchObject({ kind: 'token-value', tokenValue: 'rgba(0,0,0,.3)' });
+  });
+
+  it('always carries a value on the inverse, whatever the binding was', () => {
+    // The failure this replaces: `fromValue` was merely optional, so a `'literal'`
+    // rebind could omit it and the inverse serialised to
+    //   {"kind":"token-value","family":"semantic","constName":"light","path":["ring"]}
+    // with no `tokenValue` at all — refused at save time by the one path that exists
+    // to make undo possible. `PendingTokenRebind` is now a union on `fromKind`.
+    const of = (r: PendingTokenRebind) =>
+      saveDiff({ ...emptyEditState(), rebinds: { r } }, emptyEditState())[0].intent;
+    for (const r of [
+      { ...REBIND, fromRef: 'palette.syrup', fromKind: 'ref' as const },
+      { ...REBIND, fromRef: '#abcdef', fromKind: 'literal' as const, fromValue: '#abcdef' },
+      { ...REBIND, fromRef: 'rgba(x, .3)', fromKind: 'expression' as const, fromValue: 'rgba(x, .3)' },
+    ]) {
+      const intent = of(r);
+      expect(intent.tokenValue, JSON.stringify(intent)).toBeTypeOf('string');
+      // The wire form is what the server sees, and an undefined value vanishes there.
+      expect(JSON.parse(JSON.stringify(intent))).toHaveProperty('tokenValue');
+    }
+  });
+
+  it('will not type-check a rebind that omits the value its inverse needs', () => {
+    // `tsc --noEmit` is the assertion: `@ts-expect-error` fails the build if the error
+    // stops happening, so this catches the union being loosened back to optional.
+    const bad = {
+      key: 'r', cssVar: 'ring', family: 'semantic', constName: 'light', path: ['ring'],
+      label: 'Ring', fromRef: '#abcdef', toRef: 'palette.butter', previewValue: '#fff',
+      fromKind: 'literal',
+      // @ts-expect-error — `fromValue` is required unless `fromKind` is 'ref'
+    } satisfies PendingTokenRebind;
+    expect(bad.fromKind).toBe('literal');
   });
 
   it('inverts a token add into a member removal', () => {

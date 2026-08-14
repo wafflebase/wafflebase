@@ -247,7 +247,7 @@ export function stageTokenAdd(
  * it bound rather than freezing today's value into a literal. `previewValue` is
  * the reference's current colour, for recolouring the preview before the write.
  */
-export interface PendingTokenRebind {
+interface PendingTokenRebindBase {
   key: string;
   cssVar: string;
   family: TokenFamily;
@@ -259,24 +259,35 @@ export interface PendingTokenRebind {
   fromRef: string;
   toRef: string;
   previewValue: string;
-  /**
-   * What the binding WAS, copied from `TokenBinding.kind` at staging time.
-   *
-   * The prototype inferred this by testing `fromRef.startsWith('palette.')`, which
-   * is a wafflebase-ism: a foreign project's reference layer is named whatever its
-   * author named it, and the prefix test would silently classify every one of them
-   * as a literal. The contract already answers the question — a rebind is offered
-   * from a binding the client read — so this carries the answer rather than
-   * guessing it back out of a string.
-   */
-  fromKind: TokenBinding['kind'];
-  /**
-   * The value BEFORE the rebind. Required when `fromKind` is `'literal'`: that is
-   * the only way to undo, since a `token-rebind` cannot write a literal and the
-   * revert has to fall back to a `token-value`. See `revertRebindIntent`.
-   */
-  fromValue?: string;
 }
+
+/**
+ * A UNION ON `fromKind`, so `fromValue` cannot be missing where the inverse needs it.
+ *
+ * `fromKind` carries what the binding WAS, copied from `TokenBinding.kind` at staging
+ * time. The prototype inferred it by testing `fromRef.startsWith('palette.')`, which is
+ * a wafflebase-ism: a foreign project's reference layer is named whatever its author
+ * named it, and the prefix test would classify every one of them as a literal. The
+ * contract already answers the question — a rebind is offered from a binding the client
+ * read — so this carries the answer rather than guessing it back out of a string.
+ *
+ * Only `'ref'` may omit `fromValue`, because only `'ref'`'s inverse is another
+ * `token-rebind` and can rebuild itself from `fromRef`. The other two revert through
+ * `token-value`, which needs a literal. With `fromValue` merely optional the compiler
+ * allowed a `'literal'` rebind without one, and `revertRebindIntent` then produced
+ * `tokenValue: undefined` — `JSON.stringify` drops the key, and the server answers
+ * `token-value requires \`tokenValue\``. Measured, exactly that wire payload:
+ *
+ *   {"kind":"token-value","family":"semantic","constName":"light","path":["ring"]}
+ *
+ * So a staged undo failed at save time, on the one path that exists to make undo
+ * possible. Making it unrepresentable is cheaper than checking for it.
+ */
+export type PendingTokenRebind = PendingTokenRebindBase &
+  (
+    | { fromKind: 'ref'; fromValue?: string }
+    | { fromKind: 'literal' | 'expression'; fromValue: string }
+  );
 
 /**
  * A staged edit to a palette colour leaf. Cascades to every token bound to it.
@@ -834,13 +845,20 @@ export const editCount = (s: EditState): number =>
  * would emit a no-op plan that looks like real work. The rule generalises: an
  * edit's identity is what it MEANS, never where it currently happens to live.
  *
- * Applied to ALL SIX maps, not only `layoutEdits`. Only `layoutEdits` has a
- * `path` / `fpx` field today, so stripping the other five is currently a no-op —
- * but a no-op is exactly what makes it safe to apply everywhere. Scoping the
- * strip to one map was a live trap: any future field merely NAMED `path` or
- * `fpx` on another map would silently vanish from its own dirty check the moment
- * it was added, and the bug would not surface until that field's first real edit
- * failed to mark the editor dirty.
+ * `layoutEdits` ONLY, and that scope is the point rather than an oversight. The
+ * prototype's comment here claimed the strip was applied to all six maps because
+ * "stripping the other five is currently a no-op" — and that is FALSE:
+ * `tokenEdits`, `rebinds` and `paletteEdits` all declare a `path`, and for them it
+ * is IDENTITY, not a coordinate hint. Measured, with the strip widened to every
+ * map, two token edits under one key collapse to the same string:
+ *
+ *   path: ['primary'] → {"key":"k","cssVar":"primary",…,"newValue":"#111"}
+ *   path: ['ring']    → {"key":"k","cssVar":"primary",…,"newValue":"#111"}
+ *
+ * So widening it would make a real change to a token's target read as clean. The
+ * name `path` means two different things in two different maps, which is the
+ * actual hazard: a future field named `path` on another map must NOT be added to
+ * this set without checking whether it is a coordinate or an identity.
  */
 const HINT_KEYS = new Set(['path', 'fpx']);
 

@@ -684,7 +684,7 @@ So the cut follows the one that already worked for the module underneath it —
   missing family defaults to `semantic` — so a **radius or typography value edit was
   planned against the semantic source**. Measured against wafflebase's own adapter:
 
-  ```
+  ```text
   radius     → semantic.ts [light.lg]   located=false  property lg not found
   typography → semantic.ts [light.body] located=false  property body not found
   ```
