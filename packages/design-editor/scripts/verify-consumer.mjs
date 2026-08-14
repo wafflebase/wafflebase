@@ -152,10 +152,10 @@ async function boot() {
  * module, so fetching it through Vite is the only way to check that the consumer's
  * own `scenes.config.json` was found, parsed and rendered.
  */
-const scenesModule = () =>
-  fetch(`http://127.0.0.1:${PORT}/@id/__x00__virtual:wb-scenes`).then((r) =>
-    r.ok ? r.text() : Promise.resolve(''),
-  );
+async function scenesModule() {
+  const res = await fetch(`http://127.0.0.1:${PORT}/@id/__x00__virtual:wb-scenes`);
+  return res.ok ? res.text() : '';
+}
 
 async function main() {
   console.log(`booting vite in ${path.relative(PKG, PROJECT)} on :${PORT}`);

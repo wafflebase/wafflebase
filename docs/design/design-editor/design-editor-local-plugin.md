@@ -708,7 +708,8 @@ install fails, and it did so immediately. Booting with `cwd` alone was not enoug
 the dev server started cleanly and answered 404 to the whole bridge**.
 `verify-tokens.mjs` cannot hit that — its package root and its Vite root are the
 same directory. The gate asserts `health.root` for exactly this reason, and the
-script passes `--root` and `--config` explicitly.
+script now names both explicitly — the root as `vite dev`'s **positional**
+argument (`--root` is build-only and the CLI rejects it outright) plus `--config`.
 
 Checked by breaking the fixture four ways: dropping the adapter degrades to §3's
 "no token adapter configured" and fails 9 checks; dropping the scene manifest

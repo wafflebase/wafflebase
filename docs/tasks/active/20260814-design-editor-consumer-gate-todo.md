@@ -26,8 +26,9 @@ below.
 Booting with `cwd` alone is not enough. `pnpm exec` runs from the nearest
 package root, so vite's root became `packages/design-editor`, it found no
 config, **every plugin went unloaded, and the server answered 404 to the whole
-bridge while starting cleanly**. `--root` and `--config` are now explicit, and
-the gate asserts `health.root`.
+bridge while starting cleanly**. Both are now explicit — the root as `vite dev`'s
+positional argument (`--root` is build-only and the CLI rejects it) plus
+`--config` — and the gate asserts `health.root`.
 
 ## Done when
 
