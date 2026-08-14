@@ -344,9 +344,10 @@ jobs:
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The credential pool — see the twin step in agent-review-panel.yml for
-          # why selection is per job. Unregistered slots arrive as "" and are
-          # dropped by token-pool.mjs.
+          # The credential pool. See the twin step in agent-review-panel.yml for
+          # why selection is per job, and for the invariant this relaxes: the
+          # count of credentials in an untrusted-cwd process goes from one to as
+          # many as nine. Unregistered slots arrive as "" and are dropped.
           CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}

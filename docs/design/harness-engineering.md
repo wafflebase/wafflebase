@@ -1913,6 +1913,30 @@ moves to the approving human reviewer.
   environment (optional per-run human approval), the enablement switch, fork-
   origin rejection, and treating the Claude auth secret as least-privilege and
   rotatable. Adopters must accept this risk consciously.
+- **The Claude auth secret is now a pool, and the count matters.** Throughput was
+  capped by one account's usage window: when it closed, every lane failed at
+  once. `scripts/agent/token-pool.mjs` reads `CLAUDE_CODE_OAUTH_TOKEN` plus
+  `CLAUDE_CODE_OAUTH_TOKEN_1..8` from the `agent` environment, selects one per
+  **job** from `GITHUB_RUN_ID` (plus `CLAUDE_POOL_SHARD` where jobs of one run
+  would otherwise collide — every leg of `eval-replay`'s matrix shares a run id),
+  and replaces it only when that account's window closes. Per job rather than per
+  call because prompt caches are scoped to the account that wrote them, and
+  `createWarmupGate()` exists to pay for the panel's shared diff prefix once; per-call
+  rotation would pay that warm-up once per token instead.
+
+  **This relaxes a stated invariant, and the relaxation is the residual risk.**
+  The rule in the SDK steps was "export ONLY that one — no second credential in a
+  process whose cwd is the untrusted branch checkout"; the pool needs its
+  alternatives *in* that process, because failover happens inside the round, so
+  the count there is now up to nine. What still bounds it: those sessions grant
+  `Read`/`Grep`/`Glob` with `permissionMode: 'dontAsk'` and `settingSources: []`,
+  so reaching the environment takes an SDK bug rather than prompt injection —
+  defence in depth, not a substitute for the count. **Open:** hand the
+  untrusted-cwd step only the two credentials a round can use (the selected one
+  and its failover), choosing them in a trusted step, as
+  `.github/actions/claude-agent-run` already does for the `claude-code-action`
+  lane. Until then, treat every pooled token as sharing one blast radius: rotate
+  them together.
 - **The agent-state label is forgeable and advisory.** The author agent holds
   `issues:write`, so it can set any `agent:<state>` (e.g. a fake `agent:ready`).
   This is acceptable because **nothing gates on the label** — it is a human-facing

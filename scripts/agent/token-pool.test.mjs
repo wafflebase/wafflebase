@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_SLOTS, readPoolSlots, readPoolTokens, selectStartIndex, createTokenPool } from "./token-pool.mjs";
+import {
+  MAX_SLOTS,
+  readPoolSlots,
+  readPoolTokens,
+  selectStartIndex,
+  shardOffset,
+  createTokenPool,
+} from "./token-pool.mjs";
 
 /** Env with every pool variable cleared, so a stray real token can't leak in. */
 function env(overrides = {}) {
@@ -83,6 +90,56 @@ test("selectStartIndex: a run id beyond MAX_SAFE_INTEGER still lands in range", 
 
 test("selectStartIndex: an empty pool is index zero rather than a divide by zero", () => {
   assert.equal(selectStartIndex(0, { runId: "7", runAttempt: "1" }), 0);
+});
+
+test("selectStartIndex: matrix siblings sharing one run id land on different tokens", () => {
+  // GITHUB_RUN_ID identifies the RUN, not the job, so every leg of eval-replay's
+  // matrix shares it. Without a per-leg shard the pool would deliver that lane
+  // nothing: all legs on one credential, which is the exact contention its
+  // `max-parallel: 1` exists to avoid.
+  const legs = ["r1", "r2", "r3", "r4"].map((shard) =>
+    selectStartIndex(4, { runId: "500", runAttempt: "1", shard }),
+  );
+  assert.ok(new Set(legs).size > 1, `all legs collided on one token: ${legs.join(",")}`);
+});
+
+test("selectStartIndex: no shard leaves selection exactly as it was", () => {
+  // Every workflow but eval-replay omits it; none of them may shift.
+  for (const shard of [undefined, null, ""]) {
+    assert.equal(
+      selectStartIndex(4, { runId: "101", runAttempt: "1", shard }),
+      selectStartIndex(4, { runId: "101", runAttempt: "1" }),
+    );
+  }
+});
+
+test("shardOffset: stable, non-negative, and integral for opaque leg ids", () => {
+  // Leg identifiers are strings, not numbers — a digit parse would map "r1" and
+  // "r2" both to 0 and collide exactly where the shard is needed.
+  assert.equal(shardOffset("2026-08-14-r1"), shardOffset("2026-08-14-r1"));
+  assert.notEqual(shardOffset("r1"), shardOffset("r2"));
+  for (const s of ["", "r1", "a".repeat(500), "💥"]) {
+    const n = shardOffset(s);
+    assert.ok(Number.isInteger(n) && n >= 0, `${JSON.stringify(s)} → ${n}`);
+  }
+});
+
+test("createTokenPool: isExhausted separates a drained pool from an unconfigured one", () => {
+  // The two states both make current() null and must never be confused: an
+  // unconfigured pool falls back to ambient credential resolution, a drained one
+  // must fail. Falling back on a drained pool re-uses slot zero — a credential
+  // the pool already retired.
+  const unconfigured = createTokenPool({ env: env() });
+  assert.equal(unconfigured.current(), null);
+  assert.equal(unconfigured.isExhausted(), false, "an unconfigured pool has not been used up");
+
+  const pool = createTokenPool({ env: env({ CLAUDE_CODE_OAUTH_TOKEN_1: "a", CLAUDE_CODE_OAUTH_TOKEN_2: "b" }) });
+  assert.equal(pool.isExhausted(), false);
+  pool.advance("limit");
+  assert.equal(pool.isExhausted(), false, "one token left");
+  pool.advance("limit");
+  assert.equal(pool.isExhausted(), true);
+  assert.equal(pool.current(), null);
 });
 
 test("createTokenPool: a single token behaves exactly as before the pool existed", () => {

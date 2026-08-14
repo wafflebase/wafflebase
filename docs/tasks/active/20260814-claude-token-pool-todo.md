@@ -55,11 +55,24 @@ that died on exhaustion does not immediately re-pick the exhausted token.
 
 ### `scripts/agent/token-pool.mjs` (new)
 
-- reads the slots from the environment, filters empties, preserves declared order;
-- `pick()` — the run-derived starting token;
-- `advance(reason)` — marks the current token exhausted and returns the next live one, or
-  `null` when the pool is dry (the point at which failing is right);
-- pure and injectable (env and run id as arguments) so the tests need no runner.
+- reads the slots from the environment, filters empties, de-duplicates, preserves declared
+  order, and carries each token's secret NAME so a diagnostic can name a bad slot without
+  printing a credential;
+- `current()` — the run-derived token, stable for the process;
+- `advance(reason, deadToken)` — retires the current token and returns the next live one, or
+  `null` when the pool is dry (the point at which failing is right). `deadToken` makes a
+  concurrent report idempotent, which the panel needs: its lenses hit one closed window
+  within milliseconds, and without it the second report retires the healthy token the first
+  just moved to;
+- `isExhausted()` — separates "drained" from "never configured". Both make `current()` null,
+  and they must not be confused: unconfigured falls through to ambient credential
+  resolution, drained must fail, because the ambient token in these workflows is slot zero —
+  one the pool has already retired;
+- `shardOffset()` — mixes a per-job discriminator into selection. `GITHUB_RUN_ID` identifies
+  the run, not the job, so every leg of `eval-replay`'s matrix would otherwise land on one
+  credential — no distribution for the lane whose `max-parallel: 1` exists because legs
+  contend on one account;
+- pure and injectable (env, run id, shard as arguments) so the tests need no runner.
 
 ### `scripts/agent/ask.mjs`
 
@@ -70,10 +83,14 @@ that died on exhaustion does not immediately re-pick the exhausted token.
 - Per-call `env` rather than mutating `process.env` because the panel runs lenses and
   samples concurrently; a global swap mid-failover would hand a half-changed environment to
   calls already in flight.
-- `withRetry` learns one new case: an error that is `kind: 'api-error'` and non-retryable
-  **because it matched `SESSION_LIMIT_RE`** consumes a failover instead of throwing. Every
-  other non-retryable error throws exactly as it does today — a 401 from a bad token must
-  not burn the whole pool.
+- Failover lives in `askStructured`, **not** in `withRetry` as this plan first had it. The
+  token is bound where the session is built, and keeping `withRetry` a generic helper means
+  the two retries stay separable: it still owns transient errors, and the new loop owns
+  credential exhaustion. `nextCredential()` is the pure decision, exported so it is testable
+  without the SDK on disk.
+- Only an error that is `kind: 'api-error'` and matched `SESSION_LIMIT_RE` consumes a
+  failover. Every other non-retryable error throws exactly as it does today — a 401 from a
+  bad token would otherwise burn the whole pool on a problem no credential fixes.
 - Exhaustion is process-scoped, so the six lenses of one panel round make the discovery
   once instead of six times.
 
@@ -99,24 +116,52 @@ proves unreliable, the fallback is to retry on any failure and accept one wasted
 
 ## Tasks
 
-- [ ] `scripts/agent/token-pool.mjs` + `token-pool.test.mjs` — discovery, ordering, run-id
-      selection, `advance()` past exhausted slots, dry-pool returns `null`, single-token
-      pool behaves exactly as today
-- [ ] `ask.mjs` — `options.env` wiring with the `process.env` spread; `askStructured`
+- [x] `scripts/agent/token-pool.mjs` + `token-pool.test.mjs` — discovery, ordering, dedup,
+      run-id selection, `advance()` past exhausted slots, dry-pool returns `null`,
+      single-token pool behaves exactly as today
+- [x] `ask.mjs` — `options.env` wiring with the `process.env` spread; `askStructured`
       threads the pool's current token
-- [ ] `ask.mjs` — `withRetry` failover on the session-limit signal only; assert in
-      `ask.test.mjs` that a 401 and a `kind: 'limit'` (our own turn ceiling) still throw
-      without consuming a token
-- [ ] `.github/actions/claude-agent-run/action.yml` — pick + ladder; confirm composite
-      steps honor `continue-on-error` on this runner before relying on it
-- [ ] Verify `secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', N)]` dynamic indexing on a real
-      runner via `agent-sdk-smoke-test.yml` **before** the composite action depends on it
+- [x] `ask.mjs` — failover on the session-limit signal only; `ask.test.mjs` asserts a 401
+      and a `kind: 'limit'` (our own turn ceiling) still throw without consuming a token
+- [x] `auth-smoke.mjs` — check every registered credential, report by secret name
+- [x] `.github/actions/claude-agent-run/` — pick + ladder, written but **not wired**
+- [x] `pnpm verify:fast` (exit 0)
+- [x] Update `docs/design/harness-engineering.md` with the pool, the per-job constraint, and
+      the invariant it relaxes
 - [ ] Register `CLAUDE_CODE_OAUTH_TOKEN_1..N` in the `agent` environment
-- [ ] Roll out: SDK lane first (`agent-sdk-smoke-test` → `eval-replay` → panel), action lane
-      after
-- [ ] `pnpm verify:fast`
-- [ ] Update `docs/design/harness-engineering.md` with the pool and the per-job constraint
+- [ ] Dispatch `agent-sdk-smoke-test.yml` — every credential green, pool size as expected
+- [ ] Roll out the SDK lane: `eval-replay` → panel
+- [ ] Confirm composite `continue-on-error` and step-output masking on a real runner, then
+      wire the action lane
+- [ ] **Reduce the untrusted-cwd credential count from nine to two** — see Review below
 
 ## Review
 
-_(filled in after implementation)_
+Landed as `7085a4ab6` plus the review fixes below. Self-review over the branch diff
+(five reviewers) found five things worth acting on; three of them were the same finding.
+
+**The one that mattered.** Three reviewers independently caught that the SDK steps'
+env blocks previously carried a *count*-based invariant — "Export ONLY that one — no
+second credential in a process whose cwd is the untrusted branch checkout" (#508) and
+"The only credential this job holds" (#740) — and that the first draft both added eight
+more secrets AND rewrote those comments to say "CLAUDE credentials only", keeping the
+security prose while dropping the constraint it stated. Rewriting the comment was the
+worse half: it made a real relaxation read as no change. Fixed by restoring the
+invariant's force and stating the relaxation, its bound, and what is tracked to undo it,
+in the workflows and in `harness-engineering.md`. Reducing nine to two is left open above
+rather than attempted here, because the mechanism (choose in a trusted step, hand the
+untrusted step two tokens) needs the same runner verification the action lane is waiting
+on, and a wrong version of it is worse than an honest comment.
+
+**Also fixed.** A drained pool fell through to ambient credential resolution — which in
+these workflows is slot zero, a token the pool had already retired — spending a live call
+to fail identically, or reporting "not logged in" for a pool merely out of quota;
+`isExhausted()` now separates that from "never configured". And every leg of
+`eval-replay`'s matrix shares one `GITHUB_RUN_ID`, so all legs picked the same credential:
+`CLAUDE_POOL_SHARD` (fed `matrix.runId`) now distinguishes them, which matters most for
+the one lane whose `max-parallel: 1` exists because legs contend on a single account.
+
+**Not acted on.** A reviewer read the reworded comments as correct; the two reviewers with
+commit-level evidence were right and it was not. Another flagged the composite action's
+step-output credential — already documented in the action's own header as unverified, and
+the action is unwired, so it is gated rather than fixed.

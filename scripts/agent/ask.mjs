@@ -25,6 +25,11 @@
 // standalone element, which is how a caller marks the cacheable prefix — see the
 // mirrored constant below.
 
+// The credential pool. Not the SDK, so a static import is fine here — the lazy
+// rule above exists to keep the pure helpers testable without the SDK on disk,
+// and token-pool.mjs has no dependencies at all.
+import { createTokenPool } from "./token-pool.mjs";
+
 /**
  * The COMPLETE set of tools any agent spawned through this wrapper may ever be
  * granted. Callers pass a subset; anything else is refused.
@@ -55,8 +60,6 @@
  * consumer that genuinely needs to run something must do it in its own trusted
  * code, from data the model returned, rather than holding the capability itself.
  */
-import { createTokenPool } from "./token-pool.mjs";
-
 export const PERMITTED_TOOLS = Object.freeze(["Read", "Grep", "Glob"]);
 
 /**
@@ -560,6 +563,21 @@ export async function askStructured({
   // prompt caches are per account, and rotating per call would make the panel pay
   // its shared-prefix warm-up once per token instead of once per round.
   const pool = tokenPool();
+  // A drained pool must FAIL, not fall through to ambient resolution. `current()`
+  // is null for both "no pool configured" (fall through — correct) and "every
+  // window closed", and in these workflows the ambient credential is slot zero:
+  // one the pool has already retired. Falling through would spend a live call to
+  // fail the same way, or report "not logged in" for a pool that is merely out
+  // of quota. Non-retryable so the caller's `withRetry` does not back off around
+  // a condition that cannot clear in-run.
+  if (pool.isExhausted()) {
+    const err = new Error(
+      `${label}: every credential in the pool (${pool.size}) has hit its usage limit — nothing left to fail over to`,
+    );
+    err.kind = "pool-exhausted";
+    err.retryable = false;
+    throw err;
+  }
   let authToken = pool.current();
 
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad

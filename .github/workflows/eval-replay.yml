@@ -343,13 +343,20 @@ jobs:
       # measured.
       - name: Replay
         env:
-          # The only KIND of credential this job holds. Nothing else is exported
-          # into a process whose working tree is a checkout of somebody else's
-          # pull request.
+          # Claude credentials only — no other kind of secret is exported into a
+          # process whose working tree is a checkout of somebody else's pull
+          # request. But the COUNT was also load-bearing here ("the only
+          # credential this job holds", #740) and the pool relaxes it to as many
+          # as nine; see the twin step in agent-review-panel.yml for what still
+          # bounds that and what is tracked to reduce it.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The credential pool — see the twin step in agent-review-panel.yml for
-          # why selection is per job. Unregistered slots arrive as "" and are
-          # dropped by token-pool.mjs.
+          # Every leg of this matrix shares one GITHUB_RUN_ID, so run-id-only
+          # selection would put all of them on the SAME credential — no
+          # distribution at all for the lane whose max-parallel: 1 exists because
+          # legs contend on one account. matrix.runId is the per-leg
+          # discriminator (see shardOffset in token-pool.mjs).
+          CLAUDE_POOL_SHARD: ${{ matrix.runId }}
+          # Unregistered slots arrive as "" and are dropped by token-pool.mjs.
           CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}

@@ -71,14 +71,36 @@ export function readPoolTokens(env = process.env) {
  * failure a long way from its cause. A local run with no GITHUB_RUN_ID gets the
  * first token, which is exactly right for a pool of one.
  */
-export function selectStartIndex(size, { runId, runAttempt } = {}) {
+export function selectStartIndex(size, { runId, runAttempt, shard } = {}) {
   if (!Number.isInteger(size) || size <= 0) return 0;
   // Run ids are ~11 digits today, but taking the tail keeps this exact if they
   // ever outgrow MAX_SAFE_INTEGER, where the parse would start rounding.
   const digits = String(runId ?? "").replace(/\D/g, "").slice(-15);
   const base = digits ? Number(digits) : 0;
   const attempt = Number(String(runAttempt ?? "").replace(/\D/g, "")) || 1;
-  return (base + attempt - 1) % size;
+  return (base + attempt - 1 + shardOffset(shard)) % size;
+}
+
+/**
+ * A stable number for a per-job discriminator, so SIBLINGS OF ONE RUN differ.
+ *
+ * `GITHUB_RUN_ID` identifies the workflow RUN, not the job — every leg of a
+ * matrix shares it, so run-id-only selection puts every leg of one dispatch on
+ * the same credential. That silently defeats the pool for eval-replay, the lane
+ * that most wants it: its `max-parallel: 1` exists precisely because concurrent
+ * legs contend on one account's rate limit, and legs landing on different
+ * accounts is the thing that could eventually lift it.
+ *
+ * A hash rather than a digit parse because leg identifiers are opaque strings,
+ * not numbers. Absent (the ordinary single-job case) contributes nothing, so
+ * selection is unchanged for every workflow that does not set it.
+ */
+export function shardOffset(shard) {
+  const text = String(shard ?? "");
+  if (!text) return 0;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) % 100_000_007;
+  return hash;
 }
 
 /**
@@ -89,10 +111,16 @@ export function selectStartIndex(size, { runId, runAttempt } = {}) {
  * the SDK's own "no credentials" error names the real problem better than a
  * wrapper's would, so an unconfigured environment should reach it.
  */
-export function createTokenPool({ env = process.env, runId = env.GITHUB_RUN_ID, runAttempt = env.GITHUB_RUN_ATTEMPT } = {}) {
+export function createTokenPool({
+  env = process.env,
+  runId = env.GITHUB_RUN_ID,
+  runAttempt = env.GITHUB_RUN_ATTEMPT,
+  // Set by a workflow whose jobs share one run id — see shardOffset.
+  shard = env.CLAUDE_POOL_SHARD,
+} = {}) {
   const tokens = readPoolTokens(env);
   const retired = new Set();
-  let index = selectStartIndex(tokens.length, { runId, runAttempt });
+  let index = selectStartIndex(tokens.length, { runId, runAttempt, shard });
 
   const current = () => (tokens.length && !retired.has(index) ? tokens[index] : null);
 
@@ -100,6 +128,21 @@ export function createTokenPool({ env = process.env, runId = env.GITHUB_RUN_ID, 
     size: tokens.length,
     current,
     retiredCount: () => retired.size,
+
+    /**
+     * Has a CONFIGURED pool been used up?
+     *
+     * `current()` returns null for two states that must not be confused. An
+     * unconfigured pool (`size === 0`) falls back to ambient credential
+     * resolution, which is correct and is how a repo with no pool keeps working.
+     * A DRAINED pool returning null means every account's window is closed — and
+     * falling back there would re-use the ambient token, which in these
+     * workflows is slot zero: a credential the pool has already retired. The
+     * call then either burns a live round-trip to fail identically, or, if
+     * nothing is set at the OS level, reports "not logged in" — sending whoever
+     * reads the log after a credential problem they do not have.
+     */
+    isExhausted: () => tokens.length > 0 && current() === null,
 
     /**
      * Retire the current token and hand back the next live one, or `null` when
