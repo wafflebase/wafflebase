@@ -45,17 +45,15 @@ rest depends on:
 | `src/tokens/css-variables.ts` | `cssVariables()` — the default adapter, for tokens kept as CSS custom properties in one stylesheet. Covers the shadcn case |
 | `src/tokens/css-decls.ts` | Reading and writing `:root` / `.dark` declarations |
 
-Not yet here: the three-pane editor shell, and `packages/design-sandbox` (the
-private package holding wafflebase's own four-file `@wafflebase/core` adapter).
-The package therefore still declares no `exports` or `main` — nothing imports it
-yet, and `pnpm verify:fast` covers it through typecheck and its Vitest suites
-only.
+Not yet here: the three-pane editor shell and the scene runtime, both of which
+PRs 10–12 build. The second implementation of the token seam does now exist —
+[`packages/design-sandbox`](../design-sandbox/README.md) holds wafflebase's own
+four-file `@wafflebase/core` adapter, and is the first consumer of this package.
 
 ## Usage
 
-**Not yet installable.** The package declares no `exports` or `main` (see Status),
-so this is the shape the plugin takes once the shell ships and the package is
-published — not something a consumer can wire up today.
+Wired up for real in [`packages/design-sandbox/vite.config.ts`](../design-sandbox/vite.config.ts),
+which is the shape a consumer writes:
 
 ```ts
 // consumer's vite.config.ts
@@ -82,6 +80,35 @@ you; the other options are resolved against `root` either way.
 
 Omit `tokens` and the token endpoints report `adapter: null` rather than failing —
 the layout half needs only React, Vite and JSX.
+
+The editor shell at `/__design-editor/` is not built yet, so it 404s with a
+"was the package built?" message. The bridge underneath it works:
+`/__design-editor/api/{health,tokens,preview-tokens,mutate,validate,commit,undo,redo}`.
+
+### Consuming it from source, and why that needs a build before publishing
+
+`exports` points at **TypeScript source**, because the package is `private: true`
+with no build step. That works for a Vite config or vitest, and it took two
+findings to get there — both worth knowing before changing an import in this
+package:
+
+- **Relative imports carry explicit `.ts` extensions.** A Vite config that
+  imports this package is handed to Node as TypeScript (a pnpm workspace link
+  resolves inside `node_modules`, so the config bundler externalizes it and
+  Node's own type stripping loads the `.ts`). Node ESM requires real extensions,
+  so extensionless `./options` made the consumer's dev server fail to start
+  outright. Hence `allowImportingTsExtensions` in `tsconfig.json` — and a
+  TypeScript consumer inherits that flag while consumption is source-based.
+- **`--configLoader runner` is not the alternative.** It loads the config and
+  then closes the module runner, so every deferred dynamic import in
+  config-loaded code fails at request time — including this package's own lazy
+  `import('../server/inject.mjs')`. Measured: `/health` answered while `/tokens`
+  and `/mutate` both returned `Vite module runner has been closed`.
+
+Publishing needs `dist/` with `.js` specifiers, which also drops the
+`allowImportingTsExtensions` requirement from consumers. `allowImportingTsExtensions`
+forbids emit, so that build must be a bundler (esbuild/tsup/rollup, all of which
+resolve `.ts` specifiers) rather than a bare `tsc` emit.
 
 ## Development
 

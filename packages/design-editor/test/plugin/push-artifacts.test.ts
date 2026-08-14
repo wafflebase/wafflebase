@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { pushArtifacts, type ArtifactHost } from '../../src/plugin/bridge';
+import { pushArtifacts, type ArtifactHost } from '../../src/plugin/bridge.ts';
 
 type Mod = Parameters<ArtifactHost['reloadModule']>[0];
 

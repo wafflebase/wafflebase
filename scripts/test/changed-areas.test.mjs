@@ -780,10 +780,11 @@ test("the real repository config", async (t) => {
     assert.equal(out.full, true);
   });
 
-  // Leaf packages nothing imports, each with its own lane. Enumerated rather
-  // than derived, so adding one has to be a deliberate edit here: this is the
-  // list that decides which packages can skip the browser and integration jobs.
-  const INERT_PACKAGES = new Set(["documentation", "design-editor"]);
+  // Leaf packages nothing OUTSIDE this set imports, each with its own lane.
+  // Enumerated rather than derived, so adding one has to be a deliberate edit
+  // here: this is the list that decides which packages can skip the browser and
+  // integration jobs.
+  const INERT_PACKAGES = new Set(["documentation", "design-editor", "design-sandbox"]);
 
   await t.test("no inert glob reaches a source package", () => {
     // If an inert entry ever matched, say, packages/frontend/**, every frontend
@@ -795,17 +796,36 @@ test("the real repository config", async (t) => {
     }
   });
 
-  await t.test("no inert package is imported by anything in the workspace", () => {
+  await t.test("no inert package is imported by a package that is not itself inert", () => {
     // The condition that makes the entries above safe, checked against the
-    // manifests rather than trusted. A dependency edge into one of these — the
-    // frontend importing the design editor, say — would make a reduced run a
-    // lie, and this is the only place that would notice.
+    // manifests rather than trusted. A dependency edge from a NON-inert package
+    // into one of these — the frontend importing the design editor, say — would
+    // make a reduced run a lie, and this is the only place that would notice.
+    //
+    // Inert-to-inert is the exception, and it is narrower than it looks: an inert
+    // package never lands in `packages`, so its lane is reached by TAG alone.
+    // `design-sandbox` importing `design-editor`'s source is the dogfood edge that
+    // proves the plugin's package boundary holds, and it is safe only because both
+    // sides share the `designEditor` tag — asserted below rather than assumed,
+    // because the edge would otherwise let a design-editor-only change skip the
+    // typecheck that consumes its source.
     for (const [pkg, deps] of Object.entries(graph)) {
       for (const dep of deps) {
+        if (!INERT_PACKAGES.has(dep)) continue;
         assert.ok(
-          !INERT_PACKAGES.has(dep),
-          `packages/${pkg} depends on packages/${dep}, which is listed inert`,
+          INERT_PACKAGES.has(pkg),
+          `packages/${pkg} is not inert but depends on packages/${dep}, which is listed inert`,
         );
+        // The dependent's lane must still run when only the dependency changes.
+        const depTags = classify([`packages/${dep}/src/index.ts`], ci, graph).tags;
+        const pkgTags = classify([`packages/${pkg}/src/index.ts`], ci, graph).tags;
+        for (const tag of pkgTags) {
+          assert.ok(
+            depTags.includes(tag),
+            `a change to packages/${dep} must still reach packages/${pkg}'s lane, ` +
+              `but tag \`${tag}\` is missing from ${JSON.stringify(depTags)}`,
+          );
+        }
       }
     }
   });

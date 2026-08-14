@@ -21,12 +21,12 @@ import {
   planTokenIntent,
   tokenEditOf,
   TOKEN_KINDS,
-} from '../../src/plugin/tokens';
-import { createPathGuard } from '../../src/plugin/paths';
-import { cssVariables } from '../../src/tokens/css-variables';
-import type { MutateRequest } from '../../src/plugin/protocol';
-import type { TokenAdapter, TokenWrite } from '../../src/tokens/adapter';
-import { camelToKebab } from '../../src/tokens/adapter';
+} from '../../src/plugin/tokens.ts';
+import { createPathGuard } from '../../src/plugin/paths.ts';
+import { cssVariables } from '../../src/tokens/css-variables.ts';
+import type { MutateRequest } from '../../src/plugin/protocol.ts';
+import type { TokenAdapter, TokenWrite } from '../../src/tokens/adapter.ts';
+import { camelToKebab } from '../../src/tokens/adapter.ts';
 
 const ROOT = '/project';
 const guard = createPathGuard(ROOT);

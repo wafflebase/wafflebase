@@ -12,12 +12,12 @@
  */
 
 import type { Plugin } from 'vite';
-import type { MutateRequest, FrameSide } from './protocol';
-import { planFiles } from './protocol';
-import { fileOf, frameOf, stripFrameQuery, withFrameQuery, type ModuleClassifier } from './frame';
-import type { PathGuard } from './paths';
-import type { IntentContext } from './intents';
-import { applyIntentToCache } from './intents';
+import type { MutateRequest, FrameSide } from './protocol.ts';
+import { planFiles } from './protocol.ts';
+import { fileOf, frameOf, stripFrameQuery, withFrameQuery, type ModuleClassifier } from './frame.ts';
+import type { PathGuard } from './paths.ts';
+import type { IntentContext } from './intents.ts';
+import { applyIntentToCache } from './intents.ts';
 
 /**
  * Accessors, not values. The guard and classifier are rebuilt in `configResolved`

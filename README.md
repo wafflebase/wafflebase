@@ -73,6 +73,7 @@ tools for handling large datasets.
 - [packages/cli/](packages/cli/README.md) — Command-line interface for the Wafflebase API ([skills](packages/cli/skills/SKILL.md))
 - [packages/documentation/](packages/documentation/README.md) — VitePress documentation site (wafflebase.io/docs)
 - [packages/design-editor/](packages/design-editor/README.md) — Dev-only Vite plugin that edits a project's JSX and design tokens in place
+- [packages/design-sandbox/](packages/design-sandbox/README.md) — Wafflebase's own instance of that editor (private, never published)
 
 Per-package detail lives in [packages/README.md](packages/README.md). The
 frontend depends on all five engines — `@wafflebase/sheets`, `@wafflebase/docs`,

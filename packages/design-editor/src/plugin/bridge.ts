@@ -21,16 +21,16 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin, ViteDevServer } from 'vite';
-import type { FrameSide, MutateRequest, MutateResult } from './protocol';
-import { BASE } from './shell';
-import type { PathGuard } from './paths';
-import type { Tracker } from './tracked';
-import type { Safelist } from './safelist';
-import type { TransactionStore } from './transactions';
-import type { IntentContext } from './intents';
-import { composeIntents, computeIntent, NO_ADAPTER } from './intents';
-import type { ResolvedOptions } from './options';
-import { maybeRegenerate, TOKEN_KINDS } from './tokens';
+import type { FrameSide, MutateRequest, MutateResult } from './protocol.ts';
+import { BASE } from './shell.ts';
+import type { PathGuard } from './paths.ts';
+import type { Tracker } from './tracked.ts';
+import type { Safelist } from './safelist.ts';
+import type { TransactionStore } from './transactions.ts';
+import type { IntentContext } from './intents.ts';
+import { composeIntents, computeIntent, NO_ADAPTER } from './intents.ts';
+import type { ResolvedOptions } from './options.ts';
+import { maybeRegenerate, TOKEN_KINDS } from './tokens.ts';
 
 export interface BridgeDeps {
   options: ResolvedOptions;

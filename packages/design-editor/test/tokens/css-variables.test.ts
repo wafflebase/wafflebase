@@ -8,9 +8,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { cssVariables } from '../../src/tokens/css-variables';
-import { declMap, readDecls } from '../../src/tokens/css-decls';
-import type { TokenAdapter, TokenEdit, TokenWrite } from '../../src/tokens/adapter';
+import { cssVariables } from '../../src/tokens/css-variables.ts';
+import { declMap, readDecls } from '../../src/tokens/css-decls.ts';
+import type { TokenAdapter, TokenEdit, TokenWrite } from '../../src/tokens/adapter.ts';
 
 const SHEET = 'src/index.css';
 
@@ -108,6 +108,17 @@ describe('cssVariables.read', () => {
     expect(tree.utilities).toEqual([]);
     // Still fully readable — the tokens exist, they are just not utility-backed.
     expect(tree.vars.light).toEqual({ '--a': '1px' });
+  });
+
+  it('omits `bindings` entirely rather than reporting an empty one', async () => {
+    // `TokenTree.bindings` was added for the pipeline where a token's SOURCE form differs
+    // from its emitted value — an expression, or a member the emitter never publishes.
+    // A stylesheet has neither: the declaration IS the value, which is exactly why the
+    // field is optional. ABSENT, not `{}`: an empty object would tell a client "this
+    // pipeline has source forms and none of them are interesting", and the panel would
+    // render a rebind affordance that can never work here.
+    const tree = await read(SHADCN);
+    expect('bindings' in tree).toBe(false);
   });
 
   it('requests exactly the configured stylesheet, and nothing else', async () => {

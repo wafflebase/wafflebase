@@ -17,21 +17,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin, ViteDevServer } from 'vite';
-import { resolveOptions, type DesignEditorOptions, type ResolvedOptions } from './options';
-import { createPathGuard } from './paths';
-import { createTracker } from './tracked';
-import { createSafelist, isTailwindV4Entry } from './safelist';
-import { createTransactionStore } from './transactions';
-import { createModuleClassifier } from './frame';
-import { readManifest, renderScenesModule, SCENES_RESOLVED_ID, SCENES_VIRTUAL_ID } from './scenes';
-import { scenePatch } from './scene-patch';
-import { shellServer, BASE } from './shell';
-import { bridge } from './bridge';
-import type { IntentContext, Injector } from './intents';
-import type { FrameSide, MutateRequest } from './protocol';
+import { resolveOptions, type DesignEditorOptions, type ResolvedOptions } from './options.ts';
+import { createPathGuard } from './paths.ts';
+import { createTracker } from './tracked.ts';
+import { createSafelist, isTailwindV4Entry } from './safelist.ts';
+import { createTransactionStore } from './transactions.ts';
+import { createModuleClassifier } from './frame.ts';
+import { readManifest, renderScenesModule, SCENES_RESOLVED_ID, SCENES_VIRTUAL_ID } from './scenes.ts';
+import { scenePatch } from './scene-patch.ts';
+import { shellServer, BASE } from './shell.ts';
+import { bridge } from './bridge.ts';
+import type { IntentContext, Injector } from './intents.ts';
+import type { FrameSide, MutateRequest } from './protocol.ts';
 
-export type { DesignEditorOptions, TokenAdapter } from './options';
-export { BASE } from './shell';
+export type { DesignEditorOptions, TokenAdapter } from './options.ts';
+export { BASE } from './shell.ts';
 
 /**
  * The default `TokenAdapter`, exported from the same package as the plugin.
@@ -42,19 +42,23 @@ export { BASE } from './shell';
  * one and ships separately in `design-sandbox` (8c), which is the inversion §4 asks for —
  * our pipeline stops being the assumption.
  */
-export { cssVariables } from '../tokens/css-variables';
-export type { CssVariablesOptions } from '../tokens/css-variables';
+export { cssVariables } from '../tokens/css-variables.ts';
+export type { CssVariablesOptions } from '../tokens/css-variables.ts';
 export type {
+  TokenBinding,
+  TokenBindings,
   TokenEdit,
   TokenEmitResult,
   TokenFamily,
   TokenFamilyMeta,
+  TokenRef,
   TokenRegenResult,
   TokenTree,
   TokenVars,
   TokenWrite,
   TokenWriteResult,
-} from '../tokens/adapter';
+} from '../tokens/adapter.ts';
+export { camelToKebab, normaliseSource } from '../tokens/adapter.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

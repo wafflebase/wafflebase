@@ -171,6 +171,15 @@ test("selection against the real lane graph", async (t) => {
       tags: ["designEditor"],
     });
     assert.ok(selected.has("design-editor:check"));
+    // The consumer of that package's SOURCE. design-sandbox imports design-editor
+    // through its `exports` map, so its typecheck program contains design-editor's
+    // files and a change here can break it. Neither package lands in `packages`
+    // (both are inert), so the shared tag is the only thing that runs this lane —
+    // which is why changed-areas.test.mjs asserts the two share one.
+    assert.ok(
+      selected.has("design-sandbox:check"),
+      "a design-editor change must typecheck the package that consumes its source",
+    );
     // knip analyses packages/design-editor, so this is the one gate a change here
     // can fail. `anyPkg` cannot reach it for an inert package — only the tag can.
     assert.ok(

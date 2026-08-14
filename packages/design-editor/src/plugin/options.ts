@@ -32,7 +32,7 @@ import path from 'node:path';
  * the support matrix, where "the token panels degrade to empty rather than writing
  * garbage".
  */
-import type { TokenAdapter } from '../tokens/adapter';
+import type { TokenAdapter } from '../tokens/adapter.ts';
 export type { TokenAdapter };
 
 export interface DesignEditorOptions {
