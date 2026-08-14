@@ -23,7 +23,7 @@ import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
-import { visitStyledRunsInRange } from './range-runs.js';
+import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -1166,32 +1166,18 @@ export function initialize(
     fireCursorMoveCallbacks(cursor.position, selRange);
   }
 
-  /** Apply inline style to all blocks in all cells within a cell range. */
+  /**
+   * Apply inline style to all blocks in all cells within a cell range.
+   *
+   * Delegates to `Doc`, which walks the rectangle with the same
+   * `visitCellRectangleSlices` the style summary reads through — so the
+   * toolbar's verdict for a cell rectangle describes the cells this writes.
+   */
   function applyStyleToCellRange(
     cellRange: { blockId: string; start: CellAddress; end: CellAddress },
     style: Partial<InlineStyle>,
   ): void {
-    const block = doc.getBlock(cellRange.blockId);
-    if (!block.tableData) return;
-    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
-    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
-    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
-    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
-    for (let r = minRow; r <= maxRow; r++) {
-      for (let c = minCol; c <= maxCol; c++) {
-        const cell = block.tableData.rows[r]?.cells[c];
-        if (!cell || cell.colSpan === 0) continue;
-        for (const cellBlock of cell.blocks) {
-          const len = getBlockTextLength(cellBlock);
-          if (len > 0) {
-            doc.applyInlineStyle(
-              { anchor: { blockId: cellBlock.id, offset: 0 }, focus: { blockId: cellBlock.id, offset: len } },
-              style,
-            );
-          }
-        }
-      }
-    }
+    doc.applyInlineStyleToCells(cellRange, style);
   }
 
   let dragGuideline: { x?: number; y?: number } | null = null;

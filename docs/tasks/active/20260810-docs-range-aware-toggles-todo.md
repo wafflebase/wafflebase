@@ -62,6 +62,29 @@ style to the whole range (Google Docs behaviour).
 - [x] Header/footer slim toolbar regression tests
       (`packages/frontend/tests/app/docs/docs-formatting-toolbar-header-footer.test.tsx`).
 
+## Review follow-ups (blocking findings)
+
+- [x] Collapse the read walk and `Doc.applyInlineStyle` into **one** traversal,
+      `visitRangeSlices` in `model/range-slices.ts` (the read had been a second
+      copy of the write's dispatch, in `view/`). Read = write by construction,
+      not by comment.
+- [x] Fix the crash the copy hid: an endpoint inside a *nested* table gives
+      `getBlockIndex() === -1`, and the write dereferenced `contextBlocks[-1]`
+      (`TypeError`) on a range the read reported as empty. Regression test in
+      `packages/docs/test/model/table.test.ts`.
+- [x] Route both editors' `applyStyleToCellRange` through
+      `Doc.applyInlineStyleToCells` / `visitCellRectangleSlices`, so the
+      cell-rectangle read and write share a traversal too (and drop two
+      duplicated copies). Clamp the rectangle to the table's dimensions.
+- [x] Text box: layer named-style inline defaults in the collapsed-caret
+      summary, `getSelectionStyle`, and the font-size stepper — the range
+      branch already did, so a caret in a Heading 6 (whose style supplies
+      `italic`) still had the #715 disagreement. Stored values stay raw.
+      Tests in `packages/docs/test/view/text-box-editor.test.ts`.
+- [x] Reconcile the design docs: `docs-nested-tables.md` claimed styling parity
+      inside nested tables, which the traversal does not provide. Recorded as a
+      Known gap there, with `docs-font-controls.md` pointing at it.
+
 ## Out of scope
 
 - The `getSelectionStyle()` `<=` boundary for a collapsed caret — the issue

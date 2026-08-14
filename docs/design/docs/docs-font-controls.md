@@ -291,41 +291,62 @@ reads as 'mixed'. When there is no selection, it returns
 the style of the inline at the cursor (same as the existing
 `getSelectionStyle`).
 
-### The shared range walk (`view/range-runs.ts`)
+### The shared range traversal (`model/range-slices.ts`, `model/range-runs.ts`)
 
 Reading a range's formatting and writing it must agree on *which runs the
 range covers* — a toggle that decides "already bold" from a different set
 of runs than the one it then styles is how issue #715 left a style
-impossible to re-apply. `visitStyledRunsInRange(doc, range, visit)` is that
-single walk, and it is the only traversal in the docs engine:
-`getRangeStyleSummary`, `stepSelectionFontSize`, the text-box editor's
-`getRangeStyleSummary`, and the keyboard toggles
-(`TextEditor.isStyleOnInSelection`) all call it.
+impossible to re-apply. Two copies of the dispatch kept in sync would only
+postpone that; instead there is **one traversal, in the model**, and both
+sides drive it:
 
-It mirrors `Doc.applyInlineStyle`'s dispatch — same block → same cell,
-cross-block inside one cell, cross-block at top level with cell endpoints
-normalized to their parent table block — plus the cell-rectangle
-(`tableCellRange`) case the editors handle above `applyInlineStyle`. Three
-consequences are load-bearing:
+```
+                       visitRangeSlices(doc, range, visit)      model/range-slices.ts
+                        (blockId, from, to) per block slice
+                          ↑                            ↑
+     Doc.applyInlineStyle │ (write)            (read) │ visitStyledRunsInRange
+     → store.applyStyle   │                           │ → per-run effective style
+                                                      │   model/range-runs.ts
+                                                      ├── EditorAPI.getRangeStyleSummary
+                                                      ├── stepSelectionFontSize (both editors)
+                                                      ├── TextBoxEditorAPI.getRangeStyleSummary
+                                                      └── TextEditor.isStyleOnInSelection
+```
+
+`visitRangeSlices` answers *which text*; `visitStyledRunsInRange` adds *what
+style* on top of the same slices. Because the write is a visitor over the
+identical traversal, read/write agreement is structural rather than
+maintained. A cell rectangle (`tableCellRange`) is a selection shape of its
+own, so it has a sibling — `visitCellRectangleSlices`, driven by the read and
+by `Doc.applyInlineStyleToCells` (which both editors' `applyStyleToCellRange`
+now delegates to).
+
+The dispatch is: same block → same cell; cross-block inside one cell;
+cross-block at top level with cell endpoints normalized to their parent table
+block. Four consequences are load-bearing:
 
 - **Header/footer cells resolve.** Parentage comes from `doc.blockParentMap`
-  (the merged body + header + footer map `applyInlineStyle` reads), not the
-  body-only `layout.blockParentMap` the pre-#715 summary used, which
-  returned an empty summary for a header-cell selection.
-- **A table caught in a cross-block selection is read whole**, because
-  `applyInlineStyle` styles it whole. A *nested* table is deliberately not
-  descended into: `applyInlineStyle` styles each cell block over
-  `[0, getBlockTextLength(block))`, which is 0 for a table block, so nested
-  content is never written — and reading what cannot be written re-creates
-  the #715 trap.
+  (the merged body + header + footer map), not the body-only
+  `layout.blockParentMap` the pre-#715 summary used, which returned an empty
+  summary for a header-cell selection.
+- **A table caught in a cross-block selection is covered whole.**
+- **An endpoint with no context-block index is a no-op** — an endpoint inside
+  a *nested* table (whose parent table is not itself a context block), or a
+  parentage entry stale since the last layout. The read reported nothing for
+  those ranges while the write indexed `contextBlocks[-1]` and threw a
+  `TypeError`; sharing the traversal makes both sides skip it. Nested table
+  content is therefore neither read nor written — a styling gap recorded in
+  [docs-nested-tables.md](tables/docs-nested-tables.md#known-gap-inline-styling-does-not-descend),
+  and one that a single traversal would close for the read and the write
+  together.
 - **Every run is reported with its effective style** — the block's named
   style inline defaults (`resolveStyleInline`) layered under the run's
   explicit style — so a read sees what the renderer paints. A built-in
-  Heading 6 reads as italic even though no run carries the flag. Reads
-  layer defaults; *writes* (pending style, style application) keep storing
-  raw runs, so redefining a named style still cascades. The collapsed-caret
-  keyboard fallback layers the same defaults for its add-vs-remove decision
-  only.
+  Heading 6 reads as italic even though no run carries the flag. This holds
+  for a collapsed caret as well as a range, in the full editor and the text
+  box alike. Reads layer defaults; *writes* (pending style, style
+  application) keep storing raw runs, so redefining a named style still
+  cascades.
 
 Zero-width runs are skipped: they carry no style and would otherwise make
 every empty block read as 'mixed'.

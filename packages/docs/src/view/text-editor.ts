@@ -18,7 +18,7 @@ import { findVisualLine } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import type { PendingStyle } from './pending-style.js';
-import { visitStyledRunsInRange } from './range-runs.js';
+import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
 
 /**
@@ -2951,34 +2951,16 @@ export class TextEditor {
 
   /**
    * Apply inline style to all blocks in all cells within a cell range.
+   *
+   * Delegates to `Doc`, which walks the rectangle with the same
+   * `visitCellRectangleSlices` `isStyleOnInSelection` reads through — so the
+   * keyboard toggle's add-vs-remove decision covers the cells this writes.
    */
   private applyStyleToCellRange(
     cellRange: { blockId: string; start: CellAddress; end: CellAddress },
     style: Partial<InlineStyle>,
   ): void {
-    const block = this.doc.getBlock(cellRange.blockId);
-    if (!block.tableData) return;
-    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
-    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
-    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
-    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
-
-    for (let r = minRow; r <= maxRow; r++) {
-      for (let c = minCol; c <= maxCol; c++) {
-        const cell = block.tableData.rows[r]?.cells[c];
-        if (!cell || cell.colSpan === 0) continue;
-        for (let bi = 0; bi < cell.blocks.length; bi++) {
-          const cellBlock = cell.blocks[bi];
-          const len = getBlockTextLength(cellBlock);
-          if (len > 0) {
-            this.doc.applyInlineStyle(
-              { anchor: { blockId: cellBlock.id, offset: 0 }, focus: { blockId: cellBlock.id, offset: len } },
-              style,
-            );
-          }
-        }
-      }
-    }
+    this.doc.applyInlineStyleToCells(cellRange, style);
   }
 
   private getStyleAtCursor(): Partial<InlineStyle> {

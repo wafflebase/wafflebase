@@ -398,13 +398,13 @@ describe('header table cell range summary (issue #715)', () => {
 });
 
 /**
- * The shared walk (`visitStyledRunsInRange`) normalizes an endpoint that
+ * The shared traversal (`visitRangeSlices`, which the summary read and
+ * `Doc.applyInlineStyle`'s write both drive) normalizes an endpoint that
  * lives inside a table cell to its parent *table* block before indexing the
- * context blocks — the same normalization `Doc.applyInlineStyle` does. Before
- * that, a selection whose endpoints sat in two different cells (or one in a
- * cell and one in the body) failed `getBlockIndex` and produced an empty
- * summary, so the toggles could only ever add a style. A table caught inside
- * such a selection is read whole, matching the write.
+ * context blocks. Before that, a selection whose endpoints sat in two
+ * different cells (or one in a cell and one in the body) failed
+ * `getBlockIndex` and produced an empty summary, so the toggles could only
+ * ever add a style. A table caught inside such a selection is covered whole.
  */
 describe('cell endpoints normalize to the parent table (issue #715)', () => {
   const editors: EditorAPI[] = [];
@@ -578,11 +578,13 @@ describe('cell endpoints normalize to the parent table (issue #715)', () => {
   });
 
   /**
-   * A nested table inside a cell is *not* styleable by `applyInlineStyle`
-   * (it walks the cell's direct blocks and skips zero-length ones), so the
-   * read walk must not descend into it either — otherwise its runs join the
-   * read set, can flip the verdict to "already bold", and the toggle becomes
-   * an unremovable no-op (the #715 shape).
+   * A nested table inside a cell is not reached by the shared traversal: it
+   * walks the cell's direct blocks and a table block has zero text length.
+   * Since the read and the write are the *same* traversal, that gap is
+   * symmetric by construction — the alternative, reading runs the write
+   * cannot reach, would flip the verdict to "already bold" and leave the
+   * toggle an unremovable no-op (the #715 shape). Recorded as a known gap in
+   * docs/design/docs/tables/docs-nested-tables.md.
    */
   test('a nested table is neither read nor written by a cross-block toggle', () => {
     const inner = para('inner', {});
