@@ -339,7 +339,11 @@ backend surface is:
   neither) and both are length-bounded before they are stored — the
   nonce at 128 characters, the challenge at RFC 7636's 43–128 and the
   base64url alphabet — since they arrive on an attacker-influenceable
-  query string and one of them is echoed into a redirect URL.
+  query string and one of them is echoed into a redirect URL. A
+  `code_challenge` that is present but fails those bounds is a `400`, not
+  a dropped parameter: continuing would hand a bearer-only code to a
+  client that believes its login is PKCE-bound, a downgrade neither end
+  can see.
 - **`GET /auth/github/callback`** — when the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map, carrying the state's
@@ -357,7 +361,10 @@ backend surface is:
   against the matching PKCE verifier (S256, constant-time compare). A
   mismatch burns the code and is reported as an ordinary
   "invalid or expired code", so the endpoint is no oracle. A code from a
-  CLI that sent no challenge stays redeemable on its own.
+  CLI that sent no challenge stays redeemable on its own, but only from a
+  caller that presents no verifier — a verifier against an unchallenged
+  code is refused (RFC 7636 §4.6), which is what stops an unchallenged
+  login from being passed off to a PKCE-capable CLI.
 - **`POST /auth/refresh`** — body fallback added: if there is no
   `wafflebase_refresh` cookie, the controller reads
   `{ refreshToken }` from the body and returns
@@ -378,5 +385,6 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | The `state` GitHub carries is an opaque random 32-byte token, minted per OAuth request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. (`StateEntry.csrf` is a second value minted alongside it that nothing reads yet — the guard above is the state token itself.) |
-| Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. |
+| OAuth state forgery (CSRF) on the **CLI** flow | The `state` GitHub carries is an opaque random 32-byte token, minted for every `mode=cli` request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. (`StateEntry.csrf` is a second value minted alongside it that nothing reads yet — the guard above is the state token itself.) |
+| OAuth state forgery (CSRF) on the **browser** flow | **Not mitigated.** `GitHubAuthGuard` mints a state token only for `mode=cli`, so a plain browser login sends no `state` to GitHub and the callback has nothing to validate — an attacker can complete the consent dance and have a victim's browser issued cookies for the attacker's account (forced login). The gap predates the CLI loopback binding and is not closed by it; closing it means minting and validating a state cookie on the web entry point too, tracked separately. |
+| Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. A verifier presented against a code minted with *no* challenge is refused too (RFC 7636 §4.6), so the second binding cannot be downgraded away by starting an unchallenged login at the victim's port. |

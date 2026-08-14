@@ -22,6 +22,14 @@ Issue: #661
   (and can be a `message[]` from `ValidationPipe`). `backendErrorEnvelope`
   reads `error.message` → `message` → `error`-as-string, so converting a path
   that used to print the body verbatim never costs the server's reason.
+- A converted failure path needs a test that *drives* it, not just a builder
+  test. `login`'s three `failFromBackend` call sites were the only new
+  emitter with no coverage at all: the login test stubbed every backend call
+  to `200`, so nothing ever reached the envelope. The gap also hid a real
+  question — `failFromBackend` is typed `Promise<never>` but the call sites
+  `await` it and the code below continues to `exchangeRes.json()`, so
+  "does it actually stop?" is only answerable by running it. Spying
+  `process.exit` to throw makes both the exit code and the halt observable.
 - The dotted name (`docs.content`) is the commander `parent` chain minus the
   root program. Aliases resolve for free: `name()` returns the canonical
   name, so `wafflebase doc content` still reports `docs.content` — the same

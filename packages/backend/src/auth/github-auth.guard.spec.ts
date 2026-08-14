@@ -1,4 +1,4 @@
-import { ExecutionContext } from '@nestjs/common';
+import { BadRequestException, ExecutionContext } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
@@ -85,7 +85,7 @@ describe('GitHubAuthGuard', () => {
     expect(state?.nonce).toBeUndefined();
   });
 
-  it('remembers a well-formed PKCE challenge and rejects a malformed one', () => {
+  it('remembers a well-formed PKCE challenge', () => {
     const challenge = createHash('sha256')
       .update(randomBytes(32).toString('base64url'))
       .digest('base64url');
@@ -93,19 +93,34 @@ describe('GitHubAuthGuard', () => {
       stateFor({ mode: 'cli', port: '9876', code_challenge: challenge })
         ?.codeChallenge,
     ).toBe(challenge);
+  });
 
+  // A challenge that is sent but unusable must fail the request. Storing
+  // `undefined` instead would continue the login as an unchallenged,
+  // bearer-only code while the client still believes it is PKCE-bound —
+  // a downgrade neither end can observe.
+  it('fails the request for a malformed challenge instead of dropping it', () => {
     // Too short for RFC 7636 §4.1, and outside the base64url alphabet.
-    expect(
-      stateFor({ mode: 'cli', port: '9876', code_challenge: 'short' })
-        ?.codeChallenge,
-    ).toBeUndefined();
-    expect(
+    expect(() =>
+      stateFor({ mode: 'cli', port: '9876', code_challenge: 'short' }),
+    ).toThrow(BadRequestException);
+    expect(() =>
       stateFor({
         mode: 'cli',
         port: '9876',
         code_challenge: `${'a'.repeat(42)}&x=1`,
-      })?.codeChallenge,
-    ).toBeUndefined();
+      }),
+    ).toThrow(BadRequestException);
+    // Express gives a repeated `?code_challenge=` as an array.
+    expect(() =>
+      stateFor({ mode: 'cli', port: '9876', code_challenge: ['a', 'b'] }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('still issues a state token for a CLI login that sends no challenge', () => {
+    const state = stateFor({ mode: 'cli', port: '9876', nonce: 'n' });
+    expect(state).toMatchObject({ mode: 'cli', port: 9876 });
+    expect(state?.codeChallenge).toBeUndefined();
   });
 
   it('stores nothing for a non-CLI request or an out-of-range port', () => {

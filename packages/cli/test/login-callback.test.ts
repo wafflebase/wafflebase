@@ -161,4 +161,87 @@ describe('wafflebase login', () => {
         .digest('base64url'),
     ).toBe(challenge);
   });
+
+  // `login` is the first command an agent runs, so a failure it cannot parse
+  // is the worst place to print prose (docs/design/cli.md §9). This drives a
+  // rejected exchange through `failFromBackend`: one line, attributed to the
+  // command, carrying the backend's own reason — and it must stop there
+  // rather than fall through into `exchangeRes.json()`.
+  it('reports a rejected exchange as the one-line error envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+
+    const program = new Command();
+    program.name('wafflebase').exitOverride();
+    registerLoginCommand(program);
+
+    const notices: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      notices.push(args.map(String).join(' '));
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    const realFetch = globalThis.fetch;
+    let exchanges = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith('http://127.0.0.1:')) return realFetch(input, init);
+        if (url.endsWith('/auth/cli/exchange')) {
+          exchanges++;
+          // Nest's default shape: the reason is at the top level and
+          // `error` is a bare string, not an envelope.
+          return new Response(
+            JSON.stringify({
+              statusCode: 401,
+              message: 'Invalid or expired code',
+              error: 'Unauthorized',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+
+    // Observe the rejection now, not after the callback: the action fails
+    // the moment the exchange answers, and a rejection nobody is listening
+    // to yet is reported as an unhandled one.
+    const done = program.parseAsync(['login'], { from: 'user' });
+    const settled = done.then(
+      () => undefined,
+      (err: Error) => err,
+    );
+
+    const line = await waitFor(() =>
+      notices.find((n) => n.includes('/auth/github?')),
+    );
+    const oauthUrl = new URL(line.slice(line.indexOf('http')));
+    const nonce = oauthUrl.searchParams.get('nonce')!;
+    const port = oauthUrl.searchParams.get('port');
+
+    await realFetch(
+      `http://127.0.0.1:${port}/callback?code=the-code&state=${encodeURIComponent(nonce)}`,
+    );
+
+    expect((await settled)?.message).toBe('exit:1');
+    expect(exit).toHaveBeenCalledWith(1);
+    // Stopped at the failure: no second call, and nothing was saved.
+    expect(exchanges).toBe(1);
+
+    const envelopes = notices.filter((n) => n.startsWith('{'));
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).not.toContain('\n');
+    expect(JSON.parse(envelopes[0])).toEqual({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Invalid or expired code',
+        command: 'login',
+      },
+    });
+  });
 });

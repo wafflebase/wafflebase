@@ -157,7 +157,10 @@ export class AuthController {
    * challenge (RFC 7636) only redeems against the matching `codeVerifier`,
    * which never left the CLI process; a leaked or intercepted code is then
    * useless to whoever holds it. A code from a CLI that sent no challenge
-   * stays redeemable on its own, so older clients keep working.
+   * stays redeemable on its own, so older clients keep working — but a
+   * caller that presents a verifier against such a code is refused
+   * (RFC 7636 §4.6), so an unchallenged login cannot be passed off to a
+   * PKCE-capable CLI.
    */
   @Post('cli/exchange')
   @HttpCode(200)

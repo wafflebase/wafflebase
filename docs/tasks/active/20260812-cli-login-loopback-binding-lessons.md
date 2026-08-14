@@ -12,9 +12,30 @@ Related: #654/#655, RFC 8252 §8.9, RFC 7636
 - Half of a two-sided protocol change is worse than none. The first attempt
   made the CLI *require* an echo only the new backend sends, which turned a
   login against any older or self-hosted server into a 30-second silence
-  ending in "Login timed out." Both parameters are optional on the wire
-  now, and the one case that still cannot be accepted — a code with no
-  `state` at all — says *why* on timeout instead of blaming the clock.
+  ending in "Login timed out." The requirement is still there — it has to
+  be, since accepting the unbound code *is* the vulnerability — but it is
+  now stated as such: the one case that cannot be accepted says *why* on
+  timeout instead of blaming the clock, and the docs say plainly that
+  compatibility runs one way (old CLI → new server, not the reverse).
+  Review caught the version of this doc that claimed *both* directions
+  worked two sentences before describing the refusal that makes one of them
+  impossible. A compatibility claim is a testable assertion; if no test
+  drives it, write down the direction that actually holds.
+- "Optional" is not the same as "ignorable". `code_challenge` was optional
+  *and* silently dropped when malformed, which is a PKCE downgrade a client
+  cannot observe: it thinks it is bound, the server issues a bearer code.
+  An optional parameter that arrives must either be honored or fail the
+  request.
+- PKCE has to be checked in both directions. Requiring the verifier when a
+  challenge was stored is the obvious half; refusing a verifier when *no*
+  challenge was stored (RFC 7636 §4.6) is the half that stops an attacker
+  from starting an unchallenged flow at the victim's port and nonce and
+  having the victim's own CLI redeem it. Without it the second binding
+  collapses to the first.
+- A risk table row states the scope of the control, not just the control.
+  "State token minted per OAuth request" read as if the browser login were
+  covered; the guard only mints one for `mode=cli`. An added-but-partial
+  gate documented without its boundary is worse than no row at all.
 - A rejected callback must not settle the promise. Answering `400` and
   leaving the listener open is what keeps an attacker's probe from being a
   denial of service against a genuine login that has not arrived yet.

@@ -1,4 +1,8 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ExecutionContext,
+  Injectable,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CliAuthStore } from './cli-auth.store';
 
@@ -37,7 +41,9 @@ function boundedToken(
  * The optional `nonce` is remembered with the state and handed back to the
  * CLI's localhost callback, which redeems a code only for its own flow. The
  * optional `code_challenge` (PKCE S256) rides onto the authorization code,
- * so redeeming it takes the verifier the CLI never sent.
+ * so redeeming it takes the verifier the CLI never sent. Both are optional
+ * because a CLI predating them sends neither; a `code_challenge` that *is*
+ * sent and is malformed fails the request rather than downgrading it.
  */
 @Injectable()
 export class GitHubAuthGuard extends AuthGuard('github') {
@@ -53,16 +59,28 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     if (mode === 'cli' && port) {
       const portNum = Number(port);
       if (Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535) {
+        const presented = req.query?.code_challenge;
+        const codeChallenge = boundedToken(
+          presented,
+          MIN_CHALLENGE_LENGTH,
+          MAX_CHALLENGE_LENGTH,
+          /^[A-Za-z0-9\-._~]+$/,
+        );
+        // A challenge that was sent but does not survive the bounds is a
+        // failed authorization request, not a login to continue without
+        // PKCE. Dropping it silently would hand back a bearer-only code to
+        // a client that believes it is PKCE-bound — a downgrade neither end
+        // can see (e.g. a copy-pasted start URL truncated at the terminal
+        // edge). Absent is still fine: that is a CLI predating PKCE.
+        if (presented !== undefined && codeChallenge === undefined) {
+          throw new BadRequestException('Invalid code_challenge');
+        }
+
         const { stateToken } = this.cliAuthStore.createState(
           mode,
           portNum,
           boundedToken(req.query?.nonce, 1, MAX_NONCE_LENGTH),
-          boundedToken(
-            req.query?.code_challenge,
-            MIN_CHALLENGE_LENGTH,
-            MAX_CHALLENGE_LENGTH,
-            /^[A-Za-z0-9\-._~]+$/,
-          ),
+          codeChallenge,
         );
         req.__cliStateToken = stateToken;
       }

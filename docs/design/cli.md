@@ -215,10 +215,23 @@ that:
   off the redirect — from a browser history entry, a proxy, a shoulder — is
   not redeemable by whoever holds it.
 
-Both are optional on the wire, so a new CLI still works against a server
-that predates them. When a code arrives with no `state` at all (which is
-what an older backend looks like), the CLI refuses it and the timeout
-message says so rather than reporting a bare timeout.
+The two are not redundant: the nonce protects the *client* (this CLI only
+redeems a code from its own flow), PKCE protects the *code* (nobody but
+this CLI can redeem it, wherever it leaked). A code that is presented with
+a verifier but was minted with no challenge is refused as well
+(RFC 7636 §4.6), so an attacker cannot start an unchallenged login at the
+victim's port and nonce and have the victim's CLI spend it.
+
+**Compatibility runs one way.** Both parameters are optional *server*-side,
+so a CLI that predates them still logs in against a current backend: no
+`nonce` means no `state` echo, no `code_challenge` means an unchallenged
+code, and the exchange takes the code alone. The reverse does not hold. A
+current CLI refuses a callback carrying no `state` — which is exactly what
+an older backend sends — so its browser login cannot complete there; it
+ends at the 30-second timeout with a message naming that cause rather than
+blaming the clock. Accepting the unbound code instead would reintroduce the
+injection this section exists to close, so an older deployment upgrades the
+server or authenticates with `--api-key`, which needs no browser at all.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and

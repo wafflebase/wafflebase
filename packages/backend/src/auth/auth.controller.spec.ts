@@ -382,6 +382,21 @@ describe('AuthController', () => {
         ).rejects.toThrow(UnauthorizedException);
       });
 
+      // RFC 7636 §4.6. Without this an attacker can start an *unchallenged*
+      // login at the victim's callback port and nonce, and the victim's
+      // PKCE-capable CLI spends the attacker's code — verifier and all —
+      // binding the terminal to the attacker's account.
+      it('refuses an unchallenged code when a verifier is presented', async () => {
+        const code = cliAuthStore.createCode(42);
+        await expect(
+          controller.cliExchange({ code, codeVerifier: verifier }),
+        ).rejects.toThrow(UnauthorizedException);
+        // And the attempt burned it, so it cannot be retried bare either.
+        await expect(controller.cliExchange({ code })).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
       it('burns a challenged code even when the verifier is wrong', async () => {
         const code = cliAuthStore.createCode(42, challenge);
         await expect(

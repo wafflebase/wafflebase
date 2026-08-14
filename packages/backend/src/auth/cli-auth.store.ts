@@ -101,8 +101,15 @@ export class CliAuthStore {
    * that started it: the caller must supply the verifier whose S256 hash is
    * the stored challenge. A mismatch burns the code and is reported as an
    * ordinary miss, so the endpoint is no oracle for "this code exists".
-   * Codes minted without a challenge (a CLI predating PKCE) stay redeemable
-   * with the code alone.
+   *
+   * A code minted without a challenge (a CLI predating PKCE) stays redeemable
+   * with the code alone — but only from a caller that presents no verifier.
+   * Redeeming a verifier against an unchallenged code is RFC 7636 §4.6's
+   * forbidden case, and refusing it is what stops a downgrade: otherwise an
+   * attacker who starts an unchallenged login at the victim's callback port
+   * and nonce gets the victim's PKCE-capable CLI to spend the attacker's
+   * code, verifier and all, and the terminal ends up logged into the
+   * attacker's account.
    */
   consumeCode(code: string, codeVerifier?: string): number | undefined {
     const entry = this.codes.get(code);
@@ -112,13 +119,15 @@ export class CliAuthStore {
     }
     this.codes.delete(code);
 
-    if (entry.codeChallenge) {
-      if (!codeVerifier) return undefined;
-      const digest = createHash('sha256')
-        .update(codeVerifier)
-        .digest('base64url');
-      if (!secretEquals(entry.codeChallenge, digest)) return undefined;
+    if (!entry.codeChallenge) {
+      return codeVerifier ? undefined : entry.userId;
     }
+
+    if (!codeVerifier) return undefined;
+    const digest = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+    if (!secretEquals(entry.codeChallenge, digest)) return undefined;
 
     return entry.userId;
   }
