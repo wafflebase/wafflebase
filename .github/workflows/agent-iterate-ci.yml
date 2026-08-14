@@ -29,14 +29,9 @@ permissions:
   checks: read # loop-status.mjs reads per-commit check runs for the round table
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
-  # in the working directory. Since the pipeline moved to its own repo, the
-  # trusted checkout lands in a scratch path that is then deleted — which removed
-  # the only .git in the workspace, and every step that runs before the PR-branch
-  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
-  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
-  # this exact reason; it was the one workflow the regression did not reach.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
   GH_REPO: ${{ github.repository }}
+
   MAX_ATTEMPTS: "4"
 
 jobs:
@@ -109,43 +104,35 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      # OBSERVABILITY (Phase 1): stage the TRUSTED main copy of the agent
-      # scripts for the loop-status/session-summary steps below — the same
-      # rule the panel's fix job applies to its staged tools. The branch's own
-      # copy is attacker-influenceable code, and those steps run it with a
-      # GITHUB_TOKEN carrying contents:write; main's copy is not. Staged into
-      # RUNNER_TEMP before the fixer and the .trusted-agent dir removed from
-      # the workspace so the fixer cannot commit it. This does NOT protect
-      # against the fixer itself rewriting RUNNER_TEMP mid-job — nothing
+      # Stage the TRUSTED main copy of the agent scripts for every step below
+      # that runs one — the same rule the panel's fix job applies to its staged
+      # tools. The branch's own copy is attacker-influenceable code, and those
+      # steps run it with a GITHUB_TOKEN carrying contents:write; main's copy is
+      # not. Staged into RUNNER_TEMP before the fixer and the .trusted-agent dir
+      # removed from the workspace so the fixer cannot commit it. This does NOT
+      # protect against the fixer itself rewriting RUNNER_TEMP mid-job — nothing
       # executed after the fixer in the same job can be (the panel fix job's
       # staged metrics step shares exactly this posture) — it removes the
-      # "branch code with a write token" half. Absent until the scripts merge
-      # to main; the consumers below skip quietly.
+      # "branch code with a write token" half.
+      #
+      # STRICT, and it has to be. This was best-effort — `continue-on-error` plus
+      # an `if [ -d ]` — because the only things it staged were observability
+      # scripts that had not merged to main yet, and their consumers skip quietly
+      # when absent (`[ -f … ] || exit 0`, still below). That is no longer true of
+      # everything it stages: "Summarize the failure" runs `summarize-ci.mjs` from
+      # here with no such guard, so a staging step allowed to silently succeed at
+      # doing nothing would surface five steps later as a module-not-found instead
+      # of failing here, where the cause is.
       - uses: actions/checkout@v4
-        continue-on-error: true
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
+          ref: main
+          path: .trusted-agent
+          sparse-checkout: scripts/agent
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p .trusted-agent/scripts
-          mv .pipeline-src/packages/pipeline .trusted-agent/scripts/agent
-          rm -rf .pipeline-src
       - name: Stage the trusted agent scripts (pre-fixer)
-        continue-on-error: true
         run: |
-          if [ -d .trusted-agent/scripts/agent ]; then
-            cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
-          fi
+          cp -R .trusted-agent/scripts/agent "${{ runner.temp }}/agent-tools"
           rm -rf .trusted-agent
 
       - name: Attempts guard
@@ -244,7 +231,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/metrics.mjs summarize --pr "$PR"
+        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs" summarize --pr "$PR"
 
       # Single-value state: the CI-fix loop paged a human → agent:blocked. The
       # repo is already checked out above.
@@ -254,7 +241,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" blocked
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked
 
       # OBSERVABILITY (Phase 1): flip the sticky loop-status comment to paged.
       # Runs the pre-fixer snapshot; absent on branches that predate the script,
@@ -303,7 +290,7 @@ jobs:
         # it used to exist only inside the fixer's prompt, so "which lane failed
         # and why" required reading the raw log. Same bytes, second surface.
         run: |
-          DIAG="$(node ./scripts/agent/summarize-ci.mjs)"
+          DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs")"
           {
             echo "summary<<HARNESS_EOF"
             printf '%s\n' "$DIAG"
@@ -329,7 +316,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" fixing
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       - name: Run Claude Code
         if: steps.guard.outputs.proceed == 'true'
@@ -451,7 +438,7 @@ jobs:
               '' \
               "Where to look: [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) → job \`iterate\`; a fixer transcript, when one was captured, is in the \`claude-ci-fix-execution-output\` artifact (its upload warns instead of failing when the fixer died before writing one)." \
               | gh pr comment "$PR" --body-file -
-            node ./scripts/agent/set-state.mjs "$PR" blocked || true
+            node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
           fi
 
       # OBSERVABILITY (Phase 1): reflect the CI-fix outcome on the sticky
@@ -488,4 +475,4 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.guard.outputs.pr }}
-        run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"
+        run: node "$RUNNER_TEMP/agent-tools/metrics.mjs" record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind ci-fix --pr "$PR"

@@ -11,6 +11,7 @@ import {
   MAX_DISPLAY_CHARS,
   readersForSurface,
   renderUiObservation,
+  renderUiProgress,
   resolveActionRefs,
   UI_READERS_BY_SURFACE,
   UI_SHARED_READERS,
@@ -620,4 +621,76 @@ test("a citable entry says how to cite itself, and an uncitable one does not", (
     }),
     /cite this/,
   );
+});
+
+test("a completed action prints one line a human can read mid-run", () => {
+  // WHY: a run costs minutes and dollars and printed NOTHING between the corpus line and
+  // the final funnel. The journal is only persisted when a brief FINISHES, so a run that
+  // hangs leaves no trace of how far it got — asked whether a 23-minute run was working
+  // or stuck, the only available answer was "the process is alive".
+  const line = renderUiProgress({
+    label: "doc-writer/body-and-styles",
+    index: 14,
+    used: 15,
+    total: 80,
+    action: { type: "click", target: { role: "button", name: "Bold" } },
+    observation: { ok: true },
+    prediction: { verdict: "held" },
+  });
+  assert.match(line, /doc-writer\/body-and-styles/);
+  assert.match(line, /\[15\/80\]/, "the budget is what separates progress from a loop");
+  assert.match(line, /#14/);
+  assert.match(line, /click Bold/);
+  assert.match(line, /held/);
+
+  // A reader names its reader, not a target.
+  assert.match(
+    renderUiProgress({ action: { type: "read", reader: "doc.runs" }, observation: { ok: true } }),
+    /read doc\.runs ok/,
+  );
+  // A failure says so, and carries enough of the error to act on.
+  assert.match(
+    renderUiProgress({ action: { type: "click", target: { name: "Insert table" } }, observation: { ok: false, error: "locator timeout" } }),
+    /FAILED locator timeout/,
+  );
+  // Typed text is TRUNCATED — the line is a trace, not a transcript.
+  const typed = renderUiProgress({ action: { type: "type", text: "x".repeat(200) }, observation: { ok: true } });
+  assert.ok(typed.length < 120, `progress line should stay short, got ${typed.length}`);
+
+  // Junk must not throw: this runs on every action of every run.
+  for (const bad of [undefined, {}, { action: null }, { action: { type: "click" }, observation: null }]) {
+    assert.equal(typeof renderUiProgress(bad), "string");
+  }
+});
+
+test("progress is emitted for every action, and REDACTED like every other egress", async () => {
+  // The line carries the control name and whatever was typed, so it crosses the same
+  // boundary the tool result does. A secret in a progress line is a secret in a log.
+  const lines = [];
+  const journal = [];
+  const tool = createUiTool({
+    charter: { id: "p", surface: "doc", oracles: ["prediction"] },
+    surface: "doc",
+    session: { act: async () => ({ ok: true, value: "sk-live-SHOULD-NOT-APPEAR", oracles: [] }) },
+    budget: { charge: () => ({ ok: true }), used: 3, noteRefusal: () => {} },
+    journal,
+    cfg: { apiKey: "sk-live-SHOULD-NOT-APPEAR" },
+    label: "p/b",
+    maxActions: 80,
+    onProgress: (l) => lines.push(l),
+  });
+
+  // The secret must be planted where the LINE actually looks. The first version of this
+  // put it in the observation's value — which the progress line never carries — so the
+  // assertion held whether or not redaction ran, and removing `safe()` did not fail it.
+  // The line carries the action's own inputs, so that is where it has to go.
+  await tool({ action: { type: "type", text: "token sk-live-SHOULD-NOT-APPEAR here" } });
+  assert.equal(lines.length, 1, "an action without a prediction still reports");
+  assert.match(lines[0], /type /, "the typed action is what was reported");
+  assert.doesNotMatch(lines[0], /sk-live/, "and the progress line goes through redaction");
+
+  await tool({
+    action: { type: "read", reader: "doc.runs", expect: { read: "doc.runs", op: "equals", value: "@read:0", ground: "A", because: "x" } },
+  });
+  assert.equal(lines.length, 2, "an action WITH a prediction reports too");
 });

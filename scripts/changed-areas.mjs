@@ -156,15 +156,100 @@ export function reverseClosure(changed, graph) {
 }
 
 /**
- * The base commit to diff against, or `null` when it cannot be determined —
- * which every caller must treat as "run everything".
+ * The two commits to diff, `{ base, head }`, or `null` when either cannot be
+ * determined — which every caller must treat as "run everything".
  *
  * `null` is returned rather than thrown, and rather than defaulting to
  * something plausible like `HEAD~1`, because a *wrong* base is worse than no
  * base: it silently produces a short changed-file list, which reads exactly
  * like a small change and skips real coverage.
+ *
+ * WHY `head` IS RESOLVED AND NOT JUST `HEAD`. On a `pull_request`,
+ * `actions/checkout` checks out the MERGE COMMIT (`refs/pull/N/merge`) by
+ * default, not the pull request's own head. Diffing the payload's `base.sha`
+ * against that merge commit does not describe the pull request: it describes the
+ * pull request PLUS whatever the merge brought in, and those are other people's
+ * commits.
+ *
+ * Measured on #805, whose five files are all inert (`docs/**`,
+ * `scripts/agent/**`), so it should have skipped both heavy jobs:
+ *
+ *   git diff base.sha...MERGE_COMMIT   ->  75 files, 18 of them `ciConfig`
+ *   git diff base.sha...head.sha       ->   5 files
+ *
+ * The 75-file answer contains `.github/workflows/ci.yml` and
+ * `harness.config.json` from unrelated merged pull requests, which land in
+ * `ciConfig` and force `full: true`. #805 therefore ran the entire suite — the
+ * safe direction, and useless: ANY branch that is behind its base inherits its
+ * base's recent history as "changed", and in an active repository that is most
+ * branches. The filter was quietly doing nothing for them.
+ *
+ * So both ends come from the event payload, which cannot drift from whatever the
+ * checkout happens to be.
  */
-export function resolveBase(env = process.env, repoRoot = REPO_ROOT) {
+/**
+ * The base branch tip that GitHub built `refs/pull/N/merge` against, read out of
+ * the checkout, or `null` when `HEAD` is not that merge ref.
+ *
+ * WHY THIS EXISTS. `payload.pull_request.base.sha` is stamped when the pull
+ * request is created or synchronised and then left alone — it is NOT the base
+ * branch's tip, and it drifts further behind with every merge to `main`. That is
+ * survivable while the branch is BEHIND its base, because `merge-base(stale_base,
+ * head)` is still the true fork point and three-dot excludes the base's own
+ * commits. It stops being survivable the moment the branch goes AHEAD of
+ * `base.sha` — a rebase, a force-push, or the "Update branch" button — because
+ * then `head` contains those commits, `merge-base(stale_base, head)` collapses to
+ * `stale_base`, and the base branch's history is attributed to the pull request
+ * again. Measured on a rebase onto two unrelated `main` commits:
+ *
+ *   stale base.sha ... rebased head  ->  feature.txt, harness.config.json, other.txt
+ *   real base tip  ... rebased head  ->  feature.txt
+ *
+ * That is the pre-merge state of nearly every pull request, so leaving it would
+ * keep the filter inert exactly when it matters and re-apply `ci-config-changed`
+ * to pull requests that never touched CI config.
+ *
+ * The merge ref's FIRST parent is the base tip GitHub merged against, which is as
+ * fresh as the run itself. `actions/checkout` leaves `HEAD` there by default for
+ * `pull_request`, and the `changes` job clones at `fetch-depth: 0`, so both
+ * parents' histories are present.
+ */
+function mergeRefBaseTip(git, headSha, verified) {
+  // `[commit, parent1, parent2]` for a merge; shorter for anything else.
+  const parents = git(["rev-list", "--parents", "-n", "1", "HEAD"])?.split(/\s+/);
+  if (!parents || parents.length !== 3) return null;
+  // Only trust it when the SECOND parent is the payload's head. That is the
+  // signature of `refs/pull/N/merge`, and it is what makes the first parent the
+  // base tip rather than some unrelated merge the branch happens to end on.
+  if (parents[2] !== headSha) return null;
+  return verified(parents[1]);
+}
+
+/**
+ * The base branch's tip as a remote-tracking ref, e.g. `origin/main`.
+ *
+ * The second way to get a fresh base, and the one that does not care what shape
+ * the merge ref takes. `mergeRefBaseTip` reads the merge commit's first parent,
+ * which is only there if the merge ref actually IS a merge commit — a pull request
+ * whose head already contains the base tip is fast-forwardable, and a
+ * fast-forwarded ref has one parent and no base to read. Rather than depend on
+ * which form GitHub produces, try the branch ref too.
+ *
+ * Both are fresh, so the order between them does not matter. What matters is that
+ * `payload.base.sha` stays LAST: it is the only one of the three that can be
+ * stale, and falling back to it over-reports, which merely costs a full run.
+ */
+function baseBranchTip(git, baseRef, verified) {
+  if (!baseRef || !/^[\w./-]+$/.test(baseRef)) return null;
+  for (const ref of [`origin/${baseRef}`, `upstream/${baseRef}`, baseRef]) {
+    const sha = git(["rev-parse", "--verify", `refs/remotes/${ref}^{commit}`])
+      ?? git(["rev-parse", "--verify", `${ref}^{commit}`]);
+    if (sha) return verified(sha);
+  }
+  return null;
+}
+
+export function resolveRefs(env = process.env, repoRoot = REPO_ROOT) {
   const git = (args) => {
     try {
       return execFileSync("git", args, {
@@ -187,19 +272,38 @@ export function resolveBase(env = process.env, repoRoot = REPO_ROOT) {
         return null;
       }
     }
+    // A ref that is not present in the checkout is as good as unresolvable: the
+    // diff would fail anyway, and failing here says so in one place.
+    const verified = (sha) =>
+      sha && git(["rev-parse", "--verify", `${sha}^{commit}`]) ? sha : null;
+
     if (event === "pull_request" || event === "pull_request_target") {
-      return payload.pull_request?.base?.sha ?? null;
+      // `head.sha` and NOT `HEAD`. See the note above: `HEAD` is the merge
+      // commit, and diffing it against the base attributes the base branch's own
+      // recent history to this pull request.
+      const head = verified(payload.pull_request?.head?.sha);
+      if (!head) return null;
+      // Freshest first, `base.sha` last — it is the only one that can be stale,
+      // and three-dot then turns whichever base we get into the fork point.
+      const base =
+        mergeRefBaseTip(git, head, verified) ??
+        baseBranchTip(git, payload.pull_request?.base?.ref, verified) ??
+        verified(payload.pull_request?.base?.sha);
+      return base ? { base, head } : null;
     }
     if (event === "merge_group") {
-      return payload.merge_group?.base_sha ?? null;
+      const base = verified(payload.merge_group?.base_sha);
+      const head = verified(payload.merge_group?.head_sha);
+      return base && head ? { base, head } : null;
     }
     if (event === "push") {
-      const before = payload.before;
       // All-zeroes is how GitHub reports "no previous commit" for a new branch,
       // and a force-push leaves a `before` that is no longer an ancestor. Both
       // are undiffable, so both are `null`.
-      if (!before || /^0+$/.test(before)) return null;
-      return git(["rev-parse", "--verify", `${before}^{commit}`]) ? before : null;
+      if (!payload.before || /^0+$/.test(payload.before)) return null;
+      const base = verified(payload.before);
+      const head = verified(payload.after) ?? "HEAD";
+      return base ? { base, head } : null;
     }
     return null;
   }
@@ -208,21 +312,42 @@ export function resolveBase(env = process.env, repoRoot = REPO_ROOT) {
   // is the fork and its `main` lags, and merge-basing against a stale main
   // over-reports changed files — the safe direction, but the slower one.
   if (env.WAFFLEBASE_CI_BASE) {
-    return git(["rev-parse", "--verify", `${env.WAFFLEBASE_CI_BASE}^{commit}`]);
+    const base = git(["rev-parse", "--verify", `${env.WAFFLEBASE_CI_BASE}^{commit}`]);
+    return base ? { base, head: "HEAD" } : null;
   }
   for (const ref of ["upstream/main", "origin/main", "main"]) {
     if (!git(["rev-parse", "--verify", `${ref}^{commit}`])) continue;
     const base = git(["merge-base", "HEAD", ref]);
-    if (base) return base;
+    if (base) return { base, head: "HEAD" };
   }
   return null;
 }
 
-/** Files changed between `base` and the working tree, or `null` on any failure. */
-export function changedPaths(base, repoRoot = REPO_ROOT) {
-  if (!base) return null;
+/**
+ * Files changed between `base` and `head`, or `null` on any failure.
+ *
+ * THREE dots, and the distinction is not cosmetic. `base...head` is
+ * `merge-base(base, head)..head`: what `head` added since the two diverged, and
+ * nothing the base branch has gained in the meantime. Two-dot `base..head`
+ * compares the two trees directly, so every commit the base has and the head
+ * lacks reads as a change in the opposite direction. Measured on #805, whose
+ * real change is five inert files:
+ *
+ *   base.sha ... head.sha   ->   5 files,  0 ciConfig   (correct)
+ *   base.sha ..  head.sha   ->  15 files,  1 ciConfig   (forces a full run)
+ *
+ * The bug this replaces was never the dot count, though — it was passing the
+ * MERGE COMMIT as `head`. `merge-base(base.sha, merge_commit)` is `base.sha`
+ * itself whenever the merge already contains it, so three-dot silently collapsed
+ * to two-dot and swept in everything the merge brought along: 75 files, 18 of
+ * them `ciConfig`. Both ends now come from the payload, so `head` is the pull
+ * request's own commit and the derivation cannot collapse.
+ */
+export function changedPaths(refs, repoRoot = REPO_ROOT) {
+  const { base, head = "HEAD" } = refs ?? {};
+  if (!base || !head) return null;
   try {
-    const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+    const out = execFileSync("git", ["diff", "--name-only", `${base}...${head}`], {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -417,11 +542,13 @@ export function resolve(env = process.env, repoRoot = REPO_ROOT) {
     return FULL(`could not read the CI mapping: ${error.message}`);
   }
 
-  const base = resolveBase(env, repoRoot);
-  if (!base) return FULL("no diff base could be resolved");
+  const refs = resolveRefs(env, repoRoot);
+  if (!refs) return FULL("no diff base could be resolved");
 
-  const files = changedPaths(base, repoRoot);
-  if (files === null) return FULL(`could not diff against ${base.slice(0, 9)}`);
+  const files = changedPaths(refs, repoRoot);
+  if (files === null) {
+    return FULL(`could not diff ${refs.base.slice(0, 9)}...${refs.head.slice(0, 9)}`);
+  }
 
   return classify(files, ci, graph);
 }

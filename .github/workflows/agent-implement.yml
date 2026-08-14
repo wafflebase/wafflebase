@@ -31,13 +31,7 @@ permissions:
   issues: write # comment back on the issue
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
-  # in the working directory. Since the pipeline moved to its own repo, the
-  # trusted checkout lands in a scratch path that is then deleted — which removed
-  # the only .git in the workspace, and every step that runs before the PR-branch
-  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
-  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
-  # this exact reason; it was the one workflow the regression did not reach.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
   GH_REPO: ${{ github.repository }}
 
 jobs:
@@ -63,22 +57,9 @@ jobs:
       # Single-file sparse checkout of the router — no deps, node builtins only.
       - uses: actions/checkout@v4
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline/command.mjs
+          sparse-checkout: scripts/agent/command.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
       - name: Route command
         id: route
         # Pass the untrusted comment body via env (never interpolated into the

@@ -56,10 +56,16 @@ jobs:
   # WHY THIS IS A JOB AND NOT `on: paths:`. A workflow filtered out at the trigger
   # produces no check run at all. `main`'s required contexts then never report,
   # and a merge-queue entry waits on them until the status-check timeout dequeues
-  # it. A job skipped by `if:` DOES report — as `skipped`, which GitHub counts as
-  # passing for both required checks and the queue. That difference is the whole
-  # reason this file is shaped this way; see
-  # docs/design/harness-engineering.md#path-aware-ci.
+  # it. A job that runs DOES report, under a name the queue recognises.
+  #
+  # AND NOT A SKIPPED JOB EITHER, which is what #803 tried. A skipped job files a
+  # `skipped` check run that would satisfy a required check — but a job with a
+  # `strategy.matrix` skipped by its own `if:` never expands the matrix, so the
+  # check is filed as `verify-browser` and not `verify-browser (22.x)`, which is
+  # the name actually required. The required context then never reports and the
+  # queue hangs exactly as if the check had been filtered away at the trigger.
+  # So the two heavy jobs below always run and gate their STEPS. See the long note
+  # on verify-browser and docs/design/harness-engineering.md#path-aware-ci.
   #
   # `fetch-depth: 0` is load-bearing. `actions/checkout` defaults to a depth-1
   # clone in which the base commit does not exist, so `git diff` fails — and the
@@ -281,112 +287,58 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-  # scripts/agent/ is no longer what runs — the agent workflows execute
-  # wafflebase/agent-pipeline at a pinned commit, and the copy in this repo is a
-  # leftover that still backs the `agent:tests` lane. Without this, that lane can
-  # pass against code which is not the code in production. It had already drifted
-  # on three files before this job existed.
-  #
-  # Its own job rather than a verify:self lane: it needs the pipeline repo on
-  # disk, and verify:self must keep working offline.
-  pipeline-drift:
-    name: Pipeline copy matches the pinned commit
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    # ADVISORY DURING THE TRANSITION, not because the check is unreliable — it is
-    # green on main and it has only ever fired on real drift. Blocking was the
-    # wrong trade for right now.
-    #
-    # While `scripts/agent/` still exists, satisfying this check means landing a
-    # pipeline change TWICE: once in wafflebase/agent-pipeline with a tag, then
-    # again here as a mirror update plus a pin bump. #797 — a fix for the flake
-    # that has been reddening main — hit that tax the day the check landed, having
-    # been opened before the rule existed. Taxing an unrelated bug fix to enforce
-    # a rule about a copy that does not run is the wrong way round.
-    #
-    # It goes back to blocking when the tax disappears, which is when
-    # `scripts/agent/` is deleted outright. That cannot happen yet: 20+ files that
-    # STAY here import the moved ones (harvest.mjs alone imports 8), so the
-    # measurement half, the hunters and verify-self.mjs all break until the shared
-    # kernel is carved out and vendored. Until then, drift is a warning a human
-    # reads — and the warning names exactly which files and what to do.
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Read the pinned pipeline commit
-        id: pin
-        run: |
-          set -euo pipefail
-          SHA=$(grep -A3 -h 'repository: wafflebase/agent-pipeline' .github/workflows/agent-*.yml \
-                | grep -oE 'ref: [0-9a-f]{40}' | awk '{print $2}' | sort -u)
-          COUNT=$(printf '%s\n' "$SHA" | grep -c . || true)
-          if [ "$COUNT" != "1" ]; then
-            echo "::error::The workflows pin $COUNT different pipeline commits; they must agree."
-            printf '%s\n' "$SHA"; exit 1
-          fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: wafflebase/agent-pipeline
-          ref: ${{ steps.pin.outputs.sha }}
-          path: .pipeline-check
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-      # vendor/ is verified OFFLINE against its manifest — no network, no second
-      # checkout. It is the check that survives once the mirror is deleted.
-      - run: node scripts/vendor-pipeline.mjs
-      - id: drift
-        continue-on-error: true
-        run: node scripts/verify-pipeline-drift.mjs --pipeline-dir .pipeline-check
-      # Surface it as a WARNING rather than an error, so the PR's checks read
-      # "worth a look" instead of "broken". The step above carries the detail.
-      - if: steps.drift.outcome == 'failure'
-        run: |
-          echo "::warning::scripts/agent has drifted from the pipeline commit the workflows run. This copy does not execute — see the step above for which files and how to resolve. Advisory while scripts/agent still exists."
-          {
-            echo "### ⚠️ Pipeline copy has drifted"
-            echo
-            echo "\`scripts/agent/\` no longer executes — the workflows run a pinned commit of"
-            echo "\`wafflebase/agent-pipeline\`. A change here is invisible in production."
-            echo
-            echo "Advisory for now: enforcing it would tax every pipeline change with a second"
-            echo "landing. See the \`Pipeline copy matches the pinned commit\` step for the files."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   verify-browser:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]
-    # Skipped, NOT absent. GitHub records a job whose `if:` is false as a check run
-    # with conclusion `skipped`, which satisfies a required status check and lets a
-    # merge-queue entry proceed. A trigger-level `paths:` filter would instead
-    # create no check at all and strand the queue.
+    # THE FILTER IS ON THE STEPS, NOT ON THIS JOB, AND THAT IS THE WHOLE POINT.
     #
-    # `needs.verify-self.result == 'success'` is stated rather than relied upon.
-    # A job with a custom `if:` is still gated on its `needs` succeeding unless the
-    # condition uses `always()`/`failure()`, so this is belt-and-braces — but the
-    # cost of being wrong here is running browser tests against a tree that failed
-    # its own unit tests, so it is written down instead of remembered.
+    # #803 put `if: … heavy == 'true' …` here instead, on the reasoning that GitHub
+    # records a skipped job as a `skipped` check run which satisfies a required
+    # check. The first half is true. The half that is not: a job with a
+    # `strategy.matrix` that is skipped by a job-level `if:` NEVER EXPANDS ITS
+    # MATRIX, so the check run it files is named after the bare job — `verify-browser`
+    # — and not `verify-browser (22.x)`, which is the name branch protection and the
+    # merge queue actually require. Measured on the `merge_group` SHA for #799:
     #
-    # The label escape hatch is for any PR, not only forks: a maintainer who
-    # distrusts the mapping for one change can demand the whole suite with a click
-    # and no rebase. It cannot work on `merge_group`, whose payload carries no PR
-    # labels — the same limitation `agent-iterate-ci.yml` resolves by looking the
-    # PR up, which is not worth a job here.
+    #   verify-self (22.x)   success     <- ran, so the matrix expanded
+    #   verify-browser       skipped     <- BARE NAME
+    #   verify-integration   skipped     <- BARE NAME
     #
-    # `needs.changes.result != 'success'` comes FIRST and is a fail-safe, not a
-    # formality: if that job crashed there is no `heavy` output, the comparison
-    # would be `'' == 'true'`, and this job would SKIP — turning a resolver crash
-    # into "these tests were not required after all". A broken filter must always
-    # mean more testing, never less.
-    if: >-
-      needs.verify-self.result == 'success' &&
-      (needs.changes.result != 'success' ||
-       needs.changes.outputs.heavy == 'true' ||
-       contains(github.event.pull_request.labels.*.name, 'full-ci'))
+    # `verify-browser (22.x)` therefore reported nothing at all, the queue sat on
+    # "Expected — Waiting for status to be reported", and the entry would have been
+    # dequeued at the status-check timeout. Exactly the failure the design set out
+    # to avoid, reached by a different route: not a missing check RUN, a missing
+    # check NAME. MAINTAINING.md's warning that "required check names must keep
+    # matching" covers renaming a job; it turns out skipping one renames it too.
+    #
+    # So the job always runs and always expands. When the filter says there is
+    # nothing to test, every step below no-ops and `verify-browser (22.x)` reports
+    # success in seconds — same semantics the skip was reaching for, under a name
+    # that exists. The residual cost is one runner for a few seconds.
+    #
+    # `!cancelled()` plus an explicit `verify-self` check, rather than no `if:` at
+    # all: a bare `needs:` failure would skip this job (bare name again) whenever
+    # `changes` failed while `verify-self` passed, which is the one combination that
+    # could still strand the queue. When `verify-self` itself fails this job IS
+    # skipped and that is safe — the entry is already doomed by `verify-self (22.x)`.
+    if: ${{ !cancelled() && needs.verify-self.result == 'success' }}
+    env:
+      # The filter decision, once, for every step below.
+      #
+      # `needs.changes.result != 'success'` comes FIRST and is a fail-safe, not a
+      # formality: if that job crashed there is no `heavy` output, the comparison
+      # would be `'' == 'true'`, and this would read as "these tests were not
+      # required after all". A broken filter must always mean more testing.
+      #
+      # The label escape hatch is for any PR, not only forks: a maintainer who
+      # distrusts the mapping for one change can demand the whole suite with a
+      # click and no rebase. It cannot work on `merge_group`, whose payload carries
+      # no PR labels — the same limitation `agent-iterate-ci.yml` resolves by
+      # looking the PR up, which is not worth a job here.
+      RUN_HEAVY: >-
+        ${{ needs.changes.result != 'success' ||
+            needs.changes.outputs.heavy == 'true' ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     # Same reasoning as verify-self, same sample: max 9.3 min, p95 7.6, median
     # 6.5 across those 188 successful runs, so 20 min is ~2.2x the worst observed.
     # This job's spread is the widest of the three (median to max is +43%) because
@@ -399,23 +351,38 @@ jobs:
         node-version: [22.x]
 
     steps:
+      # Every step carries the gate. Skipping the JOB would rename its check run
+      # (see the note above); skipping the STEPS costs a few seconds of runner and
+      # keeps the name.
+      - name: Why this job is doing nothing
+        if: env.RUN_HEAVY != 'true'
+        run: |
+          echo "::notice::verify-browser had nothing to test — no workspace package changed. See the 'What changed' job summary."
+          echo "Reporting success without running the browser suite, by design." >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v4
+        if: env.RUN_HEAVY == 'true'
 
       - uses: pnpm/action-setup@v4
+        if: env.RUN_HEAVY == 'true'
 
       - name: Use Node.js ${{ matrix.node-version }}
+        if: env.RUN_HEAVY == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
       - name: Install Dependencies
+        if: env.RUN_HEAVY == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build Docker image
+        if: env.RUN_HEAVY == 'true'
         run: docker build -t wafflebase-playwright -f Dockerfile.playwright .
 
       - name: Run browser tests in Docker
+        if: env.RUN_HEAVY == 'true'
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -424,7 +391,9 @@ jobs:
             wafflebase-playwright
 
       - name: Upload actual screenshots on failure
-        if: failure()
+        # `failure()` alone would also fire for a failure in an earlier gated step;
+        # the conjunction keeps this to a genuine browser-test failure.
+        if: failure() && env.RUN_HEAVY == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: browser-visual-actual
@@ -436,7 +405,16 @@ jobs:
   verify-integration:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]
-    # Same contract as verify-browser above.
+    # Same contract as verify-browser above: the gate is on the STEPS, because a
+    # matrix job skipped by a job-level `if:` files its check run under the bare
+    # name `verify-integration` and never under `verify-integration (22.x)`, which
+    # is the required context. See the long note on verify-browser.
+    #
+    # ONE THING DOES NOT NO-OP HERE: the `services:` block below. Service containers
+    # are brought up by the runner before the first step and cannot be made
+    # conditional, so a filtered run still pays for Postgres starting (~seconds).
+    # The Yorkie container is started by a STEP, so it is gated. The expensive part
+    # — install, four builds, migrate, the e2e suite — is all steps and all gated.
     #
     # Gated on `heavy`, which means ANY workspace package changed — deliberately
     # blunter than the reverse-dependency closure that drives lane selection. This
@@ -445,17 +423,7 @@ jobs:
     # change to an engine package with no backend file in it can absolutely break
     # it. Narrowing this to the closure is a later step, taken against observed
     # behaviour rather than against this reasoning.
-    #
-    # `needs.changes.result != 'success'` comes FIRST and is a fail-safe, not a
-    # formality: if that job crashed there is no `heavy` output, the comparison
-    # would be `'' == 'true'`, and this job would SKIP — turning a resolver crash
-    # into "these tests were not required after all". A broken filter must always
-    # mean more testing, never less.
-    if: >-
-      needs.verify-self.result == 'success' &&
-      (needs.changes.result != 'success' ||
-       needs.changes.outputs.heavy == 'true' ||
-       contains(github.event.pull_request.labels.*.name, 'full-ci'))
+    if: ${{ !cancelled() && needs.verify-self.result == 'success' }}
     # 10 rather than 20: this job is genuinely shorter — max 4.4 min, p99 3.6,
     # median 2.8 over the same 188 successful runs — and a ceiling that could
     # never bind is not a ceiling. ~2.3x the worst observed, matching the multiple
@@ -474,6 +442,12 @@ jobs:
       # contract instead of skipping them.
       RUN_YORKIE_INTEGRATION_TESTS: "true"
       YORKIE_RPC_ADDR: http://localhost:8080
+      # The filter decision, once, for every step below. See the note on
+      # verify-browser for why this is not a job-level `if:`.
+      RUN_HEAVY: >-
+        ${{ needs.changes.result != 'success' ||
+            needs.changes.outputs.heavy == 'true' ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     services:
       postgres:
         image: postgres:16
@@ -501,20 +475,32 @@ jobs:
         node-version: [22.x]
 
     steps:
+      # Every step carries the gate; skipping the JOB would rename its check run.
+      - name: Why this job is doing nothing
+        if: env.RUN_HEAVY != 'true'
+        run: |
+          echo "::notice::verify-integration had nothing to test — no workspace package changed. See the 'What changed' job summary."
+          echo "Reporting success without running the integration suite, by design." >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v4
+        if: env.RUN_HEAVY == 'true'
 
       - uses: pnpm/action-setup@v4
+        if: env.RUN_HEAVY == 'true'
 
       - name: Use Node.js ${{ matrix.node-version }}
+        if: env.RUN_HEAVY == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
       - name: Install Dependencies
+        if: env.RUN_HEAVY == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages the CLI imports at runtime
+        if: env.RUN_HEAVY == 'true'
         # `verify:integration` spawns the CLI via `tsx packages/cli/src/bin.ts`.
         # The CLI eagerly imports `@wafflebase/docs` and `@wafflebase/slides/node`,
         # both of which resolve via each package's `exports` field to a
@@ -531,6 +517,7 @@ jobs:
           pnpm sheets build
 
       - name: Start Yorkie server
+        if: env.RUN_HEAVY == 'true'
         run: |
           # Match the image and CLI args used by `docker-compose.yaml`
           # so local + CI behavior stays aligned. `--pprof-enabled`
@@ -541,6 +528,7 @@ jobs:
             yorkieteam/yorkie:latest server --pprof-enabled
 
       - name: Wait for Yorkie to accept connections on :8080
+        if: env.RUN_HEAVY == 'true'
         run: |
           # The container starts before this step but Yorkie's gRPC
           # listener takes a couple seconds to bind. Poll until the
@@ -557,9 +545,10 @@ jobs:
           exit 1
 
       - name: Verify Integration Lane
+        if: env.RUN_HEAVY == 'true'
         id: integration
         run: pnpm verify:integration
 
       - name: Yorkie logs on failure
-        if: failure() && steps.integration.outcome == 'failure'
+        if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
         run: docker logs yorkie

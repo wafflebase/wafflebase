@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
+import { domControls } from "./hunt-ui-dom.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -28,6 +29,7 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.HUNT_ORACLES_PORT || 4178);
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
 const HOST_TESTID = "hunt-harness-host";
+const TOOLBAR_TESTID = "hunt-harness-toolbar";
 
 /** How long silence must hold before a negative control counts as quiet. */
 const QUIET_WINDOW_MS = 250;
@@ -232,6 +234,7 @@ const READER_EXPECTATIONS = [
   ["doc", "doc.linkCount", [], (v) => (Number.isInteger(v) && v >= 0 ? null : "expected a non-negative integer")],
   ["doc", "doc.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
 
+
   // --- sheet surface, against seedGrid(): A1=10 A2=20 A3=30 B1=Label C1==A1+A2 ---
   ["sheet", "sheet.cellValue", ["A1"], (v) => (String(v) === "10" ? null : "expected the seeded A1 value 10")],
   ["sheet", "sheet.cellValue", ["B1"], (v) => (String(v) === "Label" ? null : "expected the seeded B1 value Label")],
@@ -243,6 +246,13 @@ const READER_EXPECTATIONS = [
     v === null || v === undefined ? null : `a literal cell must have no formula, got ${JSON.stringify(v)}`],
   ["sheet", "sheet.activeCell", [], (v) => (typeof v === "string" && /^[A-Z]+\d+$/.test(v) ? null : "expected a cell ref")],
   ["sheet", "sheet.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+  // A1 carries no style in the seed, so `null` is the right answer and an OBJECT would
+  // mean the reader had started resolving inherited values — which is the other
+  // reader's job, and the confusion this pair is named to avoid.
+  ["sheet", "sheet.rangeStyles", [], (v) => (Array.isArray(v) ? null : "expected an array of range-style patches")],
+  ["sheet", "sheet.activeCellDisplay", [], (v) => (typeof v === "string" || v === null ? null : "expected a display string or null")],
+  ["sheet", "sheet.activeCellStyle", [], (v) =>
+    v === null || (v && typeof v === "object" && !Array.isArray(v)) ? null : "expected a style object or null"],
   ["sheet", "sheet.cellCenter", ["B2"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
@@ -464,6 +474,351 @@ async function checkUndoCapability(page, baseUrl) {
   const sheetCanUndo = await page.evaluate(() => window.__WB_HUNT__.read("sheet.canUndo"));
   if (typeof sheetCanUndo !== "boolean") problems.push(`sheet.canUndo must answer with a boolean, got ${JSON.stringify(sheetCanUndo)}`);
   else console.log(`[verify:hunt-oracles] sheet.canUndo reports ${sheetCanUndo} (MemStore has no history — informational)`);
+
+  return problems;
+}
+
+/**
+ * The sheet toolbar, end to end: does a control reach the STORED style?
+ *
+ * The sheet surface ran without chrome until the toolbar was mounted, and every defect
+ * this hunter has filed came from a toolbar control. So the question this answers is
+ * not "is Bold correct" — it is whether the loop exists at all: a real control, acting
+ * on a real selection, landing in a place a reader can see.
+ *
+ * It asserts on `sheet.rangeStyles` — the patch list the toolbar actually appends to —
+ * rather than on any per-cell style. The first version of this check asserted the
+ * latter and FAILED against a working toolbar: `applyStylePatchToExistingCells` skips
+ * any cell that does not already carry its own style, so styling the populated,
+ * unstyled B1 left `cell.s` null while the effective style correctly read `{b:true}`.
+ * That measurement is why the per-cell reader was dropped before it shipped.
+ *
+ * DELIBERATELY NOT ASSERTED: what the second Bold click leaves behind.
+ * `toggleRangeStyle` computes `!effective[prop]` and writes it, so bold-off stores
+ * `b: false` rather than deleting the key. Whether that is a defect is a real question
+ * — an explicit `false` is how a cell overrides a `true` inherited from a row or column
+ * style — and pinning either answer here would either bless a defect or fail the lane
+ * over one. That judgement belongs to the panel; this lane's job is to prove the
+ * evidence is reachable.
+ */
+async function checkSheetToolbar(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=sheet`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  const toolbar = await page.locator(`[data-testid="${TOOLBAR_TESTID}"]`).count();
+  if (toolbar === 0) {
+    problems.push("no toolbar is mounted on the sheet surface — the controls the hunter needs are absent");
+    return problems;
+  }
+
+  // Select a cell through the reader the hunter itself must use, so a broken targeting
+  // path fails here rather than as a mysterious empty run.
+  // B1, NOT an empty cell. `setRangeStyle` appends a range patch and then "only
+  // touch[es] already-populated cells", so styling an EMPTY cell leaves `cell.s` null
+  // for ever. Measured here: the first version of this check clicked Bold on B2, which
+  // the seed never populates, and read back `null` — correct behaviour that looks
+  // exactly like a broken toolbar.
+  const centre = await readReader(page, "sheet.cellCenter", ["B1"]);
+  if (!centre.ok || !Number.isFinite(centre.value?.x)) {
+    problems.push(`sheet.cellCenter did not yield a clickable point for B1: ${JSON.stringify(centre.value ?? centre.error)}`);
+    return problems;
+  }
+  // Select somewhere ELSE first, so "the selection is B1" cannot be true by default.
+  // Without this the whole check passes vacuously when the click misses: Bold would
+  // style whatever happened to be selected, a patch would still appear, and every
+  // assertion below would hold while proving nothing about B1.
+  const away = await readReader(page, "sheet.cellCenter", ["A3"]);
+  if (away.ok && Number.isFinite(away.value?.x)) {
+    await page.mouse.click(away.value.x, away.value.y);
+  }
+  const parked = (await readReader(page, "sheet.activeCell", [])).value;
+  if (parked === "B1") {
+    problems.push("could not park the selection away from B1, so a missed click would be indistinguishable from a hit");
+    return problems;
+  }
+
+  await page.mouse.click(centre.value.x, centre.value.y);
+
+  const landed = (await readReader(page, "sheet.activeCell", [])).value;
+  if (landed !== "B1") {
+    problems.push(`clicking B1's centre selected ${JSON.stringify(landed)} instead — the cell-targeting path the hunter depends on is broken`);
+    return problems;
+  }
+
+  const before = (await readReader(page, "sheet.rangeStyles", [])).value;
+  const beforeCount = Array.isArray(before) ? before.length : -1;
+  if (beforeCount !== 0) {
+    problems.push(`the seed should carry no range styles, so an applied one is unambiguous — got ${JSON.stringify(before)?.slice(0, 120)}`);
+    return problems;
+  }
+
+  await page.getByRole("button", { name: "Bold" }).click();
+
+  let after = null;
+  const deadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    after = (await readReader(page, "sheet.rangeStyles", [])).value;
+    if ((Array.isArray(after) ? after.length : 0) > 0 || Date.now() >= deadline) break;
+    await page.waitForTimeout(25);
+  }
+  const applied = Array.isArray(after) ? after : [];
+  if (applied.length === 0) {
+    problems.push(
+      `clicking Bold appended no range style — got ${JSON.stringify(after)}. ` +
+        "Either the toolbar is not wired to this spreadsheet instance (harness fault), the selection " +
+        "never landed on B1 (harness fault), or setRangeStyle regressed (product fault).",
+    );
+  } else if (!applied.some((p) => p?.style?.b === true)) {
+    problems.push(`a range style was appended but none of them is bold: ${JSON.stringify(applied).slice(0, 200)}`);
+  }
+
+  // The computed reader must ALSO see it. A patch that exists but does not reach the
+  // cascade would mean the two readers are not describing one surface.
+  const computed = (await readReader(page, "sheet.activeCellStyle", [])).value;
+  if (computed?.b !== true) {
+    problems.push(`sheet.activeCellStyle should report the applied bold on the active cell, got ${JSON.stringify(computed)}`);
+  }
+
+  // AND BACK AGAIN. The brief tells the explorer what a round trip leaves behind, and
+  // that sentence was WRONG in its first version — it claimed patches accumulate, so
+  // the first live run that used the toolbar spent its only violated prediction on a
+  // claim I had written without checking the compaction path. `addRangeStylePatch`
+  // merges a repeat toggle into the tail patch and then DELETES it when
+  // `pruneRedundantDefaultStyleKeys` finds the result redundant with the default.
+  //
+  // Pinned here so the brief's fact is a checked one. It is also where this surface
+  // DIFFERS from docs, where the same round trip leaves an explicit `false` behind
+  // (#749, #793) — if sheets ever grows that residue, this fails rather than the brief
+  // quietly going stale again.
+  await page.getByRole("button", { name: "Bold" }).click();
+  let cleared = null;
+  const rtDeadline = Date.now() + FIRE_DEADLINE_MS;
+  for (;;) {
+    cleared = (await readReader(page, "sheet.rangeStyles", [])).value;
+    if ((Array.isArray(cleared) ? cleared.length : 1) === 0 || Date.now() >= rtDeadline) break;
+    await page.waitForTimeout(25);
+  }
+  if ((Array.isArray(cleared) ? cleared.length : -1) !== 0) {
+    problems.push(
+      `toggling Bold off should prune the patch, leaving no range styles — got ${JSON.stringify(cleared)?.slice(0, 160)}. ` +
+        "If this is now residue rather than a clean round trip, sheet-author.md says the opposite and must be corrected with it.",
+    );
+  }
+  const restored = (await readReader(page, "sheet.activeCellStyle", [])).value;
+  if (restored?.b === true) {
+    problems.push(`the second Bold click left the cell still bold: ${JSON.stringify(restored)}`);
+  }
+
+  // NUMBER FORMAT: the stored value must NOT move and the display MUST.
+  //
+  // This encodes a false finding a live run actually proposed. It clicked
+  // `Increase decimal places`, watched `sheet.activeCellStyle` record the format, saw
+  // `sheet.cellValue` stay byte-identical, and concluded on four grounded predictions
+  // that "number formats never reach the displayed value". The app was right: formats
+  // are applied by `formatValue` at paint time, and the reader it checked was
+  // advertised as "the displayed value" while returning the stored one.
+  //
+  // Both halves are asserted, because each alone is satisfiable by a broken reader: a
+  // display that never changes looks identical to a format that never applied, and a
+  // stored value that DID change would mean formatting had corrupted the data.
+  const numCentre = await readReader(page, "sheet.cellCenter", ["A1"]);
+  if (numCentre.ok && Number.isFinite(numCentre.value?.x)) {
+    await page.mouse.click(numCentre.value.x, numCentre.value.y);
+    const storedBefore = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+    const shownBefore = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+
+    await page.getByRole("button", { name: "Increase decimal places" }).click();
+    let shownAfter = null;
+    const nfDeadline = Date.now() + FIRE_DEADLINE_MS;
+    for (;;) {
+      shownAfter = (await readReader(page, "sheet.activeCellDisplay", [])).value;
+      if (shownAfter !== shownBefore || Date.now() >= nfDeadline) break;
+      await page.waitForTimeout(25);
+    }
+    const storedAfter = (await readReader(page, "sheet.cellValue", ["A1"])).value;
+
+    if (shownAfter === shownBefore) {
+      problems.push(
+        `Increase decimal places did not change what A1 displays (${JSON.stringify(shownBefore)}) — ` +
+          "either the reader does not apply the format or the control did not reach the style",
+      );
+    }
+    if (storedAfter !== storedBefore) {
+      problems.push(
+        `a number format changed the STORED value of A1: ${JSON.stringify(storedBefore)} -> ${JSON.stringify(storedAfter)}. ` +
+          "Formatting is a paint-time concern and must not rewrite the cell.",
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The control inventory is USABLE, not merely present.
+ *
+ * `dom.controls` exists to end name-guessing and to give the coverage memory a
+ * denominator, and both of those fail the same way: a name that reads plausibly and
+ * cannot actually be clicked. So this does not check the shape of the list — it takes
+ * names OUT of it and clicks them, which is the only claim that matters.
+ *
+ * It also pins the two exclusions, because each is a way the list would mislead. A
+ * DISABLED control offered to the explorer costs a wasted action and looks like a
+ * defect; a zero-size one cannot be hit at all.
+ */
+async function checkControlInventory(page, baseUrl) {
+  const problems = [];
+
+  await page.goto(`${baseUrl}/harness/hunt?surface=doc`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  // The REAL implementation, imported — `dom.*` readers live in the driver and never
+  // reach the bridge, so `readReader` cannot see them. Importing rather than repeating
+  // the query is the point: a copy would drift and the check would pass for the wrong
+  // reason.
+  let controls;
+  try {
+    controls = await domControls(page);
+  } catch (err) {
+    problems.push(`dom.controls threw: ${String(err?.message ?? err).slice(0, 140)}`);
+    return problems;
+  }
+  if (!Array.isArray(controls)) {
+    problems.push(`dom.controls did not answer with a list: ${JSON.stringify(controls)?.slice(0, 140)}`);
+    return problems;
+  }
+  if (controls.length < 5) {
+    problems.push(`dom.controls found only ${controls.length} controls on a surface with a toolbar mounted`);
+    return problems;
+  }
+
+  // EVERY name it offers must resolve. One unclickable entry is enough to send a run
+  // at a dead target and read the failure as a defect.
+  const unreachable = [];
+  // EVERY entry, not a sample. A capped check reports a clean result while leaving the
+  // uncapped remainder unmeasured, which is the silent truncation this lane exists to
+  // refuse everywhere else. The cost is one `count()` per control on one page.
+  for (const c of controls) {
+    const n = await page.getByRole(c.role, { name: c.name, exact: true }).count();
+    if (n === 0) unreachable.push(`${c.role}/${c.name}`);
+  }
+  if (unreachable.length > 0) {
+    problems.push(`dom.controls named controls that getByRole cannot find: ${unreachable.join(", ")}`);
+  }
+
+  // And a name taken from the list must actually be clickable, since that is the whole
+  // contract: this is the list `target` takes.
+  const bold = controls.find((c) => c.name === "Bold");
+  if (!bold) {
+    problems.push("dom.controls did not include Bold, which the doc toolbar mounts");
+  } else {
+    await page.keyboard.type("zz");
+    await page.keyboard.press("Shift+ArrowLeft");
+    await page.getByRole(bold.role, { name: bold.name, exact: true }).click();
+    const runs = (await readReader(page, "doc.runs", [])).value;
+    if (!Array.isArray(runs) || !runs.some((r) => r?.bold === true)) {
+      problems.push("clicking the control the inventory named did not bold anything — the list is not the list `target` takes");
+    }
+  }
+
+  // MENU ITEMS, WHICH THE BASE PAGE NEVER SHOWS.
+  //
+  // This check used to inspect only the controls present on load, and menu items exist
+  // only while a menu is OPEN — so the one place the name computation was wrong went
+  // unmeasured. A run then copied `Heading 2⌘+⌥2` out of the inventory (the accessible
+  // name is `Heading 2 ⌘+⌥2`; `textContent` concatenates adjacent spans without a
+  // space), clicked it twice, failed twice, and proposed a defect that did not exist.
+  //
+  // Opening the menu is the only way this class is reachable, so the check opens one.
+  await page.getByRole("button", { name: "Text style" }).click();
+  await page.waitForTimeout(250);
+  const inMenu = await domControls(page);
+  const menuItems = inMenu.filter((c) => c.role.startsWith("menuitem"));
+  if (menuItems.length === 0) {
+    problems.push("opening the Text style menu surfaced no menu items — this check can no longer see the case it exists for");
+  }
+  const badMenuNames = [];
+  for (const c of menuItems) {
+    if ((await page.getByRole(c.role, { name: c.name, exact: true }).count()) === 0) {
+      badMenuNames.push(`${c.role}/${c.name}`);
+    }
+  }
+  if (badMenuNames.length > 0) {
+    problems.push(
+      `dom.controls named MENU items getByRole cannot find: ${badMenuNames.slice(0, 4).join(", ")}. ` +
+        "A shortcut rendered in its own element concatenates into the name unless content is joined at element boundaries.",
+    );
+  }
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+
+  // THE EXCLUSIONS, ASSERTED AGAINST PLANTED CONTROLS.
+  //
+  // The first version of this checked whether any control the page HAPPENED to disable
+  // showed up, and the doc surface disables none — so it could not fail. Measured:
+  // deleting the disabled check from the reader left the lane green. An assertion that
+  // cannot fail is decoration, so the states are planted rather than hoped for.
+  await page.evaluate(() => {
+    const mk = (label, mutate) => {
+      const b = document.createElement("button");
+      b.setAttribute("aria-label", label);
+      b.textContent = label;
+      mutate(b);
+      document.body.appendChild(b);
+    };
+    mk("zz-probe-disabled", (b) => b.setAttribute("disabled", ""));
+    mk("zz-probe-aria-disabled", (b) => b.setAttribute("aria-disabled", "true"));
+    mk("zz-probe-zero-size", (b) => {
+      b.style.width = "0px";
+      b.style.height = "0px";
+      b.style.padding = "0";
+      b.style.border = "0";
+      b.style.overflow = "hidden";
+    });
+    mk("zz-probe-visible", () => {});
+
+    // LABELLED BY REFERENCE, with an `aria-label` that must LOSE to it. The accessible
+    // name the browser computes here is "zz-probe-from-labelledby", so a reader that
+    // reached for `aria-label` first would emit a name `getByRole` cannot resolve — the
+    // exact mismatch this whole list exists to avoid, and one no control on this surface
+    // currently exercises.
+    const src = document.createElement("span");
+    src.id = "zz-probe-label-src";
+    src.textContent = "zz-probe-from-labelledby";
+    document.body.appendChild(src);
+    const viaRef = document.createElement("button");
+    viaRef.setAttribute("aria-labelledby", "zz-probe-label-src");
+    viaRef.setAttribute("aria-label", "zz-probe-WRONG-aria-label");
+    viaRef.textContent = "zz-probe-WRONG-content";
+    document.body.appendChild(viaRef);
+  });
+
+  const withProbes = await domControls(page);
+  const names = new Set(withProbes.map((c) => c.name));
+  if (!names.has("zz-probe-visible")) {
+    problems.push("a planted, enabled, visible control was NOT listed — the reader is missing real controls");
+  }
+  // The name it emits for the labelled-by-reference control must be the one the browser
+  // computes, and must resolve. Asserting resolution rather than the string alone is the
+  // point: the contract is "these are copyable into `target`".
+  const viaRef = withProbes.find((c) => c.name.startsWith("zz-probe-from-labelledby"));
+  if (!viaRef) {
+    problems.push(
+      `a control labelled via aria-labelledby was named ${JSON.stringify(
+        withProbes.filter((c) => c.name.includes("zz-probe-WRONG")).map((c) => c.name),
+      )} — the reader is not using the accessible name the browser computes`,
+    );
+  } else if ((await page.getByRole(viaRef.role, { name: viaRef.name, exact: true }).count()) === 0) {
+    problems.push(`dom.controls emitted ${JSON.stringify(viaRef.name)}, which getByRole cannot resolve`);
+  }
+
+  for (const excluded of ["zz-probe-disabled", "zz-probe-aria-disabled", "zz-probe-zero-size"]) {
+    if (names.has(excluded)) {
+      problems.push(`dom.controls offered ${excluded}, which the explorer cannot usefully click`);
+    }
+  }
 
   return problems;
 }
@@ -936,6 +1291,16 @@ try {
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
+    }
+    const sheetToolbarProblems = await checkSheetToolbar(page, baseUrl);
+    for (const p of sheetToolbarProblems) failures.push(`sheet toolbar: ${p}`);
+    if (sheetToolbarProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a sheet toolbar click appends a range style the readers can see");
+    }
+    const inventoryProblems = await checkControlInventory(page, baseUrl);
+    for (const p of inventoryProblems) failures.push(`control inventory: ${p}`);
+    if (inventoryProblems.length === 0) {
+      console.log("[verify:hunt-oracles] dom.controls names controls that can actually be clicked");
     }
     const colorProblems = await checkRunColor(page, baseUrl);
     for (const p of colorProblems) failures.push(`run colour: ${p}`);

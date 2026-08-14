@@ -23,11 +23,7 @@ on:
 permissions: {}
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote in
-  # the working directory. The trusted pipeline now arrives in a scratch path that
-  # is deleted after the move, so a job that runs scripts before any repo checkout
-  # has no .git at all. GH_REPO makes gh skip the git lookup. Set at workflow level
-  # so it covers every job and every script, present and future.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
   GH_REPO: ${{ github.repository }}
 
 jobs:
@@ -38,26 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # workflow_dispatch can target ANY ref; force the REVIEWED, PINNED copy of
+          # workflow_dispatch can target ANY ref; force the REVIEWED main copy of
           # auth-smoke.mjs + the lockfile so a pushed branch can't swap in a script
           # that exfiltrates CLAUDE_CODE_OAUTH_TOKEN. (Also restrict the `agent`
           # environment's deployment branches to `main` in repo settings.)
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
-          sparse-checkout-cone-mode: false
+          ref: main
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -73,5 +55,17 @@ jobs:
       - name: Live auth check
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The whole pool, because auth-smoke.mjs checks EVERY credential rather
+          # than the one a run would shard onto — an expired token is otherwise
+          # invisible until the unlucky run that selects it dies. Failures are
+          # reported by secret name; the tokens themselves are never printed.
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
           SMOKE_MODEL: ${{ inputs.model }}
         run: node scripts/agent/auth-smoke.mjs

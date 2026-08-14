@@ -36,6 +36,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
+import { FormattingToolbar } from "@/components/formatting-toolbar";
 
 import { installHuntBridge, type HuntSurface } from "./bridge";
 
@@ -191,6 +192,7 @@ export default function HuntHarnessPage() {
   // state rather than a ref — a ref assignment would not re-render and the toolbar
   // would stay permanently disabled.
   const [editor, setEditor] = useState<EditorAPI | null>(null);
+  const [sheet, setSheet] = useState<Spreadsheet | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -268,6 +270,7 @@ export default function HuntHarnessPage() {
           if (disposed) return disposeMounted();
           await spreadsheet.focusCell({ r: 1, c: 1 });
           controller.setSheet({ spreadsheet, store, host: container });
+          setSheet(spreadsheet);
         }
         if (disposed) return disposeMounted();
         // Ready is set LAST, after the surface is mounted and registered. The driver
@@ -286,6 +289,7 @@ export default function HuntHarnessPage() {
     return () => {
       disposed = true;
       setEditor(null);
+      setSheet(null);
       controller.dispose();
       // Removes only THIS mount's container; a later mount's container is a sibling
       // this closure never sees, so teardown cannot reach across into it.
@@ -313,6 +317,25 @@ export default function HuntHarnessPage() {
       {surface === "doc" && (
         <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
           <DocsFormattingToolbar editor={editor} />
+        </div>
+      )}
+
+      {/*
+        The sheet surface ran without chrome until now, and it showed: every defect this
+        hunter has filed came from a TOOLBAR control, and the sheet persona -- asked to
+        run the same round-trip shape with no controls to run it through -- produced one
+        false finding and one empty run across two live sessions.
+
+        Only `spreadsheet` is required. The optional handlers are deliberately NOT
+        supplied: they open panels this harness does not mount, and stubbing them would
+        invent behaviour the product does not have. Those buttons therefore render and
+        do nothing, which `sheet-author.md` names explicitly -- the same treatment
+        `MemStore`'s no-op undo already gets, for the same reason. A trap the brief
+        names is a trap; one it does not is a false finding.
+      */}
+      {surface === "sheet" && (
+        <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
+          <FormattingToolbar spreadsheet={sheet ?? undefined} />
         </div>
       )}
 

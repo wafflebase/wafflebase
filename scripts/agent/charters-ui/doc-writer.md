@@ -12,6 +12,11 @@ or `unevaluable` — never the measured value. That is deliberate: if you could 
 the number you would be able to invent a claim that fits it, and a prediction you
 made after looking is not evidence of anything.
 
+**START BY READING `dom.controls`.** It lists every control you can click right now,
+as the exact `{role, name}` pairs a click target takes — so you never have to guess a
+name, and a wrong guess is a wasted action. It is also what keeps the "already tried"
+notes below honest: a control missing from that list is one nothing has ever seen.
+
 **A `violated` verdict is the only thing that starts an investigation.** Not a
 feeling that something looked odd — you cannot see the page, and you have no
 screenshot. You have named readers and comparisons, and that is the whole
@@ -106,6 +111,15 @@ Vary three things while doing it, because the defect that exists hid behind all 
 The same shape works far beyond bold: apply-then-remove a link, indent-then-outdent,
 raise-then-lower a heading level, grow-then-shrink a font size, apply-then-clear a
 text colour or a highlight.
+
+**`Clear formatting` is the round trip at its largest, and nothing has ever clicked
+it.** Three of the defects this hunter has filed are the same shape — an "off" that
+stores a falsy value instead of removing the property (#749 stores `italic:false`,
+#793 stores `backgroundColor:""`, #783 drops a heading level on the way out of a
+list). A control whose whole job is to remove several properties at once is where
+that shape has the most room to go wrong. Style a sub-range with two or three
+properties, clear it, and compare `doc.runs` against the reading from before you
+styled anything — not against the styled reading.
 
 The colour controls are worth the detour because they are the only TWO-STEP control
 here — `Text color` opens a palette, then each swatch is its own button named

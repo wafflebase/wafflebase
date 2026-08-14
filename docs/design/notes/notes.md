@@ -53,7 +53,8 @@ metadata rows — designed in a later phase (P3).
 - **WYSIWYG editing** — notes are markdown *source* editors, deliberately not
   the `packages/docs` canvas rich-text engine.
 - **Phase-1 feature parity extras** — image upload, PDF/HTML/MD export,
-  revision history, and vim mode are deferred to P2 (see Later Phases).
+  revision history, and vim mode are deferred to P2 (see Later Phases; image
+  upload and vim mode have since shipped there).
 - **The actual CodePair data migration** — designed and executed in P3; only
   its shape is sketched here. (Whether CodePair runs in production with real
   user data, and whether it shares a Yorkie server/project with Wafflebase, are
@@ -236,10 +237,62 @@ the prefix.
 
 ### P2 — Feature parity
 
-Port, in priority order, from CodePair: image upload (presigned S3/MinIO URLs +
-paste/drop → `![](url)` insertion), export (PDF/HTML/Markdown via
-`markdown-it`), revision history panel, and vim mode. Each is additive and
-route-local.
+Port, in priority order, from CodePair: image upload (shipped, below), vim mode
+(shipped — the `NoteKeymap` compartment in `view/editor.ts`), export
+(PDF/HTML/Markdown via `markdown-it`), and a revision history panel. Each is
+additive and route-local.
+
+#### Image upload — shipped
+
+Paste, drop, and a toolbar picker upload an image and insert `![alt](url)` at
+the insertion point. No backend work was needed: notes reuse the workspace
+image endpoint (`POST /api/v1/workspaces/:wid/images`) that sheets, slides, and
+board already share, through the frontend's existing
+`uploadImageFile(file, workspaceId)`. The preview needed nothing either —
+`markdown-it`'s image rule already renders the result.
+
+The design departs from CodePair's imageUploader plugin in several places, each
+because the naive version misbehaves in a collaborative markdown editor:
+
+- **The in-flight placeholder is view-local, not text.** A note's body is one
+  Yorkie `Text` CRDT, so placeholder text would replicate to every peer, enter
+  the undo history, and survive as garbage if the upload fails or the tab
+  closes mid-flight. `view/image-upload.ts` instead holds a `StateField` of
+  widget decorations. `set.map(tr.changes)` is what makes it correct: every
+  transaction — the user's own typing *and* a peer's remote edit — moves the
+  pending insertion point, so an image that finishes uploading seconds later
+  still lands where it was dropped. CodePair reads the selection *after* the
+  await, so typing during an upload drops the image mid-word. The one change
+  mapping cannot survive is a whole-document replacement — how `noteSync`
+  applies a `replace` remote change, i.e. a Yorkie snapshot resync — because
+  every anchor lives inside the deleted range and would collapse to position
+  0. Those anchors are dropped instead, and the insert falls back to the
+  caret rather than dumping the image at the top of the note.
+- **A batch inserts in file order, not completion order.** Every request in a
+  paste or drop starts at once, but the inserts are committed in sequence:
+  the placeholders share one anchor, so letting each insert as it resolves
+  would reorder the batch by network speed — paste three screenshots, get
+  them back shuffled.
+- **A drop inserts at the drop coordinates** (`view.posAtCoords`), not at the
+  caret. Dropping a file on a paragraph and watching the image appear
+  elsewhere is the most confusing part of the naive implementation.
+- **Failure is reported.** The engine's `uploadImage` callback resolves with
+  `null` to mean "the host already told the user"; the frontend wrapper in
+  `notes-detail.tsx` catches everything `uploadImageFile` throws (unsupported
+  type, oversize, network) and raises a toast. CodePair's rejected upload
+  becomes `undefined` and is swallowed by an `if (!url) return`.
+
+The completed upload dispatches a single `input` transaction, which `noteSync`
+collapses into one undo unit — Ctrl+Z removes an inserted image in one step.
+When the payload carries no image the handlers decline the event rather than
+`preventDefault`, so ordinary text paste and drop are untouched.
+
+The engine never imports the frontend: `initialize()` takes an optional
+`uploadImage` in its options bag, and a read-only mount never receives one, so
+the extension is simply absent rather than guarded per event. **Known
+limitation:** the same rule disables image upload behind an editable share
+link, because an anonymous share-link editor has no workspace membership and
+the image endpoint requires an authenticated caller.
 
 **CLI (shipped).** A `notes` namespace (alias `note`) in `@wafflebase/cli`
 brings notes to parity with the `docs`/`slides` namespaces:

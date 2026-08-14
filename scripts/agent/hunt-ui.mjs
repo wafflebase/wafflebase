@@ -42,6 +42,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
+import {
+  COVERAGE_KEY_VERSION,
+  coverageFromJournal,
+  mergeCoverage,
+  renderCoverageBrief,
+} from "./hunt-ui-coverage.mjs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -435,9 +441,12 @@ export async function exploreUi(
   const budgetCfg = persona.actionBudget ?? {};
   const maxActions = budgetCfg.maxActions ?? 80;
 
+  const coverageBrief = renderCoverageBrief(context.coverage, { sha: context.sha ?? null });
+
   const prompt = [
     persona.rubric,
     "",
+    ...(coverageBrief ? [coverageBrief, ""] : []),
     "## Your task this session (DATA — the thing to actually do):",
     "",
     brief.task,
@@ -493,6 +502,13 @@ export async function exploreUi(
         budget,
         journal,
         cfg: context.cfg,
+        // A live trace, because until now a run printed nothing between the corpus line
+        // and the final funnel. The journal is only persisted when a brief FINISHES, so
+        // a run that hangs leaves no record of how far it got — and the only answer to
+        // "is it working or stuck" was that the process was alive.
+        label: `${persona.id}/${brief.id}`,
+        maxActions,
+        onProgress: (line) => console.error(line),
       });
       return askStructured({
         systemPrompt:
@@ -1115,6 +1131,10 @@ async function cmdRun(args) {
   // other's suppression: the key spaces are different and a collision would
   // silently hide a real defect.
   const ledgerFile = path.resolve(strArg(args, "ledger") ?? path.join(outDir, "seen.json"));
+  // PER PERSONA, in one file keyed by persona id. The controls barely overlap between
+  // surfaces, so a shared memory would tell the sheet explorer it had already tried
+  // `Bold` because the doc explorer had.
+  const coverageFile = path.resolve(strArg(args, "coverage") ?? path.join(outDir, "coverage.json"));
   const fault = strArg(args, "fault") ?? null;
 
   const all = loadPersonas(chartersDir);
@@ -1126,6 +1146,29 @@ async function cmdRun(args) {
   if (personas.length === 0) fail("no personas selected");
   for (const s of args.surface) {
     if (!UI_SURFACES.includes(s)) fail(`--surface ${JSON.stringify(s)} is not one of: ${UI_SURFACES.join(", ")}`);
+  }
+
+  // Prior coverage, per persona. A file that will not parse is a memory, not a gate:
+  // it degrades to "nothing tried yet" rather than refusing the run the way an
+  // unreadable LEDGER does, because a wrong ledger hides real defects and a wrong
+  // coverage memory only costs a repeat.
+  let priorCoverage = {};
+  if (existsSync(coverageFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(coverageFile, "utf8"));
+      if (parsed && typeof parsed === "object") {
+        // NORMALISE, do not trust. `mergeCoverage` already drops entries that are not
+        // usable and refuses a record whose key version has moved, so running each
+        // persona's record through it turns "a file someone edited by hand" into either
+        // valid coverage or empty coverage — never a malformed object reaching the
+        // renderer, which sits on the path that assembles the explorer's prompt.
+        for (const [id, record] of Object.entries(parsed)) {
+          priorCoverage[id] = mergeCoverage(null, record);
+        }
+      }
+    } catch {
+      console.error(`hunt-ui: WARNING — ${coverageFile} is unreadable; this run explores as if nothing had been tried`);
+    }
   }
 
   const { seen, parseErrors, staleKeys } = parseSeenLedger(
@@ -1150,11 +1193,12 @@ async function cmdRun(args) {
     runId,
     headSha,
     seen,
+    priorCoverage,
     context,
     sessionLog,
     fault,
   });
-  const { reported, dropped, skipped, stats, ledgerAdds } = out;
+  const { reported, dropped, skipped, stats, ledgerAdds, coverageAdds } = out;
 
   mkdirSync(outDir, { recursive: true });
   const report = renderUiReport({
@@ -1189,6 +1233,13 @@ async function cmdRun(args) {
     console.error(`hunt-ui: seeded run — ${ledgerFile} left untouched`);
   } else {
     writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
+    // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+    // surface with a fabricated fault, and letting it claim a control was explored
+    // would suppress that control for the next REAL run.
+    if (Object.keys(coverageAdds).length > 0) {
+      writeFileSync(coverageFile, `${JSON.stringify({ ...priorCoverage, ...coverageAdds }, null, 2)}\n`);
+      console.error(`hunt-ui: coverage v${COVERAGE_KEY_VERSION} written to ${coverageFile}`);
+    }
   }
   process.stdout.write(
     `hunt-ui: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
@@ -1240,6 +1291,9 @@ export async function runHunt({
   runId,
   headSha,
   seen = [],
+  // What each persona has already tried, keyed by persona id. A parameter rather than
+  // a read, so `runHunt` stays testable without a coverage file on disk.
+  priorCoverage = {},
   context,
   sessionLog = [],
   fault = null,
@@ -1293,6 +1347,7 @@ export async function runHunt({
     reported: 0,
   };
   const ledgerAdds = [];
+  const coverageAdds = {};
 
   if (fault) {
     console.error(`hunt-ui: FAULT INJECTION ACTIVE (?fault=${fault}) — this run is a positive control, not a hunt`);
@@ -1310,7 +1365,18 @@ export async function runHunt({
     const briefResults = [];
     for (const brief of persona.briefs) {
       try {
-        briefResults.push({ brief, ...(await exploreImpl(persona, brief, { repo, context, sessionLog, fault })) });
+        briefResults.push({
+          brief,
+          ...(await exploreImpl(persona, brief, {
+            repo,
+            // This persona's OWN memory. Per-persona because the surfaces barely share
+            // controls — telling the sheet explorer it had already tried `Bold` because
+            // the doc explorer had would steer it away from an untested control.
+            context: { ...context, coverage: priorCoverage[persona.id] ?? null, sha: headSha },
+            sessionLog,
+            fault,
+          })),
+        });
       } catch (err) {
         console.error(`hunt-ui: ${persona.id}/${brief.id} failed: ${err.message}`);
         skipped.push({ persona: `${persona.id}/${brief.id}`, kind: "session-failed", why: err.message });
@@ -1327,6 +1393,17 @@ export async function runHunt({
           refusals: err.refusals ?? [],
         });
       }
+    }
+
+    // COVERAGE, from every journal including the failed briefs'. A brief that died at
+    // the turn ceiling still clicked things, and pretending otherwise would send the
+    // next run back over the same controls.
+    for (const r of briefResults) {
+      const journal = r.out?.journal ?? r.journal ?? [];
+      coverageAdds[persona.id] = mergeCoverage(
+        coverageAdds[persona.id] ?? priorCoverage[persona.id] ?? null,
+        coverageFromJournal(journal, { sha: headSha }),
+      );
     }
 
     // Persist the RAW proposals before any filtering, journal included. For a run
@@ -1599,8 +1676,17 @@ export async function runHunt({
     );
     ledgerAdds.length = 0;
   }
+  // SEPARATE from the ledger branch above, which only fires when the seeded run produced
+  // ledger entries. A seeded run that proposed nothing still CLICKED things, and letting
+  // that claim coverage would suppress those controls for the next real run — on the
+  // strength of a session driven against a fabricated fault. `cmdRun` also refuses to
+  // write coverage for a seeded run, but `runHunt` is exported and the invariant is its
+  // own to keep.
+  if (fault) {
+    for (const k of Object.keys(coverageAdds)) delete coverageAdds[k];
+  }
 
-  return { reported, dropped, skipped, stats, ledgerAdds, seeded: fault ?? null };
+  return { reported, dropped, skipped, stats, ledgerAdds, coverageAdds, seeded: fault ?? null };
 }
 
 /**

@@ -7,7 +7,7 @@ target-version: 0.2.0
 
 Roadmap item **6.3 Spell Check** in
 [docs-wordprocessor-roadmap.md](docs-wordprocessor-roadmap.md).
-Task tracking: `docs/tasks/active/20260628-docs-spell-check-todo.md`.
+Task tracking: `docs/tasks/archive/2026/06/20260628-docs-spell-check-todo.md`.
 
 ## Summary
 
