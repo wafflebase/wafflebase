@@ -120,14 +120,9 @@ concurrency:
 permissions: {}
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
-  # in the working directory. Since the pipeline moved to its own repo, the
-  # trusted checkout lands in a scratch path that is then deleted — which removed
-  # the only .git in the workspace, and every step that runs before the PR-branch
-  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
-  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
-  # this exact reason; it was the one workflow the regression did not reach.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
   GH_REPO: ${{ github.repository }}
+
   # Fix-agent dispatches before review-round-guard.mjs pages a human.
   #
   # Three, not five, because nothing in this pipeline can page for
@@ -342,26 +337,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
+      - uses: actions/checkout@v4
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
-          sparse-checkout-cone-mode: false
+          ref: main # trusted source for package.json + lockfile (SDK pinned to 0.3.217)
           # `npm ci` below runs dependency lifecycle scripts — this is the only job
           # that executes third-party code, so don't leave the token in .git/config.
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -536,22 +517,11 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.pr.outputs.number != ''
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
+          ref: main
+          path: .trusted
+          sparse-checkout: scripts/agent
           sparse-checkout-cone-mode: false
-          persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p .trusted/scripts
-          mv .pipeline-src/packages/pipeline .trusted/scripts/agent
-          rm -rf .pipeline-src
+          persist-credentials: false # no token in .trusted/.git/config (reviewer cwd)
 
       - name: Download Agent SDK (built by the unprivileged deps job)
         if: steps.pr.outputs.number != ''
@@ -1299,24 +1269,7 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/checkout@v4 # the pipeline, pinned — only the gate script is needed
-        with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
+      - uses: actions/checkout@v4 # default branch — only need the gate script
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -1451,25 +1404,11 @@ jobs:
       # version — also what makes scripts/agent/rounds.mjs importable by
       # review-round-guard.mjs. Runs unconditionally (not gated on `paged`
       # like before) since the guard step itself now needs it too.
-      - name: Check out the trusted pipeline (for the review-round guard)
+      - name: Check out trusted main (for the review-round guard)
         uses: actions/checkout@v4
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
+          ref: main
+          persist-credentials: false # only reads scripts here; the fix push later uses its own App token
 
       - name: Review-round guard
         id: guard
@@ -1644,9 +1583,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
-        # From agent-tools: this step runs AFTER the PR branch is checked out, so
-        # ./scripts/agent is the PR author's tree. agent-tools was staged from the
-        # adapted trusted copy before that checkout, which is why it exists.
         run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
@@ -2162,19 +2098,7 @@ jobs:
         if: steps.page.outputs.pr != ''
         uses: actions/checkout@v4
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: Place the trusted pipeline where the steps expect it
-        if: steps.page.outputs.pr != ''
-        run: |
-          set -euo pipefail
-          mkdir -p scripts
-          mv .pipeline-src/packages/pipeline scripts/agent
-          rm -rf .pipeline-src
+          ref: main
       - name: Post agent-effort summary
         if: steps.page.outputs.pr != ''
         continue-on-error: true

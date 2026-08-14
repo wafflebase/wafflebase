@@ -27,7 +27,7 @@ import {
 import { configHash, CONFIG_HASH_VERSION } from "./config-hash.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REAL_LENSES_DIR = path.join(HERE, "..", "vendor", "pipeline", "lenses");
+const REAL_LENSES_DIR = path.join(HERE, "..", "lenses");
 const PINNED_AT_WRITING = "0.3.217";
 
 function tmp(prefix) {
@@ -303,7 +303,7 @@ test("rubric_path stays repo-relative for the real lenses dir", () => {
   // The normal case must carry no machine-specific layout into a stored manifest.
   const { manifest } = buildConfig(REAL_LENSES_DIR, { configId: "live" });
   for (const lens of manifest.lenses) {
-    assert.equal(lens.rubric_path, path.join("scripts", "agent", "vendor", "pipeline", "lenses", `${lens.id}.md`));
+    assert.equal(lens.rubric_path, path.join("scripts", "agent", "lenses", `${lens.id}.md`));
     assert.equal(path.isAbsolute(lens.rubric_path), false);
   }
 });

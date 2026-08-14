@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { BLOCKING, KNOWN } from "../vendor/pipeline/severity.mjs";
+import { BLOCKING, KNOWN } from "../severity.mjs";
 import { ARMS } from "./finding-record.mjs";
 import {
   ADJUDICATION_MODES,

@@ -43,7 +43,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore } from "./store.mjs";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 
 /**
  * How a leg's run id is built from the stem a human typed.

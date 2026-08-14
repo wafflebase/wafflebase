@@ -261,40 +261,23 @@ skips both heavy jobs.
 
 - [ ] 5.1 Tighten `verify-browser` / `verify-integration` to per-package reverse
       closure. v1 keeps `packages/**` ⇒ both, on purpose (see lessons).
-- [ ] 5.2 Teach `wafflebase/agent-pipeline`'s `summarize-ci.mjs` to render
-      `filtered`. Until then it is absent from that tool's counts (safe, but
-      incomplete) — it cannot be changed in this repo without failing
-      `pipeline-drift`.
+- [ ] 5.2 Teach `scripts/agent/summarize-ci.mjs` to render `filtered`. Until then
+      it is absent from that tool's counts (safe, but incomplete).
 - [ ] 5.3 Revisit `verify:entropy`'s `needs`. It declares all four engine builds
       conservatively, which makes any package change pull ~47s of builds. If knip
       does not actually need the dists, dropping them is free speed.
 
 ## Constraints discovered during planning
 
-- **`summarize-ci.mjs` cannot be edited here** — it is not in this repository at
-  all any more. The agent workflows execute `wafflebase/agent-pipeline` at a
-  pinned commit, and the mirror that used to sit in `scripts/agent/` was deleted;
-  the module is not part of the vendored subset either. Change it upstream, tag,
-  and bump the pin. (When this was written the mirror still existed and the
-  constraint was that editing it changed nothing that executes; the conclusion is
-  the same, the reason is now stronger.) `scripts/verify-pipeline-drift.mjs` (which does not list
-  `summarize-ci.` in its `STAYS` exclusions).
-
-  Note: #798 made the `pipeline-drift` job **advisory** (`continue-on-error`)
-  while the mirror still exists, so an edit would warn rather than fail. That
-  removes the enforcement, not the reason — the tool that actually renders the CI
-  summary lives in the other repository either way.
-
-  So the new lane status is named `filtered` rather than reusing `skip`
-  specifically so the pinned pipeline's `summarize-ci.mjs` *ignores* it instead of
-  mislabeling it as "skipped because an earlier lane failed"
-  (`summarize-ci.mjs:102`). Teaching it to render `filtered` is a follow-up in
-  that other repo (5.2).
+- **The new lane status is named `filtered` rather than reusing `skip`** —
+  specifically so `scripts/agent/summarize-ci.mjs` *ignores* it instead of
+  mislabeling it as "skipped because an earlier lane failed". Teaching that tool
+  to render `filtered` is 5.2, and it is an edit in this repository: the pipeline
+  lives here again, so the copy that backs `agent:tests` is also the copy the
+  agent workflows run.
 - **`packages/docs|slides|sheets|core` can break `verify-integration` with zero
   backend files touched** — `ci.yml` builds those four for that job, and the e2e
   set includes `docs-cli-roundtrip`, `notes-cli-roundtrip`, `slides-pptx-import`.
 - **`verify-browser` never touches the backend** — `verify-browser-lanes.mjs`
   builds only core + sheets and runs Playwright; no Postgres, no Yorkie, no
   `webServer`. `packages/backend/**` → browser is not a real edge.
-- **`pipeline-drift` stays ungated** — it is the correctness gate on the very
-  area being sped up, and costs ~30s.

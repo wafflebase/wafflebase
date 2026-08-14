@@ -73,7 +73,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { readWallMs } from "../../vendor/pipeline/metrics.mjs";
+import { readWallMs } from "../../metrics.mjs";
 
 /**
  * How long a killed process group gets to exit on SIGTERM before SIGKILL.

@@ -26,8 +26,6 @@ individual gates they (or CI, or a package script) invoke.
 | `verify-integration-local.mjs` | `pnpm verify:integration:local` | The same against a local Postgres. |
 | `verify-integration-docker.mjs` | `pnpm verify:integration:docker` | Brings up Postgres in Docker, then runs the above. |
 | `verify-integration-repeat.mjs` | `pnpm verify:integration:repeat` | Repeats the integration suites to surface flakes. |
-| `verify-pipeline-drift.mjs` | — | Run by `ci.yml`: fails when `scripts/agent/` differs from the pinned `wafflebase/agent-pipeline` commit it mirrors. |
-| `vendor-pipeline.mjs` | — | Verifies `scripts/agent/vendor/` against its sha256 manifest (offline, and what `ci.yml` runs); `--write` with a `--pipeline-dir` checkout refreshes it. The vendored copy is a pinned dependency — nobody edits it by hand. |
 | `run-browser-tests-docker.sh` | `pnpm verify:browser:docker` | Runs the visual/interaction suites in Docker so font rendering matches CI. |
 
 ## Task docs
@@ -41,6 +39,6 @@ individual gates they (or CI, or a package script) invoke.
 
 | Directory | Contents |
 |-----------|----------|
-| [`agent/`](agent/) | The autonomous issue → PR pipeline: hunters, review panel, evaluation harness. A **standalone npm package outside the pnpm workspace**, so `pnpm verify:fast` never reaches it — the `agent:tests` lane in `verify-self.mjs` is what runs its suites. Mirrors a pinned commit of `wafflebase/agent-pipeline`; `verify-pipeline-drift.mjs` guards the copy. See [`agent/eval/README.md`](agent/eval/README.md). |
+| [`agent/`](agent/) | The autonomous issue → PR pipeline: hunters, review panel, evaluation harness. A **standalone npm package outside the pnpm workspace**, so `pnpm verify:fast` never reaches it — the `agent:tests` lane in `verify-self.mjs` is what runs its suites. See [`agent/eval/README.md`](agent/eval/README.md). |
 | `hooks/` | Shell hooks wired into `.claude/settings.json` and run by Claude Code (`session-prime.sh`, `guard-generated-files.sh`, `require-ai-disclosure.sh`, `check-arch-boundary.sh`, `post-task-reminder.sh`). Distinct from `.githooks/`, which git runs. |
 | `test/` | `node --test` suites for the top-level scripts above, run by the `scripts:tests` lane in `verify-self.mjs`. Nothing else reaches them — `pnpm verify:fast` does not. |

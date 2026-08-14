@@ -63,7 +63,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "./vendor/pipeline/gh-checks.mjs";
+import { parseArgs } from "./gh-checks.mjs";
 import { createCaptureStore } from "./capture-store.mjs";
 
 // --- the producer contract ----------------------------------------------------
@@ -89,7 +89,7 @@ import { createCaptureStore } from "./capture-store.mjs";
 
 // Imported AND re-exported, not `export … from`: a bare re-export creates no
 // local binding, and every validator below reads these.
-import { CAPTURE_META_SCHEMA, CAPTURE_META_FILE, CAPTURE_CHANNELS } from "./vendor/pipeline/capture-meta.mjs";
+import { CAPTURE_META_SCHEMA, CAPTURE_META_FILE, CAPTURE_CHANNELS } from "./capture-meta.mjs";
 export { CAPTURE_META_SCHEMA, CAPTURE_META_FILE, CAPTURE_CHANNELS };
 
 /**

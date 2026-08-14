@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { KNOWN } from "../../vendor/pipeline/severity.mjs";
+import { KNOWN } from "../../severity.mjs";
 import { buildItemMeta } from "../extract-corpus.mjs";
 import { EvalStore } from "../store.mjs";
 import { ARM_ONLY_FIELDS, gatingCensus, validateFindingRecord } from "../finding-record.mjs";

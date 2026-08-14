@@ -44,7 +44,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore, REPORTS_DIR, SCORES_DIR, SCORE_SCOPE_DIRS, byConfigSegment } from "./store.mjs";
 import { comparisonIdFor } from "./report.mjs";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

@@ -68,7 +68,7 @@
 // Pure and dependency-free: `node:` and relative imports only, because the
 // `agent:tests` lane runs with `scripts/agent/node_modules` absent.
 
-import { CITATION } from "./vendor/pipeline/citation.mjs";
+import { CITATION } from "./citation.mjs";
 import { citationInScope } from "./hunt-gate.mjs";
 
 /**

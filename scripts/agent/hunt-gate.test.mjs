@@ -18,7 +18,7 @@ import {
   UI_EXPLORER_SCHEMA,
   SHARED_GROUNDS,
 } from "./hunt-gate.mjs";
-import { normalizeSeverity } from "./vendor/pipeline/severity.mjs";
+import { normalizeSeverity } from "./severity.mjs";
 
 // A fail-quiet gate is characterised by what it REFUSES, so this suite is mostly
 // negative. The one positive case exists to prove the negatives aren't passing

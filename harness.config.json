@@ -9,7 +9,7 @@
         "tags": [
           "agent"
         ],
-        "reason": "The agent-pipeline copy. Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports it (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it). The `pipeline-drift` job stays ungated and still checks this directory against the pinned wafflebase/agent-pipeline commit."
+        "reason": "The agent pipeline. Safe to isolate for two independent reasons: knip.json ignores `scripts/**` entirely, so it cannot affect the dead-code gate, and nothing under packages/ imports it (it is a standalone npm package outside the pnpm workspace, which is why `verify:fast` never reaches it)."
       },
       {
         "paths": [

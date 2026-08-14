@@ -9,9 +9,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dedupeFindings } from "../vendor/pipeline/review-panel.mjs";
-import { findingKey } from "../vendor/pipeline/finding-key.mjs";
-import { KNOWN, classify } from "../vendor/pipeline/severity.mjs";
+import { dedupeFindings } from "../review-panel.mjs";
+import { findingKey } from "../finding-key.mjs";
+import { KNOWN, classify } from "../severity.mjs";
 import {
   ARMS,
   ARM_ONLY_FIELDS,

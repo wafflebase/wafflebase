@@ -12,7 +12,7 @@ import {
   planCollection, prepareArtifact, runIdsFromKeys, safeEntries, summarize, walkArtifacts,
 } from "./collect-captures.mjs";
 import { createCaptureStore } from "./capture-store.mjs";
-import { fixtureGitEnv } from "./vendor/pipeline/git-env.mjs";
+import { fixtureGitEnv } from "./git-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -986,7 +986,7 @@ test("what the producer WRITES survives what this consumer validates", async () 
   // accept a hand-written backfill `meta.json` that never went through
   // `buildCaptureMeta`. Two implementations of one contract need a test that
   // crosses between them, and this is it.
-  const producer = await import("./vendor/pipeline/capture-meta.mjs");
+  const producer = await import("./capture-meta.mjs");
   for (const [channel, workflow, event] of [
     ["advisory", "agent-review-on-demand.yml", "issue_comment"],
     ["gating", "agent-review-panel.yml", "workflow_run"],

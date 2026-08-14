@@ -40,8 +40,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertEffort } from "../vendor/pipeline/ask.mjs";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { assertEffort } from "../ask.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 import { contentHash, configHash, CONFIG_HASH_VERSION } from "./config-hash.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -267,10 +267,7 @@ export function materializeLenses(snapshot, destDir) {
 export function resolveCliOptions(argv, { readFile } = {}) {
   const args = parseArgs(argv);
   return {
-    // The panel's own rubrics, which now arrive vendored: the pipeline lives in
-    // wafflebase/agent-pipeline, and `vendor/pipeline/lenses/` is a pinned,
-    // sha256-verified copy of them rather than a second maintained set.
-    lensesDir: args["lenses-dir"] ?? path.join(HERE, "..", "vendor", "pipeline", "lenses"),
+    lensesDir: args["lenses-dir"] ?? path.join(HERE, "..", "lenses"),
     out: args.out,
     configId: args["config-id"] ?? "baseline",
     sdkVersion: args["sdk-version"] ?? pinnedSdkVersion(readFile ? { readFile } : {}),

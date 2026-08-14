@@ -54,8 +54,8 @@
 // linkage is COMPLETE, never single — see `groupFindings`.
 
 import { createHash } from "node:crypto";
-import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "./vendor/pipeline/rounds.mjs";
-import { findingKey } from "./vendor/pipeline/finding-key.mjs";
+import { findingSimilarity, summaryTokens, DEFAULT_SIMILARITY, MIN_SHARED_TOKENS } from "./rounds.mjs";
+import { findingKey } from "./finding-key.mjs";
 
 // Code-ish words that appear inside backticks but identify nothing.
 const SYMBOL_STOP = new Set([

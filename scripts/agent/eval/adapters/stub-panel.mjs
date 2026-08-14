@@ -51,8 +51,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { parseArgs } from "../../vendor/pipeline/gh-checks.mjs";
-import { stageDetailDiffContentEnabled } from "../../vendor/pipeline/review-panel.mjs";
+import { parseArgs } from "../../gh-checks.mjs";
+import { stageDetailDiffContentEnabled } from "../../review-panel.mjs";
 
 /** One lens, one blocking finding carrying the two fields the harness used to
  *  drop: `lane` (from the gate's git blame) and `novelty` (from `noveltyOf`). */

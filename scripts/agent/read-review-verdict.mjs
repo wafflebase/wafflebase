@@ -18,7 +18,7 @@
 
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { classify, renderSummaryMd } from "./vendor/pipeline/severity.mjs";
+import { classify, renderSummaryMd } from "./severity.mjs";
 
 const verdictPath = path.resolve(process.cwd(), process.argv[2] ?? ".agent-review/verdict.json");
 const label = process.argv[3] ?? "Independent review";

@@ -51,9 +51,9 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../vendor/pipeline/severity.mjs";
+import { KNOWN } from "../severity.mjs";
 import { LINKAGE, groupFindings } from "../finding-match.mjs";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 import { ARMS, POPULATIONS } from "./finding-record.mjs";
 import { POPULATION_STATES, runRecords } from "./adapters/panel.mjs";
 import { WINDOW, corpusRecords } from "./adapters/coderabbit.mjs";
