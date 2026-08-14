@@ -9,8 +9,8 @@ import {
   renderReport,
   planSessions,
 } from "./cache-report.mjs";
-import { sliceDiffByFile, loadLenses } from "./vendor/pipeline/review-panel.mjs";
-import { TOKEN_WEIGHTS } from "./vendor/pipeline/metrics.mjs";
+import { sliceDiffByFile, loadLenses } from "./review-panel.mjs";
+import { TOKEN_WEIGHTS } from "./metrics.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,7 +135,7 @@ test("planSessions: at one sample per lens, five lenses still share one warm-up"
   // The projection has to model the CORE SPLIT the panel performs, or the number
   // it prints is about a round that never happens. Driven with the shipped
   // manifest forced to one sample — the configuration this change exists for.
-  const manifest = loadLenses(path.join(HERE, "vendor", "pipeline", "lenses")).map((l) => ({ ...l, samples: 1 }));
+  const manifest = loadLenses(path.join(HERE, "lenses")).map((l) => ({ ...l, samples: 1 }));
   const files = [
     "scripts/agent/review-panel.mjs", ".github/workflows/agent-review-panel.yml",
     "docs/design/harness-engineering.md", "docs/tasks/active/notes.md",

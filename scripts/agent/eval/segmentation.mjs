@@ -43,11 +43,11 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN } from "../vendor/pipeline/severity.mjs";
-import { FILE_CLASSES, classifyFile } from "../vendor/pipeline/review-panel.mjs";
-import { ORIGINS } from "../vendor/pipeline/novelty.mjs";
-import { scopeSize } from "../vendor/pipeline/metrics.mjs";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { KNOWN } from "../severity.mjs";
+import { FILE_CLASSES, classifyFile } from "../review-panel.mjs";
+import { ORIGINS } from "../novelty.mjs";
+import { scopeSize } from "../metrics.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 import { POPULATIONS } from "./finding-record.mjs";
 import { WINDOW } from "./adapters/coderabbit.mjs";
 import {

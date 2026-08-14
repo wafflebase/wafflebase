@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { extractFailureSummary } from "./failure-summary.mjs";
-import { readHeadSha } from "./agent/vendor/pipeline/git-env.mjs";
+import { readHeadSha } from "./agent/git-env.mjs";
 import {
   laneOrderViolations,
   resolve as resolveChangedAreas,
@@ -617,12 +617,10 @@ for (const { name, cmd } of LANES) {
   // Checked before the `failed` cascade below, because the two mean different
   // things and must not be conflated: `filtered` is "no changed path can reach
   // this lane", `skip` is "an earlier lane failed, so this never got its turn".
-  // `scripts/agent/summarize-ci.mjs` renders `skip` as the latter in prose, and
-  // that tool cannot be fixed from here: the copy under `scripts/agent/` is a
-  // mirror, and what actually runs is `wafflebase/agent-pipeline` at a pinned
-  // commit. So reusing `skip` would have made a tool nobody can edit in this
-  // repository state, confidently, something untrue about every filtered lane.
-  // An unrecognised status is instead simply absent from its counts.
+  // `scripts/agent/summarize-ci.mjs` renders `skip` as the latter in prose, so
+  // reusing `skip` would have made it state, confidently, something untrue about
+  // every filtered lane. An unrecognised status is instead simply absent from
+  // its counts, which is the safe direction to be wrong in.
   if (!selected.has(name)) {
     const filteredReport = {
       lane: name,

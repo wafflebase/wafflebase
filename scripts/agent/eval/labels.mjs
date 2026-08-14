@@ -39,7 +39,7 @@
 // than reporting it at read time.
 
 import path from "node:path";
-import { BLOCKING, KNOWN } from "../vendor/pipeline/severity.mjs";
+import { BLOCKING, KNOWN } from "../severity.mjs";
 import { ARMS } from "./finding-record.mjs";
 // The ONE hash helper. `store.mjs`'s own docblock is the instruction: "two hash
 // helpers with the same output format is how `sha256_diff` and a label's

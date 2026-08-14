@@ -47,9 +47,9 @@
 // review-panel.mjs, and `KNOWN` from severity.mjs — the severity VOCABULARY is
 // shared; only the coercion rule differs.
 
-import { CITATION } from "./vendor/pipeline/citation.mjs";
-import { globToRegExp } from "./vendor/pipeline/review-panel.mjs";
-import { KNOWN } from "./vendor/pipeline/severity.mjs";
+import { CITATION } from "./citation.mjs";
+import { globToRegExp } from "./review-panel.mjs";
+import { KNOWN } from "./severity.mjs";
 
 // --- structured-output schemas (raw JSON Schema draft-7) ---------------------
 // Pure data, so they live in this pure module rather than the orchestrator: it

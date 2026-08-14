@@ -44,8 +44,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
-import { KNOWN } from "../vendor/pipeline/severity.mjs";
+import { parseArgs } from "../gh-checks.mjs";
+import { KNOWN } from "../severity.mjs";
 import { ARMS, validateFindingRecord } from "./finding-record.mjs";
 import { groupFindings } from "../finding-match.mjs";
 import {

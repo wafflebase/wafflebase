@@ -28,10 +28,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { KNOWN } from "../vendor/pipeline/severity.mjs";
-import { classifyFile } from "../vendor/pipeline/review-panel.mjs";
-import { ORIGINS } from "../vendor/pipeline/novelty.mjs";
-import { scopeSize } from "../vendor/pipeline/metrics.mjs";
+import { KNOWN } from "../severity.mjs";
+import { classifyFile } from "../review-panel.mjs";
+import { ORIGINS } from "../novelty.mjs";
+import { scopeSize } from "../metrics.mjs";
 import { classifyProvenance } from "./extract-corpus.mjs";
 import { buildFindingRecord } from "./finding-record.mjs";
 import { itemGeometry } from "./volume-mix.mjs";

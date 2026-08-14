@@ -51,19 +51,19 @@
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isSingleParentCommit } from "./vendor/pipeline/rounds.mjs";
-import { classifyFile } from "./vendor/pipeline/review-panel.mjs";
-import { HANDOFF_MARKER, hasDisclosureTrailer } from "./vendor/pipeline/disclosure.mjs";
-import { normalizeSeverity, BLOCKING, classify } from "./vendor/pipeline/severity.mjs";
-import { ORIGINS } from "./vendor/pipeline/novelty.mjs";
-import { latestLensRuns, parseReviewState } from "./vendor/pipeline/review-state.mjs";
-import { tagPriorFindings, lensCheckNames } from "./vendor/pipeline/prior-findings.mjs";
+import { isSingleParentCommit } from "./rounds.mjs";
+import { classifyFile } from "./review-panel.mjs";
+import { HANDOFF_MARKER, hasDisclosureTrailer } from "./disclosure.mjs";
+import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
+import { ORIGINS } from "./novelty.mjs";
+import { latestLensRuns, parseReviewState } from "./review-state.mjs";
+import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
 import { bestMatch } from "./finding-match.mjs";
-import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./vendor/pipeline/gh-checks.mjs";
+import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MISSES_PATH = path.join(HERE, "misses.jsonl");
-const LENSES_PATH = path.join(HERE, "vendor", "pipeline", "lenses", "lenses.json");
+const LENSES_PATH = path.join(HERE, "lenses", "lenses.json");
 
 /** Record-format version. A consumer that does not know this string must refuse
  *  the record rather than read it optimistically — the fields it would miss are

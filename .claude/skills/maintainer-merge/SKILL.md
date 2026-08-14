@@ -120,8 +120,7 @@ The per-session effort is **not** in the git commits. Each agent session
 (`implement` / `ci-fix` / `review-fix`) posts a hidden append-only ledger
 comment `<!-- agent-metric {json} -->`, and the pipeline renders one aggregated
 summary comment marked `<!-- agent-metrics-summary -->` (heading `## 🤖 Agent
-effort`) via the pipeline's `metrics.mjs summarize` (in this repo, the pinned copy at
-`scripts/agent/vendor/pipeline/metrics.mjs`). **That summary already IS
+effort`) via `scripts/agent/metrics.mjs summarize`. **That summary already IS
 the combined effort of every commit** — `renderSummary()` emits Total-cost and
 Total-tokens (weighted + raw) up top, then per section (Code-fix agent / Review
 panel) Cost, Tokens, Agents, Scope-size, Attempt, Sessions, Total-time, and
@@ -140,7 +139,7 @@ Paste that bullet block near the end of the squash body (above the
 predates the metrics feature, or the pipeline never promoted it — **omit the
 block entirely. Never write plausible-looking numbers.** If you want the raw
 ledger instead of the rendered summary, aggregate the `<!-- agent-metric -->`
-records the same way `aggregate()` in `scripts/agent/vendor/pipeline/metrics.mjs` does (sum
+records the same way `aggregate()` in `scripts/agent/metrics.mjs` does (sum
 turns/tokens/weightedTokens/durationMs/costUsd; sessions = count; attempt =
 review-fix rounds + 1). `costUsd` and `weightedTokens` are now rendered, so the
 copied summary already carries cost and weighted tokens.

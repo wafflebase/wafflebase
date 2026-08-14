@@ -49,9 +49,9 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "../vendor/pipeline/gh-checks.mjs";
+import { parseArgs } from "../gh-checks.mjs";
 import { CORPUS_ITEM_FILES, EvalStore, contentSha256 } from "./store.mjs";
-import { scopeSize } from "../vendor/pipeline/metrics.mjs"; // the pipeline's own S/M/L rule, not a second one
+import { scopeSize } from "../metrics.mjs"; // the pipeline's own S/M/L rule, not a second one
 import { localizationFromDiff } from "../classify.mjs"; // and the pipeline's own spread rule, likewise
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

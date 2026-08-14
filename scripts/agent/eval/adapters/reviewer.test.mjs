@@ -34,7 +34,7 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUB = path.join(HERE, "stub-panel.mjs");
-const REAL_PANEL = path.join(HERE, "..", "..", "vendor", "pipeline", "review-panel.mjs");
+const REAL_PANEL = path.join(HERE, "..", "..", "review-panel.mjs");
 
 const DIFF = [
   "diff --git a/scripts/agent/x.mjs b/scripts/agent/x.mjs",

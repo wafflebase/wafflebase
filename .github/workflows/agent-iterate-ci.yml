@@ -29,14 +29,9 @@ permissions:
   checks: read # loop-status.mjs reads per-commit check runs for the round table
 
 env:
-  # gh expands `{owner}/{repo}` by shelling out to git, so it needs a git remote
-  # in the working directory. Since the pipeline moved to its own repo, the
-  # trusted checkout lands in a scratch path that is then deleted — which removed
-  # the only .git in the workspace, and every step that runs before the PR-branch
-  # checkout began failing with "not a git repository". GH_REPO makes gh skip the
-  # git lookup entirely. agent-review-on-demand.yml has carried it since #596 for
-  # this exact reason; it was the one workflow the regression did not reach.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
   GH_REPO: ${{ github.repository }}
+
   MAX_ATTEMPTS: "4"
 
 jobs:
@@ -124,22 +119,11 @@ jobs:
       - uses: actions/checkout@v4
         continue-on-error: true
         with:
-          repository: wafflebase/agent-pipeline
-          ref: 249dd44a63f510ab74977858d0ebe3e28a14684d # v0.3.1
-          path: .pipeline-src
-          sparse-checkout: packages/pipeline
+          ref: main
+          path: .trusted-agent
+          sparse-checkout: scripts/agent
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # ADAPTER (transitional). The pipeline now lives in its own repo at
-      # packages/pipeline; put it where every step below already looks for it so
-      # this change touches checkout blocks only. Phase D removes this together
-      # with the scripts/agent path itself.
-      - name: Place the trusted pipeline where the steps expect it
-        run: |
-          set -euo pipefail
-          mkdir -p .trusted-agent/scripts
-          mv .pipeline-src/packages/pipeline .trusted-agent/scripts/agent
-          rm -rf .pipeline-src
       - name: Stage the trusted agent scripts (pre-fixer)
         continue-on-error: true
         run: |
@@ -303,15 +287,7 @@ jobs:
         # it used to exist only inside the fixer's prompt, so "which lane failed
         # and why" required reading the raw log. Same bytes, second surface.
         run: |
-          # From agent-tools, NOT ./scripts/agent — this job checks out the PR's
-          # own branch, so a script read from the workspace is one the PR author
-          # can edit. agent-tools is the pinned central copy staged above.
-          DIAG=""
-          if [ -f "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" ]; then
-            DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs" || true)"
-          else
-            DIAG="(no CI diagnosis: the trusted pipeline was not staged for this run)"
-          fi
+          DIAG="$(node "$RUNNER_TEMP/agent-tools/summarize-ci.mjs")"
           {
             echo "summary<<HARNESS_EOF"
             printf '%s\n' "$DIAG"
